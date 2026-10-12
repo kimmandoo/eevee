@@ -5,6 +5,7 @@ mod domain;
 mod input;
 mod native;
 mod privacy;
+mod repo;
 mod store;
 mod terminal;
 mod ui;
@@ -68,6 +69,7 @@ fn run(config: Config) -> io::Result<()> {
     terminal::run(native::cleanup, |terminal| {
         let store =
             store::Worker::start(config.data_dir.clone(), cwd.clone(), config.storage_policy)?;
+        let repository = repo::Worker::start(project.clone())?;
         let size = terminal.size()?;
         let mut app = App::new(
             cwd.chars().filter(|c| !c.is_control()).collect(),
@@ -82,6 +84,7 @@ fn run(config: Config) -> io::Result<()> {
         let mut input = input::Input::new()?;
         let mut pending_save: Option<store::Snapshot> = None;
         let mut outstanding_store = 1_usize; // Initial load also yields one event.
+        let mut outstanding_repo = 1_usize;
         loop {
             if dirty {
                 // ConPTY's legacy cell projection can turn changed blanks into
@@ -104,6 +107,10 @@ fn run(config: Config) -> io::Result<()> {
                     #[cfg(windows)]
                     ui::compose_console_graphemes(frame.buffer_mut());
                 })?;
+            }
+            if app.repo_refresh && repository.refresh() {
+                app.repo_refresh = false;
+                outstanding_repo += 1;
             }
             if app.retry_storage && store.retry() {
                 app.retry_storage = false;
@@ -138,6 +145,8 @@ fn run(config: Config) -> io::Result<()> {
             }
             // Only outstanding I/O uses a bounded wait; an idle saved UI blocks.
             let pending = outstanding_store > 0
+                || outstanding_repo > 0
+                || app.repo_refresh
                 || app.retry_storage
                 || app.switch_task.is_some()
                 || app.management.is_some()
@@ -167,6 +176,11 @@ fn run(config: Config) -> io::Result<()> {
                     app.linear = config.layout == config::LayoutMode::Linear;
                 }
                 dirty = true;
+            }
+            while let Some(event) = repository.try_event() {
+                outstanding_repo = outstanding_repo.saturating_sub(1);
+                app.repo_event(event);
+                dirty |= app.overlay == Some(app::Overlay::Repository);
             }
             #[cfg(windows)]
             {

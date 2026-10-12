@@ -2,7 +2,7 @@
 
 ## Active work
 
-Section A is complete on its recorded native/graphics gates. The offline `ev` installation preview passed all five native rows. E01–E03 passed local durable-task/lifecycle and real-TUI acceptance; **C01 — Repository baseline and working diff** is active, followed by C02 and section C. Subsequent native CI is blocked by GitHub account billing, not a code failure; providers remain outside this request.
+Section A is complete on its recorded native/graphics gates. The offline `ev` installation preview passed all five native rows. E01–E03 and C01 passed local durable-task/lifecycle/repository acceptance; **C02 — Vaporeon source map and context basket** is active, followed by section C. Subsequent native CI is blocked by GitHub account billing, not a code failure; providers remain outside this request.
 
 Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapter/evidence contract: [agent compatibility](docs/AGENT_COMPATIBILITY.md). An unchecked task may have partial implementation, but its acceptance is not complete; consult its evidence note and the checkpoint.
 
@@ -106,10 +106,11 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ### C01 — Repository baseline and working diff
 
-- [ ] Distinguish existing work from session changes.
+- [x] Added an immutable session baseline and read-only raw working diff with unattributed external changes.
 - **Depends on:** E02.
 - **Change:** Add repository discovery, initial tracked/untracked file identities, and a read-only working diff in a repo worker. Preserve dirty user files. Label external or ambiguous edits as unattributed; handle a non-Git directory as an explicit unsupported repository state without losing its task.
 - **Accept:** Open a disposable dirty Git repository containing tracked/untracked edits; take the baseline, edit externally, and inspect the result. Existing user changes remain unchanged, new modifications are visible without false authorship, and the UI stays responsive while loading.
+- **Evidence:** Rust 1.90 passed 103 tests, warning-free Clippy and release build. Three real PTY scenarios passed: dirty tracked/untracked baselines and external edits at 120x36/60x18 with byte-exact file/index preservation, plus non-Git unsupported inspection with durable task restart. Inspected the compact CJK raw diff. Native installed-binary CI now includes the scenario, but execution remains billing-blocked.
 
 ### C02 — Vaporeon source map and context basket
 
@@ -279,4 +280,4 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ## Phase status
 
-Phase 1, all six section-A tasks, and E01–E03 are complete on their recorded environments. Of 31 implementation tasks, 9 are checked and 22 remain unchecked. C01 is active; C02 and section C are explicitly requested and pending, while D-G remains later scope. Native installation preview passed at `ea8ade7`; new native filesystem/process parity is blocked by GitHub account billing and is not inferred from local storage/task acceptance.
+Phase 1, all six section-A tasks, E01–E03, and C01 are complete on their recorded environments. Of 31 implementation tasks, 10 are checked and 21 remain unchecked. C02 is active and section C remains requested, while D-G remains later scope. Native installation preview passed at `ea8ade7`; new native filesystem/process parity is blocked by GitHub account billing and is not inferred from local acceptance.

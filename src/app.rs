@@ -3,11 +3,12 @@ use ratatui::text::Span;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::domain::FORMS;
+use crate::repo;
 use crate::store;
 
 pub const MAX_GOAL_BYTES: usize = 4096;
 
-pub const PALETTE: [&str; 13] = [
+pub const PALETTE: [&str; 14] = [
     "Choose evolution",
     "Edit task goal",
     "Inspect task and storage",
@@ -21,6 +22,7 @@ pub const PALETTE: [&str; 13] = [
     "Acceptance criteria",
     "Next action",
     "Complete task",
+    "Repository baseline and diff",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,6 +42,7 @@ pub enum Overlay {
     Preview,
     Tasks,
     Criteria,
+    Repository,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -141,6 +144,12 @@ pub struct App {
     pub management: Option<store::Management>,
     pub delete_targets: Vec<i64>,
     pub delete_expired_before: Option<i64>,
+    pub repository: Option<std::sync::Arc<repo::Report>>,
+    pub repo_text: String,
+    pub repo_status: String,
+    pub repo_error: String,
+    pub repo_loading: bool,
+    pub repo_refresh: bool,
     edit_original: String,
     form_selection: usize,
     palette_selection: usize,
@@ -199,6 +208,12 @@ impl App {
             management: None,
             delete_targets: Vec::new(),
             delete_expired_before: None,
+            repository: None,
+            repo_text: String::new(),
+            repo_status: "Repository: loading baseline".into(),
+            repo_error: String::new(),
+            repo_loading: true,
+            repo_refresh: false,
             edit_original: String::new(),
             form_selection: 0,
             palette_selection: 0,
@@ -223,6 +238,87 @@ impl App {
             }
             StorageState::Saving => "Storage: saving",
             StorageState::Failed(_) => "Storage: save failed / r retry / i details",
+        }
+    }
+
+    pub fn repo_event(&mut self, event: repo::Event) {
+        use std::fmt::Write;
+        self.repo_loading = false;
+        match event {
+            repo::Event::Updated(report) => {
+                self.repo_status = if report.initial {
+                    "Repository: baseline captured"
+                } else {
+                    "Repository: refreshed / original baseline retained"
+                }
+                .into();
+                self.repo_error.clear();
+                let mut text = format!(
+                    "ROOT\n{:?}\nGit metadata: {:?}\n\nBASELINE / CURRENT\nHEAD: {} / {}\nFiles: {} / {}\nCurrent coverage complete: {} / stable observation: {}\nIgnored untracked files and submodule contents are excluded.\n\nCHANGES\n",
+                    report.repository.root,
+                    report.repository.git_dir,
+                    report
+                        .baseline
+                        .head
+                        .as_deref()
+                        .unwrap_or("unborn/unavailable"),
+                    report
+                        .current
+                        .head
+                        .as_deref()
+                        .unwrap_or("unborn/unavailable"),
+                    report.baseline.files.len(),
+                    report.current.files.len(),
+                    report.current.complete,
+                    report.current.stable
+                );
+                if report.changes.is_empty() {
+                    text.push_str("No observed changes in captured scope; incomplete coverage is not a clean verdict.\n");
+                }
+                for change in &report.changes {
+                    if text.len() >= 64 * 1024 {
+                        text.push_str("Change list display truncated; no full-coverage claim.\n");
+                        break;
+                    }
+                    let origin = match change.origin {
+                        repo::ChangeOrigin::PreExisting => "pre-existing",
+                        repo::ChangeOrigin::Unattributed => "unattributed",
+                        repo::ChangeOrigin::Unknown => "unknown",
+                    };
+                    let _ = writeln!(
+                        text,
+                        "{origin} / {:?} / initially dirty: {} / {:?}",
+                        change.kind, change.was_dirty, change.path
+                    );
+                }
+                text.push_str("\nREAD-ONLY RAW HEAD → WORKTREE DIFF\nNo filters/textconv; staged identities are tracked separately. No authorship is inferred.\n");
+                if report.current.working_diff.truncated {
+                    text.push_str("TRUNCATED: only the bounded captured diff follows.\n");
+                }
+                if let Some(error) = &report.current.working_diff.unavailable {
+                    let _ = writeln!(text, "Diff unavailable/partial: {error}");
+                }
+                text.push_str(&report.current.working_diff.text);
+                text.push_str("\nOBSERVATION WARNINGS\n");
+                for warning in report.current.warnings.iter().take(16) {
+                    let _ = writeln!(text, "{warning}");
+                }
+                text.retain(safe_character);
+                self.repo_text = text;
+                self.repository = Some(report);
+            }
+            repo::Event::Unsupported { path, reason } => {
+                self.repo_status = "Repository: unsupported".into();
+                self.repo_error = format!("{path:?}: {reason}. Task data is retained; r retries.");
+                self.repo_error.retain(safe_character);
+            }
+            repo::Event::Failed { operation, message } => {
+                self.repo_status = "Repository: inspection failed".into();
+                self.repo_error = format!(
+                    "{operation}: {message}. Previous evidence is retained; r retries the read-only inspection."
+                );
+                self.repo_error.retain(safe_character);
+            }
         }
     }
 
@@ -443,7 +539,7 @@ impl App {
         };
         self.linear = navigation.linear;
         self.form_selection = navigation.form_selection;
-        self.palette_selection = navigation.palette_selection;
+        self.palette_selection = navigation.palette_selection.min(PALETTE.len() - 1);
         self.surface_scroll = navigation.scroll;
         self.surface_scroll_max = [u16::MAX; 5];
         self.overlay = match navigation.overlay {
@@ -749,7 +845,10 @@ impl App {
             self.linear = !self.linear;
             return true;
         }
-        if key.code == KeyCode::Char('r') && matches!(self.storage, StorageState::Failed(_)) {
+        if key.code == KeyCode::Char('r')
+            && self.overlay != Some(Overlay::Repository)
+            && matches!(self.storage, StorageState::Failed(_))
+        {
             self.retry_storage = true;
             self.storage = StorageState::Loading;
             return true;
@@ -769,6 +868,7 @@ impl App {
             KeyCode::Char('c') => self.open_overlay(Overlay::Criteria),
             KeyCode::Char('a') => self.begin_edit_field(store::EditorField::NextAction),
             KeyCode::Char('d') => self.request_complete(),
+            KeyCode::Char('w') => self.open_overlay(Overlay::Repository),
             KeyCode::Tab | KeyCode::BackTab => {
                 return self.cycle_focus(key.code == KeyCode::BackTab);
             }
@@ -1220,7 +1320,10 @@ impl App {
                 self.form
             };
         }
-        if matches!(overlay, Overlay::Tasks | Overlay::Criteria) {
+        if matches!(
+            overlay,
+            Overlay::Tasks | Overlay::Criteria | Overlay::Repository
+        ) {
             self.surface_scroll[ScrollSurface::Preview.index()] = 0;
         }
         self.overlay = Some(overlay);
@@ -1344,6 +1447,18 @@ impl App {
                 self.close_overlay();
                 return true;
             }
+            Overlay::Repository if key == KeyCode::Char('w') => {
+                self.close_overlay();
+                return true;
+            }
+            Overlay::Repository if key == KeyCode::Char('r') => {
+                if !self.repo_loading {
+                    self.repo_refresh = true;
+                    self.repo_loading = true;
+                    self.repo_status = "Repository: refreshing / original baseline retained".into();
+                }
+                return true;
+            }
             _ => {}
         }
         let count = match overlay {
@@ -1403,6 +1518,7 @@ impl App {
                         10 => self.open_overlay(Overlay::Criteria),
                         11 => self.begin_edit_field(store::EditorField::NextAction),
                         12 => self.request_complete(),
+                        13 => self.open_overlay(Overlay::Repository),
                         _ => unreachable!("palette selection is bounded"),
                     }
                 }
@@ -1419,7 +1535,9 @@ impl App {
             Some(Overlay::Companion) => ScrollSurface::Companion,
             Some(Overlay::Inspector) => ScrollSurface::Inspector,
             Some(Overlay::Help) => ScrollSurface::Help,
-            Some(Overlay::Preview | Overlay::Tasks | Overlay::Criteria) => ScrollSurface::Preview,
+            Some(Overlay::Preview | Overlay::Tasks | Overlay::Criteria | Overlay::Repository) => {
+                ScrollSurface::Preview
+            }
             _ => match self.effective_focus() {
                 Pane::Companion => ScrollSurface::Companion,
                 Pane::Workspace => ScrollSurface::Workspace,

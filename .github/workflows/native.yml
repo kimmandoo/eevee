@@ -97,6 +97,8 @@ jobs:
         run: python scripts/installation_smoke.py --package-dir target/packages --output target/native-smoke/installation
       - name: Verify durable workbench in the installed binary
         run: python scripts/workbench_smoke.py --binary "target/native-smoke/installation/installed 空 格/bin/ev" --output target/native-smoke/workbench
+      - name: Verify read-only repository baseline and task preservation
+        run: python scripts/repository_smoke.py --binary "target/native-smoke/installation/installed 空 格/bin/ev" --output target/native-smoke/repository
       - name: Upload verified offline installation package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

@@ -386,6 +386,7 @@ pub fn render(
             Overlay::Preview => preview(frame, area, app, config, &paint),
             Overlay::Tasks => tasks(frame, area, app, config, &paint),
             Overlay::Criteria => criteria(frame, area, app, config, &paint),
+            Overlay::Repository => repository(frame, area, app, config, &paint),
             Overlay::Inspector => {
                 let area = drawer(area);
                 frame.render_widget(Clear, area);
@@ -796,6 +797,40 @@ fn form_details(frame: &mut Frame, area: Rect, index: usize, config: &Config, ar
     );
 }
 
+fn repository(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
+    let area = centered(area, 106, area.height.saturating_sub(2));
+    frame.render_widget(Clear, area);
+    let block = panel(" Repository / read-only evidence ", config, paint, true);
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    text(frame, row(content, 0, 1), &app.repo_status, paint.accent);
+    let details = row(content, 1, content.height.saturating_sub(1));
+    let value = if app.repo_text.is_empty() {
+        if app.repo_loading {
+            "Reading repository on a bounded worker; task editing remains available after Esc."
+        } else {
+            "No repository evidence available. A non-Git directory still supports durable tasks."
+        }
+    } else {
+        &app.repo_text
+    };
+    let lines: Vec<_> = app
+        .repo_error
+        .lines()
+        .map(|line| Line::styled(line, paint.muted))
+        .chain(value.lines().map(Line::from))
+        .collect();
+    let max = selection_details(
+        frame,
+        details,
+        Paragraph::new(lines)
+            .style(paint.surface)
+            .wrap(Wrap { trim: false }),
+        app.scroll_for(ScrollSurface::Preview),
+    );
+    app.set_scroll_max(ScrollSurface::Preview, max);
+}
+
 fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
     let area = centered(area, 88, 28);
     frame.render_widget(Clear, area);
@@ -1079,7 +1114,7 @@ fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &P
     let block = panel(" Keyboard / local actions ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let value = "TASKS\n g / Enter  Edit or resume goal (Enter in workspace)\n t          Task cards; Enter resumes selected task\n n          Create task after pending saves finish\n c          Acceptance checklist; Space toggles, e edits lines\n a          Edit or resume next action\n d          Review explicit Complete confirmation\nTask cards/checklist: Up/Down/Home/End select.\nPageUp/PageDown scroll selected details.\nIn task cards: h switches active/archived views.\na archives; r restores in archived view.\nDelete previews selected task removal; x previews eligible archived retention purge.\nDeletion starts on Stay. PgUp/Dn reviews all selected IDs.\nPurge does not remove source files, exports or provider sessions, or securely erase SQLite/backups.\nComplete requires nonempty, all-met criteria.\nComplete is user review, not verified execution.\nEditing a completed goal/checklist requires explicit Reopen.\n\nEDITOR\nEnter applies locally and saves; no execution.\nCtrl+S saves a retained draft and returns without applying.\nIdentifiable secrets are masked before storage; detection is incomplete.\nEsc reviews changed draft: Keep editing or Discard draft.\nDiscard removes only this field's draft, not applied data.\nLeft/Right move by grapheme; Backspace/Delete remove a grapheme.\nUp/Down move lines; Home/End move within a line.\nCtrl+N inserts newline; criteria use one criterion per line.\nShift+Enter inserts newline if distinguished by the terminal.\nPaste is text; it never applies, completes, or executes.\nRetained drafts survive task switches and restart.\n\nNAVIGATION\nf          Evolution picker: arrows/1-9 preview, Enter selects\np          Local handoff preview; sends nothing\ni / b      Inspector / companion drawer\nr          Retry failed storage outside editor\nl          Toggle linear / sanctuary layout\nCtrl+K     Local command palette\nTab        Cycle visible panes\nUp/Down    Select or scroll focused surface\nPageUp/Down Scroll a page\nHome/End   First/last selection or scroll position\nEsc        Close overlay and restore focus\n?          Show/close help\nq / Ctrl+C Safe exit; save task and retained drafts\nDuring save-and-exit, only Esc cancels exit.\nStorage failure requires informed explicit exit.\nConfirmations start on Stay/Keep; Tab/Right selects the action.\n\nArtwork: --images cells|off for compatibility.\nNo automatic download, model request, or permissions.\nLinear mode is text-first; no assistive-tool claim yet.";
+    let value = "TASKS\n g / Enter  Edit or resume goal (Enter in workspace)\n t          Task cards; Enter resumes selected task\n n          Create task after pending saves finish\n c          Acceptance checklist; Space toggles, e edits lines\n a          Edit or resume next action\n d          Review explicit Complete confirmation\n w          Repository baseline and raw working diff\nRepository: r refreshes without replacing the session baseline.\nExternal changes are unattributed, not agent-authored.\nTask cards/checklist: Up/Down/Home/End select.\nPageUp/PageDown scroll selected details.\nIn task cards: h switches active/archived views.\na archives; r restores in archived view.\nDelete previews selected task removal; x previews eligible archived retention purge.\nDeletion starts on Stay. PgUp/Dn reviews all selected IDs.\nPurge does not remove source files, exports or provider sessions, or securely erase SQLite/backups.\nComplete requires nonempty, all-met criteria.\nComplete is user review, not verified execution.\nEditing a completed goal/checklist requires explicit Reopen.\n\nEDITOR\nEnter applies locally and saves; no execution.\nCtrl+S saves a retained draft and returns without applying.\nIdentifiable secrets are masked before storage; detection is incomplete.\nEsc reviews changed draft: Keep editing or Discard draft.\nDiscard removes only this field's draft, not applied data.\nLeft/Right move by grapheme; Backspace/Delete remove a grapheme.\nUp/Down move lines; Home/End move within a line.\nCtrl+N inserts newline; criteria use one criterion per line.\nShift+Enter inserts newline if distinguished by the terminal.\nPaste is text; it never applies, completes, or executes.\nRetained drafts survive task switches and restart.\n\nNAVIGATION\nf          Evolution picker: arrows/1-9 preview, Enter selects\np          Local handoff preview; sends nothing\ni / b      Inspector / companion drawer\nr          Retry failed storage outside editor\nl          Toggle linear / sanctuary layout\nCtrl+K     Local command palette\nTab        Cycle visible panes\nUp/Down    Select or scroll focused surface\nPageUp/Down Scroll a page\nHome/End   First/last selection or scroll position\nEsc        Close overlay and restore focus\n?          Show/close help\nq / Ctrl+C Safe exit; save task and retained drafts\nDuring save-and-exit, only Esc cancels exit.\nStorage failure requires informed explicit exit.\nConfirmations start on Stay/Keep; Tab/Right selects the action.\n\nArtwork: --images cells|off for compatibility.\nNo automatic download, model request, or permissions.\nLinear mode is text-first; no assistive-tool claim yet.";
     scroll_text(
         frame,
         content,
@@ -1140,6 +1175,7 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
                 "Arrows Preview / 1-9 Preview / Enter Select / p Details / Esc Back"
             }
             Some(Overlay::Palette) => "Arrows Choose / Enter Open / Esc Back",
+            Some(Overlay::Repository) => "r Refresh / Up/Down Scroll / PgUp/Dn Page / Esc Back",
             Some(Overlay::Tasks) => {
                 "Enter Resume / h Archives / a Archive or r Restore / Del / Esc"
             }

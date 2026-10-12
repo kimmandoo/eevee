@@ -56,7 +56,7 @@ cargo run --release -- --layout linear --images off
 
 Requires interactive stdin and stdout. The minimum Rust toolchain is 1.90.0. All five qualified native core baselines below passed build/test/lint and real PTY/ConPTY interaction. Native images were separately exercised on macOS arm64/Ghostty 1.3.1. Use `cargo run -- --help` for CLI options.
 
-The companion UI and durable project-scoped task cards are implemented: goals, acceptance checklists, next actions, forms, per-field drafts, navigation, and explicit completion/reopen. Agent execution, repository inspection, and permission grants remain unavailable. Switching forms never starts tools or changes permissions.
+The companion UI, durable task cards/lifecycle controls, and read-only repository baseline/diff are implemented. Agent execution, context dispatch, and permission grants remain unavailable. Switching forms never starts commands or changes permissions.
 
 Goals are limited to 4096 UTF-8 bytes and never sent to a model. Enter applies an edit and requests a local save; the header distinguishes saving, committed, and failed revisions. Ctrl+N inserts a newline. Shift+Enter works only when the terminal reports it distinctly. Esc on a changed draft asks whether to keep or discard it. Backspace/VT Ctrl+H and Delete remove complete graphemes; a truncated paste leaves a visible warning.
 
@@ -88,6 +88,7 @@ Artwork rights remain with the original rights holders. Downloading or attributi
 | `c` | Open criteria; Space toggles a criterion, `e` edits one-per-line text |
 | `a` / `d` | Edit next action / request explicit criterion-reviewed completion |
 | Ctrl+S in editor | Retain the field's draft and return without applying it |
+| `w` | Inspect repository baseline/raw diff; `r` refreshes that read-only view |
 | `p` | Inspect a local handoff preview; in the picker, inspect the previewed role |
 | `l` | Toggle sanctuary / linear text layout |
 | Ctrl+K | Open the command palette |
@@ -130,6 +131,14 @@ In task cards, `h` switches active/archived views; `a` archives and `r` restores
 
 Identifiable token prefixes, credential assignments, Bearer credentials, URL userinfo and private-key blocks are masked before task persistence. Detection is incomplete; volatile editor text may remain unmasked. Review exports before sharing. Secret-bearing project identities are rejected rather than rewritten into another project's identity. Local purge does not delete repository changes, exported files, or provider sessions, and does not guarantee forensic secure erasure of SQLite pages/journals/backups.
 
+## Repository evidence
+
+`w` opens the initial session baseline and current raw HEAD-to-worktree diff; `r` refreshes without replacing the baseline. Pre-existing dirty work stays labelled **pre-existing**; later external changes are **unattributed**, never presumed agent-authored. A non-Git directory remains usable for durable tasks, with repository inspection explicitly unsupported.
+
+The bounded worker records raw-byte SHA-256 identities, HEAD/index identities and tracked/untracked changes without writing user files or the index. Git is used only for metadata/raw objects; repository filters, textconv, external diff, fsmonitor, hooks and network transports are not invoked. The diff is a raw full-file comparison, not filter-normalized Git output. Ignored untracked files and submodule contents are outside coverage; races, unavailable reads and truncation are explicit, not a clean verdict. Symlink targets are not read.
+
+Capture limits: 4096 paths, 2 MiB per file, 32 MiB aggregate file/object captures, and 256 KiB diff. Git commands have a 10-second deadline and scanning checks a 30-second deadline; blocked filesystem syscalls are not claimed interruptible. `python3 scripts/repository_smoke.py --binary target/release/ev --output target/repository-smoke` exercises the actual TUI at 120x36/60x18, external edits, byte/index preservation and non-Git task resumption.
+
 ## Development checks
 
 ```sh
@@ -168,7 +177,7 @@ These historical core rows do not certify arbitrary GUI terminals, native images
 - [Session checkpoint](docs/WORK_CHECKPOINT.md)
 - [Terminal troubleshooting](docs/TROUBLESHOOTING.md)
 
-Section A and its five-row native core checkpoint are complete. E01–E03 added locally verified durable tasks, resumption, privacy and lifecycle controls; C01/C02 and section C remain active in [task.md](task.md). Subsequent native CI is blocked by GitHub account billing. P02's new filesystem/process parity is not implied by earlier installation or local task evidence.
+Section A and its five-row native core checkpoint are complete. E01–E03 and C01 passed local durable-task/lifecycle/repository acceptance; C02 and section C remain active in [task.md](task.md). Subsequent native CI is blocked by GitHub account billing. P02's new filesystem/process parity is not implied by earlier installation or local evidence.
 
 Native core support is limited to the recorded OS/architecture/PTY or ConPTY tuples above. Windows ARM64, older OS versions, and untested GUI terminals remain unclaimed. Cross-compilation is not runtime proof. P02 gates filesystem/data-directory and owned process-tree lifecycle after recovery UX. P03 gates native archives/checksums and install/upgrade/uninstall preserving user data, after integrated acceptance and rights/provider review. Native-image and agent capabilities are qualified separately by OS/version/terminal.
 

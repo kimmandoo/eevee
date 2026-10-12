@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-13 — C01 locally completed; C02 active
+
+- Full B/C scope remains requested. Continue C02 source/context UI and quota-backed persistence, then R01/R02/UX02. Source/evidence storage and owned-process backend implementation are in progress with separate owners; parent owns app/main/config/UI, actual smoke and integration. P02 native rows remain blocked by GitHub billing.
+- C01 added `src/repo.rs` and `w`/palette repository inspection. Initial baseline is immutable for the session; raw HEAD/worktree differences and index identities remain distinct. Existing dirty work is pre-existing, later changes unattributed. No repository files/index are written, Git filters/helpers are not invoked, and non-Git errors do not destroy tasks.
+- Verification: Rust 1.90 **103 tests passed**, one ignored subprocess helper; warning-free Clippy and release build. `scripts/repository_smoke.py --binary target/release/ev --output target/repository-smoke` passed **three** real PTY scenarios, including dirty tracked/untracked fixtures and external edits at 120x36/60x18, byte-exact file/index preservation, and non-Git task resumption. Compact raw-diff surface inspected; removed duplicate controls and made full layer errors scrollable, then reran all three actual scenarios successfully.
+- C01 changes: repo/app/main/UI, new repository smoke, native CI installed-binary step, README/task/design/plan/changelog/checkpoint. E03 was committed/pushed as `0d29718`. Never stage another backend's in-flight source into this scoped C01 commit.
+- Next integration contracts: `local://bc-evidence-contract.md` and `local://runner-api.rs`; source/storage owner must implement dispatch-time source and persisted-reference validation, private quota reservations, journal interruption/purge; runtime owner must provide pre-exec process-group/Job ownership and bounded redacted capture. No provider or native parity claims until actual gates pass.
+
 ## 2026-10-13 — E03 locally completed; C01 active
 
 - Full B/C scope remains requested. Next: integrate the already-written, unverified `src/repo.rs` C01 worker into actual UI, exercise dirty/non-Git repositories, then implement C02/R01/R02/UX02. P02 five-row native parity remains externally blocked by GitHub account billing; no newer native coverage is claimed.

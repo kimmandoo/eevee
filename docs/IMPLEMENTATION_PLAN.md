@@ -1,7 +1,7 @@
 # Eevee Implementation Plan
 
 Date: 2026-10-13
-Status: Section A is complete on its recorded five-row core and qualified native-image gates. E01–E03 passed local durable tasks/lifecycle and real-TUI acceptance; C01 is active. Of 31 tasks, 9 are checked and 22 remain unchecked. All remaining B/C tasks are requested. Installation preview passed five native rows; subsequent native workbench CI is blocked by account billing.
+Status: Section A is complete on its recorded native/graphics gates. E01–E03 and C01 passed local task/lifecycle/repository and real-TUI acceptance; C02 is active. Of 31 tasks, 10 are checked and 21 remain unchecked. All remaining B/C tasks are requested. Installation preview passed five native rows; subsequent native workbench CI is blocked by account billing.
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
 
 ## Outcome
@@ -151,4 +151,4 @@ No custom model runtime, autonomous multi-agent swarm, hosted synchronization, p
 
 ## Current next action
 
-Continue **C01 — Repository baseline and working diff**, then C02, R01, R02, UX02, and P02 in dependency order. E01–E03 passed local task/lifecycle gates; R01 must exercise deferred active-run switching and quota integration. Offline `ev` installation passed all five native rows at `ea8ade7`; public Release/remote bootstrap remain withheld. Subsequent native CI is blocked before runner startup by account billing: continue reachable implementation/local verification without claiming new native parity. This does not complete P03's later integrated/performance/rights gates.
+Continue **C02 — Vaporeon source map and context basket**, then R01, R02, UX02, and P02. E01–E03/C01 passed their local gates; execution must exercise deferred active-run switching and quota integration. Offline `ev` installation passed all five native rows at `ea8ade7`; public Release/remote bootstrap remain withheld. Subsequent native CI is blocked before runner startup by account billing: finish reachable implementation/local verification without claiming new native parity. P03's later integrated/performance/rights gates remain separate.
