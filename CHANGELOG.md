@@ -2,6 +2,7 @@
 
 ## 2026-10-13
 
+- fix(installer): restored the prior Windows executable from its backup even when ReplaceFile reported failure after moving it, and retained recovery files when rollback failed.
 - feat(distribution): added Apache-2.0 native verification packages, checksum-first offline POSIX/PowerShell installation, ownership-protected replacement, and installed-binary lifecycle coverage; withheld public Release and remote bootstrap.
 - feat(cli): changed the executable and command-line contract to `ev` while preserving project/cache identities.
 - docs(platform): recorded completed section-A acceptance and five verified native core baselines, including 34 Windows ConPTY scenarios and qualified graphics/provider/distribution limits.

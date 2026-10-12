@@ -125,7 +125,7 @@ Run `python scripts/terminal_smoke.py --binary target/release/ev --output target
 
 Each row passed locked tests, warning-free Clippy, release build, seven display modes/four sizes, literal CJK/combining/astral paste, resize/back/selection, safe exit, non-TTY CLI checks, and normal/error/panic restoration. Windows checked actual primary-screen contents and original console-mode bits rather than requiring a VT marker ConPTY did not relay. Its legacy console path composes displayed glyphs and freshly repaints state-changed frames; idle has no timer. This is a correctness choice, not a performance benchmark.
 
-These core rows do not certify arbitrary GUI terminals, native images, providers, filesystem/process parity, or installable release packages. The only native-image qualification remains the separate macOS arm64/Ghostty 1.3.1 acceptance described above; agent adapters and packaged-install evidence are unavailable.
+These historical core rows do not certify arbitrary GUI terminals, native images, providers, filesystem/process parity, or installable release packages. The only native-image qualification remains the separate macOS arm64/Ghostty 1.3.1 acceptance described above. Agent adapters remain unavailable; the current offline installation preview has separate local evidence in the checkpoint and pending five-row CI acceptance.
 
 
 ## Design

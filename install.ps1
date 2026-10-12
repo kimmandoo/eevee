@@ -355,7 +355,7 @@ try {
         [IO.Directory]::Move($stageMetadata, $metadata)
         $metadataPublished = $true
         if ($hadInstall) {
-            # ReplaceFile is atomic and preserves the previous executable on lock/access failure.
+            # ReplaceFile may move the old executable before reporting a failure.
             [IO.File]::Replace($stageBinary, $binary, $backupBinary, $false)
         } else { [IO.File]::Move($stageBinary, $binary) }
         $binaryPublished = $true
@@ -367,9 +367,14 @@ try {
             if ($metadataBackedUp) { [IO.Directory]::Move($backupMetadata, $metadata) }
         } catch { $rollbackErrors.Add('metadata: ' + $_.Exception.Message) }
         try {
-            if ($binaryPublished) {
-                if ($hadInstall) { [IO.File]::Replace($backupBinary, $binary, $stageBinary, $false) }
-                else { [IO.File]::Move($binary, $stageBinary) }
+            if ($hadInstall -and [IO.File]::Exists($backupBinary)) {
+                if ([IO.File]::Exists($binary)) {
+                    [IO.File]::Replace($backupBinary, $binary, $stageBinary, $false)
+                } else {
+                    [IO.File]::Move($backupBinary, $binary)
+                }
+            } elseif ($binaryPublished -and -not $hadInstall) {
+                [IO.File]::Move($binary, $stageBinary)
             }
         } catch { $rollbackErrors.Add('executable: ' + $_.Exception.Message) }
         if ($rollbackErrors.Count -gt 0) {

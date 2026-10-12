@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-13] Windows replacement failure can move the old executable
+
+- **Context / Symptom:** Installer review found that the failure path only restored the executable after a successful `File.Replace` return.
+- **Root Cause:** Windows documents `ERROR_UNABLE_TO_MOVE_REPLACEMENT_2` (1177): replacement can fail after moving the original to the backup name. Treating all exceptions as no-effect could then delete the only old executable with staging cleanup.
+- **Solution:** Checked for and restored the backup regardless of the success flag; used a move when the destination was absent and retained staging if rollback failed.
+- **Prevention / Reference:** [ReplaceFileW failure states](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-replacefilew). The regular native locked-file scenario exercises rollback; this rare partial OS failure was identified by static review, not reproduced locally.
+
 ### [2026-10-13] Pinned license generator required its CLI feature
 
 - **Context / Symptom:** Installing `cargo-about 0.9.2` without explicit features reported no available binaries.
