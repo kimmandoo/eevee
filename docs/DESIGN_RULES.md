@@ -11,7 +11,7 @@ Use Eevee and its eight existing evolutions; do not invent additional species. S
 ### Experience: a partner, not a themed dashboard
 
 - **Sanctuary** is Eevee's home: one active task card, its completion criteria, and one recommended next action. With no task, show one invitation to create a goal, not nine empty specialist dashboards.
-- **Evolution** changes the tools for the same task. Keep the task identity, selected evidence, decisions, and user-approved scope across forms. A specialist never starts a second, disconnected conversation by default.
+- **Evolution** changes the tools for the same task. Keep the task identity, selected evidence, decisions, and user-approved scope across forms. The role is independent of the selected execution agent/model; changing either selection does not itself submit a request.
 - **Field journal** is the task's inspectable evidence history: observations, decisions, executions, reviews, and handoffs. Cosmetic form selection is not evidence. Opening the journal performs no model call.
 - **Bond** means explicitly approved project/personal habits that save repeated instructions. No affection score, XP, hunger, streaks, random unlocks, or inaccessible forms.
 - **Evolution Stones** are task recipes, not collectible currency. All nine forms remain locally selectable; recipes do not imply every canonical species evolves through a stone.
@@ -35,7 +35,7 @@ This is a route, not a mandatory tour through every form. Skip irrelevant forms;
 | --- | --- | --- | --- | --- | --- |
 | Eevee | Normal | Intake, scope, routing, and resumption | Goal, acceptance criteria, task status, next action | Read task state and repository metadata; propose handoffs | Bounded task and selected specialist |
 | Vaporeon | Water | Discovery and context assembly | Source map, references, selected context | Read/search repository and explicitly requested sources | Source-linked findings, constraints, and context manifest |
-| Jolteon | Electric | Command execution and runtime verification | Commands, live output, exit status, timing | Run approved commands; no source editing | Command, cwd, code-state identity, output, and exit result |
+| Jolteon | Electric | Explicit command execution and runtime verification evidence | Commands, live output, exit status, timing | Run approved local commands; inspect provider-reported runs; no source editing | Command, cwd, code-state identity, output, and exit result, with origin and coverage |
 | Flareon | Fire | Code implementation and fixes | Working diff, editable scope, implementation decisions | Edit approved source paths; request execution from Jolteon | Patch tied to requirements; verification requested |
 | Espeon | Psychic | Architecture, planning, and dependency analysis | Decision options, interfaces, ordered plan | Read evidence; edit designated planning artifacts | Chosen approach, tradeoffs, acceptance criteria, dependencies |
 | Umbreon | Dark | Failure diagnosis and security assessment | Reproduction, hypotheses, risks, supporting evidence | Read/search; request approved diagnostic runs from Jolteon | Supported root cause or explicit unknown; actionable risk findings |
@@ -43,12 +43,14 @@ This is a route, not a mandatory tour through every form. Skip irrelevant forms;
 | Glaceon | Ice | Independent review and release-readiness assessment | Findings, stale verification, acceptance checklist | Read diff and evidence; no source editing | Findings with evidence; accept, request changes, or inconclusive |
 | Sylveon | Fairy | User handoff, documentation, and curated memory | Outcome, remaining risks, memory proposals | Read evidence; edit approved docs; propose durable memories | Evidence-linked handoff and explicitly accepted memories |
 
+These defaults define requested workflow scope, not proof that a tool or subprocess is confined. An arbitrary approved command can have unknown effects. The selected profile must establish each claimed restriction at the real boundary; otherwise the controlled action is unavailable or explicitly external, never silently treated as read-only.
+
 ### Boundaries
 
 - Eevee routes; Espeon designs. Intake must not silently become an architecture exercise.
 - Vaporeon gathers context; Umbreon tests explanations of a failure or risk.
 - Flareon changes behavior; Leafeon improves structure or efficiency within an agreed behavioral contract.
-- Jolteon records execution, not correctness judgments. Glaceon judges evidence and never silently fixes its own findings.
+- Jolteon records execution, not correctness judgments. Provider-native tool runs may be observed in its journal without being launched by Eevee; never duplicate them to simulate control. Glaceon judges evidence and never silently fixes its own findings.
 - Sylveon records verified conclusions, not invented success or inferred user preferences.
 - One active form per task by default. Switching forms is local UI/state work and must not trigger a model call by itself.
 - Form changes require deliberate selection or acceptance of a recommendation. They never grant additional permissions automatically.
@@ -71,15 +73,84 @@ This is a route, not a mandatory tour through every form. Skip irrelevant forms;
 
 An action card distinguishes three operations: local navigation (no model call), a provider request (selected context leaves the process), and a command/write operation (capability check). Display unavailable prerequisites with a reason, not a working-looking button. A running request keeps its owning form; activating another form requires completion or explicit cancellation, never an implicit cancel or second worker.
 
+### Role, agent, model, and control are independent
+
+- A form answers **what are we doing?** An agent profile answers **which external program performs it?** Its model and permission mode are separate, agent-advertised choices. Espeon is not automatically a provider's “plan mode,” and Glaceon is not a particular vendor.
+- Show the selected agent/model and control boundary without recoloring the companion or changing its identity. Default to one agent per task; a deliberate per-role override is allowed after connection support ships. No agent is spawned merely to populate a picker.
+- Capabilities are action-specific: structured output, approval/questions, cancellation, same-agent session loading, tool limits, filesystem/network policy, and usage may differ. Missing or unknown support is not permission. Disable only the affected action, explain why, and keep local browsing/notes/review available.
+- An approval callback is not an OS sandbox. Distinguish **Eevee-mediated**, **agent-policy-controlled**, and **observed/unmanaged** effects in the inspector and request preview. Label restrictions by the actual mechanism/scope, not a single reassuring “safe” badge.
+- During a request, users may browse existing evidence and edit a future draft, but switching the active form/agent waits for completion or explicit cancellation. Never route a late approval or streamed event to a newly selected agent/task.
+- A new agent receives a user-reviewed handoff, not the old agent's opaque session ID, private reasoning, credentials, or assumed memory. Same-agent resumption is separately verified against agent version, cwd, context/config identity, and policy. Fresh Glaceon review context remains separate even when the same agent is reused.
+- The outgoing context basket describes **what Eevee sends**, not necessarily the whole effective model input. Agents may load project rules, hooks, history, plugins, MCP tools, or additional files. Inspect or disclose those sources where possible; if they cannot be bounded, do not promise complete context isolation or hard read-only operation.
+- Before connecting, distinguish provider-owned authentication/billing, project executable configuration, and persistent trust/configuration effects. Do not import credentials or mutate global settings to hide a missing prerequisite. Provider-owned side effects such as a persistent trust change require explicit preview/consent, not a form selection.
+- Adapter transports, evidence levels, request/event semantics, and per-agent limitations are specified in [Agent compatibility](AGENT_COMPATIBILITY.md).
+
+## End-to-end interaction contract
+
+These are planned UI behaviors; controls must not appear functional before their backing task ships.
+
+| Moment | Primary surface/action | Required behavior |
+| --- | --- | --- |
+| First launch | Sanctuary -> create a goal | Local-only path works without account, artwork download, or provider installation. Explain session-only vs durable storage truthfully. |
+| Return | Recent task -> resume | Show goal, saved next action, changed repository evidence, and agent readiness; do not auto-run an old command or restore old approvals. |
+| Choose form | Evolution picker -> preview/confirm | Preserve task, draft, focus, selection, and context; display the role/output, not a fake completion stage. |
+| Connect/change agent | Agent drawer -> inspect/select | Distinguish not installed, installed, authentication needed, ready, incompatible version, and disconnected. Connection/auth and request submission are separate actions. |
+| Compose | Scoped request editor -> preview | Show goal, selected excerpts, exclusions, agent/model, role policy, expected output, and estimated/unknown usage. Local edit confirmation never submits a model request. |
+| Start | Request preview -> explicit Run | Explain data leaving the process, control boundary, and unresolved prerequisites. Revalidate source/config identity and applicable grants before dispatch. |
+| Work | Artifact workspace + activity drawer | Keep evidence primary; show actual tool/turn state. Continue to allow inspection, scrolling, and cancellation without losing draft text. |
+| Need permission/input | Persistent pending indicator -> open request | Do not steal focus while typing. The request remains pending until an explicit response, cancellation, or expiry; closing its view is not approval or denial. |
+| Stop/failure | Inline state + retained partial evidence | Show cancelling until acknowledged or owned process exit; preserve output/changes and distinguish cancelled, failed, disconnected, and outcome unknown. No automatic resubmission. |
+| Review | Diff + criterion evidence -> verdict | A provider turn ending is not task completion. Show current/stale/ambiguous coverage; no evidence means inconclusive, not pass. |
+| Finish/leave | Handoff or exit review | Resolve unsaved edits/running work explicitly. Cancellation does not roll back files. Completion needs reviewed criteria and visible remaining risks. |
+
+### Navigation and editing
+
+- Persist navigation position per task/surface: selected file/finding, scroll anchor, open drawer, and draft. Resizing hides panes without losing their state; closing an overlay restores its invoking control when it still exists.
+- Keep global shortcuts inactive in text entry, search, or agent question fields. Goal editing retains Enter=apply locally and Esc=discard edit. A provider request composer is separate: Enter inserts a newline; a labelled Preview action is reached with Tab and activated deliberately. Sending requires the request-preview Run control, never pasted newlines or a generic Enter shortcut.
+- Support grapheme-aware cursor movement/deletion, Home/End, multiline paste, Unicode display width, and horizontal/vertical reveal of the caret. Do not interpret pasted slash commands as application navigation; agent commands are separately labelled and sent only through the chosen agent.
+- Palette entries expose capability prerequisites and current context. A disabled action explains its missing prerequisite on inspection; no dead-looking silent button. Do not silently rebind a familiar key to an approval when a panel changes.
+- Live output follows the end only while follow mode is enabled. Manual scrolling pauses follow; a visible “new output” indicator offers a deliberate jump. Search highlights and selection stay stable as output arrives; virtualize large lists/diffs and do not repaint the full history per chunk.
+- Links, clipboard actions, and launching an external auth command require a deliberate user action. No OSC 52 clipboard writes from tool output. Sanitize terminal escape sequences while preserving useful plain output; keep structured content separate from rendered text.
+
+### Approval and agent-question UX
+
+- One correlated queue holds pending requests with task, run, agent/profile, tool ID, and approval/question ID. Requests may coexist, but only the deliberately opened item owns focus. A question is not a permission grant; do not combine the two.
+- Opening a request focuses its details, not Allow. Show exact command or diff when supplied, cwd/path scope, unknown effects, requested duration, and who enforces the decision. Navigation or repeated Enter on the neutral initial control must never approve.
+- Offer only semantics actually supported by the adapter. An agent's `allow_always` is not automatically “allow for this Eevee task.” Broad/persistent options require explicit scope disclosure; hide them if their duration or boundary cannot be represented accurately.
+- Revalidate before responding. If tool inputs, profile/config, run generation, or scope changed, invalidate the old answer and show the updated request. Expired or already-resolved requests are read-only; answering twice cannot dispatch twice.
+- Esc returns to work while the request remains pending; explicit Reject responds with rejection, and Cancel run resolves pending requests with the protocol's cancellation semantics. Never remember an allow merely because a form or model was chosen.
+- Agent forms preserve field values/errors, offer the provider's real choices plus supported free text, and let the user decline when the protocol permits. Do not invent answers for unsupported question schemas; report the limitation and keep the user in control.
+
+### Operational, persistence, and evidence states
+
+- Track independent state axes rather than one overloaded badge:
+  - Task outcome: open, complete, cancelled.
+  - Request: idle, connecting, running, awaiting permission, awaiting input, cancelling, succeeded, failed, cancelled, disconnected/outcome unknown.
+  - Storage: draft, saving, saved, save failed.
+  - Evidence: current, stale, ambiguous, unavailable.
+- Priority in a compact header: safety/pending input, failure/unknown outcome, unsaved state, active work, then idle readiness. Secondary state remains available in the inspector. Color accompanies text; provider/model names and task identity never disappear behind decorative art.
+- Show “working” with an actual last-event indicator, not invented percent complete, hidden-reasoning text, or a success animation. A quiet connection is not automatically a hung run. “No recent updates” offers inspection/cancel without claiming failure.
+- A disconnect retains the partial journal and marks outcome unknown when completion is unobserved. Reconnect/resume is explicit and never replays a mutating request automatically. Reconcile already-applied changes before offering a new attempt.
+- Save failures remain visible and retain recoverable draft content. On quit/switch, offer explicit retry-save, stay, or discard-unsaved choices; never present an unsaved task as durable. A provider-local session may persist independently and must not be confused with Eevee's own save result.
+- Error cards identify layer and remedy: image loading, local storage, agent executable, auth, capability/version, transport, model request, permission denial, or command exit. Preserve technical details behind an inspect action; transient notices do not erase the selected artifact or steal focus.
+
+### Accessibility and visual quality gates
+
+- Keep a linear text/activity layout with the same actions and state labels; portraits are optional, never the only identity/status signal. Do not claim screen-reader compatibility before exercising a real assistive terminal setup. Reduced visual detail does not reduce approval controls or evidence.
+- For the application's own true-color themes, target at least 4.5:1 text contrast and 3:1 focus/control contrast; verify selection, errors, muted text, and both backgrounds. Unknown user terminal palettes require monochrome/reverse/focus-marker fallbacks, not an unmeasured contrast claim.
+- No blinking, animation-dependent meaning, mandatory icon font, or color-only distinction. Truncate display paths/titles with a visible continuation affordance; inspection reveals exact values before approval. Never truncate the only visible executable or affected scope without an expansion control.
+- Run actual TUI scenarios across the supported size/theme matrix: first-run empty, missing agent/art, loaded task, long CJK draft, pending permission/question, large streaming output while scrolled, cancelled run, save failure, stale review, provider switch, and return after interruption.
+- User-success criteria: a new user can find the next action without opening help; can identify active task/form/agent and control limitations before sending; cannot execute by navigation/paste; can stop work and recover their draft; can explain why a result is or is not verified. Record observed scenario outcomes, not subjective “looks polished” alone.
+
 ## Task and evidence model
 
-A task owns its goal, acceptance criteria, current form, step state, decisions, source references, changes, executions, findings, permissions, and handoff. Forms exchange a compact envelope: goal, scope, evidence references, unresolved items, requested action, and completion condition.
+A task owns its goal, acceptance criteria, current form, agent-profile selection, independent request/storage/evidence state, decisions, source references, changes, executions, findings, permissions, and handoff. Forms exchange a compact envelope: goal, scope, evidence references, unresolved items, requested action, and completion condition. Provider session references are profile-scoped and never portable grants.
 
 Separate observed facts, model inferences, and user decisions. Persist provenance for each. A command result contains cwd, sanitized arguments, start/end time, exit/signal status, output references, and before/after code-state identities. A passed command is not proof of every requirement.
 
 Capture the initial working tree without overwriting user changes. Git metadata and baseline file identities distinguish pre-existing changes from session changes; concurrent external edits remain unattributed rather than falsely assigned to the agent. A code-state identity covers relevant tracked and untracked inputs, not only HEAD. Changes during a run make its association ambiguous; changes after a run make its verification stale. Display unknown coverage explicitly.
 
-Task states: ready, running, awaiting approval, blocked, complete, cancelled. Completion requires the explicit acceptance checklist and visible unresolved risks; do not infer completion from a process exit alone.
+Legacy Phase 1 surfaces use a simple ready state. Planned task/request/storage/evidence axes are defined above; task completion is separate from request success and requires the explicit acceptance checklist plus visible unresolved risks.
 
 ## Permissions and recipes
 
@@ -109,7 +180,7 @@ The visual language is an evolution sanctuary: quiet rounded panels, actual Eeve
 
 Use actual Eevee and evolution images, not hand-drawn ASCII substitutes. Prefer one consistent set of transparent `official-artwork` PNGs exposed by PokéAPI, with user-provided image files supported. This intentionally supersedes the earlier original-motif direction. Artwork retains its own colors; elemental colors belong to the surrounding UI. Before public distribution, review naming/art rights and avoid affiliation claims; source availability is not rights clearance.
 
-Planned spacious layout at 120x36: one-cell outer margin; three-row header; one-row gap; a 26-row body with a 22-column companion rail, one-column gutter, 64-column workspace, one-column gutter, and 30-column inspector; one-row gap; three-row contextual footer; one-cell bottom margin. Compact layouts reduce spacing before hiding useful content. Header shows task identity, full form name, operational state, and pending approvals; provenance belongs in the inspector, not every pane.
+Planned spacious layout at 120x36: one-cell outer margin; three-row header; one-row gap; a 26-row body with a 22-column companion rail, one-column gutter, 64-column workspace, one-column gutter, and 30-column inspector; one-row gap; three-row contextual footer; one-cell bottom margin. Compact layouts reduce spacing before hiding useful content. Header shows task identity, full form name, agent readiness, operational state, and pending approvals; detailed model/configuration/control provenance belongs in the inspector. When the inspector is hidden, the request preview still exposes those details before Run.
 
 - >=120 columns: three panes. 90-119: hide the inspector behind a toggle. 60-89: single workspace with compact header and drawers. Below 60x18: explicit small-terminal view, preserving cancel/quit access. Layout calculations must never underflow.
 - Use rounded Unicode borders when supported; provide an ASCII override. No emoji-dependent alignment or mandatory Nerd Fonts. Measure Unicode display width and handle CJK and combining characters.
@@ -129,10 +200,10 @@ Planned spacious layout at 120x36: one-cell outer margin; three-row header; one-
 - **Working task card:** goal, completion checklist, and one next action. Once real evidence exists, a short handoff trail shows accepted transitions only; it is not a fixed nine-stage completion bar.
 - **Evolution picker:** at >=90 columns and >=30 rows show a 3x3 grid of image thumbnails with a selected detail area. Otherwise use a compact list plus the selected image/role where space permits. Selection previews actual species artwork, responsibility, prerequisite status, and expected artifact; Enter changes form only. Digits 1-9 remain shortcuts. A recommendation is labelled as a recommendation and never activates itself.
 - **Contextual footer:** at most five primary hints for the focused surface; `?` reveals the full map. Do not advertise irrelevant keys. Approval buttons have explicit labels and neutral initial focus; opening a dialog or pressing Enter to inspect must not execute anything.
-- **Operational states:** ready, running, awaiting approval, blocked, complete, cancelled each has text and a distinct marker. Draft/saving/saved/save-failed are separate persistence labels, not task completion states. No progress percentage without a known denominator.
+- **Operational states:** use the separate task/request/storage/evidence axes defined above, each with text and a distinct marker where applicable. Do not equate provider success, a saved draft, or a completed command with task completion. No progress percentage without a known denominator.
 - **Empty/error states:** a short explanation, an actionable next step if available, and optional details. A missing provider is not a runtime failure; a failed command is not an empty state. Never replace useful evidence with a giant mascot or generic apology.
 - **Visual acceptance:** capture the actual TUI at 120x36, 100x30, 70x24, and 60x18, plus a below-minimum screen. Check all nine forms, long paths/goals, CJK/combining text, focus, selection, and error/approval dialogs as those features ship. Dark/light, indexed, monochrome, and ASCII must retain readable selected text and the same actions. No overlapping/clipped primary action, phantom counts, duplicate status blocks, or idle redraws.
-- `docs/TUI_MOCKUP.svg` is a planned composition reference, not a runtime screenshot or permission to invent live data. Implement using cell-aligned Ratatui widgets and verify the actual terminal; copying SVG pixel coordinates is not acceptance.
+- [Sanctuary composition](TUI_MOCKUP.svg) and [permission review](TUI_REQUEST_MOCKUP.svg) are planned design references, not runtime screenshots or permission to invent live data. Implement using cell-aligned Ratatui widgets and verify the actual terminal; copying SVG pixel coordinates is not acceptance.
 
 ### Actual species artwork: sourcing and rendering
 
@@ -153,13 +224,15 @@ Choose Rust with Ratatui and Crossterm for the native TUI, Tokio for asynchronou
 
 Rust offers native startup, predictable memory ownership, and no garbage-collector pauses. This is a fit-for-purpose decision, not a claim that any language is universally fastest. Model/network latency will usually dominate agent work; reducing unnecessary context and calls matters alongside rendering efficiency.
 
+The planned Claude Agent integration may use an optional pinned TypeScript SDK sidecar for its documented interactive lifecycle. This is a compatibility choice, not a mandatory runtime or a second UI implementation. Start it only for the selected provider; the native shell and other adapters work without it. Keep local IPC narrow, versioned, and bounded; compare its actual resource cost rather than assuming a bridge is free.
+
 - One terminal owner; blocking Git/SQLite/filesystem work stays off the rendering path.
 - Bounded worker channels; batch stream updates. Preserve output on disk while virtualizing the visible window; do not grow an in-memory transcript forever.
 - Invalidate only changed views; redraw on input/state changes, at most 30 fps during streams, never on an idle timer alone.
 - Cache parsing/diff results by source identity; avoid reloading the repository or recomputing all hashes per frame.
-- Use direct subprocess arguments by default; shell execution is explicit. Cancellation terminates the owned process group and records partial results.
-- Select context by scope and evidence references; do not inject every form prompt or the full historical transcript. Display provider-reported token counts separately from estimates; do not invent savings percentages.
+- Use direct subprocess arguments by default; shell execution is explicit. Local command cancellation terminates the owned process group and records partial results. External-agent cancellation follows its actual protocol; timeout/forced teardown records outcome unknown rather than claiming every child stopped or changes were undone.
+- Select context by scope and evidence references; do not inject every form prompt or the full historical transcript. Display provider-reported token counts separately from estimates, identify turn/session/cumulative scope, and disclose provider-added context that cannot be inspected. Do not invent savings percentages or sum incompatible counters.
 - Use one specialist request at a time initially. No background model chatter, automatic agent fan-out, or model calls for cosmetic transitions.
 - Redact credentials before persistence where identifiable; do not promise perfect redaction. Let users exclude sensitive paths and purge task artifacts.
 
-Initial performance acceptance targets, not measurements: idle CPU <1% of one core over 60s; idle RSS <=80 MiB; warm local startup to usable UI p95 <=200 ms over 30 runs; local key-to-render p95 <=50 ms under streamed output. Record hardware, release profile, terminal size, sample method, and workload. Benchmark a 10 MiB output stream and a 10,000-line diff; memory must remain bounded by configured windows/queues. Optimize from measurements, not assumptions.
+Initial native local-shell performance acceptance targets, not measurements: idle CPU <1% of one core over 60s; idle RSS <=80 MiB; warm local startup to usable UI p95 <=200 ms over 30 runs; local key-to-render p95 <=50 ms under streamed output. Record hardware, release profile, terminal size, sample method, and workload. Report optional SDK bridge and external-agent resources separately **and in aggregate**; a core-only number is not total application cost. Benchmark a 10 MiB output stream and a 10,000-line diff; memory must remain bounded by configured windows/queues. Optimize from measurements, not assumptions.

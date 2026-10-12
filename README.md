@@ -52,11 +52,15 @@ Phase 1 was also exercised as a real subprocess in a PTY at 120x36, 100x30, 70x2
 
 - [Product and visual contract](docs/DESIGN_RULES.md)
 - [English implementation plan](docs/IMPLEMENTATION_PLAN.md)
+- [Agent compatibility, control boundaries, and handoff contract](docs/AGENT_COMPATIBILITY.md)
 - [Conceptual TUI mockup](docs/TUI_MOCKUP.svg)
+- [Planned permission-review interaction](docs/TUI_REQUEST_MOCKUP.svg)
 - [Actionable backlog and per-task acceptance](task.md)
 - [Session checkpoint](docs/WORK_CHECKPOINT.md)
 - [Terminal troubleshooting](docs/TROUBLESHOOTING.md)
 
-Planned next: V01 sanctuary layout/hierarchy, V02A actual Eevee/evolution assets with cell rendering, V02B native terminal image rendering, and V03 image-based evolution selection; then durable tasks and repository context. The [design contract](docs/DESIGN_RULES.md) defines image sourcing, copyright caveats, and terminal fallbacks. The running binary remains the verified Phase 1 shell; actual artwork support is not implemented yet.
+Planned next: V01 sanctuary layout/hierarchy, V02A actual Eevee/evolution assets with cell rendering, V02B native terminal images, V03 image-based evolution selection, and UX01 focus/editing/linear layout; then durable tasks and repository context. The [design contract](docs/DESIGN_RULES.md) defines image sourcing, copyright caveats, accessibility, approvals, and recovery. All 27 implementation tasks remain pending; the binary is still the verified Phase 1 shell.
 
-The SVG is a design illustration, not a runtime screenshot. Performance figures in the design contract remain acceptance targets, not measured results.
+Later integration targets: Codex app-server first, an optional official Claude Agent SDK bridge, and one ACP client exercised against OpenCode and Gemini. A form selects the workflow, not the vendor. Switching agents uses a reviewed fresh handoff; native provider sessions and grants are not portable. The Rust core/local UI needs no Node runtime; only the optional Claude SDK integration would add one. Interface research and a local Codex version/help check are not runtime interoperability verification.
+
+The SVGs are design illustrations, not runtime screenshots. Actual artwork rendering and external agents are not implemented. Performance figures remain scoped acceptance targets, not measured results. Public distribution requires both artwork/name rights review and provider auth/branding/terms review.

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" fill="none" role="img" aria-labelledby="title description">
   <title id="title">Eevee sanctuary — planned terminal composition</title>
-  <desc id="description">Design illustration, not a runtime screenshot. The portrait well is reserved for actual Eevee artwork loaded from a local source-tracked image, not a hand-drawn motif. The SVG intentionally embeds no franchise bytes. One task card and next action occupy the center; context, connection, and permission details live in the inspector. All sample task content is illustrative.</desc>
+  <desc id="description">Design illustration, not a runtime screenshot. The portrait well is reserved for actual Eevee artwork loaded from a local source-tracked image. The SVG embeds no franchise bytes. One task card and next action occupy the center; selected context, execution agent, model, and control boundary live in the inspector. The local draft is distinct from a provider request. All sample task content is illustrative.</desc>
   <style>
     text { font-family: ui-monospace, monospace; font-size: 14px; fill: var(--fg, currentColor); }
     .muted { fill: var(--muted, currentColor); }
@@ -15,7 +15,7 @@
   <rect x="16" y="44" width="928" height="496" rx="12" class="line"/>
   <text x="34" y="74">Fix configuration reload</text>
   <text x="710" y="74" class="accent">EEVEE · READY</text>
-  <text x="34" y="96" class="muted">One task. One partner. Choose the tools you need.</text>
+  <text x="34" y="96" class="muted">Agent: none / local action / draft not saved</text>
   <path d="M32 112H928" class="line"/>
 
   <rect x="32" y="128" width="172" height="356" rx="8" class="line"/>
@@ -53,12 +53,13 @@
   <text x="718" y="189">Selected context</text>
   <text x="718" y="213" class="muted">No source ranges</text>
   <text x="718" y="233" class="muted">pinned yet.</text>
-  <text x="718" y="278">Provider</text>
-  <text x="718" y="302" class="muted">Not connected</text>
-  <text x="718" y="347">Permissions</text>
-  <text x="718" y="371" class="muted">No grants</text>
-  <text x="718" y="423" class="muted">Form selection does</text>
-  <text x="718" y="443" class="muted">not start a request.</text>
+  <text x="718" y="270">Execution agent</text>
+  <text x="718" y="294" class="muted">Not selected</text>
+  <text x="718" y="318" class="muted">Model: unavailable</text>
+  <text x="718" y="355">Control boundary</text>
+  <text x="718" y="379" class="muted">Not negotiated</text>
+  <text x="718" y="423" class="muted">Ctrl+K / Connect agent</text>
+  <text x="718" y="443" class="muted">Local work needs none.</text>
 
   <path d="M32 500H928" class="line"/>
   <text x="34" y="524" class="muted">Tab Focus</text>

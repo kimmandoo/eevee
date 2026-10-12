@@ -1,5 +1,30 @@
 # Work Checkpoint
 
+## 2026-10-12 — Detailed UX and multi-agent compatibility plan
+
+- Active work: implement the Eevee workbench incrementally. This request refined the English plan, interaction contract, compatibility boundaries, and acceptance backlog; it did not implement an adapter or complete a runtime task.
+- Exact next action: read this checkpoint, `AGENTS.md`, `task.md`, and the incremental delivery section of `docs/IMPLEMENTATION_PLAN.md`; implement **V01 — Sanctuary layout and visual hierarchy** in the existing TUI. Preserve its honest Phase 1 state, reserve the actual-artwork area, and verify real terminal layouts/themes. Do not jump to agent integration because its plan is detailed.
+- Current order: V01 -> V02A -> V02B -> V03 -> UX01 -> local persistence/context -> controlled execution and UX02 recovery -> A01-A07 interoperability -> specialist workflows -> integrated acceptance. All **27** implementation tasks remain unchecked; Phase 1 remains the only completed application phase. Previous checkpoint next actions are historical.
+- UX contract: independent task/request/storage/evidence states; keyboard-first focus restoration and CJK editing/paste; separate draft/preview/run; neutral initial approval focus; correlated permission/questions; no silent retries; explicit cancelling/unknown outcomes; save-failure recovery; linear text layout and measured contrast. Real assistive-terminal verification is required before a screen-reader claim.
+- Concept: actual Eevee/evolution images remain the companion identity; role and agent are independent. Keep one task agent by default, no nine-process swarm, no model calls for form selection, no fake progress or completion. The inspector/request preview exposes model and actual control/configuration limits.
+- Interoperability decisions: Rust-owned Codex app-server first; optional pinned TypeScript Claude Agent SDK bridge for its documented interactive API; one negotiated ACP v1 client exercised against OpenCode and Gemini; manual reviewed handoff for unsupported CLIs. Keep the native local shell independent of Node. A07's handoff schema is reused by Sylveon, not duplicated.
+- Safety/ownership limits: approval callbacks are not universal interception or OS isolation. Selected excerpts describe Eevee-sent context, not every provider-added instruction/file. Provider session IDs/grants do not migrate between agents; a handoff starts a fresh reviewed session. Keep auth/billing/config trust explicit, including provider-owned persistent effects. Claude SDK subscription-login restrictions and Codex app-server distribution terms require review; no credential copying or implied entitlement.
+- New reference: `docs/AGENT_COMPATIBILITY.md` records primary sources, documented versus observed behavior, per-provider caveats, request/event/accounting contracts, and the shared real-agent conformance gate.
+- Changed files: `README.md`, `CHANGELOG.md`, `task.md`, `docs/DESIGN_RULES.md`, `docs/IMPLEMENTATION_PLAN.md`, `docs/AGENT_COMPATIBILITY.md`, `docs/TUI_MOCKUP.svg`, `docs/TUI_REQUEST_MOCKUP.svg`, and this checkpoint. No Rust source, dependency, or application behavior changed.
+- Starting state: `main...origin/main [ahead 3]`; latest commit `326e637 docs(design): plan actual evolution artwork and incremental UX tasks`. Pre-existing untracked `.DS_Store` and `AGENTS.md` were left untouched and excluded from the session commit.
+
+### Verification in this planning session
+
+- `codex --version`: `codex-cli 0.147.0`. `codex app-server --help`: experimental app-server, stdio default, schema-generation commands, and strict-config support. These are CLI help observations, not a successful protocol handshake.
+- `command -v claude`, `command -v gemini`, and `command -v opencode`: none found on the current PATH. No install/login/configuration change or paid/model request was attempted.
+- Inspected release-matched Codex protocol/source, official Claude SDK/CLI/auth/permission documentation, ACP v1, OpenCode ACP, Gemini ACP, and MCP architecture. Documentation research does not establish runtime support; exact sources and version caveats are linked in the compatibility contract.
+- In-memory JavaScript validation checked 27 unique pending task IDs, dependency existence/order/acyclicity, per-task change/acceptance sections, and 22 local Markdown links including the compatibility anchor. Final dependency alignment reused A07 in S01.
+- Browser-rendered both static SVGs in dark and light previews, using the cached actual-source 475x475 Eevee PNG in the home portrait. No SVG parse errors or text outside the viewBox; approval initial focus was Details. Inspected both screenshots and closed the managed browser tab.
+- Preview-only contrast check: minimum text contrast 7.89:1 dark / 5.29:1 light; focus accent contrast 11.37:1 / 6.75:1 against the preview canvas. These theme-aware browser values do not prove current Rust theme or arbitrary terminal palette contrast.
+- Local ignored visual evidence: `target/design-artwork/ux-compatibility-dark.png` and `target/design-artwork/ux-compatibility-light.png`. Committed SVGs remain static/theme-variable-only and embed no franchise image bytes. The browser study is not a real TUI, native graphics, accessibility, or interoperability smoke.
+- No application build/test/smoke was rerun: only plans and SVG assets changed. The prior Phase 1 evidence below remains the last runtime verification. No new non-trivial implementation/environment issue was resolved; the existing troubleshooting record is unchanged.
+- Blockers: none for V01. Later native-image acceptance requires a graphics-capable terminal. Later adapter gates need real compatible installations and permitted credentials; auth, approvals, cancellation, and cross-agent handoff remain unverified until those tasks run.
+
 ## 2026-10-12 — Concept refinement and actual species artwork plan
 
 - Active work: implement the Eevee workbench incrementally. The current request refined the product/design/backlog; no application implementation task was completed in this documentation session.

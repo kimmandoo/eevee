@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 590" fill="none" role="img" aria-labelledby="title description">
+  <title id="title">Eevee permission review — planned interaction</title>
+  <desc id="description">Illustrative permission request, not a live command. Jolteon is the role and Codex is the execution agent. The initial focus is Details, not Allow. Exact request, provider control limitations, and one-time approval scope are visible. Closing the panel leaves the request pending.</desc>
+  <style>
+    text { font-family: ui-monospace, monospace; font-size: 14px; fill: var(--fg, currentColor); }
+    .muted { fill: var(--muted, currentColor); }
+    .accent { fill: var(--accent, currentColor); }
+    .warning { fill: var(--warning, currentColor); }
+    .label { font-size: 12px; letter-spacing: 1px; }
+    .line { stroke: var(--border, currentColor); }
+    .focus { stroke: var(--accent, currentColor); }
+  </style>
+  <text x="20" y="24" class="accent">eevee / request review</text>
+  <text x="566" y="24" class="muted label">PLANNED UX · NOT A LIVE REQUEST</text>
+  <rect x="16" y="44" width="928" height="526" rx="12" class="line"/>
+  <text x="34" y="74">Verify configuration reload</text>
+  <text x="566" y="74" class="accent">JOLTEON / execution &amp; verification</text>
+  <text x="34" y="99" class="muted">Agent: Codex   /   model: agent default   /   origin: agent tool</text>
+  <path d="M32 114H928" class="line"/>
+
+  <rect x="32" y="130" width="896" height="51" rx="6" class="line"/>
+  <text x="50" y="152" class="warning">AWAITING PERMISSION</text>
+  <text x="304" y="152">No decision has been sent.</text>
+  <text x="50" y="172" class="muted label">CHANGING ROLE OR AGENT DOES NOT AUTHORIZE THIS REQUEST</text>
+
+  <rect x="32" y="197" width="566" height="262" rx="8" class="line"/>
+  <text x="50" y="223" class="muted label">EXACT REQUEST / ILLUSTRATIVE VALUES</text>
+  <text x="50" y="254">Program: cargo</text>
+  <text x="50" y="281">Args: ["test", "reload_keeps_last_config"]</text>
+  <text x="50" y="308">Cwd: /example/project</text>
+  <path d="M50 327H580" class="line"/>
+  <text x="50" y="351">May create or update build outputs.</text>
+  <text x="50" y="377" class="muted">Complete effects are not inferred from the name.</text>
+  <text x="50" y="416" class="muted">Request details stay inspectable before a decision.</text>
+  <text x="50" y="438" class="muted">No silent retry or duplicate command launch.</text>
+
+  <rect x="614" y="197" width="314" height="262" rx="8" class="line"/>
+  <text x="632" y="223" class="muted label">CONTROL BOUNDARY</text>
+  <text x="632" y="254">Eevee relays this decision.</text>
+  <text x="632" y="282">Execution policy: agent-owned</text>
+  <text x="632" y="310" class="warning">Network boundary: unverified</text>
+  <path d="M632 327H910" class="line"/>
+  <text x="632" y="352">Allow once = this request.</text>
+  <text x="632" y="380" class="muted">Not a saved permission rule.</text>
+  <text x="632" y="416" class="muted">Esc closes this panel.</text>
+  <text x="632" y="438" class="muted">The request remains pending.</text>
+
+  <rect x="32" y="477" width="238" height="42" rx="6" class="focus"/>
+  <text x="48" y="503" class="accent">&gt; Details [initial focus]</text>
+  <rect x="286" y="477" width="202" height="42" rx="6" class="line"/>
+  <text x="314" y="503">Allow once</text>
+  <rect x="504" y="477" width="146" height="42" rx="6" class="line"/>
+  <text x="540" y="503">Reject</text>
+  <text x="680" y="503" class="muted">No default approval</text>
+
+  <text x="34" y="547" class="muted">Tab Choose action</text>
+  <text x="272" y="547" class="muted">Enter Activate focus</text>
+  <text x="560" y="547" class="muted">Esc Back</text>
+  <text x="724" y="547" class="muted">Ctrl+C Cancel run</text>
+</svg>
