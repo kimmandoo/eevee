@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -12,6 +12,8 @@ const DATABASE: &str = "workbench.sqlite3";
 const LOCK: &str = "workbench.lock";
 const BUSY_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_GOAL_BYTES: usize = 4096;
+const MAX_TASKS: usize = 256;
+const TASK_COLUMNS: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
@@ -19,12 +21,94 @@ pub struct Snapshot {
     pub goal: String,
     pub form: usize,
     pub revision: u64,
+    pub id: i64,
+    pub criteria: Vec<Criterion>,
+    pub next_action: String,
+    pub complete: bool,
+    pub drafts: Vec<Draft>,
+    pub navigation: Navigation,
+    pub updated_at: i64,
+}
+
+impl Snapshot {
+    pub fn empty(project: String) -> Self {
+        Self {
+            project,
+            goal: String::new(),
+            form: 0,
+            revision: 0,
+            id: 0,
+            criteria: Vec::new(),
+            next_action: String::new(),
+            complete: false,
+            drafts: Vec::new(),
+            navigation: Navigation::default(),
+            updated_at: 0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Criterion {
+    pub text: String,
+    pub met: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EditorField {
+    #[default]
+    Goal,
+    Criteria,
+    NextAction,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Draft {
+    pub field: EditorField,
+    pub text: String,
+    pub cursor: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Navigation {
+    pub focus: u8,
+    pub linear: bool,
+    pub form_selection: usize,
+    pub palette_selection: usize,
+    pub criterion_selection: usize,
+    pub scroll: [u16; 5],
+    pub overlay: Option<u8>,
+    pub editing: bool,
+    pub editor_field: EditorField,
+}
+
+impl Default for Navigation {
+    fn default() -> Self {
+        Self {
+            focus: 1,
+            linear: false,
+            form_selection: 0,
+            palette_selection: 0,
+            criterion_selection: 0,
+            scroll: [0; 5],
+            overlay: None,
+            editing: false,
+            editor_field: EditorField::Goal,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Project {
+    pub tasks: Vec<Snapshot>,
+    pub active_id: Option<i64>,
 }
 
 #[derive(Debug)]
 pub enum Event {
-    Loaded(Option<Snapshot>),
-    Saved(u64),
+    Loaded(Project),
+    Saved(Snapshot),
+    Selected(Snapshot),
     Failed {
         revision: Option<u64>,
         message: String,
@@ -33,6 +117,7 @@ pub enum Event {
 
 enum Command {
     Save(Snapshot),
+    Select(i64),
     Retry,
 }
 
@@ -57,17 +142,30 @@ impl Worker {
         })
     }
 
-    /// Returns ownership on a full or disconnected queue; acceptance is not a save acknowledgement.
-    pub fn try_save(&self, snapshot: Snapshot) -> Result<(), Snapshot> {
+    /// Queues a pending snapshot, retaining it on backpressure or disconnect.
+    /// Acceptance is not a save acknowledgement; an empty pending slot returns false.
+    pub fn try_save(&self, pending: &mut Option<Snapshot>) -> bool {
         let Some(commands) = &self.commands else {
-            return Err(snapshot);
+            return false;
+        };
+        let Some(snapshot) = pending.take() else {
+            return false;
         };
         match commands.try_send(Command::Save(snapshot)) {
-            Ok(()) => Ok(()),
+            Ok(()) => true,
             Err(TrySendError::Full(Command::Save(snapshot)))
-            | Err(TrySendError::Disconnected(Command::Save(snapshot))) => Err(snapshot),
+            | Err(TrySendError::Disconnected(Command::Save(snapshot))) => {
+                *pending = Some(snapshot);
+                false
+            }
             Err(_) => unreachable!("try_send returns the submitted command"),
         }
+    }
+
+    pub fn try_select(&self, id: i64) -> bool {
+        self.commands
+            .as_ref()
+            .is_some_and(|commands| commands.try_send(Command::Select(id)).is_ok())
     }
 
     pub fn try_event(&self) -> Option<Event> {
@@ -105,10 +203,20 @@ fn run(data_dir: PathBuf, project: String, commands: Receiver<Command>, events: 
     while let Ok(command) = commands.recv() {
         let event = match command {
             Command::Retry => state.reopen(),
-            Command::Save(snapshot) => match state.save(&snapshot) {
-                Ok(()) => Event::Saved(snapshot.revision),
+            Command::Save(snapshot) => {
+                let revision = snapshot.revision;
+                match state.save(snapshot) {
+                    Ok(saved) => Event::Saved(saved),
+                    Err(error) => Event::Failed {
+                        revision: Some(revision),
+                        message: actionable(error),
+                    },
+                }
+            }
+            Command::Select(id) => match state.select(id) {
+                Ok(saved) => Event::Selected(saved),
                 Err(error) => Event::Failed {
-                    revision: Some(snapshot.revision),
+                    revision: None,
                     message: actionable(error),
                 },
             },
@@ -140,7 +248,7 @@ impl State {
         }
     }
 
-    fn open_and_load(&mut self) -> Result<Option<Snapshot>, String> {
+    fn open_and_load(&mut self) -> Result<Project, String> {
         if self.project.is_empty() {
             return Err("The canonical Unicode project identity is empty".into());
         }
@@ -194,8 +302,8 @@ impl State {
         Ok(snapshot)
     }
 
-    fn save(&mut self, snapshot: &Snapshot) -> Result<(), String> {
-        validate(snapshot)?;
+    fn save(&mut self, mut snapshot: Snapshot) -> Result<Snapshot, String> {
+        validate(&snapshot)?;
         if snapshot.project != self.project {
             return Err(
                 "Save project does not match this worker's canonical project identity".into(),
@@ -208,35 +316,103 @@ impl State {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|error| format!("Cannot begin save transaction: {error}"))?;
-        if let Some(previous) = load(&transaction, &snapshot.project)? {
+        if snapshot.id != 0 {
+            let previous = load_task(&transaction, &self.project, snapshot.id)?
+                .ok_or("Task does not exist in this project")?;
+            // A caller may still have the timestamp from an earlier acknowledgement.
+            // Timestamps are storage-owned and never participate in revision conflicts.
+            snapshot.updated_at = previous.updated_at;
             if snapshot.revision < previous.revision
-                || (snapshot.revision == previous.revision && snapshot != &previous)
+                || (snapshot.revision == previous.revision && snapshot != previous)
             {
-                return Err("Refusing a stale or conflicting revision; reload the committed project before saving".into());
+                return Err("Refusing a stale or conflicting revision; reload the committed task before saving".into());
             }
-            if snapshot == &previous {
+            if snapshot == previous {
                 transaction
                     .commit()
                     .map_err(|error| format!("Cannot commit save transaction: {error}"))?;
-                return Ok(());
+                return Ok(previous);
+            }
+            if previous.complete
+                && snapshot.complete
+                && (previous.goal != snapshot.goal || previous.criteria != snapshot.criteria)
+            {
+                return Err(
+                    "Reopen the completed task before changing its goal or criteria".into(),
+                );
+            }
+        } else {
+            let count: i64 = transaction
+                .query_row(
+                    "SELECT count(*) FROM tasks WHERE project=?1",
+                    [&self.project],
+                    |row| row.get(0),
+                )
+                .map_err(|error| error.to_string())?;
+            if count >= MAX_TASKS as i64 {
+                return Err("Project capacity reached (256 tasks); no tasks were removed".into());
             }
         }
-        transaction.execute(
-            "INSERT INTO projects(project, goal, form, revision) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(project) DO UPDATE SET goal=excluded.goal, form=excluded.form, revision=excluded.revision
-             WHERE excluded.revision > projects.revision",
-            params![snapshot.project, snapshot.goal, snapshot.form as i64, snapshot.revision as i64],
-        ).map_err(|error| format!("Cannot write the goal: {error}"))?;
+        let criteria =
+            serde_json::to_string(&snapshot.criteria).map_err(|error| error.to_string())?;
+        let drafts = serde_json::to_string(&snapshot.drafts).map_err(|error| error.to_string())?;
+        let navigation =
+            serde_json::to_string(&snapshot.navigation).map_err(|error| error.to_string())?;
+        let updated_at: i64 = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| format!("Cannot timestamp the save: {error}"))?
+            .as_millis()
+            .try_into()
+            .map_err(|_| "Save timestamp exceeds SQLite's integer range")?;
+        let id = if snapshot.id == 0 {
+            transaction.execute(
+                "INSERT INTO tasks(project,goal,form,revision,criteria,next_action,complete,drafts,navigation,updated_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+                params![snapshot.project, snapshot.goal, snapshot.form as i64, snapshot.revision as i64,
+                    criteria, snapshot.next_action, snapshot.complete, drafts, navigation, updated_at],
+            ).map_err(|error| format!("Cannot insert the task: {error}"))?;
+            let id = transaction.last_insert_rowid();
+            select_task(&transaction, &self.project, id)?;
+            id
+        } else {
+            transaction.execute(
+                "UPDATE tasks SET goal=?1,form=?2,revision=?3,criteria=?4,next_action=?5,complete=?6,
+                 drafts=?7,navigation=?8,updated_at=?9 WHERE id=?10 AND project=?11",
+                params![snapshot.goal, snapshot.form as i64, snapshot.revision as i64, criteria,
+                    snapshot.next_action, snapshot.complete, drafts, navigation, updated_at,
+                    snapshot.id, snapshot.project],
+            ).map_err(|error| format!("Cannot write the task: {error}"))?;
+            snapshot.id
+        };
         transaction
             .commit()
-            .map_err(|error| format!("Cannot commit the goal: {error}"))?;
-        Ok(())
+            .map_err(|error| format!("Cannot commit the task: {error}"))?;
+        snapshot.id = id;
+        snapshot.updated_at = updated_at;
+        Ok(snapshot)
+    }
+
+    fn select(&mut self, id: i64) -> Result<Snapshot, String> {
+        let connection = self
+            .connection
+            .as_mut()
+            .ok_or("Storage is unavailable; retry opening it before selecting a task")?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("Cannot begin selection transaction: {error}"))?;
+        let saved = load_task(&transaction, &self.project, id)?
+            .ok_or("Task does not exist in this project")?;
+        select_task(&transaction, &self.project, id)?;
+        transaction
+            .commit()
+            .map_err(|error| format!("Cannot commit task selection: {error}"))?;
+        Ok(saved)
     }
 }
 
 fn actionable(error: String) -> String {
     format!(
-        "{error}. Retry after resolving the problem, select an isolated data directory, or export readable goals with --export-data FILE; the existing store is never reset."
+        "{error}. Retry after resolving the problem, select an isolated data directory, or export readable tasks with --export-data FILE; the existing store is never reset."
     )
 }
 
@@ -253,26 +429,143 @@ fn validate(snapshot: &Snapshot) -> Result<(), String> {
     if snapshot.revision > i64::MAX as u64 {
         return Err("A revision exceeds SQLite's signed integer range".into());
     }
+    if snapshot.id < 0 || snapshot.updated_at < 0 {
+        return Err("Task IDs and timestamps must not be negative".into());
+    }
+    if snapshot.next_action.len() > MAX_GOAL_BYTES {
+        return Err("A next action exceeds the 4096-byte storage limit".into());
+    }
+    if snapshot.criteria.len() > 64 || snapshot.criteria.iter().any(|item| item.text.len() > 256) {
+        return Err("Acceptance criteria exceed 64 entries or 256 bytes per entry".into());
+    }
+    if snapshot.complete
+        && (snapshot.criteria.is_empty() || snapshot.criteria.iter().any(|item| !item.met))
+    {
+        return Err("Completing a task requires nonempty, all-met acceptance criteria".into());
+    }
+    if snapshot.drafts.len() > 3 {
+        return Err("A task may retain at most three drafts".into());
+    }
+    for (index, draft) in snapshot.drafts.iter().enumerate() {
+        if draft.text.len() > MAX_GOAL_BYTES || !draft.text.is_char_boundary(draft.cursor) {
+            return Err(
+                "A draft exceeds 4096 bytes or has an invalid UTF-8 cursor boundary".into(),
+            );
+        }
+        if snapshot.drafts[..index]
+            .iter()
+            .any(|other| other.field == draft.field)
+        {
+            return Err("A task may retain only one draft per editor field".into());
+        }
+    }
+    let nav = &snapshot.navigation;
+    if nav.focus > 2
+        || nav.form_selection >= 9
+        || nav.palette_selection >= 13
+        || nav.criterion_selection >= 64
+        || nav.overlay.is_some_and(|overlay| overlay > 5)
+    {
+        return Err("Stored navigation indices are out of bounds".into());
+    }
     Ok(())
 }
 
-fn load(connection: &Connection, project: &str) -> Result<Option<Snapshot>, String> {
+fn select_task(connection: &Connection, project: &str, id: i64) -> Result<(), String> {
+    connection
+        .execute(
+            "INSERT INTO selections(project,active_id) VALUES (?1,?2)
+         ON CONFLICT(project) DO UPDATE SET active_id=excluded.active_id",
+            params![project, id],
+        )
+        .map_err(|error| format!("Cannot persist task selection: {error}"))?;
+    Ok(())
+}
+
+fn load(connection: &Connection, project: &str) -> Result<Project, String> {
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT {TASK_COLUMNS} FROM tasks WHERE project=?1 ORDER BY id"
+        ))
+        .map_err(|error| error.to_string())?;
+    let tasks = statement
+        .query_map([project], snapshot_row)
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| format!("Cannot load saved tasks: {error}"))?;
+    let active_id = connection
+        .query_row(
+            "SELECT active_id FROM selections WHERE project=?1",
+            [project],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    Ok(Project { tasks, active_id })
+}
+
+fn load_task(connection: &Connection, project: &str, id: i64) -> Result<Option<Snapshot>, String> {
     connection
         .query_row(
-            "SELECT project, goal, form, revision FROM projects WHERE project=?1",
-            [project],
+            &format!("SELECT {TASK_COLUMNS} FROM tasks WHERE project=?1 AND id=?2"),
+            params![project, id],
             snapshot_row,
         )
         .optional()
-        .map_err(|error| format!("Cannot load the saved goal: {error}"))
+        .map_err(|error| format!("Cannot load the saved task: {error}"))
+}
+
+fn json_column<T: serde::de::DeserializeOwned>(
+    row: &rusqlite::Row<'_>,
+    index: usize,
+    max: usize,
+) -> rusqlite::Result<T> {
+    let text: String = row.get(index)?;
+    if text.len() > max {
+        return Err(rusqlite::Error::FromSqlConversionFailure(
+            index,
+            rusqlite::types::Type::Text,
+            Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Stored JSON exceeds its bounded size",
+            )),
+        ));
+    }
+    serde_json::from_str(&text).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            index,
+            rusqlite::types::Type::Text,
+            Box::new(error),
+        )
+    })
 }
 
 fn snapshot_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Snapshot> {
+    let complete: i64 = row.get(7)?;
+    if !(0..=1).contains(&complete) {
+        return Err(rusqlite::Error::IntegralValueOutOfRange(7, complete));
+    }
     Ok(Snapshot {
         project: row.get(0)?,
         goal: row.get(1)?,
         form: row.get(2)?,
         revision: row.get(3)?,
+        id: row.get(4)?,
+        criteria: json_column(row, 5, 110_000)?,
+        next_action: row.get(6)?,
+        complete: complete != 0,
+        drafts: json_column(row, 8, 80_000)?,
+        navigation: json_column(row, 9, 1024)?,
+        updated_at: row.get(10)?,
+    })
+}
+
+fn legacy_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Snapshot> {
+    Ok(Snapshot {
+        goal: row.get(1)?,
+        form: row.get(2)?,
+        revision: row.get(3)?,
+        ..Snapshot::empty(row.get(0)?)
     })
 }
 
@@ -280,6 +573,7 @@ fn snapshot_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Snapshot> {
 enum Schema {
     Empty,
     Legacy,
+    Projects,
     Current,
 }
 
@@ -301,9 +595,9 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=1).contains(&version) {
+    if !(0..=2).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0 and 1"
+            "Unsupported database schema version {version}; this ev supports versions 0, 1 and 2"
         ));
     }
     let mut statement = connection
@@ -321,7 +615,15 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
     let schema = match (version, objects.as_slice()) {
         (0, []) => Schema::Empty,
         (0, [(kind, name)]) if kind == "table" && name == "goals" => Schema::Legacy,
-        (1, [(kind, name)]) if kind == "table" && name == "projects" => Schema::Current,
+        (1, [(kind, name)]) if kind == "table" && name == "projects" => Schema::Projects,
+        (2, [(kind_a, name_a), (kind_b, name_b)])
+            if kind_a == "table"
+                && name_a == "selections"
+                && kind_b == "table"
+                && name_b == "tasks" =>
+        {
+            Schema::Current
+        }
         _ => return Err("Unrecognized or nonempty foreign database schema".into()),
     };
     let (table, expected, query): (&str, &[ColumnSpec], &str) = match schema {
@@ -335,7 +637,7 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
             ],
             "SELECT project, goal, form, 0 FROM goals",
         ),
-        Schema::Current => (
+        Schema::Projects => (
             "projects",
             &[
                 ("project", "TEXT", false, 1),
@@ -345,7 +647,80 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
             ],
             "SELECT project, goal, form, revision FROM projects",
         ),
+        Schema::Current => {
+            inspect_columns(
+                connection,
+                "selections",
+                &[
+                    ("project", "TEXT", false, 1),
+                    ("active_id", "INTEGER", true, 0),
+                ],
+            )?;
+            inspect_columns(
+                connection,
+                "tasks",
+                &[
+                    ("id", "INTEGER", false, 1),
+                    ("project", "TEXT", true, 0),
+                    ("goal", "TEXT", true, 0),
+                    ("form", "INTEGER", true, 0),
+                    ("revision", "INTEGER", true, 0),
+                    ("criteria", "TEXT", true, 0),
+                    ("next_action", "TEXT", true, 0),
+                    ("complete", "INTEGER", true, 0),
+                    ("drafts", "TEXT", true, 0),
+                    ("navigation", "TEXT", true, 0),
+                    ("updated_at", "INTEGER", true, 0),
+                ],
+            )?;
+            let mut rows = connection
+                .prepare(&format!("SELECT {TASK_COLUMNS} FROM tasks"))
+                .map_err(|error| error.to_string())?;
+            for row in rows
+                .query_map([], snapshot_row)
+                .map_err(|error| error.to_string())?
+            {
+                let task = row.map_err(|error| format!("Invalid stored task: {error}"))?;
+                validate(&task)?;
+                if task.id == 0 {
+                    return Err("Stored task ID must be positive".into());
+                }
+            }
+            let invalid: bool = connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM selections s LEFT JOIN tasks t
+                 ON t.id=s.active_id AND t.project=s.project WHERE t.id IS NULL)
+                 OR EXISTS(SELECT 1 FROM tasks t LEFT JOIN selections s ON s.project=t.project
+                 WHERE s.project IS NULL)
+                 OR EXISTS(SELECT 1 FROM tasks GROUP BY project HAVING count(*) > 256)",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|error| error.to_string())?;
+            if invalid {
+                return Err("Invalid project task selection or project capacity".into());
+            }
+            return Ok(schema);
+        }
     };
+    inspect_columns(connection, table, expected)?;
+    let mut rows = connection
+        .prepare(query)
+        .map_err(|error| error.to_string())?;
+    for row in rows
+        .query_map([], legacy_row)
+        .map_err(|error| error.to_string())?
+    {
+        validate(&row.map_err(|error| format!("Invalid stored goal: {error}"))?)?;
+    }
+    Ok(schema)
+}
+
+fn inspect_columns(
+    connection: &Connection,
+    table: &str,
+    expected: &[ColumnSpec],
+) -> Result<(), String> {
     let mut columns = connection
         .prepare(&format!("PRAGMA table_info({table})"))
         .map_err(|error| error.to_string())?;
@@ -371,52 +746,63 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
     {
         return Err(format!("Unrecognized {table} table layout"));
     }
-    let mut rows = connection
-        .prepare(query)
-        .map_err(|error| error.to_string())?;
-    for row in rows
-        .query_map([], snapshot_row)
-        .map_err(|error| error.to_string())?
-    {
-        validate(&row.map_err(|error| format!("Invalid stored goal: {error}"))?)?;
-    }
-    Ok(schema)
+    Ok(())
 }
 
 fn initialize(connection: &mut Connection) -> Result<(), String> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| format!("Cannot begin database initialization: {error}"))?;
-    match inspect(&transaction)? {
-        Schema::Current => {}
-        schema => {
-            transaction
-                .execute_batch(
-                    "CREATE TABLE projects (
-                    project TEXT PRIMARY KEY,
-                    goal TEXT NOT NULL CHECK(length(CAST(goal AS BLOB)) <= 4096),
-                    form INTEGER NOT NULL CHECK(form >= 0 AND form < 9),
-                    revision INTEGER NOT NULL CHECK(revision >= 0)
-                );",
-                )
-                .map_err(|error| format!("Cannot initialize projects: {error}"))?;
-            if matches!(schema, Schema::Legacy) {
-                // Schema 0: goals(project TEXT PRIMARY KEY, goal TEXT NOT NULL,
-                // form INTEGER NOT NULL), PRAGMA user_version=0. Copy, removal,
-                // and version change are one transaction, never a partial migration.
-                transaction.execute_batch(
-                    "INSERT INTO projects(project, goal, form, revision) SELECT project, goal, form, 0 FROM goals;
-                     DROP TABLE goals;",
-                ).map_err(|error| format!("Cannot migrate schema 0: {error}"))?;
-            }
-            transaction
-                .pragma_update(None, "user_version", 1)
-                .map_err(|error| error.to_string())?;
-        }
-    }
+    migrate(&transaction, inspect(&transaction)?)?;
     transaction
         .commit()
         .map_err(|error| format!("Cannot commit database initialization: {error}"))
+}
+
+fn migrate(connection: &Connection, schema: Schema) -> Result<(), String> {
+    if matches!(schema, Schema::Current) {
+        return Ok(());
+    }
+    connection
+        .execute_batch(
+            "CREATE TABLE tasks (
+            id INTEGER PRIMARY KEY,
+            project TEXT NOT NULL,
+            goal TEXT NOT NULL CHECK(length(CAST(goal AS BLOB)) <= 4096),
+            form INTEGER NOT NULL CHECK(form >= 0 AND form < 9),
+            revision INTEGER NOT NULL CHECK(revision >= 0),
+            criteria TEXT NOT NULL CHECK(length(CAST(criteria AS BLOB)) <= 110000),
+            next_action TEXT NOT NULL CHECK(length(CAST(next_action AS BLOB)) <= 4096),
+            complete INTEGER NOT NULL CHECK(complete IN (0,1)),
+            drafts TEXT NOT NULL CHECK(length(CAST(drafts AS BLOB)) <= 80000),
+            navigation TEXT NOT NULL CHECK(length(CAST(navigation AS BLOB)) <= 1024),
+            updated_at INTEGER NOT NULL CHECK(updated_at >= 0)
+        );
+        CREATE TABLE selections(project TEXT PRIMARY KEY, active_id INTEGER NOT NULL);",
+        )
+        .map_err(|error| format!("Cannot initialize task storage: {error}"))?;
+    let source = match schema {
+        Schema::Legacy => Some(("goals", "0")),
+        Schema::Projects => Some(("projects", "revision")),
+        _ => None,
+    };
+    if let Some((table, revision)) = source {
+        let navigation =
+            serde_json::to_string(&Navigation::default()).map_err(|error| error.to_string())?;
+        // Migration does not invent past activity: unknown legacy timestamps remain zero.
+        connection.execute(&format!(
+            "INSERT INTO tasks(project,goal,form,revision,criteria,next_action,complete,drafts,navigation,updated_at)
+             SELECT project,goal,form,{revision},'[]','',0,'[]',?1,0 FROM {table} ORDER BY project"
+        ), [navigation]).map_err(|error| format!("Cannot migrate {table}: {error}"))?;
+        connection
+            .execute_batch(&format!(
+                "INSERT INTO selections SELECT project,id FROM tasks; DROP TABLE {table};"
+            ))
+            .map_err(|error| format!("Cannot finish migrating {table}: {error}"))?;
+    }
+    connection
+        .pragma_update(None, "user_version", 2)
+        .map_err(|error| error.to_string())
 }
 
 fn sqlite_no_follow() -> OpenFlags {
@@ -694,7 +1080,9 @@ fn export_inner(data_dir: &Path, output: &Path) -> Result<(), String> {
     let connection = open_readonly(&data_dir.join(DATABASE))?;
     let mut rows = Vec::new();
     let mut found = false;
+    let task_query = format!("SELECT {TASK_COLUMNS} FROM tasks ORDER BY project,id");
     for (table, query) in [
+        ("tasks", task_query.as_str()),
         (
             "projects",
             "SELECT project, goal, form, revision FROM projects ORDER BY project",
@@ -720,12 +1108,17 @@ fn export_inner(data_dir: &Path, output: &Path) -> Result<(), String> {
         found = true;
         let readable = statement
             .query_map([], |row| {
-                Ok(ReadableRow {
-                    project: row.get(0)?,
-                    goal: row.get(1)?,
-                    form: row.get(2)?,
-                    revision: row.get(3)?,
-                })
+                if table == "tasks" {
+                    serde_json::to_value(snapshot_row(row)?)
+                } else {
+                    serde_json::to_value(ReadableRow {
+                        project: row.get(0)?,
+                        goal: row.get(1)?,
+                        form: row.get(2)?,
+                        revision: row.get(3)?,
+                    })
+                }
+                .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
             })
             .map_err(|error| error.to_string())?;
         for row in readable {
@@ -733,7 +1126,7 @@ fn export_inner(data_dir: &Path, output: &Path) -> Result<(), String> {
         }
     }
     if !found {
-        return Err("No readable known goals or projects table was found".into());
+        return Err("No readable known tasks, goals or projects table was found".into());
     }
     let mut file = OpenOptions::new()
         .write(true)
@@ -796,29 +1189,93 @@ mod tests {
         event
     }
 
+    fn loaded(worker: &Worker) -> Project {
+        match event(worker) {
+            Event::Loaded(project) => project,
+            other => panic!("expected loaded project: {other:?}"),
+        }
+    }
+
+    fn saved(worker: &Worker) -> Snapshot {
+        match event(worker) {
+            Event::Saved(snapshot) => snapshot,
+            other => panic!("expected committed snapshot: {other:?}"),
+        }
+    }
+
+    fn enqueue(worker: &Worker, snapshot: Snapshot) {
+        let mut pending = Some(snapshot);
+        assert!(worker.try_save(&mut pending));
+        assert!(pending.is_none());
+    }
+
+    fn create(worker: &Worker, snapshot: Snapshot) -> Snapshot {
+        enqueue(worker, snapshot);
+        saved(worker)
+    }
+
+    #[test]
+    fn save_queue_retains_pending_on_full_disconnected_or_missing_sender() {
+        let (commands, incoming) = mpsc::sync_channel(1);
+        let mut worker = Worker {
+            commands: Some(commands),
+            events: None,
+            thread: None,
+        };
+        let mut empty = None;
+        assert!(!worker.try_save(&mut empty));
+        let mut first = Some(snapshot("project", 1));
+        assert!(worker.try_save(&mut first));
+        assert!(first.is_none());
+
+        let mut pending = Some(snapshot("project", 2));
+        assert!(!worker.try_save(&mut pending));
+        assert_eq!(pending.as_ref().unwrap().revision, 2);
+        assert!(matches!(incoming.try_recv(), Ok(Command::Save(saved)) if saved.revision == 1));
+        assert!(worker.try_save(&mut pending));
+        assert!(pending.is_none());
+        assert!(matches!(incoming.try_recv(), Ok(Command::Save(saved)) if saved.revision == 2));
+
+        drop(incoming);
+        let expected = snapshot("project", 3);
+        let mut pending = Some(expected.clone());
+        assert!(!worker.try_save(&mut pending));
+        assert_eq!(pending.as_ref(), Some(&expected));
+        worker.commands.take();
+        assert!(!worker.try_save(&mut pending));
+        assert_eq!(pending.as_ref(), Some(&expected));
+    }
+
     fn snapshot(project: &str, revision: u64) -> Snapshot {
         Snapshot {
-            project: project.into(),
             goal: "保持 Unicode goal".into(),
             form: 3,
             revision,
+            ..Snapshot::empty(project.into())
         }
     }
 
     #[test]
     fn saves_reopens_and_isolates_projects() {
         let directory = Directory::new();
-        let first = snapshot("/项目/one", 1);
-        let second = snapshot("/项目/two", 4);
-        for saved in [&first, &second] {
-            let worker = worker(&directory, &saved.project);
-            assert!(matches!(event(&worker), Event::Loaded(None)));
-            worker.try_save(saved.clone()).unwrap();
-            assert!(matches!(event(&worker), Event::Saved(revision) if revision == saved.revision));
+        let mut committed = Vec::new();
+        for project in ["/项目/one", "/项目/two"] {
+            let worker = worker(&directory, project);
+            assert_eq!(loaded(&worker), Project::default());
+            let saved = create(&worker, snapshot(project, 1));
+            assert!(saved.id > 0 && saved.updated_at > 0);
+            committed.push(saved);
         }
-        for saved in [&first, &second] {
+        assert_ne!(committed[0].id, committed[1].id);
+        for saved in committed {
             let worker = worker(&directory, &saved.project);
-            assert!(matches!(event(&worker), Event::Loaded(Some(actual)) if actual == *saved));
+            assert_eq!(
+                loaded(&worker),
+                Project {
+                    active_id: Some(saved.id),
+                    tasks: vec![saved]
+                }
+            );
         }
     }
 
@@ -826,7 +1283,7 @@ mod tests {
     fn writer_conflict_can_retry_without_takeover() {
         let directory = Directory::new();
         let first = worker(&directory, "project");
-        assert!(matches!(event(&first), Event::Loaded(None)));
+        assert_eq!(loaded(&first), Project::default());
         let second = worker(&directory, "project");
         assert!(
             matches!(event(&second), Event::Failed { revision: None, message } if message.contains("writer lock"))
@@ -838,9 +1295,9 @@ mod tests {
         ));
         drop(first);
         assert!(second.retry());
-        assert!(matches!(event(&second), Event::Loaded(None)));
-        second.try_save(snapshot("project", 1)).unwrap();
-        assert!(matches!(event(&second), Event::Saved(1)));
+        assert_eq!(loaded(&second), Project::default());
+        enqueue(&second, snapshot("project", 1));
+        assert_eq!(saved(&second).revision, 1);
     }
 
     #[cfg(unix)]
@@ -852,46 +1309,63 @@ mod tests {
         let alias = aliases.0.join("store-alias");
         symlink(&directory.0, &alias).unwrap();
         let first = Worker::start(alias.clone(), "project".into()).unwrap();
-        assert!(matches!(event(&first), Event::Loaded(None)));
-        first.try_save(snapshot("project", 1)).unwrap();
-        assert!(matches!(event(&first), Event::Saved(1)));
+        assert_eq!(loaded(&first), Project::default());
+        let saved = create(&first, snapshot("project", 1));
         let second = worker(&directory, "project");
         assert!(
             matches!(event(&second), Event::Failed { revision: None, message } if message.contains("writer lock"))
         );
         let readonly = open_readonly(&alias.join(DATABASE)).unwrap();
-        assert_eq!(
-            load(&readonly, "project").unwrap(),
-            Some(snapshot("project", 1))
-        );
+        let expected = Project {
+            active_id: Some(saved.id),
+            tasks: vec![saved],
+        };
+        assert_eq!(load(&readonly, "project").unwrap(), expected);
         drop(readonly);
         drop(first);
         assert!(second.retry());
-        assert!(
-            matches!(event(&second), Event::Loaded(Some(saved)) if saved == snapshot("project", 1))
-        );
+        assert_eq!(loaded(&second), expected);
     }
 
     #[test]
-    fn migrates_documented_schema_zero_atomically() {
-        let directory = Directory::new();
-        let path = directory.0.join(DATABASE);
-        let connection = Connection::open(&path).unwrap();
-        connection.execute_batch("CREATE TABLE goals(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL); INSERT INTO goals VALUES ('project','legacy goal',2);").unwrap();
-        drop(connection);
-        let worker = worker(&directory, "project");
-        assert!(
-            matches!(event(&worker), Event::Loaded(Some(saved)) if saved.goal == "legacy goal" && saved.form == 2 && saved.revision == 0)
-        );
-        drop(worker);
-        let connection = open_readonly(&path).unwrap();
-        assert_eq!(
-            connection
-                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-                .unwrap(),
-            1
-        );
-        assert!(connection.prepare("SELECT * FROM goals").is_err());
+    fn migrates_documented_schema_zero_and_one_atomically() {
+        for version in [0, 1] {
+            let directory = Directory::new();
+            let path = directory.0.join(DATABASE);
+            let connection = Connection::open(&path).unwrap();
+            legacy(&connection, version);
+            drop(connection);
+            for (project, goal, form, revision) in [
+                (
+                    "project",
+                    "legacy goal",
+                    2,
+                    if version == 0 { 0 } else { 37 },
+                ),
+                ("other", "other goal", 8, if version == 0 { 0 } else { 91 }),
+            ] {
+                let store = worker(&directory, project);
+                let actual = loaded(&store);
+                assert_eq!(actual.tasks.len(), 1);
+                let task = &actual.tasks[0];
+                assert_eq!(actual.active_id, Some(task.id));
+                assert!(task.id > 0);
+                assert_eq!(task.goal, goal);
+                assert_eq!(task.form, form);
+                assert_eq!(task.revision, revision);
+                assert_eq!(task.updated_at, 0);
+                assert!(task.drafts.is_empty() && task.criteria.is_empty() && !task.complete);
+            }
+            let connection = open_readonly(&path).unwrap();
+            assert_eq!(
+                connection
+                    .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                    .unwrap(),
+                2
+            );
+            assert!(connection.prepare("SELECT * FROM goals").is_err());
+            assert!(connection.prepare("SELECT * FROM projects").is_err());
+        }
     }
 
     #[test]
@@ -924,18 +1398,17 @@ mod tests {
     fn failed_transaction_is_not_acknowledged_or_committed() {
         let directory = Directory::new();
         let worker = worker(&directory, "project");
-        assert!(matches!(event(&worker), Event::Loaded(None)));
+        assert_eq!(loaded(&worker), Project::default());
         let connection = Connection::open(directory.0.join(DATABASE)).unwrap();
-        connection.execute_batch("CREATE TRIGGER reject_save BEFORE INSERT ON projects BEGIN SELECT RAISE(ABORT, 'injected transaction failure'); END;").unwrap();
-        worker.try_save(snapshot("project", 1)).unwrap();
+        connection.execute_batch("CREATE TRIGGER reject_save BEFORE INSERT ON selections BEGIN SELECT RAISE(ABORT, 'injected transaction failure'); END;").unwrap();
+        enqueue(&worker, snapshot("project", 1));
         assert!(
             matches!(event(&worker), Event::Failed { revision: Some(1), message } if message.contains("injected transaction failure"))
         );
         assert!(worker.try_event().is_none());
         assert_eq!(
             connection
-                .query_row("SELECT count(*) FROM projects", [], |row| row
-                    .get::<_, i64>(0))
+                .query_row("SELECT count(*) FROM tasks", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
             0
         );
@@ -945,64 +1418,103 @@ mod tests {
     fn stale_revision_cannot_replace_committed_goal() {
         let directory = Directory::new();
         let worker = worker(&directory, "project");
-        assert!(matches!(event(&worker), Event::Loaded(None)));
-        let latest = snapshot("project", 2);
-        worker.try_save(latest.clone()).unwrap();
-        assert!(matches!(event(&worker), Event::Saved(2)));
-        worker.try_save(snapshot("project", 1)).unwrap();
-        assert!(
-            matches!(event(&worker), Event::Failed { revision: Some(1), message } if message.contains("stale"))
-        );
+        assert_eq!(loaded(&worker), Project::default());
+        let latest = create(&worker, snapshot("project", 2));
+        for revision in [1, 2] {
+            let mut stale = latest.clone();
+            stale.revision = revision;
+            stale.goal = "conflict".into();
+            enqueue(&worker, stale);
+            assert!(
+                matches!(event(&worker), Event::Failed { revision: Some(actual), message }
+                if actual == revision && message.contains("stale"))
+            );
+        }
         assert!(worker.retry());
-        assert!(matches!(event(&worker), Event::Loaded(Some(saved)) if saved == latest));
+        assert_eq!(loaded(&worker).tasks, vec![latest]);
     }
 
     #[test]
     fn drop_drains_accepted_saves_even_with_full_event_queue() {
         let directory = Directory::new();
         let store = worker(&directory, "project");
-        assert!(matches!(event(&store), Event::Loaded(None)));
+        assert_eq!(loaded(&store), Project::default());
+        let initial = create(&store, snapshot("project", 1));
         // Fill the event queue with eight acknowledgements without receiving them.
-        for revision in 1..=10 {
-            let mut pending = snapshot("project", revision);
+        for revision in 2..=11 {
+            let mut pending = initial.clone();
+            pending.revision = revision;
+            let mut pending = Some(pending);
             let deadline = std::time::Instant::now() + Duration::from_secs(5);
-            loop {
-                match store.try_save(pending) {
-                    Ok(()) => break,
-                    Err(returned) => {
-                        assert!(
-                            std::time::Instant::now() < deadline,
-                            "save queue did not drain"
-                        );
-                        pending = returned;
-                        thread::yield_now();
-                    }
-                }
+            while !store.try_save(&mut pending) {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "save queue did not drain"
+                );
+                assert_eq!(pending.as_ref().unwrap().revision, revision);
+                thread::yield_now();
             }
+            assert!(pending.is_none());
         }
         drop(store);
         let reopened = worker(&directory, "project");
-        assert!(matches!(event(&reopened), Event::Loaded(Some(saved)) if saved.revision == 10));
+        let project = loaded(&reopened);
+        assert_eq!(project.tasks.len(), 1);
+        assert_eq!(project.tasks[0].revision, 11);
+        assert_eq!(project.tasks[0].id, initial.id);
     }
 
     #[test]
     fn export_is_read_only_and_never_overwrites() {
-        let directory = Directory::new();
-        let output = directory.0.join("goals.json");
-        assert!(export_readable(&directory.0, &output).is_err());
-        assert!(!directory.0.join(DATABASE).exists());
-        let path = directory.0.join(DATABASE);
-        let connection = Connection::open(&path).unwrap();
-        connection.execute_batch("CREATE TABLE goals(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL); INSERT INTO goals VALUES ('项目','readable',1); PRAGMA user_version=42;").unwrap();
-        drop(connection);
-        let before = fs::read(&path).unwrap();
-        export_readable(&directory.0, &output).unwrap();
-        let exported = fs::read(&output).unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&exported).unwrap();
-        assert_eq!(json[0]["project"], "项目");
-        assert!(export_readable(&directory.0, &output).is_err());
-        assert_eq!(fs::read(&output).unwrap(), exported);
-        assert_eq!(fs::read(path).unwrap(), before);
+        for version in [0, 1, 2] {
+            let directory = Directory::new();
+            let output = directory.0.join("tasks.json");
+            assert!(export_readable(&directory.0, &output).is_err());
+            assert!(!directory.0.join(DATABASE).exists());
+            let path = directory.0.join(DATABASE);
+            let expected = if version == 2 {
+                let store = worker(&directory, "project");
+                loaded(&store);
+                Some(create(
+                    &store,
+                    Snapshot {
+                        drafts: vec![Draft {
+                            field: EditorField::Goal,
+                            text: "保留".into(),
+                            cursor: 6,
+                        }],
+                        criteria: vec![Criterion {
+                            text: "reviewed".into(),
+                            met: true,
+                        }],
+                        complete: true,
+                        next_action: "Follow up".into(),
+                        ..snapshot("project", 1)
+                    },
+                ))
+            } else {
+                let connection = Connection::open(&path).unwrap();
+                legacy(&connection, version);
+                None
+            };
+            let connection = Connection::open(&path).unwrap();
+            connection.execute_batch("PRAGMA user_version=42;").unwrap();
+            drop(connection);
+            let before = fs::read(&path).unwrap();
+            export_readable(&directory.0, &output).unwrap();
+            let exported = fs::read(&output).unwrap();
+            let json: serde_json::Value = serde_json::from_slice(&exported).unwrap();
+            if let Some(expected) = expected {
+                let tasks: Vec<Snapshot> = serde_json::from_value(json).unwrap();
+                assert_eq!(tasks, vec![expected]);
+            } else {
+                assert_eq!(json[0]["project"], "other");
+                assert_eq!(json[1]["goal"], "legacy goal");
+            }
+            assert!(export_readable(&directory.0, &output).is_err());
+            assert_eq!(fs::read(&output).unwrap(), exported);
+            assert_eq!(fs::read(path).unwrap(), before);
+        }
     }
 
     #[cfg(unix)]
@@ -1011,7 +1523,7 @@ mod tests {
         use std::os::unix::fs::{PermissionsExt, symlink};
         let directory = Directory::new();
         let first = worker(&directory, "project");
-        assert!(matches!(event(&first), Event::Loaded(None)));
+        assert_eq!(loaded(&first), Project::default());
         drop(first);
         let path = directory.0.join(DATABASE);
         fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
@@ -1034,7 +1546,16 @@ mod tests {
     fn invalid_save_bounds_are_never_acknowledged() {
         let directory = Directory::new();
         let worker = worker(&directory, "project");
-        assert!(matches!(event(&worker), Event::Loaded(None)));
+        assert_eq!(loaded(&worker), Project::default());
+        let draft = Draft {
+            field: EditorField::Goal,
+            text: "目".into(),
+            cursor: 1,
+        };
+        let duplicate = Draft {
+            cursor: 3,
+            ..draft.clone()
+        };
         for invalid in [
             Snapshot {
                 goal: "x".repeat(4097),
@@ -1048,30 +1569,119 @@ mod tests {
                 revision: i64::MAX as u64 + 1,
                 ..snapshot("project", 1)
             },
+            Snapshot {
+                next_action: "目".repeat(1366),
+                ..snapshot("project", 1)
+            },
+            Snapshot {
+                id: -1,
+                ..snapshot("project", 1)
+            },
+            Snapshot {
+                criteria: vec![Criterion {
+                    text: "x".repeat(257),
+                    met: false,
+                }],
+                ..snapshot("project", 1)
+            },
+            Snapshot {
+                criteria: vec![
+                    Criterion {
+                        text: String::new(),
+                        met: false
+                    };
+                    65
+                ],
+                ..snapshot("project", 1)
+            },
+            Snapshot {
+                drafts: vec![draft],
+                ..snapshot("project", 1)
+            },
+            Snapshot {
+                drafts: vec![duplicate.clone(), duplicate.clone()],
+                ..snapshot("project", 1)
+            },
+            Snapshot {
+                drafts: vec![duplicate; 4],
+                ..snapshot("project", 1)
+            },
+            Snapshot {
+                drafts: vec![Draft {
+                    field: EditorField::Goal,
+                    text: "x".repeat(4097),
+                    cursor: 0,
+                }],
+                ..snapshot("project", 1)
+            },
+            Snapshot {
+                drafts: vec![Draft {
+                    field: EditorField::Goal,
+                    text: "x".into(),
+                    cursor: 2,
+                }],
+                ..snapshot("project", 1)
+            },
+            Snapshot {
+                navigation: Navigation {
+                    focus: 3,
+                    ..Navigation::default()
+                },
+                ..snapshot("project", 1)
+            },
+            Snapshot {
+                navigation: Navigation {
+                    form_selection: 9,
+                    ..Navigation::default()
+                },
+                ..snapshot("project", 1)
+            },
+            Snapshot {
+                navigation: Navigation {
+                    palette_selection: 13,
+                    ..Navigation::default()
+                },
+                ..snapshot("project", 1)
+            },
+            Snapshot {
+                navigation: Navigation {
+                    criterion_selection: 64,
+                    ..Navigation::default()
+                },
+                ..snapshot("project", 1)
+            },
+            Snapshot {
+                navigation: Navigation {
+                    overlay: Some(6),
+                    ..Navigation::default()
+                },
+                ..snapshot("project", 1)
+            },
             snapshot("other-project", 1),
         ] {
             let expected_revision = invalid.revision;
-            worker.try_save(invalid).unwrap();
+            enqueue(&worker, invalid);
             assert!(
                 matches!(event(&worker), Event::Failed { revision: Some(revision), .. } if revision == expected_revision)
             );
         }
         assert!(worker.retry());
-        assert!(matches!(event(&worker), Event::Loaded(None)));
+        assert_eq!(loaded(&worker), Project::default());
     }
 
     #[test]
     fn failed_revision_does_not_hide_a_later_accepted_save() {
         let directory = Directory::new();
         let worker = worker(&directory, "project");
-        assert!(matches!(event(&worker), Event::Loaded(None)));
-        worker
-            .try_save(Snapshot {
+        assert_eq!(loaded(&worker), Project::default());
+        enqueue(
+            &worker,
+            Snapshot {
                 form: 9,
                 ..snapshot("project", 1)
-            })
-            .unwrap();
-        worker.try_save(snapshot("project", 2)).unwrap();
+            },
+        );
+        enqueue(&worker, snapshot("project", 2));
         assert!(matches!(
             event(&worker),
             Event::Failed {
@@ -1079,9 +1689,10 @@ mod tests {
                 ..
             }
         ));
-        assert!(matches!(event(&worker), Event::Saved(2)));
+        let committed = saved(&worker);
+        assert_eq!(committed.revision, 2);
         assert!(worker.retry());
-        assert!(matches!(event(&worker), Event::Loaded(Some(saved)) if saved.revision == 2));
+        assert_eq!(loaded(&worker).tasks, vec![committed]);
     }
 
     #[test]
@@ -1092,12 +1703,11 @@ mod tests {
             ..snapshot("project", 1)
         };
         let store = worker(&directory, "project");
-        assert!(matches!(event(&store), Event::Loaded(None)));
-        store.try_save(saved.clone()).unwrap();
-        assert!(matches!(event(&store), Event::Saved(1)));
+        assert_eq!(loaded(&store), Project::default());
+        let saved = create(&store, saved);
         drop(store);
         let reopened = worker(&directory, "project");
-        assert!(matches!(event(&reopened), Event::Loaded(Some(actual)) if actual == saved));
+        assert_eq!(loaded(&reopened).tasks, vec![saved]);
     }
 
     #[test]
@@ -1109,7 +1719,7 @@ mod tests {
             connection: None,
             lock: None,
         };
-        assert!(matches!(state.reopen(), Event::Loaded(None)));
+        assert!(matches!(state.reopen(), Event::Loaded(project) if project == Project::default()));
         let connection = state.connection.as_ref().unwrap();
         let page_count: i64 = connection
             .pragma_query_value(None, "page_count", |row| row.get(0))
@@ -1122,104 +1732,101 @@ mod tests {
             ..snapshot("project", 1)
         };
         // The goal is within the application limit, but requires an overflow page.
-        let error = state.save(&oversized).unwrap_err();
+        let error = state.save(oversized).unwrap_err();
         assert!(error.contains("database or disk is full"), "{error}");
         assert_eq!(
             load(state.connection.as_ref().unwrap(), "project").unwrap(),
-            None
+            Project::default()
         );
         drop(state);
         let reopened = worker(&directory, "project");
-        assert!(matches!(event(&reopened), Event::Loaded(None)));
+        assert_eq!(loaded(&reopened), Project::default());
     }
 
     #[test]
     fn sqlite_full_during_migration_preserves_committed_legacy_schema() {
-        let directory = Directory::new();
-        let path = directory.0.join(DATABASE);
-        let mut connection = Connection::open(&path).unwrap();
-        connection.execute_batch(
-            "CREATE TABLE goals(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL);
-             INSERT INTO goals VALUES ('project','committed before migration',4);",
-        ).unwrap();
-        let page_count: i64 = connection
-            .pragma_query_value(None, "page_count", |row| row.get(0))
-            .unwrap();
-        connection
-            .pragma_update(None, "max_page_count", page_count)
-            .unwrap();
-        let error = initialize(&mut connection).unwrap_err();
-        assert!(error.contains("database or disk is full"), "{error}");
-        assert_eq!(
+        for version in [0, 1] {
+            let directory = Directory::new();
+            let path = directory.0.join(DATABASE);
+            let mut connection = Connection::open(&path).unwrap();
+            legacy(&connection, version);
+            let page_count: i64 = connection
+                .pragma_query_value(None, "page_count", |row| row.get(0))
+                .unwrap();
             connection
-                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-                .unwrap(),
-            0
-        );
-        assert_eq!(
-            connection
-                .query_row(
-                    "SELECT goal FROM goals WHERE project='project'",
-                    [],
-                    |row| row.get::<_, String>(0)
-                )
-                .unwrap(),
-            "committed before migration"
-        );
-        assert!(connection.prepare("SELECT * FROM projects").is_err());
-        drop(connection);
-        let reopened = worker(&directory, "project");
-        assert!(
-            matches!(event(&reopened), Event::Loaded(Some(saved)) if saved.goal == "committed before migration" && saved.revision == 0)
-        );
+                .pragma_update(None, "max_page_count", page_count)
+                .unwrap();
+            let error = initialize(&mut connection).unwrap_err();
+            assert!(error.contains("database or disk is full"), "{error}");
+            assert_eq!(
+                connection
+                    .pragma_query_value(None, "user_version", |row| row.get::<_, u8>(0))
+                    .unwrap(),
+                version
+            );
+            let table = if version == 0 { "goals" } else { "projects" };
+            assert_eq!(
+                connection
+                    .query_row(
+                        &format!("SELECT goal FROM {table} WHERE project='project'"),
+                        [],
+                        |row| row.get::<_, String>(0)
+                    )
+                    .unwrap(),
+                "legacy goal"
+            );
+            assert!(connection.prepare("SELECT * FROM tasks").is_err());
+            assert!(connection.prepare("SELECT * FROM selections").is_err());
+            drop(connection);
+            let reopened = worker(&directory, "project");
+            assert_eq!(loaded(&reopened).tasks[0].goal, "legacy goal");
+        }
     }
 
     #[test]
     fn interrupted_migration_transaction_rolls_back_all_schema_changes() {
-        let directory = Directory::new();
-        let path = directory.0.join(DATABASE);
-        let mut connection = Connection::open(&path).unwrap();
-        connection.execute_batch(
-            "CREATE TABLE goals(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL);
-             INSERT INTO goals VALUES ('project','survives interruption',6);",
-        ).unwrap();
-        {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .unwrap();
-            transaction.execute_batch(
-                "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL);
-                 INSERT INTO projects SELECT project,goal,form,0 FROM goals;
-                 DROP TABLE goals;
-                 PRAGMA user_version=1;",
-            ).unwrap();
-            // Interruption before commit: the transaction guard rolls back the copy,
-            // original-table removal, and schema version together.
+        for version in [0, 1] {
+            let directory = Directory::new();
+            let path = directory.0.join(DATABASE);
+            let mut connection = Connection::open(&path).unwrap();
+            legacy(&connection, version);
+            {
+                let transaction = connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .unwrap();
+                migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
+                // Drop the actual migration transaction before commit.
+            }
+            assert_eq!(
+                connection
+                    .pragma_query_value(None, "user_version", |row| row.get::<_, u8>(0))
+                    .unwrap(),
+                version
+            );
+            let table = if version == 0 { "goals" } else { "projects" };
+            assert_eq!(
+                connection
+                    .query_row(
+                        &format!("SELECT goal FROM {table} WHERE project='project'"),
+                        [],
+                        |row| row.get::<_, String>(0)
+                    )
+                    .unwrap(),
+                "legacy goal"
+            );
+            assert!(connection.prepare("SELECT * FROM tasks").is_err());
+            assert!(connection.prepare("SELECT * FROM selections").is_err());
+            drop(connection);
+            let reopened = worker(&directory, "project");
+            assert_eq!(loaded(&reopened).tasks[0].goal, "legacy goal");
         }
-        assert_eq!(
-            connection
-                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-                .unwrap(),
-            0
-        );
-        assert_eq!(
-            connection
-                .query_row("SELECT goal FROM goals", [], |row| row.get::<_, String>(0))
-                .unwrap(),
-            "survives interruption"
-        );
-        assert!(connection.prepare("SELECT * FROM projects").is_err());
-        drop(connection);
-        let reopened = worker(&directory, "project");
-        assert!(
-            matches!(event(&reopened), Event::Loaded(Some(saved)) if saved.goal == "survives interruption" && saved.form == 6)
-        );
     }
 
     #[test]
     #[ignore = "subprocess-only fixture; invoked by hot-journal recovery tests"]
     fn interrupted_migration_process_fixture() {
         let path = std::env::var_os("EV_STORE_CRASH_FIXTURE").expect("fixture database path");
+        let kind = std::env::var("EV_STORE_CRASH_KIND").unwrap();
         let mut connection = Connection::open(PathBuf::from(path)).unwrap();
         connection
             .execute_batch(
@@ -1232,12 +1839,21 @@ mod tests {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .unwrap();
-        transaction.execute_batch(
-            "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL);
-             INSERT INTO projects SELECT project,goal,form,0 FROM goals;
-             DROP TABLE goals;
-             PRAGMA user_version=1;",
-        ).unwrap();
+        match kind.as_str() {
+            "current" => {
+                transaction
+                    .execute(
+                        "UPDATE tasks SET goal=printf('%04000d',id),revision=revision+1",
+                        [],
+                    )
+                    .unwrap();
+                transaction
+                    .execute("UPDATE selections SET active_id=999999", [])
+                    .unwrap();
+            }
+            "one" => migrate(&transaction, Schema::Projects).unwrap(),
+            _ => migrate(&transaction, Schema::Legacy).unwrap(),
+        }
         // Terminate the actual process without running SQLite or transaction
         // destructors. The spilled transaction leaves a hot rollback journal.
         std::process::exit(73);
@@ -1245,7 +1861,7 @@ mod tests {
 
     fn crash_during_migration(directory: &Directory, kind: &str) {
         let path = directory.0.join(DATABASE);
-        let connection = Connection::open(&path).unwrap();
+        let mut connection = Connection::open(&path).unwrap();
         connection.execute_batch(
             "CREATE TABLE goals(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL);
              INSERT INTO goals VALUES ('project','committed before process interruption',8);
@@ -1255,6 +1871,12 @@ mod tests {
         match kind {
             "newer" => connection.execute_batch("PRAGMA user_version=99;").unwrap(),
             "foreign" => connection.execute_batch("CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('preserve');").unwrap(),
+            "one" => connection.execute_batch(
+                "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL);
+                 INSERT INTO projects SELECT project,goal,form,17 FROM goals;
+                 DROP TABLE goals; PRAGMA user_version=1;",
+            ).unwrap(),
+            "current" => initialize(&mut connection).unwrap(),
             "known" => {}
             _ => panic!("unknown fixture"),
         }
@@ -1267,6 +1889,7 @@ mod tests {
                 "--nocapture",
             ])
             .env("EV_STORE_CRASH_FIXTURE", &path)
+            .env("EV_STORE_CRASH_KIND", kind)
             .status()
             .unwrap();
         assert_eq!(
@@ -1285,27 +1908,33 @@ mod tests {
     }
 
     #[test]
-    fn process_interrupted_migration_recovers_committed_legacy_goal() {
-        let directory = Directory::new();
-        crash_during_migration(&directory, "known");
-        let worker = worker(&directory, "project");
-        assert!(matches!(event(&worker), Event::Loaded(Some(saved))
-            if saved.goal == "committed before process interruption" && saved.form == 8 && saved.revision == 0));
-        drop(worker);
-        let connection = open_readonly(&directory.0.join(DATABASE)).unwrap();
-        assert_eq!(
-            connection
-                .query_row("SELECT count(*) FROM projects", [], |row| row
-                    .get::<_, i64>(0))
-                .unwrap(),
-            101
-        );
-        assert_eq!(
-            connection
-                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-                .unwrap(),
-            1
-        );
+    fn process_interruption_recovers_legacy_and_current_committed_tasks() {
+        for kind in ["known", "one", "current"] {
+            let directory = Directory::new();
+            crash_during_migration(&directory, kind);
+            let store = worker(&directory, "project");
+            let project = loaded(&store);
+            assert_eq!(project.tasks.len(), 1);
+            let task = &project.tasks[0];
+            assert_eq!(task.goal, "committed before process interruption");
+            assert_eq!(task.form, 8);
+            assert_eq!(task.revision, if kind == "one" { 17 } else { 0 });
+            assert_eq!(project.active_id, Some(task.id));
+            drop(store);
+            let connection = open_readonly(&directory.0.join(DATABASE)).unwrap();
+            assert_eq!(
+                connection
+                    .query_row("SELECT count(*) FROM tasks", [], |row| row.get::<_, i64>(0))
+                    .unwrap(),
+                101
+            );
+            assert_eq!(
+                connection
+                    .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                    .unwrap(),
+                2
+            );
+        }
     }
 
     #[test]
@@ -1325,5 +1954,335 @@ mod tests {
             assert_eq!(fs::read(path).unwrap(), database_before);
             assert_eq!(fs::read(journal).unwrap(), journal_before);
         }
+    }
+
+    fn legacy(connection: &Connection, version: u8) {
+        if version == 0 {
+            connection.execute_batch(
+                "CREATE TABLE goals(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL);
+                 INSERT INTO goals VALUES ('project','legacy goal',2),('other','other goal',8);",
+            ).unwrap();
+        } else {
+            connection.execute_batch(
+                "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL);
+                 INSERT INTO projects VALUES ('project','legacy goal',2,37),('other','other goal',8,91);
+                 PRAGMA user_version=1;",
+            ).unwrap();
+        }
+    }
+
+    #[test]
+    fn two_tasks_preserve_drafts_navigation_selection_and_timestamps_across_restart() {
+        let directory = Directory::new();
+        let store = worker(&directory, "project");
+        assert_eq!(loaded(&store), Project::default());
+        let first = create(
+            &store,
+            Snapshot {
+                criteria: vec![Criterion {
+                    text: "用户检查".into(),
+                    met: true,
+                }],
+                next_action: "Review the result".into(),
+                drafts: vec![
+                    Draft {
+                        field: EditorField::Goal,
+                        text: "新目标".into(),
+                        cursor: 3,
+                    },
+                    Draft {
+                        field: EditorField::Criteria,
+                        text: "first\nsecond".into(),
+                        cursor: 6,
+                    },
+                    Draft {
+                        field: EditorField::NextAction,
+                        text: "later".into(),
+                        cursor: 5,
+                    },
+                ],
+                navigation: Navigation {
+                    focus: 2,
+                    linear: true,
+                    form_selection: 8,
+                    palette_selection: 12,
+                    criterion_selection: 63,
+                    scroll: [1, 2, 3, 4, u16::MAX],
+                    overlay: Some(5),
+                    editing: true,
+                    editor_field: EditorField::NextAction,
+                },
+                ..snapshot("project", 7)
+            },
+        );
+        let second = create(
+            &store,
+            Snapshot {
+                form: 8,
+                ..snapshot("project", 1)
+            },
+        );
+        assert_ne!(first.id, second.id);
+        let mut changed = first.clone();
+        changed.revision += 1;
+        changed.next_action = "Updated without selecting".into();
+        changed.updated_at = 0;
+        let first = create(&store, changed);
+        assert!(store.retry());
+        assert_eq!(
+            loaded(&store),
+            Project {
+                active_id: Some(second.id),
+                tasks: vec![first.clone(), second.clone()],
+            }
+        );
+        assert!(store.try_select(first.id));
+        assert!(matches!(event(&store), Event::Selected(actual) if actual == first));
+        drop(store);
+        let reopened = worker(&directory, "project");
+        assert_eq!(
+            loaded(&reopened),
+            Project {
+                active_id: Some(first.id),
+                tasks: vec![first, second],
+            }
+        );
+    }
+
+    #[test]
+    fn selection_rejects_missing_and_cross_project_ids_without_changing_active_task() {
+        let directory = Directory::new();
+        let other = worker(&directory, "other");
+        loaded(&other);
+        let foreign = create(&other, snapshot("other", 1));
+        drop(other);
+        let store = worker(&directory, "project");
+        loaded(&store);
+        let own = create(&store, snapshot("project", 1));
+        for id in [0, -1, foreign.id, own.id + 100] {
+            assert!(store.try_select(id));
+            assert!(matches!(
+                event(&store),
+                Event::Failed { revision: None, .. }
+            ));
+        }
+        let mut forged = foreign;
+        forged.project = "project".into();
+        forged.revision += 1;
+        enqueue(&store, forged);
+        assert!(matches!(
+            event(&store),
+            Event::Failed {
+                revision: Some(2),
+                ..
+            }
+        ));
+        assert!(store.retry());
+        assert_eq!(
+            loaded(&store),
+            Project {
+                active_id: Some(own.id),
+                tasks: vec![own]
+            }
+        );
+    }
+
+    #[test]
+    fn completion_requires_reviewed_criteria_and_explicit_reopen_for_edits() {
+        let directory = Directory::new();
+        let store = worker(&directory, "project");
+        loaded(&store);
+        for criteria in [
+            vec![],
+            vec![Criterion {
+                text: "check".into(),
+                met: false,
+            }],
+        ] {
+            enqueue(
+                &store,
+                Snapshot {
+                    complete: true,
+                    criteria,
+                    ..snapshot("project", 1)
+                },
+            );
+            assert!(matches!(
+                event(&store),
+                Event::Failed {
+                    revision: Some(1),
+                    ..
+                }
+            ));
+        }
+        let complete = create(
+            &store,
+            Snapshot {
+                complete: true,
+                criteria: vec![Criterion {
+                    text: "check".into(),
+                    met: true,
+                }],
+                ..snapshot("project", 2)
+            },
+        );
+        for edit_criteria in [false, true] {
+            let mut rejected = complete.clone();
+            rejected.revision += 1;
+            if edit_criteria {
+                rejected.criteria[0].text = "different".into();
+            } else {
+                rejected.goal = "different".into();
+            }
+            enqueue(&store, rejected);
+            assert!(
+                matches!(event(&store), Event::Failed { revision: Some(3), message } if message.contains("Reopen"))
+            );
+        }
+        let mut allowed = complete;
+        allowed.revision += 1;
+        allowed.next_action = "A completed task can retain a next action".into();
+        let mut reopened = create(&store, allowed);
+        reopened.revision += 1;
+        reopened.complete = false;
+        reopened.goal = "reopened".into();
+        reopened.criteria[0].met = false;
+        let reopened = create(&store, reopened);
+        drop(store);
+        let store = worker(&directory, "project");
+        assert_eq!(loaded(&store).tasks, vec![reopened]);
+    }
+
+    #[test]
+    fn current_schema_reopens_without_rewriting_or_inventing_activity() {
+        let directory = Directory::new();
+        let store = worker(&directory, "project");
+        loaded(&store);
+        let saved = create(&store, snapshot("project", 4));
+        drop(store);
+        let path = directory.0.join(DATABASE);
+        let before = fs::read(&path).unwrap();
+        let store = worker(&directory, "project");
+        assert_eq!(loaded(&store).tasks, vec![saved.clone()]);
+        assert_eq!(create(&store, saved.clone()), saved);
+        drop(store);
+        assert_eq!(fs::read(&path).unwrap(), before);
+    }
+
+    #[test]
+    fn failed_selection_preserves_previous_selection() {
+        let directory = Directory::new();
+        let store = worker(&directory, "project");
+        loaded(&store);
+        let first = create(&store, snapshot("project", 1));
+        let second = create(&store, snapshot("project", 1));
+        let connection = Connection::open(directory.0.join(DATABASE)).unwrap();
+        connection.execute_batch(
+            "CREATE TRIGGER reject_select BEFORE UPDATE ON selections BEGIN SELECT RAISE(ABORT, 'injected selection failure'); END;"
+        ).unwrap();
+        assert!(store.try_select(first.id));
+        assert!(
+            matches!(event(&store), Event::Failed { revision: None, message } if message.contains("injected selection failure"))
+        );
+        assert_eq!(
+            load(&connection, "project").unwrap().active_id,
+            Some(second.id)
+        );
+    }
+
+    #[test]
+    fn capacity_is_explicit_and_never_evicts_existing_tasks() {
+        let directory = Directory::new();
+        let store = worker(&directory, "project");
+        loaded(&store);
+        let mut tasks = Vec::new();
+        for _ in 0..MAX_TASKS {
+            tasks.push(create(&store, snapshot("project", 1)));
+        }
+        enqueue(&store, snapshot("project", 2));
+        assert!(
+            matches!(event(&store), Event::Failed { revision: Some(2), message } if message.contains("capacity"))
+        );
+        let mut updated = tasks[0].clone();
+        updated.revision += 1;
+        updated.goal = "still editable at capacity".into();
+        tasks[0] = create(&store, updated);
+        assert!(store.retry());
+        assert_eq!(
+            loaded(&store),
+            Project {
+                active_id: Some(tasks[MAX_TASKS - 1].id),
+                tasks
+            }
+        );
+    }
+
+    #[test]
+    fn malformed_current_schema_data_is_refused_without_rewriting() {
+        for mutation in [
+            "UPDATE tasks SET navigation='{}'",
+            "UPDATE tasks SET criteria='not json'",
+            "UPDATE selections SET active_id=99999",
+            "DELETE FROM selections",
+            "UPDATE tasks SET complete=1",
+            "UPDATE tasks SET drafts='[{\"field\":\"Goal\",\"text\":\"目\",\"cursor\":1}]'",
+        ] {
+            let directory = Directory::new();
+            let store = worker(&directory, "project");
+            loaded(&store);
+            create(&store, snapshot("project", 1));
+            drop(store);
+            let path = directory.0.join(DATABASE);
+            let connection = Connection::open(&path).unwrap();
+            connection.execute_batch(mutation).unwrap();
+            drop(connection);
+            let before = fs::read(&path).unwrap();
+            let store = worker(&directory, "project");
+            assert!(matches!(
+                event(&store),
+                Event::Failed { revision: None, .. }
+            ));
+            drop(store);
+            assert_eq!(fs::read(&path).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn maximum_valid_text_and_json_escaping_round_trip() {
+        let directory = Directory::new();
+        let store = worker(&directory, "project");
+        loaded(&store);
+        let text = "\0".repeat(4096);
+        let expected = create(
+            &store,
+            Snapshot {
+                goal: text.clone(),
+                next_action: text.clone(),
+                criteria: vec![
+                    Criterion {
+                        text: "\0".repeat(256),
+                        met: true
+                    };
+                    64
+                ],
+                complete: true,
+                drafts: [
+                    EditorField::Goal,
+                    EditorField::Criteria,
+                    EditorField::NextAction,
+                ]
+                .into_iter()
+                .map(|field| Draft {
+                    field,
+                    text: text.clone(),
+                    cursor: 4096,
+                })
+                .collect(),
+                ..snapshot("project", 1)
+            },
+        );
+        drop(store);
+        let store = worker(&directory, "project");
+        assert_eq!(loaded(&store).tasks, vec![expected]);
     }
 }

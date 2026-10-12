@@ -1,5 +1,14 @@
 # Work Checkpoint
 
+## 2026-10-13 — E02 locally completed; E03 active
+
+- Continue the unchanged full B/C request with **E03 privacy, archive/delete, quotas, and retention**, then C01/C02/R01/R02/UX02. P02 native parity remains blocked by the documented GitHub billing admission failure; complete reachable local implementation and scenarios without claiming those rows.
+- E02 added schema 2 task rows and durable active selection, goal/criteria/next-action editors, per-field retained drafts, per-task focus/layout/scroll/form state, committed timestamps, task cards, guarded switching, criterion completion, and explicit reopening. `Ctrl+S` retains a draft without applying; explicit `--layout` overrides remembered layout. Task completion remains user review, not execution evidence.
+- Verification: Rust 1.90 **77 tests passed** (one subprocess fixture ignored in normal enumeration), warning-free Clippy and locked release build passed. `target/task-cards-smoke/results.json` passed **nine** actual PTY scenarios, including independent two-task goals/criteria/forms/actions/drafts, save/switch/restart, focus/layout, neutral completion, and explicit reopening at 120x36 and 60x18. Inspected the actual compact CJK retained-draft surface. The expanded 34-case core regression is running under `target/task-cards-terminal-smoke`; record its delivered result separately.
+- E01's additional 34-case terminal regression already passed. Installation preview remains complete at native source `ea8ade7`, with all five 14-case installation-suite/34-case terminal result pairs downloaded. Later task code is not contained in those downloadable artifacts.
+- E02 changed `src/store.rs`, `src/app.rs`, `src/main.rs`, `src/config.rs`, `src/ui.rs`, the artwork config fixture, terminal/workbench smoke scripts, and task/README/design/plan/changelog/checkpoint. Preserved `.DS_Store` and `AGENTS.md`. Scoped E01 commit `637fcf8` was pushed; native evidence documentation was committed as `1f13af9`.
+- Exact next E03 action: keep archive reversible and separate from neutral-confirmed deletion; redact identifiable secrets before all stored task fields; enforce configurable real task-data quotas and explicit archived retention without silent eviction; exercise failures and purge scope in the actual TUI before marking E03 complete. No spool/memory/provider module is needed yet.
+
 ## 2026-10-13 — E01 locally completed; E02 active
 
 - Active request remains the full installation preview plus **all B and C**; no scope was reduced. E01 passed its local gate; **E02 task cards/resumption** is the exact next implementation step. E03/C01/C02/R01/R02/UX02/P02 remain pending.

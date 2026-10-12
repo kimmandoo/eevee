@@ -41,9 +41,9 @@ def main():
             project = root / "project 漢字"
             project.mkdir()
             data = root / "data 空 格"
-            def launch(name, directory=data, cwd=project):
+            def launch(name, directory=data, cwd=project, size=(120,36)):
                 session = Session([str(binary), "--data-dir", str(directory), "--images", "off", "--color", "mono"],
-                                  cwd, terminal_environment("mono"), (120,36), output / name)
+                                  cwd, terminal_environment("mono"), size, output / name)
                 sessions.append(session)
                 session.pump(0.5)
                 return session
@@ -53,6 +53,15 @@ def main():
                     session.send("\x1b[C\r")
                 assert session.wait_exit() == 0
                 session.close()
+            export_counter = 0
+            def inspect_store(directory):
+                nonlocal export_counter
+                export_counter += 1
+                destination = root / ("inspect-" + str(export_counter) + ".json")
+                command = [str(binary), "--data-dir", str(directory), "--export-data", str(destination)]
+                process = subprocess.run(command, capture_output=True, text=True, timeout=10)
+                assert process.returncode == 0, process.stderr
+                return json.loads(destination.read_text())
             goal = "durable 漢字 cafe\u0301\nsecond line"
             first = launch("save")
             wait_for(first, "Storage: saved")
@@ -62,9 +71,9 @@ def main():
             first.send("f9\r")
             wait_for(first, "Storage: saved")
             first.capture("committed")
-            with closing(sqlite3.connect(data / "workbench.sqlite3")) as db:
-                assert db.execute("SELECT goal,form FROM projects").fetchone() == (goal,8)
-                project_identity = db.execute("SELECT project FROM projects").fetchone()[0]
+            stored = inspect_store(data)
+            assert len(stored) == 1 and (stored[0]["goal"],stored[0]["form"]) == (goal,8)
+            project_identity = stored[0]["project"]
             quit_app(first)
             second = launch("resume")
             wait_for(second, "durable 漢字 café")
@@ -138,7 +147,7 @@ def main():
             wait_for(migrated, "Storage: saved")
             quit_app(migrated)
             with closing(sqlite3.connect(legacy / "workbench.sqlite3")) as db:
-                assert db.execute("PRAGMA user_version").fetchone()[0] == 1
+                assert db.execute("PRAGMA user_version").fetchone()[0] == 2
             exported = root / "recovery.json"
             command = [str(binary), "--data-dir",str(legacy),"--export-data",str(exported)]
             export = subprocess.run(command, capture_output=True, text=True, timeout=10)
@@ -159,6 +168,104 @@ def main():
             wait_for(reopened, "save before exit")
             quit_app(reopened)
             passed("quit-after-apply-retains-committed-goal")
+            for width in (120,60):
+                cards = root / ("cards-" + str(width))
+                size = (width,36 if width == 120 else 18)
+                card = launch("cards-" + str(width), cards, size=size)
+                wait_for(card, "Storage: saved")
+                card.send("g")
+                card.paste("card one 漢字")
+                card.send("\r")
+                wait_for(card, "Storage: saved")
+                card.send("ce")
+                card.paste("criterion alpha\ncriterion beta")
+                card.send("\r\x1b")
+                wait_for(card, "Storage: saved")
+                card.send("a")
+                card.paste("inspect first source")
+                card.send("\r")
+                card.send("f2\r")
+                wait_for(card, "Storage: saved")
+                card.send("g")
+                card.paste(" pending one")
+                card.send("\x13")
+                wait_for(card, "Storage: saved")
+                card.send("n")
+                card.paste("card two 界")
+                card.send("\r")
+                wait_for(card, "Storage: saved")
+                card.send("ce")
+                card.paste("criterion gamma")
+                card.send("\r\x1b")
+                card.send("a")
+                card.paste("inspect second source")
+                card.send("\r")
+                card.send("f3\r")
+                wait_for(card, "Storage: saved")
+                card.send("g")
+                card.paste(" pending two")
+                card.send("\x13")
+                wait_for(card, "Storage: saved")
+                rows = inspect_store(cards)
+                assert len(rows) == 2
+                one,two = sorted(rows,key=lambda task:task["id"])
+                assert one["goal"] == "card one 漢字" and one["form"] == 1
+                assert two["goal"] == "card two 界" and two["form"] == 2
+                assert one["next_action"] == "inspect first source"
+                assert two["next_action"] == "inspect second source"
+                assert [c["text"] for c in one["criteria"]] == ["criterion alpha","criterion beta"]
+                assert [c["text"] for c in two["criteria"]] == ["criterion gamma"]
+                assert one["drafts"][0]["text"].endswith("pending one")
+                assert two["drafts"][0]["text"].endswith("pending two")
+                card.send("t\x1b[H\r")
+                wait_for(card, "card one 漢字")
+                wait_for(card, "Storage: saved")
+                card.send("g")
+                assert "pending one" in card.display() and "pending two" not in card.display()
+                card.send("\x13")
+                wait_for(card, "Storage: saved")
+                card.send("\tl")
+                wait_for(card, "Storage: saved")
+                remembered = next(t for t in inspect_store(cards) if t["id"] == one["id"])
+                assert remembered["navigation"]["linear"]
+                assert remembered["navigation"]["focus"] == (2 if width == 120 else 1)
+                card.capture("first-resumed")
+                quit_app(card)
+                card = launch("cards-restart-" + str(width), cards, size=size)
+                wait_for(card, "card one 漢字")
+                card.send("g")
+                assert "pending one" in card.display()
+                card.send("\x13")
+                wait_for(card, "Storage: saved")
+                card.send("t\x1b[F\r")
+                wait_for(card, "card two 界")
+                wait_for(card, "Storage: saved")
+                card.send("g")
+                assert "pending two" in card.display() and "pending one" not in card.display()
+                card.send("\x1b")
+                card.send("\x1b[C\r")
+                wait_for(card, "Storage: saved")
+                card.send("d")
+                assert not next(t for t in inspect_store(cards) if t["id"] == two["id"])["complete"]
+                card.send("c ")
+                card.send("\x1b")
+                wait_for(card, "Storage: saved")
+                card.send("d\r")
+                assert not next(t for t in inspect_store(cards) if t["id"] == two["id"])["complete"]
+                card.send("d\x1b[C\r")
+                wait_for(card, "Storage: saved")
+                assert next(t for t in inspect_store(cards) if t["id"] == two["id"])["complete"]
+                card.send("g\r")
+                assert next(t for t in inspect_store(cards) if t["id"] == two["id"])["complete"]
+                card.send("g\x1b[C\r")
+                card.paste(" revised")
+                card.send("\r")
+                wait_for(card, "Storage: saved")
+                current = next(t for t in inspect_store(cards) if t["id"] == two["id"])
+                assert not current["complete"] and current["goal"] == "card two 界 revised"
+                card.capture("reopened")
+                quit_app(card)
+                passed("two-task-draft-resume-complete-reopen-" + str(width))
         result["status"] = "passed"
     except Exception as error:
         result["error"] = str(error)

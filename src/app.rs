@@ -7,7 +7,7 @@ use crate::store;
 
 pub const MAX_GOAL_BYTES: usize = 4096;
 
-pub const PALETTE: [&str; 8] = [
+pub const PALETTE: [&str; 13] = [
     "Choose evolution",
     "Edit task goal",
     "Inspect task and storage",
@@ -16,6 +16,11 @@ pub const PALETTE: [&str; 8] = [
     "Preview local handoff",
     "Toggle linear layout",
     "Quit Eevee",
+    "Task cards",
+    "New task",
+    "Acceptance criteria",
+    "Next action",
+    "Complete task",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,12 +38,16 @@ pub enum Overlay {
     Inspector,
     Companion,
     Preview,
+    Tasks,
+    Criteria,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConfirmationKind {
     DiscardDraft,
     Quit,
+    Complete,
+    Reopen(store::EditorField),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -109,7 +118,20 @@ pub struct App {
     pub save_requested: bool,
     pub retry_storage: bool,
     pub quit_after_save: bool,
-    store_loaded: bool,
+    pub task_id: i64,
+    pub tasks: Vec<store::Snapshot>,
+    pub criteria: Vec<store::Criterion>,
+    pub next_action: String,
+    pub complete: bool,
+    pub updated_at: i64,
+    pub editor_field: store::EditorField,
+    pub drafts: Vec<store::Draft>,
+    pub task_selection: usize,
+    pub criterion_selection: usize,
+    pub notice: String,
+    pub transitioning: bool,
+    pub switch_task: Option<i64>,
+    edit_original: String,
     form_selection: usize,
     palette_selection: usize,
     overlay_history: Vec<OverlayFrame>,
@@ -145,7 +167,20 @@ impl App {
             save_requested: false,
             retry_storage: false,
             quit_after_save: false,
-            store_loaded: false,
+            task_id: 0,
+            tasks: Vec::new(),
+            criteria: Vec::new(),
+            next_action: String::new(),
+            complete: false,
+            updated_at: 0,
+            editor_field: store::EditorField::Goal,
+            drafts: Vec::new(),
+            task_selection: 0,
+            criterion_selection: 0,
+            notice: String::new(),
+            transitioning: false,
+            switch_task: None,
+            edit_original: String::new(),
             form_selection: 0,
             palette_selection: 0,
             overlay_history: Vec::new(),
@@ -160,7 +195,9 @@ impl App {
     pub fn storage_label(&self) -> &str {
         match &self.storage {
             StorageState::Loading => "Storage: loading",
-            StorageState::Saved if self.draft_dirty() => "Storage: editor draft not applied",
+            StorageState::Saved if self.draft_dirty() || !self.drafts.is_empty() => {
+                "Storage: saved / retained draft"
+            }
             StorageState::Saved => "Storage: saved",
             StorageState::Saving if self.quit_after_save => {
                 "Storage: saving before exit / Esc stay"
@@ -172,19 +209,27 @@ impl App {
 
     pub fn store_event(&mut self, event: store::Event) {
         match event {
-            store::Event::Loaded(snapshot) => {
+            store::Event::Loaded(project) => {
                 let local_changes = self.revision != self.saved_revision;
-                if let Some(snapshot) = snapshot {
-                    self.saved_revision = snapshot.revision;
-                    if !self.store_loaded && !local_changes {
-                        self.goal = snapshot.goal;
-                        self.form = snapshot.form;
-                        self.revision = snapshot.revision;
-                    } else if local_changes {
+                self.tasks = project.tasks;
+                let target = if self.task_id > 0 {
+                    Some(self.task_id)
+                } else {
+                    project.active_id
+                };
+                if let Some(snapshot) = self
+                    .tasks
+                    .iter()
+                    .find(|task| Some(task.id) == target)
+                    .cloned()
+                {
+                    if !local_changes {
+                        self.load_task(snapshot);
+                    } else if local_changes && self.task_id == snapshot.id {
+                        self.saved_revision = snapshot.revision;
                         self.revision = self.revision.max(snapshot.revision.saturating_add(1));
                     }
                 }
-                self.store_loaded = true;
                 self.save_requested = self.revision != self.saved_revision;
                 self.storage = if self.save_requested {
                     StorageState::Saving
@@ -195,21 +240,216 @@ impl App {
                     self.quit = true;
                 }
             }
-            store::Event::Saved(revision) => {
-                self.saved_revision = self.saved_revision.max(revision);
-                if revision == self.revision {
-                    self.storage = StorageState::Saved;
-                    if self.quit_after_save {
-                        self.quit = true;
+            store::Event::Selected(snapshot) => {
+                self.load_task(snapshot);
+                self.transitioning = false;
+                self.notice.clear();
+            }
+            store::Event::Saved(snapshot) => {
+                if self.task_id == 0 {
+                    self.task_id = snapshot.id;
+                }
+                if self.task_id == snapshot.id {
+                    self.updated_at = snapshot.updated_at;
+                    self.saved_revision = self.saved_revision.max(snapshot.revision);
+                    if snapshot.revision == self.revision {
+                        self.drafts.clone_from(&snapshot.drafts);
+                        self.storage = StorageState::Saved;
+                        if self.quit_after_save {
+                            self.quit = true;
+                        }
                     }
+                }
+                if let Some(previous) = self.tasks.iter_mut().find(|task| task.id == snapshot.id) {
+                    *previous = snapshot;
+                } else {
+                    self.tasks.push(snapshot);
                 }
             }
             store::Event::Failed { revision, message } => {
+                self.transitioning = false;
                 if revision.is_none_or(|revision| revision == self.revision) {
                     self.storage = StorageState::Failed(message);
                     self.quit_after_save = false;
                 }
             }
+        }
+    }
+
+    pub fn editor_label(&self) -> &str {
+        match self.editor_field {
+            store::EditorField::Goal => "Goal",
+            store::EditorField::Criteria => "Acceptance criteria",
+            store::EditorField::NextAction => "Next action",
+        }
+    }
+
+    fn applied_text(&self, field: store::EditorField) -> String {
+        match field {
+            store::EditorField::Goal => self.goal.clone(),
+            store::EditorField::Criteria => self
+                .criteria
+                .iter()
+                .map(|criterion| criterion.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n"),
+            store::EditorField::NextAction => self.next_action.clone(),
+        }
+    }
+
+    fn navigation(&self) -> store::Navigation {
+        store::Navigation {
+            focus: match self.focus {
+                Pane::Companion => 0,
+                Pane::Workspace => 1,
+                Pane::Inspector => 2,
+            },
+            linear: self.linear,
+            form_selection: self.form_selection,
+            palette_selection: self.palette_selection,
+            criterion_selection: self.criterion_selection,
+            scroll: self.surface_scroll,
+            overlay: match self.overlay {
+                Some(Overlay::Forms) => Some(0),
+                Some(Overlay::Palette) => Some(1),
+                Some(Overlay::Help) => Some(2),
+                Some(Overlay::Inspector) => Some(3),
+                Some(Overlay::Companion) => Some(4),
+                Some(Overlay::Preview) => Some(5),
+                _ => None,
+            },
+            editing: self.editing,
+            editor_field: self.editor_field,
+        }
+    }
+
+    pub fn snapshot(&self, project: &str) -> store::Snapshot {
+        let mut drafts = self.drafts.clone();
+        if self.editing {
+            drafts.retain(|draft| draft.field != self.editor_field);
+            if self.draft_dirty() {
+                drafts.push(store::Draft {
+                    field: self.editor_field,
+                    text: self.input.clone(),
+                    cursor: self.cursor,
+                });
+            }
+        }
+        store::Snapshot {
+            project: project.to_owned(),
+            goal: self.goal.clone(),
+            form: self.form,
+            revision: self.revision,
+            id: self.task_id,
+            criteria: self.criteria.clone(),
+            next_action: self.next_action.clone(),
+            complete: self.complete,
+            drafts,
+            navigation: self.navigation(),
+            updated_at: self.updated_at,
+        }
+    }
+
+    fn load_task(&mut self, snapshot: store::Snapshot) {
+        self.task_id = snapshot.id;
+        self.goal = snapshot.goal;
+        self.form = snapshot.form;
+        self.preview_form = self.form;
+        self.revision = snapshot.revision;
+        self.saved_revision = snapshot.revision;
+        self.criteria = snapshot.criteria;
+        self.next_action = snapshot.next_action;
+        self.complete = snapshot.complete;
+        self.updated_at = snapshot.updated_at;
+        self.drafts = snapshot.drafts;
+        self.input.clear();
+        self.edit_original.clear();
+        self.confirmation = None;
+        self.overlay_history.clear();
+        self.edit_return = None;
+        self.editing = false;
+        self.cursor = 0;
+        let navigation = snapshot.navigation;
+        self.focus = match navigation.focus {
+            0 => Pane::Companion,
+            2 => Pane::Inspector,
+            _ => Pane::Workspace,
+        };
+        self.linear = navigation.linear;
+        self.form_selection = navigation.form_selection;
+        self.palette_selection = navigation.palette_selection;
+        self.surface_scroll = navigation.scroll;
+        self.surface_scroll_max = [u16::MAX; 5];
+        self.overlay = match navigation.overlay {
+            Some(0) => Some(Overlay::Forms),
+            Some(1) => Some(Overlay::Palette),
+            Some(2) => Some(Overlay::Help),
+            Some(3) => Some(Overlay::Inspector),
+            Some(4) => Some(Overlay::Companion),
+            Some(5) => Some(Overlay::Preview),
+            _ => None,
+        };
+        self.restore_selection();
+        self.editor_field = navigation.editor_field;
+        if navigation.editing {
+            self.open_editor(navigation.editor_field);
+        }
+        self.storage = StorageState::Saved;
+        self.save_requested = false;
+        self.task_selection = self
+            .tasks
+            .iter()
+            .position(|task| task.id == self.task_id)
+            .unwrap_or(0);
+        self.criterion_selection = navigation
+            .criterion_selection
+            .min(self.criteria.len().saturating_sub(1));
+    }
+
+    fn new_task(&mut self) {
+        if !matches!(self.storage, StorageState::Saved) || self.save_requested {
+            self.notice = "Finish or retry the current save before creating another task.".into();
+            return;
+        }
+        let mut task = store::Snapshot::empty(self.cwd.clone());
+        task.navigation.linear = self.linear;
+        self.load_task(task);
+        self.overlay = None;
+        self.notice.clear();
+        self.open_editor(store::EditorField::Goal);
+    }
+
+    fn select_task(&mut self) {
+        if !matches!(self.storage, StorageState::Saved) || self.save_requested {
+            self.notice = "Finish or retry the current save before switching tasks.".into();
+            return;
+        }
+        if let Some(task) = self.tasks.get(self.task_selection) {
+            self.switch_task = Some(task.id);
+            self.transitioning = true;
+            self.storage = StorageState::Loading;
+        }
+    }
+
+    fn request_complete(&mut self) {
+        if self.complete {
+            self.notice =
+                "Already complete. Editing goal or criteria requires explicit reopening.".into();
+        } else if self
+            .drafts
+            .iter()
+            .any(|draft| draft.field != store::EditorField::NextAction)
+        {
+            self.notice =
+                "Apply or discard retained goal/criteria drafts before completing the task.".into();
+        } else if self.criteria.is_empty() || self.criteria.iter().any(|criterion| !criterion.met) {
+            self.notice =
+                "Complete requires at least one criterion and every criterion checked.".into();
+        } else {
+            self.confirmation = Some(Confirmation {
+                kind: ConfirmationKind::Complete,
+                destructive: false,
+            });
         }
     }
 
@@ -237,7 +477,7 @@ impl App {
     }
 
     pub fn draft_dirty(&self) -> bool {
-        self.editing && self.input != self.goal
+        self.editing && self.input != self.edit_original
     }
 
     /// The picker preview is independent of the committed role.
@@ -268,7 +508,11 @@ impl App {
 
     /// Returns whether visible state changed. The event loop otherwise stays asleep.
     pub fn update(&mut self, event: Event) -> bool {
-        match event {
+        let resized = matches!(event, Event::Resize(_, _));
+        let revision = self.revision;
+        let navigation = self.navigation();
+        let input_state = (self.input.len(), self.cursor);
+        let changed = match event {
             Event::Resize(width, height) => {
                 if (width, height) == (self.width, self.height) {
                     return false;
@@ -278,16 +522,34 @@ impl App {
                 true
             }
             Event::Paste(text)
-                if self.editing && self.confirmation.is_none() && !self.quit_after_save =>
+                if self.editing
+                    && self.confirmation.is_none()
+                    && !self.quit_after_save
+                    && !self.transitioning =>
             {
                 self.insert_input(&text)
             }
             Event::Key(key) if key.kind != KeyEventKind::Release => self.key(key),
             _ => false,
+        };
+        if changed
+            && !resized
+            && !self.transitioning
+            && !self.quit
+            && !self.quit_after_save
+            && self.revision == revision
+            && (navigation != self.navigation() || input_state != (self.input.len(), self.cursor))
+            && (self.task_id > 0 || !self.goal.is_empty() || self.draft_dirty())
+        {
+            self.changed_task();
         }
+        changed
     }
 
     fn key(&mut self, key: KeyEvent) -> bool {
+        if self.transitioning {
+            return false;
+        }
         if self.quit_after_save {
             if key.code == KeyCode::Esc {
                 self.quit_after_save = false;
@@ -367,6 +629,11 @@ impl App {
             KeyCode::Char('b') => self.open_overlay(Overlay::Companion),
             KeyCode::Char('?') => self.open_overlay(Overlay::Help),
             KeyCode::Char('p') => self.open_overlay(Overlay::Preview),
+            KeyCode::Char('t') => self.open_overlay(Overlay::Tasks),
+            KeyCode::Char('n') => self.new_task(),
+            KeyCode::Char('c') => self.open_overlay(Overlay::Criteria),
+            KeyCode::Char('a') => self.begin_edit_field(store::EditorField::NextAction),
+            KeyCode::Char('d') => self.request_complete(),
             KeyCode::Tab | KeyCode::BackTab => {
                 return self.cycle_focus(key.code == KeyCode::BackTab);
             }
@@ -381,6 +648,20 @@ impl App {
     }
 
     fn edit_key(&mut self, mut key: KeyEvent) -> bool {
+        if key.code == KeyCode::Char('s') && key.modifiers == KeyModifiers::CONTROL {
+            self.drafts.retain(|draft| draft.field != self.editor_field);
+            if self.draft_dirty() {
+                self.drafts.push(store::Draft {
+                    field: self.editor_field,
+                    text: self.input.clone(),
+                    cursor: self.cursor,
+                });
+            }
+            self.input.clear();
+            self.finish_edit();
+            self.changed_task();
+            return true;
+        }
         // Native VT/ConPTY terminals may encode Backspace as BS (Ctrl+H),
         // while others use DEL. Both delete one complete grapheme.
         if key.code == KeyCode::Char('h') && key.modifiers == KeyModifiers::CONTROL {
@@ -407,6 +688,7 @@ impl App {
                         destructive: false,
                     });
                 } else {
+                    self.drafts.retain(|draft| draft.field != self.editor_field);
                     self.input.clear();
                     self.finish_edit();
                 }
@@ -415,16 +697,7 @@ impl App {
             KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
                 self.insert_input("\n")
             }
-            KeyCode::Enter => {
-                if self.goal != self.input {
-                    self.goal = std::mem::take(&mut self.input);
-                    self.changed_task();
-                } else {
-                    self.input.clear();
-                }
-                self.finish_edit();
-                true
-            }
+            KeyCode::Enter => self.apply_editor(),
             KeyCode::Left => self.move_cursor(self.previous_boundary()),
             KeyCode::Right => self.move_cursor(self.next_boundary()),
             KeyCode::Home => self.move_cursor(self.line_start()),
@@ -504,8 +777,10 @@ impl App {
                 if confirmation.destructive {
                     match confirmation.kind {
                         ConfirmationKind::DiscardDraft => {
+                            self.drafts.retain(|draft| draft.field != self.editor_field);
                             self.input.clear();
                             self.finish_edit();
+                            self.changed_task();
                         }
                         ConfirmationKind::Quit => {
                             if matches!(self.storage, StorageState::Saving | StorageState::Loading)
@@ -514,6 +789,20 @@ impl App {
                             } else {
                                 self.quit = true;
                             }
+                        }
+                        ConfirmationKind::Complete => {
+                            if !self.criteria.is_empty()
+                                && self.criteria.iter().all(|criterion| criterion.met)
+                            {
+                                self.complete = true;
+                                self.changed_task();
+                                self.notice = "Task completed by your criterion review; no command evidence is implied.".into();
+                            }
+                        }
+                        ConfirmationKind::Reopen(field) => {
+                            self.complete = false;
+                            self.changed_task();
+                            self.open_editor(field);
                         }
                     }
                 }
@@ -651,14 +940,77 @@ impl App {
     }
 
     fn begin_edit(&mut self) {
+        self.begin_edit_field(store::EditorField::Goal);
+    }
+
+    fn begin_edit_field(&mut self, field: store::EditorField) {
+        if self.complete && field != store::EditorField::NextAction {
+            self.confirmation = Some(Confirmation {
+                kind: ConfirmationKind::Reopen(field),
+                destructive: false,
+            });
+            return;
+        }
+        self.open_editor(field);
+    }
+
+    fn open_editor(&mut self, field: store::EditorField) {
         self.save_selection();
         self.edit_return = self.overlay_frame();
         self.overlay = None;
-        self.input.clone_from(&self.goal);
-        self.cursor = self.input.len();
+        self.editor_field = field;
+        self.edit_original = self.applied_text(field);
+        if let Some(draft) = self.drafts.iter().find(|draft| draft.field == field) {
+            self.input.clone_from(&draft.text);
+            self.cursor = draft.cursor;
+        } else {
+            self.input.clone_from(&self.edit_original);
+            self.cursor = self.input.len();
+        }
+        self.normalize_cursor();
         self.input_truncated = false;
         self.preferred_column = None;
         self.editing = true;
+        self.notice.clear();
+    }
+
+    fn apply_editor(&mut self) -> bool {
+        match self.editor_field {
+            store::EditorField::Goal => self.goal = std::mem::take(&mut self.input),
+            store::EditorField::NextAction => self.next_action = std::mem::take(&mut self.input),
+            store::EditorField::Criteria => {
+                let lines: Vec<&str> = self
+                    .input
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .collect();
+                if lines.len() > 64 || lines.iter().any(|line| line.len() > 256) {
+                    self.notice =
+                        "At most 64 criteria, each at most 256 UTF-8 bytes. Draft kept.".into();
+                    return true;
+                }
+                self.criteria = lines
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, text)| store::Criterion {
+                        met: self
+                            .criteria
+                            .get(index)
+                            .is_some_and(|old| old.text == text && old.met),
+                        text: text.to_owned(),
+                    })
+                    .collect();
+                self.input.clear();
+                self.criterion_selection = self
+                    .criterion_selection
+                    .min(self.criteria.len().saturating_sub(1));
+            }
+        }
+        self.drafts.retain(|draft| draft.field != self.editor_field);
+        self.finish_edit();
+        self.changed_task();
+        true
     }
 
     fn finish_edit(&mut self) {
@@ -719,6 +1071,9 @@ impl App {
                 self.form
             };
         }
+        if matches!(overlay, Overlay::Tasks | Overlay::Criteria) {
+            self.surface_scroll[ScrollSurface::Preview.index()] = 0;
+        }
         self.overlay = Some(overlay);
         self.restore_selection();
     }
@@ -729,7 +1084,72 @@ impl App {
         self.restore_frame(frame);
     }
 
+    fn task_overlay_key(&mut self, overlay: Overlay, key: KeyCode) -> bool {
+        if matches!(key, KeyCode::PageUp | KeyCode::PageDown) {
+            return self.scroll_key(key);
+        }
+        match (overlay, key) {
+            (Overlay::Tasks, KeyCode::Char('t')) | (Overlay::Criteria, KeyCode::Char('c')) => {
+                self.close_overlay();
+                return true;
+            }
+            (Overlay::Tasks, KeyCode::Char('n')) => {
+                self.new_task();
+                return true;
+            }
+            (Overlay::Tasks, KeyCode::Enter) => {
+                self.select_task();
+                return true;
+            }
+            (Overlay::Criteria, KeyCode::Char('e')) => {
+                self.begin_edit_field(store::EditorField::Criteria);
+                return true;
+            }
+            (Overlay::Criteria, KeyCode::Char('d')) => {
+                self.request_complete();
+                return true;
+            }
+            (Overlay::Criteria, KeyCode::Char(' ')) => {
+                if self.complete {
+                    self.confirmation = Some(Confirmation {
+                        kind: ConfirmationKind::Reopen(store::EditorField::Criteria),
+                        destructive: false,
+                    });
+                } else if let Some(criterion) = self.criteria.get_mut(self.criterion_selection) {
+                    criterion.met = !criterion.met;
+                    self.changed_task();
+                }
+                return true;
+            }
+            _ => {}
+        }
+        let (selection, count) = if overlay == Overlay::Tasks {
+            (&mut self.task_selection, self.tasks.len())
+        } else {
+            (&mut self.criterion_selection, self.criteria.len())
+        };
+        if count == 0 {
+            return false;
+        }
+        let previous = *selection;
+        *selection = match key {
+            KeyCode::Up => previous.saturating_sub(1),
+            KeyCode::Down => (previous + 1).min(count - 1),
+            KeyCode::Home => 0,
+            KeyCode::End => count - 1,
+            _ => return false,
+        };
+        let changed = previous != *selection;
+        if changed {
+            self.surface_scroll[ScrollSurface::Preview.index()] = 0;
+        }
+        changed
+    }
+
     fn overlay_key(&mut self, overlay: Overlay, key: KeyCode) -> bool {
+        if matches!(overlay, Overlay::Tasks | Overlay::Criteria) {
+            return self.task_overlay_key(overlay, key);
+        }
         match overlay {
             Overlay::Help if key == KeyCode::Char('?') => {
                 self.close_overlay();
@@ -807,6 +1227,11 @@ impl App {
                         5 => self.open_overlay(Overlay::Preview),
                         6 => self.linear = !self.linear,
                         7 => unreachable!("quit handled without leaving the palette"),
+                        8 => self.open_overlay(Overlay::Tasks),
+                        9 => self.new_task(),
+                        10 => self.open_overlay(Overlay::Criteria),
+                        11 => self.begin_edit_field(store::EditorField::NextAction),
+                        12 => self.request_complete(),
                         _ => unreachable!("palette selection is bounded"),
                     }
                 }
@@ -823,7 +1248,7 @@ impl App {
             Some(Overlay::Companion) => ScrollSurface::Companion,
             Some(Overlay::Inspector) => ScrollSurface::Inspector,
             Some(Overlay::Help) => ScrollSurface::Help,
-            Some(Overlay::Preview) => ScrollSurface::Preview,
+            Some(Overlay::Preview | Overlay::Tasks | Overlay::Criteria) => ScrollSurface::Preview,
             _ => match self.effective_focus() {
                 Pane::Companion => ScrollSurface::Companion,
                 Pane::Workspace => ScrollSurface::Workspace,
@@ -880,8 +1305,17 @@ mod tests {
 
     fn app() -> App {
         let mut app = App::new("/workspace".into(), 120, 36);
-        app.store_event(store::Event::Loaded(None));
+        app.store_event(store::Event::Loaded(store::Project {
+            tasks: Vec::new(),
+            active_id: None,
+        }));
         app
+    }
+
+    fn committed(app: &App) -> store::Snapshot {
+        let mut snapshot = app.snapshot("/workspace");
+        snapshot.id = app.task_id.max(1);
+        snapshot
     }
 
     fn key(app: &mut App, code: KeyCode) -> bool {
@@ -1238,7 +1672,7 @@ mod tests {
         key(&mut app, KeyCode::Enter);
         assert!(!app.linear);
         assert_eq!(app.goal, "linear goal");
-        app.store_event(store::Event::Saved(app.revision));
+        app.store_event(store::Event::Saved(committed(&app)));
         key(&mut app, KeyCode::Char('q'));
         assert!(!app.quit);
         assert_eq!(app.confirmation.unwrap().kind, ConfirmationKind::Quit);
@@ -1358,6 +1792,11 @@ mod tests {
             modified_key(&mut app, KeyCode::Char('c'), KeyModifiers::CONTROL);
             key(&mut app, KeyCode::Right);
             key(&mut app, KeyCode::Enter);
+            if editing {
+                assert!(app.quit_after_save);
+                assert!(!app.quit);
+                app.store_event(store::Event::Saved(committed(&app)));
+            }
             assert!(app.quit);
         }
         let mut app = app();
@@ -1371,16 +1810,17 @@ mod tests {
     #[test]
     fn palette_quit_stay_restores_exact_nested_selection() {
         let mut app = app();
-        app.goal = "nonpersistent goal".into();
+        app.goal = "retained goal".into();
         key(&mut app, KeyCode::Char('f'));
         key(&mut app, KeyCode::Char('6'));
         modified_key(&mut app, KeyCode::Char('k'), KeyModifiers::CONTROL);
         key(&mut app, KeyCode::End);
-        key(&mut app, KeyCode::Enter);
+        let palette_selection = app.selected;
+        modified_key(&mut app, KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert_eq!(app.confirmation.unwrap().kind, ConfirmationKind::Quit);
         key(&mut app, KeyCode::Esc);
         assert_eq!(app.overlay, Some(Overlay::Palette));
-        assert_eq!(app.selected, 7);
+        assert_eq!(app.selected, palette_selection);
         key(&mut app, KeyCode::Esc);
         assert_eq!(app.overlay, Some(Overlay::Forms));
         assert_eq!(app.selected, 5);
@@ -1513,6 +1953,7 @@ mod tests {
         app.update(Event::Paste("first".into()));
         key(&mut app, KeyCode::Enter);
         let first = app.revision;
+        let first_snapshot = committed(&app);
         key(&mut app, KeyCode::Char('g'));
         app.update(Event::Paste(" newer".into()));
         key(&mut app, KeyCode::Enter);
@@ -1526,10 +1967,10 @@ mod tests {
         });
         assert_eq!(app.storage, StorageState::Saving);
         assert!(app.quit_after_save);
-        app.store_event(store::Event::Saved(first));
+        app.store_event(store::Event::Saved(first_snapshot));
         assert_eq!(app.storage, StorageState::Saving);
         assert!(!app.quit);
-        app.store_event(store::Event::Saved(app.revision));
+        app.store_event(store::Event::Saved(committed(&app)));
         assert!(app.quit);
         assert_eq!(app.goal, "first newer");
     }
@@ -1550,26 +1991,32 @@ mod tests {
         assert_eq!(app.goal, "recover me");
         key(&mut app, KeyCode::Char('r'));
         assert!(app.retry_storage);
-        app.store_event(store::Event::Loaded(None));
+        app.store_event(store::Event::Loaded(store::Project {
+            tasks: Vec::new(),
+            active_id: None,
+        }));
         assert!(app.save_requested);
         assert_eq!(app.goal, "recover me");
     }
 
     #[test]
-    fn startup_load_preserves_applied_edit_and_advances_past_stored_revision() {
+    fn startup_load_retains_new_edit_without_overwriting_existing_task() {
         let mut app = App::new("/workspace".into(), 120, 36);
         key(&mut app, KeyCode::Char('g'));
         app.update(Event::Paste("new edit".into()));
         key(&mut app, KeyCode::Enter);
-        app.store_event(store::Event::Loaded(Some(store::Snapshot {
-            project: "/workspace".into(),
-            goal: "old goal".into(),
-            form: 8,
-            revision: 40,
-        })));
+        let mut existing = store::Snapshot::empty("/workspace".into());
+        existing.id = 7;
+        existing.goal = "old goal".into();
+        existing.form = 8;
+        existing.revision = 40;
+        app.store_event(store::Event::Loaded(store::Project {
+            tasks: vec![existing],
+            active_id: Some(7),
+        }));
         assert_eq!(app.goal, "new edit");
-        assert_eq!(app.revision, 41);
+        assert_eq!(app.task_id, 0);
         assert!(app.save_requested);
-        assert_eq!(app.saved_revision, 40);
+        assert_eq!(app.tasks[0].goal, "old goal");
     }
 }

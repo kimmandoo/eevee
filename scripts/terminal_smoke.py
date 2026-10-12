@@ -533,6 +533,7 @@ def exercise_ui(session, size, cwd):
         assert session.display() != before, name + " did not open"
         session.capture(name)
         session.send(ESC)
+        await_saved(session)
         session.capture(name + "-back")
         assert session.display() == before, name + " back did not restore the invoking surface"
     session.send("f")

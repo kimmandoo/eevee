@@ -1,7 +1,7 @@
 # Eevee Implementation Plan
 
 Date: 2026-10-13
-Status: Section A is complete on its recorded five-row core and qualified native-image gates. E01 passed local durable-goal/recovery and real-TUI acceptance; E02 is next. Of 31 tasks, 7 are checked and 24 remain unchecked. The current request includes all remaining section-B and section-C tasks; native installation CI is tracked separately.
+Status: Section A is complete on its recorded five-row core and qualified native-image gates. E01/E02 passed local durable storage/task-card and real-TUI acceptance; E03 is active. Of 31 tasks, 8 are checked and 23 remain unchecked. All remaining B/C tasks are requested. Installation preview passed five native rows; subsequent native workbench CI is blocked by account billing.
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
 
 ## Outcome
@@ -151,4 +151,4 @@ No custom model runtime, autonomous multi-agent swarm, hosted synchronization, p
 
 ## Current next action
 
-Continue **E02 — Eevee task cards and resumption** after the locally verified E01 storage increment, then E03, C01, C02, R01, R02, UX02, and P02 in dependency order. Offline `ev` packaging/installers under Apache-2.0 passed all five native rows at source `ea8ade7`; public Release/remote bootstrap remain withheld. Subsequent E01 native CI was blocked before runner startup by GitHub account billing, so continue reachable implementation/local verification without claiming new native parity. The installation preview does not complete P03's later integrated/schema/performance/rights gates. Keep scoped commits/push and actual task acceptance; native graphics remains limited to the qualified macOS arm64/Ghostty 1.3.1 route.
+Continue **E03 — Task lifecycle, privacy, and bounded local storage**, then C01, C02, R01, R02, UX02, and P02 in dependency order. E01/E02 passed their local storage/task-card gates; R01 must still exercise their deferred active-run switching contract. Offline `ev` installation passed all five native rows at `ea8ade7`; public Release/remote bootstrap remain withheld. Subsequent native CI is blocked before runner startup by account billing: continue reachable implementation/local verification without claiming new native parity. This does not complete P03's later integrated/performance/rights gates.

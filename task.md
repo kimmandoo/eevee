@@ -2,7 +2,7 @@
 
 ## Active work
 
-Section A is complete on its recorded native/graphics gates. The active request covers the offline `ev` installation preview and **all of sections B and C**. E01 passed local storage/recovery and real-TUI acceptance; **E02 — Eevee task cards and resumption** is next. Installation CI and later native filesystem/process parity remain separately tracked; providers are not included or implied.
+Section A is complete on its recorded native/graphics gates. The offline `ev` installation preview passed all five native rows. E01 and E02 passed local storage/task-card and real-TUI acceptance; **E03 — Task lifecycle, privacy, and bounded local storage** is active, followed by the rest of B/C. Subsequent native CI is blocked by GitHub account billing, not a code failure; providers remain outside this request.
 
 Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapter/evidence contract: [agent compatibility](docs/AGENT_COMPATIBILITY.md). An unchecked task may have partial implementation, but its acceptance is not complete; consult its evidence note and the checkpoint.
 
@@ -90,10 +90,11 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ### E02 — Eevee task cards and resumption
 
-- [ ] Turn the home screen into a real task sanctuary.
+- [x] Turned the home screen into durable project-scoped task cards.
 - **Depends on:** E01, UX01.
 - **Change:** Create/select/resume multiple project-scoped tasks, edit acceptance criteria, and record an explicit next action. Keep task outcome, request lifecycle, save acknowledgement, and evidence freshness separate. Persist per-task drafts/navigation without cross-task leakage. Replace the session-only CTA with Create/Resume only now. Use actual saved timestamps/status; no fictional activity or completion from a form switch/process result. While a run is active, offer Stay or Cancel-and-wait before switching task/project; never silently reassign run ownership. Editing a completed task's goal/criteria requires an explicit reopen transition.
 - **Accept:** Create two tasks with different goals/criteria/forms/drafts, switch, restart, and resume each without cross-contamination. A new project starts empty. Pending edits are resolved before switching; unmet criteria prevent completion and changed criteria reopen a completed task explicitly. Once R01/A02 ship, exercise switching with an active run/pending approval: remain on the original task until cancellation settles, invalidate old grants, and retain its partial journal. Q01 verifies the composed path.
+- **Evidence:** Rust 1.90 passed 77 tests, warning-free Clippy and release build. Nine real PTY scenarios included two distinct tasks at 120x36 and 60x18, exact goals/criteria/next actions/forms, retained per-field drafts, saved focus/layout, switching/restart, unmet-criteria refusal, neutral completion, and explicit reopen before goal changes. Schema 0/1→2 migrations and task/selection transaction boundaries passed; R01's active-run switching composition remains assigned below.
 
 ### E03 — Task lifecycle, privacy, and bounded local storage
 
@@ -277,4 +278,4 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ## Phase status
 
-Phase 1, all six section-A tasks, and E01 are complete on their recorded environments. Of 31 implementation tasks, 7 are checked and 24 remain unchecked. E02 is next; the rest of B/C is explicitly requested and pending, while D-G remains later scope. See `docs/WORK_CHECKPOINT.md` for exact evidence; local durable-goal acceptance does not imply native filesystem/process parity, other graphics protocols, providers, or full release acceptance.
+Phase 1, all six section-A tasks, E01, and E02 are complete on their recorded environments. Of 31 implementation tasks, 8 are checked and 23 remain unchecked. E03 is active; the rest of B/C is explicitly requested and pending, while D-G remains later scope. Native installation preview passed at `ea8ade7`; new native filesystem/process parity is blocked by GitHub account billing and is not inferred from local storage/task acceptance.

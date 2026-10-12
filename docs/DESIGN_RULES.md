@@ -1,6 +1,6 @@
 # Eevee Design Rules
 
-Status: the local companion runtime implements sanctuary/cells/native artwork, deliberate form selection, local preview, safe draft/exit confirmation, linear keyboard navigation, and locally verified durable goal/form storage with revision-safe acknowledgements and nondestructive recovery. Native-platform and terminal-specific evidence is qualified in `task.md` and the checkpoint; multiple task cards, repository context, execution, and providers remain later capabilities until their gates pass.
+Status: the local companion runtime implements sanctuary/cells/native artwork, deliberate form selection, local preview, linear keyboard navigation, and locally verified durable project task cards with criteria/next actions, drafts/navigation, guarded switching, explicit completion/reopen, revision-safe saves, and nondestructive recovery. Native and terminal-specific evidence is qualified in `task.md` and the checkpoint; privacy/retention, repository context, execution, and providers remain later capabilities until their own gates pass.
 
 ## Product
 

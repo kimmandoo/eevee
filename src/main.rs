@@ -106,34 +106,33 @@ fn run(config: Config) -> io::Result<()> {
                 app.retry_storage = false;
                 outstanding_store += 1;
             }
+            if let Some(id) = app.switch_task
+                && store.try_select(id)
+            {
+                app.switch_task = None;
+                outstanding_store += 1;
+            }
             if app.save_requested
+                && !(app.task_id == 0 && outstanding_store > 0)
                 && matches!(
                     app.storage,
                     app::StorageState::Saved | app::StorageState::Saving
                 )
             {
-                let mut snapshot = pending_save.take().unwrap_or_else(|| store::Snapshot {
-                    project: cwd.clone(),
-                    goal: app.goal.clone(),
-                    form: app.form,
-                    revision: app.revision,
-                });
-                if snapshot.revision != app.revision {
-                    snapshot.goal.clone_from(&app.goal);
-                    snapshot.form = app.form;
-                    snapshot.revision = app.revision;
+                if pending_save.as_ref().is_none_or(|snapshot| {
+                    snapshot.revision != app.revision || snapshot.id != app.task_id
+                }) {
+                    pending_save = Some(app.snapshot(&cwd));
                 }
-                match store.try_save(snapshot) {
-                    Ok(()) => {
-                        app.save_requested = false;
-                        outstanding_store += 1;
-                    }
-                    Err(snapshot) => pending_save = Some(snapshot),
+                if store.try_save(&mut pending_save) {
+                    app.save_requested = false;
+                    outstanding_store += 1;
                 }
             }
             // Only outstanding I/O uses a bounded wait; an idle saved UI blocks.
             let pending = outstanding_store > 0
                 || app.retry_storage
+                || app.switch_task.is_some()
                 || (app.save_requested && matches!(app.storage, app::StorageState::Saving));
             let event = if pending {
                 input.read_timeout(std::time::Duration::from_millis(30))?
@@ -150,7 +149,12 @@ fn run(config: Config) -> io::Result<()> {
             }
             while let Some(event) = store.try_event() {
                 outstanding_store = outstanding_store.saturating_sub(1);
+                let restored =
+                    matches!(&event, store::Event::Loaded(_) | store::Event::Selected(_));
                 app.store_event(event);
+                if restored && config.layout_explicit {
+                    app.linear = config.layout == config::LayoutMode::Linear;
+                }
                 dirty = true;
             }
             #[cfg(windows)]

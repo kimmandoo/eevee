@@ -37,6 +37,7 @@ pub struct Config {
     pub images: ImageMode,
     pub assets_dir: PathBuf,
     pub layout: LayoutMode,
+    pub layout_explicit: bool,
     pub data_dir: PathBuf,
 }
 
@@ -107,6 +108,7 @@ fn parse_with(
     let mut images = ImageMode::Auto;
     let mut assets_dir = default_assets_dir(&environment);
     let mut layout = LayoutMode::Sanctuary;
+    let mut layout_explicit = false;
     let mut data_dir = default_data_dir(&environment);
     let mut export = None;
     let mut download = false;
@@ -158,6 +160,7 @@ fn parse_with(
                 };
             }
             "--layout" => {
+                layout_explicit = true;
                 let value = value(flag, attached, &mut args)?;
                 layout = match value.as_ref() {
                     "sanctuary" => LayoutMode::Sanctuary,
@@ -261,6 +264,7 @@ fn parse_with(
         images,
         assets_dir,
         layout,
+        layout_explicit,
         data_dir,
     };
     Ok(if download {

@@ -15,6 +15,7 @@ use crate::{
     artwork::Artwork,
     config::{ColorMode, Config, Theme},
     domain::{FORMS, Form},
+    store::EditorField,
 };
 
 #[cfg(windows)]
@@ -383,6 +384,8 @@ pub fn render(
             Overlay::Palette => palette(frame, area, app, config, &paint),
             Overlay::Help => help(frame, area, app, config, &paint),
             Overlay::Preview => preview(frame, area, app, config, &paint),
+            Overlay::Tasks => tasks(frame, area, app, config, &paint),
+            Overlay::Criteria => criteria(frame, area, app, config, &paint),
             Overlay::Inspector => {
                 let area = drawer(area);
                 frame.render_widget(Clear, area);
@@ -458,37 +461,73 @@ fn workspace(
     );
     let content = block.inner(area);
     frame.render_widget(block, area);
-    text(frame, row(content, 0, 1), "NEXT LOCAL ACTION", paint.muted);
+    text(frame, row(content, 0, 1), "LOCAL TASK", paint.muted);
     text(
         frame,
         row(content, 1, 2),
-        if app.goal.is_empty() {
-            "g / Enter  Create durable goal"
+        if app.task_id == 0 && app.goal.is_empty() {
+            "g / Enter  Create task"
         } else {
-            "f  Choose a specialist / p  Preview handoff"
+            "g / Enter  Resume/edit task"
         },
         paint.accent,
     );
-    let artifact = row(content, 4, content.height.saturating_sub(4));
+    let artifact = row(content, 3, content.height.saturating_sub(3));
     let offset = app.scroll_for(ScrollSurface::Workspace);
-    let mut lines = vec![Line::styled("TASK GOAL", paint.muted), Line::from("")];
+    let met = app
+        .criteria
+        .iter()
+        .filter(|criterion| criterion.met)
+        .count();
+    let mut lines = vec![
+        Line::styled(
+            format!(
+                "{} / {met}/{} criteria met / {}",
+                if app.complete { "Complete" } else { "Open" },
+                app.criteria.len(),
+                form.name
+            ),
+            paint.accent,
+        ),
+        Line::from(""),
+        Line::styled("GOAL", paint.muted),
+    ];
     if app.goal.is_empty() {
-        lines.push(Line::from("Give your companion one bounded goal."));
+        lines.push(Line::from(
+            "No goal applied. Give this task a bounded goal.",
+        ));
     } else {
         lines.extend(app.goal.lines().map(Line::from));
     }
     lines.push(Line::from(""));
-    lines.push(Line::styled("EXPECTED ARTIFACT", paint.muted));
-    lines.push(Line::from(form.evidence));
+    lines.push(Line::styled("NEXT ACTION", paint.muted));
+    if app.next_action.is_empty() {
+        lines.push(Line::from(
+            "Not set. Press a to write the next local action.",
+        ));
+    } else {
+        lines.extend(app.next_action.lines().map(Line::from));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(if app.criteria.is_empty() {
+        "No acceptance criteria. Press c, then e to add a checklist."
+    } else {
+        "c Review checklist / d Review task completion"
+    }));
+    lines.push(Line::from(format!(
+        "{} retained draft(s). Completion is your review, not verified execution.",
+        app.drafts.len()
+    )));
     lines.push(Line::from(""));
     lines.push(Line::styled(
-        "Specialist work: not implemented. Preview sends nothing.",
+        "EXPECTED ARTIFACT / FORM GUIDANCE",
         paint.muted,
     ));
-    if app.linear {
-        lines.push(Line::from(""));
-        lines.push(Line::from("i Inspector / b Companion / l Sanctuary layout"));
-    }
+    lines.push(Line::from(form.evidence));
+    lines.push(Line::styled(
+        "Provider unavailable. No work is running; preview sends nothing.",
+        paint.muted,
+    ));
     let paragraph = Paragraph::new(lines)
         .style(paint.surface)
         .wrap(Wrap { trim: false });
@@ -572,24 +611,64 @@ fn inspect(
     );
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let path = config.assets_dir.to_string_lossy();
-    let safe_path: String = path.chars().filter(|c| !c.is_control()).collect();
-    let value = format!(
-        "PROJECT DIRECTORY\n{}\n\nCONTROL BOUNDARY\nNo grants or pending approvals\n\nEVIDENCE\nRepository not inspected\nNo results recorded\n\nSTORAGE\n{}\nRevision {} / committed {}\nDirectory: {}\n{}\nRecovery: r retry after closing another writer or fixing disk permissions; --export-data FILE reads without reset.\n\nARTWORK\n{}\n{}\n{}\n\nUp/Down scroll / Esc back",
-        app.cwd,
-        app.storage_label(),
-        app.revision,
-        app.saved_revision,
-        config.data_dir.to_string_lossy().escape_debug(),
-        match &app.storage {
-            crate::app::StorageState::Failed(error) => error.as_str(),
-            _ => "",
-        }
-        .escape_debug(),
-        artwork.status(app.form),
-        graphics_status,
-        safe_path
-    );
+    let project = std::path::Path::new(&app.cwd)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(&app.cwd);
+    let task = if app.task_id > 0 {
+        format!("#{}", app.task_id)
+    } else {
+        "New / not committed".to_owned()
+    };
+    let value = if drawer {
+        let path = config.assets_dir.to_string_lossy();
+        let safe_path: String = path.chars().filter(|c| !c.is_control()).collect();
+        let updated = if app.updated_at > 0 {
+            format!("{} Unix ms", app.updated_at)
+        } else {
+            "Not committed yet".to_owned()
+        };
+        format!(
+            "TASK\n{task} / {}\nUpdated: {updated}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete means user-reviewed criteria, not verified command evidence.\n\nPROJECT DIRECTORY\n{}\n\nSTORAGE\n{}\nRevision {} / committed {}\nDirectory: {}\n{}\nRecovery: r retries after fixing the storage problem; --export-data FILE reads without reset.\n\nEXECUTION\nProvider unavailable. No work running, grants, or results recorded.\n\nARTWORK\n{}\n{}\n{}\n\nUp/Down scroll / Esc back",
+            if app.complete { "Complete" } else { "Open" },
+            app.criteria
+                .iter()
+                .filter(|criterion| criterion.met)
+                .count(),
+            app.criteria.len(),
+            app.drafts.len(),
+            app.cwd,
+            app.storage_label(),
+            app.revision,
+            app.saved_revision,
+            config.data_dir.to_string_lossy().escape_debug(),
+            match &app.storage {
+                crate::app::StorageState::Failed(error) => error.as_str(),
+                _ => "",
+            }
+            .escape_debug(),
+            artwork.status(app.form),
+            graphics_status,
+            safe_path
+        )
+    } else {
+        format!(
+            "PROJECT\n{project}\n\nTASK\n{task} / {}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete is user review, not verified execution.\n\nSTORAGE\n{}\n{}\n\nCONTROL\nProvider unavailable. No work running, grants, or results recorded.\n\ni Details: saved timestamp, revisions, paths and recovery\nUp/Down scroll",
+            if app.complete { "Complete" } else { "Open" },
+            app.criteria
+                .iter()
+                .filter(|criterion| criterion.met)
+                .count(),
+            app.criteria.len(),
+            app.drafts.len(),
+            app.storage_label(),
+            match &app.storage {
+                crate::app::StorageState::Failed(error) => error.as_str(),
+                _ => "",
+            }
+            .escape_debug(),
+        )
+    };
     scroll_text(
         frame,
         content,
@@ -714,16 +793,241 @@ fn form_details(frame: &mut Frame, area: Rect, index: usize, config: &Config, ar
     );
 }
 
+fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
+    let area = centered(area, 88, 28);
+    frame.render_widget(Clear, area);
+    let block = panel(" Task cards / committed snapshots ", config, paint, true);
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    if app.tasks.is_empty() {
+        text(
+            frame,
+            content,
+            "No committed task cards yet.\n\nn Create task / Esc Back\nApplied tasks appear here after storage commits.",
+            paint.surface,
+        );
+        app.set_scroll_max(ScrollSurface::Preview, 0);
+        return;
+    }
+    let selected = app.task_selection.min(app.tasks.len() - 1);
+    let visible = (content.height / 3).clamp(1, 6) as usize;
+    let start = selected.saturating_sub(visible - 1);
+    for (index, task) in app.tasks.iter().enumerate().skip(start).take(visible) {
+        let title = task
+            .goal
+            .lines()
+            .next()
+            .filter(|title| !title.is_empty())
+            .unwrap_or("Untitled task");
+        let label = format!(
+            "{}{} #{} {} / {} / {}",
+            if index == selected { ">" } else { " " },
+            if task.id == app.task_id { "*" } else { " " },
+            task.id,
+            if task.complete { "Complete" } else { "Open" },
+            FORMS[task.form.min(FORMS.len() - 1)].name,
+            title
+        );
+        text(
+            frame,
+            row(content, (index - start) as u16, 1),
+            &clipped(&label, content.width as usize),
+            if index == selected {
+                paint.selected
+            } else {
+                paint.surface
+            },
+        );
+    }
+    text(
+        frame,
+        row(content, visible as u16, 1),
+        &format!(
+            "{} cards / * active / PgUp/Dn selected details",
+            app.tasks.len()
+        ),
+        paint.muted,
+    );
+    let details = row(
+        content,
+        visible as u16 + 2,
+        content.height.saturating_sub(visible as u16 + 2),
+    );
+    let task = &app.tasks[selected];
+    let mut lines = vec![
+        Line::styled(
+            format!(
+                "#{} / {} / {}",
+                task.id,
+                if task.complete { "Complete" } else { "Open" },
+                FORMS[task.form.min(FORMS.len() - 1)].name,
+            ),
+            paint.accent,
+        ),
+        Line::from(if task.updated_at > 0 {
+            format!("Updated: {} Unix ms", task.updated_at)
+        } else {
+            "Updated: unavailable".to_owned()
+        }),
+        Line::from(format!(
+            "Criteria: {}/{} met / Retained drafts: {}",
+            task.criteria
+                .iter()
+                .filter(|criterion| criterion.met)
+                .count(),
+            task.criteria.len(),
+            task.drafts.len(),
+        )),
+        Line::styled("GOAL", paint.muted),
+    ];
+    if task.goal.is_empty() {
+        lines.push(Line::from("No goal applied."));
+    } else {
+        lines.extend(task.goal.lines().map(Line::from));
+    }
+    lines.push(Line::styled("NEXT ACTION", paint.muted));
+    if task.next_action.is_empty() {
+        lines.push(Line::from("Not set."));
+    } else {
+        lines.extend(task.next_action.lines().map(Line::from));
+    }
+    lines.push(Line::styled("ACCEPTANCE CRITERIA", paint.muted));
+    if task.criteria.is_empty() {
+        lines.push(Line::from("No criteria applied."));
+    } else {
+        lines.extend(task.criteria.iter().map(|criterion| {
+            Line::from(format!(
+                "[{}] {}",
+                if criterion.met { "x" } else { " " },
+                criterion.text,
+            ))
+        }));
+    }
+    lines.push(Line::from(
+        "Complete is user-reviewed, not verified execution.",
+    ));
+    let max = selection_details(
+        frame,
+        details,
+        Paragraph::new(lines)
+            .style(paint.surface)
+            .wrap(Wrap { trim: false }),
+        app.scroll_for(ScrollSurface::Preview),
+    );
+    app.set_scroll_max(ScrollSurface::Preview, max);
+}
+
+fn criteria(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
+    let area = centered(area, 88, 26);
+    frame.render_widget(Clear, area);
+    let block = panel(" Acceptance checklist / your review ", config, paint, true);
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    text(
+        frame,
+        row(content, 0, 2),
+        &format!(
+            "{} / {}/{} met. Enter does not complete or execute.",
+            if app.complete { "Complete" } else { "Open" },
+            app.criteria
+                .iter()
+                .filter(|criterion| criterion.met)
+                .count(),
+            app.criteria.len(),
+        ),
+        paint.muted,
+    );
+    if app.criteria.is_empty() {
+        text(
+            frame,
+            row(content, 3, content.height.saturating_sub(3)),
+            "No acceptance criteria yet.\n\ne Edit criteria, one per line.\nComplete requires a nonempty, all-met checklist.",
+            paint.surface,
+        );
+        app.set_scroll_max(ScrollSurface::Preview, 0);
+        return;
+    }
+    let selected = app.criterion_selection.min(app.criteria.len() - 1);
+    let visible = (content.height / 3).clamp(1, 6) as usize;
+    let start = selected.saturating_sub(visible - 1);
+    for (index, criterion) in app.criteria.iter().enumerate().skip(start).take(visible) {
+        let label = format!(
+            "{} [{}] {}. {}",
+            if index == selected { ">" } else { " " },
+            if criterion.met { "x" } else { " " },
+            index + 1,
+            criterion.text,
+        );
+        text(
+            frame,
+            row(content, (index - start) as u16 + 2, 1),
+            &clipped(&label, content.width as usize),
+            if index == selected {
+                paint.selected
+            } else {
+                paint.surface
+            },
+        );
+    }
+    text(
+        frame,
+        row(content, visible as u16 + 2, 1),
+        "Selected criterion / PgUp/Dn details",
+        paint.muted,
+    );
+    let criterion = &app.criteria[selected];
+    let lines = vec![
+        Line::from(format!(
+            "{}. [{}] {}",
+            selected + 1,
+            if criterion.met { "x" } else { " " },
+            criterion.text,
+        )),
+        Line::from(""),
+        Line::from(if app.complete {
+            "Completed task. Editing criteria requires explicit Reopen."
+        } else {
+            "Space toggles your review. e edits criteria; d reviews Complete."
+        }),
+        Line::from("No command evidence is collected or verified here."),
+    ];
+    let details = row(
+        content,
+        visible as u16 + 3,
+        content.height.saturating_sub(visible as u16 + 3),
+    );
+    let max = selection_details(
+        frame,
+        details,
+        Paragraph::new(lines)
+            .style(paint.surface)
+            .wrap(Wrap { trim: false }),
+        app.scroll_for(ScrollSurface::Preview),
+    );
+    app.set_scroll_max(ScrollSurface::Preview, max);
+}
+
+fn selection_details(frame: &mut Frame, area: Rect, paragraph: Paragraph<'_>, offset: u16) -> u16 {
+    let max = paragraph
+        .line_count(area.width.max(1))
+        .saturating_sub(area.height as usize)
+        .min(u16::MAX as usize) as u16;
+    frame.render_widget(paragraph.scroll((offset.min(max), 0)), area);
+    max
+}
+
 fn palette(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
-    let area = centered(area, 66, 15);
+    let area = centered(area, 66, 19);
     frame.render_widget(Clear, area);
     let block = panel(" Local command palette ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    for (index, command) in PALETTE.iter().enumerate() {
+    let visible = content.height.saturating_sub(2) as usize;
+    let start = app.selected.saturating_sub(visible.saturating_sub(1));
+    for (index, command) in PALETTE.iter().enumerate().skip(start).take(visible) {
         text(
             frame,
-            row(content, index as u16 + 1, 1),
+            row(content, (index - start) as u16, 1),
             &format!(
                 "{} {}",
                 if index == app.selected { ">" } else { " " },
@@ -738,8 +1042,8 @@ fn palette(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pa
     }
     text(
         frame,
-        row(content, 10, 2),
-        "Agent execution unavailable: connection and runtime not implemented.",
+        row(content, content.height.saturating_sub(2), 2),
+        "Local actions only. Provider and execution unavailable.",
         paint.muted,
     );
 }
@@ -750,7 +1054,7 @@ fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &P
     let block = panel(" Keyboard / local actions ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let value = "f          Evolution picker: arrows/1-9 preview\ng          Edit local goal; Enter applies and saves, Esc goes back\np          Preview selected handoff; Run unavailable\ni / b      Inspector / companion drawer\nr          Retry failed storage (outside text entry)\nl          Toggle linear / sanctuary layout\nCtrl+K     Local command palette\nTab        Cycle visible panes\nUp/Down    Select or scroll the focused surface\nPageUp/Down Scroll a page\nHome/End   First/last selection or cursor\nEnter      Open or explicitly confirm\nEsc        Close overlay and restore focus\n?          Show/close this help\nq          Quit outside editor; types q in editor\nCtrl+C     Safe exit; finish pending saves or review failure\n\nGoal editor: Left/Right move by grapheme.\nBackspace/Delete remove one whole grapheme.\nUp/Down move between lines; Ctrl+N inserts newline.\nShift+Enter also inserts newline when the terminal distinguishes it.\nPaste preserves newlines but never applies or executes.\nCtrl+K and form shortcuts are inactive while editing.\nChanged drafts require deliberate discard.\nNeutral Enter keeps your draft; Tab/Right selects discard.\n\nArtwork: use --images cells|off for compatibility.\nNo automatic download, model request, or permissions.\nLinear mode is text-first; no assistive-tool claim yet.";
+    let value = "TASKS\n g / Enter  Edit or resume goal (Enter in workspace)\n t          Task cards; Enter resumes selected task\n n          Create task after pending saves finish\n c          Acceptance checklist; Space toggles, e edits lines\n a          Edit or resume next action\n d          Review explicit Complete confirmation\nTask cards/checklist: Up/Down/Home/End select.\nPageUp/PageDown scroll selected details.\nComplete requires nonempty, all-met criteria.\nComplete is user review, not verified execution.\nEditing a completed goal/checklist requires explicit Reopen.\n\nEDITOR\nEnter applies locally and saves; no execution.\nCtrl+S saves a retained draft and returns without applying.\nEsc reviews changed draft: Keep editing or Discard draft.\nDiscard removes only this field's draft, not applied data.\nLeft/Right move by grapheme; Backspace/Delete remove a grapheme.\nUp/Down move lines; Home/End move within a line.\nCtrl+N inserts newline; criteria use one criterion per line.\nShift+Enter inserts newline if distinguished by the terminal.\nPaste is text; it never applies, completes, or executes.\nRetained drafts survive task switches and restart.\n\nNAVIGATION\nf          Evolution picker: arrows/1-9 preview, Enter selects\np          Local handoff preview; sends nothing\ni / b      Inspector / companion drawer\nr          Retry failed storage outside editor\nl          Toggle linear / sanctuary layout\nCtrl+K     Local command palette\nTab        Cycle visible panes\nUp/Down    Select or scroll focused surface\nPageUp/Down Scroll a page\nHome/End   First/last selection or scroll position\nEsc        Close overlay and restore focus\n?          Show/close help\nq / Ctrl+C Safe exit; save task and retained drafts\nDuring save-and-exit, only Esc cancels exit.\nStorage failure requires informed explicit exit.\nConfirmations start on Stay/Keep; Tab/Right selects the action.\n\nArtwork: --images cells|off for compatibility.\nNo automatic download, model request, or permissions.\nLinear mode is text-first; no assistive-tool claim yet.";
     scroll_text(
         frame,
         content,
@@ -797,27 +1101,43 @@ fn preview(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint:
 }
 
 fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
-    let value = if app.editing {
-        "Enter Apply locally / Esc Back / Arrows Move / Ctrl+N Newline / Ctrl+C Safe exit"
+    let value = if app.quit_after_save {
+        "Saving task and drafts before exit / Esc Cancel exit"
+    } else if app.confirmation.is_some() {
+        "Tab/arrows Choose / Enter Confirm / Esc Stay"
+    } else if app.transitioning {
+        "Loading selected task / mutation paused"
+    } else if app.editing {
+        "Enter Apply / Ctrl+S Draft / Esc Review / Ctrl+N Newline"
     } else {
         match app.overlay {
             Some(Overlay::Forms) => {
                 "Arrows Preview / 1-9 Preview / Enter Select / p Details / Esc Back"
             }
-            Some(Overlay::Palette) => "Up/Down Choose / Enter Open / Esc Back / Ctrl+C Exit",
+            Some(Overlay::Palette) => "Arrows Choose / Enter Open / Esc Back",
+            Some(Overlay::Tasks) => "Arrows Choose / Enter Resume / n New / PgUp/Dn / Esc Back",
+            Some(Overlay::Criteria) => "Space Toggle / e Edit / Arrows Choose / PgUp/Dn / Esc Back",
             Some(_) => "Up/Down Scroll / Esc Back / Ctrl+C Exit",
             None => match app.effective_focus() {
                 Pane::Companion => "Enter Evolution / Tab Focus / i Inspect / ? Help / q Quit",
-                Pane::Inspector => "Enter Inspect / Tab Focus / f Evolution / ? Help / q Quit",
-                Pane::Workspace => "g Edit goal / f Evolution / Ctrl+K Actions / ? Help / q Quit",
+                Pane::Inspector => "Enter Inspect / Tab Focus / t Tasks / ? Help / q Quit",
+                Pane::Workspace => "g Edit / t Tasks / c Criteria / Ctrl+K Actions / ? Help",
             },
         }
     };
-    if app.scroll() > 0 && !app.editing {
+    if !app.notice.is_empty() {
+        text(
+            frame,
+            row(area, 0, 1),
+            &clipped(&app.notice, area.width as usize),
+            paint.accent,
+        );
+        text(frame, row(area, 1, 1), value, paint.base);
+    } else if app.scroll() > 0 && !app.editing {
         text(
             frame,
             area,
-            &format!("{value} / line {}", app.scroll() + 1),
+            &format!("{value}\nDetail line {}", app.scroll() + 1),
             paint.base,
         );
     } else {
@@ -862,18 +1182,24 @@ fn editor_rows(input: &str, cursor: usize, width: usize) -> (Vec<String>, (usize
 fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
     let area = centered(area, 86, 16);
     frame.render_widget(Clear, area);
-    let block = panel(
-        " Edit task goal / Enter applies and saves locally ",
-        config,
-        paint,
-        true,
-    );
+    let title = format!(" Edit {} ", app.editor_label());
+    let block = panel(&title, config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
     text(
         frame,
         row(content, 0, 2),
-        "Unapplied draft. Paste is text; no command or model request.",
+        match app.editor_field {
+            EditorField::Criteria => {
+                "One criterion per line; 64 max, 256 bytes each. Changed criteria reset to unmet."
+            }
+            EditorField::Goal => {
+                "Goal draft. Apply saves locally; no provider request or execution."
+            }
+            EditorField::NextAction => {
+                "Next-action draft. Describes your plan; does not execute it."
+            }
+        },
         paint.muted,
     );
     let input = row(content, 3, content.height.saturating_sub(6));
@@ -909,7 +1235,7 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         frame,
         row(content, content.height.saturating_sub(2), 2),
         &format!(
-            "{} / 4096 bytes{}\nEnter Apply / Esc Back / Arrows Move / Ctrl+N Newline",
+            "{} / 4096 bytes{}\nEnter Apply / Ctrl+S Save draft/back / Esc Review",
             app.input.len(),
             warning
         ),
@@ -942,7 +1268,17 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint
         centered(area, 62, 10)
     };
     frame.render_widget(Clear, area);
-    let block = panel(" Confirm exit or draft discard ", config, paint, true);
+    let block = panel(
+        match confirm.kind {
+            ConfirmationKind::Complete => " Confirm task completion ",
+            ConfirmationKind::Reopen(_) => " Reopen completed task ",
+            ConfirmationKind::DiscardDraft => " Review draft discard ",
+            ConfirmationKind::Quit => " Confirm exit ",
+        },
+        config,
+        paint,
+        true,
+    );
     let content = if area.width < 8 || area.height < 5 {
         area
     } else {
@@ -951,9 +1287,19 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint
     frame.render_widget(block, area);
     let (question, keep, discard) = match confirm.kind {
         ConfirmationKind::DiscardDraft => (
-            "Discard this changed draft? Applied goal is kept.",
+            "Discard this field's draft? Applied task data is kept.",
             "Keep editing",
             "Discard draft",
+        ),
+        ConfirmationKind::Complete => (
+            "Mark Complete based on your checklist review? This is not verified command evidence.",
+            "Stay",
+            "Complete task",
+        ),
+        ConfirmationKind::Reopen(_) => (
+            "Reopen this completed task before editing its goal or criteria?",
+            "Stay",
+            "Reopen and edit",
         ),
         ConfirmationKind::Quit if matches!(app.storage, crate::app::StorageState::Failed(_)) => (
             "Storage failed. Unsaved edits may be lost; accepted saves may finish. Stay, then r retries.",
@@ -961,9 +1307,9 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint
             "Exit despite save failure",
         ),
         ConfirmationKind::Quit => (
-            "Exit? Applied changes finish saving; unapplied editor draft is discarded.",
+            "Exit? Save the applied task and retained drafts before closing.",
             "Stay",
-            "Finish save and quit",
+            "Save task/drafts and quit",
         ),
     };
     text(frame, row(content, 0, 3), question, paint.surface);
@@ -1049,6 +1395,7 @@ mod tests {
                 images: ImageMode::Off,
                 assets_dir: "unused".into(),
                 layout: LayoutMode::Sanctuary,
+                layout_explicit: false,
                 data_dir: "unused-data".into(),
             };
             for (index, form) in FORMS.iter().enumerate() {

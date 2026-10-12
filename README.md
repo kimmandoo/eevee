@@ -56,7 +56,7 @@ cargo run --release -- --layout linear --images off
 
 Requires interactive stdin and stdout. The minimum Rust toolchain is 1.90.0. All five qualified native core baselines below passed build/test/lint and real PTY/ConPTY interaction. Native images were separately exercised on macOS arm64/Ghostty 1.3.1. Use `cargo run -- --help` for CLI options.
 
-The sanctuary, nine-species artwork, grid/list picker, local handoff preview, bounded scrolling, grapheme-aware goal editor, and one durable goal/form per project are implemented. Agent execution, repository inspection, multiple task cards, and permission grants remain unavailable. Switching forms never starts tools or changes permissions.
+The companion UI and durable project-scoped task cards are implemented: goals, acceptance checklists, next actions, forms, per-field drafts, navigation, and explicit completion/reopen. Agent execution, repository inspection, and permission grants remain unavailable. Switching forms never starts tools or changes permissions.
 
 Goals are limited to 4096 UTF-8 bytes and never sent to a model. Enter applies an edit and requests a local save; the header distinguishes saving, committed, and failed revisions. Ctrl+N inserts a newline. Shift+Enter works only when the terminal reports it distinctly. Esc on a changed draft asks whether to keep or discard it. Backspace/VT Ctrl+H and Delete remove complete graphemes; a truncated paste leaves a visible warning.
 
@@ -84,6 +84,10 @@ Artwork rights remain with the original rights holders. Downloading or attributi
 | `g` | Edit the durable project goal; Enter applies and saves |
 | `i` / `b` | Open the inspector / companion drawer |
 | `r` | Retry failed storage outside text entry |
+| `t` / `n` | Browse/resume task cards / create a new task after pending saves settle |
+| `c` | Open criteria; Space toggles a criterion, `e` edits one-per-line text |
+| `a` / `d` | Edit next action / request explicit criterion-reviewed completion |
+| Ctrl+S in editor | Retain the field's draft and return without applying it |
 | `p` | Inspect a local handoff preview; in the picker, inspect the previewed role |
 | `l` | Toggle sanctuary / linear text layout |
 | Ctrl+K | Open the command palette |
@@ -102,9 +106,9 @@ The layout uses three panes at 120+ columns, two at 90–119, and one with drawe
 
 Auto color uses advertised true-color support, then 256-color support, otherwise monochrome. Nonempty `NO_COLOR` overrides color flags. `TERM=dumb` also selects ASCII; a non-UTF-8 locale selects ASCII borders. Dark and light themes are explicit choices.
 
-## Durable local goal
+## Durable local tasks
 
-`g` edits the current project's goal; Enter applies it and requests a local SQLite save. Only a committed revision shows **Storage: saved**. Selecting a form saves it with the goal. Restarting in the same canonical project directory restores both; another project has separate state.
+`t` browses saved task cards; `n` creates another task in the current project. `g`, `c`→`e`, and `a` edit the goal, criteria, and next action. Enter applies locally; Ctrl+S retains a per-field draft without applying it. Editing/navigation changes are saved by a bounded worker. Only the matching committed revision shows **Storage: saved**; retained drafts are labelled separately. Restart restores the active task, form, focus/layout, and drafts. Explicit `--layout` overrides remembered layout for that invocation.
 
 | Platform | Default data directory |
 | --- | --- |
@@ -112,11 +116,13 @@ Auto color uses advertised true-color support, then 256-color support, otherwise
 | Linux | `$XDG_DATA_HOME/eevee`, or `~/.local/share/eevee` |
 | Windows | `%LOCALAPPDATA%\\eevee` |
 
-Use `ev --data-dir PATH` for isolation. `workbench.sqlite3` stores schema-versioned goals; `workbench.lock` admits one writer across directory aliases. Another instance shows a storage error rather than taking over. Press `r` to retry after resolving the conflict or disk/permission error; `i` shows details. Goal text stays editable on failure. Applied changes finish saving before a confirmed normal exit; failed storage requires an explicit informed exit. An unapplied editor draft is not yet durable.
+Use `ev --data-dir PATH` for isolation. `workbench.sqlite3` stores schema-versioned tasks; `workbench.lock` admits one writer across directory aliases. Another instance shows a storage error rather than taking over. Press `r` to retry after resolving conflict/disk/permission errors; `i` shows details. Pending saves must settle before switching or creating a task. Normal exit finishes task/draft saves; failed storage requires an explicit informed exit. Esc discard removes only the selected field's draft, not applied task data.
 
-Schema 0 (`goals(project TEXT PRIMARY KEY, goal TEXT NOT NULL, form INTEGER NOT NULL)`) migrates transactionally to schema 1 (`projects`, including revision). Corrupt, foreign, or newer schemas are never reset. Interrupted single-database rollback migrations are first recovered and validated on private copies, bounded to 64 MiB per database/journal; WAL/SHM and multi-database recovery are refused rather than guessed. Preserve the original files for manual recovery if automatic recovery is unavailable.
+Completion requires at least one criterion, all criteria checked, no retained goal/criteria draft, and a deliberate neutral-focus confirmation. It records your review, not verified execution evidence. Editing a completed goal or criteria first requires explicit reopening. Bounds are 256 tasks per project, 64 criteria of at most 256 UTF-8 bytes each, and 4096 bytes per goal/next-action/draft.
 
-`ev --data-dir PATH --export-data NEW_FILE.json` exports readable known goal rows without creating/migrating the database or overwriting the output. Export is not a repair or a guarantee that a corrupt database is readable. Project/data paths must be Unicode; display escaping does not change stored project identity.
+Schema 0 (`goals`) and schema 1 (`projects`, including revision) migrate transactionally to schema 2 (task rows and active project selections). Corrupt, foreign, or newer schemas are never reset. Interrupted single-database rollback migrations are first recovered and validated on private copies, bounded to 64 MiB per database/journal; WAL/SHM and multi-database recovery are refused rather than guessed. Preserve the original files for manual recovery if automatic recovery is unavailable.
+
+`ev --data-dir PATH --export-data NEW_FILE.json` exports readable known task rows without creating/migrating the database or overwriting the output. Export is not a repair or a guarantee that a corrupt database is readable. Project/data paths must be Unicode; display escaping does not change stored project identity.
 
 ## Development checks
 
@@ -156,11 +162,11 @@ These historical core rows do not certify arbitrary GUI terminals, native images
 - [Session checkpoint](docs/WORK_CHECKPOINT.md)
 - [Terminal troubleshooting](docs/TROUBLESHOOTING.md)
 
-Section A and its five-row native core checkpoint are complete. E01 added locally verified durable goal/form storage; multiple task cards are the next increment, followed by the remaining B/C tasks requested in [task.md](task.md). P02 separately proves filesystem/process parity across the native matrix; local storage acceptance alone is not that claim.
+Section A and its five-row native core checkpoint are complete. E01/E02 added locally verified durable task storage and resumption; E03 and the rest of B/C remain active in [task.md](task.md). Subsequent native CI is blocked by GitHub account billing. P02's new filesystem/process parity is not implied by earlier installation or local task evidence.
 
 Native core support is limited to the recorded OS/architecture/PTY or ConPTY tuples above. Windows ARM64, older OS versions, and untested GUI terminals remain unclaimed. Cross-compilation is not runtime proof. P02 gates filesystem/data-directory and owned process-tree lifecycle after recovery UX. P03 gates native archives/checksums and install/upgrade/uninstall preserving user data, after integrated acceptance and rights/provider review. Native-image and agent capabilities are qualified separately by OS/version/terminal.
 
-The [design contract](docs/DESIGN_RULES.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md) also cover active-run task switching/quit, dispatch-time context revalidation, and E03 archive/delete, redaction, quotas, and retention. These remain subsequent workbench tasks; transactional single-goal storage is described above.
+The [design contract](docs/DESIGN_RULES.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md) also cover active-run switching/quit, dispatch-time context revalidation, and E03 archive/delete, redaction, quotas, and retention. These remain subsequent workbench tasks; durable task cards and resumption are described above.
 
 Later integration targets: Codex app-server first, an optional official Claude Agent SDK bridge, and one ACP client exercised against OpenCode and Gemini. A form selects the workflow, not the vendor. Switching agents uses a reviewed fresh handoff; native provider sessions and grants are not portable. The Rust core/local UI needs no Node runtime; only the optional Claude SDK integration would add one. Interface research and a local Codex version/help check are not runtime interoperability verification.
 
