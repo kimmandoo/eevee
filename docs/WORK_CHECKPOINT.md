@@ -3,13 +3,13 @@
 ## 2026-10-12 — Section A companion implementation and native acceptance
 
 - Active work: user requested all of section A, scoped commits, and push. The five companion tasks V01/V02A/V02B/V03/UX01 are implemented and locally verified; **P01** remains active while native CI evidence is collected. Do not start section B during this request.
-- Exact next action: push the companion and native-CI commits, observe the five native workflow rows, and correct any actual failures. Then record per-row outcomes and push the final checkpoint. Do not mark P01 complete from YAML or compilation alone.
+- Exact next action: push the Windows console-input correction and observe all five native workflow rows again. Run `38255345859` passed both native macOS and Linux architectures but failed the real Windows ConPTY combining-text paste; P01 remains active until that path and all terminal-restoration scenarios pass.
 - Starting state: `main...origin/main [ahead 5]`; latest commit `9c922f9 docs(platform): plan native support and close UX gaps`. Existing `Cargo.lock`, `Cargo.toml`, `src/app.rs`, `src/config.rs`, `src/domain.rs`, and `src/ui.rs` changes were preserved and integrated into the runnable companion rather than discarded. Pre-existing untracked `.DS_Store` and `AGENTS.md` remain excluded.
 - Runtime scope: source-tracked opt-in artwork, bounded static PNG loading/cell cache, qualified native Kitty resources, sanctuary/action hierarchy, all nine deliberate form previews, local-only handoff preview, grapheme cursor editing, portable Ctrl+N/VT Backspace, safe dirty-draft/exit confirmations, stable focus/selection/scroll, and linear navigation. No storage worker, repository reads, grants, commands, or model requests were added.
 - Native route: macOS arm64/Ghostty 1.3.1 only, with usable kernel-reported pixel dimensions and no SSH/tmux/screen layer. Native eligibility never reads stdin; a missing report immediately falls back to cells. Other native protocols/OS/version tuples remain disabled until real acceptance.
 - Changed runtime files: `Cargo.toml`, `Cargo.lock`, `src/app.rs`, `src/config.rs`, `src/domain.rs`, `src/main.rs`, `src/ui.rs`, `src/terminal.rs`, new `src/artwork.rs`, and new `src/native.rs`. Runtime/contract docs and troubleshooting were aligned; platform CI/harness are a separate commit scope.
 - Platform scope: `.github/workflows/native.yml` pins five native hosts, Rust 1.90.0/Python/action/dependency versions, and failure-artifact uploads. `scripts/terminal_smoke.py` uses real POSIX PTYs or native Windows ConPTY, verifies console/termios and VT restoration, owns test subprocesses, and isolates the normal/error/panic probe outside repository sources. GUI-terminal and native-image claims remain separate.
-- Commits: `fbf1d3a feat(companion): deliver sanctuary artwork and safe local UX` integrated the mutually dependent runtime changes as a runnable increment. The platform workflow/harness is committed separately; its remote execution is still pending at this checkpoint.
+- Commits: `fbf1d3a feat(companion): deliver sanctuary artwork and safe local UX` and `988901c ci(platform): add native terminal lifecycle matrix` were pushed to `main`. A separate UI refinement reuses borrowed goal/header text rather than copying it each redraw; 120×36 and 60×18 long-CJK-goal scroll/reflow/quit smoke passed.
 
 ### Observed verification
 
@@ -21,7 +21,7 @@
 - Measured actual ANSI nonblank text across all nine forms: minimum **7.14:1 dark / 5.19:1 light**, 6,978 text cells sampled per theme, excluding image pixels and decorative borders. `target/a-verify/contrast.json` records the method's sampled counts; theme regression tests also enforce 4.5:1 text and 3:1 active focus.
 - Reproduced a FIFO asset blocking before the first frame, then observed visible first-frame output, normal quit, and termios restoration after the nonblocking-open fix. Kept a permanent isolated FIFO regression. Also kept regression coverage for native payload row width and VT Ctrl+H combining deletion.
 - Resolved non-trivial native rendering, asset startup, and GUI automation issues are recorded in `docs/TROUBLESHOOTING.md`. No assistive-terminal/screen-reader claim or general performance benchmark claim is made.
-- Remaining evidence: other native rows are not yet claimed supported; P01 completion awaits observed CI results. Local screenshots/PNGs stay ignored, and throwaway smoke helpers are removed after final verification.
+- Native run `38255345859`: macOS 14.8.9 arm64, macOS 15.7.9 x86_64, and Ubuntu 22.04 arm64/x86_64 each passed all 34 native PTY scenarios. Windows built, tested, and linted successfully but failed actual combining-text paste: Crossterm dropped the Alt-code release character and cannot surface Windows bracketed paste. An owned console-record/VT-input adapter is being verified; no Windows runtime-success claim is made yet.
 
 ## 2026-10-12 — Native platform backlog and UX gap closure
 

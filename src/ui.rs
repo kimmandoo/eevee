@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use ratatui::{
     Frame,
     layout::{Alignment, Rect},
@@ -454,11 +456,12 @@ fn workspace(
         paint.accent,
     );
     let artifact = row(content, 4, content.height.saturating_sub(4));
+    let offset = app.scroll_for(ScrollSurface::Workspace);
     let mut lines = vec![Line::styled("SESSION GOAL", paint.muted), Line::from("")];
     if app.goal.is_empty() {
         lines.push(Line::from("Give your companion one bounded goal."));
     } else {
-        lines.extend(app.goal.lines().map(|line| Line::from(line.to_owned())));
+        lines.extend(app.goal.lines().map(Line::from));
     }
     lines.push(Line::from(""));
     lines.push(Line::styled("EXPECTED ARTIFACT", paint.muted));
@@ -472,15 +475,16 @@ fn workspace(
         lines.push(Line::from(""));
         lines.push(Line::from("i Inspector / b Companion / l Sanctuary layout"));
     }
-    scroll_text(
-        frame,
-        artifact,
-        Paragraph::new(lines)
-            .style(paint.surface)
-            .wrap(Wrap { trim: false }),
-        app,
-        ScrollSurface::Workspace,
-    );
+    let paragraph = Paragraph::new(lines)
+        .style(paint.surface)
+        .wrap(Wrap { trim: false });
+    let max = paragraph
+        .line_count(artifact.width.max(1))
+        .saturating_sub(artifact.height as usize)
+        .min(u16::MAX as usize) as u16;
+    frame.render_widget(paragraph.scroll((offset.min(max), 0)), artifact);
+    // Consume the borrowed goal before reporting view-only wrapping bounds.
+    app.set_scroll_max(ScrollSurface::Workspace, max);
 }
 
 fn companion(
@@ -963,9 +967,9 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint
     );
 }
 
-fn clipped(value: &str, columns: usize) -> String {
+fn clipped(value: &str, columns: usize) -> Cow<'_, str> {
     if Span::raw(value).width() <= columns {
-        return value.to_owned();
+        return Cow::Borrowed(value);
     }
     let mut result = String::new();
     let mut used = 0;
@@ -978,7 +982,7 @@ fn clipped(value: &str, columns: usize) -> String {
         used += next;
     }
     result.push('…');
-    result
+    Cow::Owned(result)
 }
 
 #[cfg(test)]
