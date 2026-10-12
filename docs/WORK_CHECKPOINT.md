@@ -3,10 +3,10 @@
 ## 2026-10-13 — Windows console repaint acceptance
 
 - Active task: **P01**, within the user's all-section-A request. V01/V02A/V02B/V03/UX01 remain implemented; section B has not started.
-- Exact next action: push and observe the Windows console repaint correction. Run `38265625588` again passed all four POSIX rows but still failed strict help/back equality on native Windows. Do not rerun the same revision or relax that assertion.
-- Diagnosis: ordered resize/queued-output capture fixes were insufficient. Native captures retained old editor borders/footer text after resizing, and a decomposed combining glyph displaced its following space. Windows output now composes displayed cell symbols without modifying draft bytes, and explicitly invalidates the console/Ratatui buffers on resize before a fresh repaint. This change still requires full native runtime proof.
-- Changes: Windows-only `unicode-normalization` dependency, `src/ui.rs` console display projection, `src/main.rs` resize invalidation, and changelog/checkpoint. Existing input decoding, Unix behavior, native-image qualification, and strict smoke assertions are unchanged.
-- Pushed through `181ddf3 test(platform): synchronize native console captures`; the earlier runtime/CI/perf/input commits are recorded below. Pre-existing `.DS_Store` and `AGENTS.md` remain excluded.
+- Exact next action: push and observe native primary-buffer restoration instrumentation. Run `38268855355` passed all four POSIX hosts and the complete first Windows interactive flow, including strict help/back equality, but stopped at a generic VT alternate-screen marker assertion. Windows emitted no CSI 1049 marker; native console modes and process exit were correct. Require preserved native primary-buffer contents instead, without weakening restoration.
+- Diagnosis/fix proof: displayed-grapheme composition and explicit resize invalidation removed the retained editor/footer cells. Windows Unicode/literal-paste input, reflow, nested surfaces, all nine forms, safe dialogs, and idle-output checks passed in the actual ConPTY. Normal/error/panic native buffer restoration and the full 34-scenario matrix still require final evidence.
+- Changes: Windows-only `unicode-normalization`, `src/ui.rs` display projection, `src/main.rs` resize invalidation, native `CONOUT$` primary-buffer sentinel evidence in the harness, contract/changelog/troubleshooting/checkpoint. Unix behavior and native-image qualification remain unchanged.
+- Pushed through `3cb1ee2 fix(windows): compose console glyphs and repaint resized buffers`; local Rust 1.90 tests passed 46, Clippy and locked release passed. The preceding implementation/CI/perf/input/capture commits are recorded below. Pre-existing `.DS_Store` and `AGENTS.md` remain excluded.
 
 ## 2026-10-12 — Section A companion implementation and native acceptance
 

@@ -119,6 +119,41 @@ def console_modes():
         modes.append(mode.value)
     return modes
 
+def primary_screen_marker(write=False):
+    """Read the active native buffer; ConPTY need not relay CSI 1049."""
+    from ctypes import wintypes
+    class Coordinate(ctypes.Structure):
+        _fields_ = [("x", wintypes.SHORT), ("y", wintypes.SHORT)]
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                  wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.ReadConsoleOutputCharacterW.argtypes = [wintypes.HANDLE, wintypes.LPWSTR,
+                                                  wintypes.DWORD, Coordinate,
+                                                  ctypes.POINTER(wintypes.DWORD)]
+    kernel.WriteConsoleOutputCharacterW.argtypes = [wintypes.HANDLE, wintypes.LPCWSTR,
+                                                   wintypes.DWORD, Coordinate,
+                                                   ctypes.POINTER(wintypes.DWORD)]
+    marker = "EEVEE_PRIMARY_SENTINEL"
+    handle = kernel.CreateFileW("CONOUT$", 0xC0000000, 3, None, 3, 0, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        count = wintypes.DWORD()
+        if write:
+            if not kernel.WriteConsoleOutputCharacterW(handle, marker, len(marker),
+                                                       Coordinate(0, 0), ctypes.byref(count)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            assert count.value == len(marker), "primary console sentinel was not written completely"
+        text = ctypes.create_unicode_buffer(len(marker) + 1)
+        if not kernel.ReadConsoleOutputCharacterW(handle, text, len(marker),
+                                                  Coordinate(0, 0), ctypes.byref(count)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return text.value
+    finally:
+        kernel.CloseHandle(handle)
+
 
 def console_child(argv):
     """Observe the child's *same native console*, not the CI runner's handles."""
@@ -127,11 +162,15 @@ def console_child(argv):
     if sys.stdin.readline().strip() != "EEVEE_SMOKE_START":
         return 2
     before = console_modes()
+    primary_before = primary_screen_marker(write=True)
+    primary_hidden = False
     observed = set()
     child = subprocess.Popen(argv)
     try:
         while child.poll() is None:
             observed.add(tuple(console_modes()))
+            if primary_screen_marker() != primary_before:
+                primary_hidden = True
             time.sleep(0.01)
         status = child.wait()
     finally:
@@ -140,7 +179,10 @@ def console_child(argv):
             child.wait()
     after = console_modes()
     evidence = {"before": before, "observed": sorted(observed),
-                "after": after, "child_status": status}
+                "after": after, "child_status": status,
+                "primary_before": primary_before,
+                "primary_after": primary_screen_marker(),
+                "primary_hidden_during_child": primary_hidden}
     save_json(os.environ["EEVEE_CONSOLE_EVIDENCE"], evidence)
     # A short marker survives ConPTY's screen wrapping; structured evidence is
     # written separately instead of scraping a possibly reflowed JSON line.
@@ -372,6 +414,9 @@ class Session:
             self.events.append({"console_restoration": native})
             assert native["before"] == native["after"], "Windows console modes not restored"
             assert any(not mode[0] & 0x0007 for mode in native["observed"]), "Windows raw console mode not observed"
+            assert native["primary_hidden_during_child"], "native alternate buffer was not observed"
+            assert native["primary_before"] == native["primary_after"] == "EEVEE_PRIMARY_SENTINEL", \
+                "native primary screen contents were not restored"
         else:
             import termios
             self.status = self.process.wait(timeout=2)
@@ -392,7 +437,8 @@ class Session:
                 modes[int(number)] = sequence.group(2) == "h"
         self.events.append({"status": self.status, "final_vt_modes": modes})
         assert modes.get(25) is True, "cursor was not shown on exit"
-        assert modes.get(1049) is False, "alternate screen was not left"
+        if not WINDOWS:
+            assert modes.get(1049) is False, "alternate screen was not left"
         assert modes.get(2004) is False, "bracketed paste was not disabled"
         self.events.append({"status": self.status, "restoration": native, "final_vt_modes": modes})
         return self.status
