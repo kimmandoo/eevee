@@ -2,7 +2,7 @@
 
 ## Active work
 
-The local companion runtime in section A is implemented and verified on macOS arm64. The active acceptance task is **P01 — Native platform baseline and terminal lifecycle**: complete the five native CI rows before claiming platform support. Do not start section B in this request. E01 is the next dependency-ready product increment after section-A acceptance; storage/provider capabilities remain unavailable until implemented.
+Section A is complete: V01, P01, V02A, V02B, V03, and UX01 passed their recorded gates. Native run [38274013013](https://github.com/kimmandoo/eevee/actions/runs/38274013013) passed all five OS/architecture rows, including the recurring indexed-color Windows paste/rendering failure. Section B was not started in this request. **E01 — Durable goal and save acknowledgement** is the next product task; storage/provider capabilities remain unavailable.
 
 Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapter/evidence contract: [agent compatibility](docs/AGENT_COMPATIBILITY.md). An unchecked task may have partial implementation, but its acceptance is not complete; consult its evidence note and the checkpoint.
 
@@ -22,7 +22,7 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 - Update the changelog/checkpoint and commit each completed query increment. Record unfinished acceptance explicitly; never mark an entire later phase complete because one task passed.
 - Never require every form in a user task. Shared task facts and selected context avoid repeated prompts and unnecessary model calls.
 - A form, execution agent, model, and control boundary are separate choices. Never promise sandboxing, portable provider sessions, complete prompt visibility, or exact usage when the integration cannot establish them.
-- Target native macOS arm64/x86_64, Linux x86_64/arm64, and Windows x86_64. These are planned targets, not verified support. Record minimum OS/toolchain and actual terminal versions per target; Windows acceptance uses native Windows Terminal/ConPTY, not WSL. Other targets, including Windows ARM64, remain unclaimed until separately qualified.
+- Core baselines are qualified for the observed macOS arm64/x86_64, Linux x86_64/arm64, and Windows x86_64 OS/terminal tuples in README. Older OS versions, other GUI terminals, filesystem/process parity, and packages are not inferred supported. Windows acceptance uses native ConPTY, not WSL; Windows ARM64 remains unclaimed.
 - Pick the first dependency-ready, unblocked task in backlog order. Record blocked acceptance explicitly and continue independent ready tasks; never skip a dependency or mark a blocked gate complete. Native graphics is not a prerequisite for keyboard navigation, durable storage, or the cell-rendered picker.
 
 ## A — Make Eevee feel like a companion
@@ -37,11 +37,11 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ### P01 — Native platform baseline and terminal lifecycle
 
-- [ ] Establish a verified native core baseline on the target OS/architecture matrix.
+- [x] Established the verified native core baseline on the target OS/architecture matrix.
 - **Depends on:** V01.
 - **Change:** Add native build/test/lint CI and target-qualified terminal smoke coverage for macOS arm64/x86_64, Linux x86_64/arm64, and Windows x86_64. Record actual minimum supported OS/toolchain and terminal versions. Isolate platform differences only where needed; preserve one Rust UI and local use without Node, account, or artwork. Keep build, interactive runtime, graphics protocol, and agent availability as distinct evidence columns.
 - **Accept:** On every target, build the release binary and exercise real input, resize, CJK/paste, Ctrl+C, non-TTY help/errors, and normal/error/panic restoration using the existing text/mono/ASCII modes; image-specific checks belong to V02A/V02B. Include native Windows Terminal/ConPTY; WSL and cross-compilation do not prove Windows runtime support. Record artifacts and host/terminal versions. Missing native hardware/runner or terminal access leaves the affected row and P01 pending, never “supported” from compilation alone.
-- **Implementation / current evidence:** Added `.github/workflows/native.yml` and `scripts/terminal_smoke.py` for five native rows with Rust 1.90.0, POSIX PTYs, and Windows ConPTY. The local macOS arm64 harness passed 34 scenarios; other rows await observed CI artifacts, so this checkbox remains open.
+- **Evidence:** Native run [38274013013](https://github.com/kimmandoo/eevee/actions/runs/38274013013), revision `9d49447`, passed formatting, locked tests, warning-free Clippy, release builds, and 34 real PTY/ConPTY scenarios per row. README records observed OS/kernel/terminal baselines and Rust 1.90.0. Windows verified literal Unicode paste in all seven modes and native primary-buffer/console-mode restoration on normal/error/panic exits; no WSL, GUI-terminal, package, or provider claim follows.
 
 ### V02A — Actual nine-species assets and cell rendering
 
@@ -75,7 +75,7 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 - **Accept:** Complete create/edit/select/back/resize/quit using only keyboard navigation with CJK/combining text and multiline paste, including absent artwork. Pasted commands/newlines never execute or approve anything. Closing a drawer restores focus, resize below/above minimum preserves drafts/selection, and linear layout exposes the same actions. A dirty editor warns before destructive discard without requiring confirmation for an unchanged draft. Exercise a real assistive terminal setup before labelling that combination screen-reader compatible.
 - **Evidence:** Real keyboard/CJK/combining/multiline paste, safe keep/discard/quit, local apply, bounded scrolling, linear layout, and below-minimum resize scenarios passed. Ctrl+N provides portable newline input; Shift+Enter is conditional on terminal reporting. No screen-reader compatibility is claimed.
 
-**Gate A:** the local companion visual/input/artwork gate passed on the recorded macOS arm64 terminal. The cross-platform P01 acceptance remains separate and active until all native rows pass. No persistence or agent execution is claimed.
+**Gate A:** completed. The companion visual/input/artwork gate passed on the recorded macOS arm64/Ghostty terminal; P01 separately passed all five native core rows. Native pixels remain limited to the qualified Ghostty route, with cells/off elsewhere. No persistence, repository inspection, agent execution, or distribution acceptance is claimed.
 
 ## B — A useful local workbench before connecting a model
 
@@ -275,4 +275,4 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ## Phase status
 
-Phase 1 and the five local companion tasks V01, V02A, V02B, V03, and UX01 are complete on the recorded environment. P01's native-platform acceptance is active; sections B-G and platform parity/distribution remain pending. Of 31 implementation tasks, 5 are checked and 26 remain unchecked. See `docs/WORK_CHECKPOINT.md` for exact evidence and continuation; do not infer other native protocols, platforms, persistence, or provider support from the companion UI.
+Phase 1 and all six section-A tasks V01, P01, V02A, V02B, V03, and UX01 are complete on their recorded environments. Sections B-G and platform parity/distribution remain pending. Of 31 implementation tasks, 6 are checked and 25 remain unchecked. See `docs/WORK_CHECKPOINT.md` for exact evidence and continuation; do not infer other native protocols, GUI terminals, older OS versions, persistence, or provider support from the companion UI.

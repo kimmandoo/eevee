@@ -1,7 +1,7 @@
 # Eevee Implementation Plan
 
-Date: 2026-10-12
-Status: V01/V02A/V02B/V03/UX01 are implemented and locally accepted on macOS arm64, including real Ghostty native-image evidence. P01's five-row native acceptance is active; section B and later phases remain pending. Of 31 tasks, 5 are checked and 26 remain unchecked. See the checkpoint for exact current evidence.
+Date: 2026-10-13
+Status: Section A (V01/P01/V02A/V02B/V03/UX01) is complete: five native core rows passed, and the qualified macOS arm64/Ghostty route passed real native-image acceptance. Section B and later phases remain pending. Of 31 tasks, 6 are checked and 25 remain unchecked. See the checkpoint for exact current evidence.
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
 
 ## Outcome
@@ -151,4 +151,4 @@ No custom model runtime, autonomous multi-agent swarm, hosted synchronization, p
 
 ## Current next action
 
-Finish **P01 — Native platform baseline and terminal lifecycle** by running and observing the five native CI rows, correcting actual failures, and recording evidence. The section-A companion runtime has passed local artifact/input/native-image gates; do not start section B during the current all-A request. Once acceptance is recorded, E01 is the next product increment and still requires actual save/reopen proof. Native graphics support remains limited to the verified macOS arm64/Ghostty 1.3.1 route, with cells elsewhere; provider interoperability and durable state are not implemented.
+The all-section-A request is complete and its scoped changes were pushed. On the next implementation request, start **E01 — Durable goal and save acknowledgement** with an isolated save/quit/reopen scenario and revision-safe acknowledgement, then implement against the recorded native platform contract. Do not infer persistence from the existing session editor. P01 core evidence is complete; P02/P03 and provider gates remain pending. Native graphics stays limited to macOS arm64/Ghostty 1.3.1, with cells/off elsewhere.

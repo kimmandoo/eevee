@@ -231,7 +231,7 @@ Planned spacious layout at 120x36: one-cell outer margin; three-row header; one-
 
 ## Native platform and release evidence
 
-The following are planned verification targets, not current support claims. Each row needs its own recorded minimum OS version, Rust/toolchain version, terminal/version, and native build/run/install evidence; do not invent minimum versions from dependency metadata.
+The matrix defines native platform targets. P01 core build/terminal acceptance is now qualified for the observed OS/kernel/PTY or ConPTY tuples recorded in README and the checkpoint; filesystem/process parity and packaged install/upgrade remain later gates. Record actual OS/toolchain/terminal versions for every claim, and never invent older minimum versions from dependency metadata or infer arbitrary GUI-terminal support.
 
 | Native OS | Architecture | Required runtime environment |
 | --- | --- | --- |

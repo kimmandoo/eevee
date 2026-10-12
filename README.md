@@ -12,7 +12,7 @@ cargo run --release -- --ascii --color mono
 cargo run --release -- --layout linear --images off
 ```
 
-Requires interactive stdin and stdout. The minimum Rust toolchain is 1.90.0. The current local companion has been exercised on macOS arm64 in a real PTY and Ghostty 1.3.1; other native platform claims require the CI evidence described below. Use `cargo run -- --help` for CLI options.
+Requires interactive stdin and stdout. The minimum Rust toolchain is 1.90.0. All five qualified native core baselines below passed build/test/lint and real PTY/ConPTY interaction. Native images were separately exercised on macOS arm64/Ghostty 1.3.1. Use `cargo run -- --help` for CLI options.
 
 The sanctuary, nine-species artwork, grid/list picker, local handoff preview, bounded scrolling, and grapheme-aware goal editor are implemented. Agent execution, repository inspection, persistent tasks, and permission grants remain unavailable. Switching forms never starts tools or changes permissions.
 
@@ -69,6 +69,22 @@ cargo build --release
 
 Run `python scripts/terminal_smoke.py --binary target/release/eevee --output target/native-smoke` after building. Install `pyte==0.8.2` and `wcwidth==0.2.13`; Windows also needs `pywinpty==2.0.15`. The harness launches the real binary in POSIX PTYs or native Windows ConPTY, records screen/host/console evidence, and builds one isolated lifecycle probe for normal/error/panic restoration. It does not certify a GUI terminal or native images. The native workflow runs the five OS/architecture rows and uploads results; see the checkpoint for observed outcomes rather than inferred support.
 
+### Verified native core baselines
+
+[Native run 38274013013](https://github.com/kimmandoo/eevee/actions/runs/38274013013) tested revision `9d49447` with Rust 1.90.0, Python 3.12.9, pyte 0.8.2, and wcwidth 0.2.13. These are the oldest **observed** baselines, not proof that earlier versions work:
+
+| OS / architecture | Observed OS and terminal transport | Real smoke scenarios |
+| --- | --- | --- |
+| macOS arm64 | macOS 14.8.9, Darwin 23.6.0 POSIX PTY | 34 passed |
+| macOS x86_64 | macOS 15.7.9, Darwin 24.6.0 POSIX PTY | 34 passed |
+| Linux x86_64 | Ubuntu 22.04.5, kernel 6.8.0-1064-azure POSIX PTY | 34 passed |
+| Linux arm64 | Ubuntu 22.04.5, kernel 6.8.0-1064-azure POSIX PTY | 34 passed |
+| Windows x86_64 | Server 2022 build 10.0.20348, native ConPTY via pywinpty 2.0.15/backend 0 | 34 passed |
+
+Each row passed locked tests, warning-free Clippy, release build, seven display modes/four sizes, literal CJK/combining/astral paste, resize/back/selection, safe exit, non-TTY CLI checks, and normal/error/panic restoration. Windows checked actual primary-screen contents and original console-mode bits rather than requiring a VT marker ConPTY did not relay. Its legacy console path composes displayed glyphs and freshly repaints state-changed frames; idle has no timer. This is a correctness choice, not a performance benchmark.
+
+These core rows do not certify arbitrary GUI terminals, native images, providers, filesystem/process parity, or installable release packages. The only native-image qualification remains the separate macOS arm64/Ghostty 1.3.1 acceptance described above; agent adapters and packaged-install evidence are unavailable.
+
 
 ## Design
 
@@ -81,9 +97,9 @@ Run `python scripts/terminal_smoke.py --binary target/release/eevee --output tar
 - [Session checkpoint](docs/WORK_CHECKPOINT.md)
 - [Terminal troubleshooting](docs/TROUBLESHOOTING.md)
 
-The section-A companion runtime is implemented; its completion gates and any platform evidence blockers are recorded in [task.md](task.md) and the checkpoint. The next product increment is **E01 — Durable goal and save acknowledgement**, after UX01, without pretending that a session draft is already saved. P01 must retain any unverified native rows, and P02 later proves filesystem/process parity; artwork and provider capability gates are independent.
+Section A and its five-row native core checkpoint are complete; [task.md](task.md) and the checkpoint record the exact evidence. The next product increment is **E01 — Durable goal and save acknowledgement**; a session draft is not already saved. P02 later proves filesystem/process parity, while artwork, provider, and distribution gates remain independent.
 
-Platform **targets, not support claims**: macOS arm64/x86_64, Linux x86_64/arm64, and native Windows x86_64 with Windows Terminal/ConPTY (WSL is not a substitute). Windows ARM64 and other variants are unclaimed. P01 records actual minimum OS/toolchain/terminal and native build/test/terminal evidence per row; cross-compilation is not runtime proof. P02 gates filesystem/data-directory and owned process-tree lifecycle after recovery UX. P03 gates native archives/checksums and install/upgrade/uninstall preserving user data, after integrated acceptance and rights/provider review. Native-image and agent capabilities are qualified separately by OS/version/terminal.
+Native core support is limited to the recorded OS/architecture/PTY or ConPTY tuples above. Windows ARM64, older OS versions, and untested GUI terminals remain unclaimed. Cross-compilation is not runtime proof. P02 gates filesystem/data-directory and owned process-tree lifecycle after recovery UX. P03 gates native archives/checksums and install/upgrade/uninstall preserving user data, after integrated acceptance and rights/provider review. Native-image and agent capabilities are qualified separately by OS/version/terminal.
 
 The [design contract](docs/DESIGN_RULES.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md) also cover planned transactional persistence, active-run task switching/quit, dispatch-time context revalidation, and E03 archive/delete, redaction, quotas, and retention. Those later workbench safeguards are not implemented by the local companion.
 
