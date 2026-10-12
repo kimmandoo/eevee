@@ -4,6 +4,7 @@ mod config;
 mod domain;
 mod input;
 mod native;
+mod privacy;
 mod store;
 mod terminal;
 mod ui;
@@ -65,7 +66,8 @@ fn run(config: Config) -> io::Result<()> {
         .to_owned();
     let mut artwork = artwork::Artwork::load(&config);
     terminal::run(native::cleanup, |terminal| {
-        let store = store::Worker::start(config.data_dir.clone(), cwd.clone())?;
+        let store =
+            store::Worker::start(config.data_dir.clone(), cwd.clone(), config.storage_policy)?;
         let size = terminal.size()?;
         let mut app = App::new(
             cwd.chars().filter(|c| !c.is_control()).collect(),
@@ -73,6 +75,7 @@ fn run(config: Config) -> io::Result<()> {
             size.height,
         );
         app.linear = config.layout == config::LayoutMode::Linear;
+        app.policy = config.storage_policy;
         let mut graphics = native::NativeGraphics::new(&config);
         let mut dirty = true;
         let mut targets = Vec::with_capacity(9);
@@ -106,6 +109,9 @@ fn run(config: Config) -> io::Result<()> {
                 app.retry_storage = false;
                 outstanding_store += 1;
             }
+            if store.try_manage(&mut app.management) {
+                outstanding_store += 1;
+            }
             if let Some(id) = app.switch_task
                 && store.try_select(id)
             {
@@ -113,6 +119,7 @@ fn run(config: Config) -> io::Result<()> {
                 outstanding_store += 1;
             }
             if app.save_requested
+                && !app.transitioning
                 && !(app.task_id == 0 && outstanding_store > 0)
                 && matches!(
                     app.storage,
@@ -133,6 +140,7 @@ fn run(config: Config) -> io::Result<()> {
             let pending = outstanding_store > 0
                 || app.retry_storage
                 || app.switch_task.is_some()
+                || app.management.is_some()
                 || (app.save_requested && matches!(app.storage, app::StorageState::Saving));
             let event = if pending {
                 input.read_timeout(std::time::Duration::from_millis(30))?
@@ -149,6 +157,9 @@ fn run(config: Config) -> io::Result<()> {
             }
             while let Some(event) = store.try_event() {
                 outstanding_store = outstanding_store.saturating_sub(1);
+                if matches!(&event, store::Event::Managed { .. }) {
+                    pending_save = None;
+                }
                 let restored =
                     matches!(&event, store::Event::Loaded(_) | store::Event::Selected(_));
                 app.store_event(event);

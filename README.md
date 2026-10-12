@@ -120,9 +120,15 @@ Use `ev --data-dir PATH` for isolation. `workbench.sqlite3` stores schema-versio
 
 Completion requires at least one criterion, all criteria checked, no retained goal/criteria draft, and a deliberate neutral-focus confirmation. It records your review, not verified execution evidence. Editing a completed goal or criteria first requires explicit reopening. Bounds are 256 tasks per project, 64 criteria of at most 256 UTF-8 bytes each, and 4096 bytes per goal/next-action/draft.
 
-Schema 0 (`goals`) and schema 1 (`projects`, including revision) migrate transactionally to schema 2 (task rows and active project selections). Corrupt, foreign, or newer schemas are never reset. Interrupted single-database rollback migrations are first recovered and validated on private copies, bounded to 64 MiB per database/journal; WAL/SHM and multi-database recovery are refused rather than guessed. Preserve the original files for manual recovery if automatic recovery is unavailable.
+Schemas 0–2 migrate transactionally to schema 3 (task lifecycle metadata and non-reused IDs), masking identifiable credentials before inserting migrated task fields. Corrupt, foreign, or newer schemas are never reset. Interrupted single-database rollback migrations are first recovered and validated on private copies, bounded to 64 MiB per database/journal; WAL/SHM and multi-database recovery are refused rather than guessed. Preserve originals for manual recovery if automatic recovery is unavailable.
 
 `ev --data-dir PATH --export-data NEW_FILE.json` exports readable known task rows without creating/migrating the database or overwriting the output. Export is not a repair or a guarantee that a corrupt database is readable. Project/data paths must be Unicode; display escaping does not change stored project identity.
+
+In task cards, `h` switches active/archived views; `a` archives and `r` restores. Archive is reversible and does not complete a task. Delete previews selected records/drafts, starts on **Stay**, and requires an explicit action; PgUp/PgDown reviews the selected IDs. `x` previews archived records eligible under `--retention-days N` (default 30). Retention never silently evicts data. Restoring does not automatically activate a task.
+
+`--quota-kib N` sets the shared SQLite quota (default 65536, minimum 64). Live pages include schema overhead; physical files can retain free pages, and transactions/migration need additional temporary disk space. Lowering a quota preserves existing records. Failed saves retain editable drafts; explicitly delete eligible records or increase capacity, then `r` retries. A saved retained draft can exist even if subsequently applying it fails.
+
+Identifiable token prefixes, credential assignments, Bearer credentials, URL userinfo and private-key blocks are masked before task persistence. Detection is incomplete; volatile editor text may remain unmasked. Review exports before sharing. Secret-bearing project identities are rejected rather than rewritten into another project's identity. Local purge does not delete repository changes, exported files, or provider sessions, and does not guarantee forensic secure erasure of SQLite pages/journals/backups.
 
 ## Development checks
 
@@ -162,11 +168,11 @@ These historical core rows do not certify arbitrary GUI terminals, native images
 - [Session checkpoint](docs/WORK_CHECKPOINT.md)
 - [Terminal troubleshooting](docs/TROUBLESHOOTING.md)
 
-Section A and its five-row native core checkpoint are complete. E01/E02 added locally verified durable task storage and resumption; E03 and the rest of B/C remain active in [task.md](task.md). Subsequent native CI is blocked by GitHub account billing. P02's new filesystem/process parity is not implied by earlier installation or local task evidence.
+Section A and its five-row native core checkpoint are complete. E01–E03 added locally verified durable tasks, resumption, privacy and lifecycle controls; C01/C02 and section C remain active in [task.md](task.md). Subsequent native CI is blocked by GitHub account billing. P02's new filesystem/process parity is not implied by earlier installation or local task evidence.
 
 Native core support is limited to the recorded OS/architecture/PTY or ConPTY tuples above. Windows ARM64, older OS versions, and untested GUI terminals remain unclaimed. Cross-compilation is not runtime proof. P02 gates filesystem/data-directory and owned process-tree lifecycle after recovery UX. P03 gates native archives/checksums and install/upgrade/uninstall preserving user data, after integrated acceptance and rights/provider review. Native-image and agent capabilities are qualified separately by OS/version/terminal.
 
-The [design contract](docs/DESIGN_RULES.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md) also cover active-run switching/quit, dispatch-time context revalidation, and E03 archive/delete, redaction, quotas, and retention. These remain subsequent workbench tasks; durable task cards and resumption are described above.
+The [design contract](docs/DESIGN_RULES.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md) also cover active-run switching/quit and dispatch-time context revalidation. Later excerpts/output inherit the existing storage privacy/quota/purge policy as their implementations ship.
 
 Later integration targets: Codex app-server first, an optional official Claude Agent SDK bridge, and one ACP client exercised against OpenCode and Gemini. A form selects the workflow, not the vendor. Switching agents uses a reviewed fresh handoff; native provider sessions and grants are not portable. The Rust core/local UI needs no Node runtime; only the optional Claude SDK integration would add one. Interface research and a local Codex version/help check are not runtime interoperability verification.
 

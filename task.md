@@ -2,7 +2,7 @@
 
 ## Active work
 
-Section A is complete on its recorded native/graphics gates. The offline `ev` installation preview passed all five native rows. E01 and E02 passed local storage/task-card and real-TUI acceptance; **E03 — Task lifecycle, privacy, and bounded local storage** is active, followed by the rest of B/C. Subsequent native CI is blocked by GitHub account billing, not a code failure; providers remain outside this request.
+Section A is complete on its recorded native/graphics gates. The offline `ev` installation preview passed all five native rows. E01–E03 passed local durable-task/lifecycle and real-TUI acceptance; **C01 — Repository baseline and working diff** is active, followed by C02 and section C. Subsequent native CI is blocked by GitHub account billing, not a code failure; providers remain outside this request.
 
 Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapter/evidence contract: [agent compatibility](docs/AGENT_COMPATIBILITY.md). An unchecked task may have partial implementation, but its acceptance is not complete; consult its evidence note and the checkpoint.
 
@@ -98,10 +98,11 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ### E03 — Task lifecycle, privacy, and bounded local storage
 
-- [ ] Archive or remove tasks without accidental data loss or unbounded evidence storage.
+- [x] Added reversible archive/restore, explicit scoped deletion, privacy and bounded task storage.
 - **Depends on:** E02.
 - **Change:** Separate reversible archive/restore from delete/purge. Preview affected task records and currently owned artifacts; use neutral initial focus and explicit confirmation. Redact identifiable secrets before persistence and disclose limits; implement configurable local quotas/retention for existing task data without silently evicting active evidence. As those features ship, C02 applies the policy to excerpts, R01 reserves bounded spool capacity before execution and rejects deletion during active work, R02 represents purged/truncated output explicitly, and S02 preserves approved shared memories. Do not pre-create unused spool or memory modules in E03.
 - **Accept:** Archive, restore, cancel deletion, confirm deletion, and restart; only the selected task's eligible local data disappears. Exercise disk-full/quota behavior against real stored task data, preserving drafts and responsive navigation; test identifiable-secret redaction before storage. C02/R01/R02/S02 verify their own retention integration when implemented, with Q01 covering the composition. Explain that local purge neither guarantees forensic secure erasure of SQLite/WAL/backups nor deletes provider sessions, exported files, or repository changes.
+- **Evidence:** Rust 1.90 passed 90 tests, warning-free Clippy and release build; eleven real PTY scenarios passed, including compact neutral deletion preview, archive/restore/restart, explicit retention purge, before-storage credential masking, preserved repository/export bytes, and a real 64-KiB database quota failure with retained draft and explicit reclamation/retry. Inspected the actual 60x18 deletion surface. Later context/spool integrations remain assigned to their owning tasks.
 
 ### C01 — Repository baseline and working diff
 
@@ -278,4 +279,4 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ## Phase status
 
-Phase 1, all six section-A tasks, E01, and E02 are complete on their recorded environments. Of 31 implementation tasks, 8 are checked and 23 remain unchecked. E03 is active; the rest of B/C is explicitly requested and pending, while D-G remains later scope. Native installation preview passed at `ea8ade7`; new native filesystem/process parity is blocked by GitHub account billing and is not inferred from local storage/task acceptance.
+Phase 1, all six section-A tasks, and E01–E03 are complete on their recorded environments. Of 31 implementation tasks, 9 are checked and 22 remain unchecked. C01 is active; C02 and section C are explicitly requested and pending, while D-G remains later scope. Native installation preview passed at `ea8ade7`; new native filesystem/process parity is blocked by GitHub account billing and is not inferred from local storage/task acceptance.

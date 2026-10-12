@@ -2,6 +2,7 @@
 
 ## 2026-10-13
 
+- feat(storage): added reversible task archival, neutral scoped deletion and retention preview, before-storage credential masking, and configurable SQLite quotas while preserving failed-save drafts.
 - feat(tasks): added durable project-scoped task cards, criteria and next actions, per-task drafts/navigation, committed timestamps, guarded switching, and explicit completion/reopen transitions with transactional schema migration.
 - docs(distribution): recorded five successful native installation rows, each with ownership/upgrade/failure-preservation checks and 34 installed-binary terminal scenarios; separated the subsequent account-billing CI blocker from code failures.
 - feat(storage): persisted project goals and selected forms through a bounded SQLite worker, correlated committed and failed revisions, preserved unsaved edits on failure, and added single-writer exclusion, transactional migration/crash recovery, and read-only export.

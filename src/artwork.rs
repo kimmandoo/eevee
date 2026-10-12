@@ -764,6 +764,7 @@ mod tests {
             layout: LayoutMode::Sanctuary,
             layout_explicit: false,
             data_dir: path.join("data"),
+            storage_policy: crate::store::Policy::default(),
         }
     }
 

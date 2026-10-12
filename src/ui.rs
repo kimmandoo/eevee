@@ -628,8 +628,11 @@ fn inspect(
         } else {
             "Not committed yet".to_owned()
         };
+        let quota = app.policy.quota_bytes;
+        let sampled = app.usage_bytes;
+        let retention = app.policy.retention_days;
         format!(
-            "TASK\n{task} / {}\nUpdated: {updated}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete means user-reviewed criteria, not verified command evidence.\n\nPROJECT DIRECTORY\n{}\n\nSTORAGE\n{}\nRevision {} / committed {}\nDirectory: {}\n{}\nRecovery: r retries after fixing the storage problem; --export-data FILE reads without reset.\n\nEXECUTION\nProvider unavailable. No work running, grants, or results recorded.\n\nARTWORK\n{}\n{}\n{}\n\nUp/Down scroll / Esc back",
+            "TASK\n{task} / {}\nUpdated: {updated}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete means user-reviewed criteria, not verified command evidence.\n\nPROJECT DIRECTORY\n{}\n\nSTORAGE\n{}\nRevision {} / committed {}\nDirectory: {}\n{}\nRecovery: r retries after fixing the storage problem; --export-data FILE reads without reset.\nQuota: {quota} bytes. Last load/lifecycle sample: {sampled} live SQLite bytes including shared schema, not physical file size.\nRetention: archived at least {retention} days; explicit preview/purge only, no automatic eviction.\nIdentifiable secrets are masked before persistence. Detection is incomplete; review data before sharing. Volatile editor text may remain unmasked.\nArchive is reversible. Delete removes selected local records/drafts, not repository files, exports or provider sessions. SQLite pages, journals and backups are not forensically erased.\n\nEXECUTION\nProvider unavailable. No work running, grants, or results recorded.\n\nARTWORK\n{}\n{}\n{}\n\nUp/Down scroll / Esc back",
             if app.complete { "Complete" } else { "Open" },
             app.criteria
                 .iter()
@@ -796,23 +799,33 @@ fn form_details(frame: &mut Frame, area: Rect, index: usize, config: &Config, ar
 fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
     let area = centered(area, 88, 28);
     frame.render_widget(Clear, area);
-    let block = panel(" Task cards / committed snapshots ", config, paint, true);
+    let block = panel(
+        if app.show_archived {
+            " Archived task cards "
+        } else {
+            " Task cards / committed snapshots "
+        },
+        config,
+        paint,
+        true,
+    );
     let content = block.inner(area);
     frame.render_widget(block, area);
-    if app.tasks.is_empty() {
+    let count = app.visible_tasks().count();
+    if count == 0 {
         text(
             frame,
             content,
-            "No committed task cards yet.\n\nn Create task / Esc Back\nApplied tasks appear here after storage commits.",
+            "No task cards in this view.\n\nh Active/archived / n New / Esc Back\nArchive is reversible; deletion requires review.",
             paint.surface,
         );
         app.set_scroll_max(ScrollSurface::Preview, 0);
         return;
     }
-    let selected = app.task_selection.min(app.tasks.len() - 1);
+    let selected = app.task_selection.min(count - 1);
     let visible = (content.height / 3).clamp(1, 6) as usize;
     let start = selected.saturating_sub(visible - 1);
-    for (index, task) in app.tasks.iter().enumerate().skip(start).take(visible) {
+    for (index, task) in app.visible_tasks().enumerate().skip(start).take(visible) {
         let title = task
             .goal
             .lines()
@@ -843,8 +856,13 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
         frame,
         row(content, visible as u16, 1),
         &format!(
-            "{} cards / * active / PgUp/Dn selected details",
-            app.tasks.len()
+            "{} cards / h View / {} / Del Delete / x Retention",
+            count,
+            if app.show_archived {
+                "r Restore"
+            } else {
+                "a Archive"
+            }
         ),
         paint.muted,
     );
@@ -853,7 +871,10 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
         visible as u16 + 2,
         content.height.saturating_sub(visible as u16 + 2),
     );
-    let task = &app.tasks[selected];
+    let task = app
+        .visible_tasks()
+        .nth(selected)
+        .expect("selected visible task");
     let mut lines = vec![
         Line::styled(
             format!(
@@ -877,6 +898,10 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
                 .count(),
             task.criteria.len(),
             task.drafts.len(),
+        )),
+        Line::from(format!(
+            "Archive: {} / Masked secrets: {}",
+            task.archived, task.redacted
         )),
         Line::styled("GOAL", paint.muted),
     ];
@@ -1054,7 +1079,7 @@ fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &P
     let block = panel(" Keyboard / local actions ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let value = "TASKS\n g / Enter  Edit or resume goal (Enter in workspace)\n t          Task cards; Enter resumes selected task\n n          Create task after pending saves finish\n c          Acceptance checklist; Space toggles, e edits lines\n a          Edit or resume next action\n d          Review explicit Complete confirmation\nTask cards/checklist: Up/Down/Home/End select.\nPageUp/PageDown scroll selected details.\nComplete requires nonempty, all-met criteria.\nComplete is user review, not verified execution.\nEditing a completed goal/checklist requires explicit Reopen.\n\nEDITOR\nEnter applies locally and saves; no execution.\nCtrl+S saves a retained draft and returns without applying.\nEsc reviews changed draft: Keep editing or Discard draft.\nDiscard removes only this field's draft, not applied data.\nLeft/Right move by grapheme; Backspace/Delete remove a grapheme.\nUp/Down move lines; Home/End move within a line.\nCtrl+N inserts newline; criteria use one criterion per line.\nShift+Enter inserts newline if distinguished by the terminal.\nPaste is text; it never applies, completes, or executes.\nRetained drafts survive task switches and restart.\n\nNAVIGATION\nf          Evolution picker: arrows/1-9 preview, Enter selects\np          Local handoff preview; sends nothing\ni / b      Inspector / companion drawer\nr          Retry failed storage outside editor\nl          Toggle linear / sanctuary layout\nCtrl+K     Local command palette\nTab        Cycle visible panes\nUp/Down    Select or scroll focused surface\nPageUp/Down Scroll a page\nHome/End   First/last selection or scroll position\nEsc        Close overlay and restore focus\n?          Show/close help\nq / Ctrl+C Safe exit; save task and retained drafts\nDuring save-and-exit, only Esc cancels exit.\nStorage failure requires informed explicit exit.\nConfirmations start on Stay/Keep; Tab/Right selects the action.\n\nArtwork: --images cells|off for compatibility.\nNo automatic download, model request, or permissions.\nLinear mode is text-first; no assistive-tool claim yet.";
+    let value = "TASKS\n g / Enter  Edit or resume goal (Enter in workspace)\n t          Task cards; Enter resumes selected task\n n          Create task after pending saves finish\n c          Acceptance checklist; Space toggles, e edits lines\n a          Edit or resume next action\n d          Review explicit Complete confirmation\nTask cards/checklist: Up/Down/Home/End select.\nPageUp/PageDown scroll selected details.\nIn task cards: h switches active/archived views.\na archives; r restores in archived view.\nDelete previews selected task removal; x previews eligible archived retention purge.\nDeletion starts on Stay. PgUp/Dn reviews all selected IDs.\nPurge does not remove source files, exports or provider sessions, or securely erase SQLite/backups.\nComplete requires nonempty, all-met criteria.\nComplete is user review, not verified execution.\nEditing a completed goal/checklist requires explicit Reopen.\n\nEDITOR\nEnter applies locally and saves; no execution.\nCtrl+S saves a retained draft and returns without applying.\nIdentifiable secrets are masked before storage; detection is incomplete.\nEsc reviews changed draft: Keep editing or Discard draft.\nDiscard removes only this field's draft, not applied data.\nLeft/Right move by grapheme; Backspace/Delete remove a grapheme.\nUp/Down move lines; Home/End move within a line.\nCtrl+N inserts newline; criteria use one criterion per line.\nShift+Enter inserts newline if distinguished by the terminal.\nPaste is text; it never applies, completes, or executes.\nRetained drafts survive task switches and restart.\n\nNAVIGATION\nf          Evolution picker: arrows/1-9 preview, Enter selects\np          Local handoff preview; sends nothing\ni / b      Inspector / companion drawer\nr          Retry failed storage outside editor\nl          Toggle linear / sanctuary layout\nCtrl+K     Local command palette\nTab        Cycle visible panes\nUp/Down    Select or scroll focused surface\nPageUp/Down Scroll a page\nHome/End   First/last selection or scroll position\nEsc        Close overlay and restore focus\n?          Show/close help\nq / Ctrl+C Safe exit; save task and retained drafts\nDuring save-and-exit, only Esc cancels exit.\nStorage failure requires informed explicit exit.\nConfirmations start on Stay/Keep; Tab/Right selects the action.\n\nArtwork: --images cells|off for compatibility.\nNo automatic download, model request, or permissions.\nLinear mode is text-first; no assistive-tool claim yet.";
     scroll_text(
         frame,
         content,
@@ -1106,7 +1131,7 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
     } else if app.confirmation.is_some() {
         "Tab/arrows Choose / Enter Confirm / Esc Stay"
     } else if app.transitioning {
-        "Loading selected task / mutation paused"
+        "Applying task operation / mutation paused"
     } else if app.editing {
         "Enter Apply / Ctrl+S Draft / Esc Review / Ctrl+N Newline"
     } else {
@@ -1115,7 +1140,9 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
                 "Arrows Preview / 1-9 Preview / Enter Select / p Details / Esc Back"
             }
             Some(Overlay::Palette) => "Arrows Choose / Enter Open / Esc Back",
-            Some(Overlay::Tasks) => "Arrows Choose / Enter Resume / n New / PgUp/Dn / Esc Back",
+            Some(Overlay::Tasks) => {
+                "Enter Resume / h Archives / a Archive or r Restore / Del / Esc"
+            }
             Some(Overlay::Criteria) => "Space Toggle / e Edit / Arrows Choose / PgUp/Dn / Esc Back",
             Some(_) => "Up/Down Scroll / Esc Back / Ctrl+C Exit",
             None => match app.effective_focus() {
@@ -1258,10 +1285,14 @@ fn scroll_text(
     frame.render_widget(paragraph.scroll((app.scroll_for(surface), 0)), area);
 }
 
-fn confirmation(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
+fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
     let Some(confirm) = app.confirmation.as_ref() else {
         return;
     };
+    if confirm.kind == ConfirmationKind::DeleteTasks {
+        delete_confirmation(frame, area, app, config, paint);
+        return;
+    }
     let area = if area.width < 30 || area.height < 10 {
         area
     } else {
@@ -1274,6 +1305,7 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint
             ConfirmationKind::Reopen(_) => " Reopen completed task ",
             ConfirmationKind::DiscardDraft => " Review draft discard ",
             ConfirmationKind::Quit => " Confirm exit ",
+            ConfirmationKind::DeleteTasks => unreachable!("separate deletion preview"),
         },
         config,
         paint,
@@ -1311,6 +1343,7 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint
             "Stay",
             "Save task/drafts and quit",
         ),
+        ConfirmationKind::DeleteTasks => unreachable!("separate deletion preview"),
     };
     text(frame, row(content, 0, 3), question, paint.surface);
     text(
@@ -1337,6 +1370,80 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint
         frame,
         row(content, 6, 2),
         "Tab/arrows Choose / Enter Confirm / Esc Stay",
+        paint.muted,
+    );
+}
+
+fn delete_confirmation(
+    frame: &mut Frame,
+    area: Rect,
+    app: &mut App,
+    config: &Config,
+    paint: &Paint,
+) {
+    let area = centered(area, 78, 26);
+    frame.render_widget(Clear, area);
+    let block = panel(" Review local task deletion ", config, paint, true);
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    let question = format!(
+        "Delete {} selected task records/drafts, including their unsaved edits? No repository files, exports or provider sessions are deleted. Not forensic secure erasure of SQLite/backups.",
+        app.delete_targets.len()
+    );
+    text(frame, row(content, 0, 4), &question, paint.surface);
+    let details = row(content, 4, content.height.saturating_sub(8));
+    let lines: Vec<_> = app
+        .delete_targets
+        .iter()
+        .map(|id| {
+            let title = app
+                .tasks
+                .iter()
+                .find(|task| task.id == *id)
+                .map(|task| task.goal.lines().next().unwrap_or("Untitled task"))
+                .unwrap_or("Unavailable — dispatch will refuse");
+            Line::from(format!(
+                "#{id} {}",
+                clipped(title, details.width.saturating_sub(12) as usize)
+            ))
+        })
+        .collect();
+    let max = selection_details(
+        frame,
+        details,
+        Paragraph::new(lines)
+            .style(paint.surface)
+            .wrap(Wrap { trim: false }),
+        app.scroll_for(ScrollSurface::Preview),
+    );
+    app.set_scroll_max(ScrollSurface::Preview, max);
+    let selected = app
+        .confirmation
+        .is_some_and(|confirmation| confirmation.destructive);
+    text(
+        frame,
+        row(content, content.height.saturating_sub(4), 1),
+        "Stay / keep all data",
+        if !selected {
+            paint.selected
+        } else {
+            paint.surface
+        },
+    );
+    text(
+        frame,
+        row(content, content.height.saturating_sub(3), 1),
+        "Delete the listed local tasks",
+        if selected {
+            paint.selected
+        } else {
+            paint.surface
+        },
+    );
+    text(
+        frame,
+        row(content, content.height.saturating_sub(2), 2),
+        "PgUp/Dn Review IDs / Tab Choose / Enter Confirm / Esc Stay",
         paint.muted,
     );
 }
@@ -1397,6 +1504,7 @@ mod tests {
                 layout: LayoutMode::Sanctuary,
                 layout_explicit: false,
                 data_dir: "unused-data".into(),
+                storage_policy: crate::store::Policy::default(),
             };
             for (index, form) in FORMS.iter().enumerate() {
                 let paint = Paint::new(&config, form, index);

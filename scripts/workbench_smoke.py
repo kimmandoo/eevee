@@ -41,8 +41,8 @@ def main():
             project = root / "project 漢字"
             project.mkdir()
             data = root / "data 空 格"
-            def launch(name, directory=data, cwd=project, size=(120,36)):
-                session = Session([str(binary), "--data-dir", str(directory), "--images", "off", "--color", "mono"],
+            def launch(name, directory=data, cwd=project, size=(120,36), extra=()):
+                session = Session([str(binary), "--data-dir", str(directory), "--images", "off", "--color", "mono", *extra],
                                   cwd, terminal_environment("mono"), size, output / name)
                 sessions.append(session)
                 session.pump(0.5)
@@ -62,6 +62,14 @@ def main():
                 process = subprocess.run(command, capture_output=True, text=True, timeout=10)
                 assert process.returncode == 0, process.stderr
                 return json.loads(destination.read_text())
+            def stored_when(directory, predicate):
+                deadline = time.monotonic() + 8
+                while True:
+                    rows = inspect_store(directory)
+                    if predicate(rows):
+                        return rows
+                    assert time.monotonic() < deadline, "stored state did not settle"
+                    time.sleep(0.05)
             goal = "durable 漢字 cafe\u0301\nsecond line"
             first = launch("save")
             wait_for(first, "Storage: saved")
@@ -147,7 +155,7 @@ def main():
             wait_for(migrated, "Storage: saved")
             quit_app(migrated)
             with closing(sqlite3.connect(legacy / "workbench.sqlite3")) as db:
-                assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+                assert db.execute("PRAGMA user_version").fetchone()[0] == 3
             exported = root / "recovery.json"
             command = [str(binary), "--data-dir",str(legacy),"--export-data",str(exported)]
             export = subprocess.run(command, capture_output=True, text=True, timeout=10)
@@ -266,6 +274,114 @@ def main():
                 card.capture("reopened")
                 quit_app(card)
                 passed("two-task-draft-resume-complete-reopen-" + str(width))
+            lifecycle = root / "lifecycle"
+            secret = "ghp_" + "Ab9" * 12
+            untouched = project / "user-owned.txt"
+            untouched.write_bytes(b"user bytes\r\nnot managed by ev\n")
+            life = launch("lifecycle", lifecycle, size=(60,18), extra=("--retention-days","0"))
+            wait_for(life, "Storage: saved")
+            life.send("g")
+            life.paste("private 漢字 api_key=" + secret)
+            life.send("\r")
+            wait_for(life, "Storage: saved")
+            first_rows = inspect_store(lifecycle)
+            private_id = first_rows[0]["id"]
+            assert secret not in json.dumps(first_rows) and first_rows[0]["redacted"]
+            assert secret.encode() not in (lifecycle / "workbench.sqlite3").read_bytes()
+            life.send("n")
+            life.paste("retained second task")
+            life.send("\r")
+            wait_for(life, "Storage: saved")
+            life.send("g")
+            life.paste(" password=" + secret)
+            life.send("\x13")
+            wait_for(life, "Storage: saved")
+            rows = inspect_store(lifecycle)
+            other_id = next(row["id"] for row in rows if row["id"] != private_id)
+            assert secret not in json.dumps(rows)
+            assert next(row for row in rows if row["id"] == other_id)["drafts"]
+            export_copy = root / "user-export.json"
+            export_copy.write_text(json.dumps(rows))
+            export_before = export_copy.read_bytes()
+            life.send("t\x1b[H")
+            life.capture("task-cards")
+            life.send("a")
+            stored_when(lifecycle, lambda rows: next(row for row in rows if row["id"] == private_id)["archived"])
+            life.send("h")
+            life.capture("archived")
+            life.send("r")
+            stored_when(lifecycle, lambda rows: not next(row for row in rows if row["id"] == private_id)["archived"])
+            life.send("h\x1b[H\x1b[3~")
+            wait_for(life, "Review local task deletion")
+            life.capture("neutral-delete-preview")
+            life.send("\r")
+            assert len(inspect_store(lifecycle)) == 2, "neutral confirmation deleted data"
+            life.send("\x1b[3~")
+            life.send("\x1b[C\r")
+            rows = stored_when(lifecycle, lambda rows: len(rows) == 1)
+            assert rows[0]["id"] == other_id and rows[0]["drafts"]
+            assert export_copy.read_bytes() == export_before
+            assert untouched.read_bytes() == b"user bytes\r\nnot managed by ev\n"
+            life.send("a")
+            stored_when(lifecycle, lambda rows: rows[0]["archived"])
+            quit_app(life)
+            life = launch("lifecycle-restart", lifecycle, size=(60,18), extra=("--retention-days","0"))
+            wait_for(life, "Storage: saved")
+            assert "retained second task" not in life.display()
+            life.send("th")
+            wait_for(life, "retained second task")
+            life.send("x")
+            wait_for(life, "Review local task deletion")
+            life.send("\x1b[C\r")
+            stored_when(lifecycle, lambda rows: rows == [])
+            assert export_copy.read_bytes() == export_before and untouched.exists()
+            quit_app(life)
+            passed("archive-restore-neutral-delete-retention-redaction-and-scope")
+
+            quota_data = root / "quota"
+            quota = launch("quota", quota_data, extra=("--quota-kib","64"))
+            wait_for(quota, "Storage: saved")
+            failed_goal = None
+            for index in range(16):
+                quota.send("g" if index == 0 else "n")
+                goal = "quota card " + str(index) + " 漢字 " + "x" * 3960
+                quota.paste(goal)
+                quota.send("\r")
+                deadline = time.monotonic() + 8
+                while "Storage: saved" not in quota.display() and "Storage: save failed" not in quota.display():
+                    assert time.monotonic() < deadline, quota.display()
+                    quota.pump(0.05)
+                if "Storage: save failed" in quota.display():
+                    failed_goal = goal
+                    break
+            assert failed_goal is not None, "configured task quota did not reject real data"
+            before = inspect_store(quota_data)
+            assert len(before) >= 2 and all(row["goal"] != failed_goal for row in before)
+            quota.send("g")
+            quota.paste(" retained")
+            quota.send("\x13")
+            quota.send("i")
+            quota.capture("quota-failure")
+            quota.send("\x1b")
+            quota.send("t\x1b[H")
+            for remaining in range(len(before)-1, 0, -1):
+                quota.send("\x1b[3~")
+                wait_for(quota, "Review local task deletion")
+                quota.send("\x1b[C\r")
+                stored_when(quota_data, lambda rows: len(rows) == remaining)
+            quota.send("r")
+            wait_for(quota, "Storage: saved")
+            rows = inspect_store(quota_data)
+            recovered = next(row for row in rows if row["goal"] == failed_goal)
+            assert recovered["drafts"][0]["text"] == failed_goal + " retained"
+            assert {row["id"] for row in rows} == {before[-1]["id"], recovered["id"]}
+            quota.send("\x1b")
+            quota.send("g")
+            assert "retained" in quota.display()
+            quota.send("\x13")
+            wait_for(quota, "Storage: saved")
+            quit_app(quota)
+            passed("real-task-quota-retains-draft-and-explicit-delete-recovers")
         result["status"] = "passed"
     except Exception as error:
         result["error"] = str(error)

@@ -48,6 +48,7 @@ pub enum ConfirmationKind {
     Quit,
     Complete,
     Reopen(store::EditorField),
+    DeleteTasks,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,6 +132,15 @@ pub struct App {
     pub notice: String,
     pub transitioning: bool,
     pub switch_task: Option<i64>,
+    pub policy: store::Policy,
+    pub usage_bytes: u64,
+    pub archived: bool,
+    pub archived_at: i64,
+    pub redacted: bool,
+    pub show_archived: bool,
+    pub management: Option<store::Management>,
+    pub delete_targets: Vec<i64>,
+    pub delete_expired_before: Option<i64>,
     edit_original: String,
     form_selection: usize,
     palette_selection: usize,
@@ -180,6 +190,15 @@ impl App {
             notice: String::new(),
             transitioning: false,
             switch_task: None,
+            policy: store::Policy::default(),
+            usage_bytes: 0,
+            archived: false,
+            archived_at: 0,
+            redacted: false,
+            show_archived: false,
+            management: None,
+            delete_targets: Vec::new(),
+            delete_expired_before: None,
             edit_original: String::new(),
             form_selection: 0,
             palette_selection: 0,
@@ -211,6 +230,7 @@ impl App {
         match event {
             store::Event::Loaded(project) => {
                 let local_changes = self.revision != self.saved_revision;
+                self.usage_bytes = project.usage_bytes;
                 self.tasks = project.tasks;
                 let target = if self.task_id > 0 {
                     Some(self.task_id)
@@ -253,6 +273,13 @@ impl App {
                     self.updated_at = snapshot.updated_at;
                     self.saved_revision = self.saved_revision.max(snapshot.revision);
                     if snapshot.revision == self.revision {
+                        self.goal.clone_from(&snapshot.goal);
+                        self.criteria.clone_from(&snapshot.criteria);
+                        self.next_action.clone_from(&snapshot.next_action);
+                        self.redacted = snapshot.redacted;
+                        if snapshot.redacted {
+                            self.notice = "Identifiable secrets were masked in local storage. Detection is incomplete; review exports before sharing.".into();
+                        }
                         self.drafts.clone_from(&snapshot.drafts);
                         self.storage = StorageState::Saved;
                         if self.quit_after_save {
@@ -265,6 +292,39 @@ impl App {
                 } else {
                     self.tasks.push(snapshot);
                 }
+            }
+            store::Event::Managed { project, affected } => {
+                self.transitioning = false;
+                self.usage_bytes = project.usage_bytes;
+                let current_removed = self.task_id > 0
+                    && affected.contains(&self.task_id)
+                    && !project
+                        .tasks
+                        .iter()
+                        .any(|task| task.id == self.task_id && !task.archived);
+                self.tasks = project.tasks;
+                if current_removed {
+                    let next = self
+                        .tasks
+                        .iter()
+                        .find(|task| Some(task.id) == project.active_id && !task.archived)
+                        .cloned()
+                        .unwrap_or_else(|| store::Snapshot::empty(self.cwd.clone()));
+                    self.load_task(next);
+                    self.open_overlay(Overlay::Tasks);
+                }
+                self.task_selection = self
+                    .task_selection
+                    .min(self.visible_tasks().count().saturating_sub(1));
+                self.delete_targets.clear();
+                self.notice = format!(
+                    "Updated {} selected local task records. Repository files and exports were not changed.",
+                    affected.len()
+                );
+            }
+            store::Event::ManagementFailed(message) => {
+                self.transitioning = false;
+                self.notice = format!("Task operation failed: {message}. No automatic retry.");
             }
             store::Event::Failed { revision, message } => {
                 self.transitioning = false;
@@ -347,6 +407,9 @@ impl App {
             drafts,
             navigation: self.navigation(),
             updated_at: self.updated_at,
+            archived: self.archived,
+            archived_at: self.archived_at,
+            redacted: self.redacted,
         }
     }
 
@@ -361,6 +424,9 @@ impl App {
         self.next_action = snapshot.next_action;
         self.complete = snapshot.complete;
         self.updated_at = snapshot.updated_at;
+        self.archived = snapshot.archived;
+        self.archived_at = snapshot.archived_at;
+        self.redacted = snapshot.redacted;
         self.drafts = snapshot.drafts;
         self.input.clear();
         self.edit_original.clear();
@@ -395,12 +461,13 @@ impl App {
             self.open_editor(navigation.editor_field);
         }
         self.storage = StorageState::Saved;
+        self.show_archived = false;
         self.save_requested = false;
-        self.task_selection = self
-            .tasks
-            .iter()
+        let selection = self
+            .visible_tasks()
             .position(|task| task.id == self.task_id)
             .unwrap_or(0);
+        self.task_selection = selection;
         self.criterion_selection = navigation
             .criterion_selection
             .min(self.criteria.len().saturating_sub(1));
@@ -424,11 +491,79 @@ impl App {
             self.notice = "Finish or retry the current save before switching tasks.".into();
             return;
         }
-        if let Some(task) = self.tasks.get(self.task_selection) {
-            self.switch_task = Some(task.id);
+        if self.show_archived {
+            self.notice = "Restore this archived task before resuming it.".into();
+            return;
+        }
+        let selected = self
+            .visible_tasks()
+            .nth(self.task_selection)
+            .map(|task| task.id);
+        if let Some(id) = selected {
+            self.switch_task = Some(id);
             self.transitioning = true;
             self.storage = StorageState::Loading;
         }
+    }
+
+    pub fn visible_tasks(&self) -> impl Iterator<Item = &store::Snapshot> {
+        self.tasks
+            .iter()
+            .filter(|task| task.archived == self.show_archived)
+    }
+
+    fn archive_selected(&mut self, archived: bool) {
+        let selected = self
+            .visible_tasks()
+            .nth(self.task_selection)
+            .map(|task| task.id);
+        let Some(id) = selected else { return };
+        if archived
+            && id == self.task_id
+            && (!matches!(self.storage, StorageState::Saved) || self.save_requested)
+        {
+            self.notice = "Finish or retry this task's save before archiving it.".into();
+            return;
+        }
+        self.management = Some(store::Management::Archive { id, archived });
+        self.transitioning = true;
+    }
+
+    fn preview_delete(&mut self, expired: bool) {
+        self.delete_targets.clear();
+        self.delete_expired_before = None;
+        let selected = self
+            .visible_tasks()
+            .nth(self.task_selection)
+            .map(|task| task.id);
+        if expired {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let age = u128::from(self.policy.retention_days) * 86_400_000;
+            let cutoff = now.saturating_sub(age).min(i64::MAX as u128) as i64;
+            self.delete_targets.extend(
+                self.tasks
+                    .iter()
+                    .filter(|task| {
+                        task.archived && task.archived_at > 0 && task.archived_at <= cutoff
+                    })
+                    .map(|task| task.id),
+            );
+            self.delete_expired_before = Some(cutoff);
+        } else if let Some(id) = selected {
+            self.delete_targets.push(id);
+        }
+        if self.delete_targets.is_empty() {
+            self.notice = "No eligible tasks selected; nothing was deleted.".into();
+            return;
+        }
+        self.surface_scroll[ScrollSurface::Preview.index()] = 0;
+        self.confirmation = Some(Confirmation {
+            kind: ConfirmationKind::DeleteTasks,
+            destructive: false,
+        });
     }
 
     fn request_complete(&mut self) {
@@ -752,6 +887,13 @@ impl App {
         {
             return false;
         }
+        if self
+            .confirmation
+            .is_some_and(|confirmation| confirmation.kind == ConfirmationKind::DeleteTasks)
+            && matches!(key.code, KeyCode::PageUp | KeyCode::PageDown)
+        {
+            return self.scroll_key(key.code);
+        }
         let confirmation = self.confirmation.as_mut().expect("active confirmation");
         match key.code {
             KeyCode::Esc => {
@@ -803,6 +945,13 @@ impl App {
                             self.complete = false;
                             self.changed_task();
                             self.open_editor(field);
+                        }
+                        ConfirmationKind::DeleteTasks => {
+                            self.management = Some(store::Management::Delete {
+                                ids: std::mem::take(&mut self.delete_targets),
+                                expired_before: self.delete_expired_before.take(),
+                            });
+                            self.transitioning = true;
                         }
                     }
                 }
@@ -1097,6 +1246,27 @@ impl App {
                 self.new_task();
                 return true;
             }
+            (Overlay::Tasks, KeyCode::Char('h')) => {
+                self.show_archived = !self.show_archived;
+                self.task_selection = 0;
+                return true;
+            }
+            (Overlay::Tasks, KeyCode::Char('a')) if !self.show_archived => {
+                self.archive_selected(true);
+                return true;
+            }
+            (Overlay::Tasks, KeyCode::Char('r')) if self.show_archived => {
+                self.archive_selected(false);
+                return true;
+            }
+            (Overlay::Tasks, KeyCode::Delete) => {
+                self.preview_delete(false);
+                return true;
+            }
+            (Overlay::Tasks, KeyCode::Char('x')) => {
+                self.preview_delete(true);
+                return true;
+            }
             (Overlay::Tasks, KeyCode::Enter) => {
                 self.select_task();
                 return true;
@@ -1123,8 +1293,9 @@ impl App {
             }
             _ => {}
         }
+        let task_count = self.visible_tasks().count();
         let (selection, count) = if overlay == Overlay::Tasks {
-            (&mut self.task_selection, self.tasks.len())
+            (&mut self.task_selection, task_count)
         } else {
             (&mut self.criterion_selection, self.criteria.len())
         };
@@ -1308,6 +1479,7 @@ mod tests {
         app.store_event(store::Event::Loaded(store::Project {
             tasks: Vec::new(),
             active_id: None,
+            usage_bytes: 0,
         }));
         app
     }
@@ -1994,6 +2166,7 @@ mod tests {
         app.store_event(store::Event::Loaded(store::Project {
             tasks: Vec::new(),
             active_id: None,
+            usage_bytes: 0,
         }));
         assert!(app.save_requested);
         assert_eq!(app.goal, "recover me");
@@ -2013,10 +2186,75 @@ mod tests {
         app.store_event(store::Event::Loaded(store::Project {
             tasks: vec![existing],
             active_id: Some(7),
+            usage_bytes: 0,
         }));
         assert_eq!(app.goal, "new edit");
         assert_eq!(app.task_id, 0);
         assert!(app.save_requested);
         assert_eq!(app.tasks[0].goal, "old goal");
+    }
+
+    #[test]
+    fn deleting_another_task_to_free_quota_keeps_the_failed_current_draft() {
+        let mut app = app();
+        let mut old = store::Snapshot::empty("/workspace".into());
+        old.id = 7;
+        old.goal = "eligible old task".into();
+        app.tasks.push(old);
+        app.goal = "new unsaved goal".into();
+        app.storage = StorageState::Failed("quota reached".into());
+        key(&mut app, KeyCode::Char('g'));
+        app.update(Event::Paste(" retained draft".into()));
+        modified_key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+        key(&mut app, KeyCode::Char('t'));
+        key(&mut app, KeyCode::Delete);
+        key(&mut app, KeyCode::Enter);
+        assert!(app.management.is_none());
+        assert_eq!(app.tasks[0].id, 7);
+        key(&mut app, KeyCode::Delete);
+        key(&mut app, KeyCode::Right);
+        key(&mut app, KeyCode::Enter);
+        assert!(
+            matches!(app.management.take(), Some(store::Management::Delete { ids, expired_before: None }) if ids == [7])
+        );
+        app.store_event(store::Event::Managed {
+            project: store::Project {
+                tasks: Vec::new(),
+                active_id: None,
+                usage_bytes: 8192,
+            },
+            affected: vec![7],
+        });
+        assert_eq!(app.task_id, 0);
+        assert_eq!(app.goal, "new unsaved goal");
+        assert_eq!(app.drafts[0].text, "new unsaved goal retained draft");
+        assert!(matches!(app.storage, StorageState::Failed(_)));
+        assert!(app.save_requested && !app.transitioning);
+        key(&mut app, KeyCode::Char('r'));
+        assert!(app.retry_storage);
+    }
+
+    #[test]
+    fn archived_view_restores_instead_of_resuming_hidden_tasks() {
+        let mut app = app();
+        let mut archived = store::Snapshot::empty("/workspace".into());
+        archived.id = 8;
+        archived.archived = true;
+        archived.archived_at = 1;
+        app.tasks.push(archived);
+        key(&mut app, KeyCode::Char('t'));
+        assert_eq!(app.visible_tasks().count(), 0);
+        key(&mut app, KeyCode::Char('h'));
+        key(&mut app, KeyCode::Enter);
+        assert!(app.switch_task.is_none());
+        key(&mut app, KeyCode::Char('r'));
+        assert!(matches!(
+            app.management,
+            Some(store::Management::Archive {
+                id: 8,
+                archived: false
+            })
+        ));
+        assert_eq!(app.task_id, 0);
     }
 }

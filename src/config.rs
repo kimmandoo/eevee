@@ -39,6 +39,7 @@ pub struct Config {
     pub layout: LayoutMode,
     pub layout_explicit: bool,
     pub data_dir: PathBuf,
+    pub storage_policy: crate::store::Policy,
 }
 
 #[derive(Debug)]
@@ -63,7 +64,9 @@ Options:
   --download-artwork   Explicitly download nine pinned PNGs and a source manifest
   --layout sanctuary|linear Layout (default: sanctuary)
   --data-dir PATH      SQLite store directory (default: platform data/eevee)
-  --export-data PATH   Export readable stored goals to a new JSON file; no reset
+  --export-data PATH   Export readable stored tasks to a new JSON file; no reset
+  --quota-kib N        Local SQLite quota (default: 65536; minimum: 64 KiB)
+  --retention-days N   Archived purge eligibility age (default: 30; explicit purge only)
   -h, --help           Show this help
   -V, --version        Show the version
 
@@ -73,7 +76,8 @@ TERM=dumb or an explicitly non-UTF-8 locale also selects ASCII. Windows
 defaults to UTF-8 without locale variables. Locale precedence: LC_ALL,
 LC_CTYPE, LANG (first nonempty value). Repeated options use the last value.
 
-Local durable goals; no model execution. Storage failures retain editable drafts.
+Local durable tasks; no model execution. Storage failures retain editable drafts.
+Secret detection is best-effort. Purge is not forensic secure erasure.
 ";
 
 pub fn parse() -> Result<Command, String> {
@@ -111,6 +115,7 @@ fn parse_with(
     let mut layout_explicit = false;
     let mut data_dir = default_data_dir(&environment);
     let mut export = None;
+    let mut storage_policy = crate::store::Policy::default();
     let mut download = false;
     let mut action = None;
     while let Some(argument) = args.next() {
@@ -203,6 +208,21 @@ fn parse_with(
                     export = Some(path);
                 }
             }
+            "--quota-kib" => {
+                let amount = value(flag, attached, &mut args)?
+                    .parse::<u64>()
+                    .map_err(|_| "--quota-kib requires an integer of at least 64")?;
+                if amount < 64 {
+                    return Err("--quota-kib requires at least 64 KiB".into());
+                }
+                storage_policy.quota_bytes =
+                    amount.checked_mul(1024).ok_or("--quota-kib is too large")?;
+            }
+            "--retention-days" => {
+                storage_policy.retention_days = value(flag, attached, &mut args)?
+                    .parse::<u32>()
+                    .map_err(|_| "--retention-days requires a nonnegative integer")?;
+            }
             "--download-artwork" if attached.is_none() => download = true,
             "--ascii" if attached.is_none() => ascii = true,
             "--help" | "-h" if attached.is_none() => action = Some(Command::Help),
@@ -266,6 +286,7 @@ fn parse_with(
         layout,
         layout_explicit,
         data_dir,
+        storage_policy,
     };
     Ok(if download {
         Command::Download(config)

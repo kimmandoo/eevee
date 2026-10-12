@@ -13,7 +13,35 @@ const LOCK: &str = "workbench.lock";
 const BUSY_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_GOAL_BYTES: usize = 4096;
 const MAX_TASKS: usize = 256;
-const TASK_COLUMNS: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at";
+const TASK_COLUMNS_V2: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at";
+const TASK_COLUMNS: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted";
+
+#[derive(Clone, Copy, Debug)]
+pub struct Policy {
+    pub quota_bytes: u64,
+    pub retention_days: u32,
+}
+
+impl Default for Policy {
+    fn default() -> Self {
+        Self {
+            quota_bytes: 64 * 1024 * 1024,
+            retention_days: 30,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Management {
+    Archive {
+        id: i64,
+        archived: bool,
+    },
+    Delete {
+        ids: Vec<i64>,
+        expired_before: Option<i64>,
+    },
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
@@ -28,6 +56,9 @@ pub struct Snapshot {
     pub drafts: Vec<Draft>,
     pub navigation: Navigation,
     pub updated_at: i64,
+    pub archived: bool,
+    pub archived_at: i64,
+    pub redacted: bool,
 }
 
 impl Snapshot {
@@ -44,6 +75,9 @@ impl Snapshot {
             drafts: Vec::new(),
             navigation: Navigation::default(),
             updated_at: 0,
+            archived: false,
+            archived_at: 0,
+            redacted: false,
         }
     }
 }
@@ -102,6 +136,8 @@ impl Default for Navigation {
 pub struct Project {
     pub tasks: Vec<Snapshot>,
     pub active_id: Option<i64>,
+    /// Live SQLite pages across the shared local store, including schema overhead.
+    pub usage_bytes: u64,
 }
 
 #[derive(Debug)]
@@ -109,6 +145,11 @@ pub enum Event {
     Loaded(Project),
     Saved(Snapshot),
     Selected(Snapshot),
+    Managed {
+        project: Project,
+        affected: Vec<i64>,
+    },
+    ManagementFailed(String),
     Failed {
         revision: Option<u64>,
         message: String,
@@ -118,6 +159,7 @@ pub enum Event {
 enum Command {
     Save(Snapshot),
     Select(i64),
+    Manage(Management),
     Retry,
 }
 
@@ -129,12 +171,12 @@ pub struct Worker {
 
 impl Worker {
     /// Starts storage off the UI thread. Initialization succeeds or fails via an event.
-    pub fn start(data_dir: PathBuf, project: String) -> io::Result<Self> {
+    pub fn start(data_dir: PathBuf, project: String, policy: Policy) -> io::Result<Self> {
         let (commands, incoming) = mpsc::sync_channel(2);
         let (outgoing, events) = mpsc::sync_channel(8);
         let thread = thread::Builder::new()
             .name("ev-store".into())
-            .spawn(move || run(data_dir, project, incoming, outgoing))?;
+            .spawn(move || run(data_dir, project, policy, incoming, outgoing))?;
         Ok(Self {
             commands: Some(commands),
             events: Some(events),
@@ -156,6 +198,25 @@ impl Worker {
             Err(TrySendError::Full(Command::Save(snapshot)))
             | Err(TrySendError::Disconnected(Command::Save(snapshot))) => {
                 *pending = Some(snapshot);
+                false
+            }
+            Err(_) => unreachable!("try_send returns the submitted command"),
+        }
+    }
+
+    /// Transfers ownership only when accepted; full/disconnected queues retain the request.
+    pub fn try_manage(&self, pending: &mut Option<Management>) -> bool {
+        let Some(commands) = &self.commands else {
+            return false;
+        };
+        let Some(request) = pending.take() else {
+            return false;
+        };
+        match commands.try_send(Command::Manage(request)) {
+            Ok(()) => true,
+            Err(TrySendError::Full(Command::Manage(request)))
+            | Err(TrySendError::Disconnected(Command::Manage(request))) => {
+                *pending = Some(request);
                 false
             }
             Err(_) => unreachable!("try_send returns the submitted command"),
@@ -192,10 +253,17 @@ impl Drop for Worker {
     }
 }
 
-fn run(data_dir: PathBuf, project: String, commands: Receiver<Command>, events: SyncSender<Event>) {
+fn run(
+    data_dir: PathBuf,
+    project: String,
+    policy: Policy,
+    commands: Receiver<Command>,
+    events: SyncSender<Event>,
+) {
     let mut state = State {
         data_dir,
         project,
+        policy,
         lock: None,
         connection: None,
     };
@@ -203,6 +271,10 @@ fn run(data_dir: PathBuf, project: String, commands: Receiver<Command>, events: 
     while let Ok(command) = commands.recv() {
         let event = match command {
             Command::Retry => state.reopen(),
+            Command::Manage(request) => match state.manage(request) {
+                Ok((project, affected)) => Event::Managed { project, affected },
+                Err(error) => Event::ManagementFailed(actionable(error)),
+            },
             Command::Save(snapshot) => {
                 let revision = snapshot.revision;
                 match state.save(snapshot) {
@@ -230,6 +302,7 @@ fn run(data_dir: PathBuf, project: String, commands: Receiver<Command>, events: 
 struct State {
     data_dir: PathBuf,
     project: String,
+    policy: Policy,
     connection: Option<Connection>,
     // Declared last so SQLite closes before the stable sidecar lock is released.
     // Keep it locked even when initialization or a transaction fails.
@@ -252,6 +325,7 @@ impl State {
         if self.project.is_empty() {
             return Err("The canonical Unicode project identity is empty".into());
         }
+        reject_secret_identity(&self.project)?;
         if self.data_dir.exists() {
             ensure_writable(&self.data_dir)?;
         }
@@ -297,6 +371,7 @@ impl State {
             .pragma_update(None, "synchronous", "FULL")
             .map_err(|error| error.to_string())?;
         initialize(&mut connection)?;
+        set_quota(&connection, self.policy)?;
         let snapshot = load(&connection, &self.project)?;
         self.connection = Some(connection);
         Ok(snapshot)
@@ -309,6 +384,8 @@ impl State {
                 "Save project does not match this worker's canonical project identity".into(),
             );
         }
+        redact_snapshot(&mut snapshot);
+        validate(&snapshot)?;
         let connection = self
             .connection
             .as_mut()
@@ -322,6 +399,12 @@ impl State {
             // A caller may still have the timestamp from an earlier acknowledgement.
             // Timestamps are storage-owned and never participate in revision conflicts.
             snapshot.updated_at = previous.updated_at;
+            if previous.archived {
+                return Err("Restore the archived task before saving edits".into());
+            }
+            snapshot.archived = previous.archived;
+            snapshot.archived_at = previous.archived_at;
+            snapshot.redacted |= previous.redacted;
             if snapshot.revision < previous.revision
                 || (snapshot.revision == previous.revision && snapshot != previous)
             {
@@ -342,6 +425,9 @@ impl State {
                 );
             }
         } else {
+            if snapshot.archived || snapshot.archived_at != 0 {
+                return Err("New tasks cannot be archived through save".into());
+            }
             let count: i64 = transaction
                 .query_row(
                     "SELECT count(*) FROM tasks WHERE project=?1",
@@ -366,10 +452,10 @@ impl State {
             .map_err(|_| "Save timestamp exceeds SQLite's integer range")?;
         let id = if snapshot.id == 0 {
             transaction.execute(
-                "INSERT INTO tasks(project,goal,form,revision,criteria,next_action,complete,drafts,navigation,updated_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+                "INSERT INTO tasks(project,goal,form,revision,criteria,next_action,complete,drafts,navigation,updated_at,redacted)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
                 params![snapshot.project, snapshot.goal, snapshot.form as i64, snapshot.revision as i64,
-                    criteria, snapshot.next_action, snapshot.complete, drafts, navigation, updated_at],
+                    criteria, snapshot.next_action, snapshot.complete, drafts, navigation, updated_at, snapshot.redacted],
             ).map_err(|error| format!("Cannot insert the task: {error}"))?;
             let id = transaction.last_insert_rowid();
             select_task(&transaction, &self.project, id)?;
@@ -377,13 +463,14 @@ impl State {
         } else {
             transaction.execute(
                 "UPDATE tasks SET goal=?1,form=?2,revision=?3,criteria=?4,next_action=?5,complete=?6,
-                 drafts=?7,navigation=?8,updated_at=?9 WHERE id=?10 AND project=?11",
+                 drafts=?7,navigation=?8,updated_at=?9,redacted=?12 WHERE id=?10 AND project=?11",
                 params![snapshot.goal, snapshot.form as i64, snapshot.revision as i64, criteria,
                     snapshot.next_action, snapshot.complete, drafts, navigation, updated_at,
-                    snapshot.id, snapshot.project],
+                    snapshot.id, snapshot.project, snapshot.redacted],
             ).map_err(|error| format!("Cannot write the task: {error}"))?;
             snapshot.id
         };
+        enforce_quota(&transaction, self.policy)?;
         transaction
             .commit()
             .map_err(|error| format!("Cannot commit the task: {error}"))?;
@@ -402,23 +489,208 @@ impl State {
             .map_err(|error| format!("Cannot begin selection transaction: {error}"))?;
         let saved = load_task(&transaction, &self.project, id)?
             .ok_or("Task does not exist in this project")?;
+        if saved.archived {
+            return Err("Archived tasks must be restored before selection".into());
+        }
         select_task(&transaction, &self.project, id)?;
         transaction
             .commit()
             .map_err(|error| format!("Cannot commit task selection: {error}"))?;
         Ok(saved)
     }
+
+    fn manage(&mut self, request: Management) -> Result<(Project, Vec<i64>), String> {
+        self.manage_at(request, timestamp()?)
+    }
+
+    fn manage_at(&mut self, request: Management, now: i64) -> Result<(Project, Vec<i64>), String> {
+        let connection = self
+            .connection
+            .as_mut()
+            .ok_or("Storage is unavailable; retry opening it")?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("Cannot begin task management: {error}"))?;
+        let affected = match request {
+            Management::Archive { id, archived } => {
+                let task = load_task(&transaction, &self.project, id)?
+                    .ok_or("Task is missing or belongs to another project")?;
+                if task.archived == archived {
+                    return Err("Task archive state changed; review the task again".into());
+                }
+                transaction
+                    .execute(
+                        "UPDATE tasks SET archived=?1,archived_at=?2 WHERE id=?3 AND project=?4",
+                        params![archived, if archived { now } else { 0 }, id, self.project],
+                    )
+                    .map_err(|error| format!("Cannot change archive state: {error}"))?;
+                vec![id]
+            }
+            Management::Delete {
+                ids,
+                expired_before,
+            } => {
+                if ids.is_empty() || ids.len() > MAX_TASKS {
+                    return Err("Deletion requires a bounded, nonempty list of task IDs".into());
+                }
+                let eligible_before =
+                    now.saturating_sub(i64::from(self.policy.retention_days) * 86_400_000);
+                if expired_before.is_some_and(|cutoff| cutoff < 0 || cutoff > eligible_before) {
+                    return Err("Retention preview is incompatible with the configured policy; review again".into());
+                }
+                for (index, id) in ids.iter().enumerate() {
+                    if ids[..index].contains(id) {
+                        return Err("Deletion contains duplicate task IDs".into());
+                    }
+                    let task = load_task(&transaction, &self.project, *id)?.ok_or(
+                        "Deletion target is missing or belongs to another project; review again",
+                    )?;
+                    if expired_before.is_some_and(|cutoff| {
+                        !task.archived
+                            || task.archived_at <= 0
+                            || task.archived_at > cutoff
+                            || task.archived_at > eligible_before
+                    }) {
+                        return Err(
+                            "Retention target changed or is not old enough; review again".into(),
+                        );
+                    }
+                }
+                for id in &ids {
+                    transaction
+                        .execute(
+                            "DELETE FROM tasks WHERE project=?1 AND id=?2",
+                            params![self.project, id],
+                        )
+                        .map_err(|error| format!("Cannot delete task: {error}"))?;
+                }
+                ids
+            }
+        };
+        // A restore never creates an active selection. Repair only an invalidated one.
+        let active: Option<i64> = transaction
+            .query_row(
+                "SELECT active_id FROM selections WHERE project=?1",
+                [&self.project],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        if let Some(active) = active {
+            let valid =
+                load_task(&transaction, &self.project, active)?.is_some_and(|task| !task.archived);
+            if !valid {
+                transaction
+                    .execute("DELETE FROM selections WHERE project=?1", [&self.project])
+                    .map_err(|error| error.to_string())?;
+                let replacement: Option<i64> = transaction
+                    .query_row(
+                        "SELECT id FROM tasks WHERE project=?1 AND archived=0 ORDER BY id LIMIT 1",
+                        [&self.project],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(|error| error.to_string())?;
+                if let Some(id) = replacement {
+                    select_task(&transaction, &self.project, id)?;
+                }
+            }
+        }
+        let project = load(&transaction, &self.project)?;
+        transaction
+            .commit()
+            .map_err(|error| format!("Cannot commit task management: {error}"))?;
+        Ok((project, affected))
+    }
 }
 
 fn actionable(error: String) -> String {
+    let error = crate::privacy::redact(&error);
     format!(
         "{error}. Retry after resolving the problem, select an isolated data directory, or export readable tasks with --export-data FILE; the existing store is never reset."
     )
 }
 
+fn timestamp() -> Result<i64, String> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "System clock predates Unix epoch".to_string())?
+        .as_millis()
+        .try_into()
+        .map_err(|_| "Timestamp exceeds SQLite range".into())
+}
+
+fn reject_secret_identity(project: &str) -> Result<(), String> {
+    if crate::privacy::redact(project).as_ref() != project {
+        return Err("Canonical project identity contains recognizable credentials; choose a credential-free path (identity was not rewritten)".into());
+    }
+    Ok(())
+}
+
+fn redact_snapshot(snapshot: &mut Snapshot) {
+    fn redact_field(text: &mut String) -> bool {
+        match crate::privacy::redact(text) {
+            std::borrow::Cow::Owned(clean) if clean != *text => {
+                *text = clean;
+                true
+            }
+            _ => false,
+        }
+    }
+    snapshot.redacted |= redact_field(&mut snapshot.goal);
+    snapshot.redacted |= redact_field(&mut snapshot.next_action);
+    for criterion in &mut snapshot.criteria {
+        snapshot.redacted |= redact_field(&mut criterion.text);
+    }
+    for draft in &mut snapshot.drafts {
+        if redact_field(&mut draft.text) {
+            snapshot.redacted = true;
+            draft.cursor = draft.cursor.min(draft.text.len());
+            while !draft.text.is_char_boundary(draft.cursor) {
+                draft.cursor -= 1;
+            }
+        }
+    }
+}
+
+fn live_bytes(connection: &Connection) -> Result<u64, String> {
+    let pages: u64 = connection
+        .pragma_query_value(None, "page_count", |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    let free: u64 = connection
+        .pragma_query_value(None, "freelist_count", |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    let size: u64 = connection
+        .pragma_query_value(None, "page_size", |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    Ok(pages.saturating_sub(free).saturating_mul(size))
+}
+
+fn set_quota(connection: &Connection, policy: Policy) -> Result<(), String> {
+    let size: u64 = connection
+        .pragma_query_value(None, "page_size", |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    // SQLite cannot shrink an existing file here. The live-page check also limits
+    // freelist reuse when a store was previously larger than its current quota.
+    connection
+        .pragma_update(None, "max_page_count", (policy.quota_bytes / size).max(1))
+        .map_err(|error| format!("Cannot apply task storage quota: {error}"))
+}
+
+fn enforce_quota(connection: &Connection, policy: Policy) -> Result<(), String> {
+    if live_bytes(connection)? > policy.quota_bytes {
+        return Err("Task storage quota exceeded; no tasks were removed. Delete eligible tasks or increase the quota before retrying".into());
+    }
+    Ok(())
+}
+
 fn validate(snapshot: &Snapshot) -> Result<(), String> {
     if snapshot.project.is_empty() {
         return Err("A stored project identity is empty".into());
+    }
+    reject_secret_identity(&snapshot.project)?;
+    if snapshot.archived_at < 0 || (!snapshot.archived && snapshot.archived_at != 0) {
+        return Err("Invalid archive timestamp".into());
     }
     if snapshot.goal.len() > MAX_GOAL_BYTES {
         return Err("A goal exceeds the 4096-byte storage limit".into());
@@ -462,7 +734,7 @@ fn validate(snapshot: &Snapshot) -> Result<(), String> {
     let nav = &snapshot.navigation;
     if nav.focus > 2
         || nav.form_selection >= 9
-        || nav.palette_selection >= 13
+        || nav.palette_selection >= crate::app::PALETTE.len()
         || nav.criterion_selection >= 64
         || nav.overlay.is_some_and(|overlay| overlay > 5)
     {
@@ -501,7 +773,11 @@ fn load(connection: &Connection, project: &str) -> Result<Project, String> {
         )
         .optional()
         .map_err(|error| error.to_string())?;
-    Ok(Project { tasks, active_id })
+    Ok(Project {
+        tasks,
+        active_id,
+        usage_bytes: live_bytes(connection)?,
+    })
 }
 
 fn load_task(connection: &Connection, project: &str, id: i64) -> Result<Option<Snapshot>, String> {
@@ -557,6 +833,9 @@ fn snapshot_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Snapshot> {
         drafts: json_column(row, 8, 80_000)?,
         navigation: json_column(row, 9, 1024)?,
         updated_at: row.get(10)?,
+        archived: row.get(11)?,
+        archived_at: row.get(12)?,
+        redacted: row.get(13)?,
     })
 }
 
@@ -574,6 +853,7 @@ enum Schema {
     Empty,
     Legacy,
     Projects,
+    Tasks,
     Current,
 }
 
@@ -595,9 +875,9 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=2).contains(&version) {
+    if !(0..=3).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0, 1 and 2"
+            "Unsupported database schema version {version}; this ev supports versions 0, 1, 2 and 3"
         ));
     }
     let mut statement = connection
@@ -616,13 +896,17 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
         (0, []) => Schema::Empty,
         (0, [(kind, name)]) if kind == "table" && name == "goals" => Schema::Legacy,
         (1, [(kind, name)]) if kind == "table" && name == "projects" => Schema::Projects,
-        (2, [(kind_a, name_a), (kind_b, name_b)])
+        (2 | 3, [(kind_a, name_a), (kind_b, name_b)])
             if kind_a == "table"
                 && name_a == "selections"
                 && kind_b == "table"
                 && name_b == "tasks" =>
         {
-            Schema::Current
+            if version == 2 {
+                Schema::Tasks
+            } else {
+                Schema::Current
+            }
         }
         _ => return Err("Unrecognized or nonempty foreign database schema".into()),
     };
@@ -647,7 +931,7 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
             ],
             "SELECT project, goal, form, revision FROM projects",
         ),
-        Schema::Current => {
+        Schema::Tasks | Schema::Current => {
             inspect_columns(
                 connection,
                 "selections",
@@ -656,25 +940,34 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
                     ("active_id", "INTEGER", true, 0),
                 ],
             )?;
-            inspect_columns(
-                connection,
-                "tasks",
-                &[
-                    ("id", "INTEGER", false, 1),
-                    ("project", "TEXT", true, 0),
-                    ("goal", "TEXT", true, 0),
-                    ("form", "INTEGER", true, 0),
-                    ("revision", "INTEGER", true, 0),
-                    ("criteria", "TEXT", true, 0),
-                    ("next_action", "TEXT", true, 0),
-                    ("complete", "INTEGER", true, 0),
-                    ("drafts", "TEXT", true, 0),
-                    ("navigation", "TEXT", true, 0),
-                    ("updated_at", "INTEGER", true, 0),
-                ],
-            )?;
+            let mut expected = vec![
+                ("id", "INTEGER", false, 1),
+                ("project", "TEXT", true, 0),
+                ("goal", "TEXT", true, 0),
+                ("form", "INTEGER", true, 0),
+                ("revision", "INTEGER", true, 0),
+                ("criteria", "TEXT", true, 0),
+                ("next_action", "TEXT", true, 0),
+                ("complete", "INTEGER", true, 0),
+                ("drafts", "TEXT", true, 0),
+                ("navigation", "TEXT", true, 0),
+                ("updated_at", "INTEGER", true, 0),
+            ];
+            if version == 3 {
+                expected.extend([
+                    ("archived", "INTEGER", true, 0),
+                    ("archived_at", "INTEGER", true, 0),
+                    ("redacted", "INTEGER", true, 0),
+                ]);
+            }
+            inspect_columns(connection, "tasks", &expected)?;
+            let columns = if version == 3 {
+                TASK_COLUMNS.to_string()
+            } else {
+                format!("{TASK_COLUMNS_V2},0,0,0")
+            };
             let mut rows = connection
-                .prepare(&format!("SELECT {TASK_COLUMNS} FROM tasks"))
+                .prepare(&format!("SELECT {columns} FROM tasks"))
                 .map_err(|error| error.to_string())?;
             for row in rows
                 .query_map([], snapshot_row)
@@ -690,13 +983,20 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
                 .query_row(
                     "SELECT EXISTS(SELECT 1 FROM selections s LEFT JOIN tasks t
                  ON t.id=s.active_id AND t.project=s.project WHERE t.id IS NULL)
-                 OR EXISTS(SELECT 1 FROM tasks t LEFT JOIN selections s ON s.project=t.project
-                 WHERE s.project IS NULL)
                  OR EXISTS(SELECT 1 FROM tasks GROUP BY project HAVING count(*) > 256)",
                     [],
                     |row| row.get(0),
                 )
                 .map_err(|error| error.to_string())?;
+            if version == 3 {
+                let archived_selected: bool = connection.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM selections s JOIN tasks t ON t.id=s.active_id WHERE t.archived != 0)",
+                    [], |row| row.get(0),
+                ).map_err(|error| error.to_string())?;
+                if archived_selected {
+                    return Err("Archived task cannot be active".into());
+                }
+            }
             if invalid {
                 return Err("Invalid project task selection or project capacity".into());
             }
@@ -763,10 +1063,15 @@ fn migrate(connection: &Connection, schema: Schema) -> Result<(), String> {
     if matches!(schema, Schema::Current) {
         return Ok(());
     }
+    if matches!(schema, Schema::Tasks) {
+        connection
+            .execute_batch("ALTER TABLE tasks RENAME TO old_tasks;")
+            .map_err(|error| format!("Cannot stage task migration: {error}"))?;
+    }
     connection
         .execute_batch(
             "CREATE TABLE tasks (
-            id INTEGER PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             project TEXT NOT NULL,
             goal TEXT NOT NULL CHECK(length(CAST(goal AS BLOB)) <= 4096),
             form INTEGER NOT NULL CHECK(form >= 0 AND form < 9),
@@ -776,32 +1081,74 @@ fn migrate(connection: &Connection, schema: Schema) -> Result<(), String> {
             complete INTEGER NOT NULL CHECK(complete IN (0,1)),
             drafts TEXT NOT NULL CHECK(length(CAST(drafts AS BLOB)) <= 80000),
             navigation TEXT NOT NULL CHECK(length(CAST(navigation AS BLOB)) <= 1024),
-            updated_at INTEGER NOT NULL CHECK(updated_at >= 0)
-        );
-        CREATE TABLE selections(project TEXT PRIMARY KEY, active_id INTEGER NOT NULL);",
+            updated_at INTEGER NOT NULL CHECK(updated_at >= 0),
+            archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
+            archived_at INTEGER NOT NULL DEFAULT 0 CHECK(archived_at >= 0),
+            redacted INTEGER NOT NULL DEFAULT 0 CHECK(redacted IN (0,1))
+        );",
         )
         .map_err(|error| format!("Cannot initialize task storage: {error}"))?;
+    if !matches!(schema, Schema::Tasks) {
+        connection
+            .execute_batch(
+                "CREATE TABLE selections(project TEXT PRIMARY KEY, active_id INTEGER NOT NULL);",
+            )
+            .map_err(|error| error.to_string())?;
+    }
     let source = match schema {
-        Schema::Legacy => Some(("goals", "0")),
-        Schema::Projects => Some(("projects", "revision")),
+        Schema::Legacy => Some((
+            "goals",
+            "SELECT project,goal,form,0 FROM goals ORDER BY project".to_string(),
+        )),
+        Schema::Projects => Some((
+            "projects",
+            "SELECT project,goal,form,revision FROM projects ORDER BY project".to_string(),
+        )),
+        Schema::Tasks => Some((
+            "old_tasks",
+            format!("SELECT {TASK_COLUMNS_V2},0,0,0 FROM old_tasks ORDER BY id"),
+        )),
         _ => None,
     };
-    if let Some((table, revision)) = source {
-        let navigation =
-            serde_json::to_string(&Navigation::default()).map_err(|error| error.to_string())?;
-        // Migration does not invent past activity: unknown legacy timestamps remain zero.
-        connection.execute(&format!(
-            "INSERT INTO tasks(project,goal,form,revision,criteria,next_action,complete,drafts,navigation,updated_at)
-             SELECT project,goal,form,{revision},'[]','',0,'[]',?1,0 FROM {table} ORDER BY project"
-        ), [navigation]).map_err(|error| format!("Cannot migrate {table}: {error}"))?;
+    if let Some((table, query)) = source {
+        {
+            let mut statement = connection
+                .prepare(&query)
+                .map_err(|error| error.to_string())?;
+            let rows = statement
+                .query_map([], |row| {
+                    if matches!(schema, Schema::Tasks) {
+                        snapshot_row(row)
+                    } else {
+                        legacy_row(row)
+                    }
+                })
+                .map_err(|error| error.to_string())?;
+            for row in rows {
+                let mut task = row.map_err(|error| error.to_string())?;
+                redact_snapshot(&mut task);
+                validate(&task)?;
+                connection.execute(
+                    "INSERT INTO tasks(id,project,goal,form,revision,criteria,next_action,complete,drafts,navigation,updated_at,redacted)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                    params![if task.id == 0 { None } else { Some(task.id) }, task.project, task.goal, task.form as i64, task.revision as i64,
+                        serde_json::to_string(&task.criteria).map_err(|error| error.to_string())?, task.next_action, task.complete,
+                        serde_json::to_string(&task.drafts).map_err(|error| error.to_string())?,
+                        serde_json::to_string(&task.navigation).map_err(|error| error.to_string())?, task.updated_at, task.redacted],
+                ).map_err(|error| format!("Cannot migrate task: {error}"))?;
+            }
+        }
+        if !matches!(schema, Schema::Tasks) {
+            connection
+                .execute_batch("INSERT INTO selections SELECT project,id FROM tasks;")
+                .map_err(|error| error.to_string())?;
+        }
         connection
-            .execute_batch(&format!(
-                "INSERT INTO selections SELECT project,id FROM tasks; DROP TABLE {table};"
-            ))
-            .map_err(|error| format!("Cannot finish migrating {table}: {error}"))?;
+            .execute_batch(&format!("DROP TABLE {table};"))
+            .map_err(|error| error.to_string())?;
     }
     connection
-        .pragma_update(None, "user_version", 2)
+        .pragma_update(None, "user_version", 3)
         .map_err(|error| error.to_string())
 }
 
@@ -1070,17 +1417,22 @@ pub fn export_readable(data_dir: &Path, output: &Path) -> Result<(), String> {
 }
 
 fn export_inner(data_dir: &Path, output: &Path) -> Result<(), String> {
-    #[derive(Serialize)]
-    struct ReadableRow {
-        project: String,
-        goal: String,
-        form: i64,
-        revision: i64,
-    }
     let connection = open_readonly(&data_dir.join(DATABASE))?;
     let mut rows = Vec::new();
     let mut found = false;
-    let task_query = format!("SELECT {TASK_COLUMNS} FROM tasks ORDER BY project,id");
+    let modern: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('tasks') WHERE name='archived')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    let columns = if modern {
+        TASK_COLUMNS.to_string()
+    } else {
+        format!("{TASK_COLUMNS_V2},0,0,0")
+    };
+    let task_query = format!("SELECT {columns} FROM tasks ORDER BY project,id");
     for (table, query) in [
         ("tasks", task_query.as_str()),
         (
@@ -1108,17 +1460,20 @@ fn export_inner(data_dir: &Path, output: &Path) -> Result<(), String> {
         found = true;
         let readable = statement
             .query_map([], |row| {
-                if table == "tasks" {
-                    serde_json::to_value(snapshot_row(row)?)
+                let mut task = if table == "tasks" {
+                    snapshot_row(row)?
                 } else {
-                    serde_json::to_value(ReadableRow {
-                        project: row.get(0)?,
-                        goal: row.get(1)?,
-                        form: row.get(2)?,
-                        revision: row.get(3)?,
-                    })
-                }
-                .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
+                    legacy_row(row)?
+                };
+                reject_secret_identity(&task.project).map_err(|error| {
+                    rusqlite::Error::ToSqlConversionFailure(Box::new(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        error,
+                    )))
+                })?;
+                redact_snapshot(&mut task);
+                serde_json::to_value(task)
+                    .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
             })
             .map_err(|error| error.to_string())?;
         for row in readable {
@@ -1174,7 +1529,19 @@ mod tests {
     }
 
     fn worker(directory: &Directory, project: &str) -> Worker {
-        Worker::start(directory.0.clone(), project.into()).unwrap()
+        Worker::start(directory.0.clone(), project.into(), Policy::default()).unwrap()
+    }
+
+    fn usage(directory: &Directory) -> u64 {
+        live_bytes(&open_readonly(&directory.0.join(DATABASE)).unwrap()).unwrap()
+    }
+
+    fn empty_project(directory: &Directory) -> Project {
+        Project {
+            tasks: Vec::new(),
+            active_id: None,
+            usage_bytes: usage(directory),
+        }
     }
 
     fn event(worker: &Worker) -> Event {
@@ -1261,7 +1628,7 @@ mod tests {
         let mut committed = Vec::new();
         for project in ["/项目/one", "/项目/two"] {
             let worker = worker(&directory, project);
-            assert_eq!(loaded(&worker), Project::default());
+            assert_eq!(loaded(&worker), empty_project(&directory));
             let saved = create(&worker, snapshot(project, 1));
             assert!(saved.id > 0 && saved.updated_at > 0);
             committed.push(saved);
@@ -1272,6 +1639,7 @@ mod tests {
             assert_eq!(
                 loaded(&worker),
                 Project {
+                    usage_bytes: usage(&directory),
                     active_id: Some(saved.id),
                     tasks: vec![saved]
                 }
@@ -1283,7 +1651,7 @@ mod tests {
     fn writer_conflict_can_retry_without_takeover() {
         let directory = Directory::new();
         let first = worker(&directory, "project");
-        assert_eq!(loaded(&first), Project::default());
+        assert_eq!(loaded(&first), empty_project(&directory));
         let second = worker(&directory, "project");
         assert!(
             matches!(event(&second), Event::Failed { revision: None, message } if message.contains("writer lock"))
@@ -1295,7 +1663,7 @@ mod tests {
         ));
         drop(first);
         assert!(second.retry());
-        assert_eq!(loaded(&second), Project::default());
+        assert_eq!(loaded(&second), empty_project(&directory));
         enqueue(&second, snapshot("project", 1));
         assert_eq!(saved(&second).revision, 1);
     }
@@ -1308,8 +1676,8 @@ mod tests {
         let aliases = Directory::new();
         let alias = aliases.0.join("store-alias");
         symlink(&directory.0, &alias).unwrap();
-        let first = Worker::start(alias.clone(), "project".into()).unwrap();
-        assert_eq!(loaded(&first), Project::default());
+        let first = Worker::start(alias.clone(), "project".into(), Policy::default()).unwrap();
+        assert_eq!(loaded(&first), empty_project(&directory));
         let saved = create(&first, snapshot("project", 1));
         let second = worker(&directory, "project");
         assert!(
@@ -1319,6 +1687,7 @@ mod tests {
         let expected = Project {
             active_id: Some(saved.id),
             tasks: vec![saved],
+            usage_bytes: usage(&directory),
         };
         assert_eq!(load(&readonly, "project").unwrap(), expected);
         drop(readonly);
@@ -1361,7 +1730,7 @@ mod tests {
                 connection
                     .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                     .unwrap(),
-                2
+                3
             );
             assert!(connection.prepare("SELECT * FROM goals").is_err());
             assert!(connection.prepare("SELECT * FROM projects").is_err());
@@ -1398,7 +1767,7 @@ mod tests {
     fn failed_transaction_is_not_acknowledged_or_committed() {
         let directory = Directory::new();
         let worker = worker(&directory, "project");
-        assert_eq!(loaded(&worker), Project::default());
+        assert_eq!(loaded(&worker), empty_project(&directory));
         let connection = Connection::open(directory.0.join(DATABASE)).unwrap();
         connection.execute_batch("CREATE TRIGGER reject_save BEFORE INSERT ON selections BEGIN SELECT RAISE(ABORT, 'injected transaction failure'); END;").unwrap();
         enqueue(&worker, snapshot("project", 1));
@@ -1418,7 +1787,7 @@ mod tests {
     fn stale_revision_cannot_replace_committed_goal() {
         let directory = Directory::new();
         let worker = worker(&directory, "project");
-        assert_eq!(loaded(&worker), Project::default());
+        assert_eq!(loaded(&worker), empty_project(&directory));
         let latest = create(&worker, snapshot("project", 2));
         for revision in [1, 2] {
             let mut stale = latest.clone();
@@ -1438,7 +1807,7 @@ mod tests {
     fn drop_drains_accepted_saves_even_with_full_event_queue() {
         let directory = Directory::new();
         let store = worker(&directory, "project");
-        assert_eq!(loaded(&store), Project::default());
+        assert_eq!(loaded(&store), empty_project(&directory));
         let initial = create(&store, snapshot("project", 1));
         // Fill the event queue with eight acknowledgements without receiving them.
         for revision in 2..=11 {
@@ -1523,7 +1892,7 @@ mod tests {
         use std::os::unix::fs::{PermissionsExt, symlink};
         let directory = Directory::new();
         let first = worker(&directory, "project");
-        assert_eq!(loaded(&first), Project::default());
+        assert_eq!(loaded(&first), empty_project(&directory));
         drop(first);
         let path = directory.0.join(DATABASE);
         fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
@@ -1546,7 +1915,7 @@ mod tests {
     fn invalid_save_bounds_are_never_acknowledged() {
         let directory = Directory::new();
         let worker = worker(&directory, "project");
-        assert_eq!(loaded(&worker), Project::default());
+        assert_eq!(loaded(&worker), empty_project(&directory));
         let draft = Draft {
             field: EditorField::Goal,
             text: "目".into(),
@@ -1638,7 +2007,7 @@ mod tests {
             },
             Snapshot {
                 navigation: Navigation {
-                    palette_selection: 13,
+                    palette_selection: crate::app::PALETTE.len(),
                     ..Navigation::default()
                 },
                 ..snapshot("project", 1)
@@ -1666,14 +2035,14 @@ mod tests {
             );
         }
         assert!(worker.retry());
-        assert_eq!(loaded(&worker), Project::default());
+        assert_eq!(loaded(&worker), empty_project(&directory));
     }
 
     #[test]
     fn failed_revision_does_not_hide_a_later_accepted_save() {
         let directory = Directory::new();
         let worker = worker(&directory, "project");
-        assert_eq!(loaded(&worker), Project::default());
+        assert_eq!(loaded(&worker), empty_project(&directory));
         enqueue(
             &worker,
             Snapshot {
@@ -1703,7 +2072,7 @@ mod tests {
             ..snapshot("project", 1)
         };
         let store = worker(&directory, "project");
-        assert_eq!(loaded(&store), Project::default());
+        assert_eq!(loaded(&store), empty_project(&directory));
         let saved = create(&store, saved);
         drop(store);
         let reopened = worker(&directory, "project");
@@ -1716,10 +2085,13 @@ mod tests {
         let mut state = State {
             data_dir: directory.0.clone(),
             project: "project".into(),
+            policy: Policy::default(),
             connection: None,
             lock: None,
         };
-        assert!(matches!(state.reopen(), Event::Loaded(project) if project == Project::default()));
+        assert!(
+            matches!(state.reopen(), Event::Loaded(project) if project == empty_project(&directory))
+        );
         let connection = state.connection.as_ref().unwrap();
         let page_count: i64 = connection
             .pragma_query_value(None, "page_count", |row| row.get(0))
@@ -1736,11 +2108,11 @@ mod tests {
         assert!(error.contains("database or disk is full"), "{error}");
         assert_eq!(
             load(state.connection.as_ref().unwrap(), "project").unwrap(),
-            Project::default()
+            empty_project(&directory)
         );
         drop(state);
         let reopened = worker(&directory, "project");
-        assert_eq!(loaded(&reopened), Project::default());
+        assert_eq!(loaded(&reopened), empty_project(&directory));
     }
 
     #[test]
@@ -1932,7 +2304,7 @@ mod tests {
                 connection
                     .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                     .unwrap(),
-                2
+                3
             );
         }
     }
@@ -1975,7 +2347,7 @@ mod tests {
     fn two_tasks_preserve_drafts_navigation_selection_and_timestamps_across_restart() {
         let directory = Directory::new();
         let store = worker(&directory, "project");
-        assert_eq!(loaded(&store), Project::default());
+        assert_eq!(loaded(&store), empty_project(&directory));
         let first = create(
             &store,
             Snapshot {
@@ -2032,6 +2404,7 @@ mod tests {
         assert_eq!(
             loaded(&store),
             Project {
+                usage_bytes: usage(&directory),
                 active_id: Some(second.id),
                 tasks: vec![first.clone(), second.clone()],
             }
@@ -2043,6 +2416,7 @@ mod tests {
         assert_eq!(
             loaded(&reopened),
             Project {
+                usage_bytes: usage(&directory),
                 active_id: Some(first.id),
                 tasks: vec![first, second],
             }
@@ -2081,6 +2455,7 @@ mod tests {
         assert_eq!(
             loaded(&store),
             Project {
+                usage_bytes: usage(&directory),
                 active_id: Some(own.id),
                 tasks: vec![own]
             }
@@ -2211,6 +2586,7 @@ mod tests {
         assert_eq!(
             loaded(&store),
             Project {
+                usage_bytes: usage(&directory),
                 active_id: Some(tasks[MAX_TASKS - 1].id),
                 tasks
             }
@@ -2223,7 +2599,6 @@ mod tests {
             "UPDATE tasks SET navigation='{}'",
             "UPDATE tasks SET criteria='not json'",
             "UPDATE selections SET active_id=99999",
-            "DELETE FROM selections",
             "UPDATE tasks SET complete=1",
             "UPDATE tasks SET drafts='[{\"field\":\"Goal\",\"text\":\"目\",\"cursor\":1}]'",
         ] {
@@ -2245,6 +2620,520 @@ mod tests {
             drop(store);
             assert_eq!(fs::read(&path).unwrap(), before);
         }
+    }
+
+    fn state(directory: &Directory, project: &str, policy: Policy) -> State {
+        let mut state = State {
+            data_dir: directory.0.clone(),
+            project: project.into(),
+            policy,
+            connection: None,
+            lock: None,
+        };
+        assert!(matches!(state.reopen(), Event::Loaded(_)));
+        state
+    }
+
+    #[test]
+    fn management_queue_retains_ownership_on_backpressure_and_disconnect() {
+        let (commands, incoming) = mpsc::sync_channel(1);
+        let mut worker = Worker {
+            commands: Some(commands),
+            events: None,
+            thread: None,
+        };
+        let request = Management::Delete {
+            ids: vec![17],
+            expired_before: None,
+        };
+        let mut pending = Some(request.clone());
+        assert!(worker.try_manage(&mut pending));
+        assert!(pending.is_none());
+        assert!(!worker.try_manage(&mut pending));
+        pending = Some(request.clone());
+        assert!(!worker.try_manage(&mut pending));
+        assert_eq!(pending, Some(request.clone()));
+        drop(incoming);
+        assert!(!worker.try_manage(&mut pending));
+        assert_eq!(pending, Some(request.clone()));
+        worker.commands.take();
+        assert!(!worker.try_manage(&mut pending));
+        assert_eq!(pending, Some(request));
+    }
+
+    #[test]
+    fn archive_restore_delete_are_scoped_atomic_and_survive_restart() {
+        let directory = Directory::new();
+        let mut other = state(&directory, "other", Policy::default());
+        let foreign = other.save(snapshot("other", 1)).unwrap();
+        drop(other);
+        let mut store = state(&directory, "project", Policy::default());
+        let first = store.save(snapshot("project", 1)).unwrap();
+        let second = store.save(snapshot("project", 1)).unwrap();
+        let (archived, affected) = store
+            .manage_at(
+                Management::Archive {
+                    id: second.id,
+                    archived: true,
+                },
+                100,
+            )
+            .unwrap();
+        assert_eq!(affected, vec![second.id]);
+        assert_eq!(archived.active_id, Some(first.id));
+        assert!(archived.tasks[1].archived && !archived.tasks[1].complete);
+        assert_eq!(archived.tasks[1].archived_at, 100);
+        assert!(store.select(second.id).is_err());
+        let export = directory.0.join("external-export.json");
+        export_readable(&directory.0, &export).unwrap();
+        let exported: Vec<Snapshot> = serde_json::from_slice(&fs::read(&export).unwrap()).unwrap();
+        assert!(
+            exported
+                .iter()
+                .any(|task| task.id == second.id && task.archived)
+        );
+        let (restored, _) = store
+            .manage(Management::Archive {
+                id: second.id,
+                archived: false,
+            })
+            .unwrap();
+        assert_eq!(restored.active_id, Some(first.id));
+        assert!(!restored.tasks[1].archived);
+        assert_eq!(restored.tasks[1].archived_at, 0);
+        for ids in [
+            vec![first.id, foreign.id],
+            vec![first.id, 99999],
+            vec![first.id, first.id],
+        ] {
+            assert!(
+                store
+                    .manage(Management::Delete {
+                        ids,
+                        expired_before: None
+                    })
+                    .is_err()
+            );
+            assert_eq!(
+                load(store.connection.as_ref().unwrap(), "project")
+                    .unwrap()
+                    .tasks
+                    .len(),
+                2
+            );
+        }
+        let (remaining, _) = store
+            .manage(Management::Delete {
+                ids: vec![first.id],
+                expired_before: None,
+            })
+            .unwrap();
+        assert_eq!(remaining.active_id, Some(second.id));
+        assert_eq!(remaining.tasks.len(), 1);
+        assert!(export.exists());
+        assert_eq!(
+            load(store.connection.as_ref().unwrap(), "other")
+                .unwrap()
+                .tasks,
+            vec![foreign]
+        );
+        store
+            .manage(Management::Archive {
+                id: second.id,
+                archived: true,
+            })
+            .unwrap();
+        drop(store);
+        let mut store = state(&directory, "project", Policy::default());
+        assert_eq!(
+            load(store.connection.as_ref().unwrap(), "project")
+                .unwrap()
+                .active_id,
+            None
+        );
+        let (restored, _) = store
+            .manage(Management::Archive {
+                id: second.id,
+                archived: false,
+            })
+            .unwrap();
+        assert_eq!(restored.active_id, None);
+        store
+            .manage(Management::Delete {
+                ids: vec![second.id],
+                expired_before: None,
+            })
+            .unwrap();
+        let third = store.save(snapshot("project", 1)).unwrap();
+        assert!(
+            third.id > second.id,
+            "deleted IDs must not be reused by a stale deletion preview"
+        );
+        assert!(
+            store
+                .manage(Management::Delete {
+                    ids: vec![second.id],
+                    expired_before: None
+                })
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn retention_revalidates_archive_age_policy_and_every_target() {
+        let directory = Directory::new();
+        let policy = Policy {
+            retention_days: 1,
+            ..Policy::default()
+        };
+        let mut store = state(&directory, "project", policy);
+        let first = store.save(snapshot("project", 1)).unwrap();
+        let second = store.save(snapshot("project", 1)).unwrap();
+        store
+            .manage_at(
+                Management::Archive {
+                    id: first.id,
+                    archived: true,
+                },
+                1_000,
+            )
+            .unwrap();
+        store
+            .manage_at(
+                Management::Archive {
+                    id: second.id,
+                    archived: true,
+                },
+                2_000,
+            )
+            .unwrap();
+        let now = 86_400_000 + 3_000;
+        let request = Management::Delete {
+            ids: vec![first.id, second.id],
+            expired_before: Some(3_000),
+        };
+        store
+            .manage_at(
+                Management::Archive {
+                    id: second.id,
+                    archived: false,
+                },
+                now,
+            )
+            .unwrap();
+        assert!(store.manage_at(request.clone(), now).is_err());
+        store
+            .manage_at(
+                Management::Archive {
+                    id: second.id,
+                    archived: true,
+                },
+                now,
+            )
+            .unwrap();
+        assert!(store.manage_at(request, now).is_err());
+        assert!(
+            store
+                .manage_at(
+                    Management::Delete {
+                        ids: vec![first.id],
+                        expired_before: Some(3_001)
+                    },
+                    now
+                )
+                .is_err()
+        );
+        assert_eq!(
+            load(store.connection.as_ref().unwrap(), "project")
+                .unwrap()
+                .tasks
+                .len(),
+            2
+        );
+        let (remaining, affected) = store
+            .manage_at(
+                Management::Delete {
+                    ids: vec![first.id],
+                    expired_before: Some(3_000),
+                },
+                now,
+            )
+            .unwrap();
+        assert_eq!(affected, vec![first.id]);
+        assert_eq!(remaining.tasks.len(), 1);
+        assert_eq!(remaining.tasks[0].id, second.id);
+    }
+
+    #[test]
+    fn secrets_are_redacted_before_sqlite_and_export_and_history_is_sticky() {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let raw = "前 password=super-secret 後";
+        let task = Snapshot {
+            goal: "sk-secret123456".into(),
+            next_action: "Bearer bearer-value".into(),
+            criteria: vec![Criterion {
+                text: "https://user:pass@example.test".into(),
+                met: false,
+            }],
+            drafts: vec![Draft {
+                field: EditorField::Goal,
+                text: raw.into(),
+                cursor: raw.len() - 3,
+            }],
+            ..snapshot("project", 1)
+        };
+        let mut saved = store.save(task).unwrap();
+        assert!(saved.redacted);
+        assert!(
+            saved.drafts[0]
+                .text
+                .is_char_boundary(saved.drafts[0].cursor)
+        );
+        let connection = store.connection.as_ref().unwrap();
+        let raw: String = connection
+            .query_row(
+                "SELECT goal||criteria||next_action||drafts FROM tasks",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        for secret in ["secret123456", "bearer-value", "user:pass", "super-secret"] {
+            assert!(!raw.contains(secret));
+        }
+        saved.revision += 1;
+        saved.goal = "ordinary goal".into();
+        saved.redacted = false;
+        assert!(store.save(saved).unwrap().redacted);
+        let output = directory.0.join("export.json");
+        export_readable(&directory.0, &output).unwrap();
+        let text = fs::read_to_string(output).unwrap();
+        assert!(!text.contains("super-secret"));
+        assert!(text.contains("\"redacted\": true"));
+    }
+
+    #[test]
+    fn migrations_redact_all_legacy_payloads_and_exports_without_rewriting_identities() {
+        for version in [0, 1, 2] {
+            let directory = Directory::new();
+            let path = directory.0.join(DATABASE);
+            let connection = Connection::open(&path).unwrap();
+            if version < 2 {
+                legacy(&connection, version);
+                let table = if version == 0 { "goals" } else { "projects" };
+                connection
+                    .execute(
+                        &format!("UPDATE {table} SET goal='password=legacy-secret'"),
+                        [],
+                    )
+                    .unwrap();
+            } else {
+                connection.execute_batch(
+                    "CREATE TABLE tasks(id INTEGER PRIMARY KEY,project TEXT NOT NULL,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL,criteria TEXT NOT NULL,next_action TEXT NOT NULL,complete INTEGER NOT NULL,drafts TEXT NOT NULL,navigation TEXT NOT NULL,updated_at INTEGER NOT NULL);
+                     CREATE TABLE selections(project TEXT PRIMARY KEY,active_id INTEGER NOT NULL);
+                     PRAGMA user_version=2;"
+                ).unwrap();
+                connection.execute("INSERT INTO tasks VALUES (7,'project','password=legacy-secret',0,1,?1,'Bearer legacy-bearer',0,?2,?3,0)",
+                    params![r#"[{"text":"token=legacy-token","met":false}]"#, r#"[{"field":"Goal","text":"ghp_legacysecret","cursor":15}]"#, serde_json::to_string(&Navigation::default()).unwrap()]).unwrap();
+                connection
+                    .execute("INSERT INTO selections VALUES ('project',7)", [])
+                    .unwrap();
+            }
+            drop(connection);
+            let before = fs::read(&path).unwrap();
+            let output = directory.0.join("legacy-export.json");
+            export_readable(&directory.0, &output).unwrap();
+            assert_eq!(fs::read(&path).unwrap(), before);
+            assert!(
+                !fs::read_to_string(output)
+                    .unwrap()
+                    .contains("legacy-secret")
+            );
+            {
+                let mut connection = Connection::open(&path).unwrap();
+                {
+                    let transaction = connection
+                        .transaction_with_behavior(TransactionBehavior::Immediate)
+                        .unwrap();
+                    migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
+                    // Dropping the transaction models interruption before commit.
+                }
+                assert_eq!(
+                    connection
+                        .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                        .unwrap(),
+                    i64::from(version)
+                );
+                let pages: i64 = connection
+                    .pragma_query_value(None, "page_count", |row| row.get(0))
+                    .unwrap();
+                connection
+                    .pragma_update(None, "max_page_count", pages)
+                    .unwrap();
+                assert!(initialize(&mut connection).is_err());
+                assert_eq!(
+                    connection
+                        .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                        .unwrap(),
+                    i64::from(version)
+                );
+            }
+            let store = state(&directory, "project", Policy::default());
+            let connection = store.connection.as_ref().unwrap();
+            let raw: String = connection
+                .query_row(
+                    "SELECT goal||criteria||next_action||drafts FROM tasks WHERE project='project'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            for secret in [
+                "legacy-secret",
+                "legacy-bearer",
+                "legacy-token",
+                "legacysecret",
+            ] {
+                assert!(!raw.contains(secret));
+            }
+            assert!(load(connection, "project").unwrap().tasks[0].redacted);
+        }
+        let directory = Directory::new();
+        let secret = "/project/ghp_secret123456";
+        let worker = worker(&directory, secret);
+        assert!(
+            matches!(event(&worker), Event::Failed { message, .. } if !message.contains(secret) && message.contains("identity"))
+        );
+        assert!(!directory.0.join(DATABASE).exists());
+    }
+
+    #[test]
+    fn secret_bearing_legacy_identity_is_refused_without_rewriting_or_merging() {
+        let directory = Directory::new();
+        let path = directory.0.join(DATABASE);
+        let connection = Connection::open(&path).unwrap();
+        legacy(&connection, 1);
+        connection.execute("UPDATE projects SET project='/projects/ghp_identitysecret' WHERE project='project'", []).unwrap();
+        drop(connection);
+        let before = fs::read(&path).unwrap();
+        let store = worker(&directory, "ordinary-project");
+        assert!(
+            matches!(event(&store), Event::Failed { message, .. } if message.contains("identity") && !message.contains("ghp_identitysecret"))
+        );
+        drop(store);
+        assert_eq!(fs::read(&path).unwrap(), before);
+        let output = directory.0.join("refused.json");
+        assert!(export_readable(&directory.0, &output).is_err());
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn management_events_follow_commit_and_failures_preserve_records() {
+        let directory = Directory::new();
+        let store = worker(&directory, "project");
+        loaded(&store);
+        let task = create(&store, snapshot("project", 1));
+        let mut request = Some(Management::Archive {
+            id: task.id,
+            archived: true,
+        });
+        assert!(store.try_manage(&mut request));
+        assert!(request.is_none());
+        let managed = match event(&store) {
+            Event::Managed { project, affected } => {
+                assert_eq!(affected, vec![task.id]);
+                project
+            }
+            other => panic!("expected committed management: {other:?}"),
+        };
+        let readonly = open_readonly(&directory.0.join(DATABASE)).unwrap();
+        assert_eq!(load(&readonly, "project").unwrap(), managed);
+        let mut request = Some(Management::Delete {
+            ids: vec![task.id, 99999],
+            expired_before: None,
+        });
+        assert!(store.try_manage(&mut request));
+        assert!(matches!(event(&store), Event::ManagementFailed(_)));
+        assert_eq!(load(&readonly, "project").unwrap(), managed);
+    }
+
+    #[test]
+    fn real_quota_rolls_back_and_deletion_recovers_without_eviction() {
+        let directory = Directory::new();
+        let policy = Policy {
+            quota_bytes: 64 * 1024,
+            ..Policy::default()
+        };
+        let mut store = state(&directory, "project", policy);
+        let mut committed = Vec::new();
+        let large = Snapshot {
+            goal: "q".repeat(4096),
+            ..snapshot("project", 1)
+        };
+        loop {
+            match store.save(large.clone()) {
+                Ok(saved) => committed.push(saved),
+                Err(error) => {
+                    assert!(error.contains("full") || error.contains("quota"), "{error}");
+                    break;
+                }
+            }
+            assert!(
+                committed.len() < 64,
+                "a 64 KiB SQLite quota must stop actual payload growth"
+            );
+        }
+        assert!(!committed.is_empty());
+        let connection = store.connection.as_ref().unwrap();
+        assert_eq!(load(connection, "project").unwrap().tasks, committed);
+        assert!(live_bytes(connection).unwrap() <= policy.quota_bytes);
+        let max: u64 = connection
+            .pragma_query_value(None, "max_page_count", |row| row.get(0))
+            .unwrap();
+        let size: u64 = connection
+            .pragma_query_value(None, "page_size", |row| row.get(0))
+            .unwrap();
+        assert!(max * size <= policy.quota_bytes);
+        let deleted = committed.remove(0);
+        store
+            .manage(Management::Delete {
+                ids: vec![deleted.id],
+                expired_before: None,
+            })
+            .unwrap();
+        let retry = store.save(large).unwrap();
+        committed.push(retry);
+        assert_eq!(
+            load(store.connection.as_ref().unwrap(), "project")
+                .unwrap()
+                .tasks,
+            committed
+        );
+        drop(store);
+        let small = Policy {
+            quota_bytes: 24 * 1024,
+            ..policy
+        };
+        let mut store = state(&directory, "project", small);
+        assert_eq!(
+            load(store.connection.as_ref().unwrap(), "project")
+                .unwrap()
+                .tasks,
+            committed
+        );
+        assert!(
+            store.save(snapshot("project", 1)).is_err(),
+            "freelist reuse must still obey the smaller live-page quota"
+        );
+        store
+            .manage(Management::Delete {
+                ids: committed.iter().map(|task| task.id).collect(),
+                expired_before: None,
+            })
+            .unwrap();
+        assert!(
+            store.save(snapshot("project", 1)).is_ok(),
+            "deletion must recover capacity even without shrinking the physical SQLite file"
+        );
     }
 
     #[test]
