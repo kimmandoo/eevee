@@ -1,7 +1,7 @@
 # Eevee Implementation Plan
 
 Date: 2026-10-12
-Status: design complete; implementation pending.
+Status: Phase 1 implemented and verified; Phase 2 is next. Later phases remain pending.
 Contract: `docs/DESIGN_RULES.md`.
 
 ## Outcome
@@ -110,4 +110,4 @@ No custom model runtime, autonomous multi-agent swarm, hosted synchronization, p
 
 ## Current next action
 
-Start Phase 1: inspect Rust/Cargo availability, initialize the native application, and implement the event-driven shell and actual terminal restoration before adding provider integration.
+Start Phase 2 in small increments. First implement durable task creation/resumption and session-goal storage through a SQLite worker, with explicit storage location and recovery behavior. Verify create/edit/exit/reopen against a temporary data directory before adding Git baseline and source-context features. The Phase 1 event loop currently blocks on terminal input; introduce bounded worker events when storage work is added, not background model activity.

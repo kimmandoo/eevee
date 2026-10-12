@@ -1,6 +1,6 @@
 # Eevee Design Rules
 
-Status: approved direction from the product request; implementation not started.
+Status: Phase 1 native terminal shell implemented and verified; provider workflows and durable state remain planned.
 
 ## Product
 

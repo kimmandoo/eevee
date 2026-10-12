@@ -1,0 +1,17 @@
+[package]
+name = "eevee"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "A local-first evolution workbench for LLM-assisted development"
+publish = false
+
+[dependencies]
+ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm_0_29", "layout-cache"] }
+crossterm = "=0.29.0"
+unicode-segmentation = "=1.13.3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
