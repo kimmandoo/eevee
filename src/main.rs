@@ -74,14 +74,25 @@ fn run(config: Config) -> io::Result<()> {
                 terminal.draw(|frame| {
                     ui::render(frame, &mut app, &config, &mut artwork, graphics.status());
                     graphics.render(frame.buffer_mut());
+                    #[cfg(windows)]
+                    ui::compose_console_graphemes(frame.buffer_mut());
                 })?;
             }
             // One input owner; kernel cell-size discovery never reads stdin.
             let event = input.read()?;
-            if matches!(event, event::Event::Resize(_, _)) {
+            let resized = matches!(event, event::Event::Resize(_, _));
+            if resized {
                 graphics.discover_cell();
+                // ConPTY can reflow its cell buffer even when a queued resize
+                // has the same final dimensions as Ratatui's cached viewport.
+                #[cfg(windows)]
+                terminal.clear()?;
             }
             dirty = app.update(event);
+            #[cfg(windows)]
+            {
+                dirty |= resized;
+            }
             if app.quit {
                 return Ok(());
             }

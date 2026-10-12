@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-13 — Windows console repaint acceptance
+
+- Active task: **P01**, within the user's all-section-A request. V01/V02A/V02B/V03/UX01 remain implemented; section B has not started.
+- Exact next action: push and observe the Windows console repaint correction. Run `38265625588` again passed all four POSIX rows but still failed strict help/back equality on native Windows. Do not rerun the same revision or relax that assertion.
+- Diagnosis: ordered resize/queued-output capture fixes were insufficient. Native captures retained old editor borders/footer text after resizing, and a decomposed combining glyph displaced its following space. Windows output now composes displayed cell symbols without modifying draft bytes, and explicitly invalidates the console/Ratatui buffers on resize before a fresh repaint. This change still requires full native runtime proof.
+- Changes: Windows-only `unicode-normalization` dependency, `src/ui.rs` console display projection, `src/main.rs` resize invalidation, and changelog/checkpoint. Existing input decoding, Unix behavior, native-image qualification, and strict smoke assertions are unchanged.
+- Pushed through `181ddf3 test(platform): synchronize native console captures`; the earlier runtime/CI/perf/input commits are recorded below. Pre-existing `.DS_Store` and `AGENTS.md` remain excluded.
+
 ## 2026-10-12 — Section A companion implementation and native acceptance
 
 - Active work: user requested all of section A, scoped commits, and push. The five companion tasks V01/V02A/V02B/V03/UX01 are implemented and locally verified; **P01** remains active while native CI evidence is collected. Do not start section B during this request.

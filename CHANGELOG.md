@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-13
+
+- fix(windows): composed displayed console graphemes without changing editable text and invalidated reflowed console buffers on resize before repainting.
+
 ## 2026-10-12
 
 - test(platform): synchronized bounded ConPTY captures with queued output and ordered resize notifications, retained strict overlay restoration checks, and preserved exact transcript newlines.

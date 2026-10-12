@@ -17,6 +17,20 @@ use crate::{
     domain::{FORMS, Form},
 };
 
+#[cfg(windows)]
+pub fn compose_console_graphemes(buffer: &mut ratatui::buffer::Buffer) {
+    use unicode_normalization::UnicodeNormalization;
+    // The legacy console cell buffer advances separately for decomposed
+    // scalars. Compose displayed glyphs, never the editable source text.
+    for cell in &mut buffer.content {
+        let symbol = cell.symbol();
+        if symbol.chars().nth(1).is_some() && !symbol.nfc().eq(symbol.chars()) {
+            let composed: String = symbol.nfc().collect();
+            cell.set_symbol(&composed);
+        }
+    }
+}
+
 const ASCII_BORDER: border::Set = border::Set {
     top_left: "+",
     top_right: "+",
