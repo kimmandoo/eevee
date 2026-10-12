@@ -1,40 +1,69 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 440" fill="none">
-  <style>text{font-family:ui-monospace,monospace;font-size:14px;fill:var(--fg,currentColor)}.muted{fill:var(--muted,currentColor)}.accent{fill:var(--accent,currentColor)}.line{stroke:var(--border,currentColor)}.focus{stroke:var(--accent,currentColor)}</style>
-  <rect x="12" y="12" width="936" height="416" rx="14" class="line"/>
-  <text x="30" y="40" class="accent">eevee / evolution workbench</text>
-  <text x="520" y="40" class="muted">Design preview · illustrative state</text>
-  <path d="M12 56H948" class="line"/>
-  <text x="30" y="81">Task: fix configuration reload</text>
-  <text x="590" y="81" class="accent">GLACEON · review · awaiting evidence</text>
-  <rect x="26" y="100" width="170" height="270" rx="8" class="line"/>
-  <path d="M69 153L60 120L91 141L121 141L151 120L142 153L136 184L106 197L76 184Z" class="focus"/>
-  <path d="M106 150L113 162L106 174L99 162Z" class="focus"/>
-  <text x="65" y="224" class="accent">GLACEON</text>
-  <text x="44" y="251" class="muted">Independent</text>
-  <text x="44" y="271" class="muted">review</text>
-  <path d="M42 291H180" class="line"/>
-  <text x="44" y="317">Read-only form</text>
-  <text x="44" y="346" class="muted">Enter: forms</text>
-  <rect x="208" y="100" width="464" height="270" rx="8" class="focus"/>
-  <text x="226" y="127" class="accent">REVIEW / configuration.rs</text>
-  <path d="M208 141H672" class="line"/>
-  <text x="226" y="170" class="muted">Criterion</text>
-  <text x="226" y="193">Invalid reload preserves active config.</text>
-  <text x="226" y="229" class="muted">Observed change</text>
-  <text x="226" y="252">Parse before replacing shared state.</text>
-  <text x="226" y="291" fill="var(--warning,currentColor)">? Verification not yet recorded</text>
-  <text x="226" y="327" class="muted">Request a Jolteon run before verdict.</text>
-  <rect x="684" y="100" width="250" height="270" rx="8" class="line"/>
-  <text x="702" y="127">TASK EVIDENCE</text>
-  <path d="M684 141H934" class="line"/>
-  <text x="702" y="171" class="muted">Source</text>
-  <text x="702" y="193">Working diff</text>
-  <text x="702" y="229" class="muted">Open requirement</text>
-  <text x="702" y="251">Reload failure check</text>
-  <text x="702" y="291" class="muted">Next handoff</text>
-  <text x="702" y="313" class="accent">Jolteon / verification</text>
-  <text x="702" y="346" class="muted">No permission change</text>
-  <path d="M12 384H948" class="line"/>
-  <text x="30" y="411">Ctrl+K actions</text>
-  <text x="225" y="411" class="muted">Tab focus   Enter inspect   ? help   q quit</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" fill="none" role="img" aria-labelledby="title description">
+  <title id="title">Eevee sanctuary — planned terminal composition</title>
+  <desc id="description">Design illustration, not a runtime screenshot. The portrait well is reserved for actual Eevee artwork loaded from a local source-tracked image, not a hand-drawn motif. The SVG intentionally embeds no franchise bytes. One task card and next action occupy the center; context, connection, and permission details live in the inspector. All sample task content is illustrative.</desc>
+  <style>
+    text { font-family: ui-monospace, monospace; font-size: 14px; fill: var(--fg, currentColor); }
+    .muted { fill: var(--muted, currentColor); }
+    .accent { fill: var(--accent, currentColor); }
+    .label { font-size: 12px; letter-spacing: 1px; }
+    .line { stroke: var(--border, currentColor); }
+    .focus { stroke: var(--accent, currentColor); }
+  </style>
+  <text x="20" y="24" class="accent">eevee / sanctuary</text>
+  <text x="540" y="24" class="muted label">PLANNED UI · ILLUSTRATIVE CONTENT</text>
+
+  <rect x="16" y="44" width="928" height="496" rx="12" class="line"/>
+  <text x="34" y="74">Fix configuration reload</text>
+  <text x="710" y="74" class="accent">EEVEE · READY</text>
+  <text x="34" y="96" class="muted">One task. One partner. Choose the tools you need.</text>
+  <path d="M32 112H928" class="line"/>
+
+  <rect x="32" y="128" width="172" height="356" rx="8" class="line"/>
+  <text x="55" y="153" class="muted label">YOUR COMPANION</text>
+  <g id="artwork-well">
+    <rect x="46" y="174" width="144" height="144" rx="6" class="line" stroke-dasharray="3 4"/>
+    <text x="66" y="226" class="accent">ACTUAL EEVEE</text>
+    <text x="66" y="249" class="muted">PNG artwork</text>
+    <text x="61" y="274" class="muted label">CONTAIN / ALPHA</text>
+    <text x="62" y="299" class="muted label">NOT ASCII ART</text>
+  </g>
+  <text x="94" y="333" class="accent">Eevee</text>
+  <text x="90" y="354" class="muted">Normal</text>
+  <text x="50" y="389">Scope &amp; routing</text>
+  <text x="50" y="434" class="muted">Same task.</text>
+  <text x="50" y="454" class="muted">Different tools.</text>
+
+  <rect x="220" y="128" width="464" height="356" rx="8" class="focus"/>
+  <text x="240" y="153" class="accent label">TASK / DRAFT</text>
+  <text x="240" y="186">Keep the last valid configuration</text>
+  <text x="240" y="208">when a reload fails.</text>
+  <text x="240" y="243" class="muted label">DONE WHEN</text>
+  <text x="240" y="270">[ ] Invalid reload preserves active config.</text>
+  <text x="240" y="294">[ ] Valid reload replaces it.</text>
+  <path d="M240 315H664" class="line"/>
+  <text x="240" y="342" class="muted label">NEXT ACTION</text>
+  <text x="240" y="369" class="accent">Vaporeon / inspect the reload path</text>
+  <text x="240" y="394" class="muted">Choose relevant sources before a request.</text>
+  <rect x="240" y="418" width="248" height="40" rx="5" class="focus"/>
+  <text x="255" y="443" class="accent">f  Choose evolution</text>
+  <text x="505" y="443" class="muted">Local action</text>
+
+  <rect x="700" y="128" width="228" height="356" rx="8" class="line"/>
+  <text x="718" y="153" class="muted label">SESSION INSPECTOR</text>
+  <text x="718" y="189">Selected context</text>
+  <text x="718" y="213" class="muted">No source ranges</text>
+  <text x="718" y="233" class="muted">pinned yet.</text>
+  <text x="718" y="278">Provider</text>
+  <text x="718" y="302" class="muted">Not connected</text>
+  <text x="718" y="347">Permissions</text>
+  <text x="718" y="371" class="muted">No grants</text>
+  <text x="718" y="423" class="muted">Form selection does</text>
+  <text x="718" y="443" class="muted">not start a request.</text>
+
+  <path d="M32 500H928" class="line"/>
+  <text x="34" y="524" class="muted">Tab Focus</text>
+  <text x="192" y="524" class="muted">Ctrl+K Actions</text>
+  <text x="410" y="524" class="muted">i Inspect</text>
+  <text x="614" y="524" class="muted">? Help</text>
+  <text x="808" y="524" class="muted">q Quit</text>
 </svg>

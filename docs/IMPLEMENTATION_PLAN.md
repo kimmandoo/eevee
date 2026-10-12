@@ -1,7 +1,7 @@
 # Eevee Implementation Plan
 
 Date: 2026-10-12
-Status: Phase 1 implemented and verified; Phase 2 is next. Later phases remain pending.
+Status: Phase 1 implemented and verified. Next: V01 visual refinement, then actual-artwork tasks V02A/V02B, V03, and the Phase 2 local-workbench increments. Later phases remain pending.
 Contract: `docs/DESIGN_RULES.md`.
 
 ## Outcome
@@ -39,6 +39,30 @@ Initial integration: Codex CLI as an external coding backend, subject to an inst
 | Sylveon | Prepare handoff, preview documentation edits, approve/reject memory proposals | Handoff, docs change, curated memories |
 
 A form may request a handoff but cannot activate another form or widen permissions without the user's action. Context selection is explicit and inspectable. Forms may use the same provider while receiving different scoped requests.
+
+## Incremental delivery order
+
+The actionable backlog and per-task demos live in [`task.md`](../task.md); do not duplicate its completion checkboxes here. The 2026-10-12 refinement prioritizes actual Eevee/evolution images and visual clarity before storage. This adds V01, V02A, V02B, and V03 after the completed Phase 1; it does not reopen or falsely extend Phase 1's completion. The user's artwork clarification supersedes the original hand-drawn-motif proposal.
+
+| Gate | Backlog tasks | User-visible outcome |
+| --- | --- | --- |
+| Visual refinement | V01, V02A, V02B, V03 | Spacious sanctuary, real species artwork, native/cell rendering, deliberate evolution selection |
+| Phase 2 | E01, E02, C01, C02 | Resume a real task and assemble source context without a model |
+| Phase 3 | R01, R02 | Approve/run/cancel commands and inspect durable, freshness-aware evidence |
+| Phase 4 | A01, A02, A03 | Inspect real provider capabilities, make a scoped plan, implement a bounded change |
+| Phase 5 | U01, L01, G01 | Evidence-led diagnosis, behavior-preserving refinement, independent review |
+| Phase 6 | S01, S02, S03 | Verifiable handoff, approved habits, untrusted-recipe preview |
+| Phase 7 | Q01, Q02 | Complete real workflows, visual state coverage, observed performance |
+
+Default execution follows backlog order. Explicit dependencies allow later parallel work only when interfaces and file ownership are clear; do not parallelize merely because forms have different names. Each increment must leave a usable, honest application. Backend calls and durable-state promises remain unavailable until their own acceptance gates pass.
+
+Next four increments:
+
+1. V01 changes presentation only: centralize style tokens, reduce duplicate status text, create a single task/action card, and verify each supported layout in the real terminal.
+2. V02A replaces hand-drawn symbols with source-tracked actual species images and an offline cell renderer; no implicit download, asset redistribution claim, or native-image claim.
+3. V02B adds native image protocols through `ratatui-image`, with actual-terminal validation, bounded discovery, caching, cleanup, and compatibility fallbacks.
+4. V03 turns form selection into an image grid/list with a role/artifact/prerequisite preview. It remains a local action, not a provider request or permission grant.
+
 
 ## Phase 1 — Native shell and visual foundation
 
@@ -110,4 +134,4 @@ No custom model runtime, autonomous multi-agent swarm, hosted synchronization, p
 
 ## Current next action
 
-Start Phase 2 in small increments. First implement durable task creation/resumption and session-goal storage through a SQLite worker, with explicit storage location and recovery behavior. Verify create/edit/exit/reopen against a temporary data directory before adding Git baseline and source-context features. The Phase 1 event loop currently blocks on terminal input; introduce bounded worker events when storage work is added, not background model activity.
+Implement **V01 — Sanctuary layout and visual hierarchy** from `task.md`. Start from the existing `src/ui.rs` and actual Phase 1 terminal capture, reserve a bounded real-artwork area, refine spacing/hierarchy/empty states without inventing tasks or introducing storage, and prove the result in the real TUI across widths and color modes. V02A/V02B/V03 follow; E01 remains the first storage increment. Do not infer that planning, downloaded preview images, or the SVG mockup has implemented any of these tasks.

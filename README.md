@@ -53,8 +53,10 @@ Phase 1 was also exercised as a real subprocess in a PTY at 120x36, 100x30, 70x2
 - [Product and visual contract](docs/DESIGN_RULES.md)
 - [English implementation plan](docs/IMPLEMENTATION_PLAN.md)
 - [Conceptual TUI mockup](docs/TUI_MOCKUP.svg)
-- [Implementation progress](task.md)
+- [Actionable backlog and per-task acceptance](task.md)
 - [Session checkpoint](docs/WORK_CHECKPOINT.md)
 - [Terminal troubleshooting](docs/TROUBLESHOOTING.md)
+
+Planned next: V01 sanctuary layout/hierarchy, V02A actual Eevee/evolution assets with cell rendering, V02B native terminal image rendering, and V03 image-based evolution selection; then durable tasks and repository context. The [design contract](docs/DESIGN_RULES.md) defines image sourcing, copyright caveats, and terminal fallbacks. The running binary remains the verified Phase 1 shell; actual artwork support is not implemented yet.
 
 The SVG is a design illustration, not a runtime screenshot. Performance figures in the design contract remain acceptance targets, not measured results.

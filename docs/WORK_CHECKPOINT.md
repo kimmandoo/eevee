@@ -1,6 +1,29 @@
 # Work Checkpoint
 
-## 2026-10-12 — Phase 1 native terminal shell
+## 2026-10-12 — Concept refinement and actual species artwork plan
+
+- Active work: implement the Eevee workbench incrementally. The current request refined the product/design/backlog; no application implementation task was completed in this documentation session.
+- Exact next action: read this checkpoint, `AGENTS.md`, `task.md`, and the incremental delivery section of `docs/IMPLEMENTATION_PLAN.md`; implement **V01 — Sanctuary layout and visual hierarchy** in the existing TUI, reserving a bounded actual-artwork area. Verify actual terminal layouts and themes, not only the SVG.
+- Priority change: V01 -> V02A actual assets/cell rendering -> V02B native terminal graphics -> V03 image-based form selection now precede E01 durable storage. Phase 1 stays complete; all 21 new backlog tasks remain unchecked. The old Phase 2 next action below is historical, not the active instruction.
+- User clarification: use actual Eevee and all eight evolution images, not original ASCII characters. Default planned collection is PokéAPI's transparent official-artwork PNGs; character-cell fallback is derived from the same image. Preserve original image colors, transparency, aspect ratio, and species identity.
+- Product decisions: one task/one partner, a sanctuary task card, explicit evolution handoffs, evidence journal, and approved habits rather than XP/affection scores. Each form has a signature interaction and observable output; no mandatory nine-agent tour or cosmetic model calls.
+- Technical plan: keep Rust/Ratatui; add a compatible pinned ratatui-image version only in V02B. Native protocol support requires actual-terminal checks; bounded probing, off-render decode/encoding, cached assets, image cleanup, and working cells/ASCII/mono/off modes are acceptance requirements.
+- Source/rights: inspected PokéAPI's Eevee metadata, sprite repository, image rights notice, and ratatui-image protocol guidance. The source notice retains The Pokémon Company image copyright; opt-in download/caching is not a legal license. Do not commit/bundle franchise bytes by default; review public distribution rights.
+- Changed files: `README.md`, `CHANGELOG.md`, `task.md`, `docs/DESIGN_RULES.md`, `docs/IMPLEMENTATION_PLAN.md`, `docs/TUI_MOCKUP.svg`, `docs/TROUBLESHOOTING.md`, and this checkpoint. No Rust sources, Cargo dependencies, or runtime behavior changed.
+- Starting state: `main`, latest commit `633598d feat(tui): add native evolution workbench shell`; pre-existing untracked `AGENTS.md` remained untouched and outside the commit.
+
+### Verification in this planning session
+
+- Validated 21 unique implementation task IDs, existing/earlier dependency references, an acyclic delivery order, unchecked status, and a concrete change/demo criterion for every task.
+- Validated local Markdown links and well-formed static SVG with a 960x560 viewBox and no embedded franchise image bytes.
+- Retrieved and fully decoded all nine official-artwork PNGs: IDs 133, 134, 135, 136, 196, 197, 470, 471, and 700, each 475x475. Local hashes/source records are in ignored `target/design-artwork/sources.json`.
+- Rendered the sanctuary SVG with inherited theme tokens and actual Eevee art in Chromium, plus a nine-species picker study. Inspected the result; all ten displayed image elements loaded and SVG text bounds stayed inside the viewBox. Closed the managed preview tab.
+- Local visual artifact: `target/design-artwork/sanctuary-preview.png`. This is a concept preview using real source artwork, **not a running TUI or native terminal-image verification**. Downloaded preview PNGs are local ignored assets, not checked-in product files.
+- No application build/test/smoke was rerun: only planning/design assets changed. The Phase 1 runtime evidence below remains the last application verification.
+- Resolved an unusable standalone themed-SVG preview by using a theme-aware browser; documented the limitation and reported it to the tool issue reporter.
+- Blockers: none for V01. Later V02B requires access to a graphics-capable terminal for real protocol/cleanup validation; no compatibility claim is made from the browser preview. Later provider prerequisites remain unchanged.
+
+## Previous checkpoint — Phase 1 native terminal shell
 
 - Active task: implement the Eevee workbench in small, verified increments. Phase 1 is complete; the full agent workbench remains in progress.
 - Exact next action: read this checkpoint, `AGENTS.md`, `task.md`, and Phase 2 of `docs/IMPLEMENTATION_PLAN.md`. Implement durable task creation/resumption and goal storage through a SQLite worker as the next increment; verify create/edit/exit/reopen in a temporary data directory before adding repository evidence.
