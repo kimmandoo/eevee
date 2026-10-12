@@ -41,6 +41,7 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 - **Depends on:** V01.
 - **Change:** Add native build/test/lint CI and target-qualified terminal smoke coverage for macOS arm64/x86_64, Linux x86_64/arm64, and Windows x86_64. Record actual minimum supported OS/toolchain and terminal versions. Isolate platform differences only where needed; preserve one Rust UI and local use without Node, account, or artwork. Keep build, interactive runtime, graphics protocol, and agent availability as distinct evidence columns.
 - **Accept:** On every target, build the release binary and exercise real input, resize, CJK/paste, Ctrl+C, non-TTY help/errors, and normal/error/panic restoration using the existing text/mono/ASCII modes; image-specific checks belong to V02A/V02B. Include native Windows Terminal/ConPTY; WSL and cross-compilation do not prove Windows runtime support. Record artifacts and host/terminal versions. Missing native hardware/runner or terminal access leaves the affected row and P01 pending, never “supported” from compilation alone.
+- **Implementation / current evidence:** Added `.github/workflows/native.yml` and `scripts/terminal_smoke.py` for five native rows with Rust 1.90.0, POSIX PTYs, and Windows ConPTY. The local macOS arm64 harness passed 34 scenarios; other rows await observed CI artifacts, so this checkbox remains open.
 
 ### V02A — Actual nine-species assets and cell rendering
 
