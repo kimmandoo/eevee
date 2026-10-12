@@ -2,7 +2,7 @@
 
 ## Active work
 
-Section A is complete on its recorded native/graphics gates. The offline `ev` installation preview passed all five native rows. E01–E03 and C01 passed local durable-task/lifecycle/repository acceptance; **C02 — Vaporeon source map and context basket** is active, followed by section C. Subsequent native CI is blocked by GitHub account billing, not a code failure; providers remain outside this request.
+Section A and the five-row offline `ev` installation preview are complete on their recorded gates. **Section B and R01/R02/UX02 passed local implementation and actual-TUI acceptance. P02 remains blocked by GitHub account billing before runner startup.** Resolve Billing & plans, then run the installed-binary native matrix on the latest revision; do not infer new native parity from older artifacts. Providers remain outside this request.
 
 Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapter/evidence contract: [agent compatibility](docs/AGENT_COMPATIBILITY.md). An unchecked task may have partial implementation, but its acceptance is not complete; consult its evidence note and the checkpoint.
 
@@ -114,12 +114,13 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ### C02 — Vaporeon source map and context basket
 
-- [ ] Assemble a small, inspectable request context.
+- [x] Assembled persisted, inspectable source context with source and stored-reference revalidation.
 - **Depends on:** C01, E03.
 - **Change:** Browse/search real files, inspect ranges, and pin/remove source excerpts with path/range/source identity. Respect ignore rules, explicit exclusions, binary/oversized-file limits, and symlink boundaries. Preview Eevee-sent content/bytes; label token estimates and provider-added context separately. Do not claim this basket is the full effective provider prompt or that agent-owned reads are constrained by an excerpt selection.
 - **Accept:** Build a context basket in a fixture repository with CJK paths, a binary file, excluded credentials, and an out-of-root symlink. Inspect exact ranges, remove one, and modify another; show the stale reference. Excluded/out-of-scope content is absent from Eevee's stored basket/outgoing payload; disclose agent-added history/config/reads rather than asserting unverified global isolation.
 - **Dispatch boundary:** Revalidate selected source identities and resolved containment after preview, including symlink/junction replacement. Changed content/scope invalidates the preview and requires review again; never silently send substituted bytes. A02 consumes this contract. Do not claim this controls independent agent-owned reads.
 - **Retention integration:** Store excerpts under E03's quota/redaction/purge policy. Purge one task's excerpt without deleting the source file or another task's reference; inspect explicit unavailable evidence and refuse assembly from a missing artifact.
+- **Evidence:** Ten real PTY scenarios passed with CJK/CRLF, credential/binary/ignore/link exclusions, exact serialized payload bytes, restart, independent task references, purge, changed/missing sources, and a deleted stored reference. No provider dispatch was implemented or claimed.
 
 **Gate B:** create -> exit -> resume -> inspect sources works without a model, with explicit archive/purge and storage limits. This completes Phase 2 only when E01, E02, E03, C01, and C02 pass; later run/memory integration checks remain assigned to R02/S02/Q01.
 
@@ -127,26 +128,29 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ### R01 — Jolteon approve, run, and cancel
 
-- [ ] Execute one explicit command safely from the TUI.
+- [x] Executed explicitly approved local commands with owned-tree cancellation and bounded capture.
 - **Depends on:** C01, E03, UX01.
 - **Change:** Add exact argv or explicit shell executable/dialect/text, cwd, scope, duration, and enforcement-source details. Direct argv must not silently invoke a shell; `.cmd`/`.bat` and shell metacharacters need an explicitly previewed shell route. Queue approvals with neutral initial focus and correlated IDs; enforce approval at dispatch and reject stale/double answers. Stream sanitized output through bounded buffers/quota-controlled spools under E03; record start/end, exit/signal, and before/after source identities. Own the process tree before exposing execution: POSIX process groups or Windows Job Objects/equivalent verified containment. Refuse a safe-cancel execution route when ownership cannot be established. Keep provider-observed runs distinct from Eevee-launched commands; never duplicate execution to manufacture evidence.
 - **Accept:** Approve successful/failing commands, deny and prove no side effect, cancel a child-spawning command, and emit escape sequences/large output. Verify argv with spaces/CJK/metacharacters is delivered literally and explicit shell text uses the displayed dialect. Open an approval while typing, dismiss/reopen it, change its inputs, and attempt a stale/double answer; no focus theft or accidental execution. No surviving owned child, uncontrolled terminal operation, unbounded transcript, or invented success. Test quota exhaustion and retained partial output. Navigation cannot abandon active work; P02 repeats native lifecycle acceptance across all targets.
 - **Retention integration:** Reserve bounded spool capacity before dispatch. At quota exhaustion, continue draining into a bounded discard path with a visible truncation boundary, or explicitly cancel under the owned-tree contract; never deadlock a child on undrained output or claim complete evidence. Refuse deleting/purging a task while it owns active work, and prove this refusal has no side effect.
+- **Evidence:** Rust 1.90 passed 155 tests, warning-free Clippy and a release build. Eight execution PTY scenarios and six recovery PTY scenarios exercised neutral approval/denial, literal CJK/metacharacter argv, explicit shell failure, child/grandchild cancellation, 10 MiB output with a 1 KiB spool, and save-aware task/form/quit guards. Windows APIs typechecked; native runtime acceptance remains P02.
 
 ### R02 — Execution journal and evidence freshness
 
-- [ ] Make past results useful without overstating their validity.
+- [x] Persisted execution metadata/output and exposed stale, ambiguous, interrupted, partial, and unavailable evidence.
 - **Depends on:** R01, E02.
 - **Change:** Persist executions and output references under E03's retention/quota policy; add Jolteon history and a reusable evidence inspector. Distinguish current, stale, ambiguous, failed, interrupted, truncated, and unavailable evidence. Missing/purged output cannot substantiate a verified result. On restart do not claim a previously running process is still owned/running; reconcile it as interrupted unless ownership is actually re-established.
 - **Accept:** Run a check, restart and inspect its captured output, then change an input file and see stale status. Change a file during a run and see ambiguous status. Terminate the app during work and reopen without a false success or stuck running indicator. Purge retained output and exercise quota truncation: keep honest metadata, expose unavailable/partial evidence, and preserve artifacts still referenced by another task.
+- **Evidence:** Actual restart never replayed a command; missing/purged output remained unavailable, another task retained its evidence, source changes during/after execution produced ambiguous/stale states, and abrupt application death resumed as interrupted without restored ownership.
 
 ### UX02 — Activity, interruption, and recovery without lost context
 
-- [ ] Keep long-running work inspectable and recoverable.
+- [x] Preserved drafts, output anchors, search/follow state, and explicit recovery across execution interruptions.
 - **Depends on:** R02, UX01.
 - **Change:** Add stable scroll anchors, search, explicit follow-output mode, a new-output indicator, and layer-specific error details. Retain drafts and selected artifacts during pending input, cancellation, connection loss, and save failure. Show cancelling/outcome-unknown states without automatically retrying a potentially mutating action.
 - **Accept:** Scroll/search while a real command streams, open/close its pending request view, cancel it, and revisit partial output without jumping to the bottom or losing the draft. Exercise interrupted startup/resume and a failed save; the correct layer/remedy is visible, quit does not silently discard data, and no old command re-executes.
 - **Exit contract:** Quit/Ctrl+C during work opens Stay or Cancel-and-exit with neutral focus; another keypress cannot silently force termination. Wait for owned-tree exit or authoritative provider cancellation, with bounded escalation and visible partial results. If external outcome cannot be established, record outcome unknown and require an explicit informed exit. Never imply cancellation rolled back edits. Exercise this together with unsaved/failed-save drafts, nested children, a hung cancellation, and terminal restoration.
+- **Evidence:** Real streaming/search/follow, neutral navigation/quit, locked SQLite cancellation with journal-only retry, compact sticky truncation warnings, and 39x10 cancellation/approval refusal passed. Nested command-overlay restoration and search ownership were reproduced and corrected. The core terminal suite also passed all 34 scenarios.
 
 ### P02 — Native filesystem and process parity
 
@@ -154,6 +158,7 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 - **Depends on:** P01, C02, R02, UX02.
 - **Change:** Exercise platform user-data paths, repository identity/containment, executable discovery, shell selection, and owned-process-tree cancellation on the P01 matrix. Respect actual filesystem case sensitivity, symlinks/junctions, Windows file locking, and atomic storage semantics without lossy path normalization. Reject unsupported path encodings explicitly rather than merging distinct project identities. Qualify each agent and graphics capability separately by OS/version/terminal.
 - **Accept:** On native target hosts, create/save/reopen tasks under space/CJK paths; inspect CRLF sources, distinct/case-aliased project paths, and links escaping the root. Test Windows locked files and POSIX permissions without loss of drafts. Verify executable paths with spaces, literal argv, explicit shell dialect, deny/no side effect, child/grandchild cancellation, quit under streaming, and normal/error restoration. Record host versions and results; do not replace native Windows execution with WSL or assume a provider supported on macOS exists elsewhere.
+- **Blocker:** Native run [38285280853](https://github.com/kimmandoo/eevee/actions/runs/38285280853) was refused before steps because of account payments/spending limits. The five successful installation rows at `ea8ade7` predate B/C. Latest native workbench/context/execution/recovery scenarios are wired into CI but are not yet native runtime evidence.
 
 ## D — Connect a real specialist, not nine chat sessions
 
@@ -280,4 +285,4 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ## Phase status
 
-Phase 1, all six section-A tasks, E01–E03, and C01 are complete on their recorded environments. Of 31 implementation tasks, 10 are checked and 21 remain unchecked. C02 is active and section C remains requested, while D-G remains later scope. Native installation preview passed at `ea8ade7`; new native filesystem/process parity is blocked by GitHub account billing and is not inferred from local acceptance.
+Phase 1, all six section-A tasks, all five section-B tasks, and R01/R02/UX02 passed their recorded gates: 14 of 31 implementation tasks are checked; 17 remain unchecked. Gate B passed locally. Gate C remains incomplete only at P02's externally blocked native acceptance. D-G remains later scope. Installation preview passed at `ea8ade7`; current B/C native parity is not inferred from that older evidence.

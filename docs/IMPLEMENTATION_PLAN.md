@@ -1,7 +1,7 @@
 # Eevee Implementation Plan
 
 Date: 2026-10-13
-Status: Section A is complete on its recorded native/graphics gates. E01–E03 and C01 passed local task/lifecycle/repository and real-TUI acceptance; C02 is active. Of 31 tasks, 10 are checked and 21 remain unchecked. All remaining B/C tasks are requested. Installation preview passed five native rows; subsequent native workbench CI is blocked by account billing.
+Status: Section A and the five-row installation preview passed their recorded gates. Section B and R01/R02/UX02 passed local implementation and actual-TUI acceptance. Of 31 tasks, 14 are checked and 17 remain unchecked. P02 is the only remaining B/C gate and is blocked before native runner startup by account billing.
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
 
 ## Outcome
@@ -15,9 +15,10 @@ One native Rust binary and one Cargo package with these module boundaries; an op
 - `app`: reducer, typed events, task/form transitions, capability checks, independent task/request/storage/evidence states.
 - `domain`: task, form, evidence, execution, finding, correlated approval/question, memory, recipe, agent profile, handoff.
 - `ui`: responsive and linear layouts, theme tokens, nine workspaces, focus/scroll restoration, request previews, palette, overlays.
-- `runtime`: bounded event channels, cancellable subprocesses, output sanitization/spooling.
+- `runner`: owned subprocesses, correlated approvals, bounded events, output sanitization/spooling.
 - `store`: SQLite migrations, durable events/snapshots, output references, recovery.
 - `repo`: Git baseline, working-tree identities, diff, external-change detection.
+- `context`: bounded source catalogue/range capture, exclusion/containment checks, exact payload assembly and source revalidation.
 - `agent`: profile/version admission, request/context assembly, normalized events, and concrete Codex/Claude/ACP adapters.
 - `artwork`: bounded local PNG/source-manifest loading, explicit pinned downloads, and cached image-derived cells.
 - `native`: terminal/version-qualified Kitty encoding, physical-cell diff widths, placement/resource lifecycle, and kernel-only cell-size discovery.
@@ -151,4 +152,4 @@ No custom model runtime, autonomous multi-agent swarm, hosted synchronization, p
 
 ## Current next action
 
-Continue **C02 — Vaporeon source map and context basket**, then R01, R02, UX02, and P02. E01–E03/C01 passed their local gates; execution must exercise deferred active-run switching and quota integration. Offline `ev` installation passed all five native rows at `ea8ade7`; public Release/remote bootstrap remain withheld. Subsequent native CI is blocked before runner startup by account billing: finish reachable implementation/local verification without claiming new native parity. P03's later integrated/performance/rights gates remain separate.
+Resolve the account's **Billing & plans** admission failure, then run the native installed-binary matrix on the latest revision and collect host-qualified workbench/context/execution/recovery evidence. Mark P02 complete only after all required native rows pass. Section B and R01/R02/UX02 passed locally; no further B/C implementation is pending. Offline installation passed all five rows at `ea8ade7`, but those artifacts predate B/C. Public Release/remote bootstrap remain withheld; P03's integrated/performance/rights gates and provider work remain separate.

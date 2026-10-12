@@ -99,6 +99,12 @@ jobs:
         run: python scripts/workbench_smoke.py --binary "target/native-smoke/installation/installed 空 格/bin/ev" --output target/native-smoke/workbench
       - name: Verify read-only repository baseline and task preservation
         run: python scripts/repository_smoke.py --binary "target/native-smoke/installation/installed 空 格/bin/ev" --output target/native-smoke/repository
+      - name: Verify source capture and dispatch-time revalidation
+        run: python scripts/context_smoke.py --binary "target/native-smoke/installation/installed 空 格/bin/ev" --output target/native-smoke/context
+      - name: Verify command approval ownership and retained evidence
+        run: python scripts/execution_smoke.py --binary "target/native-smoke/installation/installed 空 格/bin/ev" --output target/native-smoke/execution
+      - name: Verify partial stale interrupted and failed-save evidence
+        run: python scripts/execution_recovery_smoke.py --binary "target/native-smoke/installation/installed 空 格/bin/ev" --output target/native-smoke/execution-recovery
       - name: Upload verified offline installation package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
