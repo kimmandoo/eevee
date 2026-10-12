@@ -1,5 +1,25 @@
 # Work Checkpoint
 
+## 2026-10-12 — Native platform backlog and UX gap closure
+
+- Active work: implement the Eevee workbench incrementally. This request added multiplatform tasks and tightened existing UX/safety acceptance; it changed planning documents only, not application behavior.
+- Exact next action: read this checkpoint, `AGENTS.md`, `task.md`, and the incremental delivery section of `docs/IMPLEMENTATION_PLAN.md`; continue **V01 — Sanctuary layout and visual hierarchy** against the existing user-owned working-tree changes. Inspect those changes before editing, preserve them, and verify the actual TUI rather than assuming the historical Phase 1 result covers them.
+- Starting state: `main...origin/main [ahead 4]`; latest commit `34ed74e docs(ux): specify agent interoperability and recovery flows`. Pre-existing modified `Cargo.lock`, `Cargo.toml`, `src/app.rs`, `src/config.rs`, `src/domain.rs`, and `src/ui.rs`, plus untracked `.DS_Store` and `AGENTS.md`, were not edited or included in this documentation commit.
+- Backlog: **31** unchecked implementation tasks. Added P01 native core/terminal baseline, P02 native filesystem/process parity, P03 installation/upgrade/distribution, and E03 archive/purge/privacy/quotas. Next remains V01, then P01 and the first dependency-ready unblocked task. No implementation task was completed by this planning request.
+- Planned native targets: macOS arm64/x86_64, Linux x86_64/arm64, Windows x86_64. Native Windows Terminal/ConPTY is required; WSL and cross-compilation are not native runtime proof. Windows ARM64/other variants remain unclaimed. Record tested minimum OS/toolchain/terminal versions and keep core, graphics, provider, and package evidence separate.
+- Dependency correction: UX01 requires V01 rather than V03; V03 requires V02A rather than V02B; E01 requires UX01 without waiting for unavailable P01 native runners. P02 still requires completed P01 and full native storage/process acceptance. Missing hosts, native graphics, or optional agents leave their gates pending without preventing independent local progress; complete visual/integrated/distribution gates are not waived.
+- UX/safety additions: dirty-draft discard and below-minimum-size escape paths; transactional/versioned storage and writer conflicts; revision-safe save acknowledgments; task-switch/quit ownership and bounded cancellation; archive versus confirmed purge and retention limits; no undrained-output deadlock at quota exhaustion; native argv/shell/tree semantics; per-OS agent readiness and dispatch-time context revalidation. Later-feature checks are assigned to C02/R01/R02/S02/A02/Q01, not impossible prerequisites for initial local storage.
+- Changed files: `task.md`, `README.md`, `docs/DESIGN_RULES.md`, `docs/IMPLEMENTATION_PLAN.md`, `docs/AGENT_COMPATIBILITY.md`, `CHANGELOG.md`, and this checkpoint.
+
+### Verification in this planning session
+
+- Ran an in-memory Python validator through Eval against the actual Markdown: 31 unique unchecked tasks, 76 dependency edges, all references to earlier existing tasks, acyclic graph, and Change/Accept/Depends sections for every task.
+- Matched the implementation-plan delivery map to all 31 task IDs exactly; validated 23 local Markdown links and anchors across the five planning/contract documents.
+- Executed a dependency-readiness simulation: the normal sequence reaches all 31 tasks from V01. With P01, V02B, A04, A05, and A06 blocked, local input, cell picker, storage, retention, source context, execution, and recovery still become reachable, while P02/P03/Q01/Q02 remain pending. This validates planning progression, not application runtime.
+- No application build/test/TUI smoke was run: this session changed only Markdown and preserved pre-existing source/Cargo work. Last recorded runtime verification remains Phase 1 on macOS arm64; other OS targets, current user changes, artwork, and providers are not newly verified.
+- No non-trivial implementation/environment issue was encountered or resolved; `docs/TROUBLESHOOTING.md` was intentionally unchanged. No temporary scripts or fixtures were created.
+- Blockers: none for the documentation request or continuing V01. Future platform gates need native hosts/runners and terminal evidence; graphics and provider gates retain their real-terminal/installation/credential prerequisites.
+
 ## 2026-10-12 — Detailed UX and multi-agent compatibility plan
 
 - Active work: implement the Eevee workbench incrementally. This request refined the English plan, interaction contract, compatibility boundaries, and acceptance backlog; it did not implement an adapter or complete a runtime task.

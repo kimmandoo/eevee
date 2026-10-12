@@ -2,7 +2,7 @@
 
 ## Active work
 
-Build the Eevee workbench in small, runnable increments. The next implementation task is **V01 — Sanctuary layout and visual hierarchy**. This refinement was requested after Phase 1; visual work now precedes the first storage increment. Do not start all tasks at once.
+Build the Eevee workbench in small, runnable increments. The next implementation task remains **V01 — Sanctuary layout and visual hierarchy**, followed by the P01 native-platform baseline. Prioritize usable local interactions and durable tasks; optional native graphics and unavailable provider credentials must not block independent ready work. Do not start all tasks at once.
 
 Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapter/evidence contract: [agent compatibility](docs/AGENT_COMPATIBILITY.md). Each unchecked item is planned, not implemented.
 
@@ -22,6 +22,8 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 - Update the changelog/checkpoint and commit each completed query increment. Record unfinished acceptance explicitly; never mark an entire later phase complete because one task passed.
 - Never require every form in a user task. Shared task facts and selected context avoid repeated prompts and unnecessary model calls.
 - A form, execution agent, model, and control boundary are separate choices. Never promise sandboxing, portable provider sessions, complete prompt visibility, or exact usage when the integration cannot establish them.
+- Target native macOS arm64/x86_64, Linux x86_64/arm64, and Windows x86_64. These are planned targets, not verified support. Record minimum OS/toolchain and actual terminal versions per target; Windows acceptance uses native Windows Terminal/ConPTY, not WSL. Other targets, including Windows ARM64, remain unclaimed until separately qualified.
+- Pick the first dependency-ready, unblocked task in backlog order. Record blocked acceptance explicitly and continue independent ready tasks; never skip a dependency or mark a blocked gate complete. Native graphics is not a prerequisite for keyboard navigation, durable storage, or the cell-rendered picker.
 
 ## A — Make Eevee feel like a companion
 
@@ -31,6 +33,13 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 - **Depends on:** Phase 1.
 - **Change:** Refine `src/ui.rs` with centralized theme tokens, spacious wide-screen gutters/padding, compact layouts, a single task/action card, and a contextual footer. Keep current backend/persistence limitations truthful. Put state in the header, identity in the rail, artifact in the center, and permissions/provenance in the inspector; remove duplicated paragraphs. Do not add persistence or new provider calls.
 - **Accept:** Launch the real binary at 120x36, 100x30, 70x24, and 60x18; create/edit a session goal, open drawers, and quit. The primary action and selected text remain readable in dark/light/indexed/mono/ASCII modes; measure the app's own true-color contrast. Task/form/agent readiness and local-vs-provider action are identifiable without opening help. Capture layouts; no overlapping controls, duplicate state paragraphs, or idle redraws.
+
+### P01 — Native platform baseline and terminal lifecycle
+
+- [ ] Establish a verified native core baseline on the target OS/architecture matrix.
+- **Depends on:** V01.
+- **Change:** Add native build/test/lint CI and target-qualified terminal smoke coverage for macOS arm64/x86_64, Linux x86_64/arm64, and Windows x86_64. Record actual minimum supported OS/toolchain and terminal versions. Isolate platform differences only where needed; preserve one Rust UI and local use without Node, account, or artwork. Keep build, interactive runtime, graphics protocol, and agent availability as distinct evidence columns.
+- **Accept:** On every target, build the release binary and exercise real input, resize, CJK/paste, Ctrl+C, non-TTY help/errors, and normal/error/panic restoration using the existing text/mono/ASCII modes; image-specific checks belong to V02A/V02B. Include native Windows Terminal/ConPTY; WSL and cross-compilation do not prove Windows runtime support. Record artifacts and host/terminal versions. Missing native hardware/runner or terminal access leaves the affected row and P01 pending, never “supported” from compilation alone.
 
 ### V02A — Actual nine-species assets and cell rendering
 
@@ -49,34 +58,42 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 ### V03 — Evolution picker and deliberate handoff preview
 
 - [ ] Make choosing a form an understandable local interaction.
-- **Depends on:** V02B.
+- **Depends on:** V02A.
 - **Change:** At >=90x30, show a 3x3 grid of actual species thumbnails with a selected detail area; otherwise use a compact list and selected portrait. Show the role, expected artifact, current form, and prerequisite status. Arrows/1-9 preview; Enter selects; Esc restores the previous form. Keep task text intact. Previewing or selecting grants nothing and starts no work; unavailable provider actions are labelled unavailable rather than simulated.
-- **Accept:** Select/cancel each form using only the keyboard at wide and narrow sizes. Confirm the goal and focus survive; selection and activation are distinct; all nine forms are reachable. Capture color/mono/native/cells states and verify images are removed behind overlays instead of bleeding through.
+- **Accept:** Select/cancel each form using only the keyboard at wide and narrow sizes. Confirm the goal and focus survive; selection and activation are distinct; all nine forms are reachable. Capture color/mono/cells and missing-art states without requiring V02B. After V02B ships, also verify native images are removed behind overlays instead of bleeding through; Q01 owns this composed check.
 
 ### UX01 — Predictable focus, editing, and accessible local navigation
 
 - [ ] Make the local shell usable without relying on artwork or memorized shortcuts.
-- **Depends on:** V03.
-- **Change:** Implement focus restoration, per-surface selection/scroll state, grapheme-aware cursor editing, and explicit local-apply versus request-preview actions. Suppress global shortcuts in text/search/answer fields. Add a linear text layout with the same local actions, optional portraits, and readable monochrome selection; do not claim assistive-tool support before testing it.
-- **Accept:** Complete create/edit/select/back/resize/quit using only keyboard navigation with CJK/combining text and multiline paste. Pasted commands/newlines never execute or approve anything. Closing a drawer restores focus, resize preserves drafts/selection, and linear layout exposes the same actions. Exercise a real assistive terminal setup before labelling that combination screen-reader compatible.
+- **Depends on:** V01.
+- **Change:** Implement focus restoration, per-surface selection/scroll state, grapheme-aware cursor editing, and explicit local-apply versus request-preview actions. Suppress global shortcuts in text/search/answer fields. Add a linear text layout with the same local actions, optional portraits, and readable monochrome selection; do not claim assistive-tool support before testing it. Use the existing text picker without requiring artwork. Distinguish Esc=discard an editor draft from Esc=close a pending-request view; keep a visible hint. Below minimum size, retain draft/run state and expose safe quit/cancel rather than an inescapable resize screen.
+- **Accept:** Complete create/edit/select/back/resize/quit using only keyboard navigation with CJK/combining text and multiline paste, including absent artwork. Pasted commands/newlines never execute or approve anything. Closing a drawer restores focus, resize below/above minimum preserves drafts/selection, and linear layout exposes the same actions. A dirty editor warns before destructive discard without requiring confirmation for an unchanged draft. Exercise a real assistive terminal setup before labelling that combination screen-reader compatible.
 
-**Gate A:** a polished, honest local companion shell. No persistence or agent execution claimed.
+**Gate A:** a polished, honest local companion shell including required artwork acceptance. No persistence or agent execution claimed. A blocked V02B leaves this full visual gate pending, but does not block dependency-ready UX01 or local-workbench tasks.
 
 ## B — A useful local workbench before connecting a model
 
 ### E01 — Durable goal and save acknowledgement
 
 - [ ] Make one task survive application exit.
-- **Depends on:** V01.
-- **Change:** Add a SQLite store worker and bounded worker/input events without blocking rendering. Use a documented platform user-data directory with `--data-dir PATH` for explicit isolation. Store the current task goal, project directory, and selected form transactionally. Show saving/saved/save-failed only from actual worker results; quitting during a pending or failed save must not silently discard edits. No source indexing yet.
-- **Accept:** In a temporary data directory, edit a goal, wait for the save acknowledgement, quit, and reopen in the same project. Recover the exact text and form. Exercise read-only storage, rapid successive edits, and quit-before-ack; keep the latest committed value and never label a failed write saved.
+- **Depends on:** UX01.
+- **Change:** Add a SQLite store worker and bounded worker/input events without blocking rendering. Use a documented platform user-data directory with `--data-dir PATH` for explicit isolation. Store the current task goal, project directory, and selected form transactionally. Version the schema and use transactional migrations; refuse destructive open of corrupt/newer schemas. Enforce one writer per data store with an explicit busy/retry state, not silent takeover. Match saving/saved/save-failed to committed edit revisions; a late acknowledgement cannot label a newer draft saved. Quitting during a pending or failed save must not silently discard edits. No source indexing yet.
+- **Accept:** In a temporary data directory, edit a goal, wait for the save acknowledgement, quit, and reopen in the same project. Recover exact text and form. Exercise read-only/disk-full/locked storage, two app instances, rapid edits with delayed acknowledgements, and quit-before-ack. Migrate an older fixture and interrupt a migration; keep the last valid committed database. Corrupt/newer schemas remain untouched with a recovery/export path for readable data, never an automatic reset.
+- **Platform sequencing:** Apply the P01 path/terminal contract from the start, but do not block local storage implementation on access to every native runner. P02 depends on completed P01 and verifies this storage path across the entire target matrix before any multiplatform claim.
 
 ### E02 — Eevee task cards and resumption
 
 - [ ] Turn the home screen into a real task sanctuary.
 - **Depends on:** E01, UX01.
-- **Change:** Create/select/resume multiple project-scoped tasks, edit acceptance criteria, and record an explicit next action. Keep task outcome, request lifecycle, save acknowledgement, and evidence freshness separate. Replace the session-only CTA with Create/Resume only now. Use actual saved timestamps/status; no fictional activity or completion from a form switch/process result.
-- **Accept:** Create two tasks with different goals/criteria/forms, switch between them, restart, and resume each without cross-contamination. A new project starts empty. Pending edits are resolved before switching; a task with unmet criteria cannot silently become complete.
+- **Change:** Create/select/resume multiple project-scoped tasks, edit acceptance criteria, and record an explicit next action. Keep task outcome, request lifecycle, save acknowledgement, and evidence freshness separate. Persist per-task drafts/navigation without cross-task leakage. Replace the session-only CTA with Create/Resume only now. Use actual saved timestamps/status; no fictional activity or completion from a form switch/process result. While a run is active, offer Stay or Cancel-and-wait before switching task/project; never silently reassign run ownership. Editing a completed task's goal/criteria requires an explicit reopen transition.
+- **Accept:** Create two tasks with different goals/criteria/forms/drafts, switch, restart, and resume each without cross-contamination. A new project starts empty. Pending edits are resolved before switching; unmet criteria prevent completion and changed criteria reopen a completed task explicitly. Once R01/A02 ship, exercise switching with an active run/pending approval: remain on the original task until cancellation settles, invalidate old grants, and retain its partial journal. Q01 verifies the composed path.
+
+### E03 — Task lifecycle, privacy, and bounded local storage
+
+- [ ] Archive or remove tasks without accidental data loss or unbounded evidence storage.
+- **Depends on:** E02.
+- **Change:** Separate reversible archive/restore from delete/purge. Preview affected task records and currently owned artifacts; use neutral initial focus and explicit confirmation. Redact identifiable secrets before persistence and disclose limits; implement configurable local quotas/retention for existing task data without silently evicting active evidence. As those features ship, C02 applies the policy to excerpts, R01 reserves bounded spool capacity before execution and rejects deletion during active work, R02 represents purged/truncated output explicitly, and S02 preserves approved shared memories. Do not pre-create unused spool or memory modules in E03.
+- **Accept:** Archive, restore, cancel deletion, confirm deletion, and restart; only the selected task's eligible local data disappears. Exercise disk-full/quota behavior against real stored task data, preserving drafts and responsive navigation; test identifiable-secret redaction before storage. C02/R01/R02/S02 verify their own retention integration when implemented, with Q01 covering the composition. Explain that local purge neither guarantees forensic secure erasure of SQLite/WAL/backups nor deletes provider sessions, exported files, or repository changes.
 
 ### C01 — Repository baseline and working diff
 
@@ -88,27 +105,30 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 ### C02 — Vaporeon source map and context basket
 
 - [ ] Assemble a small, inspectable request context.
-- **Depends on:** C01.
+- **Depends on:** C01, E03.
 - **Change:** Browse/search real files, inspect ranges, and pin/remove source excerpts with path/range/source identity. Respect ignore rules, explicit exclusions, binary/oversized-file limits, and symlink boundaries. Preview Eevee-sent content/bytes; label token estimates and provider-added context separately. Do not claim this basket is the full effective provider prompt or that agent-owned reads are constrained by an excerpt selection.
 - **Accept:** Build a context basket in a fixture repository with CJK paths, a binary file, excluded credentials, and an out-of-root symlink. Inspect exact ranges, remove one, and modify another; show the stale reference. Excluded/out-of-scope content is absent from Eevee's stored basket/outgoing payload; disclose agent-added history/config/reads rather than asserting unverified global isolation.
+- **Dispatch boundary:** Revalidate selected source identities and resolved containment after preview, including symlink/junction replacement. Changed content/scope invalidates the preview and requires review again; never silently send substituted bytes. A02 consumes this contract. Do not claim this controls independent agent-owned reads.
+- **Retention integration:** Store excerpts under E03's quota/redaction/purge policy. Purge one task's excerpt without deleting the source file or another task's reference; inspect explicit unavailable evidence and refuse assembly from a missing artifact.
 
-**Gate B:** create -> exit -> resume -> inspect sources works without a model. This completes Phase 2 only when E01, E02, C01, and C02 pass.
+**Gate B:** create -> exit -> resume -> inspect sources works without a model, with explicit archive/purge and storage limits. This completes Phase 2 only when E01, E02, E03, C01, and C02 pass; later run/memory integration checks remain assigned to R02/S02/Q01.
 
 ## C — Real execution with visible evidence
 
 ### R01 — Jolteon approve, run, and cancel
 
 - [ ] Execute one explicit command safely from the TUI.
-- **Depends on:** C01, UX01.
-- **Change:** Add exact argv/explicit shell text, cwd, scope, duration, and enforcement-source details. Queue approvals with neutral initial focus and correlated IDs; enforce approval at dispatch and reject stale/double answers. Stream sanitized output through bounded buffers/spooled files; record start/end, exit/signal, and before/after source identities. Support owned-process-group cancellation from the first exposed path. Keep provider-observed runs distinct from Eevee-launched commands; never duplicate execution to manufacture evidence.
-- **Accept:** Approve successful/failing commands, deny and prove no side effect, cancel a child-spawning command, and emit escape sequences/large output. Open an approval while typing, dismiss/reopen it, change its inputs, and attempt a stale/double answer; no focus theft or accidental execution. No orphan child, uncontrolled terminal operation, unbounded transcript, or invented success. Navigation cannot abandon active work.
+- **Depends on:** C01, E03, UX01.
+- **Change:** Add exact argv or explicit shell executable/dialect/text, cwd, scope, duration, and enforcement-source details. Direct argv must not silently invoke a shell; `.cmd`/`.bat` and shell metacharacters need an explicitly previewed shell route. Queue approvals with neutral initial focus and correlated IDs; enforce approval at dispatch and reject stale/double answers. Stream sanitized output through bounded buffers/quota-controlled spools under E03; record start/end, exit/signal, and before/after source identities. Own the process tree before exposing execution: POSIX process groups or Windows Job Objects/equivalent verified containment. Refuse a safe-cancel execution route when ownership cannot be established. Keep provider-observed runs distinct from Eevee-launched commands; never duplicate execution to manufacture evidence.
+- **Accept:** Approve successful/failing commands, deny and prove no side effect, cancel a child-spawning command, and emit escape sequences/large output. Verify argv with spaces/CJK/metacharacters is delivered literally and explicit shell text uses the displayed dialect. Open an approval while typing, dismiss/reopen it, change its inputs, and attempt a stale/double answer; no focus theft or accidental execution. No surviving owned child, uncontrolled terminal operation, unbounded transcript, or invented success. Test quota exhaustion and retained partial output. Navigation cannot abandon active work; P02 repeats native lifecycle acceptance across all targets.
+- **Retention integration:** Reserve bounded spool capacity before dispatch. At quota exhaustion, continue draining into a bounded discard path with a visible truncation boundary, or explicitly cancel under the owned-tree contract; never deadlock a child on undrained output or claim complete evidence. Refuse deleting/purging a task while it owns active work, and prove this refusal has no side effect.
 
 ### R02 — Execution journal and evidence freshness
 
 - [ ] Make past results useful without overstating their validity.
 - **Depends on:** R01, E02.
-- **Change:** Persist executions and output references; add Jolteon history and a reusable evidence inspector. Distinguish current, stale, ambiguous, failed, and interrupted evidence. On restart do not claim a previously running process is still owned/running; reconcile it as interrupted unless ownership is actually re-established.
-- **Accept:** Run a check, restart and inspect its captured output, then change an input file and see stale status. Change a file during a run and see ambiguous status. Terminate the app during work and reopen without a false success or stuck running indicator.
+- **Change:** Persist executions and output references under E03's retention/quota policy; add Jolteon history and a reusable evidence inspector. Distinguish current, stale, ambiguous, failed, interrupted, truncated, and unavailable evidence. Missing/purged output cannot substantiate a verified result. On restart do not claim a previously running process is still owned/running; reconcile it as interrupted unless ownership is actually re-established.
+- **Accept:** Run a check, restart and inspect its captured output, then change an input file and see stale status. Change a file during a run and see ambiguous status. Terminate the app during work and reopen without a false success or stuck running indicator. Purge retained output and exercise quota truncation: keep honest metadata, expose unavailable/partial evidence, and preserve artifacts still referenced by another task.
 
 ### UX02 — Activity, interruption, and recovery without lost context
 
@@ -116,6 +136,14 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 - **Depends on:** R02, UX01.
 - **Change:** Add stable scroll anchors, search, explicit follow-output mode, a new-output indicator, and layer-specific error details. Retain drafts and selected artifacts during pending input, cancellation, connection loss, and save failure. Show cancelling/outcome-unknown states without automatically retrying a potentially mutating action.
 - **Accept:** Scroll/search while a real command streams, open/close its pending request view, cancel it, and revisit partial output without jumping to the bottom or losing the draft. Exercise interrupted startup/resume and a failed save; the correct layer/remedy is visible, quit does not silently discard data, and no old command re-executes.
+- **Exit contract:** Quit/Ctrl+C during work opens Stay or Cancel-and-exit with neutral focus; another keypress cannot silently force termination. Wait for owned-tree exit or authoritative provider cancellation, with bounded escalation and visible partial results. If external outcome cannot be established, record outcome unknown and require an explicit informed exit. Never imply cancellation rolled back edits. Exercise this together with unsaved/failed-save drafts, nested children, a hung cancellation, and terminal restoration.
+
+### P02 — Native filesystem and process parity
+
+- [ ] Prove local workbench behavior on every target platform, not just compilation.
+- **Depends on:** P01, C02, R02, UX02.
+- **Change:** Exercise platform user-data paths, repository identity/containment, executable discovery, shell selection, and owned-process-tree cancellation on the P01 matrix. Respect actual filesystem case sensitivity, symlinks/junctions, Windows file locking, and atomic storage semantics without lossy path normalization. Reject unsupported path encodings explicitly rather than merging distinct project identities. Qualify each agent and graphics capability separately by OS/version/terminal.
+- **Accept:** On native target hosts, create/save/reopen tasks under space/CJK paths; inspect CRLF sources, distinct/case-aliased project paths, and links escaping the root. Test Windows locked files and POSIX permissions without loss of drafts. Verify executable paths with spaces, literal argv, explicit shell dialect, deny/no side effect, child/grandchild cancellation, quit under streaming, and normal/error restoration. Record host versions and results; do not replace native Windows execution with WSL or assume a provider supported on macOS exists elsewhere.
 
 ## D — Connect a real specialist, not nine chat sessions
 
@@ -123,7 +151,7 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 - [ ] Show real capabilities and prerequisites for each installed or configured agent.
 - **Depends on:** UX02, C02.
-- **Change:** Introduce a small versioned agent-profile/capability contract and connection drawer for Codex, Claude Agent SDK, and ACP profiles. Inspect executable/protocol versions, effective configuration/trust scope, authentication/billing source labels, and adapter availability without a model request. Missing/unknown is not supported. Show per-action Eevee-mediated/agent-policy/observed boundaries; never mutate global agent configs or silently load an untrusted project hook/plugin.
+- **Change:** Introduce a small versioned agent-profile/capability contract and connection drawer for Codex, Claude Agent SDK, and ACP profiles. Inspect executable/protocol versions, effective configuration/trust scope, authentication/billing source labels, and adapter availability without a model request. Establish executable/config trust before probing: even `--version` executes code, so a repository-supplied binary/hook requires deliberate consent. Qualify readiness per OS, executable version, and action; installed is not authenticated or supported. Missing/unknown is not supported. Show per-action Eevee-mediated/agent-policy/observed boundaries; never mutate global agent configs or silently load an untrusted project hook/plugin.
 - **Accept:** Probe the installed Codex interface and missing executables/SDKs; preserve local-only use. A version mismatch, absent auth, or unknown enforcement capability disables the affected run with an actionable reason. No repository-supplied command or auth flow starts without trust/action; no credentials appear in profile snapshots or logs. Record observed versus merely documented capabilities.
 
 ### A02 — Espeon scoped planning request
@@ -132,6 +160,7 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 - **Depends on:** A01, E02, C02.
 - **Change:** Use the pinned installed-version app-server contract, not ANSI screen scraping, for normalized structured events, approval/questions, cancellation, and explicit thread lifecycle. Let Espeon submit a previewed context manifest and save a user-selected decision. Correlate task/run/generation/tool/request IDs, preserve provider-origin metadata, and do not count delta plus final snapshots twice. Keep one active request; a draft is not a queued submission.
 - **Accept:** With real credentials, run a bounded design request, answer a real supported input request, deny/allow a supported operation, cancel a turn, and resume the explicit thread when supported. Reject a stale approval after cancellation, and surface malformed/fatal transport outcomes without fake completion or automatic resend. Inspect outgoing context plus provider-added-context disclosure. Auth/schema availability is a real blocker; mocks do not satisfy this gate.
+- **Preview integrity:** Immediately before dispatch revalidate the C02 context manifest, task revision, profile/config, and grants. A changed file or replaced symlink/junction requires a new preview, not an unnoticed payload update. Test a source change between Preview and Run and prove no stale or substituted request is sent.
 
 ### A03 — Flareon bounded implementation
 
@@ -206,6 +235,7 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 - **Depends on:** S01, C02.
 - **Change:** Offer Remember on a selected verified/user-authored note; preview task/project/personal scope, then approve or reject. Support inspection/edit/delete and honor exclusions. Do not silently infer a permanent habit from one action or add a numerical bond score.
 - **Accept:** Approve one project memory and reject another; restart and inspect exact contents. Open a different project and confirm scope isolation, then delete the memory and verify it no longer enters context. Excluded secrets are never proposed from captured content.
+- **Retention integration:** Use E03's ownership/purge rules; deleting one task must not remove approved shared memory, and deleting a memory must remove it from future request assembly while explaining that prior exports/provider history are outside local erasure.
 
 ### S03 — Evolution Stone recipe preview
 
@@ -219,9 +249,9 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 ### Q01 — Complete journey and visual state matrix
 
 - [ ] Prove all nine workflows and their composed user experience.
-- **Depends on:** V01, V02A, V02B, V03, UX01, UX02, E02, C02, R02, A03, A04, A05, A06, A07, U01, L01, G01, S01, S02, S03.
-- **Change:** Exercise real nine-form artifacts plus the shared UX across Codex, Claude Agent SDK, and the two ACP profiles. Run the compatibility conformance scenarios, not a mandatory all-agent tour for normal users. Fix actual integration/visual defects; no fake backend or single-agent-only test qualifies as interoperability.
-- **Accept:** Cover empty/missing dependency, ready/running, permission/question, cancellation/unknown outcome, save failure, stale evidence, and cross-agent handoff across supported sizes/themes and long CJK content. Verify keyboard focus, no accidental execution, bounded streams, resumed usage accounting, image cleanup, and terminal restoration. Every claimed controlled action names and proves its enforcement boundary. Review naming/art rights and provider terms before distribution.
+- **Depends on:** V01, V02A, V02B, V03, UX01, UX02, E02, E03, C02, R02, P02, A03, A04, A05, A06, A07, U01, L01, G01, S01, S02, S03.
+- **Change:** Exercise real nine-form artifacts plus the shared UX across Codex, Claude Agent SDK, and the two ACP profiles. Run the compatibility conformance scenarios, not a mandatory all-agent tour for normal users. Maintain separate native-local, graphics-terminal, and provider OS/version evidence matrices; an unavailable optional provider blocks its interoperability gate, not use or independent verification of the local core. Q01 remains pending until every required gate passes. Fix actual integration/visual defects; no fake backend or single-agent-only test qualifies as interoperability.
+- **Accept:** Cover empty/missing dependency, ready/running, permission/question, cancellation/unknown outcome, save failure, stale evidence, and cross-agent handoff across supported sizes/themes and long CJK content. Verify keyboard focus, no accidental execution, bounded streams/storage, task switch and quit with pending work/drafts, resumed usage accounting, purge/missing artifacts, image cleanup, and terminal restoration. Exercise E02/R02/S02's deferred integration checks. Every claimed controlled action names and proves its enforcement boundary. Review naming/art rights and provider terms before distribution; unsupported OS/provider combinations remain explicitly unavailable rather than implied portable.
 
 ### Q02 — Measured native and token efficiency
 
@@ -230,6 +260,13 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 - **Change:** Benchmark the release binary on recorded hardware/workload: 60s local-shell idle CPU/RSS, 30 warm local startups, key-to-render latency under streaming, 10 MiB output, and a 10,000-line diff. Report core, optional SDK sidecar, and external-agent resource use separately and in aggregate. Inspect per-provider usage/cost scope and outgoing context; optimize measured bottlenecks.
 - **Accept:** Report observations against the design targets with method/sample size and remaining misses, without hiding helper/agent costs inside a core-only claim. Queues stay bounded; no model request on form selection, no unsubmitted draft leaks, and no unrelated/full history in Eevee-sent context. Show unknown provider-added context/usage honestly; no savings percentage or merged cost total without compatible measured scopes.
 
+### P03 — Native distribution, upgrade, and support evidence
+
+- [ ] Make installation and upgrades reproducible on the supported platform matrix.
+- **Depends on:** P02, Q01, Q02.
+- **Change:** Produce versioned native archives and checksums for the P01 targets, with install/run/uninstall instructions and recorded OS/toolchain/terminal baselines. Separate verified core support from graphics and optional provider compatibility. Include no mandatory Node runtime, credentials, or franchise artwork in the core package. Keep user-data paths stable across upgrades and refuse incompatible schema downgrade without changing data. Do not advertise unverified packages or bypass rights/provider-term review.
+- **Accept:** Download/unpack and run each package on a clean native target without Rust installed; verify checksums, help/version, the interactive local flow, and absence of account/art/network prerequisites. Upgrade from the previous supported data schema (fixture for the first release), resume a task, and attempt an incompatible downgrade without data loss. Uninstall leaves data intact unless the user deliberately invokes documented purge. Publish per-target build/runtime/install evidence plus graphics/provider limitations; unsigned/unnotarized artifacts and any OS trust prompt must be disclosed, never bypassed through a blanket security-disable instruction.
+
 ## Phase status
 
-Phase 1 remains complete. Visual/UX refinements and Phases 2-7 remain pending. All 27 implementation tasks above are unchecked; writing this plan did not implement them. See `docs/WORK_CHECKPOINT.md` for the exact continuation point and separate documentation/runtime evidence.
+Phase 1 remains the last completed and recorded runtime phase. Visual/UX refinements, multiplatform support, and Phases 2-7 remain pending. All 31 implementation tasks above are unchecked; writing this plan did not implement them. See `docs/WORK_CHECKPOINT.md` for the exact continuation point, user-owned in-progress changes, and separate documentation/runtime evidence.

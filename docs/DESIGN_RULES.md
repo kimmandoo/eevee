@@ -79,10 +79,11 @@ An action card distinguishes three operations: local navigation (no model call),
 - Show the selected agent/model and control boundary without recoloring the companion or changing its identity. Default to one agent per task; a deliberate per-role override is allowed after connection support ships. No agent is spawned merely to populate a picker.
 - Capabilities are action-specific: structured output, approval/questions, cancellation, same-agent session loading, tool limits, filesystem/network policy, and usage may differ. Missing or unknown support is not permission. Disable only the affected action, explain why, and keep local browsing/notes/review available.
 - An approval callback is not an OS sandbox. Distinguish **Eevee-mediated**, **agent-policy-controlled**, and **observed/unmanaged** effects in the inspector and request preview. Label restrictions by the actual mechanism/scope, not a single reassuring “safe” badge.
-- During a request, users may browse existing evidence and edit a future draft, but switching the active form/agent waits for completion or explicit cancellation. Never route a late approval or streamed event to a newly selected agent/task.
+- During a request, users may browse existing evidence and edit a future draft, but changing the active form/agent/task requires completion or an explicit cancel-and-wait transition. Offer Stay instead; never transfer a running request's ownership. Preserve per-task drafts and never route a late approval or streamed event to another agent/task.
 - A new agent receives a user-reviewed handoff, not the old agent's opaque session ID, private reasoning, credentials, or assumed memory. Same-agent resumption is separately verified against agent version, cwd, context/config identity, and policy. Fresh Glaceon review context remains separate even when the same agent is reused.
 - The outgoing context basket describes **what Eevee sends**, not necessarily the whole effective model input. Agents may load project rules, hooks, history, plugins, MCP tools, or additional files. Inspect or disclose those sources where possible; if they cannot be bounded, do not promise complete context isolation or hard read-only operation.
 - Before connecting, distinguish provider-owned authentication/billing, project executable configuration, and persistent trust/configuration effects. Do not import credentials or mutate global settings to hide a missing prerequisite. Provider-owned side effects such as a persistent trust change require explicit preview/consent, not a form selection.
+- Readiness is specific to agent version, native OS, and requested action. Discovering an executable candidate is not permission to execute it: repository-supplied candidates require explicit trust before even a version/preflight invocation.
 - Adapter transports, evidence levels, request/event semantics, and per-agent limitations are specified in [Agent compatibility](AGENT_COMPATIBILITY.md).
 
 ## End-to-end interaction contract
@@ -96,7 +97,7 @@ These are planned UI behaviors; controls must not appear functional before their
 | Choose form | Evolution picker -> preview/confirm | Preserve task, draft, focus, selection, and context; display the role/output, not a fake completion stage. |
 | Connect/change agent | Agent drawer -> inspect/select | Distinguish not installed, installed, authentication needed, ready, incompatible version, and disconnected. Connection/auth and request submission are separate actions. |
 | Compose | Scoped request editor -> preview | Show goal, selected excerpts, exclusions, agent/model, role policy, expected output, and estimated/unknown usage. Local edit confirmation never submits a model request. |
-| Start | Request preview -> explicit Run | Explain data leaving the process, control boundary, and unresolved prerequisites. Revalidate source/config identity and applicable grants before dispatch. |
+| Start | Request preview -> explicit Run | Explain data leaving the process, control boundary, and unresolved prerequisites. At dispatch/admission, revalidate selected source content, resolved path identity (including symlink/junction swaps), profile/config identity, and applicable grants. Changed selections or scope invalidate the preview and require a new preview/approval, not silent replacement. |
 | Work | Artifact workspace + activity drawer | Keep evidence primary; show actual tool/turn state. Continue to allow inspection, scrolling, and cancellation without losing draft text. |
 | Need permission/input | Persistent pending indicator -> open request | Do not steal focus while typing. The request remains pending until an explicit response, cancellation, or expiry; closing its view is not approval or denial. |
 | Stop/failure | Inline state + retained partial evidence | Show cancelling until acknowledged or owned process exit; preserve output/changes and distinguish cancelled, failed, disconnected, and outcome unknown. No automatic resubmission. |
@@ -111,6 +112,7 @@ These are planned UI behaviors; controls must not appear functional before their
 - Palette entries expose capability prerequisites and current context. A disabled action explains its missing prerequisite on inspection; no dead-looking silent button. Do not silently rebind a familiar key to an approval when a panel changes.
 - Live output follows the end only while follow mode is enabled. Manual scrolling pauses follow; a visible “new output” indicator offers a deliberate jump. Search highlights and selection stay stable as output arrives; virtualize large lists/diffs and do not repaint the full history per chunk.
 - Links, clipboard actions, and launching an external auth command require a deliberate user action. No OSC 52 clipboard writes from tool output. Sanitize terminal escape sequences while preserving useful plain output; keep structured content separate from rendered text.
+- Before discarding a changed editor draft, offer an explicit discard decision; unchanged drafts need no extra confirmation. Label the distinction between leaving an editor and closing a still-pending request view. Below minimum terminal size, preserve drafts/run state and expose safe quit/cancel; resizing must not trap the user or implicitly approve/discard work.
 
 ### Approval and agent-question UX
 
@@ -132,6 +134,8 @@ These are planned UI behaviors; controls must not appear functional before their
 - Show “working” with an actual last-event indicator, not invented percent complete, hidden-reasoning text, or a success animation. A quiet connection is not automatically a hung run. “No recent updates” offers inspection/cancel without claiming failure.
 - A disconnect retains the partial journal and marks outcome unknown when completion is unobserved. Reconnect/resume is explicit and never replays a mutating request automatically. Reconcile already-applied changes before offering a new attempt.
 - Save failures remain visible and retain recoverable draft content. On quit/switch, offer explicit retry-save, stay, or discard-unsaved choices; never present an unsaved task as durable. A provider-local session may persist independently and must not be confused with Eevee's own save result.
+- Durable storage has an explicit schema/version and one writer. Detect another writer and expose the conflict without silent takeover. Migrate older schemas transactionally with a tested rollback/recovery path; never overwrite a corrupt or newer-schema database. Disk-full and locked-database failures retain the editable draft. Only a committed revision may be acknowledged as saved, and late acknowledgments must never regress the saved revision or label a newer draft saved.
+- With active work, quit and Ctrl+C open a neutral-focus Stay / Cancel-and-exit decision, not an immediate process kill. Cancel-and-exit waits for acknowledgment or verified owned-tree exit with bounded escalation; unconfirmed teardown remains outcome unknown. Repeated keys must not accidentally confirm or force-kill. Unsaved-state choices still apply, and neither cancellation nor exit promises file rollback.
 - Error cards identify layer and remedy: image loading, local storage, agent executable, auth, capability/version, transport, model request, permission denial, or command exit. Preserve technical details behind an inspect action; transient notices do not erase the selected artifact or steal focus.
 
 ### Accessibility and visual quality gates
@@ -151,6 +155,13 @@ Separate observed facts, model inferences, and user decisions. Persist provenanc
 Capture the initial working tree without overwriting user changes. Git metadata and baseline file identities distinguish pre-existing changes from session changes; concurrent external edits remain unattributed rather than falsely assigned to the agent. A code-state identity covers relevant tracked and untracked inputs, not only HEAD. Changes during a run make its association ambiguous; changes after a run make its verification stale. Display unknown coverage explicitly.
 
 Legacy Phase 1 surfaces use a simple ready state. Planned task/request/storage/evidence axes are defined above; task completion is separate from request success and requires the explicit acceptance checklist plus visible unresolved risks.
+
+### Task lifecycle and local retention
+
+- Completion requires an explicit state transition. Changing the goal or acceptance criteria of a completed task requires deliberately reopening it; an old verdict must not imply the new criteria passed.
+- Archive hides a task without deleting its evidence. Delete/purge is separate: preview the affected task records, drafts, output/assets, and shared references, then require confirmation with neutral initial focus and a no-effect Cancel path. Do not purge active work or silently sever its evidence.
+- Redact identifiable credentials before any metadata, journal, or output-spool persistence; do not promise perfect detection. Provide configurable spool quotas and retention with visible disk-pressure behavior. Never silently evict active evidence; when capacity is exhausted, stop further capture/execution safely and expose the limitation rather than recording complete evidence.
+- Retention and explicit deletion must show missing artifacts as unavailable, not empty or successful results. Preserve memory/profile records still referenced by other tasks; task deletion is not blanket shared-state deletion. Explain local scope: purge is neither secure erase nor deletion of provider-owned sessions/data. Command runners and durable-memory flows inherit these rules.
 
 ## Permissions and recipes
 
@@ -187,7 +198,7 @@ Planned spacious layout at 120x36: one-cell outer margin; three-row header; one-
 - Support dark/light terminals, 256-color fallback, monochrome, and NO_COLOR. Status always includes text or a symbol plus text; never color alone.
 - Static images by default. No GIF playback, continuous animation, flashing, or idle redraw loop in the first artwork increment.
 - Form picker lists all nine names, roles, current form, and shortcut. Role instructions remain visible without knowing Pokémon lore.
-- Keys: Tab cycles panes; arrows move selection; Enter opens/accepts the focused item; Esc backs out; Ctrl+K opens the command palette; ? opens help; q quits outside text entry. Ctrl+C requests cancellation of active work, otherwise exits. Approval is never a side effect of navigating or switching forms.
+- Keys: Tab cycles panes; arrows move selection; Enter opens/accepts the focused item; Esc backs out; Ctrl+K opens the command palette; ? opens help; q requests quit outside text entry. Ctrl+C enters the active-work decision above when work is running, otherwise requests exit subject to unsaved-state review. Approval is never a side effect of navigating or switching forms.
 - Mouse is optional. Selection, scrolling, cancellation, approvals, and form switching must all work by keyboard.
 
 ### Visual refinement contract (V01, V02A, V02B, V03)
@@ -218,6 +229,24 @@ Planned spacious layout at 120x36: one-cell outer margin; three-row header; one-
 - Keep image work separate from LLM context: displaying an avatar never sends image bytes to a model. Use PNG-only decoding features; do not introduce a runtime Chafa dependency or animation framework by default. Neither `TestBackend` nor a text-only PTY parser proves native graphics compatibility.
 - The SVG remains a geometry reference with an explicitly labelled real-artwork well. An actual-source image preview may be generated as a local, untracked design artifact; it is not evidence that native terminal rendering is implemented.
 
+## Native platform and release evidence
+
+The following are planned verification targets, not current support claims. Each row needs its own recorded minimum OS version, Rust/toolchain version, terminal/version, and native build/run/install evidence; do not invent minimum versions from dependency metadata.
+
+| Native OS | Architecture | Required runtime environment |
+| --- | --- | --- |
+| macOS | arm64 | Native terminal, identified by version |
+| macOS | x86_64 | Native terminal, identified by version |
+| Linux | x86_64 | Native terminal and distribution, identified by version |
+| Linux | arm64 | Native terminal and distribution, identified by version |
+| Windows | x86_64 | Native Windows Terminal/ConPTY, identified by version; WSL is not a substitute |
+
+- Windows ARM64 and other variants remain unclaimed. CI must supply native build/test/clippy evidence and real-terminal interaction evidence qualified by OS/architecture/terminal tuple. Cross-compilation proves neither runtime behavior nor terminal compatibility. A missing host leaves that row's gate pending without blocking unrelated ready work.
+- Core keyboard/navigation, durable storage, and the cell-based form picker do not depend on native graphics hardware or an artwork download. Prioritize input/local persistence when graphics evidence is unavailable; full visual acceptance still requires actual species artwork. Separate local-core acceptance, provider interoperability, and native-image gates; a missing optional provider blocks its interoperability gate, not delivered local core, while the full acceptance gate remains pending until all required rows pass.
+- Terminal protocol support is separate from OS support and must name OS/version, terminal/version, protocol, and relevant SSH/tmux conditions. Agent/action readiness is a third, independently verified capability matrix; neither native images nor one working provider establishes another capability.
+- Filesystem/data-directory acceptance covers native per-OS locations, spaces/CJK, CRLF, case sensitivity, symlinks/junctions, Windows locked files, executable discovery, and native process-tree cancellation plus terminal/exit recovery. Do not assume POSIX paths, signals, shells, or environment conventions apply on Windows.
+- Release acceptance requires versioned native archives/checksums and per-row fresh install, upgrade, run, and uninstall evidence. Preserve user data unless an explicit purge is requested; incompatible data schemas must fail without destructive conversion. Publish only evidenced capabilities, with no unsupported support badges, mandatory Node runtime, or required artwork. Public release remains gated on rights and provider review.
+
 ## Implementation stack and efficiency
 
 Choose Rust with Ratatui and Crossterm for the native TUI, Tokio for asynchronous I/O and subprocess coordination, Serde for schemas, TOML for recipes, and SQLite through rusqlite for durable task metadata. Store large command output in bounded/rotated local files referenced by metadata. Begin with one Cargo package and explicit modules, not a multi-crate framework.
@@ -230,9 +259,9 @@ The planned Claude Agent integration may use an optional pinned TypeScript SDK s
 - Bounded worker channels; batch stream updates. Preserve output on disk while virtualizing the visible window; do not grow an in-memory transcript forever.
 - Invalidate only changed views; redraw on input/state changes, at most 30 fps during streams, never on an idle timer alone.
 - Cache parsing/diff results by source identity; avoid reloading the repository or recomputing all hashes per frame.
-- Use direct subprocess arguments by default; shell execution is explicit. Local command cancellation terminates the owned process group and records partial results. External-agent cancellation follows its actual protocol; timeout/forced teardown records outcome unknown rather than claiming every child stopped or changes were undone.
+- Launch commands with direct argv and no implicit shell. Shell execution separately identifies the executable, dialect, and exact shell text; `.cmd`/`.bat` require an explicit shell path, not a silent wrapper. Establish native process-tree ownership before offering safe cancellation: owned process groups on POSIX, Job Objects or an equivalently verified tree-ownership mechanism on Windows. If ownership cannot be established, reject the safe-cancel action rather than advertising it. Track partial output, exit status, and terminal recovery; external-agent cancellation follows its actual protocol, and timeout/forced teardown remains outcome unknown unless tree exit is verified. Never claim that cancellation undoes changes.
 - Select context by scope and evidence references; do not inject every form prompt or the full historical transcript. Display provider-reported token counts separately from estimates, identify turn/session/cumulative scope, and disclose provider-added context that cannot be inspected. Do not invent savings percentages or sum incompatible counters.
 - Use one specialist request at a time initially. No background model chatter, automatic agent fan-out, or model calls for cosmetic transitions.
-- Redact credentials before persistence where identifiable; do not promise perfect redaction. Let users exclude sensitive paths and purge task artifacts.
+- Apply the task lifecycle and retention rules above to every persistence path, including command spools and durable memories.
 
 Initial native local-shell performance acceptance targets, not measurements: idle CPU <1% of one core over 60s; idle RSS <=80 MiB; warm local startup to usable UI p95 <=200 ms over 30 runs; local key-to-render p95 <=50 ms under streamed output. Record hardware, release profile, terminal size, sample method, and workload. Report optional SDK bridge and external-agent resources separately **and in aggregate**; a core-only number is not total application cost. Benchmark a 10 MiB output stream and a 10,000-line diff; memory must remain bounded by configured windows/queues. Optimize from measurements, not assumptions.
