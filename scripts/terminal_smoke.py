@@ -618,7 +618,7 @@ fn main() -> std::io::Result<()> {
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--binary", default="target/release/eevee", help="already-built native binary")
+    parser.add_argument("--binary", default="target/release/ev", help="already-built native binary")
     parser.add_argument("--output", default="target/native-smoke", help="local evidence directory")
     parser.add_argument("--record-host", action="store_true", help="record versions/host only; do not run checks")
     args = parser.parse_args()

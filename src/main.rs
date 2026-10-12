@@ -20,13 +20,13 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(Command::Version) => {
-            println!("eevee {}", env!("CARGO_PKG_VERSION"));
+            println!("ev {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
         Ok(Command::Run(config)) => match run(config) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
-                eprintln!("eevee: {error}");
+                eprintln!("ev: {error}");
                 ExitCode::FAILURE
             }
         },
@@ -36,12 +36,12 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
             Err(error) => {
-                eprintln!("eevee: {error}");
+                eprintln!("ev: {error}");
                 ExitCode::FAILURE
             }
         },
         Err(error) => {
-            eprintln!("eevee: {error}\nTry 'eevee --help' for usage.");
+            eprintln!("ev: {error}\nTry 'ev --help' for usage.");
             ExitCode::from(2)
         }
     }

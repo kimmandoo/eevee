@@ -49,7 +49,7 @@ pub enum Command {
 
 pub const HELP: &str = "Eevee — local-first evolution workbench
 
-Usage: eevee [OPTIONS]
+Usage: ev [OPTIONS]
 
 Options:
   --theme dark|light    Terminal theme (default: dark)
