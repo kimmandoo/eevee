@@ -155,7 +155,7 @@ def main():
             wait_for(migrated, "Storage: saved")
             quit_app(migrated)
             with closing(sqlite3.connect(legacy / "workbench.sqlite3")) as db:
-                assert db.execute("PRAGMA user_version").fetchone()[0] == 3
+                assert db.execute("PRAGMA user_version").fetchone()[0] == 4
             exported = root / "recovery.json"
             command = [str(binary), "--data-dir",str(legacy),"--export-data",str(exported)]
             export = subprocess.run(command, capture_output=True, text=True, timeout=10)

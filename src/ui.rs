@@ -1,3 +1,6 @@
+mod execution;
+mod sources;
+
 use std::borrow::Cow;
 
 use ratatui::{
@@ -349,6 +352,8 @@ pub fn render(
         );
         if app.confirmation.is_some() {
             confirmation(frame, area, app, config, &paint);
+        } else if app.overlay == Some(Overlay::Execution) && app.execution.confirmation.is_some() {
+            execution::render_small_confirmation(frame, area, &mut app.execution, config);
         }
         return;
     }
@@ -387,6 +392,8 @@ pub fn render(
             Overlay::Tasks => tasks(frame, area, app, config, &paint),
             Overlay::Criteria => criteria(frame, area, app, config, &paint),
             Overlay::Repository => repository(frame, area, app, config, &paint),
+            Overlay::Sources => sources::render(frame, area, app, config, &paint),
+            Overlay::Execution => execution::render(frame, area, &mut app.execution, config),
             Overlay::Inspector => {
                 let area = drawer(area);
                 frame.render_widget(Clear, area);
@@ -437,7 +444,7 @@ fn header(frame: &mut Frame, area: Rect, app: &App, form: &Form, paint: &Paint) 
     text(
         frame,
         row(area, 2, 1),
-        "Agent: not connected / no work running",
+        app.execution.activity_label(),
         paint.base,
     );
 }
@@ -526,7 +533,7 @@ fn workspace(
     ));
     lines.push(Line::from(form.evidence));
     lines.push(Line::styled(
-        "Provider unavailable. No work is running; preview sends nothing.",
+        "Provider not connected. Local sources and commands require separate review.",
         paint.muted,
     ));
     let paragraph = Paragraph::new(lines)
@@ -633,7 +640,7 @@ fn inspect(
         let sampled = app.usage_bytes;
         let retention = app.policy.retention_days;
         format!(
-            "TASK\n{task} / {}\nUpdated: {updated}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete means user-reviewed criteria, not verified command evidence.\n\nPROJECT DIRECTORY\n{}\n\nSTORAGE\n{}\nRevision {} / committed {}\nDirectory: {}\n{}\nRecovery: r retries after fixing the storage problem; --export-data FILE reads without reset.\nQuota: {quota} bytes. Last load/lifecycle sample: {sampled} live SQLite bytes including shared schema, not physical file size.\nRetention: archived at least {retention} days; explicit preview/purge only, no automatic eviction.\nIdentifiable secrets are masked before persistence. Detection is incomplete; review data before sharing. Volatile editor text may remain unmasked.\nArchive is reversible. Delete removes selected local records/drafts, not repository files, exports or provider sessions. SQLite pages, journals and backups are not forensically erased.\n\nEXECUTION\nProvider unavailable. No work running, grants, or results recorded.\n\nARTWORK\n{}\n{}\n{}\n\nUp/Down scroll / Esc back",
+            "TASK\n{task} / {}\nUpdated: {updated}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete means user-reviewed criteria, not verified command evidence.\n\nPROJECT DIRECTORY\n{}\n\nSTORAGE\n{}\nRevision {} / committed {}\nDirectory: {}\n{}\nRecovery: r retries storage; --export-data FILE exports task rows, not an evidence backup.\nQuota: {quota} bytes. Last sample: {sampled} live SQLite, retained output and committed reservations; not physical database size.\nRetention: archived at least {retention} days; explicit purge only, no automatic eviction.\nSecret detection is best-effort. Volatile editor text may remain unmasked.\nArchive is reversible. Deletion affects selected local records and owned artifacts, not repository files, exports or provider sessions. Not forensic secure erasure.\n\nEXECUTION\nNo provider connected. j opens local command approval and observed evidence. Cancellation does not roll back files; approval is not a sandbox.\n\nARTWORK\n{}\n{}\n{}\n\nUp/Down scroll / Esc back",
             if app.complete { "Complete" } else { "Open" },
             app.criteria
                 .iter()
@@ -657,7 +664,7 @@ fn inspect(
         )
     } else {
         format!(
-            "PROJECT\n{project}\n\nTASK\n{task} / {}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete is user review, not verified execution.\n\nSTORAGE\n{}\n{}\n\nCONTROL\nProvider unavailable. No work running, grants, or results recorded.\n\ni Details: saved timestamp, revisions, paths and recovery\nUp/Down scroll",
+            "PROJECT\n{project}\n\nTASK\n{task} / {}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete is user review, not verified execution.\n\nSTORAGE\n{}\n{}\n\nCONTROL\nNo provider connected. j opens command approval/evidence. Approval is not a sandbox.\n\ni Details: saved timestamp, revisions, paths and recovery\nUp/Down scroll",
             if app.complete { "Complete" } else { "Open" },
             app.criteria
                 .iter()
@@ -771,7 +778,7 @@ fn forms(
             content.height.saturating_sub(3 + visible as u16),
         );
         let value = format!(
-            "{} / {}\nLocal selection: ready / work unavailable\np Inspect role and expected artifact",
+            "{} / {}\nLocal selection grants nothing\np Inspect role / v Sources / j Commands",
             FORMS[selected].name, FORMS[selected].role
         );
         text(frame, info, &value, paint.muted);
@@ -782,11 +789,17 @@ fn form_details(frame: &mut Frame, area: Rect, index: usize, config: &Config, ar
     let form = &FORMS[index];
     let paint = Paint::new(config, form, index);
     let value = format!(
-        "{} / {}\n{}\n\n{}\n\nLocal selection: available\nSpecialist work: not implemented\n{}\n\nArrows / 1-9 preview\nEnter select / Esc keep current",
+        "{} / {}\n{}\n\n{}\n\nLocal selection: available\n{}\n{}\n\nArrows / 1-9 preview\nEnter select / Esc keep current",
         form.name,
         form.element,
         form.role,
         form.evidence,
+        match index {
+            0 => "Task cards and resumption: available",
+            1 => "Source ranges/context basket: v",
+            2 => "Approved local commands/evidence: j",
+            _ => "Provider specialist workflow: unavailable",
+        },
         artwork.status(index)
     );
     frame.render_widget(
@@ -1114,7 +1127,7 @@ fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &P
     let block = panel(" Keyboard / local actions ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let value = "TASKS\n g / Enter  Edit or resume goal (Enter in workspace)\n t          Task cards; Enter resumes selected task\n n          Create task after pending saves finish\n c          Acceptance checklist; Space toggles, e edits lines\n a          Edit or resume next action\n d          Review explicit Complete confirmation\n w          Repository baseline and raw working diff\nRepository: r refreshes without replacing the session baseline.\nExternal changes are unattributed, not agent-authored.\nTask cards/checklist: Up/Down/Home/End select.\nPageUp/PageDown scroll selected details.\nIn task cards: h switches active/archived views.\na archives; r restores in archived view.\nDelete previews selected task removal; x previews eligible archived retention purge.\nDeletion starts on Stay. PgUp/Dn reviews all selected IDs.\nPurge does not remove source files, exports or provider sessions, or securely erase SQLite/backups.\nComplete requires nonempty, all-met criteria.\nComplete is user review, not verified execution.\nEditing a completed goal/checklist requires explicit Reopen.\n\nEDITOR\nEnter applies locally and saves; no execution.\nCtrl+S saves a retained draft and returns without applying.\nIdentifiable secrets are masked before storage; detection is incomplete.\nEsc reviews changed draft: Keep editing or Discard draft.\nDiscard removes only this field's draft, not applied data.\nLeft/Right move by grapheme; Backspace/Delete remove a grapheme.\nUp/Down move lines; Home/End move within a line.\nCtrl+N inserts newline; criteria use one criterion per line.\nShift+Enter inserts newline if distinguished by the terminal.\nPaste is text; it never applies, completes, or executes.\nRetained drafts survive task switches and restart.\n\nNAVIGATION\nf          Evolution picker: arrows/1-9 preview, Enter selects\np          Local handoff preview; sends nothing\ni / b      Inspector / companion drawer\nr          Retry failed storage outside editor\nl          Toggle linear / sanctuary layout\nCtrl+K     Local command palette\nTab        Cycle visible panes\nUp/Down    Select or scroll focused surface\nPageUp/Down Scroll a page\nHome/End   First/last selection or scroll position\nEsc        Close overlay and restore focus\n?          Show/close help\nq / Ctrl+C Safe exit; save task and retained drafts\nDuring save-and-exit, only Esc cancels exit.\nStorage failure requires informed explicit exit.\nConfirmations start on Stay/Keep; Tab/Right selects the action.\n\nArtwork: --images cells|off for compatibility.\nNo automatic download, model request, or permissions.\nLinear mode is text-first; no assistive-tool claim yet.";
+    let value = "TASKS\n g / Enter  Edit goal; Enter in workspace resumes\n t          Task cards; Enter resumes selection\n n          New task after saves and owned work settle\n c          Criteria; Space toggles, e edits lines\n a          Next action (descriptive, never execution)\n d          Review Complete; requires all criteria met\n w          Repository baseline; r refreshes current evidence\nExternal changes are unattributed, not agent-authored.\nTask cards: h active/archived; a archive; r restore.\nDelete reviews a task; x reviews eligible retention purge.\nDeletion: PgUp/Dn scroll; n/p artifact pages; neutral Stay.\nPurge leaves repository files, exports and provider sessions alone. Not forensic secure erasure.\nComplete is user review, not verified execution.\nGoal/criteria changes require explicit Reopen.\n\nSOURCES / v\n / filters filenames; r chooses inclusive start:end.\n Enter inspects line 1; p pins an inspected range.\n b toggles files/basket; Delete removes; x purges capture.\n a previews exact escaped envelope; d revalidates without sending.\n u refreshes repository; n/p pages a large envelope.\n s retries a failed retained storage operation explicitly.\nIgnore/exclusion, containment and source identity are rechecked. Provider history/config/independent reads are not constrained.\n\nCOMMANDS / j\n e edits JSON argv or explicit shell object; Apply prepares only.\n v opens neutral approval; closing it grants nothing.\n c reviews cancellation; h history; r fresh evidence.\n / searches output; n/N next/previous; f follows.\n Arrows/PgUp/Dn/Home/End scroll without following.\n [/] pages retained output; p reviews purge; d error details.\n s retries journal persistence, never command execution.\nApproval is not a sandbox. Cancellation does not roll back edits.\nTask/form changes and quit wait for owned work or explicit unknown-outcome review. Restart never replays a command.\n\nEDITOR\nEnter applies locally; Ctrl+S retains draft without applying.\nEsc reviews changed draft; unchanged drafts close directly.\nLeft/Right and deletion operate on graphemes.\nUp/Down move lines; Home/End line boundaries.\nCtrl+N newline; Shift+Enter only if terminal distinguishes it.\nPaste never applies or approves. Drafts survive restart.\nSecret masking is best-effort; volatile text may be unmasked.\n\nNAVIGATION\n f Evolution: arrows/1-9 preview, Enter activates\n p Local handoff preview; sends nothing\n i / b Inspector / companion\n r Retry failed task storage outside editor\n l Linear/sanctuary; Ctrl+K actions; Tab pane focus\n Esc closes overlay and restores focus; ? help\n q / Ctrl+C safe exit with neutral Stay\nDuring save-and-exit, Esc cancels exit.\nFailed persistence requires informed explicit exit.\nArtwork: --images cells|off. No automatic download or model request. Linear mode makes no screen-reader compatibility claim.";
     scroll_text(
         frame,
         content,
@@ -1139,7 +1152,7 @@ fn preview(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint:
     frame.render_widget(block, area);
     let form = &FORMS[app.preview_form()];
     let value = format!(
-        "GOAL\n{}\n\nROLE\n{} / {}\n\nEXPECTED ARTIFACT\n{}\n\nCONTEXT\nNo selected source excerpts. Project not inspected.\n\nEXECUTION / CONTROL\nAgent: not connected. No grants.\nRun unavailable: provider and runtime not implemented.\nThis preview performs no operation.\n\nEsc returns to the invoking control.",
+        "GOAL\n{}\n\nROLE\n{} / {}\n\nEXPECTED ARTIFACT\n{}\n\nCONTEXT\n{} captured references loaded. Open v for exact envelope preview and source revalidation. Provider-added history or reads are not governed by this basket.\n\nEXECUTION / CONTROL\nAgent: not connected. Command approval is separate in j.\nThis preview performs no operation and sends nothing.\n\nEsc returns to the invoking control.",
         if app.goal.is_empty() {
             "No task goal set"
         } else {
@@ -1147,7 +1160,8 @@ fn preview(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint:
         },
         form.name,
         form.role,
-        form.evidence
+        form.evidence,
+        app.sources.basket.len()
     );
     scroll_text(
         frame,
@@ -1176,6 +1190,29 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
             }
             Some(Overlay::Palette) => "Arrows Choose / Enter Open / Esc Back",
             Some(Overlay::Repository) => "r Refresh / Up/Down Scroll / PgUp/Dn Page / Esc Back",
+            Some(Overlay::Sources) => {
+                if app.sources.editor.is_some() {
+                    "Enter Apply / Esc Back"
+                } else if app.sources.confirmation.is_some() {
+                    "Tab/arrows Choose / Enter Confirm / Esc Stay / PgUp/Dn"
+                } else {
+                    match app.sources.mode {
+                        crate::app::sources::Mode::Files => {
+                            "/ Filter / r Range / Enter Inspect / b Basket / Esc Back"
+                        }
+                        crate::app::sources::Mode::Basket => {
+                            "a Preview / d Revalidate / Del Remove / x Purge / b Files"
+                        }
+                        crate::app::sources::Mode::Preview => {
+                            "p Pin / r Range / PgUp/Dn Scroll / Esc Files"
+                        }
+                        crate::app::sources::Mode::Payload => {
+                            "n/p Pages / d Revalidate / PgUp/Dn Scroll / Esc Basket"
+                        }
+                    }
+                }
+            }
+            Some(Overlay::Execution) => "",
             Some(Overlay::Tasks) => {
                 "Enter Resume / h Archives / a Archive or r Restore / Del / Esc"
             }
@@ -1261,6 +1298,9 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
             }
             EditorField::NextAction => {
                 "Next-action draft. Describes your plan; does not execute it."
+            }
+            EditorField::Command => {
+                "JSON argv array or explicit shell object. Apply prepares review; never executes."
             }
         },
         paint.muted,
@@ -1374,6 +1414,11 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
             "Stay",
             "Exit despite save failure",
         ),
+        ConfirmationKind::Quit if app.sources.store_failed => (
+            "Context storage failed. The retained operation is not saved. Stay, fix storage, then v and s retry.",
+            "Stay",
+            "Exit despite unsaved context",
+        ),
         ConfirmationKind::Quit => (
             "Exit? Save the applied task and retained drafts before closing.",
             "Stay",
@@ -1423,25 +1468,57 @@ fn delete_confirmation(
     let content = block.inner(area);
     frame.render_widget(block, area);
     let question = format!(
-        "Delete {} selected task records/drafts, including their unsaved edits? No repository files, exports or provider sessions are deleted. Not forensic secure erasure of SQLite/backups.",
-        app.delete_targets.len()
+        "Delete {} task records/drafts and listed excerpts/runs? Sources, exports and provider sessions stay. Not secure erasure. Page {}/{} (n/p).",
+        app.delete_targets.len(),
+        app.delete_page + 1,
+        app.deletion_pages()
     );
     text(frame, row(content, 0, 4), &question, paint.surface);
     let details = row(content, 4, content.height.saturating_sub(8));
+    enum Item<'a> {
+        Task(&'a crate::store::Snapshot),
+        Excerpt(i64, &'a str),
+        Run(&'a str, bool),
+    }
     let lines: Vec<_> = app
-        .delete_targets
+        .delete_preview
         .iter()
-        .map(|id| {
-            let title = app
-                .tasks
-                .iter()
-                .find(|task| task.id == *id)
-                .map(|task| task.goal.lines().next().unwrap_or("Untitled task"))
-                .unwrap_or("Unavailable — dispatch will refuse");
-            Line::from(format!(
-                "#{id} {}",
-                clipped(title, details.width.saturating_sub(12) as usize)
-            ))
+        .flat_map(|target| {
+            std::iter::once(Item::Task(&target.task))
+                .chain(
+                    target
+                        .excerpts
+                        .iter()
+                        .map(|(id, path)| Item::Excerpt(*id, path)),
+                )
+                .chain(
+                    target
+                        .runs
+                        .iter()
+                        .map(|(id, available)| Item::Run(id, *available)),
+                )
+        })
+        .skip(app.delete_page * crate::app::DELETE_PREVIEW_PAGE)
+        .take(crate::app::DELETE_PREVIEW_PAGE)
+        .map(|item| {
+            Line::from(match item {
+                Item::Task(task) => format!(
+                    "#{} {}",
+                    task.id,
+                    clipped(
+                        task.goal.lines().next().unwrap_or("Untitled task"),
+                        details.width.saturating_sub(24) as usize
+                    )
+                ),
+                Item::Excerpt(id, path) => format!(
+                    "  excerpt #{id} {}",
+                    clipped(path, details.width.saturating_sub(32) as usize)
+                ),
+                Item::Run(id, available) => format!(
+                    "  run {id} / output {}",
+                    if available { "retained" } else { "unavailable" }
+                ),
+            })
         })
         .collect();
     let max = selection_details(
@@ -1541,6 +1618,8 @@ mod tests {
                 layout_explicit: false,
                 data_dir: "unused-data".into(),
                 storage_policy: crate::store::Policy::default(),
+                context_exclusions: Vec::new(),
+                capture_capacity: 64 * 1024,
             };
             for (index, form) in FORMS.iter().enumerate() {
                 let paint = Paint::new(&config, form, index);

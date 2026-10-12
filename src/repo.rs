@@ -1122,6 +1122,86 @@ fn read_file(
     })
 }
 
+/// Rechecks current Git ignore/inventory membership, rather than trusting a stale
+/// catalogue after an ignore-file edit. The path is literal, never a pathspec.
+pub(crate) fn source_visible(
+    root: &Path,
+    relative: &Path,
+    stopped: &AtomicBool,
+) -> Result<bool, String> {
+    let path = source_path(relative)?;
+    let git = Git::new(root, stopped, Instant::now() + COMMAND_TIMEOUT)?;
+    let captured = git.required(
+        &[
+            "--literal-pathspecs",
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            path,
+        ],
+        None,
+        4 * (path.len() + 1),
+    )?;
+    if captured.truncated {
+        return Err("Source inventory membership exceeded its exact-path bound".into());
+    }
+    Ok(complete_records(&captured.bytes).any(|record| record == path.as_bytes()))
+}
+
+fn source_path(relative: &Path) -> Result<&str, String> {
+    let path = relative.to_str().ok_or("Source path is not Unicode")?;
+    if path.is_empty()
+        || path.len() > 32 * 1024
+        || !relative
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+    {
+        return Err("Source path must be a bounded normal repository-relative path".into());
+    }
+    Ok(path)
+}
+
+/// Bounded source reads share the repository opened-handle/no-follow algorithm.
+/// A final or ancestor link, substituted handle, changed root, and partial hash
+/// are all refused; callers never receive silently substituted bytes.
+pub(crate) fn read_source(
+    root: &Path,
+    relative: &Path,
+    max_bytes: usize,
+    stopped: &AtomicBool,
+) -> Result<(Vec<u8>, [u8; 32]), String> {
+    source_path(relative)?;
+    let before = fs::symlink_metadata(root).map_err(|error| error.to_string())?;
+    if !before.is_dir()
+        || link_or_reparse(&before)
+        || fs::canonicalize(root).map_err(|error| error.to_string())? != root
+    {
+        return Err("Repository root is linked or no longer canonical".into());
+    }
+    let stamp = Stamp::from(&before);
+    let git = Git::new(root, stopped, Instant::now() + COMMAND_TIMEOUT)?;
+    let limits = Limits {
+        file_bytes: max_bytes,
+        ..Limits::default()
+    };
+    let mut remaining = max_bytes;
+    let captured = read_file(root, relative, &mut remaining, &git, limits)?;
+    let after = fs::symlink_metadata(root).map_err(|error| error.to_string())?;
+    if !stamp.same_node(&Stamp::from(&after))
+        || link_or_reparse(&after)
+        || fs::canonicalize(root).map_err(|error| error.to_string())? != root
+    {
+        return Err("Repository root changed while reading source".into());
+    }
+    match (captured.state, captured.bytes) {
+        (FileState::Regular { sha256, .. }, Some(bytes)) => Ok((bytes, sha256)),
+        _ => Err("Selected source is not an available regular file".into()),
+    }
+}
+
 fn capture(
     repository: &RepositoryIdentity,
     git: &Git<'_>,

@@ -1,11 +1,13 @@
 mod app;
 mod artwork;
 mod config;
+mod context;
 mod domain;
 mod input;
 mod native;
 mod privacy;
 mod repo;
+mod runner;
 mod store;
 mod terminal;
 mod ui;
@@ -70,6 +72,8 @@ fn run(config: Config) -> io::Result<()> {
         let store =
             store::Worker::start(config.data_dir.clone(), cwd.clone(), config.storage_policy)?;
         let repository = repo::Worker::start(project.clone())?;
+        let sources = context::Worker::start(config.context_exclusions.clone())?;
+        let execution = runner::Worker::start()?;
         let size = terminal.size()?;
         let mut app = App::new(
             cwd.chars().filter(|c| !c.is_control()).collect(),
@@ -78,6 +82,7 @@ fn run(config: Config) -> io::Result<()> {
         );
         app.linear = config.layout == config::LayoutMode::Linear;
         app.policy = config.storage_policy;
+        app.execution.set_capture_capacity(config.capture_capacity);
         let mut graphics = native::NativeGraphics::new(&config);
         let mut dirty = true;
         let mut targets = Vec::with_capacity(9);
@@ -85,7 +90,19 @@ fn run(config: Config) -> io::Result<()> {
         let mut pending_save: Option<store::Snapshot> = None;
         let mut outstanding_store = 1_usize; // Initial load also yields one event.
         let mut outstanding_repo = 1_usize;
+        let mut outstanding_sources = 0_usize;
+        let mut context_task = None;
         loop {
+            let activity = app.execution.activity_label();
+            if let Some(action) = app.execution.drive(&execution, app.task_id, &project) {
+                app.apply_execution_action(action);
+                dirty = true;
+            }
+            dirty |= activity != app.execution.activity_label();
+            if context_task != Some(app.task_id) {
+                context_task = Some(app.task_id);
+                app.sources.reset(app.task_id);
+            }
             if dirty {
                 // ConPTY's legacy cell projection can turn changed blanks into
                 // cursor moves over old text, especially with indexed colors.
@@ -107,6 +124,24 @@ fn run(config: Config) -> io::Result<()> {
                     #[cfg(windows)]
                     ui::compose_console_graphemes(frame.buffer_mut());
                 })?;
+            }
+            if app.execution.repo_requested() && outstanding_repo == 0 && repository.refresh() {
+                app.execution.repo_started();
+                outstanding_repo += 1;
+            }
+            if sources.try_request(&mut app.sources.pending) {
+                outstanding_sources += 1;
+            }
+            if store.try_context(&mut app.sources.pending_store) {
+                outstanding_store += 1;
+            }
+            if let Some(request) = app.execution.take_store_request() {
+                let mut pending = Some(request);
+                if store.try_run(&mut pending) {
+                    outstanding_store += 1;
+                } else if let Some(request) = pending {
+                    app.execution.requeue_store_request(request);
+                }
             }
             if app.repo_refresh && repository.refresh() {
                 app.repo_refresh = false;
@@ -146,6 +181,11 @@ fn run(config: Config) -> io::Result<()> {
             // Only outstanding I/O uses a bounded wait; an idle saved UI blocks.
             let pending = outstanding_store > 0
                 || outstanding_repo > 0
+                || outstanding_sources > 0
+                || app.sources.pending.is_some()
+                || app.sources.pending_store.is_some()
+                || app.execution.busy()
+                || execution.is_active()
                 || app.repo_refresh
                 || app.retry_storage
                 || app.switch_task.is_some()
@@ -179,9 +219,38 @@ fn run(config: Config) -> io::Result<()> {
             }
             while let Some(event) = repository.try_event() {
                 outstanding_repo = outstanding_repo.saturating_sub(1);
+                let succeeded = matches!(&event, repo::Event::Updated(_));
                 app.repo_event(event);
-                dirty |= app.overlay == Some(app::Overlay::Repository);
+                app.sources.observed_repository(
+                    app.task_id,
+                    if succeeded {
+                        app.repository.as_ref()
+                    } else {
+                        None
+                    },
+                );
+                app.execution.repo_observed(if succeeded {
+                    app.repository.as_deref()
+                } else {
+                    None
+                });
+                dirty |= matches!(
+                    app.overlay,
+                    Some(
+                        app::Overlay::Repository | app::Overlay::Sources | app::Overlay::Execution
+                    )
+                );
             }
+            while let Some(event) = sources.try_event() {
+                outstanding_sources = outstanding_sources.saturating_sub(1);
+                app.sources.event(app.task_id, event);
+                dirty |= app.overlay == Some(app::Overlay::Sources);
+            }
+            while let Some(event) = execution.try_event() {
+                app.execution.runner_event(event);
+                dirty = true;
+            }
+            app.settle_exit();
             #[cfg(windows)]
             {
                 dirty |= resized;

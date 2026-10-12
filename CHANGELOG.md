@@ -2,6 +2,10 @@
 
 ## 2026-10-13
 
+- feat(context): added persisted source ranges, conservative exclusions, exact payload previews, and source/retained-reference revalidation without claiming provider isolation.
+- feat(execution): added explicit argv/shell approval, quota-backed owned-process execution, bounded sanitized output, and cancellation-aware task/form/quit transitions.
+- feat(evidence): persisted execution journals and exposed stale, ambiguous, interrupted, truncated, and unavailable results without replaying commands.
+- fix(ux): retained search and nested-overlay focus, pinned compact capture warnings, preserved below-minimum cancellation, and reported post-commit cleanup failures without fictional rollback.
 - feat(repository): added bounded read-only repository inspection, immutable dirty baselines, raw-byte identities and diffs, unattributed external changes, and non-Git task preservation without invoking repository helpers.
 - feat(storage): added reversible task archival, neutral scoped deletion and retention preview, before-storage credential masking, and configurable SQLite quotas while preserving failed-save drafts.
 - feat(tasks): added durable project-scoped task cards, criteria and next actions, per-task drafts/navigation, committed timestamps, guarded switching, and explicit completion/reopen transitions with transactional schema migration.

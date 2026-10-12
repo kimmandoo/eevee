@@ -40,6 +40,8 @@ pub struct Config {
     pub layout_explicit: bool,
     pub data_dir: PathBuf,
     pub storage_policy: crate::store::Policy,
+    pub context_exclusions: Vec<PathBuf>,
+    pub capture_capacity: u64,
 }
 
 #[derive(Debug)]
@@ -67,6 +69,8 @@ Options:
   --export-data PATH   Export readable stored tasks to a new JSON file; no reset
   --quota-kib N        Local SQLite quota (default: 65536; minimum: 64 KiB)
   --retention-days N   Archived purge eligibility age (default: 30; explicit purge only)
+  --exclude-context PATH Exclude a repository-relative prefix (repeatable, conservative case-insensitive)
+  --spool-kib N        Per-command capture reservation (default: 64; range: 1..8192 KiB)
   -h, --help           Show this help
   -V, --version        Show the version
 
@@ -116,6 +120,8 @@ fn parse_with(
     let mut data_dir = default_data_dir(&environment);
     let mut export = None;
     let mut storage_policy = crate::store::Policy::default();
+    let mut context_exclusions = Vec::new();
+    let mut capture_capacity = 64 * 1024;
     let mut download = false;
     let mut action = None;
     while let Some(argument) = args.next() {
@@ -223,6 +229,30 @@ fn parse_with(
                     .parse::<u32>()
                     .map_err(|_| "--retention-days requires a nonnegative integer")?;
             }
+            "--exclude-context" => {
+                let path = PathBuf::from(&*value(flag, attached, &mut args)?);
+                if context_exclusions.len() >= 32
+                    || path.as_os_str().is_empty()
+                    || !path
+                        .components()
+                        .all(|part| matches!(part, std::path::Component::Normal(_)))
+                {
+                    return Err(
+                        "--exclude-context requires a relative path prefix; at most 32 exclusions"
+                            .into(),
+                    );
+                }
+                context_exclusions.push(path);
+            }
+            "--spool-kib" => {
+                let amount = value(flag, attached, &mut args)?
+                    .parse::<u64>()
+                    .map_err(|_| "--spool-kib requires an integer in 1..8192")?;
+                if !(1..=8192).contains(&amount) {
+                    return Err("--spool-kib must be in 1..8192".into());
+                }
+                capture_capacity = amount * 1024;
+            }
             "--download-artwork" if attached.is_none() => download = true,
             "--ascii" if attached.is_none() => ascii = true,
             "--help" | "-h" if attached.is_none() => action = Some(Command::Help),
@@ -287,6 +317,8 @@ fn parse_with(
         layout_explicit,
         data_dir,
         storage_policy,
+        context_exclusions,
+        capture_capacity,
     };
     Ok(if download {
         Command::Download(config)

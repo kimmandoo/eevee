@@ -14,7 +14,8 @@ const BUSY_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_GOAL_BYTES: usize = 4096;
 const MAX_TASKS: usize = 256;
 const TASK_COLUMNS_V2: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at";
-const TASK_COLUMNS: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted";
+const TASK_COLUMNS_V3: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted";
+const TASK_COLUMNS: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted, command";
 
 #[derive(Clone, Copy, Debug)]
 pub struct Policy {
@@ -37,10 +38,21 @@ pub enum Management {
         id: i64,
         archived: bool,
     },
+    PreviewDelete {
+        ids: Vec<i64>,
+        expired_before: Option<i64>,
+    },
     Delete {
         ids: Vec<i64>,
         expired_before: Option<i64>,
     },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeletionTarget {
+    pub task: Snapshot,
+    pub excerpts: Vec<(i64, String)>,
+    pub runs: Vec<(String, bool)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -52,6 +64,8 @@ pub struct Snapshot {
     pub id: i64,
     pub criteria: Vec<Criterion>,
     pub next_action: String,
+    #[serde(default)]
+    pub command: String,
     pub complete: bool,
     pub drafts: Vec<Draft>,
     pub navigation: Navigation,
@@ -71,6 +85,7 @@ impl Snapshot {
             id: 0,
             criteria: Vec::new(),
             next_action: String::new(),
+            command: String::new(),
             complete: false,
             drafts: Vec::new(),
             navigation: Navigation::default(),
@@ -94,6 +109,7 @@ pub enum EditorField {
     Goal,
     Criteria,
     NextAction,
+    Command,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -136,10 +152,102 @@ impl Default for Navigation {
 pub struct Project {
     pub tasks: Vec<Snapshot>,
     pub active_id: Option<i64>,
-    /// Live SQLite pages across the shared local store, including schema overhead.
+    /// Live SQLite pages, retained output and committed capture reservations.
     pub usage_bytes: u64,
 }
 
+#[derive(Debug)]
+pub struct CommittedRunPermit {
+    pub request_id: String,
+    pub task_id: i64,
+    pub run_id: String,
+    pub file: File,
+    pub capacity: u64,
+    _committed: (),
+}
+
+pub struct ContextRequest {
+    pub task_id: i64,
+    pub operation: ContextOperation,
+}
+
+pub enum ContextOperation {
+    Load,
+    Pin(crate::context::Excerpt),
+    Remove(i64),
+    Purge(Vec<i64>),
+    Validate(Vec<crate::context::Excerpt>),
+}
+
+pub struct RunRequest {
+    pub task_id: i64,
+    pub operation: RunOperation,
+}
+
+pub enum RunOperation {
+    Reserve {
+        prepared: crate::runner::Prepared,
+        capacity: u64,
+    },
+    Update(crate::runner::RunRecord),
+    Abandon {
+        request_id: String,
+        run_id: String,
+    },
+    Load,
+    ReadOutput {
+        run_id: String,
+        offset: u64,
+        limit: usize,
+    },
+    PurgeOutput {
+        run_id: String,
+    },
+}
+
+#[derive(Debug)]
+pub enum RunResponse {
+    Reserved(CommittedRunPermit),
+    Updated(crate::runner::RunRecord),
+    Runs(Vec<crate::runner::RunRecord>),
+    Output(OutputPage),
+    // A committed purge always carries the unavailable record, even if cleanup fails.
+    Purged {
+        record: crate::runner::RunRecord,
+        warning: Option<String>,
+    },
+}
+
+#[derive(Debug)]
+pub struct OutputPage {
+    pub offset: u64,
+    pub text: String,
+    pub total_bytes: u64,
+    pub unavailable: bool,
+    pub truncated: bool,
+}
+
+impl RunRequest {
+    fn correlation(&self) -> (Option<String>, Option<String>) {
+        match &self.operation {
+            RunOperation::Reserve { prepared, .. } => (
+                Some(prepared.request_id.clone()),
+                Some(prepared.run_id.clone()),
+            ),
+            RunOperation::Update(record) => (
+                Some(record.prepared.request_id.clone()),
+                Some(record.prepared.run_id.clone()),
+            ),
+            RunOperation::Abandon { request_id, run_id } => {
+                (Some(request_id.clone()), Some(run_id.clone()))
+            }
+            RunOperation::ReadOutput { run_id, .. } | RunOperation::PurgeOutput { run_id } => {
+                (None, Some(run_id.clone()))
+            }
+            RunOperation::Load => (None, None),
+        }
+    }
+}
 #[derive(Debug)]
 pub enum Event {
     Loaded(Project),
@@ -148,18 +256,41 @@ pub enum Event {
     Managed {
         project: Project,
         affected: Vec<i64>,
+        warning: Option<String>,
+    },
+    DeletePreview {
+        targets: Vec<DeletionTarget>,
+        expired_before: Option<i64>,
     },
     ManagementFailed(String),
     Failed {
         revision: Option<u64>,
         message: String,
     },
+    Context {
+        task_id: i64,
+        result: Result<Vec<crate::context::Excerpt>, String>,
+    },
+    Run {
+        task_id: i64,
+        request_id: Option<String>,
+        run_id: Option<String>,
+        result: Result<Box<RunResponse>, String>,
+    },
+}
+
+struct Managed {
+    project: Project,
+    affected: Vec<i64>,
+    warning: Option<String>,
 }
 
 enum Command {
     Save(Snapshot),
     Select(i64),
     Manage(Management),
+    Context(ContextRequest),
+    Run(Box<RunRequest>),
     Retry,
 }
 
@@ -223,6 +354,46 @@ impl Worker {
         }
     }
 
+    pub fn try_context(&self, pending: &mut Option<ContextRequest>) -> bool {
+        let Some(commands) = &self.commands else {
+            return false;
+        };
+        let Some(request) = pending.take() else {
+            return false;
+        };
+        match commands.try_send(Command::Context(request)) {
+            Ok(()) => true,
+            Err(
+                TrySendError::Full(Command::Context(request))
+                | TrySendError::Disconnected(Command::Context(request)),
+            ) => {
+                *pending = Some(request);
+                false
+            }
+            Err(_) => unreachable!("try_send returns the submitted command"),
+        }
+    }
+
+    pub fn try_run(&self, pending: &mut Option<RunRequest>) -> bool {
+        let Some(commands) = &self.commands else {
+            return false;
+        };
+        let Some(request) = pending.take() else {
+            return false;
+        };
+        match commands.try_send(Command::Run(Box::new(request))) {
+            Ok(()) => true,
+            Err(
+                TrySendError::Full(Command::Run(request))
+                | TrySendError::Disconnected(Command::Run(request)),
+            ) => {
+                *pending = Some(*request);
+                false
+            }
+            Err(_) => unreachable!("try_send returns the submitted command"),
+        }
+    }
+
     pub fn try_select(&self, id: i64) -> bool {
         self.commands
             .as_ref()
@@ -271,8 +442,43 @@ fn run(
     while let Ok(command) = commands.recv() {
         let event = match command {
             Command::Retry => state.reopen(),
+            Command::Context(request) => Event::Context {
+                task_id: request.task_id,
+                result: state.context(request).map_err(actionable),
+            },
+            Command::Run(request) => {
+                let task_id = request.task_id;
+                let (request_id, run_id) = request.correlation();
+                Event::Run {
+                    task_id,
+                    request_id,
+                    run_id,
+                    result: state
+                        .run_request(*request)
+                        .map(Box::new)
+                        .map_err(actionable),
+                }
+            }
+            Command::Manage(Management::PreviewDelete {
+                ids,
+                expired_before,
+            }) => match state.preview_delete(&ids, expired_before) {
+                Ok(targets) => Event::DeletePreview {
+                    targets,
+                    expired_before,
+                },
+                Err(error) => Event::ManagementFailed(actionable(error)),
+            },
             Command::Manage(request) => match state.manage(request) {
-                Ok((project, affected)) => Event::Managed { project, affected },
+                Ok(Managed {
+                    project,
+                    affected,
+                    warning,
+                }) => Event::Managed {
+                    project,
+                    affected,
+                    warning,
+                },
                 Err(error) => Event::ManagementFailed(actionable(error)),
             },
             Command::Save(snapshot) => {
@@ -311,6 +517,14 @@ struct State {
 
 impl State {
     fn reopen(&mut self) -> Event {
+        if let Some(connection) = &self.connection
+            && let Err(message) = no_active(connection, None)
+        {
+            return Event::Failed {
+                revision: None,
+                message,
+            };
+        }
         self.connection.take();
         match self.open_and_load() {
             Ok(snapshot) => Event::Loaded(snapshot),
@@ -371,6 +585,7 @@ impl State {
             .pragma_update(None, "synchronous", "FULL")
             .map_err(|error| error.to_string())?;
         initialize(&mut connection)?;
+        reconcile_runs(&mut connection, &self.data_dir)?;
         set_quota(&connection, self.policy)?;
         let snapshot = load(&connection, &self.project)?;
         self.connection = Some(connection);
@@ -452,10 +667,10 @@ impl State {
             .map_err(|_| "Save timestamp exceeds SQLite's integer range")?;
         let id = if snapshot.id == 0 {
             transaction.execute(
-                "INSERT INTO tasks(project,goal,form,revision,criteria,next_action,complete,drafts,navigation,updated_at,redacted)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+                "INSERT INTO tasks(project,goal,form,revision,criteria,next_action,complete,drafts,navigation,updated_at,redacted,command)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
                 params![snapshot.project, snapshot.goal, snapshot.form as i64, snapshot.revision as i64,
-                    criteria, snapshot.next_action, snapshot.complete, drafts, navigation, updated_at, snapshot.redacted],
+                    criteria, snapshot.next_action, snapshot.complete, drafts, navigation, updated_at, snapshot.redacted, snapshot.command],
             ).map_err(|error| format!("Cannot insert the task: {error}"))?;
             let id = transaction.last_insert_rowid();
             select_task(&transaction, &self.project, id)?;
@@ -463,14 +678,14 @@ impl State {
         } else {
             transaction.execute(
                 "UPDATE tasks SET goal=?1,form=?2,revision=?3,criteria=?4,next_action=?5,complete=?6,
-                 drafts=?7,navigation=?8,updated_at=?9,redacted=?12 WHERE id=?10 AND project=?11",
+                 drafts=?7,navigation=?8,updated_at=?9,redacted=?12,command=?13 WHERE id=?10 AND project=?11",
                 params![snapshot.goal, snapshot.form as i64, snapshot.revision as i64, criteria,
                     snapshot.next_action, snapshot.complete, drafts, navigation, updated_at,
-                    snapshot.id, snapshot.project, snapshot.redacted],
+                    snapshot.id, snapshot.project, snapshot.redacted, snapshot.command],
             ).map_err(|error| format!("Cannot write the task: {error}"))?;
             snapshot.id
         };
-        enforce_quota(&transaction, self.policy)?;
+        enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
         transaction
             .commit()
             .map_err(|error| format!("Cannot commit the task: {error}"))?;
@@ -493,17 +708,83 @@ impl State {
             return Err("Archived tasks must be restored before selection".into());
         }
         select_task(&transaction, &self.project, id)?;
+        enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
         transaction
             .commit()
             .map_err(|error| format!("Cannot commit task selection: {error}"))?;
         Ok(saved)
     }
 
-    fn manage(&mut self, request: Management) -> Result<(Project, Vec<i64>), String> {
+    fn manage(&mut self, request: Management) -> Result<Managed, String> {
         self.manage_at(request, timestamp()?)
     }
 
-    fn manage_at(&mut self, request: Management, now: i64) -> Result<(Project, Vec<i64>), String> {
+    fn preview_delete(
+        &self,
+        ids: &[i64],
+        expired_before: Option<i64>,
+    ) -> Result<Vec<DeletionTarget>, String> {
+        let connection = self
+            .connection
+            .as_ref()
+            .ok_or("Storage is unavailable; retry opening it")?;
+        let eligible_before = deletion_scope(ids, expired_before, self.policy, timestamp()?)?;
+        let directory = SpoolDirectory::open(&self.data_dir);
+        let mut targets = Vec::with_capacity(ids.len());
+        for id in ids {
+            let task = deletion_task(
+                connection,
+                &self.project,
+                *id,
+                expired_before,
+                eligible_before,
+            )?;
+            let mut statement = connection.prepare("SELECT id,json_extract(record,'$.path') FROM excerpts WHERE task_id=?1 ORDER BY id LIMIT 17")
+                .map_err(|error| error.to_string())?;
+            let excerpts = statement
+                .query_map([id], |row| Ok((row.get(0)?, row.get(1)?)))
+                .map_err(|error| error.to_string())?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|error| error.to_string())?;
+            if excerpts.len() > crate::context::MAX_EXCERPTS {
+                return Err("Excerpt preview exceeds its bounded capacity".into());
+            }
+            let mut statement = connection.prepare("SELECT run_id,output_name,output_identity FROM executions WHERE task_id=?1 ORDER BY rowid LIMIT 257")
+                .map_err(|error| error.to_string())?;
+            let references = statement
+                .query_map([id], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
+                .map_err(|error| error.to_string())?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|error| error.to_string())?;
+            if references.len() > MAX_RUNS {
+                return Err("Run preview exceeds its bounded capacity".into());
+            }
+            let runs = references
+                .into_iter()
+                .map(|(run_id, name, identity)| {
+                    let has_output = directory
+                        .as_ref()
+                        .ok()
+                        .is_some_and(|directory| directory.read(&name, &identity).is_ok());
+                    (run_id, has_output)
+                })
+                .collect();
+            targets.push(DeletionTarget {
+                task,
+                excerpts,
+                runs,
+            });
+        }
+        Ok(targets)
+    }
+
+    fn manage_at(&mut self, request: Management, now: i64) -> Result<Managed, String> {
         let connection = self
             .connection
             .as_mut()
@@ -511,8 +792,15 @@ impl State {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|error| format!("Cannot begin task management: {error}"))?;
+        let mut deleted_outputs = Vec::new();
         let affected = match request {
+            Management::PreviewDelete { .. } => {
+                return Err(
+                    "Deletion preview is read-only; no management mutation was performed".into(),
+                );
+            }
             Management::Archive { id, archived } => {
+                no_active(&transaction, Some(id))?;
                 let task = load_task(&transaction, &self.project, id)?
                     .ok_or("Task is missing or belongs to another project")?;
                 if task.archived == archived {
@@ -530,33 +818,37 @@ impl State {
                 ids,
                 expired_before,
             } => {
-                if ids.is_empty() || ids.len() > MAX_TASKS {
-                    return Err("Deletion requires a bounded, nonempty list of task IDs".into());
-                }
-                let eligible_before =
-                    now.saturating_sub(i64::from(self.policy.retention_days) * 86_400_000);
-                if expired_before.is_some_and(|cutoff| cutoff < 0 || cutoff > eligible_before) {
-                    return Err("Retention preview is incompatible with the configured policy; review again".into());
-                }
-                for (index, id) in ids.iter().enumerate() {
-                    if ids[..index].contains(id) {
-                        return Err("Deletion contains duplicate task IDs".into());
-                    }
-                    let task = load_task(&transaction, &self.project, *id)?.ok_or(
-                        "Deletion target is missing or belongs to another project; review again",
+                let eligible_before = deletion_scope(&ids, expired_before, self.policy, now)?;
+                for id in &ids {
+                    deletion_task(
+                        &transaction,
+                        &self.project,
+                        *id,
+                        expired_before,
+                        eligible_before,
                     )?;
-                    if expired_before.is_some_and(|cutoff| {
-                        !task.archived
-                            || task.archived_at <= 0
-                            || task.archived_at > cutoff
-                            || task.archived_at > eligible_before
-                    }) {
-                        return Err(
-                            "Retention target changed or is not old enough; review again".into(),
-                        );
-                    }
                 }
                 for id in &ids {
+                    let mut outputs = transaction
+                        .prepare(
+                            "SELECT output_name,output_identity FROM executions WHERE task_id=?1",
+                        )
+                        .map_err(|error| error.to_string())?;
+                    deleted_outputs.extend(
+                        outputs
+                            .query_map([id], |row| {
+                                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                            })
+                            .map_err(|error| error.to_string())?
+                            .collect::<rusqlite::Result<Vec<_>>>()
+                            .map_err(|error| error.to_string())?,
+                    );
+                    transaction
+                        .execute("DELETE FROM excerpts WHERE task_id=?1", [id])
+                        .map_err(|error| error.to_string())?;
+                    transaction
+                        .execute("DELETE FROM executions WHERE task_id=?1", [id])
+                        .map_err(|error| error.to_string())?;
                     transaction
                         .execute(
                             "DELETE FROM tasks WHERE project=?1 AND id=?2",
@@ -596,12 +888,1171 @@ impl State {
                 }
             }
         }
-        let project = load(&transaction, &self.project)?;
+        let mut project = load(&transaction, &self.project)?;
         transaction
             .commit()
             .map_err(|error| format!("Cannot commit task management: {error}"))?;
-        Ok((project, affected))
+        // From this point the UI must receive the committed task list. Cleanup and
+        // accounting failures are warnings, never rollback-shaped errors.
+        let warning = if deleted_outputs.is_empty() {
+            None
+        } else {
+            (|| -> Result<(), String> {
+                let directory = SpoolDirectory::open(&self.data_dir)
+                    .map_err(|error| format!("Task deletion committed, but artifact cleanup failed: {error}"))?;
+                for (name, identity) in deleted_outputs {
+                    directory.remove(&name, &identity)
+                        .map_err(|error| format!("Task deletion committed, but artifact cleanup failed: {error}"))?;
+                }
+                project.usage_bytes = evidence_usage(connection, &self.data_dir)
+                    .map_err(|error| format!("Task deletion committed, but updated quota accounting is unavailable: {error}"))?;
+                Ok(())
+            })().err()
+        };
+        Ok(Managed {
+            project,
+            affected,
+            warning,
+        })
     }
+}
+const MAX_RUN_BYTES: usize = 128 * 1024;
+const MAX_RUNS: usize = 256;
+const RUN_HEADROOM: u64 = 256 * 1024;
+const MAX_SPOOL_BYTES: u64 = 8 * 1024 * 1024;
+const RUN_COLUMNS: &str = "record,output_name,output_identity,capacity,reserved";
+
+struct StoredRun {
+    record: crate::runner::RunRecord,
+    output_name: String,
+    output_identity: String,
+    capacity: u64,
+    reserved: bool,
+}
+
+fn active_state(state: &crate::runner::RunState) -> bool {
+    use crate::runner::RunState;
+    matches!(
+        state,
+        RunState::AwaitingDispatch | RunState::Running | RunState::Cancelling
+    )
+}
+
+fn valid_run_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 96
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+fn deletion_scope(
+    ids: &[i64],
+    expired_before: Option<i64>,
+    policy: Policy,
+    now: i64,
+) -> Result<i64, String> {
+    if ids.is_empty() || ids.len() > MAX_TASKS {
+        return Err("Deletion requires a bounded, nonempty list of task IDs".into());
+    }
+    for (index, id) in ids.iter().enumerate() {
+        if ids[..index].contains(id) {
+            return Err("Deletion contains duplicate task IDs".into());
+        }
+    }
+    let eligible_before = now.saturating_sub(i64::from(policy.retention_days) * 86_400_000);
+    if expired_before.is_some_and(|cutoff| cutoff < 0 || cutoff > eligible_before) {
+        return Err(
+            "Retention preview is incompatible with the configured policy; review again".into(),
+        );
+    }
+    Ok(eligible_before)
+}
+
+fn deletion_task(
+    connection: &Connection,
+    project: &str,
+    id: i64,
+    expired_before: Option<i64>,
+    eligible_before: i64,
+) -> Result<Snapshot, String> {
+    no_active(connection, Some(id))?;
+    let task = load_task(connection, project, id)?
+        .ok_or("Deletion target is missing or belongs to another project; review again")?;
+    if expired_before.is_some_and(|cutoff| {
+        !task.archived
+            || task.archived_at <= 0
+            || task.archived_at > cutoff
+            || task.archived_at > eligible_before
+    }) {
+        return Err("Retention target changed or is not old enough; review again".into());
+    }
+    Ok(task)
+}
+
+fn spool_name(run_id: &str) -> Result<String, String> {
+    if !valid_run_id(run_id) {
+        return Err("Invalid run identity".into());
+    }
+    Ok(format!("ev-run-{run_id}.output"))
+}
+
+fn run_json(record: &crate::runner::RunRecord) -> Result<String, String> {
+    use crate::runner::{RunState, TreeOutcome};
+    let prepared = &record.prepared;
+    if prepared
+        .before
+        .fingerprint
+        .as_ref()
+        .is_some_and(|value| value.len() > 256)
+        || record
+            .after
+            .fingerprint
+            .as_ref()
+            .is_some_and(|value| value.len() > 256)
+    {
+        return Err("Source identity exceeds the journal bound".into());
+    }
+    if !valid_run_id(&prepared.run_id)
+        || !valid_run_id(&prepared.request_id)
+        || prepared.task_id <= 0
+    {
+        return Err("Invalid run/request/task correlation".into());
+    }
+    if matches!(record.state, RunState::Running | RunState::Cancelling)
+        && record.started_at_ms.is_none()
+        || active_state(&record.state) && record.ended_at_ms.is_some()
+        || record.state == RunState::AwaitingDispatch && record.started_at_ms.is_some()
+    {
+        return Err("Run lifecycle timestamps do not match its observed state".into());
+    }
+    if record.state == RunState::Succeeded
+        && (record.started_at_ms.is_none()
+            || record.exit_code != Some(0)
+            || record.tree != TreeOutcome::OwnedTreeExited)
+    {
+        return Err(
+            "Successful command metadata lacks observed start, exit zero or owned-tree exit".into(),
+        );
+    }
+    if record
+        .ended_at_ms
+        .is_some_and(|end| record.started_at_ms.is_some_and(|start| end < start))
+    {
+        return Err("Run end precedes its start".into());
+    }
+    let json = serde_json::to_string(record).map_err(|error| error.to_string())?;
+    if json.len() > MAX_RUN_BYTES {
+        return Err("Run metadata exceeds 128 KiB".into());
+    }
+    Ok(json)
+}
+
+fn no_active(connection: &Connection, task_id: Option<i64>) -> Result<(), String> {
+    let active: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM executions WHERE reserved=1 AND (?1 IS NULL OR task_id=?1))",
+        [task_id], |row| row.get(0),
+    ).map_err(|error| error.to_string())?;
+    if active {
+        Err("Task owns reserved or active work; cancel and wait before removing, purging or archiving evidence".into())
+    } else {
+        Ok(())
+    }
+}
+
+fn excerpts(connection: &Connection, task_id: i64) -> Result<Vec<crate::context::Excerpt>, String> {
+    let mut statement = connection
+        .prepare("SELECT record FROM excerpts WHERE task_id=?1 ORDER BY id LIMIT 17")
+        .map_err(|error| error.to_string())?;
+    let result = statement
+        .query_map([task_id], |row| json_column(row, 0, 512 * 1024))
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<crate::context::Excerpt>>>()
+        .map_err(|error| error.to_string())?;
+    if result.len() > crate::context::MAX_EXCERPTS {
+        return Err("Stored basket exceeds its bound".into());
+    }
+    for excerpt in &result {
+        excerpt.validate()?;
+    }
+    Ok(result)
+}
+
+fn stored_run(connection: &Connection, task_id: i64, run_id: &str) -> Result<StoredRun, String> {
+    connection
+        .query_row(
+            &format!("SELECT {RUN_COLUMNS} FROM executions WHERE task_id=?1 AND run_id=?2"),
+            params![task_id, run_id],
+            stored_run_row,
+        )
+        .optional()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "Run is missing or belongs to another task".into())
+}
+
+fn stored_run_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredRun> {
+    Ok(StoredRun {
+        record: json_column(row, 0, MAX_RUN_BYTES)?,
+        output_name: row.get(1)?,
+        output_identity: row.get(2)?,
+        capacity: row.get(3)?,
+        reserved: row.get(4)?,
+    })
+}
+
+fn write_run(connection: &Connection, stored: &StoredRun) -> Result<(), String> {
+    connection
+        .execute(
+            "UPDATE executions SET record=?1,reserved=?2 WHERE run_id=?3 AND task_id=?4",
+            params![
+                run_json(&stored.record)?,
+                stored.reserved,
+                stored.record.prepared.run_id,
+                stored.record.prepared.task_id
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+impl State {
+    fn context(&mut self, request: ContextRequest) -> Result<Vec<crate::context::Excerpt>, String> {
+        let growing = matches!(&request.operation, ContextOperation::Pin(_));
+        let connection = self
+            .connection
+            .as_mut()
+            .ok_or("Storage is unavailable; retry opening it")?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        let task = load_task(&transaction, &self.project, request.task_id)?
+            .ok_or("Task is missing or belongs to another project")?;
+        let current = excerpts(&transaction, task.id)?;
+        match request.operation {
+            ContextOperation::Load => return Ok(current),
+            ContextOperation::Validate(expected) => {
+                if expected.is_empty() || expected.len() > crate::context::MAX_EXCERPTS {
+                    return Err("A dispatch basket requires 1–16 committed excerpts".into());
+                }
+                for (index, excerpt) in expected.iter().enumerate() {
+                    if excerpt.task_id != task.id
+                        || !excerpt.available
+                        || expected[..index].iter().any(|old| old.id == excerpt.id)
+                        || !current.iter().any(|stored| stored == excerpt)
+                    {
+                        return Err(
+                            "Basket changed, was removed or purged; load and review it again"
+                                .into(),
+                        );
+                    }
+                }
+                return Ok(expected);
+            }
+            ContextOperation::Pin(mut excerpt) => {
+                no_active(&transaction, Some(task.id))?;
+                if task.archived {
+                    return Err("Restore the task before pinning context".into());
+                }
+                if current.len() >= crate::context::MAX_EXCERPTS {
+                    return Err("Basket capacity reached (16 excerpts); nothing was evicted".into());
+                }
+                if excerpt.task_id != task.id || excerpt.id != 0 || !excerpt.available {
+                    return Err("Pin requires a new available capture for this task".into());
+                }
+                excerpt.text = crate::privacy::redact(&excerpt.text).into_owned();
+                excerpt.validate()?;
+                // The row identity belongs to storage, not to a user-supplied reference.
+                transaction
+                    .execute(
+                        "INSERT INTO excerpts(task_id,record) VALUES (?1,'')",
+                        [task.id],
+                    )
+                    .map_err(|error| error.to_string())?;
+                excerpt.id = transaction.last_insert_rowid();
+                transaction
+                    .execute(
+                        "UPDATE excerpts SET record=?1 WHERE id=?2",
+                        params![
+                            serde_json::to_string(&excerpt).map_err(|error| error.to_string())?,
+                            excerpt.id
+                        ],
+                    )
+                    .map_err(|error| error.to_string())?;
+            }
+            ContextOperation::Remove(id) => {
+                no_active(&transaction, Some(task.id))?;
+                if !current.iter().any(|excerpt| excerpt.id == id) {
+                    return Err("Excerpt is missing or belongs to another task".into());
+                }
+                transaction
+                    .execute(
+                        "DELETE FROM excerpts WHERE task_id=?1 AND id=?2",
+                        params![task.id, id],
+                    )
+                    .map_err(|error| error.to_string())?;
+            }
+            ContextOperation::Purge(ids) => {
+                no_active(&transaction, Some(task.id))?;
+                if ids.is_empty() || ids.len() > crate::context::MAX_EXCERPTS {
+                    return Err("Purge requires a bounded nonempty excerpt selection".into());
+                }
+                for (index, id) in ids.iter().enumerate() {
+                    if ids[..index].contains(id) {
+                        return Err("Duplicate purge reference".into());
+                    }
+                    let mut excerpt = current
+                        .iter()
+                        .find(|excerpt| excerpt.id == *id)
+                        .cloned()
+                        .ok_or("Purge reference is missing or belongs to another task")?;
+                    excerpt.text.clear();
+                    excerpt.available = false;
+                    transaction
+                        .execute(
+                            "UPDATE excerpts SET record=?1 WHERE task_id=?2 AND id=?3",
+                            params![
+                                serde_json::to_string(&excerpt)
+                                    .map_err(|error| error.to_string())?,
+                                task.id,
+                                id
+                            ],
+                        )
+                        .map_err(|error| error.to_string())?;
+                }
+            }
+        }
+        if growing {
+            enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
+        }
+        let result = excerpts(&transaction, task.id)?;
+        transaction.commit().map_err(|error| error.to_string())?;
+        Ok(result)
+    }
+
+    fn run_request(&mut self, request: RunRequest) -> Result<RunResponse, String> {
+        let task_id = request.task_id;
+        let connection = self
+            .connection
+            .as_ref()
+            .ok_or("Storage is unavailable; retry opening it")?;
+        load_task(connection, &self.project, task_id)?
+            .ok_or("Task is missing or belongs to another project")?;
+        match request.operation {
+            RunOperation::Reserve { prepared, capacity } => self
+                .reserve_run(task_id, prepared, capacity)
+                .map(RunResponse::Reserved),
+            RunOperation::Update(record) => {
+                self.update_run(task_id, record).map(RunResponse::Updated)
+            }
+            RunOperation::Abandon { request_id, run_id } => {
+                let mut stored = stored_run(connection, task_id, &run_id)?;
+                if stored.record.prepared.request_id != request_id
+                    || stored.record.state != crate::runner::RunState::AwaitingDispatch
+                {
+                    return Err(
+                        "Only the correlated, undispatched reservation can be abandoned".into(),
+                    );
+                }
+                stored.record.state = crate::runner::RunState::Interrupted;
+                stored.record.ended_at_ms = Some(timestamp()? as u64);
+                stored.record.error = Some(
+                    "Approval was invalidated or dispatch was refused; command was not started"
+                        .into(),
+                );
+                stored.record.output_unavailable = true;
+                self.update_run(task_id, stored.record)
+                    .map(RunResponse::Updated)
+            }
+            RunOperation::Load => self.load_runs(task_id).map(RunResponse::Runs),
+            RunOperation::ReadOutput {
+                run_id,
+                offset,
+                limit,
+            } => self
+                .read_output(task_id, &run_id, offset, limit)
+                .map(RunResponse::Output),
+            RunOperation::PurgeOutput { run_id } => self
+                .purge_output(task_id, &run_id)
+                .map(|(record, warning)| RunResponse::Purged { record, warning }),
+        }
+    }
+
+    fn reserve_run(
+        &mut self,
+        task_id: i64,
+        prepared: crate::runner::Prepared,
+        capacity: u64,
+    ) -> Result<CommittedRunPermit, String> {
+        if prepared.task_id != task_id || !(1024..=MAX_SPOOL_BYTES).contains(&capacity) {
+            return Err("Run owner or capture reservation bound is invalid (1 KiB–8 MiB)".into());
+        }
+        if timestamp()? as u64 >= prepared.expires_at_ms {
+            return Err("Prepared request expired before quota reservation; review again".into());
+        }
+        let mut record = crate::runner::RunRecord::awaiting(&prepared);
+        record.redact_for_storage();
+        let json = run_json(&record)?;
+        let name = spool_name(&prepared.run_id)?;
+        let connection = self.connection.as_mut().ok_or("Storage is unavailable")?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        no_active(&transaction, None)?;
+        let task = load_task(&transaction, &self.project, task_id)?.ok_or("Task is missing")?;
+        if task.archived {
+            return Err("Restore the task before execution".into());
+        }
+        let count: usize = transaction
+            .query_row(
+                "SELECT count(*) FROM executions WHERE task_id=?1",
+                [task_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        if count >= MAX_RUNS {
+            return Err("Run journal reached 256 retained records; no evidence was evicted".into());
+        }
+        let directory = SpoolDirectory::open(&self.data_dir)?;
+        let file = directory.create(&name)?;
+        let identity = file_identity(&file)?;
+        let result = (|| {
+            file.sync_all().map_err(|error| error.to_string())?;
+            directory.sync()?;
+            transaction.execute("INSERT INTO executions(run_id,task_id,request_id,record,output_name,output_identity,capacity,reserved) VALUES (?1,?2,?3,?4,?5,?6,?7,1)",
+                params![prepared.run_id, task_id, prepared.request_id, json, name, identity, capacity]).map_err(|error| error.to_string())?;
+            enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
+            transaction.commit().map_err(|error| error.to_string())
+        })();
+        if let Err(error) = result {
+            drop(file);
+            let _ = directory.remove(&name, &identity);
+            return Err(error);
+        }
+        Ok(CommittedRunPermit {
+            request_id: prepared.request_id,
+            task_id,
+            run_id: prepared.run_id,
+            file,
+            capacity,
+            _committed: (),
+        })
+    }
+
+    fn update_run(
+        &mut self,
+        task_id: i64,
+        mut record: crate::runner::RunRecord,
+    ) -> Result<crate::runner::RunRecord, String> {
+        use crate::runner::RunState;
+        if record.prepared.task_id != task_id {
+            return Err("Run event belongs to another task".into());
+        }
+        record.redact_for_storage();
+        run_json(&record)?;
+        let connection = self.connection.as_mut().ok_or("Storage is unavailable")?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        let mut stored = stored_run(&transaction, task_id, &record.prepared.run_id)?;
+        if stored.record.prepared != record.prepared {
+            return Err("Run event correlation or approved inputs changed".into());
+        }
+        if !stored.reserved || !active_state(&stored.record.state) {
+            return Err("Late run event cannot rewrite terminal journal evidence".into());
+        }
+        let transition = match stored.record.state {
+            RunState::AwaitingDispatch => matches!(
+                record.state,
+                RunState::Running
+                    | RunState::Failed
+                    | RunState::Interrupted
+                    | RunState::OutcomeUnknown
+            ),
+            RunState::Running => record.state != RunState::AwaitingDispatch,
+            RunState::Cancelling => {
+                !matches!(record.state, RunState::AwaitingDispatch | RunState::Running)
+            }
+            _ => false,
+        };
+        if !transition || record.captured_bytes > stored.capacity {
+            return Err("Invalid run transition or capture exceeds its reservation".into());
+        }
+        if stored.record.started_at_ms.is_some()
+            && stored.record.started_at_ms != record.started_at_ms
+        {
+            return Err("Run start metadata is immutable".into());
+        }
+        stored.reserved = active_state(&record.state);
+        if !stored.reserved {
+            record.ended_at_ms.get_or_insert(timestamp()? as u64);
+            match SpoolDirectory::open(&self.data_dir)
+                .and_then(|directory| directory.read(&stored.output_name, &stored.output_identity))
+            {
+                Ok(file) => {
+                    if file.metadata().map_err(|error| error.to_string())?.len()
+                        != record.captured_bytes
+                    {
+                        record.output_unavailable = true;
+                    }
+                }
+                Err(_) => record.output_unavailable = true,
+            }
+        }
+        stored.record = record;
+        write_run(&transaction, &stored)?;
+        // Reservation includes bounded terminal metadata headroom. Do not evict evidence
+        // or reject an honest terminal transition solely because the quota was lowered.
+        transaction.commit().map_err(|error| error.to_string())?;
+        Ok(stored.record)
+    }
+
+    fn load_runs(&self, task_id: i64) -> Result<Vec<crate::runner::RunRecord>, String> {
+        let connection = self.connection.as_ref().ok_or("Storage is unavailable")?;
+        let mut statement = connection.prepare(&format!("SELECT {RUN_COLUMNS} FROM executions WHERE task_id=?1 ORDER BY rowid DESC LIMIT 257")).map_err(|error| error.to_string())?;
+        let stored = statement
+            .query_map([task_id], stored_run_row)
+            .map_err(|error| error.to_string())?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|error| error.to_string())?;
+        if stored.len() > MAX_RUNS {
+            return Err("Journal exceeds its bounded record capacity".into());
+        }
+        let directory = SpoolDirectory::open(&self.data_dir);
+        Ok(stored
+            .into_iter()
+            .map(|mut stored| {
+                if directory
+                    .as_ref()
+                    .ok()
+                    .and_then(|directory| {
+                        directory
+                            .read(&stored.output_name, &stored.output_identity)
+                            .ok()
+                    })
+                    .and_then(|file| file.metadata().ok())
+                    .is_none_or(|metadata| {
+                        !stored.reserved && metadata.len() != stored.record.captured_bytes
+                    })
+                {
+                    stored.record.output_unavailable = true;
+                }
+                stored.record
+            })
+            .collect())
+    }
+
+    fn read_output(
+        &self,
+        task_id: i64,
+        run_id: &str,
+        offset: u64,
+        limit: usize,
+    ) -> Result<OutputPage, String> {
+        use std::io::{Read, Seek, SeekFrom};
+        if limit == 0 || limit > 64 * 1024 {
+            return Err("Output reads require a 1–65536-byte bound".into());
+        }
+        let connection = self.connection.as_ref().ok_or("Storage is unavailable")?;
+        let stored = stored_run(connection, task_id, run_id)?;
+        let unavailable = || OutputPage {
+            offset,
+            text: String::new(),
+            total_bytes: stored.record.captured_bytes,
+            unavailable: true,
+            truncated: stored.record.truncated,
+        };
+        if stored.record.output_unavailable {
+            return Ok(unavailable());
+        }
+        let Ok(mut file) = SpoolDirectory::open(&self.data_dir)
+            .and_then(|directory| directory.read(&stored.output_name, &stored.output_identity))
+        else {
+            return Ok(unavailable());
+        };
+        let total = file.metadata().map_err(|error| error.to_string())?.len();
+        if total > stored.capacity || (!stored.reserved && total != stored.record.captured_bytes) {
+            return Ok(unavailable());
+        }
+        if offset > total {
+            return Err("Output offset is beyond retained bytes".into());
+        }
+        file.seek(SeekFrom::Start(offset))
+            .map_err(|error| error.to_string())?;
+        let mut bytes = vec![0; limit.min((total - offset) as usize)];
+        file.read_exact(&mut bytes)
+            .map_err(|error| error.to_string())?;
+        match std::str::from_utf8(&bytes) {
+            Ok(_) => {}
+            Err(error) if error.error_len().is_none() => bytes.truncate(error.valid_up_to()),
+            Err(_) => {
+                return Err("Output offset is not a UTF-8 boundary or capture is invalid".into());
+            }
+        }
+        if bytes.is_empty() && offset < total {
+            return Err("Output read bound is too small for the next UTF-8 character".into());
+        }
+        let text = String::from_utf8(bytes).map_err(|error| error.to_string())?;
+        Ok(OutputPage {
+            offset,
+            text,
+            total_bytes: total,
+            unavailable: false,
+            truncated: stored.record.truncated,
+        })
+    }
+
+    fn purge_output(
+        &mut self,
+        task_id: i64,
+        run_id: &str,
+    ) -> Result<(crate::runner::RunRecord, Option<String>), String> {
+        let connection = self.connection.as_mut().ok_or("Storage is unavailable")?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        no_active(&transaction, Some(task_id))?;
+        let mut stored = stored_run(&transaction, task_id, run_id)?;
+        stored.record.output_unavailable = true;
+        write_run(&transaction, &stored)?;
+        transaction.commit().map_err(|error| error.to_string())?;
+        // Metadata becomes unavailable before physical cleanup. A replaced link is
+        // never followed, and a cleanup failure cannot resurrect successful evidence.
+        let warning = SpoolDirectory::open(&self.data_dir)
+            .and_then(|directory| directory.remove(&stored.output_name, &stored.output_identity))
+            .err()
+            .map(|error| {
+                format!(
+                    "Output metadata is committed unavailable, but physical cleanup failed: {error}"
+                )
+            });
+        Ok((stored.record, warning))
+    }
+}
+
+fn reconcile_runs(connection: &mut Connection, data_dir: &Path) -> Result<(), String> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    let mut records = {
+        let mut statement = transaction
+            .prepare(&format!(
+                "SELECT {RUN_COLUMNS} FROM executions WHERE reserved=1"
+            ))
+            .map_err(|error| error.to_string())?;
+        statement
+            .query_map([], stored_run_row)
+            .map_err(|error| error.to_string())?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|error| error.to_string())?
+    };
+    for stored in &mut records {
+        stored.reserved = false;
+        stored.record.state = crate::runner::RunState::Interrupted;
+        stored.record.tree = crate::runner::TreeOutcome::OwnershipUnknown;
+        stored.record.ended_at_ms = Some(timestamp()? as u64);
+        stored.record.error = Some("Eevee restarted without re-established process ownership; outcome is unknown and nothing was re-executed".into());
+        stored.record.output_unavailable = true;
+        stored.record.truncated = true;
+        if let Ok(file) = SpoolDirectory::open(data_dir)
+            .and_then(|directory| directory.read(&stored.output_name, &stored.output_identity))
+        {
+            let length = file.metadata().map_err(|error| error.to_string())?.len();
+            if length <= stored.capacity {
+                stored.record.captured_bytes = length;
+                stored.record.output_unavailable = false;
+            }
+        }
+        write_run(&transaction, stored)?;
+    }
+    transaction.commit().map_err(|error| error.to_string())
+}
+
+fn evidence_usage(connection: &Connection, data_dir: &Path) -> Result<u64, String> {
+    let mut total = live_bytes(connection)?;
+    let mut sizes = std::collections::BTreeMap::new();
+    for entry in fs::read_dir(data_dir).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !name.starts_with("ev-run-") || !name.ends_with(".output") {
+            continue;
+        }
+        if sizes.len() >= 65_536 {
+            return Err("Spool inventory exceeds the bounded store capacity".into());
+        }
+        let metadata = fs::symlink_metadata(entry.path()).map_err(|error| error.to_string())?;
+        // Account all owned-named retained files, including an interrupted pre-commit
+        // orphan. Links are never followed to measure external target bytes.
+        let size = if ensure_regular_metadata(&metadata).is_ok() {
+            metadata.len()
+        } else {
+            0
+        };
+        total = total.saturating_add(size);
+        sizes.insert(name.to_owned(), size);
+    }
+    let mut statement = connection
+        .prepare("SELECT output_name,capacity FROM executions WHERE reserved=1")
+        .map_err(|error| error.to_string())?;
+    for row in statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+        })
+        .map_err(|error| error.to_string())?
+    {
+        let (name, capacity) = row.map_err(|error| error.to_string())?;
+        total = total
+            .saturating_add(capacity.saturating_sub(sizes.get(&name).copied().unwrap_or(0)))
+            .saturating_add(RUN_HEADROOM);
+    }
+    Ok(total)
+}
+
+fn enforce_evidence_quota(
+    connection: &Connection,
+    data_dir: &Path,
+    policy: Policy,
+) -> Result<(), String> {
+    if evidence_usage(connection, data_dir)? > policy.quota_bytes {
+        Err("Local storage quota exceeded (live SQLite + retained output + committed reservations); nothing was evicted and no command was started".into())
+    } else {
+        Ok(())
+    }
+}
+/// A directory handle anchors POSIX operations. On Windows, deny-delete handles
+/// retain every ancestor while an operation uses its path; final files are no-follow.
+struct SpoolDirectory {
+    root: File,
+    #[cfg(windows)]
+    path: PathBuf,
+    #[cfg(windows)]
+    _ancestors: Vec<File>,
+}
+
+impl SpoolDirectory {
+    fn open(path: &Path) -> Result<Self, String> {
+        if fs::canonicalize(path).map_err(|error| error.to_string())? != path {
+            return Err("Storage directory identity changed; refusing artifact access".into());
+        }
+        let mut options = OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options
+                .share_mode(3)
+                .custom_flags(0x0200_0000 | 0x0020_0000);
+        }
+        #[cfg(windows)]
+        let ancestors = {
+            let mut handles = Vec::new();
+            for ancestor in path.ancestors().collect::<Vec<_>>().into_iter().rev() {
+                if ancestor == path || ancestor.as_os_str().is_empty() {
+                    continue;
+                }
+                let file = options.open(ancestor).map_err(|error| error.to_string())?;
+                ensure_spool_directory(&file.metadata().map_err(|error| error.to_string())?)?;
+                handles.push(file);
+            }
+            handles
+        };
+        let root = options.open(path).map_err(|error| error.to_string())?;
+        ensure_spool_directory(&root.metadata().map_err(|error| error.to_string())?)?;
+        if fs::canonicalize(path).map_err(|error| error.to_string())? != path {
+            return Err("Storage directory was replaced while opening".into());
+        }
+        Ok(Self {
+            root,
+            #[cfg(windows)]
+            path: path.to_path_buf(),
+            #[cfg(windows)]
+            _ancestors: ancestors,
+        })
+    }
+
+    fn sync(&self) -> Result<(), String> {
+        ensure_spool_directory(&self.root.metadata().map_err(|error| error.to_string())?)?;
+        #[cfg(unix)]
+        self.root.sync_all().map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn open_file(&self, name: &str, flags: i32) -> Result<File, String> {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        validate_spool_name(name)?;
+        let name = std::ffi::CString::new(name).map_err(|error| error.to_string())?;
+        // SAFETY: root is owned and live, the filename is a single validated component,
+        // and the returned descriptor is adopted exactly once.
+        let fd = unsafe {
+            libc::openat(
+                self.root.as_raw_fd(),
+                name.as_ptr(),
+                flags | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
+                0o600,
+            )
+        };
+        if fd < 0 {
+            return Err(io::Error::last_os_error().to_string());
+        }
+        // SAFETY: successful openat returned a new owned descriptor.
+        let file = unsafe { File::from_raw_fd(fd) };
+        ensure_regular_metadata(&file.metadata().map_err(|error| error.to_string())?)?;
+        Ok(file)
+    }
+
+    fn create(&self, name: &str) -> Result<File, String> {
+        #[cfg(unix)]
+        {
+            self.open_file(name, libc::O_RDWR | libc::O_CREAT | libc::O_EXCL)
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStrExt;
+            use std::os::windows::io::FromRawHandle;
+            use windows_sys::Win32::Foundation::{INVALID_HANDLE_VALUE, LocalFree};
+            use windows_sys::Win32::Security::{
+                Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW,
+                SECURITY_ATTRIBUTES,
+            };
+            use windows_sys::Win32::Storage::FileSystem::{
+                CREATE_NEW, CreateFileW, FILE_FLAG_OPEN_REPARSE_POINT, FILE_GENERIC_READ,
+                FILE_GENERIC_WRITE,
+            };
+            validate_spool_name(name)?;
+            let path: Vec<u16> = self
+                .path
+                .join(name)
+                .as_os_str()
+                .encode_wide()
+                .chain(Some(0))
+                .collect();
+            // A protected owner-rights-only DACL, not permissions inherited from an
+            // arbitrary --data-dir. The owner remains the creating user's token.
+            let sddl: Vec<u16> = "D:P(A;;GA;;;OW)".encode_utf16().chain(Some(0)).collect();
+            let mut descriptor = std::ptr::null_mut();
+            // SAFETY: both strings are NUL-terminated and the descriptor out pointer is valid.
+            if unsafe {
+                ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                    sddl.as_ptr(),
+                    1,
+                    &mut descriptor,
+                    std::ptr::null_mut(),
+                )
+            } == 0
+            {
+                return Err(io::Error::last_os_error().to_string());
+            }
+            let attributes = SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: descriptor,
+                bInheritHandle: 0,
+            };
+            // SAFETY: attributes and path remain live until CreateFileW returns.
+            let handle = unsafe {
+                CreateFileW(
+                    path.as_ptr(),
+                    FILE_GENERIC_READ | FILE_GENERIC_WRITE,
+                    7,
+                    &attributes,
+                    CREATE_NEW,
+                    FILE_FLAG_OPEN_REPARSE_POINT,
+                    std::ptr::null_mut(),
+                )
+            };
+            let error = io::Error::last_os_error();
+            // SAFETY: the conversion routine allocated descriptor with LocalAlloc.
+            unsafe {
+                LocalFree(descriptor);
+            }
+            if handle == INVALID_HANDLE_VALUE {
+                return Err(error.to_string());
+            }
+            // SAFETY: the successful file handle is owned exactly once.
+            let file = unsafe { File::from_raw_handle(handle) };
+            ensure_regular_metadata(&file.metadata().map_err(|error| error.to_string())?)?;
+            Ok(file)
+        }
+    }
+
+    fn read(&self, name: &str, identity: &str) -> Result<File, String> {
+        validate_spool_name(name)?;
+        #[cfg(unix)]
+        let file = self.open_file(name, libc::O_RDONLY)?;
+        #[cfg(windows)]
+        let file = {
+            let mut options = OpenOptions::new();
+            options.read(true);
+            no_follow(&mut options);
+            options
+                .open(self.path.join(name))
+                .map_err(|error| error.to_string())?
+        };
+        ensure_regular_metadata(&file.metadata().map_err(|error| error.to_string())?)?;
+        if file_identity(&file)? != identity {
+            return Err("Output file identity changed; retained evidence is unavailable".into());
+        }
+        Ok(file)
+    }
+
+    fn remove(&self, name: &str, identity: &str) -> Result<(), String> {
+        validate_spool_name(name)?;
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+            let name = std::ffi::CString::new(name).map_err(|error| error.to_string())?;
+            let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+            // SAFETY: root and name are live; stat points to writable initialized-on-success memory.
+            if unsafe {
+                libc::fstatat(
+                    self.root.as_raw_fd(),
+                    name.as_ptr(),
+                    stat.as_mut_ptr(),
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            } != 0
+            {
+                let error = io::Error::last_os_error();
+                return if error.kind() == io::ErrorKind::NotFound {
+                    Ok(())
+                } else {
+                    Err(error.to_string())
+                };
+            }
+            // SAFETY: fstatat succeeded.
+            let stat = unsafe { stat.assume_init() };
+            if stat.st_mode & libc::S_IFMT != libc::S_IFREG
+                || format!("{}:{}", stat.st_dev as u64, stat.st_ino) != identity
+            {
+                // A link/replacement is not this artifact. In particular never traverse
+                // it to remove an external target or destroy another task's reference.
+                return Ok(());
+            }
+            // SAFETY: unlinkat removes only this anchored directory entry, never a
+            // link target even if another process swaps it after the metadata check.
+            if unsafe { libc::unlinkat(self.root.as_raw_fd(), name.as_ptr(), 0) } != 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() != io::ErrorKind::NotFound {
+                    return Err(error.to_string());
+                }
+            }
+            self.sync()
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            use std::os::windows::io::AsRawHandle;
+            use windows_sys::Win32::Storage::FileSystem::{
+                FILE_DISPOSITION_INFO, FileDispositionInfo, SetFileInformationByHandle,
+            };
+            let mut options = OpenOptions::new();
+            options.access_mode(0x0001_0000 | 0x80).share_mode(7);
+            no_follow(&mut options);
+            let file = match options.open(self.path.join(name)) {
+                Ok(file) => file,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+                Err(error) => return Err(error.to_string()),
+            };
+            if ensure_regular_metadata(&file.metadata().map_err(|error| error.to_string())?)
+                .is_err()
+                || file_identity(&file)? != identity
+            {
+                return Ok(());
+            }
+            let disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
+            // SAFETY: this exact no-follow handle was identity-checked; disposition is
+            // live and has the native ABI size. Deletion follows this handle, not a path.
+            if unsafe {
+                SetFileInformationByHandle(
+                    file.as_raw_handle(),
+                    FileDispositionInfo,
+                    (&disposition as *const FILE_DISPOSITION_INFO).cast(),
+                    std::mem::size_of::<FILE_DISPOSITION_INFO>() as u32,
+                )
+            } == 0
+            {
+                return Err(io::Error::last_os_error().to_string());
+            }
+            Ok(())
+        }
+    }
+}
+
+fn validate_spool_name(name: &str) -> Result<(), String> {
+    let id = name
+        .strip_prefix("ev-run-")
+        .and_then(|name| name.strip_suffix(".output"))
+        .ok_or("Invalid owned output filename")?;
+    if valid_run_id(id) {
+        Ok(())
+    } else {
+        Err("Invalid owned output filename".into())
+    }
+}
+
+fn ensure_spool_directory(metadata: &fs::Metadata) -> Result<(), String> {
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err("Artifact directory is not an unlinked directory".into());
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if metadata.file_attributes() & 0x400 != 0 {
+            return Err("Artifact directory is a Windows reparse point".into());
+        }
+    }
+    Ok(())
+}
+
+fn file_identity(file: &File) -> Result<String, String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = file.metadata().map_err(|error| error.to_string())?;
+        if metadata.nlink() != 1 {
+            return Err("Output must have exactly one owned filesystem link".into());
+        }
+        Ok(format!("{}:{}", metadata.dev(), metadata.ino()))
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+        };
+        let mut information = BY_HANDLE_FILE_INFORMATION::default();
+        // SAFETY: file owns a live handle; information is writable and ABI-correct.
+        if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut information) } == 0 {
+            return Err(io::Error::last_os_error().to_string());
+        }
+        if information.nNumberOfLinks != 1 {
+            return Err("Output must have exactly one owned filesystem link".into());
+        }
+        Ok(format!(
+            "{}:{}:{}",
+            information.dwVolumeSerialNumber, information.nFileIndexHigh, information.nFileIndexLow
+        ))
+    }
+}
+fn create_evidence_schema(connection: &Connection) -> Result<(), String> {
+    connection.execute_batch(
+        "CREATE TABLE excerpts(id INTEGER PRIMARY KEY AUTOINCREMENT,task_id INTEGER NOT NULL,record TEXT NOT NULL CHECK(length(CAST(record AS BLOB)) <= 524288));
+         CREATE TABLE executions(run_id TEXT PRIMARY KEY,task_id INTEGER NOT NULL,request_id TEXT NOT NULL UNIQUE,
+           record TEXT NOT NULL CHECK(length(CAST(record AS BLOB)) <= 131072),
+           output_name TEXT NOT NULL UNIQUE,output_identity TEXT NOT NULL,capacity INTEGER NOT NULL CHECK(capacity >= 1024 AND capacity <= 8388608),
+           reserved INTEGER NOT NULL CHECK(reserved IN (0,1)));
+         PRAGMA user_version=4;"
+    ).map_err(|error| format!("Cannot initialize source/journal storage: {error}"))
+}
+
+fn inspect_evidence(connection: &Connection) -> Result<(), String> {
+    inspect_columns(
+        connection,
+        "excerpts",
+        &[
+            ("id", "INTEGER", false, 1),
+            ("task_id", "INTEGER", true, 0),
+            ("record", "TEXT", true, 0),
+        ],
+    )?;
+    inspect_columns(
+        connection,
+        "executions",
+        &[
+            ("run_id", "TEXT", false, 1),
+            ("task_id", "INTEGER", true, 0),
+            ("request_id", "TEXT", true, 0),
+            ("record", "TEXT", true, 0),
+            ("output_name", "TEXT", true, 0),
+            ("output_identity", "TEXT", true, 0),
+            ("capacity", "INTEGER", true, 0),
+            ("reserved", "INTEGER", true, 0),
+        ],
+    )?;
+    let invalid: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM excerpts e LEFT JOIN tasks t ON t.id=e.task_id WHERE t.id IS NULL)
+         OR EXISTS(SELECT 1 FROM executions e LEFT JOIN tasks t ON t.id=e.task_id WHERE t.id IS NULL)
+         OR EXISTS(SELECT 1 FROM excerpts GROUP BY task_id HAVING count(*) > 16)
+         OR EXISTS(SELECT 1 FROM executions GROUP BY task_id HAVING count(*) > 256)
+         OR (SELECT count(*) FROM executions WHERE reserved=1) > 1",
+        [], |row| row.get(0),
+    ).map_err(|error| error.to_string())?;
+    if invalid {
+        return Err(
+            "Invalid evidence ownership, basket/journal capacity or run reservation count".into(),
+        );
+    }
+    {
+        let mut statement = connection
+            .prepare("SELECT id,task_id,record FROM excerpts")
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    json_column::<crate::context::Excerpt>(row, 2, 512 * 1024)?,
+                ))
+            })
+            .map_err(|error| error.to_string())?;
+        for row in rows {
+            let (id, task_id, excerpt) = row.map_err(|error| error.to_string())?;
+            excerpt.validate()?;
+            if excerpt.id != id || excerpt.task_id != task_id || id <= 0 {
+                return Err("Invalid stored excerpt identity".into());
+            }
+            if crate::privacy::redact(&excerpt.text) != excerpt.text {
+                return Err("Stored excerpt violates before-storage masking".into());
+            }
+        }
+    }
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT {RUN_COLUMNS},run_id,task_id,request_id FROM executions"
+        ))
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                stored_run_row(row)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, i64>(6)?,
+                row.get::<_, String>(7)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        let (stored, run_id, task_id, request_id) = row.map_err(|error| error.to_string())?;
+        run_json(&stored.record)?;
+        if stored.record.prepared.run_id != run_id
+            || stored.record.prepared.task_id != task_id
+            || stored.record.prepared.request_id != request_id
+            || stored.output_name != spool_name(&run_id)?
+            || !(1024..=MAX_SPOOL_BYTES).contains(&stored.capacity)
+            || stored.output_identity.is_empty()
+            || stored.output_identity.len() > 128
+            || !stored
+                .output_identity
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || byte == b':')
+            || stored.reserved != active_state(&stored.record.state)
+            || stored.record.captured_bytes > stored.capacity
+        {
+            return Err("Invalid stored run correlation, output reference or reservation".into());
+        }
+        let mut masked = stored.record.clone();
+        masked.redact_for_storage();
+        if masked != stored.record {
+            return Err("Stored run violates before-storage masking".into());
+        }
+    }
+    Ok(())
 }
 
 fn actionable(error: String) -> String {
@@ -639,6 +2090,7 @@ fn redact_snapshot(snapshot: &mut Snapshot) {
     }
     snapshot.redacted |= redact_field(&mut snapshot.goal);
     snapshot.redacted |= redact_field(&mut snapshot.next_action);
+    snapshot.redacted |= redact_field(&mut snapshot.command);
     for criterion in &mut snapshot.criteria {
         snapshot.redacted |= redact_field(&mut criterion.text);
     }
@@ -677,13 +2129,6 @@ fn set_quota(connection: &Connection, policy: Policy) -> Result<(), String> {
         .map_err(|error| format!("Cannot apply task storage quota: {error}"))
 }
 
-fn enforce_quota(connection: &Connection, policy: Policy) -> Result<(), String> {
-    if live_bytes(connection)? > policy.quota_bytes {
-        return Err("Task storage quota exceeded; no tasks were removed. Delete eligible tasks or increase the quota before retrying".into());
-    }
-    Ok(())
-}
-
 fn validate(snapshot: &Snapshot) -> Result<(), String> {
     if snapshot.project.is_empty() {
         return Err("A stored project identity is empty".into());
@@ -707,6 +2152,9 @@ fn validate(snapshot: &Snapshot) -> Result<(), String> {
     if snapshot.next_action.len() > MAX_GOAL_BYTES {
         return Err("A next action exceeds the 4096-byte storage limit".into());
     }
+    if snapshot.command.len() > MAX_GOAL_BYTES {
+        return Err("A command exceeds the 4096-byte storage limit".into());
+    }
     if snapshot.criteria.len() > 64 || snapshot.criteria.iter().any(|item| item.text.len() > 256) {
         return Err("Acceptance criteria exceed 64 entries or 256 bytes per entry".into());
     }
@@ -715,8 +2163,8 @@ fn validate(snapshot: &Snapshot) -> Result<(), String> {
     {
         return Err("Completing a task requires nonempty, all-met acceptance criteria".into());
     }
-    if snapshot.drafts.len() > 3 {
-        return Err("A task may retain at most three drafts".into());
+    if snapshot.drafts.len() > 4 {
+        return Err("A task may retain at most four drafts".into());
     }
     for (index, draft) in snapshot.drafts.iter().enumerate() {
         if draft.text.len() > MAX_GOAL_BYTES || !draft.text.is_char_boundary(draft.cursor) {
@@ -776,7 +2224,10 @@ fn load(connection: &Connection, project: &str) -> Result<Project, String> {
     Ok(Project {
         tasks,
         active_id,
-        usage_bytes: live_bytes(connection)?,
+        usage_bytes: match connection.path().and_then(|path| Path::new(path).parent()) {
+            Some(directory) => evidence_usage(connection, directory)?,
+            None => live_bytes(connection)?,
+        },
     })
 }
 
@@ -830,12 +2281,13 @@ fn snapshot_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Snapshot> {
         criteria: json_column(row, 5, 110_000)?,
         next_action: row.get(6)?,
         complete: complete != 0,
-        drafts: json_column(row, 8, 80_000)?,
+        drafts: json_column(row, 8, 110_000)?,
         navigation: json_column(row, 9, 1024)?,
         updated_at: row.get(10)?,
         archived: row.get(11)?,
         archived_at: row.get(12)?,
         redacted: row.get(13)?,
+        command: row.get(14)?,
     })
 }
 
@@ -854,6 +2306,7 @@ enum Schema {
     Legacy,
     Projects,
     Tasks,
+    Lifecycle,
     Current,
 }
 
@@ -875,9 +2328,9 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=3).contains(&version) {
+    if !(0..=4).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0, 1, 2 and 3"
+            "Unsupported database schema version {version}; this ev supports versions 0 through 4"
         ));
     }
     let mut statement = connection
@@ -905,8 +2358,17 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
             if version == 2 {
                 Schema::Tasks
             } else {
-                Schema::Current
+                Schema::Lifecycle
             }
+        }
+        (4, objects)
+            if objects.len() == 4
+                && objects
+                    .iter()
+                    .zip(["excerpts", "executions", "selections", "tasks"])
+                    .all(|((kind, name), expected)| kind == "table" && name == expected) =>
+        {
+            Schema::Current
         }
         _ => return Err("Unrecognized or nonempty foreign database schema".into()),
     };
@@ -931,7 +2393,7 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
             ],
             "SELECT project, goal, form, revision FROM projects",
         ),
-        Schema::Tasks | Schema::Current => {
+        Schema::Tasks | Schema::Lifecycle | Schema::Current => {
             inspect_columns(
                 connection,
                 "selections",
@@ -953,18 +2415,23 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
                 ("navigation", "TEXT", true, 0),
                 ("updated_at", "INTEGER", true, 0),
             ];
-            if version == 3 {
+            if version >= 3 {
                 expected.extend([
                     ("archived", "INTEGER", true, 0),
                     ("archived_at", "INTEGER", true, 0),
                     ("redacted", "INTEGER", true, 0),
                 ]);
             }
+            if version == 4 {
+                expected.push(("command", "TEXT", true, 0));
+            }
             inspect_columns(connection, "tasks", &expected)?;
-            let columns = if version == 3 {
+            let columns = if version == 4 {
                 TASK_COLUMNS.to_string()
+            } else if version == 3 {
+                format!("{TASK_COLUMNS_V3},''")
             } else {
-                format!("{TASK_COLUMNS_V2},0,0,0")
+                format!("{TASK_COLUMNS_V2},0,0,0,''")
             };
             let mut rows = connection
                 .prepare(&format!("SELECT {columns} FROM tasks"))
@@ -988,7 +2455,7 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
                     |row| row.get(0),
                 )
                 .map_err(|error| error.to_string())?;
-            if version == 3 {
+            if version >= 3 {
                 let archived_selected: bool = connection.query_row(
                     "SELECT EXISTS(SELECT 1 FROM selections s JOIN tasks t ON t.id=s.active_id WHERE t.archived != 0)",
                     [], |row| row.get(0),
@@ -999,6 +2466,9 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
             }
             if invalid {
                 return Err("Invalid project task selection or project capacity".into());
+            }
+            if version == 4 {
+                inspect_evidence(connection)?;
             }
             return Ok(schema);
         }
@@ -1063,7 +2533,7 @@ fn migrate(connection: &Connection, schema: Schema) -> Result<(), String> {
     if matches!(schema, Schema::Current) {
         return Ok(());
     }
-    if matches!(schema, Schema::Tasks) {
+    if matches!(schema, Schema::Tasks | Schema::Lifecycle) {
         connection
             .execute_batch("ALTER TABLE tasks RENAME TO old_tasks;")
             .map_err(|error| format!("Cannot stage task migration: {error}"))?;
@@ -1079,16 +2549,17 @@ fn migrate(connection: &Connection, schema: Schema) -> Result<(), String> {
             criteria TEXT NOT NULL CHECK(length(CAST(criteria AS BLOB)) <= 110000),
             next_action TEXT NOT NULL CHECK(length(CAST(next_action AS BLOB)) <= 4096),
             complete INTEGER NOT NULL CHECK(complete IN (0,1)),
-            drafts TEXT NOT NULL CHECK(length(CAST(drafts AS BLOB)) <= 80000),
+            drafts TEXT NOT NULL CHECK(length(CAST(drafts AS BLOB)) <= 110000),
             navigation TEXT NOT NULL CHECK(length(CAST(navigation AS BLOB)) <= 1024),
             updated_at INTEGER NOT NULL CHECK(updated_at >= 0),
             archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
             archived_at INTEGER NOT NULL DEFAULT 0 CHECK(archived_at >= 0),
-            redacted INTEGER NOT NULL DEFAULT 0 CHECK(redacted IN (0,1))
+            redacted INTEGER NOT NULL DEFAULT 0 CHECK(redacted IN (0,1)),
+            command TEXT NOT NULL DEFAULT '' CHECK(length(CAST(command AS BLOB)) <= 4096)
         );",
         )
         .map_err(|error| format!("Cannot initialize task storage: {error}"))?;
-    if !matches!(schema, Schema::Tasks) {
+    if !matches!(schema, Schema::Tasks | Schema::Lifecycle) {
         connection
             .execute_batch(
                 "CREATE TABLE selections(project TEXT PRIMARY KEY, active_id INTEGER NOT NULL);",
@@ -1106,7 +2577,11 @@ fn migrate(connection: &Connection, schema: Schema) -> Result<(), String> {
         )),
         Schema::Tasks => Some((
             "old_tasks",
-            format!("SELECT {TASK_COLUMNS_V2},0,0,0 FROM old_tasks ORDER BY id"),
+            format!("SELECT {TASK_COLUMNS_V2},0,0,0,'' FROM old_tasks ORDER BY id"),
+        )),
+        Schema::Lifecycle => Some((
+            "old_tasks",
+            format!("SELECT {TASK_COLUMNS_V3},'' FROM old_tasks ORDER BY id"),
         )),
         _ => None,
     };
@@ -1117,7 +2592,7 @@ fn migrate(connection: &Connection, schema: Schema) -> Result<(), String> {
                 .map_err(|error| error.to_string())?;
             let rows = statement
                 .query_map([], |row| {
-                    if matches!(schema, Schema::Tasks) {
+                    if matches!(schema, Schema::Tasks | Schema::Lifecycle) {
                         snapshot_row(row)
                     } else {
                         legacy_row(row)
@@ -1129,16 +2604,16 @@ fn migrate(connection: &Connection, schema: Schema) -> Result<(), String> {
                 redact_snapshot(&mut task);
                 validate(&task)?;
                 connection.execute(
-                    "INSERT INTO tasks(id,project,goal,form,revision,criteria,next_action,complete,drafts,navigation,updated_at,redacted)
-                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                    "INSERT INTO tasks(id,project,goal,form,revision,criteria,next_action,complete,drafts,navigation,updated_at,redacted,archived,archived_at)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
                     params![if task.id == 0 { None } else { Some(task.id) }, task.project, task.goal, task.form as i64, task.revision as i64,
                         serde_json::to_string(&task.criteria).map_err(|error| error.to_string())?, task.next_action, task.complete,
                         serde_json::to_string(&task.drafts).map_err(|error| error.to_string())?,
-                        serde_json::to_string(&task.navigation).map_err(|error| error.to_string())?, task.updated_at, task.redacted],
+                        serde_json::to_string(&task.navigation).map_err(|error| error.to_string())?, task.updated_at, task.redacted, task.archived, task.archived_at],
                 ).map_err(|error| format!("Cannot migrate task: {error}"))?;
             }
         }
-        if !matches!(schema, Schema::Tasks) {
+        if !matches!(schema, Schema::Tasks | Schema::Lifecycle) {
             connection
                 .execute_batch("INSERT INTO selections SELECT project,id FROM tasks;")
                 .map_err(|error| error.to_string())?;
@@ -1147,9 +2622,7 @@ fn migrate(connection: &Connection, schema: Schema) -> Result<(), String> {
             .execute_batch(&format!("DROP TABLE {table};"))
             .map_err(|error| error.to_string())?;
     }
-    connection
-        .pragma_update(None, "user_version", 3)
-        .map_err(|error| error.to_string())
+    create_evidence_schema(connection)
 }
 
 fn sqlite_no_follow() -> OpenFlags {
@@ -1216,7 +2689,10 @@ impl RecoveryDirectory {
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
+            #[cfg(unix)]
             let mut builder = fs::DirBuilder::new();
+            #[cfg(not(unix))]
+            let builder = fs::DirBuilder::new();
             #[cfg(unix)]
             {
                 use std::os::unix::fs::DirBuilderExt;
@@ -1427,10 +2903,19 @@ fn export_inner(data_dir: &Path, output: &Path) -> Result<(), String> {
             |row| row.get(0),
         )
         .map_err(|error| error.to_string())?;
-    let columns = if modern {
+    let command: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('tasks') WHERE name='command')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    let columns = if command {
         TASK_COLUMNS.to_string()
+    } else if modern {
+        format!("{TASK_COLUMNS_V3},''")
     } else {
-        format!("{TASK_COLUMNS_V2},0,0,0")
+        format!("{TASK_COLUMNS_V2},0,0,0,''")
     };
     let task_query = format!("SELECT {columns} FROM tasks ORDER BY project,id");
     for (table, query) in [
@@ -1730,7 +3215,7 @@ mod tests {
                 connection
                     .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                     .unwrap(),
-                3
+                4
             );
             assert!(connection.prepare("SELECT * FROM goals").is_err());
             assert!(connection.prepare("SELECT * FROM projects").is_err());
@@ -1972,7 +3457,7 @@ mod tests {
                 ..snapshot("project", 1)
             },
             Snapshot {
-                drafts: vec![duplicate; 4],
+                drafts: vec![duplicate; 5],
                 ..snapshot("project", 1)
             },
             Snapshot {
@@ -2304,7 +3789,7 @@ mod tests {
                 connection
                     .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                     .unwrap(),
-                3
+                4
             );
         }
     }
@@ -2670,7 +4155,11 @@ mod tests {
         let mut store = state(&directory, "project", Policy::default());
         let first = store.save(snapshot("project", 1)).unwrap();
         let second = store.save(snapshot("project", 1)).unwrap();
-        let (archived, affected) = store
+        let Managed {
+            project: archived,
+            affected,
+            warning,
+        } = store
             .manage_at(
                 Management::Archive {
                     id: second.id,
@@ -2679,6 +4168,7 @@ mod tests {
                 100,
             )
             .unwrap();
+        assert!(warning.is_none());
         assert_eq!(affected, vec![second.id]);
         assert_eq!(archived.active_id, Some(first.id));
         assert!(archived.tasks[1].archived && !archived.tasks[1].complete);
@@ -2692,7 +4182,9 @@ mod tests {
                 .iter()
                 .any(|task| task.id == second.id && task.archived)
         );
-        let (restored, _) = store
+        let Managed {
+            project: restored, ..
+        } = store
             .manage(Management::Archive {
                 id: second.id,
                 archived: false,
@@ -2722,7 +4214,9 @@ mod tests {
                 2
             );
         }
-        let (remaining, _) = store
+        let Managed {
+            project: remaining, ..
+        } = store
             .manage(Management::Delete {
                 ids: vec![first.id],
                 expired_before: None,
@@ -2751,7 +4245,9 @@ mod tests {
                 .active_id,
             None
         );
-        let (restored, _) = store
+        let Managed {
+            project: restored, ..
+        } = store
             .manage(Management::Archive {
                 id: second.id,
                 archived: false,
@@ -2850,7 +4346,11 @@ mod tests {
                 .len(),
             2
         );
-        let (remaining, affected) = store
+        let Managed {
+            project: remaining,
+            affected,
+            warning,
+        } = store
             .manage_at(
                 Management::Delete {
                     ids: vec![first.id],
@@ -2859,6 +4359,7 @@ mod tests {
                 now,
             )
             .unwrap();
+        assert!(warning.is_none());
         assert_eq!(affected, vec![first.id]);
         assert_eq!(remaining.tasks.len(), 1);
         assert_eq!(remaining.tasks[0].id, second.id);
@@ -3039,7 +4540,12 @@ mod tests {
         assert!(store.try_manage(&mut request));
         assert!(request.is_none());
         let managed = match event(&store) {
-            Event::Managed { project, affected } => {
+            Event::Managed {
+                project,
+                affected,
+                warning,
+            } => {
+                assert!(warning.is_none());
                 assert_eq!(affected, vec![task.id]);
                 project
             }
@@ -3110,7 +4616,7 @@ mod tests {
         );
         drop(store);
         let small = Policy {
-            quota_bytes: 24 * 1024,
+            quota_bytes: 48 * 1024,
             ..policy
         };
         let mut store = state(&directory, "project", small);
@@ -3147,6 +4653,7 @@ mod tests {
             Snapshot {
                 goal: text.clone(),
                 next_action: text.clone(),
+                command: text.clone(),
                 criteria: vec![
                     Criterion {
                         text: "\0".repeat(256),
@@ -3159,6 +4666,7 @@ mod tests {
                     EditorField::Goal,
                     EditorField::Criteria,
                     EditorField::NextAction,
+                    EditorField::Command,
                 ]
                 .into_iter()
                 .map(|field| Draft {
@@ -3173,5 +4681,724 @@ mod tests {
         drop(store);
         let store = worker(&directory, "project");
         assert_eq!(loaded(&store).tasks, vec![expected]);
+    }
+    fn captured_excerpt(task_id: i64, source: &Path, text: &str) -> crate::context::Excerpt {
+        use sha2::{Digest, Sha256};
+        crate::context::Excerpt {
+            id: 0,
+            task_id,
+            root: source.parent().unwrap().to_str().unwrap().into(),
+            path: source.file_name().unwrap().to_str().unwrap().into(),
+            start_line: 1,
+            end_line: 1,
+            source_sha256: Sha256::digest(text.as_bytes()).into(),
+            text: text.into(),
+            available: true,
+        }
+    }
+
+    fn prepared_run(task_id: i64, root: &Path, suffix: &str) -> crate::runner::Prepared {
+        crate::runner::Prepared {
+            request_id: format!("request-{suffix}"),
+            run_id: format!("run-{suffix}"),
+            task_id,
+            spec: crate::runner::CommandSpec::Direct {
+                program: "echo".into(),
+                args: vec!["password=journal-value".into()],
+            },
+            cwd: root.to_path_buf(),
+            cwd_identity: "fixture-directory".into(),
+            executable: crate::runner::ExecutableIdentity {
+                path: root.join("fixture-executable"),
+                sha256: "0".repeat(64),
+                bytes: 1,
+                modified_ns: 1,
+                file_id: "fixture-file".into(),
+            },
+            prepared_at_ms: timestamp().unwrap() as u64,
+            expires_at_ms: timestamp().unwrap() as u64 + 60_000,
+            before: crate::runner::InputSnapshot::default(),
+        }
+    }
+
+    #[test]
+    fn context_is_independent_masked_task_owned_and_purge_preserves_unavailable_metadata() {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let first = store.save(snapshot("project", 1)).unwrap();
+        let second = store.save(snapshot("project", 1)).unwrap();
+        let source = directory.0.join("source.rs");
+        fs::write(&source, "password=source-value\n").unwrap();
+        let pin = |task_id| ContextRequest {
+            task_id,
+            operation: ContextOperation::Pin(captured_excerpt(
+                task_id,
+                &source,
+                "password=source-value\n",
+            )),
+        };
+        let one = store.context(pin(first.id)).unwrap();
+        let two = store.context(pin(second.id)).unwrap();
+        assert_eq!(one[0].text, "password=[REDACTED]\n");
+        let connection = store.connection.as_ref().unwrap();
+        let raw: String = connection
+            .query_row(
+                "SELECT record FROM excerpts WHERE task_id=?1",
+                [first.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!raw.contains("source-value"));
+        let mut updated = first.clone();
+        updated.revision += 1;
+        updated.goal = "changed without touching source payload".into();
+        store.save(updated).unwrap();
+        assert_eq!(
+            store
+                .context(ContextRequest {
+                    task_id: first.id,
+                    operation: ContextOperation::Load
+                })
+                .unwrap(),
+            one
+        );
+        assert!(
+            store
+                .context(ContextRequest {
+                    task_id: second.id,
+                    operation: ContextOperation::Remove(one[0].id)
+                })
+                .is_err()
+        );
+        let purged = store
+            .context(ContextRequest {
+                task_id: first.id,
+                operation: ContextOperation::Purge(vec![one[0].id]),
+            })
+            .unwrap();
+        assert!(!purged[0].available && purged[0].text.is_empty());
+        assert!(
+            store
+                .context(ContextRequest {
+                    task_id: first.id,
+                    operation: ContextOperation::Validate(one)
+                })
+                .is_err()
+        );
+        assert_eq!(
+            store
+                .context(ContextRequest {
+                    task_id: second.id,
+                    operation: ContextOperation::Load
+                })
+                .unwrap(),
+            two
+        );
+        assert_eq!(
+            fs::read_to_string(&source).unwrap(),
+            "password=source-value\n"
+        );
+        store
+            .manage(Management::Delete {
+                ids: vec![first.id],
+                expired_before: None,
+            })
+            .unwrap();
+        assert_eq!(
+            store
+                .context(ContextRequest {
+                    task_id: second.id,
+                    operation: ContextOperation::Load
+                })
+                .unwrap(),
+            two
+        );
+    }
+
+    #[test]
+    fn reservations_commit_before_permit_mask_journal_and_refuse_active_deletion_and_purge() {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let task = store.save(snapshot("project", 1)).unwrap();
+        let prepared = prepared_run(task.id, &store.data_dir, "active");
+        let mut permit = store.reserve_run(task.id, prepared.clone(), 4096).unwrap();
+        let connection = open_readonly(&store.data_dir.join(DATABASE)).unwrap();
+        let stored = stored_run(&connection, task.id, &prepared.run_id).unwrap();
+        assert!(stored.reserved);
+        assert_eq!(
+            stored.record.state,
+            crate::runner::RunState::AwaitingDispatch
+        );
+        assert!(stored.record.started_at_ms.is_none());
+        assert!(
+            !serde_json::to_string(&stored.record)
+                .unwrap()
+                .contains("journal-value")
+        );
+        assert_eq!(permit.capacity, 4096);
+        assert!(
+            store
+                .manage(Management::Delete {
+                    ids: vec![task.id],
+                    expired_before: None
+                })
+                .is_err()
+        );
+        assert!(
+            store
+                .manage(Management::Archive {
+                    id: task.id,
+                    archived: true
+                })
+                .is_err()
+        );
+        assert!(store.purge_output(task.id, &prepared.run_id).is_err());
+        assert!(
+            store
+                .reserve_run(
+                    task.id,
+                    prepared_run(task.id, &store.data_dir, "second"),
+                    1024
+                )
+                .is_err()
+        );
+        permit.file.write_all(b"partial output\n").unwrap();
+        permit.file.sync_all().unwrap();
+        let mut record = crate::runner::RunRecord::awaiting(&prepared);
+        record.state = crate::runner::RunState::Running;
+        record.started_at_ms = Some(timestamp().unwrap() as u64);
+        store.update_run(task.id, record.clone()).unwrap();
+        record.state = crate::runner::RunState::Succeeded;
+        record.ended_at_ms = Some(timestamp().unwrap() as u64);
+        record.exit_code = Some(0);
+        record.tree = crate::runner::TreeOutcome::OwnedTreeExited;
+        record.captured_bytes = 15;
+        drop(permit);
+        store.update_run(task.id, record.clone()).unwrap();
+        assert!(
+            store.update_run(task.id, record).is_err(),
+            "late duplicate finish must not rewrite history"
+        );
+        let output = store
+            .read_output(task.id, &prepared.run_id, 0, 4096)
+            .unwrap();
+        assert_eq!(output.text, "partial output\n");
+        assert!(!output.unavailable);
+        let (purged, warning) = store.purge_output(task.id, &prepared.run_id).unwrap();
+        assert!(warning.is_none());
+        assert!(purged.output_unavailable);
+        assert!(
+            store
+                .read_output(task.id, &prepared.run_id, 0, 4096)
+                .unwrap()
+                .unavailable
+        );
+    }
+
+    #[test]
+    fn committed_purge_and_deletion_return_metadata_when_artifact_cleanup_fails() {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let task = store.save(snapshot("project", 1)).unwrap();
+        let survivor = store.save(snapshot("project", 1)).unwrap();
+        store.select(task.id).unwrap();
+        let prepared = prepared_run(task.id, &store.data_dir, "cleanup-failure");
+        let mut permit = store.reserve_run(task.id, prepared.clone(), 1024).unwrap();
+        permit.file.write_all(b"retained\n").unwrap();
+        permit.file.sync_all().unwrap();
+        drop(permit);
+        let mut record = crate::runner::RunRecord::awaiting(&prepared);
+        record.state = crate::runner::RunState::Running;
+        record.started_at_ms = Some(timestamp().unwrap() as u64);
+        store.update_run(task.id, record.clone()).unwrap();
+        record.state = crate::runner::RunState::Succeeded;
+        record.ended_at_ms = Some(timestamp().unwrap() as u64);
+        record.exit_code = Some(0);
+        record.tree = crate::runner::TreeOutcome::OwnedTreeExited;
+        record.captured_bytes = 9;
+        let record = store.update_run(task.id, record).unwrap();
+        assert!(!record.output_unavailable);
+
+        let data_dir = store.data_dir.clone();
+        let output = data_dir.join(spool_name(&prepared.run_id).unwrap());
+        // Keep SQLite available but make artifact-directory access fail deterministically,
+        // without relying on filesystem permissions or the test runner's privileges.
+        let blocked_directory = data_dir.join("not-a-directory");
+        fs::write(&blocked_directory, b"preserve").unwrap();
+        store.data_dir = blocked_directory.clone();
+        let response = store
+            .run_request(RunRequest {
+                task_id: task.id,
+                operation: RunOperation::PurgeOutput {
+                    run_id: prepared.run_id.clone(),
+                },
+            })
+            .unwrap();
+        let RunResponse::Purged {
+            record: purged,
+            warning,
+        } = response
+        else {
+            panic!("expected committed purge response");
+        };
+        assert!(warning.is_some());
+        assert!(purged.output_unavailable);
+        assert_eq!(purged.state, crate::runner::RunState::Succeeded);
+        assert_eq!(purged.prepared.run_id, prepared.run_id);
+        let readonly = open_readonly(&data_dir.join(DATABASE)).unwrap();
+        assert!(
+            stored_run(&readonly, task.id, &prepared.run_id)
+                .unwrap()
+                .record
+                .output_unavailable
+        );
+        assert_eq!(fs::read(&output).unwrap(), b"retained\n");
+        store.data_dir = data_dir.clone();
+        assert!(
+            store
+                .read_output(task.id, &prepared.run_id, 0, 64)
+                .unwrap()
+                .unavailable
+        );
+
+        store.data_dir = blocked_directory;
+        let Managed {
+            project,
+            affected,
+            warning,
+        } = store
+            .manage(Management::Delete {
+                ids: vec![task.id],
+                expired_before: None,
+            })
+            .unwrap();
+        assert!(warning.is_some());
+        assert_eq!(affected, vec![task.id]);
+        assert_eq!(project.tasks, vec![survivor.clone()]);
+        assert_eq!(project.active_id, Some(survivor.id));
+        assert_eq!(load(&readonly, "project").unwrap(), project);
+        assert!(stored_run(&readonly, task.id, &prepared.run_id).is_err());
+        assert_eq!(fs::read(&output).unwrap(), b"retained\n");
+        drop(readonly);
+        store.data_dir = data_dir;
+        drop(store);
+        let store = state(&directory, "project", Policy::default());
+        let reopened = load(store.connection.as_ref().unwrap(), "project").unwrap();
+        assert_eq!(reopened.tasks, vec![survivor]);
+        assert_eq!(reopened.active_id, project.active_id);
+    }
+
+    #[test]
+    fn quota_accounts_live_sqlite_retained_spools_and_reserved_capacity_without_eviction() {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let task = store.save(snapshot("project", 1)).unwrap();
+        let initial = live_bytes(store.connection.as_ref().unwrap()).unwrap();
+        store.policy.quota_bytes = initial + RUN_HEADROOM + 4096;
+        let before = fs::read(store.data_dir.join(DATABASE)).unwrap();
+        assert!(
+            store
+                .reserve_run(
+                    task.id,
+                    prepared_run(task.id, &store.data_dir, "quota"),
+                    8192
+                )
+                .is_err()
+        );
+        assert!(store.load_runs(task.id).unwrap().is_empty());
+        assert_eq!(
+            load_task(store.connection.as_ref().unwrap(), "project", task.id).unwrap(),
+            Some(task.clone())
+        );
+        assert_eq!(fs::read(store.data_dir.join(DATABASE)).unwrap(), before);
+        store.policy = Policy::default();
+        let permit = store
+            .reserve_run(
+                task.id,
+                prepared_run(task.id, &store.data_dir, "reserved"),
+                8192,
+            )
+            .unwrap();
+        let used = evidence_usage(store.connection.as_ref().unwrap(), &store.data_dir).unwrap();
+        assert!(used >= initial + 8192 + RUN_HEADROOM);
+        store.policy.quota_bytes = used;
+        let large = Snapshot {
+            goal: "x".repeat(4096),
+            ..snapshot("project", 1)
+        };
+        assert!(store.save(large).is_err());
+        assert!(
+            store.load_runs(task.id).unwrap()[0].state == crate::runner::RunState::AwaitingDispatch
+        );
+        drop(permit);
+    }
+
+    #[test]
+    fn restart_interrupts_reservations_and_retains_partial_bytes_without_claiming_running() {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let task = store.save(snapshot("project", 1)).unwrap();
+        let prepared = prepared_run(task.id, &store.data_dir, "restart");
+        let mut permit = store.reserve_run(task.id, prepared.clone(), 4096).unwrap();
+        let mut record = crate::runner::RunRecord::awaiting(&prepared);
+        record.state = crate::runner::RunState::Running;
+        record.started_at_ms = Some(timestamp().unwrap() as u64);
+        store.update_run(task.id, record).unwrap();
+        permit.file.write_all(b"retained\n").unwrap();
+        permit.file.sync_all().unwrap();
+        assert!(
+            matches!(store.reopen(), Event::Failed { .. }),
+            "retry cannot abandon live ownership"
+        );
+        drop(permit);
+        drop(store);
+        let mut store = state(&directory, "project", Policy::default());
+        let records = store.load_runs(task.id).unwrap();
+        assert_eq!(records[0].state, crate::runner::RunState::Interrupted);
+        assert_eq!(
+            records[0].tree,
+            crate::runner::TreeOutcome::OwnershipUnknown
+        );
+        assert!(records[0].truncated);
+        assert_eq!(
+            store
+                .read_output(task.id, &prepared.run_id, 0, 4096)
+                .unwrap()
+                .text,
+            "retained\n"
+        );
+        assert!(
+            store
+                .reserve_run(
+                    task.id,
+                    prepared_run(task.id, &store.data_dir, "after-restart"),
+                    1024
+                )
+                .is_ok()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replaced_output_links_are_unavailable_and_purge_never_deletes_external_files() {
+        use std::os::unix::fs::symlink;
+        let directory = Directory::new();
+        let external = Directory::new();
+        let outside = external.0.join("preserve.txt");
+        fs::write(&outside, "external bytes").unwrap();
+        let mut store = state(&directory, "project", Policy::default());
+        let task = store.save(snapshot("project", 1)).unwrap();
+        let prepared = prepared_run(task.id, &store.data_dir, "swap");
+        let permit = store.reserve_run(task.id, prepared.clone(), 1024).unwrap();
+        drop(permit);
+        store
+            .run_request(RunRequest {
+                task_id: task.id,
+                operation: RunOperation::Abandon {
+                    request_id: prepared.request_id.clone(),
+                    run_id: prepared.run_id.clone(),
+                },
+            })
+            .unwrap();
+        let output = store.data_dir.join(spool_name(&prepared.run_id).unwrap());
+        fs::remove_file(&output).unwrap();
+        symlink(&outside, &output).unwrap();
+        assert!(
+            store
+                .read_output(task.id, &prepared.run_id, 0, 64)
+                .unwrap()
+                .unavailable
+        );
+        store.purge_output(task.id, &prepared.run_id).unwrap();
+        assert_eq!(fs::read_to_string(&outside).unwrap(), "external bytes");
+        store
+            .manage(Management::Delete {
+                ids: vec![task.id],
+                expired_before: None,
+            })
+            .unwrap();
+        assert_eq!(fs::read_to_string(&outside).unwrap(), "external bytes");
+    }
+
+    #[test]
+    fn schema_three_migration_is_transactional_and_preserves_archives_and_four_command_drafts() {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let first = store.save(snapshot("project", 1)).unwrap();
+        let second = store.save(snapshot("project", 1)).unwrap();
+        store
+            .manage(Management::Archive {
+                id: first.id,
+                archived: true,
+            })
+            .unwrap();
+        drop(store);
+        let path = directory.0.join(DATABASE);
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch("DROP TABLE excerpts; DROP TABLE executions; ALTER TABLE tasks DROP COLUMN command; PRAGMA user_version=3;").unwrap();
+        {
+            let transaction = connection.transaction().unwrap();
+            migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
+            // No commit: the complete schema-three task/selection remains usable.
+        }
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
+        assert!(matches!(inspect(&connection).unwrap(), Schema::Lifecycle));
+        drop(connection);
+        let mut store = state(&directory, "project", Policy::default());
+        let project = load(store.connection.as_ref().unwrap(), "project").unwrap();
+        assert!(project.tasks[0].archived && project.tasks[0].command.is_empty());
+        assert_eq!(project.active_id, Some(second.id));
+        let mut task = project.tasks[1].clone();
+        task.revision += 1;
+        task.command = "echo password=command-value".into();
+        task.drafts = [
+            EditorField::Goal,
+            EditorField::Criteria,
+            EditorField::NextAction,
+            EditorField::Command,
+        ]
+        .into_iter()
+        .map(|field| Draft {
+            field,
+            text: "token=draft-value".into(),
+            cursor: 17,
+        })
+        .collect();
+        task.navigation.editor_field = EditorField::Command;
+        let saved = store.save(task).unwrap();
+        assert_eq!(saved.command, "echo password=[REDACTED]");
+        assert_eq!(saved.drafts.len(), 4);
+        assert!(
+            saved
+                .drafts
+                .iter()
+                .all(|draft| !draft.text.contains("draft-value"))
+        );
+        drop(store);
+        let store = state(&directory, "project", Policy::default());
+        assert_eq!(
+            load_task(store.connection.as_ref().unwrap(), "project", second.id).unwrap(),
+            Some(saved)
+        );
+    }
+
+    #[test]
+    fn excerpt_capacity_and_lowered_quota_never_evict_and_still_allow_explicit_reclamation() {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let task = store.save(snapshot("project", 1)).unwrap();
+        let source = store.data_dir.join("source.rs");
+        fs::write(&source, "visible\n").unwrap();
+        for _ in 0..crate::context::MAX_EXCERPTS {
+            store
+                .context(ContextRequest {
+                    task_id: task.id,
+                    operation: ContextOperation::Pin(captured_excerpt(
+                        task.id,
+                        &source,
+                        "visible\n",
+                    )),
+                })
+                .unwrap();
+        }
+        assert!(
+            store
+                .context(ContextRequest {
+                    task_id: task.id,
+                    operation: ContextOperation::Pin(captured_excerpt(
+                        task.id,
+                        &source,
+                        "visible\n"
+                    ))
+                })
+                .is_err()
+        );
+        let basket = store
+            .context(ContextRequest {
+                task_id: task.id,
+                operation: ContextOperation::Load,
+            })
+            .unwrap();
+        assert_eq!(basket.len(), 16);
+        store.policy.quota_bytes = 1;
+        let reduced = store
+            .context(ContextRequest {
+                task_id: task.id,
+                operation: ContextOperation::Remove(basket[0].id),
+            })
+            .unwrap();
+        assert_eq!(reduced.len(), 15);
+        let purged = store
+            .context(ContextRequest {
+                task_id: task.id,
+                operation: ContextOperation::Purge(vec![basket[1].id]),
+            })
+            .unwrap();
+        assert!(!purged[0].available);
+        assert_eq!(fs::read_to_string(source).unwrap(), "visible\n");
+    }
+
+    #[test]
+    fn completed_output_is_bounded_missing_is_unavailable_and_task_purge_is_isolated() {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let first = store.save(snapshot("project", 1)).unwrap();
+        let second = store.save(snapshot("project", 1)).unwrap();
+        let mut runs = Vec::new();
+        for (task, suffix) in [(first.id, "first"), (second.id, "second")] {
+            let prepared = prepared_run(task, &store.data_dir, suffix);
+            let mut permit = store.reserve_run(task, prepared.clone(), 1024).unwrap();
+            permit.file.write_all("前\n".as_bytes()).unwrap();
+            permit.file.sync_all().unwrap();
+            let mut record = crate::runner::RunRecord::awaiting(&prepared);
+            record.state = crate::runner::RunState::Running;
+            record.started_at_ms = Some(timestamp().unwrap() as u64);
+            store.update_run(task, record.clone()).unwrap();
+            record.state = crate::runner::RunState::Succeeded;
+            record.ended_at_ms = Some(timestamp().unwrap() as u64);
+            record.exit_code = Some(0);
+            record.tree = crate::runner::TreeOutcome::OwnedTreeExited;
+            record.captured_bytes = 4;
+            drop(permit);
+            store.update_run(task, record).unwrap();
+            runs.push(prepared.run_id);
+        }
+        assert!(store.read_output(first.id, &runs[0], 0, 2).is_err());
+        assert_eq!(
+            store.read_output(first.id, &runs[0], 0, 3).unwrap().text,
+            "前"
+        );
+        assert_eq!(
+            store.read_output(first.id, &runs[0], 3, 1).unwrap().text,
+            "\n"
+        );
+        assert!(store.read_output(first.id, &runs[0], 0, 65_537).is_err());
+        assert!(store.read_output(second.id, &runs[0], 0, 64).is_err());
+        fs::remove_file(store.data_dir.join(spool_name(&runs[0]).unwrap())).unwrap();
+        let records = store.load_runs(first.id).unwrap();
+        assert_eq!(records[0].state, crate::runner::RunState::Succeeded);
+        assert!(records[0].output_unavailable);
+        assert!(
+            store
+                .read_output(first.id, &runs[0], 0, 64)
+                .unwrap()
+                .unavailable
+        );
+        store.purge_output(first.id, &runs[0]).unwrap();
+        store
+            .manage(Management::Delete {
+                ids: vec![first.id],
+                expired_before: None,
+            })
+            .unwrap();
+        assert_eq!(
+            store.read_output(second.id, &runs[1], 0, 64).unwrap().text,
+            "前\n"
+        );
+    }
+
+    #[test]
+    fn foreign_output_reference_is_refused_before_writable_open() {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let task = store.save(snapshot("project", 1)).unwrap();
+        let prepared = prepared_run(task.id, &store.data_dir, "foreign");
+        let permit = store.reserve_run(task.id, prepared.clone(), 1024).unwrap();
+        drop(permit);
+        store
+            .run_request(RunRequest {
+                task_id: task.id,
+                operation: RunOperation::Abandon {
+                    request_id: prepared.request_id,
+                    run_id: prepared.run_id,
+                },
+            })
+            .unwrap();
+        store
+            .connection
+            .as_ref()
+            .unwrap()
+            .execute("UPDATE executions SET output_name='../outside'", [])
+            .unwrap();
+        drop(store);
+        let path = directory.0.join(DATABASE);
+        let before = fs::read(&path).unwrap();
+        let worker = worker(&directory, "project");
+        assert!(matches!(event(&worker), Event::Failed { .. }));
+        drop(worker);
+        assert_eq!(fs::read(path).unwrap(), before);
+    }
+
+    #[test]
+    fn deletion_preview_lists_exact_owned_artifacts_without_mutation_and_rechecks_active_work() {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let task = store.save(snapshot("project", 1)).unwrap();
+        let source = store.data_dir.join("source.rs");
+        fs::write(&source, "visible\n").unwrap();
+        let basket = store
+            .context(ContextRequest {
+                task_id: task.id,
+                operation: ContextOperation::Pin(captured_excerpt(task.id, &source, "visible\n")),
+            })
+            .unwrap();
+        let prepared = prepared_run(task.id, &store.data_dir, "preview");
+        let permit = store.reserve_run(task.id, prepared.clone(), 1024).unwrap();
+        assert!(store.preview_delete(&[task.id], None).is_err());
+        assert!(
+            store
+                .context(ContextRequest {
+                    task_id: task.id,
+                    operation: ContextOperation::Purge(vec![basket[0].id])
+                })
+                .is_err()
+        );
+        drop(permit);
+        store
+            .run_request(RunRequest {
+                task_id: task.id,
+                operation: RunOperation::Abandon {
+                    request_id: prepared.request_id,
+                    run_id: prepared.run_id.clone(),
+                },
+            })
+            .unwrap();
+        let before = fs::read(store.data_dir.join(DATABASE)).unwrap();
+        let preview = store.preview_delete(&[task.id], None).unwrap();
+        assert_eq!(preview.len(), 1);
+        assert_eq!(preview[0].task.id, task.id);
+        assert_eq!(
+            preview[0].excerpts,
+            vec![(basket[0].id, "source.rs".into())]
+        );
+        assert_eq!(preview[0].runs, vec![(prepared.run_id, true)]);
+        assert_eq!(fs::read(store.data_dir.join(DATABASE)).unwrap(), before);
+        assert_eq!(fs::read_to_string(&source).unwrap(), "visible\n");
+        let permit = store
+            .reserve_run(
+                task.id,
+                prepared_run(task.id, &store.data_dir, "after-preview"),
+                1024,
+            )
+            .unwrap();
+        assert!(
+            store
+                .manage(Management::Delete {
+                    ids: vec![task.id],
+                    expired_before: None
+                })
+                .is_err()
+        );
+        assert!(
+            load_task(store.connection.as_ref().unwrap(), "project", task.id)
+                .unwrap()
+                .is_some()
+        );
+        drop(permit);
     }
 }

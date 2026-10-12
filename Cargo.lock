@@ -337,6 +337,7 @@ dependencies = [
  "crossterm",
  "image",
  "libc",
+ "parking_lot",
  "ratatui",
  "ratatui-image",
  "rusqlite",

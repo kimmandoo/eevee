@@ -1,3 +1,6 @@
+pub mod execution;
+pub mod sources;
+
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::text::Span;
 use unicode_segmentation::UnicodeSegmentation;
@@ -7,8 +10,9 @@ use crate::repo;
 use crate::store;
 
 pub const MAX_GOAL_BYTES: usize = 4096;
+pub const DELETE_PREVIEW_PAGE: usize = 256;
 
-pub const PALETTE: [&str; 14] = [
+pub const PALETTE: [&str; 16] = [
     "Choose evolution",
     "Edit task goal",
     "Inspect task and storage",
@@ -23,6 +27,8 @@ pub const PALETTE: [&str; 14] = [
     "Next action",
     "Complete task",
     "Repository baseline and diff",
+    "Source map and context basket",
+    "Command execution and evidence",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,6 +49,8 @@ pub enum Overlay {
     Tasks,
     Criteria,
     Repository,
+    Sources,
+    Execution,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,6 +158,13 @@ pub struct App {
     pub repo_error: String,
     pub repo_loading: bool,
     pub repo_refresh: bool,
+    pub sources: sources::State,
+    pub execution: execution::State,
+    pub command: String,
+    pub delete_preview: Vec<store::DeletionTarget>,
+    pub delete_page: usize,
+    deletion_preview_pending: bool,
+    pending_command: Option<String>,
     edit_original: String,
     form_selection: usize,
     palette_selection: usize,
@@ -214,6 +229,13 @@ impl App {
             repo_error: String::new(),
             repo_loading: true,
             repo_refresh: false,
+            sources: sources::State::default(),
+            execution: execution::State::default(),
+            command: String::new(),
+            delete_preview: Vec::new(),
+            delete_page: 0,
+            deletion_preview_pending: false,
+            pending_command: None,
             edit_original: String::new(),
             form_selection: 0,
             palette_selection: 0,
@@ -352,9 +374,6 @@ impl App {
                 } else {
                     StorageState::Saved
                 };
-                if self.quit_after_save && !self.save_requested {
-                    self.quit = true;
-                }
             }
             store::Event::Selected(snapshot) => {
                 self.load_task(snapshot);
@@ -372,14 +391,15 @@ impl App {
                         self.goal.clone_from(&snapshot.goal);
                         self.criteria.clone_from(&snapshot.criteria);
                         self.next_action.clone_from(&snapshot.next_action);
+                        self.command.clone_from(&snapshot.command);
                         self.redacted = snapshot.redacted;
                         if snapshot.redacted {
                             self.notice = "Identifiable secrets were masked in local storage. Detection is incomplete; review exports before sharing.".into();
                         }
                         self.drafts.clone_from(&snapshot.drafts);
                         self.storage = StorageState::Saved;
-                        if self.quit_after_save {
-                            self.quit = true;
+                        if let Some(command) = self.pending_command.take() {
+                            self.execution.prepare_command(self.task_id, &command);
                         }
                     }
                 }
@@ -389,7 +409,11 @@ impl App {
                     self.tasks.push(snapshot);
                 }
             }
-            store::Event::Managed { project, affected } => {
+            store::Event::Managed {
+                project,
+                affected,
+                warning,
+            } => {
                 self.transitioning = false;
                 self.usage_bytes = project.usage_bytes;
                 let current_removed = self.task_id > 0
@@ -413,14 +437,58 @@ impl App {
                     .task_selection
                     .min(self.visible_tasks().count().saturating_sub(1));
                 self.delete_targets.clear();
+                self.delete_preview.clear();
                 self.notice = format!(
                     "Updated {} selected local task records. Repository files and exports were not changed.",
                     affected.len()
                 );
+                if let Some(warning) = warning {
+                    self.notice
+                        .push_str(&format!(" Cleanup warning: {warning}"));
+                }
             }
             store::Event::ManagementFailed(message) => {
                 self.transitioning = false;
+                self.deletion_preview_pending = false;
                 self.notice = format!("Task operation failed: {message}. No automatic retry.");
+            }
+            store::Event::DeletePreview {
+                targets,
+                expired_before,
+            } => {
+                if self.deletion_preview_pending
+                    && targets
+                        .iter()
+                        .map(|target| target.task.id)
+                        .eq(self.delete_targets.iter().copied())
+                {
+                    self.deletion_preview_pending = false;
+                    self.transitioning = false;
+                    self.delete_preview = targets;
+                    self.delete_page = 0;
+                    self.delete_expired_before = expired_before;
+                    self.surface_scroll[ScrollSurface::Preview.index()] = 0;
+                    self.confirmation = Some(Confirmation {
+                        kind: ConfirmationKind::DeleteTasks,
+                        destructive: false,
+                    });
+                }
+            }
+            store::Event::Context { task_id, result } => {
+                self.sources.stored(self.task_id, task_id, result);
+            }
+            store::Event::Run {
+                task_id,
+                request_id,
+                run_id,
+                result,
+            } => {
+                self.execution.store_event(
+                    task_id,
+                    request_id.as_deref(),
+                    run_id.as_deref(),
+                    result.map(|response| *response),
+                );
             }
             store::Event::Failed { revision, message } => {
                 self.transitioning = false;
@@ -430,6 +498,7 @@ impl App {
                 }
             }
         }
+        self.settle_exit();
     }
 
     pub fn editor_label(&self) -> &str {
@@ -437,6 +506,7 @@ impl App {
             store::EditorField::Goal => "Goal",
             store::EditorField::Criteria => "Acceptance criteria",
             store::EditorField::NextAction => "Next action",
+            store::EditorField::Command => "Command / explicit JSON argv or shell",
         }
     }
 
@@ -450,6 +520,7 @@ impl App {
                 .collect::<Vec<_>>()
                 .join("\n"),
             store::EditorField::NextAction => self.next_action.clone(),
+            store::EditorField::Command => self.command.clone(),
         }
     }
 
@@ -499,6 +570,7 @@ impl App {
             id: self.task_id,
             criteria: self.criteria.clone(),
             next_action: self.next_action.clone(),
+            command: self.command.clone(),
             complete: self.complete,
             drafts,
             navigation: self.navigation(),
@@ -511,6 +583,7 @@ impl App {
 
     fn load_task(&mut self, snapshot: store::Snapshot) {
         self.task_id = snapshot.id;
+        self.pending_command = None;
         self.goal = snapshot.goal;
         self.form = snapshot.form;
         self.preview_form = self.form;
@@ -518,6 +591,7 @@ impl App {
         self.saved_revision = snapshot.revision;
         self.criteria = snapshot.criteria;
         self.next_action = snapshot.next_action;
+        self.command = snapshot.command;
         self.complete = snapshot.complete;
         self.updated_at = snapshot.updated_at;
         self.archived = snapshot.archived;
@@ -570,7 +644,15 @@ impl App {
     }
 
     fn new_task(&mut self) {
-        if !matches!(self.storage, StorageState::Saved) || self.save_requested {
+        self.request_navigation(execution::Action::NewTask);
+    }
+
+    fn finish_new_task(&mut self) {
+        if !matches!(self.storage, StorageState::Saved)
+            || self.save_requested
+            || self.sources.persistence_pending()
+            || self.sources.store_failed
+        {
             self.notice = "Finish or retry the current save before creating another task.".into();
             return;
         }
@@ -583,10 +665,6 @@ impl App {
     }
 
     fn select_task(&mut self) {
-        if !matches!(self.storage, StorageState::Saved) || self.save_requested {
-            self.notice = "Finish or retry the current save before switching tasks.".into();
-            return;
-        }
         if self.show_archived {
             self.notice = "Restore this archived task before resuming it.".into();
             return;
@@ -596,10 +674,115 @@ impl App {
             .nth(self.task_selection)
             .map(|task| task.id);
         if let Some(id) = selected {
-            self.switch_task = Some(id);
-            self.transitioning = true;
-            self.storage = StorageState::Loading;
+            self.request_navigation(execution::Action::SwitchTask(id));
         }
+    }
+
+    fn request_navigation(&mut self, action: execution::Action) {
+        if let Some(action) = self.execution.request_navigation(action) {
+            self.apply_execution_action(action);
+        } else if self.execution.visible() {
+            self.open_overlay(Overlay::Execution);
+        }
+    }
+
+    pub fn apply_execution_action(&mut self, action: execution::Action) {
+        match action {
+            execution::Action::NewTask => self.finish_new_task(),
+            execution::Action::Quit => self.finish_request_quit(),
+            execution::Action::SelectForm(index) => {
+                if self.form != index {
+                    self.form = index;
+                    self.changed_task();
+                }
+                if self.overlay == Some(Overlay::Execution) {
+                    self.close_overlay();
+                }
+                if self.overlay == Some(Overlay::Forms) {
+                    self.close_overlay();
+                }
+            }
+            execution::Action::EditCommand => {
+                self.execution.invalidate();
+                self.pending_command = None;
+                self.begin_edit_field(store::EditorField::Command);
+            }
+            execution::Action::SwitchTask(id) => {
+                if !matches!(self.storage, StorageState::Saved)
+                    || self.save_requested
+                    || self.sources.persistence_pending()
+                    || self.sources.store_failed
+                {
+                    self.notice = "Finish or retry task/context saves before switching; the current task was retained.".into();
+                } else {
+                    self.switch_task = Some(id);
+                    self.transitioning = true;
+                    self.storage = StorageState::Loading;
+                }
+            }
+        }
+    }
+
+    pub fn settle_exit(&mut self) {
+        if self.quit_after_save
+            && matches!(self.storage, StorageState::Saved)
+            && !self.sources.persistence_pending()
+            && !self.execution.busy()
+        {
+            if self.sources.store_failed {
+                self.quit_after_save = false;
+                self.confirmation = Some(Confirmation {
+                    kind: ConfirmationKind::Quit,
+                    destructive: false,
+                });
+            } else {
+                self.quit = true;
+            }
+        }
+    }
+
+    fn source_key(&mut self, key: KeyEvent) -> bool {
+        match self
+            .sources
+            .key(key, self.task_id, self.repository.as_ref())
+        {
+            sources::Action::Close => self.close_overlay(),
+            sources::Action::Quit => self.request_quit(),
+            sources::Action::RefreshRepository => {
+                self.repo_refresh = true;
+                self.repo_loading = true;
+            }
+            sources::Action::Scroll(code) => return self.scroll_key(code),
+            sources::Action::Changed => self.surface_scroll[ScrollSurface::Preview.index()] = 0,
+        }
+        true
+    }
+
+    fn execution_key(&mut self, key: KeyEvent) -> bool {
+        if (self.width < 60 || self.height < 18)
+            && key.code == KeyCode::Enter
+            && matches!(
+                self.execution.confirmation,
+                Some(execution::Confirmation::Approval)
+            )
+        {
+            return false;
+        }
+        if key.modifiers == KeyModifiers::CONTROL
+            && key.code == KeyCode::Char('k')
+            && !self.execution.searching
+            && self.execution.confirmation.is_none()
+        {
+            self.open_overlay(Overlay::Palette);
+            return true;
+        }
+        if let Some(action) = self.execution.key(key) {
+            self.apply_execution_action(action);
+        }
+        if !self.execution.visible() && self.overlay == Some(Overlay::Execution) {
+            self.close_overlay();
+        }
+        true
     }
 
     pub fn visible_tasks(&self) -> impl Iterator<Item = &store::Snapshot> {
@@ -655,10 +838,12 @@ impl App {
             self.notice = "No eligible tasks selected; nothing was deleted.".into();
             return;
         }
-        self.surface_scroll[ScrollSurface::Preview.index()] = 0;
-        self.confirmation = Some(Confirmation {
-            kind: ConfirmationKind::DeleteTasks,
-            destructive: false,
+        self.delete_preview.clear();
+        self.deletion_preview_pending = true;
+        self.transitioning = true;
+        self.management = Some(store::Management::PreviewDelete {
+            ids: self.delete_targets.clone(),
+            expired_before: self.delete_expired_before,
         });
     }
 
@@ -666,11 +851,12 @@ impl App {
         if self.complete {
             self.notice =
                 "Already complete. Editing goal or criteria requires explicit reopening.".into();
-        } else if self
-            .drafts
-            .iter()
-            .any(|draft| draft.field != store::EditorField::NextAction)
-        {
+        } else if self.drafts.iter().any(|draft| {
+            matches!(
+                draft.field,
+                store::EditorField::Goal | store::EditorField::Criteria
+            )
+        }) {
             self.notice =
                 "Apply or discard retained goal/criteria drafts before completing the task.".into();
         } else if self.criteria.is_empty() || self.criteria.iter().any(|criterion| !criterion.met) {
@@ -753,6 +939,14 @@ impl App {
                 true
             }
             Event::Paste(text)
+                if self.overlay == Some(Overlay::Sources)
+                    && self.sources.editor.is_some()
+                    && self.confirmation.is_none()
+                    && !self.transitioning =>
+            {
+                self.sources.paste(&text)
+            }
+            Event::Paste(text)
                 if self.editing
                     && self.confirmation.is_none()
                     && !self.quit_after_save
@@ -779,6 +973,12 @@ impl App {
 
     fn key(&mut self, key: KeyEvent) -> bool {
         if self.transitioning {
+            if self.deletion_preview_pending && key.code == KeyCode::Esc {
+                self.deletion_preview_pending = false;
+                self.transitioning = false;
+                self.management = None;
+                return true;
+            }
             return false;
         }
         if self.quit_after_save {
@@ -790,6 +990,14 @@ impl App {
         }
         if self.confirmation.is_some() {
             return self.confirmation_key(key);
+        }
+        if self.overlay == Some(Overlay::Sources)
+            && (self.sources.editor.is_some() || self.sources.confirmation.is_some())
+        {
+            return self.source_key(key);
+        }
+        if self.overlay == Some(Overlay::Execution) {
+            return self.execution_key(key);
         }
         // Auto-repeat must never apply a draft or approve/open a destructive action.
         if key.kind == KeyEventKind::Repeat
@@ -821,6 +1029,7 @@ impl App {
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
             && self.overlay.is_some()
+            && self.overlay != Some(Overlay::Sources)
         {
             self.close_overlay();
             return true;
@@ -846,12 +1055,15 @@ impl App {
             return true;
         }
         if key.code == KeyCode::Char('r')
-            && self.overlay != Some(Overlay::Repository)
+            && !matches!(self.overlay, Some(Overlay::Repository | Overlay::Sources))
             && matches!(self.storage, StorageState::Failed(_))
         {
             self.retry_storage = true;
             self.storage = StorageState::Loading;
             return true;
+        }
+        if self.overlay == Some(Overlay::Sources) {
+            return self.source_key(key);
         }
         if let Some(overlay) = self.overlay {
             return self.overlay_key(overlay, key.code);
@@ -869,6 +1081,8 @@ impl App {
             KeyCode::Char('a') => self.begin_edit_field(store::EditorField::NextAction),
             KeyCode::Char('d') => self.request_complete(),
             KeyCode::Char('w') => self.open_overlay(Overlay::Repository),
+            KeyCode::Char('v') => self.open_overlay(Overlay::Sources),
+            KeyCode::Char('j') => self.open_overlay(Overlay::Execution),
             KeyCode::Tab | KeyCode::BackTab => {
                 return self.cycle_focus(key.code == KeyCode::BackTab);
             }
@@ -969,7 +1183,16 @@ impl App {
     }
 
     fn request_quit(&mut self) {
-        if !self.goal.is_empty() || self.draft_dirty() || self.revision != self.saved_revision {
+        self.request_navigation(execution::Action::Quit);
+    }
+
+    fn finish_request_quit(&mut self) {
+        if !self.goal.is_empty()
+            || self.draft_dirty()
+            || self.revision != self.saved_revision
+            || self.sources.persistence_pending()
+            || self.sources.store_failed
+        {
             self.confirmation = Some(Confirmation {
                 kind: ConfirmationKind::Quit,
                 destructive: false,
@@ -977,6 +1200,15 @@ impl App {
         } else {
             self.quit = true;
         }
+    }
+
+    pub fn deletion_pages(&self) -> usize {
+        self.delete_preview
+            .iter()
+            .map(|target| 1 + target.excerpts.len() + target.runs.len())
+            .sum::<usize>()
+            .div_ceil(DELETE_PREVIEW_PAGE)
+            .max(1)
     }
 
     fn confirmation_key(&mut self, key: KeyEvent) -> bool {
@@ -993,6 +1225,23 @@ impl App {
             && matches!(key.code, KeyCode::PageUp | KeyCode::PageDown)
         {
             return self.scroll_key(key.code);
+        }
+        if self
+            .confirmation
+            .is_some_and(|c| c.kind == ConfirmationKind::DeleteTasks)
+            && matches!(key.code, KeyCode::Char('n' | 'p'))
+        {
+            self.delete_page = if key.code == KeyCode::Char('n') {
+                (self.delete_page + 1).min(self.deletion_pages() - 1)
+            } else {
+                self.delete_page.saturating_sub(1)
+            };
+            self.surface_scroll[ScrollSurface::Preview.index()] = 0;
+            self.confirmation
+                .as_mut()
+                .expect("active deletion review")
+                .destructive = false;
+            return true;
         }
         let confirmation = self.confirmation.as_mut().expect("active confirmation");
         match key.code {
@@ -1026,6 +1275,8 @@ impl App {
                         }
                         ConfirmationKind::Quit => {
                             if matches!(self.storage, StorageState::Saving | StorageState::Loading)
+                                || self.sources.persistence_pending()
+                                || self.execution.busy()
                             {
                                 self.quit_after_save = true;
                             } else {
@@ -1193,7 +1444,12 @@ impl App {
     }
 
     fn begin_edit_field(&mut self, field: store::EditorField) {
-        if self.complete && field != store::EditorField::NextAction {
+        if self.complete
+            && matches!(
+                field,
+                store::EditorField::Goal | store::EditorField::Criteria
+            )
+        {
             self.confirmation = Some(Confirmation {
                 kind: ConfirmationKind::Reopen(field),
                 destructive: false,
@@ -1204,6 +1460,10 @@ impl App {
     }
 
     fn open_editor(&mut self, field: store::EditorField) {
+        if field == store::EditorField::Command {
+            self.execution.invalidate();
+            self.pending_command = None;
+        }
         self.save_selection();
         self.edit_return = self.overlay_frame();
         self.overlay = None;
@@ -1227,6 +1487,10 @@ impl App {
         match self.editor_field {
             store::EditorField::Goal => self.goal = std::mem::take(&mut self.input),
             store::EditorField::NextAction => self.next_action = std::mem::take(&mut self.input),
+            store::EditorField::Command => {
+                self.command = std::mem::take(&mut self.input);
+                self.pending_command = Some(self.command.clone());
+            }
             store::EditorField::Criteria => {
                 let lines: Vec<&str> = self
                     .input
@@ -1322,18 +1586,27 @@ impl App {
         }
         if matches!(
             overlay,
-            Overlay::Tasks | Overlay::Criteria | Overlay::Repository
+            Overlay::Tasks | Overlay::Criteria | Overlay::Repository | Overlay::Sources
         ) {
             self.surface_scroll[ScrollSurface::Preview.index()] = 0;
         }
         self.overlay = Some(overlay);
         self.restore_selection();
+        if overlay == Overlay::Sources {
+            self.sources
+                .catalogue(self.task_id, self.repository.as_ref());
+        } else if overlay == Overlay::Execution {
+            self.execution.open(self.task_id);
+        }
     }
 
     fn close_overlay(&mut self) {
         self.save_selection();
         let frame = self.overlay_history.pop();
         self.restore_frame(frame);
+        if self.overlay == Some(Overlay::Execution) {
+            self.execution.open(self.task_id);
+        }
     }
 
     fn task_overlay_key(&mut self, overlay: Overlay, key: KeyCode) -> bool {
@@ -1497,11 +1770,7 @@ impl App {
                     return true;
                 }
                 if overlay == Overlay::Forms {
-                    if self.form != selection {
-                        self.form = selection;
-                        self.changed_task();
-                    }
-                    self.close_overlay();
+                    self.request_navigation(execution::Action::SelectForm(selection));
                 } else {
                     self.close_overlay();
                     match selection {
@@ -1519,6 +1788,8 @@ impl App {
                         11 => self.begin_edit_field(store::EditorField::NextAction),
                         12 => self.request_complete(),
                         13 => self.open_overlay(Overlay::Repository),
+                        14 => self.open_overlay(Overlay::Sources),
+                        15 => self.open_overlay(Overlay::Execution),
                         _ => unreachable!("palette selection is bounded"),
                     }
                 }
@@ -1535,9 +1806,13 @@ impl App {
             Some(Overlay::Companion) => ScrollSurface::Companion,
             Some(Overlay::Inspector) => ScrollSurface::Inspector,
             Some(Overlay::Help) => ScrollSurface::Help,
-            Some(Overlay::Preview | Overlay::Tasks | Overlay::Criteria | Overlay::Repository) => {
-                ScrollSurface::Preview
-            }
+            Some(
+                Overlay::Preview
+                | Overlay::Tasks
+                | Overlay::Criteria
+                | Overlay::Repository
+                | Overlay::Sources,
+            ) => ScrollSurface::Preview,
             _ => match self.effective_focus() {
                 Pane::Companion => ScrollSurface::Companion,
                 Pane::Workspace => ScrollSurface::Workspace,
@@ -2326,10 +2601,34 @@ mod tests {
         modified_key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
         key(&mut app, KeyCode::Char('t'));
         key(&mut app, KeyCode::Delete);
+        assert!(matches!(
+            app.management.take(),
+            Some(store::Management::PreviewDelete { .. })
+        ));
+        app.store_event(store::Event::DeletePreview {
+            targets: vec![store::DeletionTarget {
+                task: app.tasks[0].clone(),
+                excerpts: Vec::new(),
+                runs: Vec::new(),
+            }],
+            expired_before: None,
+        });
         key(&mut app, KeyCode::Enter);
         assert!(app.management.is_none());
         assert_eq!(app.tasks[0].id, 7);
         key(&mut app, KeyCode::Delete);
+        assert!(matches!(
+            app.management.take(),
+            Some(store::Management::PreviewDelete { .. })
+        ));
+        app.store_event(store::Event::DeletePreview {
+            targets: vec![store::DeletionTarget {
+                task: app.tasks[0].clone(),
+                excerpts: Vec::new(),
+                runs: Vec::new(),
+            }],
+            expired_before: None,
+        });
         key(&mut app, KeyCode::Right);
         key(&mut app, KeyCode::Enter);
         assert!(
@@ -2342,6 +2641,7 @@ mod tests {
                 usage_bytes: 8192,
             },
             affected: vec![7],
+            warning: None,
         });
         assert_eq!(app.task_id, 0);
         assert_eq!(app.goal, "new unsaved goal");

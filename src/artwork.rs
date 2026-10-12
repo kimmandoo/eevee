@@ -765,6 +765,8 @@ mod tests {
             layout_explicit: false,
             data_dir: path.join("data"),
             storage_policy: crate::store::Policy::default(),
+            context_exclusions: Vec::new(),
+            capture_capacity: 64 * 1024,
         }
     }
 
