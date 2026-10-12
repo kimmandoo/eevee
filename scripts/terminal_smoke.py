@@ -209,8 +209,19 @@ class Session:
             key: environment.get(key) for key in
             ("TERM", "COLORTERM", "LC_ALL", "LC_CTYPE", "LANG", "NO_COLOR", "PYWINPTY_BACKEND")}}]
         self.text = ""
-        self.screen = pyte.Screen(*size)
-        self.stream = pyte.Stream(self.screen)
+        class TerminalScreen(pyte.Screen):
+            def window_manipulation(self, operation, lines=0, columns=0):
+                # ConPTY announces its resize in the output stream. Apply it
+                # at that boundary, not before draining old-size output.
+                if operation == 8 and lines > 0 and columns > 0:
+                    self.resize(lines=lines, columns=columns)
+
+        class TerminalStream(pyte.Stream):
+            csi = {**pyte.Stream.csi, "t": "window_manipulation"}
+            events = pyte.Stream.events | {"window_manipulation"}
+
+        self.screen = TerminalScreen(*size)
+        self.stream = TerminalStream(self.screen)
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.mode_before = None
         self.mode_raw = None
@@ -258,11 +269,18 @@ class Session:
         finally:
             self.data.put(None)
 
-    def pump(self, duration=0.25):
+    def pump(self, duration=0.25, settle=False):
         deadline = time.monotonic() + duration
-        while time.monotonic() < deadline:
+        maximum = deadline + 2 if settle else deadline
+        last_output = time.monotonic()
+        while time.monotonic() < maximum:
+            now = time.monotonic()
+            horizon = max(deadline, last_output + 0.12) if settle else deadline
+            if now >= horizon and (not settle or self.data.empty()):
+                break
             try:
-                data = self.data.get(timeout=max(0.001, deadline - time.monotonic()))
+                timeout = 0.001 if not self.data.empty() else max(0.001, min(maximum, horizon) - now)
+                data = self.data.get(timeout=timeout)
             except queue.Empty:
                 break
             if data is None:
@@ -274,8 +292,12 @@ class Session:
             text = data if isinstance(data, str) else self.decoder.decode(data)
             self.text += text
             self.stream.feed(text)
+            last_output = time.monotonic()
             if len(self.text) > 16 * 1024 * 1024:
                 raise AssertionError("terminal transcript exceeded 16 MiB")
+        if settle:
+            assert time.monotonic() < maximum or time.monotonic() - last_output >= 0.12, \
+                "native console output did not settle within the bounded capture window"
         if not WINDOWS and self.alive():
             import termios
             modes = termios.tcgetattr(self.slave)
@@ -293,7 +315,7 @@ class Session:
             pending = keys.encode("utf-8")
             while pending:
                 pending = pending[os.write(self.master, pending):]
-        self.pump()
+        self.pump(settle=WINDOWS)
 
     def paste(self, text):
         self.send(ESC + "[200~" + text + ESC + "[201~")
@@ -307,9 +329,10 @@ class Session:
             import termios
             fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", size[1], size[0], 0, 0))
             os.kill(self.process.pid, signal.SIGWINCH)
-        self.screen.resize(lines=size[1], columns=size[0])
+        if not WINDOWS:
+            self.screen.resize(lines=size[1], columns=size[0])
         self.events.append({"resize": list(size)})
-        self.pump()
+        self.pump(settle=WINDOWS)
 
     def display(self):
         # Pyte's display accessor assumes wide-glyph continuation cells were
@@ -396,7 +419,8 @@ class Session:
                 os.close(self.slave)
                 os.close(self.master)
             self.reader.join(timeout=2)
-            (self.directory / "terminal.ansi").write_text(self.text, encoding="utf-8")
+            with (self.directory / "terminal.ansi").open("w", encoding="utf-8", newline="") as transcript:
+                transcript.write(self.text)
             save_json(self.directory / "events.json", self.events)
 
 
@@ -453,6 +477,7 @@ def exercise_ui(session, size, cwd):
         assert session.display() != before, name + " did not open"
         session.capture(name)
         session.send(ESC)
+        session.capture(name + "-back")
         assert session.display() == before, name + " back did not restore the invoking surface"
     session.send("f")
     for index, form in enumerate(FORMS):

@@ -53,6 +53,8 @@ Artwork rights remain with the original rights holders. Downloading or attributi
 
 Destructive dialogs start on Keep/Stay. Tab/Right explicitly selects discard, then Enter confirms; repeated Enter cannot turn neutral inspection into approval. No active jobs exist yet.
 
+Windows uses a single console-record reader with VT input enabled: bracketed paste stays literal, Alt-code release text is distinguished from ordinary key releases, and UTF-16 surrogate pairs are joined. The terminal guard restores the exact original input-mode bits on normal/error/panic exit. POSIX retains Crossterm's input reader.
+
 The layout uses three panes at 120+ columns, two at 90–119, and one with drawers at 60–89. Below 60 columns or 18 rows, resize guidance preserves the draft; back and safe exit remain available. Local focus, selections, and scroll offsets survive overlays and resize. The picker uses a 3x3 grid at >=90x30, otherwise a selected-centered list and portrait; `p` exposes role/artifact details at compact sizes. Rendering is event-driven with no idle animation or timer. Linear mode exposes the same local actions without requiring artwork; screen-reader compatibility is not claimed without real assistive-terminal evidence.
 
 Auto color uses advertised true-color support, then 256-color support, otherwise monochrome. Nonempty `NO_COLOR` overrides color flags. `TERM=dumb` also selects ASCII; a non-UTF-8 locale selects ASCII borders. Dark and light themes are explicit choices.

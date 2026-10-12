@@ -21,8 +21,10 @@ One native Rust binary and one Cargo package with these module boundaries; an op
 - `agent`: profile/version admission, request/context assembly, normalized events, and concrete Codex/Claude/ACP adapters.
 - `artwork`: bounded local PNG/source-manifest loading, explicit pinned downloads, and cached image-derived cells.
 - `native`: terminal/version-qualified Kitty encoding, physical-cell diff widths, placement/resource lifecycle, and kernel-only cell-size discovery.
+- `input`: one terminal-input owner; Crossterm on POSIX, bounded VT/Unicode console records on Windows.
+- `terminal`: capture/restore terminal modes and graphics cleanup on normal/error/panic exit.
 
-The reducer owns mutable application state. Workers send typed events; render functions read state and do no I/O. Store writes run on a dedicated blocking worker. Large payloads are referenced rather than repeatedly cloned into events.
+The reducer owns mutable application state. Workers send typed events; render functions perform no I/O and report only derived viewport scroll bounds back to state. Store writes run on a dedicated blocking worker. Large payloads are referenced rather than repeatedly cloned into events.
 
 Connect Codex first through a release-pinned local app-server child. Add the official Claude Agent SDK through an optional TypeScript sidecar, then a shared ACP v1 client exercised against both OpenCode and Gemini. The SDK bridge is a deliberate compatibility exception, not a rewrite or mandatory runtime for local work. Unsupported CLIs use a reviewed manual handoff, not terminal scraping. See [agent compatibility](AGENT_COMPATIBILITY.md) for primary sources, exact protocol distinctions, auth/terms constraints, and acceptance scenarios.
 

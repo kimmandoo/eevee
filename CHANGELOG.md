@@ -2,6 +2,7 @@
 
 ## 2026-10-12
 
+- test(platform): synchronized bounded ConPTY captures with queued output and ordered resize notifications, retained strict overlay restoration checks, and preserved exact transcript newlines.
 - fix(windows): preserved combining/astral text and literal bracketed paste through a bounded single-owner console-input decoder, and restored the exact original input mode on every terminal exit path.
 - build(rust): raised the minimum toolchain to Rust 1.90 to match the pinned image-rendering dependency graph.
 - perf(ui): reused borrowed goal lines and untruncated header text during redraws while preserving pinned actions and bounded scrolling.
