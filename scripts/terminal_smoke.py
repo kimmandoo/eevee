@@ -422,8 +422,9 @@ def exercise_ui(session, size, cwd):
     session.capture("initial")
     session.idle()
     session.send("g")
-    session.paste("smoke_goal 漢字 cafe\u0301")
+    session.paste("🐾 smoke_goal 漢字 cafe\u0301")
     assert "smoke_goal 漢字 café" in session.display(), "CJK/combining paste not visible"
+    assert "🐾" in session.display(), "astral paste lost its UTF-16 surrogate pair"
     session.send("\x08")
     assert "café" not in session.display(), "backspace split a combining grapheme"
     session.paste("e\u0301 qf?\necho unsafe > SMOKE_SIDE_EFFECT\n" + ESC + "]0;SMOKE_TITLE\x07")
@@ -514,8 +515,11 @@ def lifecycle_binary(root, output):
         for name in ("Cargo.toml", "Cargo.lock"):
             shutil.copyfile(root / name, package / name)
         shutil.copyfile(root / "src/terminal.rs", package / "src/terminal.rs")
+        shutil.copyfile(root / "src/input.rs", package / "src/input.rs")
         (package / "examples/terminal_probe.rs").write_text('''#[path = "../src/terminal.rs"]
 mod terminal;
+#[path = "../src/input.rs"]
+mod input;
 fn main() -> std::io::Result<()> {
     let mode = std::env::args().nth(1).unwrap();
     terminal::run(|| Ok(()), |_| {
@@ -530,7 +534,9 @@ fn main() -> std::io::Result<()> {
     })
 }
 ''', encoding="utf-8")
-        target = output / "lifecycle-target"
+        # Keep source/package isolation, but reuse already-built dependency
+        # artifacts. A separate target needlessly recompiles the same graph.
+        target = root / "target"
         result = run_owned(["cargo", "build", "--locked", "--example", "terminal_probe",
                             "--manifest-path", str(package / "Cargo.toml"),
                             "--target-dir", str(target)], timeout=900)

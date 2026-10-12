@@ -18,10 +18,14 @@ const RAW: u8 = 1;
 const ALTERNATE: u8 = 2;
 const CURSOR: u8 = 4;
 const PASTE: u8 = 8;
+#[cfg(windows)]
+const WINDOWS_INPUT: u8 = 16;
 
 struct Modes {
     active: AtomicU8,
     cleanup: fn() -> io::Result<()>,
+    #[cfg(windows)]
+    original_input_mode: u32,
 }
 
 impl Modes {
@@ -30,6 +34,11 @@ impl Modes {
         if !is_raw_mode_enabled()? {
             self.active.fetch_or(RAW, Ordering::SeqCst);
             enable_raw_mode()?;
+        }
+        #[cfg(windows)]
+        {
+            self.active.fetch_or(WINDOWS_INPUT, Ordering::SeqCst);
+            crate::input::enable_vt_input()?;
         }
         let mut stdout = io::stdout();
         self.active.fetch_or(ALTERNATE, Ordering::SeqCst);
@@ -50,6 +59,14 @@ impl Modes {
         record(&mut error, "clear owned graphics", (self.cleanup)());
         if active & RAW != 0 {
             record(&mut error, "disable raw mode", disable_raw_mode());
+        }
+        #[cfg(windows)]
+        if active & (RAW | WINDOWS_INPUT) != 0 {
+            record(
+                &mut error,
+                "restore original Windows input mode",
+                crate::input::restore_mode(self.original_input_mode),
+            );
         }
         if active & PASTE != 0 {
             record(
@@ -105,6 +122,8 @@ where
     let modes = Arc::new(Modes {
         active: AtomicU8::new(0),
         cleanup,
+        #[cfg(windows)]
+        original_input_mode: crate::input::capture_mode()?,
     });
     let original_hook = Arc::new(panic::take_hook());
     let panic_modes = Arc::clone(&modes);

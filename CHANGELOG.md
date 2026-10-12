@@ -2,6 +2,8 @@
 
 ## 2026-10-12
 
+- fix(windows): preserved combining/astral text and literal bracketed paste through a bounded single-owner console-input decoder, and restored the exact original input mode on every terminal exit path.
+- build(rust): raised the minimum toolchain to Rust 1.90 to match the pinned image-rendering dependency graph.
 - perf(ui): reused borrowed goal lines and untruncated header text during redraws while preserving pinned actions and bounded scrolling.
 - ci(platform): added pinned native macOS/Linux/Windows build, test, Clippy, and real PTY/ConPTY lifecycle jobs with host-qualified evidence artifacts and owned-process cleanup.
 - feat(companion): delivered the sanctuary, pinned nine-species artwork cache, image-derived cells and qualified native Kitty rendering, deliberate grid/list handoffs, linear keyboard navigation, bounded scrolling, and safe Unicode draft/exit interactions; fixed escaped-image row width and nonregular-asset startup hangs.

@@ -2,6 +2,7 @@ mod app;
 mod artwork;
 mod config;
 mod domain;
+mod input;
 mod native;
 mod terminal;
 mod ui;
@@ -58,6 +59,7 @@ fn run(config: Config) -> io::Result<()> {
         let mut graphics = native::NativeGraphics::new(&config);
         let mut dirty = true;
         let mut targets = Vec::with_capacity(9);
+        let mut input = input::Input::new()?;
         loop {
             if dirty {
                 ui::portrait_targets(
@@ -75,7 +77,7 @@ fn run(config: Config) -> io::Result<()> {
                 })?;
             }
             // One input owner; kernel cell-size discovery never reads stdin.
-            let event = event::read()?;
+            let event = input.read()?;
             if matches!(event, event::Event::Resize(_, _)) {
                 graphics.discover_cell();
             }

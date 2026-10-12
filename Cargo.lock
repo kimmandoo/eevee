@@ -344,6 +344,7 @@ dependencies = [
  "sha2",
  "unicode-segmentation",
  "ureq",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
