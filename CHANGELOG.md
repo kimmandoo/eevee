@@ -2,6 +2,7 @@
 
 ## 2026-10-13
 
+- fix(windows): repainted state-changed console frames to prevent indexed-color blank cells from retaining prior editor/overlay text, while keeping idle rendering event-driven.
 - test(platform): added native ConPTY alternate-buffer restoration checks using preserved primary-screen contents instead of requiring an unrelayed external VT marker.
 - fix(windows): composed displayed console graphemes without changing editable text and invalidated reflowed console buffers on resize before repainting.
 

@@ -62,6 +62,11 @@ fn run(config: Config) -> io::Result<()> {
         let mut input = input::Input::new()?;
         loop {
             if dirty {
+                // ConPTY's legacy cell projection can turn changed blanks into
+                // cursor moves over old text, especially with indexed colors.
+                // Repaint only on state changes; idle input stays blocking.
+                #[cfg(windows)]
+                terminal.clear()?;
                 ui::portrait_targets(
                     &app,
                     ratatui::layout::Rect::new(0, 0, app.width, app.height),
@@ -83,10 +88,6 @@ fn run(config: Config) -> io::Result<()> {
             let resized = matches!(event, event::Event::Resize(_, _));
             if resized {
                 graphics.discover_cell();
-                // ConPTY can reflow its cell buffer even when a queued resize
-                // has the same final dimensions as Ratatui's cached viewport.
-                #[cfg(windows)]
-                terminal.clear()?;
             }
             dirty = app.update(event);
             #[cfg(windows)]
