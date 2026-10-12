@@ -6,7 +6,7 @@ A local-first Rust terminal workbench for LLM-assisted development: one persiste
 
 The executable is **`ev`**; the project and existing `eevee` cache locations keep their names. Code is licensed under [Apache-2.0](LICENSE). No franchise image bytes are packaged, and the code license grants no image/trademark rights.
 
-Public Releases and remote `curl | sh` bootstrapping are deliberately **withheld** pending the existing rights/release gates. For now, download the native package artifact from the [native workflow](https://github.com/kimmandoo/eevee/actions/workflows/native.yml), then unzip that outer artifact. GitHub may require sign-in for CI artifact downloads; running or installing the downloaded package requires no account, Rust, Python, Node, or sudo.
+Public Releases and remote `curl | sh` bootstrapping are deliberately **withheld** pending the existing rights/release gates. Download the native `ev-*` artifact from the [verified installation run](https://github.com/kimmandoo/eevee/actions/runs/38282091481), then unzip that outer artifact. Those packages contain source `ea8ade7`; later workbench changes are not implied. GitHub may require sign-in for CI artifact downloads; running or installing the downloaded package requires no account, Rust, Python, Node, or sudo.
 
 | Machine | CI artifact / inner archive |
 | --- | --- |
@@ -142,7 +142,7 @@ Run `python scripts/terminal_smoke.py --binary target/release/ev --output target
 
 Each row passed locked tests, warning-free Clippy, release build, seven display modes/four sizes, literal CJK/combining/astral paste, resize/back/selection, safe exit, non-TTY CLI checks, and normal/error/panic restoration. Windows checked actual primary-screen contents and original console-mode bits rather than requiring a VT marker ConPTY did not relay. Its legacy console path composes displayed glyphs and freshly repaints state-changed frames; idle has no timer. This is a correctness choice, not a performance benchmark.
 
-These historical core rows do not certify arbitrary GUI terminals, native images, providers, filesystem/process parity, or installable release packages. The only native-image qualification remains the separate macOS arm64/Ghostty 1.3.1 acceptance described above. Agent adapters remain unavailable; the current offline installation preview has separate local evidence in the checkpoint and pending five-row CI acceptance.
+These historical core rows do not certify arbitrary GUI terminals, native images, providers, or filesystem/process parity. The separate [installation run 38282091481](https://github.com/kimmandoo/eevee/actions/runs/38282091481), source `ea8ade7`, passed all five native package rows: each recorded 14 installation-suite cases (13 installer cases plus its terminal suite) and 34 installed-binary PTY/ConPTY scenarios. Its verified `ev-*` artifacts are downloadable from that run. Native-image qualification remains limited to macOS arm64/Ghostty 1.3.1; providers and full P03 acceptance remain unavailable.
 
 
 ## Design
