@@ -1,0 +1,7 @@
+# cargo-about 0.9.2; packages include the selected dependency license texts.
+accepted = [
+    "Apache-2.0", "MIT", "Unicode-3.0", "ISC", "BSD-3-Clause", "BSD-2-Clause",
+    "Zlib", "CDLA-Permissive-2.0", "0BSD", "BSL-1.0",
+]
+ignore-build-dependencies = false
+ignore-dev-dependencies = true

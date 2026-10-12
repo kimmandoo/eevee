@@ -2,7 +2,7 @@
 
 ## Active work
 
-Section A is complete: V01, P01, V02A, V02B, V03, and UX01 passed their recorded gates. Native run [38274013013](https://github.com/kimmandoo/eevee/actions/runs/38274013013) passed all five OS/architecture rows, including the recurring indexed-color Windows paste/rendering failure. Section B was not started in this request. **E01 — Durable goal and save acknowledgement** is the next product task; storage/provider capabilities remain unavailable.
+Section A is complete: V01, P01, V02A, V02B, V03, and UX01 passed their recorded gates. Native run [38274013013](https://github.com/kimmandoo/eevee/actions/runs/38274013013) passed all five OS/architecture rows, including the recurring indexed-color Windows paste/rendering failure. The active request is to finish the offline `ev` installation preview, then implement **all of sections B and C**, beginning with **E01 — Durable goal and save acknowledgement**. Their unchecked acceptance remains pending; storage/provider capabilities are not inferred from this request.
 
 Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapter/evidence contract: [agent compatibility](docs/AGENT_COMPATIBILITY.md). An unchecked task may have partial implementation, but its acceptance is not complete; consult its evidence note and the checkpoint.
 
@@ -272,6 +272,7 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 - **Depends on:** P02, Q01, Q02.
 - **Change:** Produce versioned native archives and checksums for the P01 targets, with install/run/uninstall instructions and recorded OS/toolchain/terminal baselines. Separate verified core support from graphics and optional provider compatibility. Include no mandatory Node runtime, credentials, or franchise artwork in the core package. Keep user-data paths stable across upgrades and refuse incompatible schema downgrade without changing data. Do not advertise unverified packages or bypass rights/provider-term review.
 - **Accept:** Download/unpack and run each package on a clean native target without Rust installed; verify checksums, help/version, the interactive local flow, and absence of account/art/network prerequisites. Upgrade from the previous supported data schema (fixture for the first release), resume a task, and attempt an incompatible downgrade without data loss. Uninstall leaves data intact unless the user deliberately invokes documented purge. Publish per-target build/runtime/install evidence plus graphics/provider limitations; unsigned/unnotarized artifacts and any OS trust prompt must be disclosed, never bypassed through a blanket security-disable instruction.
+- **User-directed preview slice:** The current request selected `ev`, Apache-2.0, and verification packages/offline installers only. P01's five native runners now build checksum-qualified archives with dependency notices and install/upgrade/failure-preservation checks. Public Release/remote bootstrap, durable-schema upgrades, full parity/performance, signing/notarization, and rights/provider review remain gated; this does not complete P03 or silently waive P02/Q01/Q02.
 
 ## Phase status
 

@@ -1,5 +1,14 @@
 # Work Checkpoint
 
+## 2026-10-13 — Binary installation preview and requested B/C continuation
+
+- Active request: finish verified offline `ev` installers/packages, then implement **all section B (E01, E02, E03, C01, C02) and section C (R01, R02, UX02, P02)** in dependency order with scoped commits/push and actual runtime acceptance. Later provider tasks remain outside this request.
+- User decisions: Apache-2.0 code license; verification CI packages/installers only, no public Release or remote bootstrap. Project/data identity remains `eevee`.
+- Implemented preview: native archive/checksum/license-notice generation, bounded offline POSIX/PowerShell installers, owned-install upgrade/rollback, five native CI package rows, and installed-binary terminal acceptance. No franchise artwork is bundled.
+- Local evidence: Rust 1.90 formatting, 46 tests, warning-free Clippy and release build passed; generated notices for 176 native dependency packages. `target/installation-smoke/results.json` passed 14 cases (13 installation cases plus installed terminal suite); its terminal result passed 34 actual PTY cases. Real version upgrade/restore was exercised. A corrected exact-three-member symlink archive was separately rejected without changing the installed binary/metadata.
+- Exact next action: commit/push the installation preview and collect native CI results, correcting platform failures before declaring the preview complete. Then start E01 with isolated revision-safe save/quit/reopen acceptance. B/C remain unchecked until implemented and verified.
+- Changed files: manifest/license, CLI help/version, installers, packaging/notices/installation/terminal scripts, native workflow, README, task/design/implementation/changelog/checkpoint. User `.DS_Store` and `AGENTS.md` remain excluded. Public release, later provider acceptance, and full P03 remain outside preview claims.
+
 ## 2026-10-13 — Section A completed and native evidence recorded
 
 - Current request: completed **V01/P01/V02A/V02B/V03/UX01**, with scoped commits and push. The reported recurring Windows CJK/combining CI failure is resolved and verified across the full matrix. Section B was not started.

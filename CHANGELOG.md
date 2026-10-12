@@ -2,6 +2,8 @@
 
 ## 2026-10-13
 
+- feat(distribution): added Apache-2.0 native verification packages, checksum-first offline POSIX/PowerShell installation, ownership-protected replacement, and installed-binary lifecycle coverage; withheld public Release and remote bootstrap.
+- feat(cli): changed the executable and command-line contract to `ev` while preserving project/cache identities.
 - docs(platform): recorded completed section-A acceptance and five verified native core baselines, including 34 Windows ConPTY scenarios and qualified graphics/provider/distribution limits.
 - fix(windows): repainted state-changed console frames to prevent indexed-color blank cells from retaining prior editor/overlay text, while keeping idle rendering event-driven.
 - test(platform): added native ConPTY alternate-buffer restoration checks using preserved primary-screen contents instead of requiring an unrelayed external VT marker.

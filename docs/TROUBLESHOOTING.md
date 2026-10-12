@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-13] Pinned license generator required its CLI feature
+
+- **Context / Symptom:** Installing `cargo-about 0.9.2` without explicit features reported no available binaries.
+- **Root Cause:** This release gates its executable behind the `cli` feature.
+- **Solution:** Used `cargo +1.90.0 install cargo-about --version 0.9.2 --locked --features cli` locally and in native packaging CI; generated target-qualified license data and complete notices successfully on the local host.
+- **Prevention / Reference:** Keep the tool version/features pinned together; notice generation fails packaging on uncovered dependency licenses.
+
 ### [2026-10-13] Windows console reflow retained stale editor cells
 
 - **Context / Symptom:** Native runs `38261999485` and `38265625588` failed strict help/back surface equality after 120×36 -> 39×10 -> 120×36 resizing; captures retained editor borders/footer characters and displaced the space after a decomposed combining glyph.

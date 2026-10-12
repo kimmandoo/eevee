@@ -2,6 +2,48 @@
 
 A local-first Rust terminal workbench for LLM-assisted development: one persistent partner, nine task-specific forms.
 
+## Install a verification binary
+
+The executable is **`ev`**; the project and existing `eevee` cache locations keep their names. Code is licensed under [Apache-2.0](LICENSE). No franchise image bytes are packaged, and the code license grants no image/trademark rights.
+
+Public Releases and remote `curl | sh` bootstrapping are deliberately **withheld** pending the existing rights/release gates. For now, download the native package artifact from the [native workflow](https://github.com/kimmandoo/eevee/actions/workflows/native.yml), then unzip that outer artifact. GitHub may require sign-in for CI artifact downloads; running or installing the downloaded package requires no account, Rust, Python, Node, or sudo.
+
+| Machine | CI artifact / inner archive |
+| --- | --- |
+| macOS Apple Silicon | `ev-darwin-arm64` / `ev-darwin-arm64.tar.gz` |
+| macOS Intel | `ev-darwin-x86_64` / `ev-darwin-x86_64.tar.gz` |
+| Linux x86_64 | `ev-linux-x86_64` / `ev-linux-x86_64.tar.gz` |
+| Linux arm64 | `ev-linux-arm64` / `ev-linux-arm64.tar.gz` |
+| Windows x86_64 | `ev-windows-x86_64` / `ev-windows-x86_64.zip` |
+
+The artifact contains its archive, `SHA256SUMS`, `install.sh`, and `install.ps1`. Inspect the appropriate installer before running it.
+
+macOS/Linux, from the extracted artifact directory:
+
+```sh
+sh ./install.sh --archive ./ev-darwin-arm64.tar.gz --checksums ./SHA256SUMS
+export PATH="$HOME/.local/bin:$PATH"
+ev --version
+ev
+```
+
+Choose the archive matching your machine from the table. Default destination is `~/.local/bin`; `--install-dir /absolute/path` or `EV_INSTALL_DIR` overrides it. The installer rejects symlinked destination components rather than silently redirecting installation.
+
+Windows PowerShell, from the extracted artifact directory:
+
+```powershell
+.\install.ps1 -Archive (Join-Path $PWD 'ev-windows-x86_64.zip') -Checksums (Join-Path $PWD 'SHA256SUMS')
+$env:PATH = "$env:LOCALAPPDATA\ev\bin;" + $env:PATH
+ev --version
+ev
+```
+
+Default Windows destination is `%LOCALAPPDATA%\ev\bin`; `-InstallDir` or `EV_INSTALL_DIR` accepts an absolute destination. Windows ARM64/emulation is not qualified. Windows builds use a static C runtime. These packages/installers are unsigned, and macOS packages are not notarized; OS trust/execution policy may block them. Review the files and follow your organization's approval policy; do not disable system security or execution policy wholesale.
+
+Installers verify SHA-256 **before** extraction, accept only the executable plus `LICENSE`/`THIRD_PARTY_NOTICES`, and bound archive/file sizes. Hashes detect corruption but are not publisher signatures: obtain both archive and sums from the same trusted workflow run. Existing unowned or modified `ev` commands are never overwritten. Owned updates stage the new executable and license metadata and preserve the previous installation on failures; rerun the installer with another verified package to upgrade. Close running `ev` on Windows before updating.
+
+No shell profile or permanent PATH is changed. Metadata is installed in `.ev-install` beside the executable. No task/cache/provider data is removed. To remove this preview installation, manually remove only your installed `ev`/`ev.exe` and its `.ev-install` metadata after confirming the paths; no purge or `ev uninstall` command is implemented.
+
 ## Run
 
 ```sh
@@ -67,7 +109,7 @@ cargo clippy --all-targets -- -D warnings
 cargo build --release
 ```
 
-Run `python scripts/terminal_smoke.py --binary target/release/eevee --output target/native-smoke` after building. Install `pyte==0.8.2` and `wcwidth==0.2.13`; Windows also needs `pywinpty==2.0.15`. The harness launches the real binary in POSIX PTYs or native Windows ConPTY, records screen/host/console evidence, and builds one isolated lifecycle probe for normal/error/panic restoration. It does not certify a GUI terminal or native images. The native workflow runs the five OS/architecture rows and uploads results; see the checkpoint for observed outcomes rather than inferred support.
+Run `python scripts/terminal_smoke.py --binary target/release/ev --output target/native-smoke` after building. Install `pyte==0.8.2` and `wcwidth==0.2.13`; Windows also needs `pywinpty==2.0.15`. The harness launches the real binary in POSIX PTYs or native Windows ConPTY, records screen/host/console evidence, and builds one isolated lifecycle probe for normal/error/panic restoration. CI also generates dependency license texts with pinned cargo-about 0.9.2, packages `ev`, and exercises fresh install, real-source upgrade, refusal/rollback, and the installed binary through the same terminal harness. It does not certify a GUI terminal or native images; see the checkpoint for observed package outcomes.
 
 ### Verified native core baselines
 
