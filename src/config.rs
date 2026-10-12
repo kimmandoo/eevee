@@ -37,12 +37,14 @@ pub struct Config {
     pub images: ImageMode,
     pub assets_dir: PathBuf,
     pub layout: LayoutMode,
+    pub data_dir: PathBuf,
 }
 
 #[derive(Debug)]
 pub enum Command {
     Run(Config),
     Download(Config),
+    Export { data_dir: PathBuf, output: PathBuf },
     Help,
     Version,
 }
@@ -59,6 +61,8 @@ Options:
   --assets-dir PATH    Local PNG directory (default: platform cache/eevee/artwork)
   --download-artwork   Explicitly download nine pinned PNGs and a source manifest
   --layout sanctuary|linear Layout (default: sanctuary)
+  --data-dir PATH      SQLite store directory (default: platform data/eevee)
+  --export-data PATH   Export readable stored goals to a new JSON file; no reset
   -h, --help           Show this help
   -V, --version        Show the version
 
@@ -68,7 +72,7 @@ TERM=dumb or an explicitly non-UTF-8 locale also selects ASCII. Windows
 defaults to UTF-8 without locale variables. Locale precedence: LC_ALL,
 LC_CTYPE, LANG (first nonempty value). Repeated options use the last value.
 
-Local companion only: no model execution or task persistence.
+Local durable goals; no model execution. Storage failures retain editable drafts.
 ";
 
 pub fn parse() -> Result<Command, String> {
@@ -103,6 +107,8 @@ fn parse_with(
     let mut images = ImageMode::Auto;
     let mut assets_dir = default_assets_dir(&environment);
     let mut layout = LayoutMode::Sanctuary;
+    let mut data_dir = default_data_dir(&environment);
+    let mut export = None;
     let mut download = false;
     let mut action = None;
     while let Some(argument) = args.next() {
@@ -176,6 +182,24 @@ fn parse_with(
                     return Err("--assets-dir requires a nonempty path".into());
                 }
             }
+            "--data-dir" | "--export-data" => {
+                let path = if let Some(path) = attached {
+                    PathBuf::from(path)
+                } else {
+                    PathBuf::from(
+                        args.next()
+                            .ok_or_else(|| format!("{flag} requires a path"))?,
+                    )
+                };
+                if path.as_os_str().is_empty() {
+                    return Err(format!("{flag} requires a nonempty path"));
+                }
+                if flag == "--data-dir" {
+                    data_dir = Some(path);
+                } else {
+                    export = Some(path);
+                }
+            }
             "--download-artwork" if attached.is_none() => download = true,
             "--ascii" if attached.is_none() => ascii = true,
             "--help" | "-h" if attached.is_none() => action = Some(Command::Help),
@@ -185,6 +209,18 @@ fn parse_with(
     }
     if let Some(action) = action {
         return Ok(action);
+    }
+    let data_dir = data_dir.ok_or("platform data directory unavailable; use --data-dir PATH")?;
+    if data_dir.to_str().is_none() {
+        return Err(
+            "--data-dir must be a Unicode path; non-Unicode identities are not merged".into(),
+        );
+    }
+    if let Some(output) = export {
+        if download {
+            return Err("--export-data cannot be combined with --download-artwork".into());
+        }
+        return Ok(Command::Export { data_dir, output });
     }
 
     let term = environment("TERM");
@@ -225,12 +261,28 @@ fn parse_with(
         images,
         assets_dir,
         layout,
+        data_dir,
     };
     Ok(if download {
         Command::Download(config)
     } else {
         Command::Run(config)
     })
+}
+
+fn default_data_dir(environment: &impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    #[cfg(windows)]
+    let base = environment("LOCALAPPDATA").map(PathBuf::from);
+    #[cfg(target_os = "macos")]
+    let base =
+        environment("HOME").map(|home| PathBuf::from(home).join("Library/Application Support"));
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let base = environment("XDG_DATA_HOME")
+        .filter(|path| PathBuf::from(path).is_absolute())
+        .map(PathBuf::from)
+        .or_else(|| environment("HOME").map(|home| PathBuf::from(home).join(".local/share")));
+    base.filter(|path| path.is_absolute())
+        .map(|path| path.join("eevee"))
 }
 
 fn default_assets_dir(environment: &impl Fn(&str) -> Option<OsString>) -> PathBuf {
@@ -284,12 +336,18 @@ mod tests {
     use super::*;
 
     fn parse(args: &[&str], variables: &[(&str, &str)]) -> Result<Command, String> {
-        parse_with(args.iter().map(OsString::from), |key| {
-            variables
+        parse_with(
+            ["--data-dir", "isolated-test-data"]
                 .iter()
-                .find(|(name, _)| *name == key)
-                .map(|(_, value)| OsString::from(value))
-        })
+                .chain(args.iter())
+                .map(OsString::from),
+            |key| {
+                variables
+                    .iter()
+                    .find(|(name, _)| *name == key)
+                    .map(|(_, value)| OsString::from(value))
+            },
+        )
     }
 
     fn config(args: &[&str], variables: &[(&str, &str)]) -> Config {
@@ -420,7 +478,16 @@ mod tests {
     fn separate_asset_path_preserves_non_unicode_bytes() {
         use std::os::unix::ffi::OsStringExt;
         let path = OsString::from_vec(vec![b'a', b' ', 0xff]);
-        let command = parse_with([OsString::from("--assets-dir"), path.clone()], |_| None).unwrap();
+        let command = parse_with(
+            [
+                OsString::from("--assets-dir"),
+                path.clone(),
+                OsString::from("--data-dir"),
+                OsString::from("isolated-test-data"),
+            ],
+            |_| None,
+        )
+        .unwrap();
         let Command::Run(config) = command else {
             panic!("expected run")
         };

@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-13] SQLite no-follow rejected macOS temporary-directory aliases
+
+- **Context / Symptom:** Durable-store integration tests failed to initialize or export with `unable to open database file: /var/folders/.../workbench.sqlite3`.
+- **Root Cause:** SQLite's `SQLITE_OPEN_NOFOLLOW` rejects symlinks in ancestor components too; macOS `/var` resolves through `/private/var`. Checking only the final database file did not make that explicit directory alias usable.
+- **Solution:** Canonicalized the selected data directory (or read-only database parent) without lossy string conversion, then retained final-file regularity/reparse checks and SQLite no-follow. Alias paths now share the same writer lock. The corrected suite passed 68 tests, including directory-alias writer exclusion.
+- **Prevention / Reference:** Keep project identity separate from sanitized display text, and qualify native filesystem behavior rather than applying POSIX pathname assumptions to every platform.
+
 ### [2026-10-13] Windows replacement failure can move the old executable
 
 - **Context / Symptom:** Installer review found that the failure path only restored the executable after a successful `File.Replace` return.

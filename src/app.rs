@@ -3,13 +3,14 @@ use ratatui::text::Span;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::domain::FORMS;
+use crate::store;
 
 pub const MAX_GOAL_BYTES: usize = 4096;
 
 pub const PALETTE: [&str; 8] = [
     "Choose evolution",
-    "Edit session goal",
-    "Inspect session",
+    "Edit task goal",
+    "Inspect task and storage",
     "Show companion",
     "Keyboard help",
     "Preview local handoff",
@@ -76,6 +77,14 @@ struct OverlayFrame {
     preview_form: usize,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum StorageState {
+    Loading,
+    Saved,
+    Saving,
+    Failed(String),
+}
+
 pub struct App {
     pub form: usize,
     pub selected: usize,
@@ -94,6 +103,13 @@ pub struct App {
     pub width: u16,
     pub height: u16,
     pub quit: bool,
+    pub storage: StorageState,
+    pub revision: u64,
+    pub saved_revision: u64,
+    pub save_requested: bool,
+    pub retry_storage: bool,
+    pub quit_after_save: bool,
+    store_loaded: bool,
     form_selection: usize,
     palette_selection: usize,
     overlay_history: Vec<OverlayFrame>,
@@ -123,6 +139,13 @@ impl App {
             width,
             height,
             quit: false,
+            storage: StorageState::Loading,
+            revision: 0,
+            saved_revision: 0,
+            save_requested: false,
+            retry_storage: false,
+            quit_after_save: false,
+            store_loaded: false,
             form_selection: 0,
             palette_selection: 0,
             overlay_history: Vec::new(),
@@ -131,6 +154,73 @@ impl App {
             preferred_column: None,
             surface_scroll: [0; 5],
             surface_scroll_max: [0; 5],
+        }
+    }
+
+    pub fn storage_label(&self) -> &str {
+        match &self.storage {
+            StorageState::Loading => "Storage: loading",
+            StorageState::Saved if self.draft_dirty() => "Storage: editor draft not applied",
+            StorageState::Saved => "Storage: saved",
+            StorageState::Saving if self.quit_after_save => {
+                "Storage: saving before exit / Esc stay"
+            }
+            StorageState::Saving => "Storage: saving",
+            StorageState::Failed(_) => "Storage: save failed / r retry / i details",
+        }
+    }
+
+    pub fn store_event(&mut self, event: store::Event) {
+        match event {
+            store::Event::Loaded(snapshot) => {
+                let local_changes = self.revision != self.saved_revision;
+                if let Some(snapshot) = snapshot {
+                    self.saved_revision = snapshot.revision;
+                    if !self.store_loaded && !local_changes {
+                        self.goal = snapshot.goal;
+                        self.form = snapshot.form;
+                        self.revision = snapshot.revision;
+                    } else if local_changes {
+                        self.revision = self.revision.max(snapshot.revision.saturating_add(1));
+                    }
+                }
+                self.store_loaded = true;
+                self.save_requested = self.revision != self.saved_revision;
+                self.storage = if self.save_requested {
+                    StorageState::Saving
+                } else {
+                    StorageState::Saved
+                };
+                if self.quit_after_save && !self.save_requested {
+                    self.quit = true;
+                }
+            }
+            store::Event::Saved(revision) => {
+                self.saved_revision = self.saved_revision.max(revision);
+                if revision == self.revision {
+                    self.storage = StorageState::Saved;
+                    if self.quit_after_save {
+                        self.quit = true;
+                    }
+                }
+            }
+            store::Event::Failed { revision, message } => {
+                if revision.is_none_or(|revision| revision == self.revision) {
+                    self.storage = StorageState::Failed(message);
+                    self.quit_after_save = false;
+                }
+            }
+        }
+    }
+
+    fn changed_task(&mut self) {
+        self.revision = self.revision.saturating_add(1);
+        self.save_requested = true;
+        if !matches!(
+            self.storage,
+            StorageState::Failed(_) | StorageState::Loading
+        ) {
+            self.storage = StorageState::Saving;
         }
     }
 
@@ -187,7 +277,9 @@ impl App {
                 self.height = height;
                 true
             }
-            Event::Paste(text) if self.editing && self.confirmation.is_none() => {
+            Event::Paste(text)
+                if self.editing && self.confirmation.is_none() && !self.quit_after_save =>
+            {
                 self.insert_input(&text)
             }
             Event::Key(key) if key.kind != KeyEventKind::Release => self.key(key),
@@ -196,6 +288,13 @@ impl App {
     }
 
     fn key(&mut self, key: KeyEvent) -> bool {
+        if self.quit_after_save {
+            if key.code == KeyCode::Esc {
+                self.quit_after_save = false;
+                return true;
+            }
+            return false;
+        }
         if self.confirmation.is_some() {
             return self.confirmation_key(key);
         }
@@ -251,6 +350,11 @@ impl App {
         }
         if key.code == KeyCode::Char('l') {
             self.linear = !self.linear;
+            return true;
+        }
+        if key.code == KeyCode::Char('r') && matches!(self.storage, StorageState::Failed(_)) {
+            self.retry_storage = true;
+            self.storage = StorageState::Loading;
             return true;
         }
         if let Some(overlay) = self.overlay {
@@ -312,7 +416,12 @@ impl App {
                 self.insert_input("\n")
             }
             KeyCode::Enter => {
-                self.goal = std::mem::take(&mut self.input);
+                if self.goal != self.input {
+                    self.goal = std::mem::take(&mut self.input);
+                    self.changed_task();
+                } else {
+                    self.input.clear();
+                }
                 self.finish_edit();
                 true
             }
@@ -352,7 +461,7 @@ impl App {
     }
 
     fn request_quit(&mut self) {
-        if !self.goal.is_empty() || self.draft_dirty() {
+        if !self.goal.is_empty() || self.draft_dirty() || self.revision != self.saved_revision {
             self.confirmation = Some(Confirmation {
                 kind: ConfirmationKind::Quit,
                 destructive: false,
@@ -398,7 +507,14 @@ impl App {
                             self.input.clear();
                             self.finish_edit();
                         }
-                        ConfirmationKind::Quit => self.quit = true,
+                        ConfirmationKind::Quit => {
+                            if matches!(self.storage, StorageState::Saving | StorageState::Loading)
+                            {
+                                self.quit_after_save = true;
+                            } else {
+                                self.quit = true;
+                            }
+                        }
                     }
                 }
                 true
@@ -675,7 +791,10 @@ impl App {
                     return true;
                 }
                 if overlay == Overlay::Forms {
-                    self.form = selection;
+                    if self.form != selection {
+                        self.form = selection;
+                        self.changed_task();
+                    }
                     self.close_overlay();
                 } else {
                     self.close_overlay();
@@ -760,7 +879,9 @@ mod tests {
     use super::*;
 
     fn app() -> App {
-        App::new("/workspace".into(), 120, 36)
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.store_event(store::Event::Loaded(None));
+        app
     }
 
     fn key(app: &mut App, code: KeyCode) -> bool {
@@ -1117,6 +1238,7 @@ mod tests {
         key(&mut app, KeyCode::Enter);
         assert!(!app.linear);
         assert_eq!(app.goal, "linear goal");
+        app.store_event(store::Event::Saved(app.revision));
         key(&mut app, KeyCode::Char('q'));
         assert!(!app.quit);
         assert_eq!(app.confirmation.unwrap().kind, ConfirmationKind::Quit);
@@ -1382,5 +1504,72 @@ mod tests {
         );
         assert!(!app.update(Event::Key(release)));
         assert_eq!(app.input, "");
+    }
+
+    #[test]
+    fn late_acknowledgement_cannot_save_newer_edit_or_quit_early() {
+        let mut app = app();
+        key(&mut app, KeyCode::Char('g'));
+        app.update(Event::Paste("first".into()));
+        key(&mut app, KeyCode::Enter);
+        let first = app.revision;
+        key(&mut app, KeyCode::Char('g'));
+        app.update(Event::Paste(" newer".into()));
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Char('q'));
+        key(&mut app, KeyCode::Right);
+        key(&mut app, KeyCode::Enter);
+        assert!(app.quit_after_save);
+        app.store_event(store::Event::Failed {
+            revision: Some(first),
+            message: "older failure".into(),
+        });
+        assert_eq!(app.storage, StorageState::Saving);
+        assert!(app.quit_after_save);
+        app.store_event(store::Event::Saved(first));
+        assert_eq!(app.storage, StorageState::Saving);
+        assert!(!app.quit);
+        app.store_event(store::Event::Saved(app.revision));
+        assert!(app.quit);
+        assert_eq!(app.goal, "first newer");
+    }
+
+    #[test]
+    fn failed_save_retains_goal_and_requires_explicit_unsaved_exit() {
+        let mut app = app();
+        key(&mut app, KeyCode::Char('g'));
+        app.update(Event::Paste("recover me".into()));
+        key(&mut app, KeyCode::Enter);
+        app.store_event(store::Event::Failed {
+            revision: Some(app.revision),
+            message: "disk full".into(),
+        });
+        key(&mut app, KeyCode::Char('q'));
+        key(&mut app, KeyCode::Enter);
+        assert!(!app.quit);
+        assert_eq!(app.goal, "recover me");
+        key(&mut app, KeyCode::Char('r'));
+        assert!(app.retry_storage);
+        app.store_event(store::Event::Loaded(None));
+        assert!(app.save_requested);
+        assert_eq!(app.goal, "recover me");
+    }
+
+    #[test]
+    fn startup_load_preserves_applied_edit_and_advances_past_stored_revision() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        key(&mut app, KeyCode::Char('g'));
+        app.update(Event::Paste("new edit".into()));
+        key(&mut app, KeyCode::Enter);
+        app.store_event(store::Event::Loaded(Some(store::Snapshot {
+            project: "/workspace".into(),
+            goal: "old goal".into(),
+            form: 8,
+            revision: 40,
+        })));
+        assert_eq!(app.goal, "new edit");
+        assert_eq!(app.revision, 41);
+        assert!(app.save_requested);
+        assert_eq!(app.saved_revision, 40);
     }
 }

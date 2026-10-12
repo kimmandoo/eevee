@@ -1,5 +1,15 @@
 # Work Checkpoint
 
+## 2026-10-13 — E01 locally completed; E02 active
+
+- Active request remains the full installation preview plus **all B and C**; no scope was reduced. E01 passed its local gate; **E02 task cards/resumption** is the exact next implementation step. E03/C01/C02/R01/R02/UX02/P02 remain pending.
+- Pushed installation scopes: `f1afcb0` exposed `ev` and Apache-2.0; `b223ebe` added native packages/installers; `ea8ade7` corrected partial Windows ReplaceFile rollback. Native run [38282091481](https://github.com/kimmandoo/eevee/actions/runs/38282091481) is being watched; no five-row installation success is claimed yet.
+- E01 implementation: `src/store.rs` bounded SQLite worker, canonical directory aliases and exclusive writer lock, correlated saved/failed revisions, schema 0→1 transaction, nondestructive corruption/newer-schema refusal and read-only export, private-copy validation before hot-journal recovery. App/config/UI/main/input integrate truthful saving/failure/retry and pending-save exit.
+- Observed E01 verification: `cargo +1.90.0 test --locked --all-targets` passed **68** tests (one subprocess fixture is ignored during normal enumeration but explicitly executed by recovery tests); warning-free Clippy and locked release build passed. `python3 scripts/workbench_smoke.py --binary target/release/ev --output target/workbench-smoke` passed **seven** actual PTY scenarios, including exact text/form restart, writer/SQLite locks, corrupt/newer byte preservation, migration/export, and immediate post-apply exit. Inspected the actual committed CJK/Sylveon surface.
+- Failure coverage includes real SQLITE_FULL save/migration rollback and actual subprocess exit during a spilled migration transaction, recovering 101 committed legacy rows. Read-only/alias paths and delayed success/failure revisions are covered. Local dependency notices regenerated successfully for **185** native packages. `target/durable-terminal-smoke` is running the expanded 34-case core regression suite; record its delivered result before claiming it passed.
+- Resolved integration issue: SQLite NOFOLLOW also rejected macOS `/var` ancestor aliases; canonicalizing the chosen directory/parent retained final-file link refusal and shared-writer identity. Recorded in troubleshooting.
+- Changed E01 files: manifest/lock, store/app/config/main/input/ui and artwork config fixture, terminal/workbench smoke scripts, installed-workbench native workflow step, README/task/design/plan/changelog/troubleshooting/checkpoint. User `.DS_Store` and `AGENTS.md` remain excluded. Build/capture artifacts stay ignored under `target/`.
+
 ## 2026-10-13 — Binary installation preview and requested B/C continuation
 
 - Active request: finish verified offline `ev` installers/packages, then implement **all section B (E01, E02, E03, C01, C02) and section C (R01, R02, UX02, P02)** in dependency order with scoped commits/push and actual runtime acceptance. Later provider tasks remain outside this request.

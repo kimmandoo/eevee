@@ -2,7 +2,7 @@
 
 ## Active work
 
-Section A is complete: V01, P01, V02A, V02B, V03, and UX01 passed their recorded gates. Native run [38274013013](https://github.com/kimmandoo/eevee/actions/runs/38274013013) passed all five OS/architecture rows, including the recurring indexed-color Windows paste/rendering failure. The active request is to finish the offline `ev` installation preview, then implement **all of sections B and C**, beginning with **E01 — Durable goal and save acknowledgement**. Their unchecked acceptance remains pending; storage/provider capabilities are not inferred from this request.
+Section A is complete on its recorded native/graphics gates. The active request covers the offline `ev` installation preview and **all of sections B and C**. E01 passed local storage/recovery and real-TUI acceptance; **E02 — Eevee task cards and resumption** is next. Installation CI and later native filesystem/process parity remain separately tracked; providers are not included or implied.
 
 Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapter/evidence contract: [agent compatibility](docs/AGENT_COMPATIBILITY.md). An unchecked task may have partial implementation, but its acceptance is not complete; consult its evidence note and the checkpoint.
 
@@ -81,11 +81,12 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ### E01 — Durable goal and save acknowledgement
 
-- [ ] Make one task survive application exit.
+- [x] Made one project goal and selected form survive application exit.
 - **Depends on:** UX01.
 - **Change:** Add a SQLite store worker and bounded worker/input events without blocking rendering. Use a documented platform user-data directory with `--data-dir PATH` for explicit isolation. Store the current task goal, project directory, and selected form transactionally. Version the schema and use transactional migrations; refuse destructive open of corrupt/newer schemas. Enforce one writer per data store with an explicit busy/retry state, not silent takeover. Match saving/saved/save-failed to committed edit revisions; a late acknowledgement cannot label a newer draft saved. Quitting during a pending or failed save must not silently discard edits. No source indexing yet.
 - **Accept:** In a temporary data directory, edit a goal, wait for the save acknowledgement, quit, and reopen in the same project. Recover exact text and form. Exercise read-only/disk-full/locked storage, two app instances, rapid edits with delayed acknowledgements, and quit-before-ack. Migrate an older fixture and interrupt a migration; keep the last valid committed database. Corrupt/newer schemas remain untouched with a recovery/export path for readable data, never an automatic reset.
 - **Platform sequencing:** Apply the P01 path/terminal contract from the start, but do not block local storage implementation on access to every native runner. P02 depends on completed P01 and verifies this storage path across the entire target matrix before any multiplatform claim.
+- **Evidence:** Rust 1.90 passed 68 tests, warning-free Clippy and release build. Seven real PTY scenarios passed exact multiline/CJK/combining goal/form save-exit-resume, writer conflict/retry and project isolation, locked SQLite failure/retry, unchanged corrupt/newer databases, migration/read-only export, and quit immediately after apply. Tests exercised revision-late success/failure, real SQLITE_FULL save/migration rollback, read-only/alias exclusion, and subprocess-exit hot-journal recovery before migrating 101 committed legacy rows. P02 still owns full native parity.
 
 ### E02 — Eevee task cards and resumption
 
@@ -276,4 +277,4 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ## Phase status
 
-Phase 1 and all six section-A tasks V01, P01, V02A, V02B, V03, and UX01 are complete on their recorded environments. Sections B-G and platform parity/distribution remain pending. Of 31 implementation tasks, 6 are checked and 25 remain unchecked. See `docs/WORK_CHECKPOINT.md` for exact evidence and continuation; do not infer other native protocols, GUI terminals, older OS versions, persistence, or provider support from the companion UI.
+Phase 1, all six section-A tasks, and E01 are complete on their recorded environments. Of 31 implementation tasks, 7 are checked and 24 remain unchecked. E02 is next; the rest of B/C is explicitly requested and pending, while D-G remains later scope. See `docs/WORK_CHECKPOINT.md` for exact evidence; local durable-goal acceptance does not imply native filesystem/process parity, other graphics protocols, providers, or full release acceptance.

@@ -4,6 +4,7 @@ mod config;
 mod domain;
 mod input;
 mod native;
+mod store;
 mod terminal;
 mod ui;
 
@@ -22,6 +23,15 @@ fn main() -> ExitCode {
         Ok(Command::Version) => {
             println!("ev {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
+        }
+        Ok(Command::Export { data_dir, output }) => {
+            match store::export_readable(&data_dir, &output) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("ev: {error}");
+                    ExitCode::FAILURE
+                }
+            }
         }
         Ok(Command::Run(config)) => match run(config) {
             Ok(()) => ExitCode::SUCCESS,
@@ -48,18 +58,27 @@ fn main() -> ExitCode {
 }
 
 fn run(config: Config) -> io::Result<()> {
-    let mut cwd = std::env::current_dir()?.to_string_lossy().into_owned();
-    // Paths are untrusted terminal text too; never emit embedded control bytes.
-    cwd.retain(|character| !character.is_control());
+    let project = std::env::current_dir()?.canonicalize()?;
+    let cwd = project
+        .to_str()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "project path must be Unicode"))?
+        .to_owned();
     let mut artwork = artwork::Artwork::load(&config);
     terminal::run(native::cleanup, |terminal| {
+        let store = store::Worker::start(config.data_dir.clone(), cwd.clone())?;
         let size = terminal.size()?;
-        let mut app = App::new(cwd, size.width, size.height);
+        let mut app = App::new(
+            cwd.chars().filter(|c| !c.is_control()).collect(),
+            size.width,
+            size.height,
+        );
         app.linear = config.layout == config::LayoutMode::Linear;
         let mut graphics = native::NativeGraphics::new(&config);
         let mut dirty = true;
         let mut targets = Vec::with_capacity(9);
         let mut input = input::Input::new()?;
+        let mut pending_save: Option<store::Snapshot> = None;
+        let mut outstanding_store = 1_usize; // Initial load also yields one event.
         loop {
             if dirty {
                 // ConPTY's legacy cell projection can turn changed blanks into
@@ -83,13 +102,57 @@ fn run(config: Config) -> io::Result<()> {
                     ui::compose_console_graphemes(frame.buffer_mut());
                 })?;
             }
-            // One input owner; kernel cell-size discovery never reads stdin.
-            let event = input.read()?;
-            let resized = matches!(event, event::Event::Resize(_, _));
+            if app.retry_storage && store.retry() {
+                app.retry_storage = false;
+                outstanding_store += 1;
+            }
+            if app.save_requested
+                && matches!(
+                    app.storage,
+                    app::StorageState::Saved | app::StorageState::Saving
+                )
+            {
+                let mut snapshot = pending_save.take().unwrap_or_else(|| store::Snapshot {
+                    project: cwd.clone(),
+                    goal: app.goal.clone(),
+                    form: app.form,
+                    revision: app.revision,
+                });
+                if snapshot.revision != app.revision {
+                    snapshot.goal.clone_from(&app.goal);
+                    snapshot.form = app.form;
+                    snapshot.revision = app.revision;
+                }
+                match store.try_save(snapshot) {
+                    Ok(()) => {
+                        app.save_requested = false;
+                        outstanding_store += 1;
+                    }
+                    Err(snapshot) => pending_save = Some(snapshot),
+                }
+            }
+            // Only outstanding I/O uses a bounded wait; an idle saved UI blocks.
+            let pending = outstanding_store > 0
+                || app.retry_storage
+                || (app.save_requested && matches!(app.storage, app::StorageState::Saving));
+            let event = if pending {
+                input.read_timeout(std::time::Duration::from_millis(30))?
+            } else {
+                Some(input.read()?)
+            };
+            dirty = false;
+            let resized = matches!(event, Some(event::Event::Resize(_, _)));
             if resized {
                 graphics.discover_cell();
             }
-            dirty = app.update(event);
+            if let Some(event) = event {
+                dirty |= app.update(event);
+            }
+            while let Some(event) = store.try_event() {
+                outstanding_store = outstanding_store.saturating_sub(1);
+                app.store_event(event);
+                dirty = true;
+            }
             #[cfg(windows)]
             {
                 dirty |= resized;

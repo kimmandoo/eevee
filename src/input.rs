@@ -24,6 +24,21 @@ impl Input {
             crossterm::event::read()
         }
     }
+
+    pub fn read_timeout(&mut self, timeout: std::time::Duration) -> io::Result<Option<Event>> {
+        #[cfg(windows)]
+        {
+            self.windows.read_timeout(timeout)
+        }
+        #[cfg(not(windows))]
+        {
+            if crossterm::event::poll(timeout)? {
+                crossterm::event::read().map(Some)
+            } else {
+                Ok(None)
+            }
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -238,6 +253,30 @@ mod decoding {
         }
 
         #[test]
+        fn partial_vt_and_paste_resume_at_every_character_boundary() {
+            for (input, expected) in [
+                (
+                    "\x1b[1;2C",
+                    Event::Key(KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT)),
+                ),
+                (
+                    "\x1b[200~漢😀e\u{301}\x1b[20x\x1b[201~",
+                    Event::Paste("漢😀e\u{301}\x1b[20x".into()),
+                ),
+            ] {
+                for (split, _) in input.char_indices().skip(1) {
+                    let mut decoder = Decoder::default();
+                    assert!(feed(&mut decoder, &input[..split]).is_empty());
+                    // A caller deadline is not an Escape timeout: preserve the
+                    // prefix/paste until the next read supplies more characters.
+                    assert_eq!(feed(&mut decoder, &input[split..]), vec![expected.clone()]);
+                    assert!(!decoder.has_escape());
+                    assert!(!decoder.is_pasting());
+                }
+            }
+        }
+
+        #[test]
         fn non_ascii_after_incomplete_csi_remains_literal_without_panicking() {
             let mut decoder = Decoder::default();
             assert_eq!(
@@ -252,8 +291,9 @@ mod decoding {
 mod windows {
     use super::{Event, decoding::Decoder, io};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::time::{Duration, Instant};
     use windows_sys::Win32::{
-        Foundation::{HANDLE, INVALID_HANDLE_VALUE, WAIT_TIMEOUT},
+        Foundation::{HANDLE, INVALID_HANDLE_VALUE, WAIT_FAILED, WAIT_TIMEOUT},
         System::{Console::*, Threading::WaitForSingleObject},
     };
 
@@ -293,6 +333,7 @@ mod windows {
         surrogate: Option<u16>,
         pending: Option<(KEY_EVENT_RECORD, u16)>,
         queued: Option<Event>,
+        escape_started: Option<Instant>,
     }
     impl ConsoleInput {
         pub fn new() -> io::Result<Self> {
@@ -302,26 +343,95 @@ mod windows {
                 surrogate: None,
                 pending: None,
                 queued: None,
+                escape_started: None,
             })
         }
         pub fn read(&mut self) -> io::Result<Event> {
+            self.read_inner(None)
+                .map(|event| event.expect("blocking input has no deadline"))
+        }
+
+        pub fn read_timeout(&mut self, timeout: Duration) -> io::Result<Option<Event>> {
+            self.read_inner(Some(timeout))
+        }
+
+        fn read_inner(&mut self, timeout: Option<Duration>) -> io::Result<Option<Event>> {
+            let started = Instant::now();
+            let mut first_poll = true;
+            let mut expired_records = None;
             if let Some(event) = self.queued.take() {
-                return Ok(event);
+                return Ok(Some(event));
             }
             loop {
                 let (key, repeated) = if let Some((key, remaining)) = self.pending.take() {
+                    first_poll = false;
                     if remaining > 1 {
                         self.pending = Some((key, remaining - 1));
                     }
                     (key, true)
                 } else {
-                    if self.decoder.has_escape() {
-                        // Only an ambiguous Escape prefix needs a bounded wait;
-                        // idle and ordinary console events remain blocking.
-                        // SAFETY: this is the existing console input wait handle.
-                        if unsafe { WaitForSingleObject(self.handle, 50) } == WAIT_TIMEOUT {
-                            return Ok(self.decoder.escape_timeout());
+                    // Caller timeouts leave all decoding state intact, including
+                    // the Escape ambiguity timer across successive reads.
+                    let escape_remaining = self
+                        .escape_started
+                        .map(|started| Duration::from_millis(50).saturating_sub(started.elapsed()));
+                    if escape_remaining != Some(Duration::ZERO) {
+                        expired_records = None;
+                    }
+                    let remaining =
+                        timeout.map(|timeout| timeout.saturating_sub(started.elapsed()));
+                    if !first_poll && remaining == Some(Duration::ZERO) {
+                        return Ok(None);
+                    }
+                    // After Escape expires, drain only the already-ready batch.
+                    // This preserves queued CSI bytes after a slow UI turn,
+                    // without allowing a stream of irrelevant records to keep
+                    // an expired Escape alive forever.
+                    if expired_records == Some(0) {
+                        self.escape_started = None;
+                        return Ok(Some(self.decoder.escape_timeout()));
+                    }
+                    first_poll = false;
+                    let wait = match (remaining, escape_remaining) {
+                        (Some(left), Some(right)) => Some(left.min(right)),
+                        (left, right) => left.or(right),
+                    };
+                    // Round up sub-millisecond waits; never use INFINITE for a
+                    // finite deadline. Recheck long waits and non-key records.
+                    let milliseconds = wait.map_or(u32::MAX, |wait| {
+                        wait.as_millis()
+                            .saturating_add(u128::from(wait.subsec_nanos() % 1_000_000 != 0))
+                            .min(u128::from(u32::MAX - 1)) as u32
+                    });
+                    // SAFETY: this is the existing console input wait handle;
+                    // this object remains the application's sole input reader.
+                    match unsafe { WaitForSingleObject(self.handle, milliseconds) } {
+                        WAIT_FAILED => return Err(io::Error::last_os_error()),
+                        WAIT_TIMEOUT => {
+                            if escape_remaining == Some(Duration::ZERO) {
+                                self.escape_started = None;
+                                return Ok(Some(self.decoder.escape_timeout()));
+                            }
+                            continue;
                         }
+                        _ => {}
+                    }
+                    if escape_remaining == Some(Duration::ZERO) {
+                        let remaining = match expired_records {
+                            Some(remaining) => remaining,
+                            None => {
+                                let mut count = 0;
+                                // SAFETY: count is writable and this object is
+                                // the console's sole reader.
+                                if unsafe { GetNumberOfConsoleInputEvents(self.handle, &mut count) }
+                                    == 0
+                                {
+                                    return Err(io::Error::last_os_error());
+                                }
+                                count
+                            }
+                        };
+                        expired_records = Some(remaining.saturating_sub(1));
                     }
                     // SAFETY: these writable values are properly sized, and one
                     // record is requested from the application's sole reader.
@@ -338,7 +448,7 @@ mod windows {
                     }
                     if u32::from(record.EventType) == WINDOW_BUFFER_SIZE_EVENT {
                         let (width, height) = crossterm::terminal::size()?;
-                        return Ok(Event::Resize(width, height));
+                        return Ok(Some(Event::Resize(width, height)));
                     }
                     if u32::from(record.EventType) != KEY_EVENT {
                         continue;
@@ -395,11 +505,13 @@ mod windows {
                             char::from_u32(u32::from(code)).expect("non-surrogate u16")
                         }
                     };
-                    if let Some(mut event) = self.decoder.character(character, modifiers) {
+                    let decoded = self.decoder.character(character, modifiers);
+                    self.escape_started = self.decoder.has_escape().then(Instant::now);
+                    if let Some(mut event) = decoded {
                         if repeated && let Event::Key(key) = &mut event {
                             key.kind = crossterm::event::KeyEventKind::Repeat;
                         }
-                        return Ok(event);
+                        return Ok(Some(event));
                     }
                     continue;
                 }
@@ -432,13 +544,14 @@ mod windows {
                 let event = KeyEvent::new(code, modifiers);
                 if self.decoder.has_escape() {
                     self.queued = Some(Event::Key(event));
-                    return Ok(self.decoder.escape_timeout());
+                    self.escape_started = None;
+                    return Ok(Some(self.decoder.escape_timeout()));
                 }
                 let mut event = event;
                 if repeated {
                     event.kind = crossterm::event::KeyEventKind::Repeat;
                 }
-                return Ok(Event::Key(event));
+                return Ok(Some(Event::Key(event)));
             }
         }
     }

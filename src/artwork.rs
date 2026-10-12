@@ -762,6 +762,7 @@ mod tests {
             images: ImageMode::Cells,
             assets_dir: path.into(),
             layout: LayoutMode::Sanctuary,
+            data_dir: path.join("data"),
         }
     }
 

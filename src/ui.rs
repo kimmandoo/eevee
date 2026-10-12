@@ -425,9 +425,9 @@ fn header(frame: &mut Frame, area: Rect, app: &App, form: &Form, paint: &Paint) 
         paint.base.add_modifier(Modifier::BOLD),
     );
     let state = if app.linear || app.width < 90 {
-        format!("{} / local draft", form.name)
+        format!("{} / {}", form.name, app.storage_label())
     } else {
-        "Task: local draft / session only".to_owned()
+        app.storage_label().to_owned()
     };
     text(frame, row(area, 1, 1), &state, paint.accent);
     text(
@@ -463,7 +463,7 @@ fn workspace(
         frame,
         row(content, 1, 2),
         if app.goal.is_empty() {
-            "g / Enter  Edit session goal"
+            "g / Enter  Create durable goal"
         } else {
             "f  Choose a specialist / p  Preview handoff"
         },
@@ -471,7 +471,7 @@ fn workspace(
     );
     let artifact = row(content, 4, content.height.saturating_sub(4));
     let offset = app.scroll_for(ScrollSurface::Workspace);
-    let mut lines = vec![Line::styled("SESSION GOAL", paint.muted), Line::from("")];
+    let mut lines = vec![Line::styled("TASK GOAL", paint.muted), Line::from("")];
     if app.goal.is_empty() {
         lines.push(Line::from("Give your companion one bounded goal."));
     } else {
@@ -565,7 +565,7 @@ fn inspect(
 ) {
     let drawer = app.overlay == Some(Overlay::Inspector);
     let block = panel(
-        " Session inspector ",
+        " Task and storage inspector ",
         config,
         paint,
         drawer || app.effective_focus() == Pane::Inspector,
@@ -575,8 +575,17 @@ fn inspect(
     let path = config.assets_dir.to_string_lossy();
     let safe_path: String = path.chars().filter(|c| !c.is_control()).collect();
     let value = format!(
-        "PROJECT DIRECTORY\n{}\n\nCONTROL BOUNDARY\nNo grants or pending approvals\n\nEVIDENCE\nRepository not inspected\nNo results recorded\n\nSTORAGE\nSession only; discarded on exit\n\nARTWORK\n{}\n{}\n{}\n\nUp/Down scroll / Esc back",
+        "PROJECT DIRECTORY\n{}\n\nCONTROL BOUNDARY\nNo grants or pending approvals\n\nEVIDENCE\nRepository not inspected\nNo results recorded\n\nSTORAGE\n{}\nRevision {} / committed {}\nDirectory: {}\n{}\nRecovery: r retry after closing another writer or fixing disk permissions; --export-data FILE reads without reset.\n\nARTWORK\n{}\n{}\n{}\n\nUp/Down scroll / Esc back",
         app.cwd,
+        app.storage_label(),
+        app.revision,
+        app.saved_revision,
+        config.data_dir.to_string_lossy().escape_debug(),
+        match &app.storage {
+            crate::app::StorageState::Failed(error) => error.as_str(),
+            _ => "",
+        }
+        .escape_debug(),
         artwork.status(app.form),
         graphics_status,
         safe_path
@@ -741,7 +750,7 @@ fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &P
     let block = panel(" Keyboard / local actions ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let value = "f          Evolution picker: arrows/1-9 preview\ng          Edit local goal; Enter applies, Esc goes back\np          Preview selected handoff; Run unavailable\ni / b      Inspector / companion drawer\nl          Toggle linear / sanctuary layout\nCtrl+K     Local command palette\nTab        Cycle visible panes\nUp/Down    Select or scroll the focused surface\nPageUp/Down Scroll a page\nHome/End   First/last selection or cursor\nEnter      Open or explicitly confirm\nEsc        Close overlay and restore focus\n?          Show/close this help\nq          Quit outside editor; types q in editor\nCtrl+C     Safe exit; confirm session data loss\n\nGoal editor: Left/Right move by grapheme.\nBackspace/Delete remove one whole grapheme.\nUp/Down move between lines; Ctrl+N inserts newline.\nShift+Enter also inserts newline when the terminal distinguishes it.\nPaste preserves newlines but never applies or executes.\nCtrl+K and form shortcuts are inactive while editing.\nChanged drafts require deliberate discard.\nNeutral Enter keeps your draft; Tab/Right selects discard.\n\nArtwork: use --images cells|off for compatibility.\nNo automatic download, model request, or permissions.\nLinear mode is text-first; no assistive-tool claim yet.";
+    let value = "f          Evolution picker: arrows/1-9 preview\ng          Edit local goal; Enter applies and saves, Esc goes back\np          Preview selected handoff; Run unavailable\ni / b      Inspector / companion drawer\nr          Retry failed storage (outside text entry)\nl          Toggle linear / sanctuary layout\nCtrl+K     Local command palette\nTab        Cycle visible panes\nUp/Down    Select or scroll the focused surface\nPageUp/Down Scroll a page\nHome/End   First/last selection or cursor\nEnter      Open or explicitly confirm\nEsc        Close overlay and restore focus\n?          Show/close this help\nq          Quit outside editor; types q in editor\nCtrl+C     Safe exit; finish pending saves or review failure\n\nGoal editor: Left/Right move by grapheme.\nBackspace/Delete remove one whole grapheme.\nUp/Down move between lines; Ctrl+N inserts newline.\nShift+Enter also inserts newline when the terminal distinguishes it.\nPaste preserves newlines but never applies or executes.\nCtrl+K and form shortcuts are inactive while editing.\nChanged drafts require deliberate discard.\nNeutral Enter keeps your draft; Tab/Right selects discard.\n\nArtwork: use --images cells|off for compatibility.\nNo automatic download, model request, or permissions.\nLinear mode is text-first; no assistive-tool claim yet.";
     scroll_text(
         frame,
         content,
@@ -766,9 +775,9 @@ fn preview(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint:
     frame.render_widget(block, area);
     let form = &FORMS[app.preview_form()];
     let value = format!(
-        "GOAL\n{}\n\nROLE\n{} / {}\n\nEXPECTED ARTIFACT\n{}\n\nCONTEXT\nNo selected source excerpts. Project not inspected.\n\nEXECUTION / CONTROL\nAgent: not connected. No grants.\nRun unavailable: provider, storage, and runtime not implemented.\nThis preview performs no operation.\n\nEsc returns to the invoking control.",
+        "GOAL\n{}\n\nROLE\n{} / {}\n\nEXPECTED ARTIFACT\n{}\n\nCONTEXT\nNo selected source excerpts. Project not inspected.\n\nEXECUTION / CONTROL\nAgent: not connected. No grants.\nRun unavailable: provider and runtime not implemented.\nThis preview performs no operation.\n\nEsc returns to the invoking control.",
         if app.goal.is_empty() {
-            "No session goal set"
+            "No task goal set"
         } else {
             &app.goal
         },
@@ -854,7 +863,7 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
     let area = centered(area, 86, 16);
     frame.render_widget(Clear, area);
     let block = panel(
-        " Edit session goal / local apply only ",
+        " Edit task goal / Enter applies and saves locally ",
         config,
         paint,
         true,
@@ -864,7 +873,7 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
     text(
         frame,
         row(content, 0, 2),
-        "Not saved or sent. Paste is text, never an action.",
+        "Unapplied draft. Paste is text; no command or model request.",
         paint.muted,
     );
     let input = row(content, 3, content.height.saturating_sub(6));
@@ -933,7 +942,7 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint
         centered(area, 62, 10)
     };
     frame.render_widget(Clear, area);
-    let block = panel(" Confirm local data loss ", config, paint, true);
+    let block = panel(" Confirm exit or draft discard ", config, paint, true);
     let content = if area.width < 8 || area.height < 5 {
         area
     } else {
@@ -946,10 +955,15 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint
             "Keep editing",
             "Discard draft",
         ),
-        ConfirmationKind::Quit => (
-            "Exit? Session goal and draft will be lost.",
+        ConfirmationKind::Quit if matches!(app.storage, crate::app::StorageState::Failed(_)) => (
+            "Storage failed. Unsaved edits may be lost; accepted saves may finish. Stay, then r retries.",
             "Stay",
-            "Discard and quit",
+            "Exit despite save failure",
+        ),
+        ConfirmationKind::Quit => (
+            "Exit? Applied changes finish saving; unapplied editor draft is discarded.",
+            "Stay",
+            "Finish save and quit",
         ),
     };
     text(frame, row(content, 0, 3), question, paint.surface);
@@ -1035,6 +1049,7 @@ mod tests {
                 images: ImageMode::Off,
                 assets_dir: "unused".into(),
                 layout: LayoutMode::Sanctuary,
+                data_dir: "unused-data".into(),
             };
             for (index, form) in FORMS.iter().enumerate() {
                 let paint = Paint::new(&config, form, index);

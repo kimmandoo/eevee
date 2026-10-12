@@ -1,7 +1,7 @@
 # Eevee Implementation Plan
 
 Date: 2026-10-13
-Status: Section A (V01/P01/V02A/V02B/V03/UX01) is complete: five native core rows passed, and the qualified macOS arm64/Ghostty route passed real native-image acceptance. Section B and later phases remain pending. Of 31 tasks, 6 are checked and 25 remain unchecked. See the checkpoint for exact current evidence.
+Status: Section A is complete on its recorded five-row core and qualified native-image gates. E01 passed local durable-goal/recovery and real-TUI acceptance; E02 is next. Of 31 tasks, 7 are checked and 24 remain unchecked. The current request includes all remaining section-B and section-C tasks; native installation CI is tracked separately.
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
 
 ## Outcome
@@ -151,4 +151,4 @@ No custom model runtime, autonomous multi-agent swarm, hosted synchronization, p
 
 ## Current next action
 
-The all-section-A request is complete. The current user-directed increment is verified offline binary packaging/installers with command **`ev`**, Apache-2.0 code licensing, and no public Release or remote bootstrap. It is a preview slice of P03, not completion of its later parity/performance/schema/public-rights gates. The user extended this request to **all of sections B and C**: after installation verification, implement E01, E02, E03, C01, C02, R01, R02, UX02, and P02 in dependency order, with scoped commits/push and each task's real runtime acceptance. Start E01 against an isolated save/quit/reopen scenario; do not infer persistence from the session editor. Native graphics stays limited to macOS arm64/Ghostty 1.3.1, with cells/off elsewhere.
+Continue **E02 — Eevee task cards and resumption** after the locally verified E01 storage increment, then E03, C01, C02, R01, R02, UX02, and P02 in dependency order. The request also includes offline `ev` packaging/installers under Apache-2.0, with native CI acceptance in progress and public Release/remote bootstrap withheld. This preview does not complete P03's later integrated/schema/performance/rights gates. Keep scoped commits/push and actual task acceptance; native graphics remains limited to the qualified macOS arm64/Ghostty 1.3.1 route.

@@ -56,9 +56,9 @@ cargo run --release -- --layout linear --images off
 
 Requires interactive stdin and stdout. The minimum Rust toolchain is 1.90.0. All five qualified native core baselines below passed build/test/lint and real PTY/ConPTY interaction. Native images were separately exercised on macOS arm64/Ghostty 1.3.1. Use `cargo run -- --help` for CLI options.
 
-The sanctuary, nine-species artwork, grid/list picker, local handoff preview, bounded scrolling, and grapheme-aware goal editor are implemented. Agent execution, repository inspection, persistent tasks, and permission grants remain unavailable. Switching forms never starts tools or changes permissions.
+The sanctuary, nine-species artwork, grid/list picker, local handoff preview, bounded scrolling, grapheme-aware goal editor, and one durable goal/form per project are implemented. Agent execution, repository inspection, multiple task cards, and permission grants remain unavailable. Switching forms never starts tools or changes permissions.
 
-Goals exist only until exit, are limited to 4096 UTF-8 bytes, and are never sent to a model. Enter applies an edit locally; Ctrl+N inserts a newline. Shift+Enter works only when the terminal reports it distinctly. Esc on a changed draft asks whether to keep or discard it. Backspace/VT Ctrl+H and Delete remove complete graphemes; a truncated paste leaves a visible warning.
+Goals are limited to 4096 UTF-8 bytes and never sent to a model. Enter applies an edit and requests a local save; the header distinguishes saving, committed, and failed revisions. Ctrl+N inserts a newline. Shift+Enter works only when the terminal reports it distinctly. Esc on a changed draft asks whether to keep or discard it. Backspace/VT Ctrl+H and Delete remove complete graphemes; a truncated paste leaves a visible warning.
 
 ### Artwork and terminal graphics
 
@@ -81,8 +81,9 @@ Artwork rights remain with the original rights holders. Downloading or attributi
 | --- | --- |
 | `f` | Open the evolution picker |
 | `1`–`9`, arrows | Preview a form inside the grid/list; Enter selects, Esc keeps the current form |
-| `g` | Edit the session-local goal |
+| `g` | Edit the durable project goal; Enter applies and saves |
 | `i` / `b` | Open the inspector / companion drawer |
+| `r` | Retry failed storage outside text entry |
 | `p` | Inspect a local handoff preview; in the picker, inspect the previewed role |
 | `l` | Toggle sanctuary / linear text layout |
 | Ctrl+K | Open the command palette |
@@ -91,7 +92,7 @@ Artwork rights remain with the original rights holders. Downloading or attributi
 | Esc | Close the current overlay, or offer keep/discard for a changed draft |
 | `?` | Show keyboard help |
 | `q` | Request quit outside text entry; type a literal `q` inside the editor |
-| Ctrl+C | Request safe exit; neutral Stay protects a session goal or changed draft |
+| Ctrl+C | Request safe exit; wait for pending saves or explicitly review unsaved data |
 
 Destructive dialogs start on Keep/Stay. Tab/Right explicitly selects discard, then Enter confirms; repeated Enter cannot turn neutral inspection into approval. No active jobs exist yet.
 
@@ -100,6 +101,22 @@ Windows uses a single console-record reader with VT input enabled: bracketed pas
 The layout uses three panes at 120+ columns, two at 90–119, and one with drawers at 60–89. Below 60 columns or 18 rows, resize guidance preserves the draft; back and safe exit remain available. Local focus, selections, and scroll offsets survive overlays and resize. The picker uses a 3x3 grid at >=90x30, otherwise a selected-centered list and portrait; `p` exposes role/artifact details at compact sizes. Rendering is event-driven with no idle animation or timer. Linear mode exposes the same local actions without requiring artwork; screen-reader compatibility is not claimed without real assistive-terminal evidence.
 
 Auto color uses advertised true-color support, then 256-color support, otherwise monochrome. Nonempty `NO_COLOR` overrides color flags. `TERM=dumb` also selects ASCII; a non-UTF-8 locale selects ASCII borders. Dark and light themes are explicit choices.
+
+## Durable local goal
+
+`g` edits the current project's goal; Enter applies it and requests a local SQLite save. Only a committed revision shows **Storage: saved**. Selecting a form saves it with the goal. Restarting in the same canonical project directory restores both; another project has separate state.
+
+| Platform | Default data directory |
+| --- | --- |
+| macOS | `~/Library/Application Support/eevee` |
+| Linux | `$XDG_DATA_HOME/eevee`, or `~/.local/share/eevee` |
+| Windows | `%LOCALAPPDATA%\\eevee` |
+
+Use `ev --data-dir PATH` for isolation. `workbench.sqlite3` stores schema-versioned goals; `workbench.lock` admits one writer across directory aliases. Another instance shows a storage error rather than taking over. Press `r` to retry after resolving the conflict or disk/permission error; `i` shows details. Goal text stays editable on failure. Applied changes finish saving before a confirmed normal exit; failed storage requires an explicit informed exit. An unapplied editor draft is not yet durable.
+
+Schema 0 (`goals(project TEXT PRIMARY KEY, goal TEXT NOT NULL, form INTEGER NOT NULL)`) migrates transactionally to schema 1 (`projects`, including revision). Corrupt, foreign, or newer schemas are never reset. Interrupted single-database rollback migrations are first recovered and validated on private copies, bounded to 64 MiB per database/journal; WAL/SHM and multi-database recovery are refused rather than guessed. Preserve the original files for manual recovery if automatic recovery is unavailable.
+
+`ev --data-dir PATH --export-data NEW_FILE.json` exports readable known goal rows without creating/migrating the database or overwriting the output. Export is not a repair or a guarantee that a corrupt database is readable. Project/data paths must be Unicode; display escaping does not change stored project identity.
 
 ## Development checks
 
@@ -139,11 +156,11 @@ These historical core rows do not certify arbitrary GUI terminals, native images
 - [Session checkpoint](docs/WORK_CHECKPOINT.md)
 - [Terminal troubleshooting](docs/TROUBLESHOOTING.md)
 
-Section A and its five-row native core checkpoint are complete; [task.md](task.md) and the checkpoint record the exact evidence. The next product increment is **E01 — Durable goal and save acknowledgement**; a session draft is not already saved. P02 later proves filesystem/process parity, while artwork, provider, and distribution gates remain independent.
+Section A and its five-row native core checkpoint are complete. E01 added locally verified durable goal/form storage; multiple task cards are the next increment, followed by the remaining B/C tasks requested in [task.md](task.md). P02 separately proves filesystem/process parity across the native matrix; local storage acceptance alone is not that claim.
 
 Native core support is limited to the recorded OS/architecture/PTY or ConPTY tuples above. Windows ARM64, older OS versions, and untested GUI terminals remain unclaimed. Cross-compilation is not runtime proof. P02 gates filesystem/data-directory and owned process-tree lifecycle after recovery UX. P03 gates native archives/checksums and install/upgrade/uninstall preserving user data, after integrated acceptance and rights/provider review. Native-image and agent capabilities are qualified separately by OS/version/terminal.
 
-The [design contract](docs/DESIGN_RULES.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md) also cover planned transactional persistence, active-run task switching/quit, dispatch-time context revalidation, and E03 archive/delete, redaction, quotas, and retention. Those later workbench safeguards are not implemented by the local companion.
+The [design contract](docs/DESIGN_RULES.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md) also cover active-run task switching/quit, dispatch-time context revalidation, and E03 archive/delete, redaction, quotas, and retention. These remain subsequent workbench tasks; transactional single-goal storage is described above.
 
 Later integration targets: Codex app-server first, an optional official Claude Agent SDK bridge, and one ACP client exercised against OpenCode and Gemini. A form selects the workflow, not the vendor. Switching agents uses a reviewed fresh handoff; native provider sessions and grants are not portable. The Rust core/local UI needs no Node runtime; only the optional Claude SDK integration would add one. Interface research and a local Codex version/help check are not runtime interoperability verification.
 

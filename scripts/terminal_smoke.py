@@ -485,9 +485,18 @@ def terminal_environment(mode):
     return environment
 
 
+def await_saved(session):
+    deadline = time.monotonic() + 8
+    while "Storage: saved" not in session.display():
+        assert session.alive(), "application exited before durable acknowledgement"
+        assert time.monotonic() < deadline, "goal did not reach committed storage state"
+        session.pump(0.05)
+
+
 def exercise_ui(session, size, cwd):
     session.pump(0.8)
     assert session.alive(), "app failed at startup"
+    await_saved(session)
     assert ESC + "]0;SMOKE_CWD" not in session.text, "cwd controls escaped sanitization"
     session.capture("initial")
     session.idle()
@@ -514,6 +523,7 @@ def exercise_ui(session, size, cwd):
     session.resize(size)
     assert "smoke_goal 漢字 café" in session.display(), "resize lost the editor draft"
     session.send("\r")
+    await_saved(session)
     assert "smoke_goal 漢字 café" in session.display(), "local apply lost the goal"
     session.capture("applied-goal")
     for key, name in (("?", "help"), ("i", "inspector"), ("b", "companion"),
@@ -534,6 +544,7 @@ def exercise_ui(session, size, cwd):
     session.send("f")
     session.send("9")
     session.send("\r")
+    await_saved(session)
     assert "smoke_goal" in session.display(), "form selection lost the goal"
     session.send("g")
     session.paste(" changed")
@@ -657,7 +668,8 @@ def main():
                     name = mode + "-" + str(size[0]) + "x" + str(size[1])
                     case = {"name": name, "size": list(size), "status": "failed"}
                     results["cases"].append(case)
-                    session = Session([str(binary), "--images", "off", "--assets-dir", str(assets), *flags],
+                    session = Session([str(binary), "--data-dir", str(Path(temporary) / (name + "-data")),
+                                       "--images", "off", "--assets-dir", str(assets), *flags],
                                       cwd, terminal_environment(mode), size, output / name)
                     try:
                         exercise_ui(session, size, cwd)
@@ -668,7 +680,8 @@ def main():
             for name, size, key in (("below-minimum-quit", (39, 10), "q"),
                                     ("clean-quit", (60, 18), "q"),
                                     ("clean-ctrl-c", (60, 18), "\x03")):
-                session = Session([str(binary), "--images", "off", "--color", "mono", "--ascii"],
+                session = Session([str(binary), "--data-dir", str(Path(temporary) / (name + "-data")),
+                                   "--images", "off", "--color", "mono", "--ascii"],
                                   cwd, terminal_environment("mono-ascii"), size, output / name)
                 try:
                     session.pump(0.8)
