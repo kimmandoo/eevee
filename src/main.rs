@@ -1,6 +1,8 @@
 mod app;
+mod artwork;
 mod config;
 mod domain;
+mod native;
 mod terminal;
 mod ui;
 
@@ -27,6 +29,16 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Ok(Command::Download(config)) => match artwork::download(&config) {
+            Ok(message) => {
+                println!("{message}");
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("eevee: {error}");
+                ExitCode::FAILURE
+            }
+        },
         Err(error) => {
             eprintln!("eevee: {error}\nTry 'eevee --help' for usage.");
             ExitCode::from(2)
@@ -38,16 +50,36 @@ fn run(config: Config) -> io::Result<()> {
     let mut cwd = std::env::current_dir()?.to_string_lossy().into_owned();
     // Paths are untrusted terminal text too; never emit embedded control bytes.
     cwd.retain(|character| !character.is_control());
-    terminal::run(|terminal| {
+    let mut artwork = artwork::Artwork::load(&config);
+    terminal::run(native::cleanup, |terminal| {
         let size = terminal.size()?;
         let mut app = App::new(cwd, size.width, size.height);
+        app.linear = config.layout == config::LayoutMode::Linear;
+        let mut graphics = native::NativeGraphics::new(&config);
         let mut dirty = true;
+        let mut targets = Vec::with_capacity(9);
         loop {
             if dirty {
-                terminal.draw(|frame| ui::render(frame, &app, &config))?;
+                ui::portrait_targets(
+                    &app,
+                    ratatui::layout::Rect::new(0, 0, app.width, app.height),
+                    &mut targets,
+                );
+                if !graphics.is_native() {
+                    artwork.prepare(&targets, ui::image_background(&config));
+                }
+                graphics.prepare(&artwork, &targets)?;
+                terminal.draw(|frame| {
+                    ui::render(frame, &mut app, &config, &mut artwork, graphics.status());
+                    graphics.render(frame.buffer_mut());
+                })?;
             }
-            // Blocking input means zero idle redraws and no timer wakeups.
-            dirty = app.update(event::read()?);
+            // One input owner; kernel cell-size discovery never reads stdin.
+            let event = event::read()?;
+            if matches!(event, event::Event::Resize(_, _)) {
+                graphics.discover_cell();
+            }
+            dirty = app.update(event);
             if app.quit {
                 return Ok(());
             }

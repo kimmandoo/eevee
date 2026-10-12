@@ -19,9 +19,9 @@ const ALTERNATE: u8 = 2;
 const CURSOR: u8 = 4;
 const PASTE: u8 = 8;
 
-#[derive(Default)]
 struct Modes {
     active: AtomicU8,
+    cleanup: fn() -> io::Result<()>,
 }
 
 impl Modes {
@@ -47,6 +47,7 @@ impl Modes {
         let active = self.active.swap(0, Ordering::SeqCst);
         let mut error = None;
         let mut stdout = io::stdout();
+        record(&mut error, "clear owned graphics", (self.cleanup)());
         if active & RAW != 0 {
             record(&mut error, "disable raw mode", disable_raw_mode());
         }
@@ -90,7 +91,7 @@ fn record(error: &mut Option<io::Error>, operation: &str, result: io::Result<()>
     }
 }
 
-pub fn run<F>(body: F) -> io::Result<()>
+pub fn run<F>(cleanup: fn() -> io::Result<()>, body: F) -> io::Result<()>
 where
     F: FnOnce(&mut Terminal<CrosstermBackend<Stdout>>) -> io::Result<()>,
 {
@@ -101,7 +102,10 @@ where
         ));
     }
 
-    let modes = Arc::new(Modes::default());
+    let modes = Arc::new(Modes {
+        active: AtomicU8::new(0),
+        cleanup,
+    });
     let original_hook = Arc::new(panic::take_hook());
     let panic_modes = Arc::clone(&modes);
     let previous_hook = Arc::clone(&original_hook);

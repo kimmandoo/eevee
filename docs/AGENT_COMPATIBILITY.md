@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This is an English implementation plan, not a compatibility claim. The shipped binary is still the Phase 1 local Rust shell. Binding interaction rules live in [DESIGN_RULES.md](DESIGN_RULES.md); runnable increments and acceptance gates live in [../task.md](../task.md).
+This is an English implementation plan, not an agent compatibility claim. The binary implements the local companion shell/artwork/input journey; agent adapters, execution, and persistence remain unavailable. Binding interaction rules live in [DESIGN_RULES.md](DESIGN_RULES.md); runnable increments and acceptance gates live in [../task.md](../task.md).
 
 Evidence date: **2026-10-12**. Local observation: `codex-cli 0.147.0` and `codex app-server --help`; the latter labels the server experimental and defaults to stdio. `claude`, `opencode`, and `gemini` were not found on the current PATH. No agent handshake, authentication, model request, approval, or cross-agent continuation was exercised in this planning session. The references below establish documented interfaces, not tested interoperability or distribution rights.
 

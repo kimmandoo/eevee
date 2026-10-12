@@ -2,9 +2,9 @@
 
 ## Active work
 
-Build the Eevee workbench in small, runnable increments. The next implementation task remains **V01 — Sanctuary layout and visual hierarchy**, followed by the P01 native-platform baseline. Prioritize usable local interactions and durable tasks; optional native graphics and unavailable provider credentials must not block independent ready work. Do not start all tasks at once.
+The local companion runtime in section A is implemented and verified on macOS arm64. The active acceptance task is **P01 — Native platform baseline and terminal lifecycle**: complete the five native CI rows before claiming platform support. Do not start section B in this request. E01 is the next dependency-ready product increment after section-A acceptance; storage/provider capabilities remain unavailable until implemented.
 
-Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapter/evidence contract: [agent compatibility](docs/AGENT_COMPATIBILITY.md). Each unchecked item is planned, not implemented.
+Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapter/evidence contract: [agent compatibility](docs/AGENT_COMPATIBILITY.md). An unchecked task may have partial implementation, but its acceptance is not complete; consult its evidence note and the checkpoint.
 
 ## Completed baseline
 
@@ -29,10 +29,11 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ### V01 — Sanctuary layout and visual hierarchy
 
-- [ ] Deliver the next visual increment.
+- [x] Delivered the sanctuary visual increment.
 - **Depends on:** Phase 1.
 - **Change:** Refine `src/ui.rs` with centralized theme tokens, spacious wide-screen gutters/padding, compact layouts, a single task/action card, and a contextual footer. Keep current backend/persistence limitations truthful. Put state in the header, identity in the rail, artifact in the center, and permissions/provenance in the inspector; remove duplicated paragraphs. Do not add persistence or new provider calls.
 - **Accept:** Launch the real binary at 120x36, 100x30, 70x24, and 60x18; create/edit a session goal, open drawers, and quit. The primary action and selected text remain readable in dark/light/indexed/mono/ASCII modes; measure the app's own true-color contrast. Task/form/agent readiness and local-vs-provider action are identifiable without opening help. Capture layouts; no overlapping controls, duplicate state paragraphs, or idle redraws.
+- **Evidence:** Real PTY size/theme/input/overlay/exit scenarios and actual Ghostty captures; measured nonblank true-color text contrast minima 7.14:1 dark and 5.19:1 light. Primary action stays pinned above scrollable artifacts; modal footer and inactive title readability were corrected.
 
 ### P01 — Native platform baseline and terminal lifecycle
 
@@ -43,33 +44,37 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ### V02A — Actual nine-species assets and cell rendering
 
-- [ ] Show real Eevee/evolution artwork from a local, source-tracked cache.
+- [x] Showed real Eevee/evolution artwork from a local, source-tracked cache.
 - **Depends on:** V01.
 - **Change:** Map the nine species IDs in the design contract to one consistent transparent official-artwork PNG set. Support a local asset directory and an explicit user-initiated source download; record source/revision/hash/attribution without bundling franchise bytes by default. Bound PNG decode/allocation and render the same image as cached half-block cells or luminance ASCII/mono. Remove the hand-drawn `motif` path when cutting over; missing/corrupt art gets a truthful asset state, not a substitute mascot. Images never enter LLM context.
 - **Accept:** Load all nine real images, switch forms offline, and capture actual cell-rendered portraits at wide/compact sizes. Verify aspect/alpha, NO_COLOR/ASCII, missing/corrupt/oversized files, and no network/model call on selection. Native pixel fidelity is not claimed by this task.
+- **Evidence:** Downloaded and SHA256-verified all nine pinned sources, then reused the cache without downloading. Exercised 63 offline switches across seven terminal modes, missing/corrupt/oversized PNG states, alpha/aspect/mono boundaries, and a FIFO startup regression. No artwork bytes are bundled.
 
 ### V02B — Native terminal artwork and graphics lifecycle
 
-- [ ] Display the same source images at pixel fidelity on supported terminals.
+- [x] Displayed the same source images at pixel fidelity on the qualified native terminal.
 - **Depends on:** V02A.
-- **Change:** Add a compatible pinned `ratatui-image` version with PNG-only decoding and no default Chafa runtime dependency. Implement bounded protocol/cell-size discovery with one input owner; cache resize/encoding work outside rendering. `--images auto|cells|off` controls native/fallback behavior. Clear/reposition image resources on form changes, overlays, resize, and exit; preserve the text layout and existing terminal restoration.
-- **Accept:** Show Eevee and all eight forms in an actual graphics-capable terminal, not only TestBackend or a text PTY. Exercise image-bearing overlays, repeated form switches, resize, dark/light surfaces, and quit without stale images. Validate each native protocol before advertising it; otherwise keep it disabled and use working cells mode. Exercise a no-response probe and an unsupported/multiplexed terminal path without startup hangs, stolen keys, or colored graphics under NO_COLOR.
+- **Change:** Added pinned `ratatui-image` with PNG-only decoding and no Chafa defaults. Used an OS/architecture/terminal-version-qualified native Kitty route with kernel cell-size discovery and one Crossterm input owner; no stdin-consuming query is sent. Cached resize/encoding outside rendering. `--images auto|cells|off` controls native/fallback behavior. Cleared/repositioned owned resources on form changes, overlays, resize, and exit, preserving text layout and terminal restoration.
+- **Accept:** Show Eevee and all eight forms in an actual graphics-capable terminal, not only TestBackend or a text PTY. Exercise image-bearing overlays, repeated form switches, resize, dark/light surfaces, and quit without stale images. Validate each native protocol before advertising it; otherwise keep it disabled and use working cells mode. Exercise a missing pixel/cell report and unsupported/multiplexed paths without startup waits, stdin queries, stolen keys, or colored graphics under NO_COLOR.
+- **Evidence:** Actual macOS arm64/Ghostty 1.3.1 native nine-image dark/light grids, all nine selected portraits, preview/inspector occlusion, font/viewport resize, CJK editing, and resource-free exit were captured. Missing kernel pixel reports and tmux-qualified rejection used working cells. Other protocols/native tuples remain disabled, not inferred supported.
 
 ### V03 — Evolution picker and deliberate handoff preview
 
-- [ ] Make choosing a form an understandable local interaction.
+- [x] Made choosing a form an understandable local interaction.
 - **Depends on:** V02A.
 - **Change:** At >=90x30, show a 3x3 grid of actual species thumbnails with a selected detail area; otherwise use a compact list and selected portrait. Show the role, expected artifact, current form, and prerequisite status. Arrows/1-9 preview; Enter selects; Esc restores the previous form. Keep task text intact. Previewing or selecting grants nothing and starts no work; unavailable provider actions are labelled unavailable rather than simulated.
 - **Accept:** Select/cancel each form using only the keyboard at wide and narrow sizes. Confirm the goal and focus survive; selection and activation are distinct; all nine forms are reachable. Capture color/mono/cells and missing-art states without requiring V02B. After V02B ships, also verify native images are removed behind overlays instead of bleeding through; Q01 owns this composed check.
+- **Evidence:** Grid/list selection, cancel, nested local preview, unchanged goal/focus, and absent-art states were exercised in the real PTY; native overlays and compact selection were inspected in Ghostty.
 
 ### UX01 — Predictable focus, editing, and accessible local navigation
 
-- [ ] Make the local shell usable without relying on artwork or memorized shortcuts.
+- [x] Made the local shell usable without relying on artwork or memorized shortcuts.
 - **Depends on:** V01.
 - **Change:** Implement focus restoration, per-surface selection/scroll state, grapheme-aware cursor editing, and explicit local-apply versus request-preview actions. Suppress global shortcuts in text/search/answer fields. Add a linear text layout with the same local actions, optional portraits, and readable monochrome selection; do not claim assistive-tool support before testing it. Use the existing text picker without requiring artwork. Distinguish Esc=discard an editor draft from Esc=close a pending-request view; keep a visible hint. Below minimum size, retain draft/run state and expose safe quit/cancel rather than an inescapable resize screen.
 - **Accept:** Complete create/edit/select/back/resize/quit using only keyboard navigation with CJK/combining text and multiline paste, including absent artwork. Pasted commands/newlines never execute or approve anything. Closing a drawer restores focus, resize below/above minimum preserves drafts/selection, and linear layout exposes the same actions. A dirty editor warns before destructive discard without requiring confirmation for an unchanged draft. Exercise a real assistive terminal setup before labelling that combination screen-reader compatible.
+- **Evidence:** Real keyboard/CJK/combining/multiline paste, safe keep/discard/quit, local apply, bounded scrolling, linear layout, and below-minimum resize scenarios passed. Ctrl+N provides portable newline input; Shift+Enter is conditional on terminal reporting. No screen-reader compatibility is claimed.
 
-**Gate A:** a polished, honest local companion shell including required artwork acceptance. No persistence or agent execution claimed. A blocked V02B leaves this full visual gate pending, but does not block dependency-ready UX01 or local-workbench tasks.
+**Gate A:** the local companion visual/input/artwork gate passed on the recorded macOS arm64 terminal. The cross-platform P01 acceptance remains separate and active until all native rows pass. No persistence or agent execution is claimed.
 
 ## B — A useful local workbench before connecting a model
 
@@ -269,4 +274,4 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ## Phase status
 
-Phase 1 remains the last completed and recorded runtime phase. Visual/UX refinements, multiplatform support, and Phases 2-7 remain pending. All 31 implementation tasks above are unchecked; writing this plan did not implement them. See `docs/WORK_CHECKPOINT.md` for the exact continuation point, user-owned in-progress changes, and separate documentation/runtime evidence.
+Phase 1 and the five local companion tasks V01, V02A, V02B, V03, and UX01 are complete on the recorded environment. P01's native-platform acceptance is active; sections B-G and platform parity/distribution remain pending. Of 31 implementation tasks, 5 are checked and 26 remain unchecked. See `docs/WORK_CHECKPOINT.md` for exact evidence and continuation; do not infer other native protocols, platforms, persistence, or provider support from the companion UI.

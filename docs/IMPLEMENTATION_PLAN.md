@@ -1,7 +1,7 @@
 # Eevee Implementation Plan
 
 Date: 2026-10-12
-Status: Phase 1 implementation and verification are last recorded evidence, not verification of the current working tree: user-owned source/Cargo edits have not been reverified. Next: V01 visual refinement, then P01 native portability and ready artwork/input/local-workbench increments. All 31 planned implementation tasks remain pending.
+Status: V01/V02A/V02B/V03/UX01 are implemented and locally accepted on macOS arm64, including real Ghostty native-image evidence. P01's five-row native acceptance is active; section B and later phases remain pending. Of 31 tasks, 5 are checked and 26 remain unchecked. See the checkpoint for exact current evidence.
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
 
 ## Outcome
@@ -19,6 +19,8 @@ One native Rust binary and one Cargo package with these module boundaries; an op
 - `store`: SQLite migrations, durable events/snapshots, output references, recovery.
 - `repo`: Git baseline, working-tree identities, diff, external-change detection.
 - `agent`: profile/version admission, request/context assembly, normalized events, and concrete Codex/Claude/ACP adapters.
+- `artwork`: bounded local PNG/source-manifest loading, explicit pinned downloads, and cached image-derived cells.
+- `native`: terminal/version-qualified Kitty encoding, physical-cell diff widths, placement/resource lifecycle, and kernel-only cell-size discovery.
 
 The reducer owns mutable application state. Workers send typed events; render functions read state and do no I/O. Store writes run on a dedicated blocking worker. Large payloads are referenced rather than repeatedly cloned into events.
 
@@ -147,4 +149,4 @@ No custom model runtime, autonomous multi-agent swarm, hosted synchronization, p
 
 ## Current next action
 
-Implement **V01 — Sanctuary layout and visual hierarchy** from `task.md`. Start from the existing `src/ui.rs` and recorded Phase 1 terminal capture, reserve a bounded real-artwork area, refine spacing/hierarchy/empty states without inventing tasks or introducing storage, and prove the result in the real TUI across widths and color modes. P01 follows, then the first ready artwork/input tasks; prioritize UX01/E01 when native graphics is unavailable without dropping the full visual gate. E01 remains the first storage increment. Planning documents, downloaded preview images, SVGs, and CLI help observations do not implement these tasks or prove interoperability; historical Phase 1 evidence does not verify current source edits.
+Finish **P01 — Native platform baseline and terminal lifecycle** by running and observing the five native CI rows, correcting actual failures, and recording evidence. The section-A companion runtime has passed local artifact/input/native-image gates; do not start section B during the current all-A request. Once acceptance is recorded, E01 is the next product increment and still requires actual save/reopen proof. Native graphics support remains limited to the verified macOS arm64/Ghostty 1.3.1 route, with cells elsewhere; provider interoperability and durable state are not implemented.

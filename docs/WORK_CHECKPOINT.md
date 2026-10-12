@@ -1,5 +1,26 @@
 # Work Checkpoint
 
+## 2026-10-12 — Section A companion implementation and native acceptance
+
+- Active work: user requested all of section A, scoped commits, and push. The five companion tasks V01/V02A/V02B/V03/UX01 are implemented and locally verified; **P01** remains active while native CI evidence is collected. Do not start section B during this request.
+- Exact next action: commit the native workflow and portable real-terminal harness separately, push the section-A implementation, and observe the five native CI rows. Correct any actual failures, then record per-row outcomes and push the final checkpoint. Do not mark P01 complete from YAML or compilation alone.
+- Starting state: `main...origin/main [ahead 5]`; latest commit `9c922f9 docs(platform): plan native support and close UX gaps`. Existing `Cargo.lock`, `Cargo.toml`, `src/app.rs`, `src/config.rs`, `src/domain.rs`, and `src/ui.rs` changes were preserved and integrated into the runnable companion rather than discarded. Pre-existing untracked `.DS_Store` and `AGENTS.md` remain excluded.
+- Runtime scope: source-tracked opt-in artwork, bounded static PNG loading/cell cache, qualified native Kitty resources, sanctuary/action hierarchy, all nine deliberate form previews, local-only handoff preview, grapheme cursor editing, portable Ctrl+N/VT Backspace, safe dirty-draft/exit confirmations, stable focus/selection/scroll, and linear navigation. No storage worker, repository reads, grants, commands, or model requests were added.
+- Native route: macOS arm64/Ghostty 1.3.1 only, with usable kernel-reported pixel dimensions and no SSH/tmux/screen layer. Native eligibility never reads stdin; a missing report immediately falls back to cells. Other native protocols/OS/version tuples remain disabled until real acceptance.
+- Changed runtime files: `Cargo.toml`, `Cargo.lock`, `src/app.rs`, `src/config.rs`, `src/domain.rs`, `src/main.rs`, `src/ui.rs`, `src/terminal.rs`, new `src/artwork.rs`, and new `src/native.rs`. Runtime/contract docs and troubleshooting were aligned; platform CI/harness are a separate commit scope.
+
+### Observed verification
+
+- Rust 1.90.0 minimum toolchain: `cargo +1.90.0 test --offline --all-targets` passed **42** tests; `cargo +1.90.0 clippy --locked --all-targets -- -D warnings` and `cargo +1.90.0 build --release --locked` passed. The lockfile-selected quantette dependency required raising the manifest minimum from 1.88 to 1.90. Formatting used the CI-pinned toolchain.
+- Earlier integrated local native harness: **34** real PTY scenarios passed across requested sizes and seven display modes, including normal/error/panic terminal restoration, non-TTY exit codes, CJK paste/controls, selection, modal neutral focus, resize, and idle output. The current release also passed the dedicated artwork/native scenarios below; the workflow will exercise the final revision's complete matrix.
+- Explicit CLI download obtained all nine PNGs at PokeAPI sprites revision `0dc105d5b12416932f29b594078282ab4be045f5`; a second invocation verified the complete cache without downloading. Product code/repository contains no franchise image bytes.
+- Artwork smoke: **10** scenarios passed, including **63** offline form switches across dark/light/indexed/mono/NO_COLOR/no-pixels/tmux modes, wide/compact portraits, missing/corrupt/oversized asset states, and no terminal graphics queries. `target/artwork-smoke/results.json` records outcomes; actual cell captures were inspected.
+- Real Ghostty 1.3.1 macOS arm64 surface: inspected all nine native portraits and dark/light grids, image-free preview/inspector/editor overlays, compact/font resize and restoration, CJK/combining text plus portable multiline input, and exits with no remaining portraits. `target/a-verify/final-native-*.png` are ignored local captures of the actual GUI terminal.
+- Measured actual ANSI nonblank text across all nine forms: minimum **7.14:1 dark / 5.19:1 light**, 6,978 text cells sampled per theme, excluding image pixels and decorative borders. `target/a-verify/contrast.json` records the method's sampled counts; theme regression tests also enforce 4.5:1 text and 3:1 active focus.
+- Reproduced a FIFO asset blocking before the first frame, then observed visible first-frame output, normal quit, and termios restoration after the nonblocking-open fix. Kept a permanent isolated FIFO regression. Also kept regression coverage for native payload row width and VT Ctrl+H combining deletion.
+- Resolved non-trivial native rendering, asset startup, and GUI automation issues are recorded in `docs/TROUBLESHOOTING.md`. No assistive-terminal/screen-reader claim or general performance benchmark claim is made.
+- Remaining evidence: other native rows are not yet claimed supported; P01 completion awaits observed CI results. Local screenshots/PNGs stay ignored, and throwaway smoke helpers are removed after final verification.
+
 ## 2026-10-12 — Native platform backlog and UX gap closure
 
 - Active work: implement the Eevee workbench incrementally. This request added multiplatform tasks and tightened existing UX/safety acceptance; it changed planning documents only, not application behavior.
