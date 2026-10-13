@@ -1,5 +1,13 @@
 # Troubleshooting
 
+### [2026-10-13] Windows help return capture corrupted UTF-8 border characters
+
+- **Context / Symptom:** Run `38412094582` failed `help back did not restore the invoking surface` at 100×30. `help-back.txt` contained `╰─────────���──────────╯`, wrapped the adjacent border and scrolled the screen; the help overlay itself had closed. The 120×36 journey and initial idle check had passed.
+- **Root Cause:** Pinned pywinpty 2.0.15 used winpty-rs 0.4.0, whose native pipe reader called `MultiByteToWideChar` independently for each `ReadFile` chunk. A UTF-8 border split between reads became replacement characters before the harness received a Python string. Splitting `─` (`e2 94 80`) after its first byte reproduces the observed `���` signature. Later waits cannot restore discarded bytes.
+- **Solution:** Replaced the harness dependency with `scripts/windows_conpty.py`, a native ConPTY raw-byte pipe transport. The existing incremental UTF-8 decoder now owns decoding on both platforms. Retained exact help-return surface equality, terminal restoration, input and idle assertions. Added real Windows split-byte Unicode, process/resize and cleanup regressions.
+- **Verification:** Local macOS terminal smoke passed all 34 scenarios with the integrated reader, and actionlint passed. The two native Windows regressions are explicitly skipped on macOS; hosted Windows verification is required, not inferred from that skip.
+- **Reference:** [Pinned lossy decoding implementation](https://github.com/andfoy/winpty-rs/blob/v0.4.0/src/pty/base.rs), [Microsoft ConPTY lifecycle](https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session).
+
 ### [2026-10-13] Windows startup frames were mistaken for idle output
 
 - **Context / Symptom:** Native run `38374725065` passed four Unix rows and SDK policy, but Windows installation reached the nested terminal suite and failed with `app emitted output while idle`.

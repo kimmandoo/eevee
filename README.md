@@ -304,7 +304,7 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo build --locked --release
 ```
 
-For real terminal smoke checks, install `pyte==0.8.2` and `wcwidth==0.2.13` in a Python virtual environment; native Windows additionally needs `pywinpty==2.0.15`. The separate SDK policy suite requires Node 24.
+For real terminal smoke checks, install `pyte==0.8.2` and `wcwidth==0.2.13` in a Python virtual environment. Native Windows uses raw ConPTY pipes with incremental UTF-8 decoding; no `pywinpty` dependency is needed. The separate SDK policy suite requires Node 24.
 
 ```sh
 python scripts/terminal_smoke.py --binary target/release/ev --output target/native-smoke

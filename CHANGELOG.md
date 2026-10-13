@@ -14,6 +14,7 @@
 
 ## 2026-10-13
 
+- fix(ci): preserved split UTF-8 bytes in native Windows ConPTY smoke capture, replacing the lossy pywinpty transport without relaxing help-return surface equality.
 - fix(ci): stopped hidden provider discovery from repainting the idle home, waited for complete saved terminal frames before idle checks, and retained failing-output diagnostics.
 - ci(release): separated five native build jobs from installed-package smoke jobs and tag publication; required successful same-commit main-push qualification and immutable artifact provenance without rebuilding or repeating release smoke.
 - ci: retained five native credential-free installation/TUI rows, added installed JSON/Markdown handoff and isolated Node 24 SDK policy coverage, pinned Rust dependency/tool caching with main-only saves, disabled persisted checkout credentials, and avoided duplicate branch-push/PR runs. OAuth and real provider/model smoke remain opt-in.

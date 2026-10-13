@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Native PTY/ConPTY evidence, not a GUI terminal or native-graphics certification.
 
-Requires pyte==0.8.2, wcwidth==0.2.13, and (Windows) pywinpty==2.0.15.
+Requires pyte==0.8.2 and wcwidth==0.2.13; Windows uses native ConPTY pipes.
 The supplied binary must already be built. One isolated cargo example build
 exercises the real terminal module's error and panic paths; repository files
 and the user's terminal are never modified. All transcripts are local artifacts.
@@ -83,7 +83,7 @@ def host_evidence():
     machine = platform.machine().lower()
     arch = {"aarch64": "arm64", "amd64": "x86_64"}.get(machine, machine)
     versions = {}
-    for package in ("pyte", "wcwidth", "pywinpty"):
+    for package in ("pyte", "wcwidth"):
         try:
             versions[package] = importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError:
@@ -98,7 +98,7 @@ def host_evidence():
         "cargo": command_version(["cargo", "--version"]), "packages": versions,
         "runner": {key: os.environ.get(key) for key in
                    ("RUNNER_OS", "RUNNER_ARCH", "NATIVE_RUNNER_LABEL", "ImageOS", "ImageVersion")},
-        "terminal_backend": "Windows ConPTY (pywinpty backend=0)" if WINDOWS else "native POSIX PTY",
+        "terminal_backend": "Windows ConPTY (raw pipes, incremental UTF-8)" if WINDOWS else "native POSIX PTY",
         "screen_model": "pyte", "gui_visual_acceptance": "not exercised; separate manual gate",
         "native_images": "not exercised or claimed",
         "minimum_os": "only the observed host version is exercised; older OS versions are unqualified",
@@ -249,7 +249,7 @@ class Session:
         directory.mkdir(parents=True, exist_ok=True)
         self.events = [{"argv": argv, "size": list(size), "environment": {
             key: environment.get(key) for key in
-            ("TERM", "COLORTERM", "LC_ALL", "LC_CTYPE", "LANG", "NO_COLOR", "PYWINPTY_BACKEND")}}]
+            ("TERM", "COLORTERM", "LC_ALL", "LC_CTYPE", "LANG", "NO_COLOR")}}]
         self.text = ""
         class TerminalScreen(pyte.Screen):
             def select_graphic_rendition(self, *attributes, private=False):
@@ -279,17 +279,17 @@ class Session:
         self.master = self.slave = None
         self.data = queue.Queue()
         if WINDOWS:
-            from winpty import PtyProcess
+            from windows_conpty import ConPTYProcess
             environment = dict(environment)
             environment["EEVEE_CONSOLE_EVIDENCE"] = str(directory / "native-console.json")
             wrapper = [sys.executable, str(Path(__file__).resolve()), "--console-child", "--", *argv]
-            self.process = PtyProcess.spawn(wrapper, cwd=str(cwd), env=environment,
-                                            dimensions=(size[1], size[0]), backend=0)
+            self.process = ConPTYProcess.spawn(wrapper, cwd=str(cwd), env=environment,
+                                               dimensions=(size[1], size[0]))
             try:
                 self.job = WindowsJob(self.process.pid)
                 self.process.write("EEVEE_SMOKE_START\r")
             except BaseException:
-                self.process.terminate(force=True)
+                self.process.close()
                 raise
         else:
             import fcntl
@@ -337,7 +337,7 @@ class Session:
             if isinstance(data, dict):
                 self.events.append(data)
                 continue
-            text = data if isinstance(data, str) else self.decoder.decode(data)
+            text = self.decoder.decode(data)
             self.text += text
             self.stream.feed(text)
             last_output = time.monotonic()
@@ -470,11 +470,7 @@ class Session:
             if WINDOWS:
                 if self.job:
                     self.job.close()
-                self.process.close(force=True)
-                # PtyProcess.isalive() marks itself closed before close(), so
-                # explicitly close its reader sockets even after normal exit.
-                self.process.fileobj.close()
-                self.process._server.close()
+                self.process.close()
             else:
                 if self.alive():
                     os.killpg(self.process.pid, signal.SIGKILL)
@@ -495,10 +491,6 @@ def terminal_environment(mode):
         environment.pop(key, None)
     environment.update(TERM="xterm-256color", COLORTERM="truecolor", LC_ALL="en_US.UTF-8",
                        LC_CTYPE="en_US.UTF-8", LANG="en_US.UTF-8", PYTHONUTF8="1")
-    if WINDOWS:
-        # PtyProcess's `backend or env` expression treats integer zero as unset.
-        # Supplying the string in env forces its documented ConPTY=0 backend.
-        environment["PYWINPTY_BACKEND"] = "0"
     if mode == "no-color":
         environment["NO_COLOR"] = "1"
     return environment

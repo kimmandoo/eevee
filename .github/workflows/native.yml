@@ -204,7 +204,6 @@ jobs:
           rustup toolchain install 1.90.0 --profile minimal
           python -m pip install pyte==0.8.2 wcwidth==0.2.13
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            python -m pip install pywinpty==2.0.15
             printf '%s\n' 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"
           fi
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -213,6 +212,8 @@ jobs:
           path: target/packages
       - name: Record observed native host and versions
         run: python scripts/terminal_smoke.py --record-host --output "$SMOKE_OUTPUT"
+      - name: Verify native ConPTY byte transport
+        run: python -m unittest discover -s scripts -p 'test_windows_conpty.py'
       - name: Verify install, upgrade, refusal, and installed terminal lifecycle
         run: python scripts/installation_smoke.py --package-dir target/packages --output "$SMOKE_OUTPUT/installation"
       - name: Verify durable workbench in the installed binary

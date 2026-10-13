@@ -1,5 +1,14 @@
 # Work Checkpoint
 
+## 2026-10-13 — User-prioritized Windows help-return failure
+
+- **Active request:** The user interrupted release work to fix `help back did not restore the invoking surface`. Release monitoring was stopped; no tag or release has been published. Do not resume publication as part of this focused correction.
+- **Evidence:** Run `38412094582`, Windows smoke, failed at 100×30 after 120×36 passed. Downloaded captures under `target/help-failure-evidence` show the overlay closed, but a border's single UTF-8 glyph became three replacement characters, causing wrapping/scrolling and exact-surface mismatch.
+- **Correction:** `scripts/windows_conpty.py` now exposes native raw-byte ConPTY pipes; `terminal_smoke.py` incrementally decodes those bytes rather than accepting pywinpty's already-corrupted text. Removed pywinpty setup and private socket cleanup. Existing help-return equality remains unchanged. `scripts/test_windows_conpty.py` adds real Windows fragmented UTF-8, Unicode argv/env/cwd, resize, exit-status and cleanup verification.
+- **Local checks:** `actionlint .github/workflows/native.yml .github/workflows/release.yml` passed; Python discovery passed 14 existing qualification tests and explicitly skipped two Windows-only tests. Actual installed-binary `terminal_smoke.py --output target/help-fix-terminal` passed 34 scenarios on macOS arm64. Rust application code is unchanged by this correction.
+- **Changed files:** `scripts/{windows_conpty,test_windows_conpty,terminal_smoke}.py`, `.github/workflows/native.yml`, README, changelog, troubleshooting and checkpoint.
+- **Exact next action:** Commit/push the focused fix and verify the native Windows regression step plus the complete installed terminal suite, including 100×30 help return. Record hosted results before marking this correction complete. Publication remains paused by the user's latest instruction.
+
 ## 2026-10-13 — CI repair and exact-artifact 0.1.0 publication
 
 - **Active request:** Thoroughly repair failing CI, separate unnecessary release smoke, then publish 0.1.0. Preserve the user's untracked `.DS_Store` and `AGENTS.md`.
