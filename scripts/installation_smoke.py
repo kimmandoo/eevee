@@ -272,6 +272,13 @@ def main():
                 command = (["powershell.exe", "-NoLogo", "-NoProfile", "-File", str(package / "install.ps1"),
                             "-InstallDir", str(downloaded)] if os.name == "nt" else
                            ["sh", str(package / "install.sh"), "--install-dir", str(downloaded)])
+                if os.name != "nt":
+                    # A session-leading shell can acquire and revoke the PTY
+                    # on macOS. Keep it a child, as in an ordinary user shell,
+                    # so post-exit termios checks inspect a live terminal.
+                    command = [sys.executable, "-c",
+                               "import subprocess,sys; sys.exit(subprocess.call(sys.argv[1:]))",
+                               *command]
                 environment = terminal_smoke.terminal_environment("mono")
                 environment.pop("CI", None)
                 environment.pop("EV_VERSION", None)

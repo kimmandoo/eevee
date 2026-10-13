@@ -1130,6 +1130,16 @@ pub(crate) fn source_visible(
     stopped: &AtomicBool,
 ) -> Result<bool, String> {
     let path = source_path(relative)?;
+    // Git's inventory uses '/' even when the native Windows identity uses '\'.
+    // Keep stored identities untouched; translate only the Git query boundary.
+    #[cfg(windows)]
+    let git_path = if path.contains('\\') {
+        std::borrow::Cow::Owned(path.replace('\\', "/"))
+    } else {
+        std::borrow::Cow::Borrowed(path)
+    };
+    #[cfg(windows)]
+    let path: &str = &git_path;
     let git = Git::new(root, stopped, Instant::now() + COMMAND_TIMEOUT)?;
     let captured = git.required(
         &[
