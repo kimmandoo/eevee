@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod execution;
+pub mod planning;
 pub mod sources;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -13,7 +14,7 @@ use crate::store;
 pub const MAX_GOAL_BYTES: usize = 4096;
 pub const DELETE_PREVIEW_PAGE: usize = 256;
 
-pub const PALETTE: [&str; 17] = [
+pub const PALETTE: [&str; 18] = [
     "Choose evolution",
     "Edit task goal",
     "Inspect task and storage",
@@ -31,6 +32,7 @@ pub const PALETTE: [&str; 17] = [
     "Source map and context basket",
     "Command execution and evidence",
     "Agent connections and trusted version preflight",
+    "Espeon scoped Codex planning",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,6 +56,7 @@ pub enum Overlay {
     Sources,
     Execution,
     Agents,
+    Planning,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -164,6 +167,7 @@ pub struct App {
     pub sources: sources::State,
     pub execution: execution::State,
     pub agents: agents::State,
+    pub planning: planning::State,
     pub command: String,
     pub delete_preview: Vec<store::DeletionTarget>,
     pub delete_page: usize,
@@ -236,6 +240,7 @@ impl App {
             sources: sources::State::default(),
             execution: execution::State::default(),
             agents: agents::State::new(),
+            planning: planning::State::new(),
             command: String::new(),
             delete_preview: Vec::new(),
             delete_page: 0,
@@ -684,6 +689,16 @@ impl App {
     }
 
     fn request_navigation(&mut self, action: execution::Action) {
+        if self.planning.busy() {
+            if matches!(action, execution::Action::Quit) {
+                self.planning.request_quit();
+            }
+            self.notice =
+                "Resolve or cancel the active provider request before changing tasks or forms."
+                    .into();
+            self.open_overlay(Overlay::Planning);
+            return;
+        }
         if let Some(action) = self.execution.request_navigation(action) {
             self.apply_execution_action(action);
         } else if self.execution.visible() {
@@ -733,6 +748,7 @@ impl App {
             && matches!(self.storage, StorageState::Saved)
             && !self.sources.persistence_pending()
             && !self.execution.busy()
+            && !self.planning.busy()
         {
             if self.sources.store_failed {
                 self.quit_after_save = false;
@@ -943,7 +959,11 @@ impl App {
                 self.height = height;
                 self.agents.affirmative = false;
                 self.agents.reviewed = false;
+                self.planning.invalidate_review();
                 true
+            }
+            Event::Paste(text) if self.overlay == Some(Overlay::Planning) => {
+                self.planning.paste(&text)
             }
             Event::Paste(text)
                 if self.overlay == Some(Overlay::Sources)
@@ -978,6 +998,95 @@ impl App {
         changed
     }
 
+    fn planning_key(&mut self, key: KeyEvent) -> bool {
+        if key.kind == KeyEventKind::Release {
+            return false;
+        }
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            if key.kind == KeyEventKind::Repeat {
+                return false;
+            }
+            if self.planning.busy() {
+                self.planning.request_quit();
+            } else {
+                self.request_quit();
+            }
+            return true;
+        }
+        if key.code == KeyCode::Esc
+            && !self.planning.busy()
+            && self.planning.request.is_none()
+            && !self.planning.editing
+        {
+            self.close_overlay();
+            return true;
+        }
+        if self.planning.needs_saved_input(&key) {
+            if !matches!(self.storage, StorageState::Saved)
+                || self.saved_revision != self.revision
+                || self.save_requested
+                || self.sources.busy()
+                || self.sources.store_failed
+                || self.execution.busy()
+            {
+                self.planning.notice = "Finish or retry task/context saves and local work before previewing or running.".into();
+                return true;
+            }
+            if self.planning.preview.is_some()
+                && !self.planning.matches_task(self.task_id, self.revision)
+            {
+                self.planning.cancel();
+                self.planning.notice =
+                    "Task changed since preview. Create a new preview; nothing was sent.".into();
+                return true;
+            }
+        }
+        let empty;
+        let task = if let Some(task) = self.tasks.iter().find(|task| task.id == self.task_id) {
+            task
+        } else {
+            empty = store::Snapshot::empty(self.cwd.clone());
+            &empty
+        };
+        self.planning.key(
+            key,
+            self.width >= 60 && self.height >= 18,
+            task,
+            &self.sources.basket,
+            self.repository.as_ref(),
+        )
+    }
+
+    pub fn settle_planning(&mut self) -> bool {
+        if std::mem::take(&mut self.planning.quit_ready) {
+            self.finish_request_quit();
+            return true;
+        }
+        if std::mem::take(&mut self.planning.edit_goal) {
+            self.begin_edit();
+            return true;
+        }
+        if let Some(decision) = self.planning.decision.take() {
+            if self
+                .drafts
+                .iter()
+                .any(|draft| draft.field == store::EditorField::NextAction)
+            {
+                self.planning.notice = "Existing Next action draft retained. Save or discard it before selecting this decision again.".into();
+                return true;
+            }
+            self.begin_edit_field(store::EditorField::NextAction);
+            if self.editing {
+                self.input.clear();
+                self.cursor = 0;
+                self.insert_input(&decision);
+                self.notice = "User-selected provider planning, not verified execution. Review/edit, then Enter explicitly saves as Next action.".into();
+            }
+            return true;
+        }
+        false
+    }
+
     fn key(&mut self, key: KeyEvent) -> bool {
         if self.transitioning {
             if self.deletion_preview_pending && key.code == KeyCode::Esc {
@@ -1002,6 +1111,9 @@ impl App {
             && (self.sources.editor.is_some() || self.sources.confirmation.is_some())
         {
             return self.source_key(key);
+        }
+        if self.overlay == Some(Overlay::Planning) {
+            return self.planning_key(key);
         }
         if self.overlay == Some(Overlay::Execution) {
             return self.execution_key(key);
@@ -1140,6 +1252,7 @@ impl App {
             KeyCode::Char('v') => self.open_overlay(Overlay::Sources),
             KeyCode::Char('j') => self.open_overlay(Overlay::Execution),
             KeyCode::Char('o') => self.open_overlay(Overlay::Agents),
+            KeyCode::Char('e') => self.open_overlay(Overlay::Planning),
             KeyCode::Tab | KeyCode::BackTab => {
                 return self.cycle_focus(key.code == KeyCode::BackTab);
             }
@@ -1501,6 +1614,11 @@ impl App {
     }
 
     fn begin_edit_field(&mut self, field: store::EditorField) {
+        if self.planning.busy() {
+            self.notice = "Cancel or finish the provider request before editing task input.".into();
+            self.open_overlay(Overlay::Planning);
+            return;
+        }
         if self.complete
             && matches!(
                 field,
@@ -1627,6 +1745,14 @@ impl App {
     }
 
     fn open_overlay(&mut self, overlay: Overlay) {
+        if self.planning.busy() && overlay != Overlay::Planning {
+            self.notice = "Resolve or cancel the active provider request first.".into();
+            return;
+        }
+        if overlay == Overlay::Planning && self.execution.busy() {
+            self.notice = "Finish or cancel the local command before starting planning.".into();
+            return;
+        }
         self.save_selection();
         if let Some(previous) = self.overlay_frame() {
             if previous.overlay == overlay {
@@ -1848,6 +1974,7 @@ impl App {
                         14 => self.open_overlay(Overlay::Sources),
                         15 => self.open_overlay(Overlay::Execution),
                         16 => self.open_overlay(Overlay::Agents),
+                        17 => self.open_overlay(Overlay::Planning),
                         _ => unreachable!("palette selection is bounded"),
                     }
                 }

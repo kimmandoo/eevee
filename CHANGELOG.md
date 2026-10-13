@@ -2,6 +2,8 @@
 
 ## 2026-10-13
 
+- feat(planning): added pinned Codex 0.152.1 app-server Plan turns with exact context/trust previews, last-moment task/source/config revalidation, provider-owned account/model checks, correlated questions and one-time approvals, explicit resume/cancellation, and reviewed provenance-labelled Next action decisions.
+- fix(planning): rendered consent controls after last-page review state updates, so reaching the end immediately shows the neutral available action rather than a stale locked footer.
 - feat(agents): added versioned Codex/Claude SDK/ACP preflight profiles, passive discovery, neutral executable/configuration trust previews, bounded owned version probes, and explicit version/authentication/adapter/control blockers without model requests or credential-store access.
 - fix(platform): removed a Linux-only redundant device-ID cast while retaining macOS unsigned artifact identity semantics.
 - feat(context): added persisted source ranges, conservative exclusions, exact payload previews, and source/retained-reference revalidation without claiming provider isolation.

@@ -1,4 +1,4 @@
-//! Passive discovery and explicitly consented version probes; never an agent session.
+//! Passive discovery, consented version probes, and immutable Codex planning trust.
 use std::env;
 use std::ffi::OsString;
 use std::fs::{self, File, Metadata, OpenOptions};
@@ -13,7 +13,7 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 use sha2::{Digest, Sha256};
 
 const REVISION: u32 = 1;
-const CODEX_RELEASE: &str = "0.147.0";
+pub(crate) const CODEX_RELEASE: &str = "0.152.1";
 const OUTPUT_LIMIT: usize = 16 * 1024;
 const CONFIG_LIMIT: u64 = 64 * 1024;
 const EXECUTABLE_LIMIT: u64 = 256 * 1024 * 1024;
@@ -225,7 +225,11 @@ fn discover(index: usize, project: &Path) -> Snapshot {
         ""
     };
     let mut blockers = vec![
-        "No Eevee adapter implemented; agent runs remain disabled".into(),
+        if index == 0 {
+            "Codex planning disconnected; review the planning trust preview before a session".into()
+        } else {
+            "No Eevee adapter implemented; agent runs remain disabled".into()
+        },
         "Authentication/eligibility unverified; no status/login/model request was made".into(),
         "Filesystem/network enforcement and protocol capabilities unnegotiated".into(),
     ];
@@ -290,9 +294,9 @@ fn discover(index: usize, project: &Path) -> Snapshot {
         trust_preview.insert(1, "REPOSITORY-SUPPLIED executable/wrapper: explicit trust required; never automatically executed.".into());
     }
     if index == 0 {
-        trust_preview.push("Codex 0.147.0 is a documented reference, not an observed installation or a supported adapter. Workspace-write thread startup may persist project trust; this preflight never starts a thread.".into());
+        trust_preview.push(format!("Codex {CODEX_RELEASE} is the exact planning adapter release. This version probe does not start a planning session or establish authentication. Workspace-write startup can persist project trust; Eevee planning requests read-only instead."));
     }
-    let capabilities = capabilities();
+    let capabilities = capabilities(index);
     let profile = Profile {
         revision: REVISION,
         name: NAMES[index].into(),
@@ -305,7 +309,7 @@ fn discover(index: usize, project: &Path) -> Snapshot {
             (true, _) => "PATH candidate found; installed is not authenticated or supported".into(),
         },
         version: if index == 0 {
-            format!("Unknown (not probed); documented reference {CODEX_RELEASE}")
+            format!("Unknown (not probed); required planning release {CODEX_RELEASE}")
         } else {
             "Unknown (not probed); protocol/SDK version not observed".into()
         },
@@ -313,8 +317,19 @@ fn discover(index: usize, project: &Path) -> Snapshot {
         configuration,
         os: env::consts::OS.into(),
         architecture: env::consts::ARCH.into(),
-        adapter: "Unavailable — no adapter implemented; disconnected".into(),
-        action: "Agent runs disabled; local workbench remains available".into(),
+        adapter: if index == 0 {
+            format!(
+                "Codex app-server {CODEX_RELEASE} planning adapter; disconnected, not yet qualified"
+            )
+        } else {
+            "Unavailable — no adapter implemented; disconnected".into()
+        },
+        action: if index == 0 {
+            "Planning requires separate task/payload/executable trust and protocol qualification"
+                .into()
+        } else {
+            "Agent runs disabled; local workbench remains available".into()
+        },
         billing,
         probe_allowed,
         trust_preview,
@@ -337,12 +352,60 @@ fn discover(index: usize, project: &Path) -> Snapshot {
     }
 }
 
-fn capabilities() -> Vec<Capability> {
+fn capabilities(index: usize) -> Vec<Capability> {
     let mut result = vec![Capability {
         action: "Version probe".into(), boundary: "Eevee-mediated".into(),
         evidence: "Explicit trust only; bounded owned child; recognized CLI version only, not protocol evidence".into(),
         blocker: "Requires reviewed executable/config trust; cannot sandbox trusted code".into(),
     }];
+    if index == 0 {
+        for (action, boundary, evidence, blocker) in [
+            (
+                "Text/excerpt planning",
+                "Eevee-mediated",
+                "Exact 0.152.1 JSONL adapter; immutable full outgoing payload review and dispatch revalidation",
+                "Requires separate trust, account/model read and protocol qualification; images unsupported",
+            ),
+            (
+                "Streamed output and human questions",
+                "Eevee-mediated",
+                "Bounded item-ID snapshots; Plan-mode question responses; private reasoning excluded",
+                "Only an explicitly dispatched session supplies live evidence",
+            ),
+            (
+                "Command/file/permission requests",
+                "Eevee-mediated callbacks",
+                "Supported deny or allow-once commands; file edits and unsupported requests refused",
+                "Not every provider/MCP/hook action necessarily reaches a callback",
+            ),
+            (
+                "Turn interruption",
+                "Eevee-owned transport",
+                "Provider interrupt plus bounded process-group/Job teardown",
+                "Without authoritative completion, turn outcome remains unknown",
+            ),
+            (
+                "Same-task session resume",
+                "Provider-owned history",
+                "Explicit same-task thread resume only; no automatic replay",
+                "Provider persists history; Eevee session-local ownership only; fork unsupported",
+            ),
+            (
+                "Filesystem/network restrictions",
+                "Agent-policy-controlled",
+                "Requests read-only/restricted-network policy and checks thread acknowledgment",
+                "Not Eevee OS isolation; independent provider reads/MCP/hooks are outside source exclusions",
+            ),
+        ] {
+            result.push(Capability {
+                action: action.into(),
+                boundary: boundary.into(),
+                evidence: evidence.into(),
+                blocker: blocker.into(),
+            });
+        }
+        return result;
+    }
     for action in [
         "Text/image/excerpt input",
         "Streamed output and tool observation",
@@ -726,14 +789,14 @@ fn apply_version(index: usize, profile: &mut Profile, version: &str) {
         if version == CODEX_RELEASE {
             profile
                 .version
-                .push_str("; matches documented reference only (adapter still unavailable)");
+                .push_str("; matches exact planning adapter release; session/authentication not yet qualified");
         } else {
             let blocker = format!(
-                "Version mismatch: observed {version}, documented Codex reference {CODEX_RELEASE}; install a reviewed release or qualify this release before any adapter run"
+                "Version mismatch: observed {version}, required Codex release {CODEX_RELEASE}; install the reviewed release before planning"
             );
             profile
                 .version
-                .push_str("; DOES NOT MATCH documented reference 0.147.0");
+                .push_str("; DOES NOT MATCH qualified planning release");
             profile.blockers.push(blocker);
         }
     } else {
@@ -871,6 +934,164 @@ fn probe(index: usize, snapshot: &Snapshot, stopped: &AtomicBool) -> Result<Stri
     )
 }
 
+/// Retains only existing nonsecret discovery identities; never auth store contents.
+pub(crate) struct PlanningTrust {
+    snapshot: Snapshot,
+    project_identity: String,
+    pub lines: Vec<String>,
+}
+
+pub(crate) fn planning_trust(project: &Path) -> Result<PlanningTrust, String> {
+    let snapshot = discover(0, project);
+    if !snapshot.profile.probe_allowed {
+        return Err("Codex executable or project identity unavailable; inspect agent preflight before planning".into());
+    }
+    let project_identity = crate::runner::native::directory_identity(project)
+        .map_err(|_| "Planning project identity unavailable")?;
+    let executable = snapshot
+        .identity
+        .as_ref()
+        .ok_or("Codex executable identity unavailable")?;
+    let selected = snapshot
+        .stamp
+        .selected
+        .as_deref()
+        .ok_or("Selected Codex path unavailable")?;
+    let cwd = snapshot
+        .cwd
+        .as_deref()
+        .ok_or("Codex process cwd unavailable")?;
+    for path in [executable.path.as_path(), selected, cwd, project] {
+        let text = path
+            .to_str()
+            .ok_or("Non-Unicode trust path cannot be reviewed exactly")?;
+        if text.len() > 32 * 1024 || text.chars().any(|c| c.is_control() || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
+            || crate::privacy::redact(text) != text
+        {
+            return Err("Trust path is oversized or contains private/display-control text; cannot review exact launch identity".into());
+        }
+    }
+    let mut lines = vec![
+        format!("Trust executes {} twice: literal argv [--version], then {}. Required release {CODEX_RELEASE}. Stay launches nothing.", executable.path.display(), serde_json::to_string(&planning_argv()).unwrap_or_default()),
+        format!("Selected PATH candidate: {}. Process cwd: {} (outside the project). Thread/turn cwd: {}.", selected.display(), cwd.display(), project.display()),
+        "The executable inherits provider authentication and the current environment. Wrappers, interpreters, libraries, configuration, MCP servers and hooks may execute or persist side effects. Eevee does not sandbox this trusted provider process or pin transitive dependencies.".into(),
+        snapshot.profile.configuration.clone(),
+        snapshot.profile.authentication.clone(),
+        snapshot.profile.billing.clone(),
+        "After trust: initialize experimental app-server API, account/read without refresh, model/list; use the available default text model and its default effort. No login, credential-store read, credential/config mutation or startup model request is performed by Eevee.".into(),
+        "Only Run sends the displayed immutable payload. Codex may additionally load project instructions, skills, provider configuration, MCP context and prior provider history. This is NOT a preview of the full effective model prompt. Provider account/plan owns billing and eligibility; a present account does not guarantee quota.".into(),
+        "Provider persists thread history and thread IDs; Eevee keeps IDs/outputs only for this session. Resume is explicit and restricted to a previously started same-task thread; no automatic replay/restart. New thread does not mean provider forgets prior data.".into(),
+        "Thread/turn request read-only, restricted network, approvalsReviewer=user and on-request approval policy; disable multi-agent delegation, web search and login shells by session config overrides (not global writes). These are AGENT-POLICY-CONTROLLED boundaries, not Eevee OS isolation. Provider config, MCP startup/tool actions and hook coverage is unknown. Process groups/Jobs own cancellation only. Commands the provider deems safe can run without callbacks.".into(),
+        "Command callbacks offer only user deny or supported allow-once, never persistent/session approval. File edits are denied; unsupported permission/tool/auth/elicitation requests are explicitly refused. Plan-mode human questions require explicit answers. No private reasoning is displayed.".into(),
+        "Executable bytes, known config source metadata/nonsecret declarations, task revision and exact selected-source payload are checked again before turn dispatch. Concurrent malicious replacement and undiscovered transitive config are not atomically isolated. Source exclusions constrain Eevee's payload only, not independent provider reads.".into(),
+        "No retries or automatic sends. Provider-internal retries are outside Eevee control; an observed retry fails closed. Interruption waits for authoritative turn completion or bounded owned teardown; absent completion means outcome unknown, not successful cancellation.".into(),
+        "Transport bounds: 2 MiB JSONL frames, 1 MiB outgoing payload, 64 MiB captured protocol/diagnostics, 128 displayed items at 32 KiB each / 512 KiB total. Overflow stops explicitly. Stdin is nonblocking with a 5-second send deadline; interrupt waits up to 3 seconds, then owned teardown is bounded. Raw stderr and private reasoning are never retained.".into(),
+    ];
+    if executable.path.starts_with(project)
+        || snapshot
+            .stamp
+            .selected
+            .as_ref()
+            .is_some_and(|path| path.starts_with(project))
+    {
+        lines.insert(
+            0,
+            "REPOSITORY-SUPPLIED executable/wrapper: explicit trust required.".into(),
+        );
+    }
+    Ok(PlanningTrust {
+        snapshot,
+        project_identity,
+        lines,
+    })
+}
+
+fn planning_argv() -> Vec<String> {
+    [
+        "app-server",
+        "--listen",
+        "stdio://",
+        "-c",
+        "sandbox_mode=\"read-only\"",
+        "-c",
+        "approval_policy=\"on-request\"",
+        "-c",
+        "allow_login_shell=false",
+        "-c",
+        "features.multi_agent=false",
+        "-c",
+        "web_search=\"disabled\"",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
+}
+
+pub(crate) fn revalidate_planning_trust(
+    project: &Path,
+    trust: &PlanningTrust,
+) -> Result<(), String> {
+    let current = discover(0, project);
+    if !current.profile.probe_allowed
+        || current.stamp != trust.snapshot.stamp
+        || crate::runner::native::directory_identity(project)
+            .ok()
+            .as_ref()
+            != Some(&trust.project_identity)
+    {
+        return Err(
+            "Executable/configuration/project identity changed; review a fresh trust preview"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn qualify_planning(
+    project: &Path,
+    trust: &PlanningTrust,
+    stopped: &AtomicBool,
+) -> Result<crate::runner::Prepared, String> {
+    revalidate_planning_trust(project, trust)?;
+    let version = probe(0, &trust.snapshot, stopped)?;
+    if version != CODEX_RELEASE {
+        return Err(format!(
+            "Protocol qualification refused: installed {version}, required {CODEX_RELEASE}"
+        ));
+    }
+    revalidate_planning_trust(project, trust)?;
+    let executable = trust
+        .snapshot
+        .identity
+        .clone()
+        .ok_or("Codex executable missing")?;
+    let cwd = trust
+        .snapshot
+        .cwd
+        .clone()
+        .ok_or("Codex process cwd missing")?;
+    Ok(crate::runner::Prepared {
+        request_id: "codex-app-server".into(),
+        run_id: "codex-app-server".into(),
+        task_id: 0,
+        spec: crate::runner::CommandSpec::Direct {
+            program: executable
+                .path
+                .to_str()
+                .ok_or("Non-Unicode Codex path")?
+                .into(),
+            args: planning_argv(),
+        },
+        cwd_identity: crate::runner::native::directory_identity(&cwd)
+            .map_err(|_| "Codex process cwd identity unavailable")?,
+        executable,
+        cwd,
+        prepared_at_ms: 0,
+        expires_at_ms: 0,
+        before: crate::runner::InputSnapshot::default(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -907,21 +1128,25 @@ mod tests {
     }
 
     #[test]
-    fn documented_release_is_not_observed_or_supported() {
+    fn exact_release_requires_separate_planning_qualification() {
         let mut profile = discover(0, Path::new("/nonexistent-eevee-project")).profile;
         assert!(profile.version.starts_with("Unknown"));
         assert!(!profile.probe_allowed);
-        apply_version(0, &mut profile, "0.152.1");
+        apply_version(0, &mut profile, "0.147.0");
         assert!(
             profile
                 .blockers
                 .iter()
                 .any(|b| b.contains("Version mismatch"))
         );
-        assert!(profile.action.contains("disabled"));
+        assert!(profile.action.contains("separate"));
         apply_version(0, &mut profile, CODEX_RELEASE);
-        assert!(profile.action.contains("disabled"));
-        assert!(profile.version.contains("documented reference only"));
+        assert!(profile.action.contains("separate"));
+        assert!(
+            profile
+                .version
+                .contains("session/authentication not yet qualified")
+        );
     }
 
     #[test]

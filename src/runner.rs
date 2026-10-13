@@ -1090,7 +1090,7 @@ impl Sanitizer {
 #[cfg(unix)]
 pub(crate) mod native {
     use super::*;
-    use std::io::PipeReader;
+    use std::io::{PipeReader, PipeWriter};
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     use std::os::unix::process::{CommandExt, ExitStatusExt};
@@ -1110,13 +1110,34 @@ pub(crate) mod native {
         child: Option<Child>,
         stdout: PipeReader,
         stderr: PipeReader,
+        stdin: Option<PipeWriter>,
         group: libc::pid_t,
         gone: bool,
     }
     impl Process {
         pub fn spawn(prepared: &Prepared) -> io::Result<Self> {
+            Self::spawn_inner(prepared, false)
+        }
+        /// Owned bidirectional transport; stdin writes are nonblocking, like capture reads.
+        pub fn spawn_piped(prepared: &Prepared) -> io::Result<Self> {
+            Self::spawn_inner(prepared, true)
+        }
+        fn spawn_inner(prepared: &Prepared, piped: bool) -> io::Result<Self> {
             let (stdout, stdout_writer) = io::pipe()?;
             let (stderr, stderr_writer) = io::pipe()?;
+            let (stdin_reader, stdin) = if piped {
+                let (reader, writer) = io::pipe()?;
+                let fd = writer.as_raw_fd();
+                let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+                if flags < 0
+                    || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0
+                {
+                    return Err(io::Error::last_os_error());
+                }
+                (Stdio::from(reader), Some(writer))
+            } else {
+                (Stdio::null(), None)
+            };
             // Establish all fallible capture setup before exec, so a setup refusal cannot hide
             // a command that already ran. Only read ends are nonblocking; child writes may block.
             for fd in [stdout.as_raw_fd(), stderr.as_raw_fd()] {
@@ -1131,7 +1152,7 @@ pub(crate) mod native {
             command
                 .args(arguments(&prepared.spec))
                 .current_dir(&prepared.cwd)
-                .stdin(Stdio::null())
+                .stdin(stdin_reader)
                 .stdout(stdout_writer)
                 .stderr(stderr_writer)
                 .process_group(0);
@@ -1143,9 +1164,19 @@ pub(crate) mod native {
                 child: Some(child),
                 stdout,
                 stderr,
+                stdin,
                 group,
                 gone: false,
             })
+        }
+        pub fn write_stdin(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.stdin
+                .as_mut()
+                .ok_or(io::ErrorKind::BrokenPipe)?
+                .write(bytes)
+        }
+        pub fn close_stdin(&mut self) {
+            self.stdin.take();
         }
         pub fn read(&mut self, index: usize, bytes: &mut [u8]) -> io::Result<usize> {
             if index == 0 {
@@ -1361,9 +1392,17 @@ pub(crate) mod native {
         job: OwnedHandle,
         stdout: OwnedHandle,
         stderr: OwnedHandle,
+        stdin: Option<OwnedHandle>,
     }
     impl Process {
         pub fn spawn(prepared: &Prepared) -> io::Result<Self> {
+            Self::spawn_inner(prepared, false)
+        }
+        /// Keep the same suspended-before-Job admission as local commands.
+        pub fn spawn_piped(prepared: &Prepared) -> io::Result<Self> {
+            Self::spawn_inner(prepared, true)
+        }
+        fn spawn_inner(prepared: &Prepared, piped: bool) -> io::Result<Self> {
             let job = handle(unsafe { CreateJobObjectW(null(), null()) })?;
             let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
             limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -1385,18 +1424,61 @@ pub(crate) mod native {
                 lpSecurityDescriptor: null_mut(),
                 bInheritHandle: 1,
             };
-            let nul = wide(std::ffi::OsStr::new("NUL"));
-            let stdin = handle(unsafe {
-                CreateFileW(
-                    nul.as_ptr(),
-                    GENERIC_READ,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE,
-                    &security,
-                    OPEN_EXISTING,
-                    FILE_ATTRIBUTE_NORMAL,
-                    null_mut(),
-                )
-            })?;
+            let (stdin, stdin_write) = if piped {
+                // Named byte pipe with nonblocking parent writes. Do not rely on undocumented
+                // mode changes to CreatePipe's anonymous handles; cancellation must stay bounded.
+                let name = wide(std::ffi::OsStr::new(&format!(
+                    r"\\.\pipe\eevee-stdin-{}",
+                    unique_id()
+                )));
+                let write = handle(unsafe {
+                    CreateNamedPipeW(
+                        name.as_ptr(),
+                        PIPE_ACCESS_OUTBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
+                        PIPE_TYPE_BYTE
+                            | PIPE_READMODE_BYTE
+                            | PIPE_NOWAIT
+                            | PIPE_REJECT_REMOTE_CLIENTS,
+                        1,
+                        65536,
+                        65536,
+                        0,
+                        null(),
+                    )
+                })?;
+                let read = handle(unsafe {
+                    CreateFileW(
+                        name.as_ptr(),
+                        GENERIC_READ,
+                        0,
+                        &security,
+                        OPEN_EXISTING,
+                        FILE_ATTRIBUTE_NORMAL,
+                        null_mut(),
+                    )
+                })?;
+                if unsafe { ConnectNamedPipe(write.as_raw_handle(), null_mut()) } == 0 {
+                    let error = io::Error::last_os_error();
+                    if error.raw_os_error() != Some(ERROR_PIPE_CONNECTED as i32) {
+                        return Err(error);
+                    }
+                }
+                (read, Some(write))
+            } else {
+                let nul = wide(std::ffi::OsStr::new("NUL"));
+                let read = handle(unsafe {
+                    CreateFileW(
+                        nul.as_ptr(),
+                        GENERIC_READ,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE,
+                        &security,
+                        OPEN_EXISTING,
+                        FILE_ATTRIBUTE_NORMAL,
+                        null_mut(),
+                    )
+                })?;
+                (read, None)
+            };
             let inherited = [
                 stdin.as_raw_handle(),
                 stdout_write.as_raw_handle(),
@@ -1477,11 +1559,40 @@ pub(crate) mod native {
                 job,
                 stdout,
                 stderr,
+                stdin: stdin_write,
             };
             if unsafe { ResumeThread(thread.as_raw_handle()) } == u32::MAX {
                 return Err(io::Error::last_os_error());
             }
             Ok(result)
+        }
+        pub fn write_stdin(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            let pipe = self.stdin.as_ref().ok_or(io::ErrorKind::BrokenPipe)?;
+            let mut written = 0;
+            if unsafe {
+                WriteFile(
+                    pipe.as_raw_handle(),
+                    bytes.as_ptr(),
+                    bytes.len().min(u32::MAX as usize) as u32,
+                    &mut written,
+                    null_mut(),
+                )
+            } == 0
+            {
+                let error = io::Error::last_os_error();
+                return if error.raw_os_error() == Some(ERROR_NO_DATA as i32) {
+                    Err(io::ErrorKind::WouldBlock.into())
+                } else {
+                    Err(error)
+                };
+            }
+            if written == 0 && !bytes.is_empty() {
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
+            Ok(written as usize)
+        }
+        pub fn close_stdin(&mut self) {
+            self.stdin.take();
         }
         pub fn read(&mut self, index: usize, bytes: &mut [u8]) -> io::Result<usize> {
             let pipe = if index == 0 {
@@ -1684,6 +1795,69 @@ mod tests {
     }
 
     #[test]
+    fn piped_native_transport_roundtrips_and_backpressure_does_not_block() {
+        let temp = Temp::new();
+        temp.fixture("stdin-echo");
+        let mut process =
+            native::Process::spawn_piped(&prepared(&temp, fixture_spec(&[]))).unwrap();
+        let input = "literal 한국어 input\n".as_bytes();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut written = 0;
+        while written < input.len() {
+            match process.write_stdin(&input[written..]) {
+                Ok(n) => {
+                    assert_ne!(n, 0);
+                    written += n;
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(5))
+                }
+                Err(error) => panic!("{error}"),
+            }
+            assert!(Instant::now() < deadline);
+        }
+        process.close_stdin();
+        let mut output = Vec::new();
+        let mut bytes = [0; 4096];
+        loop {
+            match process.read(0, &mut bytes) {
+                Ok(0) => break,
+                Ok(n) => output.extend_from_slice(&bytes[..n]),
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(5))
+                }
+                Err(error) => panic!("{error}"),
+            }
+            assert!(Instant::now() < deadline);
+        }
+        assert!(
+            String::from_utf8(output)
+                .unwrap()
+                .contains("EEVEE_STDIN=literal 한국어 input")
+        );
+        drop(process);
+        temp.fixture("stdin-stall");
+        let mut process =
+            native::Process::spawn_piped(&prepared(&temp, fixture_spec(&[]))).unwrap();
+        let bytes = [b'x'; 8192];
+        let start = Instant::now();
+        let mut blocked = false;
+        for _ in 0..256 {
+            match process.write_stdin(&bytes) {
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    blocked = true;
+                    break;
+                }
+                Err(error) => panic!("{error}"),
+            }
+        }
+        assert!(blocked, "bounded OS pipe must expose backpressure");
+        assert!(start.elapsed() < Duration::from_secs(2));
+        process.terminate(true).unwrap();
+    }
+
+    #[test]
     #[ignore = "subprocess fixture, invoked explicitly by isolated runner tests"]
     fn native_fixture() {
         let mode = std::env::var("EEVEE_RUNNER_FIXTURE")
@@ -1702,6 +1876,12 @@ mod tests {
                     "stdin must be null"
                 );
             }
+            "stdin-echo" => {
+                let mut input = String::new();
+                io::stdin().read_to_string(&mut input).unwrap();
+                println!("EEVEE_STDIN={input}");
+            }
+            "stdin-stall" => thread::sleep(Duration::from_secs(30)),
             "fail" => {
                 println!("partial evidence before failure");
                 std::process::exit(23);

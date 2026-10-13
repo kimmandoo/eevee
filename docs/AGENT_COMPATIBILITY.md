@@ -2,11 +2,22 @@
 
 ## Status and scope
 
-The binary implements the local durable workbench, source context, owned local execution/evidence, and **A01 agent preflight**. Model adapters and provider interoperability remain unavailable. Binding interaction rules live in [DESIGN_RULES.md](DESIGN_RULES.md); runnable increments and acceptance gates live in [../task.md](../task.md).
+The binary implements the local durable workbench, source context, owned local execution/evidence, A01 preflight, and **A02 scoped Codex planning**. Claude/ACP adapters and cross-agent interoperability remain unavailable. Binding rules live in [DESIGN_RULES.md](DESIGN_RULES.md); acceptance gates live in [../task.md](../task.md).
 
-Evidence date: **2026-10-13**. Actual Linux/WSL observation: installed `codex-cli 0.152.1`; `codex app-server --help` advertises the experimental server and stdio transport. The real connection drawer independently observed this version after explicit trust. The previous `0.147.0` reference remains documented-only, not a qualified adapter release. Claude/OpenCode/Gemini PATH entries under Windows-mounted Node installations were discovered, not executed or qualified. No agent handshake, authentication, model request, approval, or cross-agent continuation was exercised. The references below establish documented interfaces, not tested interoperability or distribution rights.
+Evidence date: **2026-10-13**. Actual Linux/WSL x86_64 runtime: `codex-cli 0.152.1`, provider-owned ChatGPT authentication, advertised default model `gpt-5.6-sol` with low reasoning effort. Real app-server initialization, account/model discovery, Plan-mode question/answer, command deny/allow-once, cancellation and explicit same-thread resume were exercised, including through Eevee's PTY interface. This is scoped planning evidence, not patch generation, native Windows/macOS qualification, commercial distribution permission, or cross-agent conformance. Windows-mounted Claude/OpenCode/Gemini CLI candidates were not executed or qualified.
 
-Implemented A01: `o` opens passive four-profile discovery; Enter previews executable/configuration trust, PgDn/End reviews, Tab explicitly selects Trust, and Enter authorizes one bounded `--version` probe. Known source identities/nonsecret declarations are inspected without loading provider hooks. Effective policy, authentication validity, selected billing account, and protocol enforcement remain unknown; all model actions are disabled. Probe identity is revalidated, arbitrary output is withheld, and shutdown cancels the owned child. Inherited environment/interpreters/dependencies are disclosed, not claimed isolated. Five real PTY scenarios and eleven workbench regressions passed locally; CI/P02 remains deferred.
+`o` remains passive discovery plus an explicitly trusted version-only probe; it never submits a model request. `e` → `n`/`r` prepares the separate complete executable/config-effects and exact task/source-payload preview. After explicit consent, A02 revalidates task/source/profile identity, uses an owned private JSONL app-server, checks account/model and returned user-approval/read-only policy, then sends one Plan turn. Known nonsecret configuration declarations are not authoritative effective provider context or OS isolation. Provider hooks/MCP/history and independent reads remain provider-owned and disclosed. CI/P02 remains deferred.
+
+The installed **experimental** generated schema is the implementation reference, not moving online examples. Reproduce with `codex app-server generate-json-schema --experimental --out DIR`. Recorded SHA-256:
+
+| Generated bundle | SHA-256 |
+| --- | --- |
+| `codex_app_server_protocol.schemas.json` | `65ce2db95109ebedc995d0ff74cc8bcefaa69fc3270f65b4fc69c1877c651f4e` |
+| `codex_app_server_protocol.v2.schemas.json` | `f9e3ca7e56300b4e5a5686419940ef77bbdc42846760d6a9cd53a21f20dc9ebd` |
+
+The adapter supports blocking `item/tool/requestUserInput` questions, exact offered command `accept` once and `decline`/`cancel` decisions, and `turn/interrupt`; it refuses file-edit approvals, persistent policy amendments, unsupported requests, automatic replay, model rerouting, and provider retry. Raw reasoning/stderr/authentication details are not displayed. Item identity replaces delta/final snapshots, and overflow or malformed/fatal transport never produces a fabricated success.
+
+Threads/output are session-local in Eevee; provider-owned thread history is disclosed and not erased on exit. Explicit same-task resume uses only a thread created in the current Eevee session. A user-selected complete message/plan can be reviewed and saved through the existing Next action editor with provider provenance; this is unverified planning, not a local execution journal result. A03 owns implementation/patch and provider-tool journal expansion.
 
 Target: one local workbench for user-directed specialist workflows across Codex, Claude Agent SDK, OpenCode, and Gemini CLI. Keep the application/core/UI in Rust. An optional Claude SDK bridge is the only planned additional runtime; no webview, daemon-per-form, automatic swarm, new MCP server, or arbitrary plugin framework is needed.
 
@@ -22,11 +33,11 @@ Target: one local workbench for user-directed specialist workflows across Codex,
 
 Pick one default execution agent for a task. A role-specific override is optional and capability-checked; never spawn nine agents because nine forms exist. Selection is local. Connect is explicit and does not submit a prompt. Preview is not Run. An unsent draft is never an agent-side queued message.
 
-## Planned integration matrix
+## Integration interfaces and remaining targets
 
 | Profile | Selected interface | Interactive target | Boundary / admission requirement |
 | --- | --- | --- | --- |
-| Codex | Rust-owned child `codex app-server` over private stdio; match installed release schemas | Streaming items, delegated approvals/questions, interruption, explicit thread resume/fork | App-server is experimental; qualify each supported release. Approval requests are not universal tool interception. Some question capabilities require explicit experimental opt-in. [C1] |
+| Codex | Implemented `0.152.1` Rust-owned private stdio app-server | A02 Plan turns, delegated command approvals/questions, cancellation, explicit same-session resume | Linux/WSL runtime verified; native other-OS rows remain unqualified. Agent-controlled read-only policy is not universal tool interception or Eevee isolation. Fork/patch generation are not implemented. [C1] |
 | Claude Agent | Optional pinned TypeScript Agent SDK host with a small versioned Rust-facing IPC boundary | Streaming query, `canUseTool`, user questions, interrupt, explicit resume/fork | SDK/CLI/runtime pair must be available. Use permitted API/provider auth and SDK branding; no promised claude.ai subscription integration. Approval callbacks can be bypassed by preapproved tools. [H1][H2] |
 | OpenCode | Shared Rust ACP v1 client; `opencode acp` | Negotiated prompts, updates, permission options, questions, cancel, load | ACP is not a sandbox. OpenCode loads cwd-specific configuration/tools and owns its tool execution; optional features require negotiation. [P1][O1] |
 | Gemini CLI | Same ACP client; documented `gemini --acp`, qualified against the installed release | Only the ACP capabilities that this peer actually advertises | Do not inherit OpenCode extensions or guess launch flags. Check current account/product eligibility, authentication, and protocol version. [G1] |

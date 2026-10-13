@@ -2648,6 +2648,53 @@ fn canonical_parent(path: &Path) -> Result<PathBuf, String> {
         .map_err(|error| format!("Cannot resolve the storage directory: {error}"))
 }
 
+/// Read-only, transaction-consistent admission check for a reviewed provider request.
+/// This grants no command/file permission and never repairs or migrates storage.
+pub fn validate_planning_input(
+    data_dir: &Path,
+    expected: &Snapshot,
+    selected: &[crate::context::Excerpt],
+) -> Result<(), String> {
+    validate(expected)?;
+    if expected.id <= 0 || expected.archived || expected.goal.trim().is_empty() {
+        return Err("Planning requires a saved, active task with a goal".into());
+    }
+    if selected.len() > crate::context::MAX_EXCERPTS {
+        return Err("Planning context exceeds the excerpt limit".into());
+    }
+    let mut connection = open_readonly(&data_dir.join(DATABASE))?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| error.to_string())?;
+    let current = load_task(&transaction, &expected.project, expected.id)?
+        .ok_or("The previewed task no longer exists in this project")?;
+    if current.revision != expected.revision
+        || current.goal != expected.goal
+        || current.criteria != expected.criteria
+        || current.next_action != expected.next_action
+        || current.command != expected.command
+        || current.form != expected.form
+        || current.complete != expected.complete
+        || current.archived != expected.archived
+        || current.drafts != expected.drafts
+    {
+        return Err("Task changed since preview; save and review a new request".into());
+    }
+    let retained = excerpts(&transaction, expected.id)?;
+    for (index, excerpt) in selected.iter().enumerate() {
+        excerpt.validate()?;
+        if !excerpt.available
+            || excerpt.task_id != expected.id
+            || excerpt.id <= 0
+            || selected[..index].iter().any(|other| other.id == excerpt.id)
+            || !retained.iter().any(|stored| stored == excerpt)
+        {
+            return Err("Selected context changed or was purged; reload and preview again".into());
+        }
+    }
+    Ok(())
+}
+
 fn open_readonly(path: &Path) -> Result<Connection, String> {
     let path = canonical_parent(path)?;
     regular_target(&path, false)?;
@@ -5405,5 +5452,34 @@ mod tests {
                 .is_some()
         );
         drop(permit);
+    }
+    #[test]
+    fn planning_admission_rejects_changed_task_and_purged_context() {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let saved = store.save(snapshot("project", 1)).unwrap();
+        validate_planning_input(&store.data_dir, &saved, &[]).unwrap();
+        let source = directory.0.join("source.rs");
+        fs::write(&source, "visible\n").unwrap();
+        let basket = store
+            .context(ContextRequest {
+                task_id: saved.id,
+                operation: ContextOperation::Pin(captured_excerpt(saved.id, &source, "visible\n")),
+            })
+            .unwrap();
+        validate_planning_input(&store.data_dir, &saved, &basket).unwrap();
+        store
+            .context(ContextRequest {
+                task_id: saved.id,
+                operation: ContextOperation::Purge(vec![basket[0].id]),
+            })
+            .unwrap();
+        assert!(validate_planning_input(&store.data_dir, &saved, &basket).is_err());
+        let mut changed = saved.clone();
+        changed.revision += 1;
+        changed.goal = "A different decision needs a new preview".into();
+        let current = store.save(changed).unwrap();
+        assert!(validate_planning_input(&store.data_dir, &saved, &[]).is_err());
+        validate_planning_input(&store.data_dir, &current, &[]).unwrap();
     }
 }

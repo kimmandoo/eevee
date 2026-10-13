@@ -1,6 +1,7 @@
 mod agent;
 mod app;
 mod artwork;
+mod codex;
 mod config;
 mod context;
 mod domain;
@@ -76,6 +77,11 @@ fn run(config: Config) -> io::Result<()> {
         let sources = context::Worker::start(config.context_exclusions.clone())?;
         let execution = runner::Worker::start()?;
         let agents = agent::Worker::start(project.clone())?;
+        let planning = codex::Worker::start(
+            project.clone(),
+            config.data_dir.clone(),
+            config.context_exclusions.clone(),
+        )?;
         let size = terminal.size()?;
         let mut app = App::new(
             cwd.chars().filter(|c| !c.is_control()).collect(),
@@ -105,6 +111,9 @@ fn run(config: Config) -> io::Result<()> {
             if context_task != Some(app.task_id) {
                 context_task = Some(app.task_id);
                 app.sources.reset(app.task_id);
+                if app.planning.task_id() != app.task_id {
+                    app.planning.reset(app.task_id);
+                }
             }
             if dirty {
                 // ConPTY's legacy cell projection can turn changed blanks into
@@ -141,6 +150,7 @@ fn run(config: Config) -> io::Result<()> {
             if agents.try_request(&mut app.agents.pending) {
                 outstanding_agents += 1;
             }
+            planning.try_request(&mut app.planning.pending);
             if let Some(request) = app.execution.take_store_request() {
                 let mut pending = Some(request);
                 if store.try_run(&mut pending) {
@@ -190,6 +200,9 @@ fn run(config: Config) -> io::Result<()> {
                 || outstanding_sources > 0
                 || outstanding_agents > 0
                 || app.agents.pending.is_some()
+                || app.planning.busy()
+                || app.planning.pending.is_some()
+                || planning.busy()
                 || app.sources.pending.is_some()
                 || app.sources.pending_store.is_some()
                 || app.execution.busy()
@@ -217,6 +230,11 @@ fn run(config: Config) -> io::Result<()> {
                 app.agents.event(event);
                 dirty = true;
             }
+            while let Some(event) = planning.try_event() {
+                app.planning.event(event);
+                dirty = true;
+            }
+            dirty |= app.settle_planning();
             while let Some(event) = store.try_event() {
                 outstanding_store = outstanding_store.saturating_sub(1);
                 if matches!(&event, store::Event::Managed { .. }) {

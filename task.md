@@ -2,7 +2,7 @@
 
 ## Active work
 
-Section A and the five-row offline `ev` installation preview are complete on their recorded gates. **Section B, R01/R02/UX02, and A01 passed local implementation and actual-TUI acceptance. P02 remains blocked by GitHub account billing before runner startup and is deferred at the user's request.** CI configuration was left unchanged. A02 is the next dependency-ready task; model adapters remain unimplemented. Do not infer new native parity from older artifacts.
+Section A and the five-row offline `ev` installation preview are complete on their recorded gates. **Section B, R01/R02/UX02, A01, and A02 passed their scoped local acceptance. P02 remains blocked by GitHub account billing before runner startup and is deferred at the user's request.** CI configuration was left unchanged. A03 is the next dependency-ready task. A02 qualifies Codex 0.152.1 planning on the observed Linux/WSL host, not native provider parity, patch generation, or cross-agent interoperability.
 
 Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapter/evidence contract: [agent compatibility](docs/AGENT_COMPATIBILITY.md). An unchecked task may have partial implementation, but its acceptance is not complete; consult its evidence note and the checkpoint.
 
@@ -172,11 +172,12 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ### A02 — Espeon scoped planning request
 
-- [ ] Complete the first real model round trip through the Codex app-server adapter.
+- [x] Completed real scoped Codex app-server planning with reviewed context, questions/approvals, cancellation/resume, and explicitly saved decisions.
 - **Depends on:** A01, E02, C02.
 - **Change:** Use the pinned installed-version app-server contract, not ANSI screen scraping, for normalized structured events, approval/questions, cancellation, and explicit thread lifecycle. Let Espeon submit a previewed context manifest and save a user-selected decision. Correlate task/run/generation/tool/request IDs, preserve provider-origin metadata, and do not count delta plus final snapshots twice. Keep one active request; a draft is not a queued submission.
 - **Accept:** With real credentials, run a bounded design request, answer a real supported input request, deny/allow a supported operation, cancel a turn, and resume the explicit thread when supported. Reject a stale approval after cancellation, and surface malformed/fatal transport outcomes without fake completion or automatic resend. Inspect outgoing context plus provider-added-context disclosure. Auth/schema availability is a real blocker; mocks do not satisfy this gate.
 - **Preview integrity:** Immediately before dispatch revalidate the C02 context manifest, task revision, profile/config, and grants. A changed file or replaced symlink/junction requires a new preview, not an unnoticed payload update. Test a source change between Preview and Run and prove no stale or substituted request is sent.
+- **Evidence:** Rust 1.92.0 passed 183 tests (two subprocess helpers ignored), warning-free Clippy, and release build. `scripts/planning_smoke.py --live` passed nine actual-TUI scenarios on Linux/WSL x86_64 using installed Codex `0.152.1`, its generated experimental schemas, ChatGPT account authentication and advertised `gpt-5.6-sol`/low default. Exercised changed source and same-content escaping symlink refusal before dispatch, fatal malformed transport without success/retry, actual blocking question and literal CJK answer, reviewed decision save/restart, explicit same-thread resume and cancellation at 39x10, stale response rejection, command denial and allow-once with observed tool status/output, no automatic reconnect/replay, and neutral undersize safe exit with provider cancellation before storage-aware quit/terminal restoration. Inspected 120x36/60x18/39x10 surfaces; fixed the reproduced stale last-page consent footer. Five preflight and eleven workbench regressions passed. Selected decisions use existing Next action storage with unverified provider provenance; no schema migration. Native Windows/macOS provider acceptance, A03 patches, and other adapters remain unclaimed.
 
 ### A03 — Flareon bounded implementation
 
@@ -286,4 +287,4 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ## Phase status
 
-Phase 1, all six section-A tasks, all five section-B tasks, R01/R02/UX02, and A01 passed their recorded gates: 15 of 31 implementation tasks are checked; 16 remain unchecked. Gate B passed locally. Gate C remains incomplete only at P02's externally blocked native acceptance, deferred by the user. A02 is next; A01 does not establish provider interoperability. Installation preview passed at `ea8ade7`; current workbench/preflight native parity is not inferred from that older evidence.
+Phase 1, all six section-A tasks, all five section-B tasks, R01/R02/UX02, A01, and A02 passed their scoped gates: 16 of 31 implementation tasks are checked; 15 remain unchecked. Gate B passed locally. Gate C remains incomplete only at P02's externally blocked native acceptance, deferred by the user. A03 is next; A02 planning does not establish patch generation or cross-agent interoperability. Installation preview passed at `ea8ade7`; current workbench/provider native parity is not inferred from that older evidence.

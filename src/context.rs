@@ -463,6 +463,41 @@ fn execute(
     }
 }
 
+/// Reuse C02 source identity/range validation for an immutable provider preview.
+/// A goal-only request has an explicitly empty basket, not implicit repository context.
+pub fn planning_payload(
+    task_id: i64,
+    report: Option<&Arc<repo::Report>>,
+    excerpts: &[Excerpt],
+    exclusions: &[PathBuf],
+) -> Result<Payload, String> {
+    if task_id <= 0 {
+        return Err("Save a task before previewing a provider request".into());
+    }
+    if excerpts.is_empty() {
+        return Ok(Payload {
+            text: "[]".into(),
+            bytes: 2,
+            estimated_tokens: 1,
+            dispatch: true,
+        });
+    }
+    let report = report.ok_or("Repository evidence unavailable for the selected source basket")?;
+    match execute(
+        task_id,
+        Operation::Assemble {
+            report: Arc::clone(report),
+            excerpts: excerpts.to_vec(),
+            dispatch: true,
+        },
+        exclusions,
+        &AtomicBool::new(false),
+    )? {
+        Response::Assembled(payload) => Ok(payload),
+        _ => unreachable!("Assembly returns a payload"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,7 +1,7 @@
 # Eevee Implementation Plan
 
 Date: 2026-10-13
-Status: Section A and the five-row installation preview passed their recorded gates. Section B, R01/R02/UX02, and A01 passed local implementation and actual-TUI acceptance. Of 31 tasks, 15 are checked and 16 remain unchecked. P02 is the only remaining B/C gate, blocked before native runner startup by account billing and deferred at the user's request. CI configuration is unchanged.
+Status: Section A and the five-row installation preview passed their recorded gates. Section B, R01/R02/UX02, A01 and A02 passed scoped local acceptance. Of 31 tasks, 16 are checked and 15 remain unchecked. P02 is the only remaining B/C gate, blocked before native runner startup by account billing and deferred at the user's request. CI configuration is unchanged.
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
 
 ## Outcome
@@ -152,4 +152,4 @@ No custom model runtime, autonomous multi-agent swarm, hosted synchronization, p
 
 ## Current next action
 
-Start **A02 — Espeon scoped planning request**, using an explicitly qualified installed Codex app-server release/schema. A01 observed Codex `0.152.1` locally; the earlier `0.147.0` documentation is not a compatibility qualification. Real authentication/schema availability remains an A02 prerequisite; never substitute a mock round trip. P02/CI stays deferred: account Billing & plans must be resolved before collecting the five native installed-binary rows. A01 and B/C local proof do not close P02. Public Release/remote bootstrap and P03 remain gated.
+Start **A03 — Flareon bounded implementation**, reusing A02's qualified Codex 0.152.1 transport and extending its explicitly reviewed capability boundaries rather than silently enabling edits. A02 planning passed actual question/answer, deny/allow-once, cancellation, resume, stale-source refusal and decision-persistence acceptance on Linux/WSL; it deliberately denies file edits and is not a patch implementation. Preserve dirty user changes and keep provider-native tool observations separate from local execution evidence. P02/CI stays deferred pending Billing & plans and the five native installed-binary rows. Public Release/remote bootstrap and P03 remain gated.

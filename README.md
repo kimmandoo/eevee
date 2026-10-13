@@ -56,9 +56,9 @@ cargo run --release -- --layout linear --images off
 
 Requires interactive stdin and stdout. The minimum Rust toolchain is 1.90.0. All five qualified native core baselines below passed build/test/lint and real PTY/ConPTY interaction. Native images were separately exercised on macOS arm64/Ghostty 1.3.1. Use `cargo run -- --help` for CLI options.
 
-The local workbench includes durable tasks, repository baselines, source baskets, and explicitly approved local commands with retained evidence. No model/provider is connected and context previews send nothing. Switching forms never grants permission or starts a command.
+The local workbench includes durable tasks, repository baselines, source baskets, explicitly approved local commands with retained evidence, and optional Codex planning. Startup, form selection, and local context previews never submit a model request. Codex requires a separate reviewed planning action.
 
-Goals are limited to 4096 UTF-8 bytes and never sent to a model. Enter applies an edit and requests a local save; the header distinguishes saving, committed, and failed revisions. Ctrl+N inserts a newline. Shift+Enter works only when the terminal reports it distinctly. Esc on a changed draft asks whether to keep or discard it. Backspace/VT Ctrl+H and Delete remove complete graphemes; a truncated paste leaves a visible warning.
+Goals are limited to 4096 UTF-8 bytes and remain local unless explicitly included in an approved Codex planning request. Unapplied editor drafts are never sent. Enter applies an edit and requests a local save; the header distinguishes saving, committed, and failed revisions. Ctrl+N inserts a newline. Shift+Enter works only when the terminal reports it distinctly. Esc on a changed draft asks whether to keep or discard it. Backspace/VT Ctrl+H and Delete remove complete graphemes; a truncated paste leaves a visible warning.
 
 ### Agent preflight
 
@@ -68,7 +68,24 @@ Enter opens a **neutral trust preview**, not a connection. Review with PgDn/End;
 
 Even `--version` executes arbitrary code. Consent includes the disclosed inherited environment, interpreters, dependencies, and provider-owned configuration effects; none is claimed sandboxed or fully pinned. Eevee never starts login/model requests, reads credential stores, or changes provider configuration during preflight. Known nonsecret declarations are not authoritative effective policy. Environment variable **names/presence**, never credential values, label possible authentication/billing sources.
 
-All model actions remain disabled until their adapters, release/protocol compatibility, authentication, and enforcement are qualified. Claude CLI discovery does not establish SDK availability. Locally observed Codex `0.152.1` differs from the documented `0.147.0` reference; neither is advertised as a supported Eevee adapter. This Linux/WSL observation is not native Windows/provider parity evidence.
+Codex planning is pinned to **`codex-cli 0.152.1`** and rechecks the installed version, provider-owned account, available default model, and acknowledged policy after explicit consent. Other versions fail closed; the old `0.147.0` reference is not an adapter qualification. Claude CLI discovery does not establish SDK availability; Claude/ACP adapters remain unavailable. Current provider evidence is Linux/WSL x86_64 only, not native Windows/macOS parity.
+
+### Espeon / Codex planning
+
+Save a goal (`g`), optionally capture sources (`v`), then open **`e`**:
+
+1. `n` prepares a **new-thread preview**; `r` previews resuming this task's explicitly created thread from the current Eevee session. Neither connects or sends a prompt.
+2. Review executable/configuration effects and the **exact outgoing task/source payload** with PgDn/End. Stay is neutral; Tab → Enter explicitly selects **Trust and run once**.
+3. Eevee starts a private owned stdio app-server, checks authentication via its supported account API, selects its advertised default model, and requests Plan mode with provider-controlled read-only/network-restricted policy and user approvals. Task revision, committed excerpts, source content/containment, executable, and known configuration identities are checked again immediately before dispatch. Changes require a new preview.
+4. Provider questions retain literal drafts. Choose an option or press `a` to type; `s` opens answer review, then Tab → Enter sends. Commands start on **Deny**; reviewing to the end permits **Allow once** only when the provider offers it. No persistent rule is saved; file-edit approvals and unsupported request types are refused.
+5. `c`/Esc cancels the turn. Cancellation invalidates pending answers and waits for provider completion or bounded owned teardown; an unconfirmed outcome stays **unknown**, not successful. `q`/Ctrl+C offers neutral safe exit. Small terminals can cancel/exit but cannot approve new work.
+6. Select a completed provider message/plan with arrows and press `d` to copy it into the **Next action editor**. Review/edit and explicitly save with Enter. Existing retained drafts are protected; decisions above 4096 bytes must be shortened. Saved decisions carry provider thread/turn/item provenance and remain **unverified planning**, not local command evidence.
+
+One request is active at a time; task/form/source changes and local command starts cannot bypass it. Each turn captures at most 128 items, 32 KiB per item, and 512 KiB total; overflow stops with an explicit incomplete/unknown result. The session-local viewer retains at most 128 items across resumed turns and labels omitted history. Delta/final snapshots replace the same item rather than duplicating it. Private reasoning and raw stderr are not displayed. Restart retains only explicitly saved task decisions, never automatically reconnecting, restoring a grant, or resubmitting a turn.
+
+Provider configuration, instructions, hooks/MCP, independent reads, and resumed history can add context or effects beyond Eevee's displayed payload. **Provider read-only policy is not an Eevee sandbox**; an approved command may run outside that policy. Provider account, billing, and retained thread history remain provider-owned. Authenticate using the provider's supported tools outside Eevee; Eevee does not import credentials, initiate login, or change global provider configuration.
+
+Live verification is deliberately opt-in and may incur provider usage: `python3 scripts/planning_smoke.py --live --binary target/release/ev`. It requires the terminal-smoke Python dependencies and an already authenticated, compatible Codex installation; it is not wired into CI.
 
 ### Artwork and terminal graphics
 
@@ -102,6 +119,7 @@ Artwork rights remain with the original rights holders. Downloading or attributi
 | `v` | Browse source files/ranges and the task-owned context basket |
 | `j` | Open local command approval, live output, history and recovery |
 | `o` | Open passive agent preflight and explicit version-probe trust review |
+| `e` | Open Espeon planning; `n`/`r` inside preview a new/resumed Codex turn |
 | `p` | Inspect a local handoff preview; in the picker, inspect the previewed role |
 | `l` | Toggle sanctuary / linear text layout |
 | Ctrl+K | Open the command palette |
@@ -220,8 +238,8 @@ Section A and its five-row native core checkpoint are complete. Section B and R0
 
 Native core support is limited to the recorded OS/architecture/PTY or ConPTY tuples above. Windows ARM64, older OS versions, and untested GUI terminals remain unclaimed. Cross-compilation is not runtime proof. P02 gates filesystem/data-directory and owned process-tree lifecycle after recovery UX. P03 gates native archives/checksums and install/upgrade/uninstall preserving user data, after integrated acceptance and rights/provider review. Native-image and agent capabilities are qualified separately by OS/version/terminal.
 
-The [design contract](docs/DESIGN_RULES.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md) govern active-run switching/quit and context revalidation. Excerpts and output now share the storage privacy/quota/purge policy. Providers, automated memory, and public Release/remote bootstrap remain unimplemented or withheld as recorded in the task gates.
+The [design contract](docs/DESIGN_RULES.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md) govern active-run switching/quit and context revalidation. Excerpts and local output share the storage privacy/quota/purge policy; selected planning decisions use ordinary task storage. Other provider adapters, automated memory, and public Release/remote bootstrap remain unimplemented or withheld as recorded in the task gates.
 
-Later integration targets: Codex app-server first, an optional official Claude Agent SDK bridge, and one ACP client exercised against OpenCode and Gemini. A form selects the workflow, not the vendor. Switching agents uses a reviewed fresh handoff; native provider sessions and grants are not portable. The Rust core/local UI needs no Node runtime; only the optional Claude SDK integration would add one. Interface research and a local Codex version/help check are not runtime interoperability verification.
+Codex app-server planning is implemented separately from later patch generation. Later integrations are an optional official Claude Agent SDK bridge and one ACP client exercised against OpenCode and Gemini. A form selects the workflow, not the vendor. Switching agents will require a reviewed fresh handoff; native provider sessions and grants are not portable. The Rust core/local UI needs no Node runtime; an installed Codex wrapper may have its own runtime dependencies.
 
-The SVGs are design illustrations, not runtime screenshots. Actual artwork rendering is implemented; external agents remain unimplemented. Performance figures remain scoped acceptance targets, not measured results. Public distribution requires both artwork/name rights review and provider auth/branding/terms review.
+The SVGs are design illustrations, not runtime screenshots. Actual artwork rendering and the scoped Codex planning flow are implemented. Performance figures remain scoped acceptance targets, not measured results. Public distribution requires both artwork/name rights review and provider auth/branding/terms review.
