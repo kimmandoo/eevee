@@ -476,7 +476,18 @@ def main():
             passed("archive-restore-neutral-delete-retention-redaction-and-scope")
 
             quota_data = root / "quota"
-            quota = launch("quota", quota_data, extra=("--quota-kib","64"))
+            seed = launch("quota-schema", quota_data)
+            wait_for(seed, "Storage: saved")
+            seed.send("\x1b")
+            quit_app(seed)
+            with closing(sqlite3.connect(quota_data / "workbench.sqlite3")) as db:
+                schema_bytes = db.execute("PRAGMA page_count").fetchone()[0] * db.execute("PRAGMA page_size").fetchone()[0]
+            # Leave a fixed payload budget above actual schema cost. A fixed
+            # total conflates quota behavior with newly added schema pages and
+            # can leave no room for the explicit recovery/navigation update.
+            quota_kib = max(64, (schema_bytes + 1023) // 1024 + 32)
+            result["quota_kib"] = quota_kib
+            quota = launch("quota", quota_data, extra=("--quota-kib", str(quota_kib)))
             wait_for(quota, "Storage: saved")
             quota.send("\x1b")
             failed_goal = None

@@ -1,8 +1,10 @@
 pub mod agents;
 pub mod execution;
 pub mod handoff;
+pub mod memory;
 pub mod planning;
 pub mod sources;
+pub mod workflows;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::text::Span;
@@ -15,7 +17,7 @@ use crate::store;
 pub const MAX_GOAL_BYTES: usize = 4096;
 pub const DELETE_PREVIEW_PAGE: usize = 256;
 
-pub const PALETTE: [&str; 20] = [
+pub const PALETTE: [&str; 22] = [
     "Choose evolution",
     "Edit task goal",
     "Inspect task and storage",
@@ -36,6 +38,8 @@ pub const PALETTE: [&str; 20] = [
     "Specialist request / planning and implementation",
     "Portable task handoff",
     "Set up Eevee and evolution images",
+    "Diagnosis, refactor, review and recipes",
+    "Approved memories",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +66,8 @@ pub enum Overlay {
     Planning,
     Handoff,
     Images,
+    Workflows,
+    Memory,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -181,6 +187,11 @@ pub struct App {
     pub agents: agents::State,
     pub planning: planning::State,
     pub handoff: handoff::State,
+    pub workflows: crate::workflows::State,
+    pub workflow: workflows::State,
+    pub memory: memory::State,
+    pub memory_request: Option<store::MemoryRequest>,
+    pub memory_loading: bool,
     pub command: String,
     pub delete_preview: Vec<store::DeletionTarget>,
     pub delete_page: usize,
@@ -262,6 +273,11 @@ impl App {
             agents: agents::State::new(),
             planning: planning::State::new(),
             handoff: handoff::State::new(),
+            workflows: crate::workflows::State::default(),
+            workflow: workflows::State::default(),
+            memory: memory::State::default(),
+            memory_request: None,
+            memory_loading: false,
             command: String::new(),
             delete_preview: Vec::new(),
             delete_page: 0,
@@ -380,10 +396,24 @@ impl App {
                 self.repo_error.retain(safe_character);
             }
         }
+        if self.overlay == Some(Overlay::Workflows) {
+            self.workflow_refresh();
+        }
     }
 
     pub fn store_event(&mut self, event: store::Event) {
         match event {
+            store::Event::Memory { task_id, result } => {
+                if task_id == self.task_id {
+                    let before = self.memory.draft_snapshot();
+                    let saving = self.memory.saving;
+                    self.memory_loading = false;
+                    self.memory.finish(result);
+                    if saving || before != self.memory.draft_snapshot() {
+                        self.changed_task();
+                    }
+                }
+            }
             store::Event::Journal { task_id, result } => {
                 self.planning.journal_event(task_id, result);
             }
@@ -424,6 +454,12 @@ impl App {
             store::Event::Saved(snapshot) => {
                 if self.task_id == 0 {
                     self.task_id = snapshot.id;
+                    self.memory.reset(snapshot.id, snapshot.project.clone());
+                    self.memory_loading = true;
+                    self.memory_request = Some(store::MemoryRequest {
+                        task_id: snapshot.id,
+                        mutation: None,
+                    });
                 }
                 if self.task_id == snapshot.id {
                     self.updated_at = snapshot.updated_at;
@@ -517,6 +553,9 @@ impl App {
             }
             store::Event::Context { task_id, result } => {
                 self.sources.stored(self.task_id, task_id, result);
+                if self.overlay == Some(Overlay::Workflows) {
+                    self.workflow_refresh();
+                }
             }
             store::Event::Run {
                 task_id,
@@ -530,6 +569,9 @@ impl App {
                     run_id.as_deref(),
                     result.map(|response| *response),
                 );
+                if self.overlay == Some(Overlay::Workflows) {
+                    self.workflow_refresh();
+                }
             }
             store::Event::Failed { revision, message } => {
                 self.transitioning = false;
@@ -584,6 +626,8 @@ impl App {
                 Some(Overlay::Inspector) => Some(3),
                 Some(Overlay::Companion) => Some(4),
                 Some(Overlay::Preview) => Some(5),
+                Some(Overlay::Workflows) => Some(6),
+                Some(Overlay::Memory) => Some(7),
                 _ => None,
             },
             editing: self.editing,
@@ -612,6 +656,16 @@ impl App {
             criteria: self.criteria.clone(),
             next_action: self.next_action.clone(),
             command: self.command.clone(),
+            workflows: self.workflows.clone(),
+            workflow_draft: self.workflow.draft_snapshot(),
+            memory_draft: self.memory.draft_snapshot(),
+            approved_memories: self.memory.selected_snapshot().unwrap_or_else(|_| {
+                self.tasks
+                    .iter()
+                    .find(|task| task.id == self.task_id)
+                    .map(|task| task.approved_memories.clone())
+                    .unwrap_or_default()
+            }),
             complete: self.complete,
             drafts,
             navigation: self.navigation(),
@@ -633,6 +687,16 @@ impl App {
         self.criteria = snapshot.criteria;
         self.next_action = snapshot.next_action;
         self.command = snapshot.command;
+        self.workflows = snapshot.workflows;
+        self.workflow = workflows::State::default();
+        self.workflow.restore_draft(snapshot.workflow_draft);
+        self.memory.reset(snapshot.id, snapshot.project.clone());
+        let _ = self.memory.restore_draft(&snapshot.memory_draft);
+        self.memory_request = (snapshot.id > 0).then_some(store::MemoryRequest {
+            task_id: snapshot.id,
+            mutation: None,
+        });
+        self.memory_loading = snapshot.id > 0;
         self.complete = snapshot.complete;
         self.updated_at = snapshot.updated_at;
         self.archived = snapshot.archived;
@@ -664,6 +728,8 @@ impl App {
             Some(3) => Some(Overlay::Inspector),
             Some(4) => Some(Overlay::Companion),
             Some(5) => Some(Overlay::Preview),
+            Some(6) => Some(Overlay::Workflows),
+            Some(7) => Some(Overlay::Memory),
             _ => None,
         };
         self.restore_selection();
@@ -720,6 +786,16 @@ impl App {
     }
 
     fn request_navigation(&mut self, action: execution::Action) {
+        if self.memory.saving
+            || self
+                .memory_request
+                .as_ref()
+                .is_some_and(|request| request.mutation.is_some())
+            || self.memory.pending.is_some()
+        {
+            self.notice = "Wait for the approved-memory operation to finish before changing tasks or leaving.".into();
+            return;
+        }
         if matches!(action, execution::Action::Quit) && self.planning.outcome_unknown() {
             self.planning.request_quit();
             self.open_overlay(Overlay::Planning);
@@ -1017,6 +1093,10 @@ impl App {
                 self.handoff.invalidate_review();
                 true
             }
+            Event::Paste(text) if self.overlay == Some(Overlay::Workflows) => {
+                self.workflow_paste(&text)
+            }
+            Event::Paste(text) if self.overlay == Some(Overlay::Memory) => self.memory_paste(&text),
             Event::Paste(text) if self.overlay == Some(Overlay::Handoff) => {
                 self.handoff.paste(&text)
             }
@@ -1049,7 +1129,11 @@ impl App {
             && !self.quit_after_save
             && self.revision == revision
             && (navigation != self.navigation() || input_state != (self.input.len(), self.cursor))
-            && (self.task_id > 0 || !self.goal.is_empty() || self.draft_dirty())
+            && (self.task_id > 0
+                || !self.goal.is_empty()
+                || self.draft_dirty()
+                || self.save_requested
+                || matches!(self.storage, StorageState::Saving))
         {
             self.changed_task();
         }
@@ -1111,6 +1195,10 @@ impl App {
             return true;
         }
         if self.planning.needs_saved_input(&key) {
+            if let Err(error) = self.memory.selected_snapshot() {
+                self.planning.notice = format!("Review selected memories first: {error}");
+                return true;
+            }
             if !matches!(self.storage, StorageState::Saved)
                 || self.saved_revision != self.revision
                 || self.save_requested
@@ -1147,10 +1235,10 @@ impl App {
             self.repository.as_ref(),
         );
         if operation != self.planning.operation {
-            self.form = if self.planning.operation == crate::provider::Operation::Implement {
-                3
-            } else {
-                4
+            self.form = match self.planning.operation {
+                crate::provider::Operation::Implement => 3,
+                crate::provider::Operation::Review => 7,
+                crate::provider::Operation::Plan => 4,
             };
             self.changed_task();
         }
@@ -1249,6 +1337,12 @@ impl App {
             && (self.sources.editor.is_some() || self.sources.confirmation.is_some())
         {
             return self.source_key(key);
+        }
+        if self.overlay == Some(Overlay::Workflows) {
+            return self.workflow_key(key);
+        }
+        if self.overlay == Some(Overlay::Memory) {
+            return self.memory_key(key);
         }
         if self.overlay == Some(Overlay::Handoff) {
             return self.handoff_key(key);
@@ -1449,11 +1543,17 @@ impl App {
             KeyCode::Char('o') => self.open_overlay(Overlay::Agents),
             KeyCode::Char('e') => self.open_overlay(Overlay::Planning),
             KeyCode::Char('z') => self.open_overlay(Overlay::Handoff),
+            KeyCode::Char('u') => self.open_overlay(Overlay::Workflows),
+            KeyCode::Char('m') => self.open_overlay(Overlay::Memory),
             KeyCode::Tab | KeyCode::BackTab => {
                 return self.cycle_focus(key.code == KeyCode::BackTab);
             }
             KeyCode::Enter => match self.effective_focus() {
                 Pane::Companion => self.open_overlay(Overlay::Forms),
+                Pane::Workspace if matches!(self.form, 5..=7) => {
+                    self.open_overlay(Overlay::Workflows)
+                }
+                Pane::Workspace if self.form == 8 => self.open_overlay(Overlay::Handoff),
                 Pane::Workspace => self.begin_edit(),
                 Pane::Inspector => self.open_overlay(Overlay::Inspector),
             },
@@ -1573,7 +1673,10 @@ impl App {
         self.delete_preview
             .iter()
             .map(|target| {
-                1 + target.excerpts.len() + target.runs.len() + target.provider_records.len()
+                1 + target.excerpts.len()
+                    + target.runs.len()
+                    + target.provider_records.len()
+                    + target.memories.len()
             })
             .sum::<usize>()
             .div_ceil(DELETE_PREVIEW_PAGE)
@@ -1953,11 +2056,25 @@ impl App {
             self.notice = "Finish or cancel the local command before starting planning.".into();
             return;
         }
-        if overlay == Overlay::Planning && (self.form == 3 || self.form == 4) {
-            self.planning.set_operation(if self.form == 3 {
-                crate::provider::Operation::Implement
-            } else {
-                crate::provider::Operation::Plan
+        if overlay == Overlay::Planning && matches!(self.form, 3 | 4 | 7) {
+            self.planning.set_operation(match self.form {
+                3 => crate::provider::Operation::Implement,
+                7 => crate::provider::Operation::Review,
+                _ => crate::provider::Operation::Plan,
+            });
+        }
+        if overlay == Overlay::Workflows {
+            self.workflow_open();
+        }
+        if overlay == Overlay::Memory
+            && !self.memory.saving
+            && !self.memory_loading
+            && self.task_id > 0
+        {
+            self.memory_loading = true;
+            self.memory_request = Some(store::MemoryRequest {
+                task_id: self.task_id,
+                mutation: None,
             });
         }
         self.save_selection();
@@ -2241,6 +2358,8 @@ impl App {
                         17 => self.open_overlay(Overlay::Planning),
                         18 => self.open_overlay(Overlay::Handoff),
                         19 => self.open_overlay(Overlay::Images),
+                        20 => self.open_overlay(Overlay::Workflows),
+                        21 => self.open_overlay(Overlay::Memory),
                         _ => unreachable!("palette selection is bounded"),
                     }
                 }
@@ -2343,6 +2462,29 @@ mod tests {
 
     fn modified_key(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> bool {
         app.update(Event::Key(KeyEvent::new(code, modifiers)))
+    }
+
+    #[test]
+    fn clearing_first_draft_before_insert_ack_does_not_restore_deleted_text() {
+        let mut app = app();
+        key(&mut app, KeyCode::Char('g'));
+        key(&mut app, KeyCode::Char('x'));
+        let first = committed(&app);
+        app.save_requested = false;
+        key(&mut app, KeyCode::Backspace);
+        assert!(app.revision > first.revision);
+        app.store_event(store::Event::Saved(first));
+        let cleared = committed(&app);
+        assert!(cleared.goal.is_empty());
+        assert!(cleared.drafts.is_empty());
+        let mut resumed = App::new("/workspace".into(), 120, 36);
+        resumed.store_event(store::Event::Loaded(store::Project {
+            active_id: Some(cleared.id),
+            tasks: vec![cleared],
+            usage_bytes: 0,
+        }));
+        assert!(resumed.input.is_empty());
+        assert!(resumed.drafts.is_empty());
     }
 
     #[test]
@@ -3149,6 +3291,7 @@ mod tests {
                 excerpts: Vec::new(),
                 runs: Vec::new(),
                 provider_records: Vec::new(),
+                memories: Vec::new(),
             }],
             expired_before: None,
         });
@@ -3166,6 +3309,7 @@ mod tests {
                 excerpts: Vec::new(),
                 runs: Vec::new(),
                 provider_records: Vec::new(),
+                memories: Vec::new(),
             }],
             expired_before: None,
         });

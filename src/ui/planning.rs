@@ -54,16 +54,16 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let state = &mut app.planning;
     let title = format!(
         " {} / {} {} ",
-        if state.operation == Operation::Plan {
-            "Espeon"
-        } else {
-            "Flareon"
+        match state.operation {
+            Operation::Plan => "Espeon",
+            Operation::Implement => "Flareon",
+            Operation::Review => "Glaceon",
         },
         state.agent.label(),
-        if state.operation == Operation::Plan {
-            "planning"
-        } else {
-            "implementation"
+        match state.operation {
+            Operation::Plan => "planning",
+            Operation::Implement => "implementation",
+            Operation::Review => "independent review",
         }
     );
     let block = panel(&title, config, paint, true);
@@ -95,12 +95,18 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         if state.inspect_sessions {
             "INSPECTING SESSION METADATA / no model turn authorized"
         } else {
-            "PLANNING / provider-owned history and billing"
+            match state.operation {
+                Operation::Plan => "PLANNING / provider-owned history and billing",
+                Operation::Implement => "IMPLEMENTING / reviewed write boundary",
+                Operation::Review => "REVIEWING / separate session; source writes unavailable",
+            }
         }
     } else if state.inspection.is_some() {
         "SESSION METADATA / not a selectable decision or model result"
     } else if state.outcome_unknown() {
         "IDLE / prior provider outcome UNKNOWN; effects may remain"
+    } else if state.operation == Operation::Review {
+        "IDLE / New independent Review; Resume unavailable"
     } else {
         "IDLE / explicit New or same-task Resume"
     };
@@ -254,9 +260,21 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     } else if let Some(inspection) = &state.inspection {
         value.push_str(inspection);
     } else {
-        value.push_str("New (n): new provider thread. Resume (r): this task's last explicitly created thread only; provider history is additional context. Both open a local preview first. No executable is launched by opening this drawer.\n\n");
+        if state.operation == Operation::Review {
+            value.push_str("New (n): independent Review in a fresh provider session, using current requirements, working patch and selected observations only. No implementation transcript or portable handoff is reused. Source-writing tools, Resume and edit grants are unavailable. ACP Review is unavailable because no-write tool policy cannot be established. Applying a fix requires a deliberate implementation handoff from the review desk.\n\n");
+        } else {
+            value.push_str("New (n): new provider thread. Resume (r): this task's last explicitly created thread only; provider history is additional context. Both open a local preview first. No executable is launched by opening this drawer.\n\n");
+        }
         if let Some(id) = &state.thread_id {
-            let _ = writeln!(value, "Session-local resumable thread: {id}\n");
+            let _ = writeln!(
+                value,
+                "Session-local {}thread: {id}\n",
+                if state.operation == Operation::Review {
+                    "non-resumable review "
+                } else {
+                    "resumable "
+                }
+            );
         }
         if state.omitted > 0 {
             let _ = writeln!(
@@ -287,15 +305,27 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 item.item_id,
                 item.text
             );
-            value.push_str("\n\nDecision selection copies only a complete message/plan into the NextAction editor. Review and explicitly save it. It is unverified provider planning, not command success or acceptance evidence.\n");
+            value.push_str("\n\nDecision selection copies only a complete message/plan into the NextAction editor. Review and explicitly save it. It is an unverified provider proposal, not command success, a saved review verdict, or task acceptance.\n");
         } else {
-            value.push_str("Current saved goal, acceptance criteria and selected source basket are included in the preview. An empty basket is goal-only planning. Save the goal first (g); use the Sources drawer before starting to change the basket.\n\nNo provider items yet. Item display is bounded and source-qualified; raw private reasoning is not displayed.\n");
+            if state.operation == Operation::Review {
+                value.push_str("Review compares saved acceptance criteria with the current working patch and selected evidence. Missing, stale or ambiguous evidence must be labelled inconclusive, never passed. Findings must name affected source/run references and a proposed next action; returning a response does not mark the task complete.\n\nNo review items yet. New opens a local outgoing-context preview before any provider launch.\n");
+            } else {
+                value.push_str("Current saved goal, acceptance criteria and selected source basket are included in the preview. An empty basket is goal-only planning. Save the goal first (g); use the Sources drawer before starting to change the basket.\n\nNo provider items yet. Item display is bounded and source-qualified; raw private reasoning is not displayed.\n");
+            }
             let _ = writeln!(
                 value,
-                "\nAgent: {} / Operation: {:?}\nSelected edit paths: {:?}\n1-4 previews agent switch; f toggles role; x edits selected paths. z opens portable handoff.",
+                "\nAgent: {} / Operation: {:?}\n{}",
                 state.agent.label(),
                 state.operation,
-                state.edit_paths
+                if state.operation == Operation::Review {
+                    "No write paths or grants. 1-4 previews agent switch. z opens portable handoff."
+                        .into()
+                } else {
+                    format!(
+                        "Selected edit paths: {:?}\n1-4 previews agent switch; f toggles role; x edits selected paths. z opens portable handoff.",
+                        state.edit_paths
+                    )
+                }
             );
         }
     }
@@ -384,6 +414,8 @@ fn controls(state: &State) -> &'static str {
     }
     if state.busy() {
         "Up/Down Item / PgUp/Dn Scroll\nEsc or c Cancel / q Safe exit"
+    } else if state.operation == Operation::Review {
+        "g Goal / n New review / d Decision\n1-4 Agent / h Journal / z Handoff\nResume/writes unavailable / Esc Back"
     } else {
         "g Goal / n New / r Resume / d Decision\n1-4 Agent / f Role / x Paths / h Journal\ns ACP sessions / z Handoff / Esc Back"
     }

@@ -27,6 +27,7 @@ pub enum Operation {
     #[default]
     Plan,
     Implement,
+    Review,
 }
 #[derive(Clone, Debug)]
 pub struct Input {
@@ -42,6 +43,56 @@ pub struct Input {
     pub handoff: Option<crate::handoff::Document>,
     /// ACP capability/session-list inspection only; never creates a session or sends a model prompt.
     pub inspect_sessions: bool,
+}
+
+impl Input {
+    /// Review is a fresh, read-only operation, never a continuation or an edit grant.
+    pub fn validate_review(&self) -> Result<(), String> {
+        if self.operation != Operation::Review {
+            return Ok(());
+        }
+        if self.resume.is_some() {
+            return Err("Review requires a fresh provider session; Resume is unavailable".into());
+        }
+        if !self.edit_paths.is_empty() {
+            return Err("Review cannot carry source-writing paths or grants".into());
+        }
+        if self.inspect_sessions {
+            return Err("Review cannot be combined with provider session inspection".into());
+        }
+        if matches!(self.agent, Agent::OpenCode | Agent::Gemini) {
+            return Err("Managed Review unavailable: this ACP peer cannot establish an enforceable no-source-write tool policy. Local review remains available.".into());
+        }
+        Ok(())
+    }
+
+    pub fn review_payload(
+        &self,
+        data_dir: &std::path::Path,
+        exclusions: &[PathBuf],
+    ) -> Result<Option<String>, String> {
+        self.validate_review()?;
+        if self.operation != Operation::Review {
+            return Ok(None);
+        }
+        let text = crate::context::review_payload(
+            data_dir,
+            &self.task,
+            self.report.as_ref(),
+            &self.excerpts,
+            exclusions,
+        )?;
+        if text.len() > 1024 * 1024
+            || crate::privacy::redact(&text) != text
+            || text.chars().any(|ch| {
+                (ch.is_control() && !matches!(ch, '\n' | '\t'))
+                    || matches!(ch, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+            })
+        {
+            return Err("Review payload exceeds the 1 MiB bound or contains credential/display-control text".into());
+        }
+        Ok(Some(text))
+    }
 }
 #[derive(Debug)]
 pub enum Request {
@@ -239,5 +290,68 @@ impl Worker {
     }
     pub fn busy(&self) -> bool {
         self.codex.busy() || self.claude.busy() || self.acp.busy()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn review(agent: Agent) -> Input {
+        Input {
+            task: crate::store::Snapshot::empty("project".into()),
+            excerpts: Vec::new(),
+            report: None,
+            resume: None,
+            agent,
+            operation: Operation::Review,
+            edit_paths: Vec::new(),
+            handoff: None,
+            inspect_sessions: false,
+        }
+    }
+
+    #[test]
+    fn managed_review_admits_only_fresh_no_write_supported_provider_requests() {
+        for agent in [Agent::Codex, Agent::Claude] {
+            let mut input = review(agent);
+            assert!(input.validate_review().is_ok());
+            input.resume = Some("implementation-or-prior-review".into());
+            assert!(input.validate_review().unwrap_err().contains("fresh"));
+            input.resume = None;
+            input.edit_paths.push("src/main.rs".into());
+            assert!(
+                input
+                    .validate_review()
+                    .unwrap_err()
+                    .contains("source-writing")
+            );
+            input.edit_paths.clear();
+            input.inspect_sessions = true;
+            assert!(input.validate_review().unwrap_err().contains("inspection"));
+        }
+        for agent in [Agent::OpenCode, Agent::Gemini] {
+            assert!(review(agent).validate_review().unwrap_err().contains("ACP"));
+        }
+    }
+
+    #[test]
+    fn review_operation_is_explicit_and_keeps_existing_operation_encoding() {
+        assert_eq!(
+            serde_json::to_string(&Operation::Review).unwrap(),
+            "\"Review\""
+        );
+        assert_eq!(serde_json::to_string(&Operation::Plan).unwrap(), "\"Plan\"");
+        assert_eq!(
+            serde_json::to_string(&Operation::Implement).unwrap(),
+            "\"Implement\""
+        );
+        let mut input = review(Agent::Codex);
+        input.operation = Operation::Plan;
+        input.resume = Some("existing-plan-session".into());
+        assert!(input.validate_review().is_ok());
+        input.operation = Operation::Implement;
+        input.edit_paths.push("src/file.rs".into());
+        assert!(input.validate_review().is_ok());
     }
 }

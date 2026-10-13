@@ -1,5 +1,31 @@
 # Troubleshooting
 
+### [2026-10-14] Schema growth changed the quota smoke's payload budget
+
+- **Context / Symptom:** The newly installed schema-6 binary passed installation and the first 20 workbench cases. The fixed 64-KiB quota scenario reclaimed tasks and saved its retained draft, but a subsequent navigation/draft save correctly reported `database or disk is full`.
+- **Root Cause:** The old fixture treated total database capacity as payload capacity. New schema pages consumed that fixed total; even its post-reclamation state had insufficient headroom for the next saved state.
+- **Solution:** Initialize the actual native schema, measure SQLite page count/size, then allocate a fixed 32-KiB payload budget above that cost. The test still fills the real quota, requires failure with a retained draft, explicitly deletes eligible tasks, retries, preserves an unrelated task and verifies the resumed draft. Production quota limits and error handling are unchanged.
+
+### [2026-10-14] Replacing PATH hid the pinned provider launcher's Node runtime
+
+- **Context / Symptom:** Live implementation acceptance stopped before any model call with `Version executable exited unsuccessfully`. Direct launch reproduced `env: node: No such file or directory`.
+- **Root Cause:** The acceptance invocation replaced the host PATH with a minimal list. The isolated official npm Codex launcher requires the existing Node runtime, whose installation was outside those directories.
+- **Solution:** Prepend the isolated provider runtime to the existing PATH instead of replacing it. Verified Codex 0.152.1 and Node 24.15.0; the real five-case controlled implementation/denial/journal/local-check/restart journey then passed. No preflight refusal was bypassed, and the standalone local core still requires no Node.
+
+### [2026-10-14] Deleting the first draft before its insert acknowledgement resurrected text
+
+- **Context / Symptom:** Real warm-start measurement typed `x`, deleted it immediately, exited and reopened. The visible editor had been empty, but the next launch restored `x` as a retained draft.
+- **Root Cause:** Before the first insert acknowledgement, the task ID was still zero. Returning the editor to its original empty value no longer satisfied the dirty-task guard, so deletion did not advance the revision. The pending older snapshot remained authoritative.
+- **Solution:** Treat queued/in-flight initial saves as durable task state for subsequent editor/navigation revisions. A late insert acknowledgement cannot supersede the newer empty editor.
+- **Verification:** `clearing_first_draft_before_insert_ack_does_not_restore_deleted_text` failed before the correction and passed after. Actual native performance acceptance then completed all 30 type/delete/exit/reopen startup samples without restoring deleted text; the separate large-diff harness issue did not invalidate those recorded startup observations.
+
+### [2026-10-14] A duplicated writer-lock descriptor outlived store shutdown
+
+- **Context / Symptom:** Concurrent native process/storage tests observed a writer-lock refusal immediately after the storage worker had been dropped and joined.
+- **Root Cause:** Closing the owning descriptor does not release an open-description file lock while a duplicate remains open. A concurrent fork can retain that description until exec, despite close-on-exec. A native descriptor-duplication experiment reproduced the lock surviving owner close and releasing only after explicit unlock.
+- **Solution:** Close SQLite first, then explicitly unlock the stable sidecar lock during store-state teardown. Do not retry/steal a live writer's lock or weaken conflict detection.
+- **Verification:** Added a real descriptor-duplication/store-reopen/save regression. The integrated suite passed 290 tests/two ignored after the shutdown correction. Quota acceptance now derives payload headroom from actual schema page cost rather than assuming schema 6 still fits the older schema's fixed empty-page budget.
+
 ### [2026-10-14] Native task-switch smoke raced its own navigation save
 
 - **Context / Symptom:** Run `38425278423` passed all native builds, the three Windows ConPTY regressions, the full installed terminal suite and all four Unix smoke rows. Windows execution acceptance reached its eighth scenario, then remained on task cards with `Finish or retry task/context saves before switching; the current task was retained.`

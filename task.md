@@ -2,7 +2,7 @@
 
 ## Active work
 
-Section A and the five-row offline `ev` installation preview passed their recorded gates. **Section B, R01/R02/UX02, A01–A03 and A05 passed scoped local acceptance: 18 of 31 tasks checked.** D includes the optional Claude SDK bridge, shared OpenCode/Gemini ACP client, reviewed version-1 handoff, and provider-supported login/status. Current work implements immediate input, discoverable provider connections, all-nine-image setup and user-authorized **0.1.0 release, binary install/update/uninstall, animation, commit and push**. Fresh native checks gate publication; historical CI deferment is superseded. **A04/A06/full A07 remain unchecked pending permitted Claude credentials and completed eligible Gemini authentication/model conformance.** Provider evidence remains host-qualified, not full D interoperability.
+**24 of 31 tasks passed scoped acceptance**, including U01/L01/G01/S01/S02/S03. Schema-6 specialist workflows, approved scoped memory and plan-only recipes are implemented with real local TUI and independent Codex review evidence. All specified local performance workloads completed. Fresh native qualification gates the user-authorized **0.1.0 core release, commit and push**. **A04/A06/full A07 remain unchecked pending permitted Claude credentials and completed eligible Gemini authentication/model conformance; full Q01/Q02/P03 retain those dependencies.** Local implementation and measured core behavior are not advertised as complete provider or platform interoperability.
 
 Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapter/evidence contract: [agent compatibility](docs/AGENT_COMPATIBILITY.md). An unchecked task may have partial implementation, but its acceptance is not complete; consult its evidence note and the checkpoint.
 
@@ -227,48 +227,54 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ### U01 — Umbreon hypotheses and diagnosis
 
-- [ ] Track explanations against real observations.
+- [x] Track explanations against real observations.
 - **Depends on:** A02, R02.
 - **Change:** Add a hypothesis board with supporting/refuting evidence links and explicit unresolved states. User-requested diagnostic commands use Jolteon's local approval/runner; provider-native diagnostics retain their actual origin and control coverage in the journal. A diagnosis alone does not edit source. Security findings use the same evidence discipline, not severity by guesswork.
 - **Accept:** Investigate a seeded failure, reject one hypothesis using an actual run, and support a root cause with source/output references. Missing proof stays unresolved. Handoff to Flareon carries the diagnosis without re-sending the whole transcript.
+- **Observed acceptance (2026-10-14):** Native `workflow_smoke.py` rejected overflow using an actual failed check, linked the subtraction defect to captured source/output, retained missing evidence as unresolved, and previewed only the selected diagnosis for Flareon without writing or sending.
 
 ### L01 — Leafeon bounded refactor and comparison
 
-- [ ] Make improvement measurable and behavior-preserving.
+- [x] Make improvement measurable and behavior-preserving.
 - **Depends on:** A03, R02.
 - **Change:** Select a hotspot, record the behavior contract and baseline, request a bounded refactor, and compare relevant validation/measurements. Reuse Flareon's patch and Jolteon's execution machinery, not a second editor or executor.
 - **Accept:** Refactor a disposable example with a fixed behavioral contract; compare baseline/post-change output and relevant measurements. A failing check blocks a success claim. Do not claim a speedup from noise, missing baselines, or unrelated checks.
+- **Observed acceptance (2026-10-14):** A disposable addition example retained its contract across a bounded refactor. A failed post-change check blocked comparison; distinct ordered baseline/post-change runs used the same executable, argv and cwd. Actual outputs/elapsed times were shown without a speedup claim.
 
 ### G01 — Glaceon independent review desk
 
-- [ ] Judge the patch against current evidence without editing it.
+- [x] Judge the patch against current evidence without editing it.
 - **Depends on:** A03, R02.
 - **Change:** Build a separate review context from requirements, patch, and selected observations. Add evidence-linked findings and accept/request-changes/inconclusive verdicts; show stale verification next to the affected criterion. Source-writing tools are unavailable to managed review requests.
 - **Accept:** Review a seeded defect and an unverified change. Capture an actionable finding/inconclusive verdict, not a generic pass. Edit after a successful check and confirm the review shows stale evidence. Applying a fix requires a deliberate handoff, not Glaceon editing its own finding.
+- **Observed acceptance (2026-10-14):** Native evidence-linked findings, coverage-gated acceptance and stale-source invalidation passed. Two explicitly approved real Codex 0.152.1 reviews used distinct non-resumable sessions, excluded the implementation-only next action, identified the seeded subtraction defect and preserved all project/Git bytes. SDK live review remains unclaimed; managed ACP review is refused.
 
 ## F — Handoff, approved habits, and recipes
 
 ### S01 — Sylveon evidence-linked handoff
 
-- [ ] Leave the next session a usable journal, not a vague summary.
+- [x] Leave the next session a usable journal, not a vague summary.
 - **Depends on:** G01, E02, A07.
 - **Change:** Reuse A07's portable handoff schema to preview the goal, observed changes/results, decisions, unresolved risks, and exact next action; do not create a second export format. Include source/run references, distinguish model inferences, and preview any documentation write separately. No automatic declaration of completion.
 - **Accept:** Close/reopen a task with one unresolved finding and resume from the recorded next action. Follow each result link to real evidence. Reject a proposed documentation edit and confirm the file is unchanged.
+- **Observed acceptance (2026-10-14):** Reopened the unresolved finding and exact next action; followed its stored source and actual run output. Rejecting the separate documentation preview preserved existing bytes. Explicit schema-1 export retained labeled inference/unverified evidence references, not grants or completion. A07's separately blocked full provider chain is not claimed.
 
 ### S02 — Explicitly curated project and personal habits
 
-- [ ] Let the companion learn only what the user approves.
+- [x] Let the companion learn only what the user approves.
 - **Depends on:** S01, C02.
 - **Change:** Offer Remember on a selected verified/user-authored note; preview task/project/personal scope, then approve or reject. Support inspection/edit/delete and honor exclusions. Do not silently infer a permanent habit from one action or add a numerical bond score.
 - **Accept:** Approve one project memory and reject another; restart and inspect exact contents. Open a different project and confirm scope isolation, then delete the memory and verify it no longer enters context. Excluded secrets are never proposed from captured content.
 - **Retention integration:** Use E03's ownership/purge rules; deleting one task must not remove approved shared memory, and deleting a memory must remove it from future request assembly while explaining that prior exports/provider history are outside local erasure.
+- **Observed acceptance (2026-10-14):** Actual approval/rejection, exact-content inspection after restart, separate context selection, deletion removing future context, cross-task/project scope isolation and task purge preserving shared project/personal notes passed. Exclusion, update/revision and dispatch-revalidation regressions passed.
 
 ### S03 — Evolution Stone recipe preview
 
-- [ ] Reuse workflows without creating a permission bypass.
+- [x] Reuse workflows without creating a permission bypass.
 - **Depends on:** V03, R02, S01.
 - **Change:** Load versioned TOML recipes describing form steps, context/scope, validation commands, and completion criteria. Show the recipe before applying it to a task. No install hooks, marketplace, automatic execution, or authority to expand existing grants.
 - **Accept:** Preview a local bug-fix recipe, apply its plan without executing commands, and require normal approvals during use. Reject an invalid schema. A recipe requesting an ungranted write/run capability cannot perform that action.
+- **Observed acceptance (2026-10-14):** The native all-page preview defaulted to staying; explicit approval persisted only the plan/criteria/next action. Proposed commands did not run, no model was called, and unknown capability/schema fields were rejected.
 
 ## G — Integrated acceptance
 
@@ -285,6 +291,7 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 - **Depends on:** Q01.
 - **Change:** Benchmark the release binary on recorded hardware/workload: 60s local-shell idle CPU/RSS, 30 warm local startups, key-to-render latency under streaming, 10 MiB output, and a 10,000-line diff. Report core, optional SDK sidecar, and external-agent resource use separately and in aggregate. Inspect per-provider usage/cost scope and outgoing context; optimize measured bottlenecks.
 - **Accept:** Report observations against the design targets with method/sample size and remaining misses, without hiding helper/agent costs inside a core-only claim. Queues stay bounded; no model request on form selection, no unsubmitted draft leaks, and no unrelated/full history in Eevee-sent context. Show unknown provider-added context/usage honestly; no savings percentage or merged cost total without compatible measured scopes.
+- **Measured local slice (2026-10-14):** All specified release workloads completed on M1 Pro/macOS arm64. Warm-start p95 89.55 ms; 60-second idle 0.826% of one core / 7.44 MiB core RSS; streaming input p95 12.61 ms. A 10 MiB stream retained exactly 1 MiB and visibly discarded 9 MiB; a 10,000-line diff opened in 137.66 ms without changing repository bytes. See the implementation plan for scope/method. Full Q02 remains pending on Q01 and unavailable provider-resource/conformance rows.
 
 ### P03 — Native distribution, upgrade, and support evidence
 
@@ -296,4 +303,4 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ## Phase status
 
-Phase 1, all six section-A tasks, all five section-B tasks, R01/R02/UX02, A01–A03, and A05 passed their scoped gates: **18 of 31 implementation tasks checked; 13 remain unchecked**. Gate B passed locally. P02 native qualification is active again and must use fresh evidence. D includes official authentication and reviewed SDK/ACP/handoff implementations; A04/A06/full A07 require their remaining permitted authenticated scenarios. User-authorized 0.1.0 publication is separately gated on the current five-row core/install/terminal workflow, not inferred from the old `ea8ade7` preview.
+Phase 1, all six section-A tasks, all five section-B tasks, R01/R02/UX02, A01–A03, A05 and U01/L01/G01/S01/S02/S03 passed their scoped gates: **24 of 31 implementation tasks checked; 7 remain unchecked**. P02 requires fresh native qualification of schema 6. A04/A06/full A07 still lack permitted Claude/Gemini authentication; full Q01/Q02/P03 therefore remain pending rather than inheriting local-core acceptance. The separately authorized 0.1.0 core release requires the current five-row build/install/terminal workflow and SDK policy, not an older green commit.

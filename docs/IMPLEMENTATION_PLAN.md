@@ -1,7 +1,7 @@
 # Eevee Implementation Plan
 
 Date: 2026-10-13
-Status: Section A and the five-row installation preview passed their recorded gates. Section B, R01/R02/UX02, A01–A03 and A05 passed scoped local acceptance. Of 31 tasks, 18 are checked and 13 remain unchecked. D code is implemented through A07, but A04/A06/full A07 real interoperability remains blocked by unavailable permitted Claude/Gemini credentials. The user now authorizes public 0.1.0 release, binary lifecycle support, commit and push; fresh native qualification is active, superseding earlier CI deferment.
+Status: 24 of 31 tasks passed their scoped gates, including U01/L01/G01/S01/S02/S03. Schema-6 specialist, memory and recipe journeys and real independent Codex review passed locally. Full A04/A06/A07 and therefore Q01/Q02/P03 remain pending on permitted Claude/Gemini authentication and their required conformance rows. Fresh five-target qualification is required before the separately authorized 0.1.0 core release.
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
 
 ## Outcome
@@ -149,6 +149,34 @@ Acceptance: end and resume a task using its handoff; approve and reject memory p
 
 Acceptance: publish observed measurements and real run results, not targets as achievements. All nine roles, persistence, cancellation, action-specific controls, context boundaries, evidence freshness, agent handoff, and terminal restoration must work. Include a real assistive-terminal check before claiming that environment accessible. No unimplemented forms, fictitious compatibility badges, or fake fallbacks may be presented as complete.
 
+### Observed local release performance — 2026-10-14
+
+`scripts/performance_smoke.py`, `target/performance-complete/results.json`: Apple M1 Pro (8 logical CPUs, 16 GiB), macOS 27.0.1 arm64, Rust 1.90.0 release, Python 3.12.15/pyte 0.8.2/wcwidth 0.2.13/psutil 7.0.0, native PTY 120×36, monochrome, images off. Binary SHA-256 `94a6644b171eb9802bacdea1cb805c4c717f01637469ebaba490b8c02affecc0`. These are local observations, not all-platform claims.
+
+| Workload / method | Observed | Design target / outcome |
+| --- | --- | --- |
+| Warm start to complete saved frame, 30 launches | p95 89.55 ms | <200 ms; met |
+| Idle saved local home, 60.008 s | 0.826% of one core; 7.44 MiB core peak RSS; zero terminal output | <1% / <80 MiB; met |
+| Key-to-visible-render while streaming, 60 keys | p95 12.61 ms | <50 ms; met |
+| Actual 10 MiB local output | 1 MiB retained / 9 MiB discarded; truncation visible | bounded output; met |
+| 10,000-line diff, 5,000 removals + 5,000 additions | overview 137.66 ms; End-to-last-line 14.02 ms | repository/Git bytes unchanged |
+
+Resource scope is explicit rather than hidden in the core figures:
+
+| Window / scope | CPU (% of one core) | Sampled peak RSS (MiB) |
+| --- | ---: | ---: |
+| Idle / core and observed application total | 0.826 | 7.44 |
+| Idle / measurement harness | 28.904 | 45.61 |
+| Idle / application + harness | 29.730 | 53.05 |
+| Streaming / core | 2.660 | 7.97 |
+| Streaming / local command | 3.485 | 14.19 |
+| Streaming / observed application total | 6.145 | 22.13 |
+| Streaming / measurement harness | 40.590 | 47.31 |
+| Streaming / application + harness | 46.735 | 68.67 |
+
+The sampler includes observed process descendants; short-lived/inaccessible helpers can be missed, CPU is a lower bound and RSS is a sampled simultaneous sum with possible shared-page double counting. The desktop terminal compositor is excluded. SDK/external-provider scopes were unavailable in this local-shell workload and are null, not zero; there is no token/cost or savings claim. Actual Codex/OpenCode context/permission/continuation checks and separate fresh-review checks passed, but do not substitute for missing Claude/Gemini interoperability or resource measurement. Full Q02 remains pending on Q01.
+
+
 P03 remains the full distribution gate after P02, Q01, and Q02: prove native installation, update, uninstall, durable-schema continuity and measured integrated behavior. The user separately authorizes a scoped 0.1.0 local-core release after all five current native rows and SDK policy checks pass. That release includes verified archives/notices, pinned HTTPS bootstrap, embedded-installer self-update and owned uninstall without data purge; it does not claim full provider conformance, performance acceptance, signing/notarization, or artwork/trademark clearance.
 
 ## Explicit exclusions
@@ -157,4 +185,4 @@ No custom model runtime, autonomous multi-agent swarm, hosted synchronization, p
 
 ## Current next action
 
-Repair native CI and qualify the user-authorized 0.1.0 release: verify the Windows startup/idle correction, push the integrated commit to `main`, and require all five build rows, five installed-binary smoke rows and SDK policy to pass. Tag that exact commit; the separate release workflow promotes its immutable verified packages without repeating interactive smoke. Confirm public assets, checksums and a downloaded installation. Keep **A04/A06/full A07** acceptance separate: permitted Claude API/Bedrock/Vertex credentials and eligible Gemini authentication are still required for their remaining real scenarios. Login initiation/cancellation is not human-auth completion, SDK inspection is not a credentialed query, and source fixes are not native runtime proof.
+Finish fresh native qualification of the integrated schema-6 changes, then publish only the separately authorized 0.1.0 core slice from exact successful main-push artifacts. Local specialist/memory/recipe acceptance passed 15 cases; independent real Codex review passed two; actual schema 5→6 migration/downgrade refusal passed three; all specified local performance workloads completed. Preserve A04/A06/full A07 and Q01/Q02/P03 as pending until permitted authentication and all required native/provider/graphics rows actually pass. No credentials were copied or subscription authentication repurposed for SDK access.

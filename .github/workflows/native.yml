@@ -226,6 +226,8 @@ jobs:
         run: python scripts/execution_recovery_smoke.py --binary "$SMOKE_OUTPUT/installation/installed 空 格/bin/ev" --output "$SMOKE_OUTPUT/execution-recovery"
       - name: Verify portable JSON and Markdown handoffs without providers
         run: python scripts/handoff_smoke.py --binary "$SMOKE_OUTPUT/installation/installed 空 格/bin/ev" --output "$SMOKE_OUTPUT/handoff"
+      - name: Verify specialist evidence, scoped memory, and recipe consent
+        run: python scripts/workflow_smoke.py --binary "$SMOKE_OUTPUT/installation/installed 空 格/bin/ev" --output "$SMOKE_OUTPUT/workflows"
       - name: Upload observed evidence even on failure
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

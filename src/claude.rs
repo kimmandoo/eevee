@@ -573,8 +573,22 @@ fn revalidate(project: &Path, data_dir: &Path, old: &Trust) -> Result<(), String
     }
     Ok(())
 }
+// The pinned sidecar's "plan" policy exposes only read/question tools and
+// mandatory-disables writes, shell, delegation and MCP. Review deliberately
+// reuses that policy, not its prompt or provider session.
+fn sdk_tool_policy(operation: Operation) -> &'static str {
+    match operation {
+        Operation::Plan | Operation::Review => "plan",
+        Operation::Implement => "implement",
+    }
+}
+
 fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<String, String> {
+    input.validate_review()?;
     crate::store::validate_planning_input(data_dir, &input.task, &input.excerpts)?;
+    if let Some(text) = input.review_payload(data_dir, exclusions)? {
+        return Ok(text);
+    }
     if let Some(document) = &input.handoff {
         crate::handoff::validate_dispatch(
             document,
@@ -592,7 +606,7 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
     )?;
     if input.edit_paths.len() > 256
         || (input.operation == Operation::Implement && input.edit_paths.is_empty())
-        || (input.operation == Operation::Plan && !input.edit_paths.is_empty())
+        || (input.operation != Operation::Implement && !input.edit_paths.is_empty())
     {
         return Err("Claude external-policy implementation requires explicit reviewed root-relative edit paths".into());
     }
@@ -683,6 +697,7 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
     let text = serde_json::to_string_pretty(&json!({
         "purpose": if input.operation == Operation::Plan { "Plan only; no implementation tools are exposed." } else { "Implement only reviewed files, preserving existing dirty working content. This is external SDK agent policy, not strict OS confinement. Do not commit/merge. Report unverified patch for human diff review." },
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::handoff::without_local_provenance(&input.task.next_action) },
+        "approved_memories": input.task.approved_memories,
         "selected_sources": serde_json::from_str::<Value>(&sources.text).map_err(|_| "Invalid source envelope")?, "edit_baselines": baselines, "handoff": input.handoff,
     })).map_err(|_| "Could not encode Claude payload")?;
     if text.len() > FRAME_LIMIT / 2 || text.chars().any(|c| (c.is_control() && !matches!(c, '\n' | '\t')) ||
@@ -767,8 +782,12 @@ fn worker(
                         },
                         "Filesystem settingSources=[]; no project/user CLAUDE.md/hooks/plugins/skills/MCP are loaded. MCP strict-empty; Agent/Task/Bash/web/worktree/delegation tools are mandatory-disabled. System executable configuration is refused. Host policy hook runs only in implementation. Inherited OS/runtime and provider cloud credential libraries remain external dependencies.".into(),
                         "Read/Glob/Grep are provider-native agent-policy tools, not excerpt-only reads or Eevee confinement; preapproved reads may bypass canUseTool. Explicit ask rules mediate supported requests. Deny/allow once only; no permission updates, login flows or automatic queue/resend. Interrupt requires observed terminal result; forced cleanup is outcome unknown, never rollback. One query is bounded to 16 SDK turns and estimated incremental USD 5; estimates are not invoices.".into(),
-                        if input.operation == Operation::Implement { "EXTERNAL-POLICY IMPLEMENTATION: Write/Edit only, mandatory selected-path hook plus explicit user approval. No shell/delegation/MCP mutations. Symlinks are refused at check; SDK path checks are NOT atomic OS confinement. Consent accepts that external-policy boundary; inspect dirty baseline/current diff and deliberately verify; no auto commit/merge.".into() } else { "PLAN: SDK tool exposure excludes all file-write/shell/delegation routes. This is verified configured agent tool policy, not filesystem/network isolation.".into() },
-                        "Resume includes provider-owned prior transcript, not just the selected context. Same-task/session/current policy only. Usage is latest cumulative query-pipeline snapshot including restored session, never summed with prior results; main-loop per-turn tokens have separate coverage.".into(),
+                        match input.operation {
+                            Operation::Implement => "EXTERNAL-POLICY IMPLEMENTATION: Write/Edit only, mandatory selected-path hook plus explicit user approval. No shell/delegation/MCP mutations. Symlinks are refused at check; SDK path checks are NOT atomic OS confinement. Consent accepts that external-policy boundary; inspect dirty baseline/current diff and deliberately verify; no auto commit/merge.".into(),
+                            Operation::Plan => "PLAN: SDK tool exposure excludes all file-write/shell/delegation routes. This is verified configured agent tool policy, not filesystem/network isolation.".into(),
+                            Operation::Review => "REVIEW: fresh requirements/patch/selected-observation context in a new session; no implementation history or Resume. Uses the pinned SDK read-only tool policy: Write/Edit/Bash/delegation/MCP are unavailable independently of approval callbacks. Agent tool policy is not OS isolation.".into(),
+                        },
+                        if input.operation == Operation::Review { "Review never sends a provider session ID or resumes prior history. A fix requires a deliberate separate implementation handoff.".into() } else { "Resume includes provider-owned prior transcript, not just the selected context. Same-task/session/current policy only. Usage is latest cumulative query-pipeline snapshot including restored session, never summed with prior results; main-loop per-turn tokens have separate coverage.".into() },
                     ]),
                     Err(error) => preview.blockers.push(safe(error)),
                 }
@@ -1255,7 +1274,7 @@ fn transport(
             .unwrap_or_default()
             .as_nanos();
         pipe.send(json!({"protocol":1,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
-            "prompt":run.text,"operation":if run.input.operation == Operation::Plan {"plan"} else {"implement"},"edit_paths":run.input.edit_paths,"resume":run.input.resume}))?;
+            "prompt":run.text,"operation":sdk_tool_policy(run.input.operation),"edit_paths":run.input.edit_paths,"resume":run.input.resume}))?;
         dispatched = true;
         let mut cancelling: Option<Instant> = None;
         let mut startup = Some(Instant::now() + Duration::from_secs(30));
@@ -1577,6 +1596,13 @@ fn provider_answer(kind: &PromptKind, answer: Value) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn review_uses_mandatory_read_only_sdk_tools_not_implementation_policy() {
+        assert_eq!(sdk_tool_policy(Operation::Review), "plan");
+        assert_eq!(sdk_tool_policy(Operation::Plan), "plan");
+        assert_eq!(sdk_tool_policy(Operation::Implement), "implement");
+    }
+
     #[test]
     fn malformed_trailing_frames_do_not_discard_prior_observations() {
         let observation = json!({"protocol":1,"type":"item","kind":"tool","text":"partial"});

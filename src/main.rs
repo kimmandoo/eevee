@@ -11,6 +11,7 @@ mod distribution;
 mod domain;
 mod handoff;
 mod input;
+mod memory;
 mod native;
 mod privacy;
 mod provider;
@@ -19,6 +20,7 @@ mod runner;
 mod store;
 mod terminal;
 mod ui;
+mod workflows;
 
 use std::{io, process::ExitCode};
 
@@ -210,6 +212,17 @@ fn run(config: Config) -> io::Result<()> {
             if store.try_context(&mut app.sources.pending_store) {
                 outstanding_store += 1;
             }
+            if app.memory_request.is_none()
+                && let Some(mutation) = app.memory.pending.take()
+            {
+                app.memory_request = Some(store::MemoryRequest {
+                    task_id: app.task_id,
+                    mutation: Some(mutation),
+                });
+            }
+            if store.try_memory(&mut app.memory_request) {
+                outstanding_store += 1;
+            }
             if let Some(request) = app.planning.pending_journal.front().cloned() {
                 let mut pending = Some(request);
                 if store.try_journal(&mut pending) {
@@ -277,6 +290,9 @@ fn run(config: Config) -> io::Result<()> {
                 || planning.busy()
                 || app.sources.pending.is_some()
                 || app.sources.pending_store.is_some()
+                || app.memory_request.is_some()
+                || app.memory.pending.is_some()
+                || app.memory.saving
                 || app.execution.busy()
                 || execution.is_active()
                 || app.repo_refresh
@@ -335,11 +351,15 @@ fn run(config: Config) -> io::Result<()> {
                 }
                 let restored =
                     matches!(&event, store::Event::Loaded(_) | store::Event::Selected(_));
+                let hidden_memory_load = matches!(&event, store::Event::Memory { .. })
+                    && app.overlay != Some(app::Overlay::Memory)
+                    && !app.memory.saving;
+                let revision = app.revision;
                 app.store_event(event);
                 if restored && config.layout_explicit {
                     app.linear = config.layout == config::LayoutMode::Linear;
                 }
-                dirty = true;
+                dirty |= !hidden_memory_load || app.revision != revision;
             }
             while let Some(event) = repository.try_event() {
                 outstanding_repo = outstanding_repo.saturating_sub(1);
@@ -361,7 +381,10 @@ fn run(config: Config) -> io::Result<()> {
                 dirty |= matches!(
                     app.overlay,
                     Some(
-                        app::Overlay::Repository | app::Overlay::Sources | app::Overlay::Execution
+                        app::Overlay::Repository
+                            | app::Overlay::Sources
+                            | app::Overlay::Execution
+                            | app::Overlay::Workflows
                     )
                 );
             }

@@ -1,0 +1,842 @@
+//! Local memory review; only the store worker may commit pending mutations.
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use serde::{Deserialize, Serialize};
+use unicode_segmentation::UnicodeSegmentation;
+
+use crate::memory::{self, Mutation, Proposal, Provenance, Record, Scope, SourceKind};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Mode {
+    #[default]
+    Browse,
+    Edit,
+    Preview,
+    Delete,
+    Discard,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Draft {
+    version: u8,
+    task_id: i64,
+    project: String,
+    selected_ids: Vec<i64>,
+    selected: usize,
+    scroll: u16,
+    mode: Mode,
+    candidate: Option<Proposal>,
+    target: Option<(i64, u64)>,
+    text: String,
+    original: String,
+    cursor: usize,
+}
+
+pub struct State {
+    pub records: Vec<Record>,
+    pub selected_ids: Vec<i64>,
+    pub selected: usize,
+    pub pending: Option<Mutation>,
+    pub mode: Mode,
+    pub candidate: Option<Proposal>,
+    pub draft: String,
+    pub cursor: usize,
+    pub notice: String,
+    pub saving: bool,
+    pub reviewed: bool,
+    pub affirmative: bool,
+    pub show_help: bool,
+    pub scroll: u16,
+    pub scroll_max: u16,
+    pub task_id: i64,
+    pub project: String,
+    target: Option<(i64, u64)>,
+    original: String,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl State {
+    pub fn new() -> Self {
+        Self {
+            records: Vec::new(), selected_ids: Vec::new(), selected: 0,
+            pending: None, mode: Mode::Browse, candidate: None, draft: String::new(),
+            cursor: 0, notice: "Only explicitly approved notes are remembered. Space selects a memory for future request previews.".into(),
+            saving: false, reviewed: false, affirmative: false, scroll: 0,
+            scroll_max: 0, task_id: 0, project: String::new(), target: None,
+            original: String::new(), show_help: false,
+        }
+    }
+
+    pub fn reset(&mut self, task_id: i64, project: impl Into<String>) {
+        *self = Self::new();
+        self.task_id = task_id;
+        self.project = project.into();
+    }
+
+    pub fn busy(&self) -> bool {
+        self.saving || self.pending.is_some() || self.mode != Mode::Browse
+    }
+
+    pub fn editing(&self) -> bool {
+        self.mode == Mode::Edit
+    }
+
+    pub fn invalidate_review(&mut self) {
+        self.reviewed = false;
+        self.affirmative = false;
+    }
+
+    pub fn selected_record(&self) -> Option<&Record> {
+        self.records.get(self.selected)
+    }
+
+    pub fn selected_snapshot(&self) -> Result<Vec<Record>, String> {
+        memory::snapshot(
+            &self.records,
+            &self.selected_ids,
+            &self.project,
+            self.task_id,
+        )
+    }
+
+    /// Caller supplies only a deliberately selected user-authored/verified note,
+    /// and must check source exclusions before exposing this Remember action.
+    pub fn propose(
+        &mut self,
+        content: &str,
+        provenance: Provenance,
+        excluded: bool,
+    ) -> Result<(), String> {
+        if self.busy() {
+            return Err("Finish or reject the current memory draft first.".into());
+        }
+        if excluded {
+            self.notice = "Excluded source content cannot be proposed as memory.".into();
+            return Err(self.notice.clone());
+        }
+        if provenance.task_id != self.task_id {
+            return Err("The selected note belongs to a different task.".into());
+        }
+        memory::validate_text(content, memory::MAX_CONTENT_BYTES)?;
+        let proposal = Proposal {
+            scope: Scope::Task,
+            content: content.into(),
+            provenance,
+        };
+        if let Err(error) = memory::validate_proposal(&proposal) {
+            self.notice = error.clone();
+            return Err(error);
+        }
+        self.draft = proposal.content.clone();
+        self.original = self.draft.clone();
+        self.cursor = self.draft.len();
+        self.candidate = Some(proposal);
+        self.target = None;
+        self.mode = Mode::Preview;
+        self.scroll = 0;
+        self.invalidate_review();
+        self.notice = "Remember this selected note? s changes scope; e edits. Review all pages, then choose Approve separately. r rejects.".into();
+        Ok(())
+    }
+
+    pub fn receive_records(&mut self, records: Vec<Record>) {
+        if records.len() > memory::MAX_RECORDS
+            || records
+                .iter()
+                .any(|record| memory::validate_record(record).is_err())
+        {
+            self.notice = "Stored memories exceed their bounds or contain an invalid record; no context was replaced.".into();
+            return;
+        }
+        self.invalidate_review();
+        self.records = records
+            .into_iter()
+            .filter(|record| memory::visible(record, &self.project, self.task_id))
+            .collect();
+        self.selected = self.selected.min(self.records.len().saturating_sub(1));
+    }
+
+    /// Call only for the matching task's worker acknowledgement. A failed save
+    /// keeps exact editable text and requires a fresh explicit review/approval.
+    pub fn finish(&mut self, result: Result<Vec<Record>, String>) {
+        if !self.saving {
+            match result {
+                Ok(records) => self.receive_records(records),
+                Err(error) => {
+                    self.notice = format!(
+                        "Memory load failed: {}. Draft retained.",
+                        crate::handoff::sanitize(&error)
+                    )
+                }
+            }
+            return;
+        }
+        self.saving = false;
+        self.pending = None;
+        self.invalidate_review();
+        match result {
+            Ok(records) => {
+                self.receive_records(records);
+                self.selected_ids
+                    .retain(|id| self.records.iter().any(|record| record.id == *id));
+                self.clear_draft();
+                self.notice = "Memory change committed. Context uses only Space-selected approved memories; prior requests/exports are unchanged.".into();
+            }
+            Err(error) => {
+                self.notice = format!(
+                    "Save failed: {}. Draft retained; review then retry.",
+                    crate::handoff::sanitize(&error)
+                );
+            }
+        }
+    }
+
+    pub fn draft_snapshot(&self) -> serde_json::Value {
+        serde_json::json!({
+            "version": 1, "task_id": self.task_id, "project": self.project,
+            "selected_ids": self.selected_ids, "selected": self.selected,
+            "scroll": self.scroll, "mode": self.mode, "candidate": self.candidate,
+            "target": self.target, "text": self.draft, "original": self.original,
+            "cursor": self.cursor,
+        })
+    }
+
+    pub fn restore_draft(&mut self, value: &serde_json::Value) -> Result<(), String> {
+        if value.is_null() {
+            return Ok(());
+        }
+        let draft: Draft = serde_json::from_value(value.clone())
+            .map_err(|_| "Invalid memory draft; nothing was restored.")?;
+        if draft.version != 1 || draft.task_id != self.task_id || draft.project != self.project {
+            return Err("Memory draft belongs to a different task/project or schema.".into());
+        }
+        if draft.selected_ids.len() > memory::MAX_SELECTED
+            || draft
+                .selected_ids
+                .iter()
+                .enumerate()
+                .any(|(index, id)| *id <= 0 || draft.selected_ids[..index].contains(id))
+        {
+            return Err("Memory draft has an invalid context selection.".into());
+        }
+        memory::validate_text(&draft.text, memory::MAX_CONTENT_BYTES)?;
+        memory::validate_text(&draft.original, memory::MAX_CONTENT_BYTES)?;
+        if let Some(candidate) = &draft.candidate {
+            memory::validate_text(&candidate.content, memory::MAX_CONTENT_BYTES)?;
+            memory::validate_text(&candidate.provenance.reference, memory::MAX_REFERENCE_BYTES)?;
+            if candidate.provenance.task_id <= 0 || candidate.provenance.reference.trim().is_empty()
+            {
+                return Err("Memory draft is missing source provenance.".into());
+            }
+        } else if !matches!(draft.mode, Mode::Browse | Mode::Delete) {
+            return Err("Memory draft is missing its proposal.".into());
+        }
+        if draft
+            .target
+            .is_some_and(|(id, revision)| id <= 0 || revision == 0)
+        {
+            return Err("Memory draft has an invalid edit identity.".into());
+        }
+        self.selected_ids = draft.selected_ids;
+        self.selected = draft.selected;
+        self.scroll = draft.scroll;
+        self.mode = match draft.mode {
+            Mode::Delete => Mode::Browse,
+            Mode::Discard => Mode::Edit,
+            other => other,
+        };
+        self.candidate = draft.candidate;
+        self.target = draft.target;
+        self.draft = draft.text;
+        self.original = draft.original;
+        self.cursor = self
+            .draft
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .chain(std::iter::once(self.draft.len()))
+            .take_while(|index| *index <= draft.cursor)
+            .last()
+            .unwrap_or(0);
+        self.invalidate_review();
+        self.notice = "Task-scoped memory draft and selection restored; no approval was restored or replayed.".into();
+        Ok(())
+    }
+
+    fn clear_draft(&mut self) {
+        self.mode = Mode::Browse;
+        self.candidate = None;
+        self.target = None;
+        self.draft.clear();
+        self.original.clear();
+        self.cursor = 0;
+        self.scroll = 0;
+        self.invalidate_review();
+    }
+
+    fn new_note(&mut self) {
+        if self.task_id <= 0 {
+            self.notice = "Create and save a task before remembering a note.".into();
+            return;
+        }
+        self.clear_draft();
+        self.candidate = Some(Proposal {
+            scope: Scope::Task,
+            content: String::new(),
+            provenance: Provenance {
+                kind: SourceKind::UserAuthored,
+                reference: format!("task:{}/user-authored-memory-note", self.task_id),
+                task_id: self.task_id,
+            },
+        });
+        self.mode = Mode::Edit;
+        self.notice = "Write a user-authored note, not a captured secret. Enter previews; no memory is saved yet. Ctrl+N inserts a newline.".into();
+    }
+
+    fn edit_selected(&mut self) {
+        let Some(record) = self.selected_record().cloned() else {
+            return;
+        };
+        self.target = Some((record.id, record.revision));
+        self.draft = record.proposal.content.clone();
+        self.original = self.draft.clone();
+        self.cursor = self.draft.len();
+        self.candidate = Some(record.proposal);
+        self.mode = Mode::Edit;
+        self.scroll = 0;
+        self.invalidate_review();
+        self.notice = "Edit approved memory. Changed content is labelled user-authored; existing context snapshots become stale after commit.".into();
+    }
+
+    pub fn paste(&mut self, value: &str) -> bool {
+        if !self.editing() || self.saving {
+            return false;
+        }
+        if value.len() > memory::MAX_CONTENT_BYTES.saturating_sub(self.draft.len()) {
+            self.notice = format!(
+                "Memory limit is {} UTF-8 bytes; insertion refused.",
+                memory::MAX_CONTENT_BYTES
+            );
+            return true;
+        }
+        let text = value.replace("\r\n", "\n").replace('\r', "\n");
+        if let Err(error) = memory::validate_text(&text, memory::MAX_CONTENT_BYTES) {
+            self.notice = error;
+            return true;
+        }
+        self.draft.insert_str(self.cursor, &text);
+        if let Err(error) = memory::validate_text(&self.draft, memory::MAX_CONTENT_BYTES) {
+            self.draft
+                .replace_range(self.cursor..self.cursor + text.len(), "");
+            self.notice = error;
+            return true;
+        }
+        self.cursor += text.len();
+        self.cursor = self
+            .draft
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .find(|index| *index >= self.cursor)
+            .unwrap_or(self.draft.len());
+        self.invalidate_review();
+        true
+    }
+
+    fn preview(&mut self) {
+        let Some(candidate) = &mut self.candidate else {
+            return;
+        };
+        candidate.content = self.draft.clone();
+        if self.draft != self.original {
+            candidate.provenance = Provenance {
+                kind: SourceKind::UserAuthored,
+                reference: self.target.map_or_else(
+                    || format!("task:{}/user-authored-memory-note", self.task_id),
+                    |(id, _)| format!("memory:{id}/user-authored-edit"),
+                ),
+                task_id: self.task_id,
+            };
+        }
+        if let Err(error) = memory::validate_proposal(candidate) {
+            self.notice = error;
+            return;
+        }
+        self.mode = Mode::Preview;
+        self.scroll = 0;
+        self.invalidate_review();
+        self.notice = "Not saved. Review exact content, provenance and scope. Right selects Approve only after all pages are visible.".into();
+    }
+
+    fn editor_key(&mut self, key: KeyEvent) -> bool {
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('n') {
+            return self.paste("\n");
+        }
+        if key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            return true;
+        }
+        let before = self.draft[..self.cursor]
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .next_back()
+            .unwrap_or(0);
+        let after = self
+            .draft
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .find(|index| *index > self.cursor)
+            .unwrap_or(self.draft.len());
+        match key.code {
+            KeyCode::Char(ch) => return self.paste(ch.encode_utf8(&mut [0; 4])),
+            KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                return self.paste("\n");
+            }
+            KeyCode::Enter => self.preview(),
+            KeyCode::Esc => {
+                if self.draft != self.original {
+                    self.mode = Mode::Discard;
+                    self.affirmative = false;
+                } else {
+                    self.clear_draft();
+                }
+            }
+            KeyCode::Left => self.cursor = before,
+            KeyCode::Right => self.cursor = after,
+            KeyCode::Home => {
+                self.cursor = self.draft[..self.cursor]
+                    .rfind('\n')
+                    .map_or(0, |index| index + 1)
+            }
+            KeyCode::End => {
+                self.cursor = self.draft[self.cursor..]
+                    .find('\n')
+                    .map_or(self.draft.len(), |index| self.cursor + index)
+            }
+            KeyCode::Backspace => {
+                self.draft.replace_range(before..self.cursor, "");
+                self.cursor = before;
+            }
+            KeyCode::Delete => {
+                self.draft.replace_range(self.cursor..after, "");
+            }
+            KeyCode::Up | KeyCode::Down => self.vertical_cursor(key.code == KeyCode::Down),
+            _ => {}
+        }
+        true
+    }
+
+    fn vertical_cursor(&mut self, down: bool) {
+        let start = self.draft[..self.cursor]
+            .rfind('\n')
+            .map_or(0, |index| index + 1);
+        let column = self.draft[start..self.cursor].graphemes(true).count();
+        let next_start = if down {
+            let Some(end) = self.draft[self.cursor..].find('\n') else {
+                return;
+            };
+            self.cursor + end + 1
+        } else {
+            if start == 0 {
+                return;
+            }
+            self.draft[..start - 1]
+                .rfind('\n')
+                .map_or(0, |index| index + 1)
+        };
+        let end = self.draft[next_start..]
+            .find('\n')
+            .map_or(self.draft.len(), |index| next_start + index);
+        self.cursor = self.draft[next_start..end]
+            .grapheme_indices(true)
+            .nth(column)
+            .map_or(end, |(index, _)| next_start + index);
+    }
+
+    pub fn key(&mut self, key: KeyEvent, large_enough: bool) -> bool {
+        if key.kind == KeyEventKind::Release {
+            return true;
+        }
+        if key.kind == KeyEventKind::Repeat
+            && !matches!(
+                key.code,
+                KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::Left
+                    | KeyCode::Right
+                    | KeyCode::PageUp
+                    | KeyCode::PageDown
+                    | KeyCode::Backspace
+                    | KeyCode::Delete
+                    | KeyCode::Char(_)
+            )
+        {
+            return true;
+        }
+        if key.kind == KeyEventKind::Repeat
+            && !self.editing()
+            && matches!(key.code, KeyCode::Char(_))
+        {
+            return true;
+        }
+        if self.saving {
+            return true;
+        }
+        if !large_enough {
+            self.invalidate_review();
+            // Parent handles safe close/quit, never discard or approve here.
+            return key.code != KeyCode::Esc;
+        }
+        if self.editing() {
+            return self.editor_key(key);
+        }
+        if key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            return false;
+        }
+        if key.code == KeyCode::PageUp {
+            self.scroll = self.scroll.saturating_sub(6);
+            return true;
+        }
+        if key.code == KeyCode::PageDown {
+            self.scroll = self.scroll.saturating_add(6).min(self.scroll_max);
+            return true;
+        }
+        match self.mode {
+            Mode::Browse => match key.code {
+                KeyCode::Esc => return false,
+                KeyCode::Up => {
+                    self.selected = self.selected.saturating_sub(1);
+                    self.scroll = 0;
+                }
+                KeyCode::Down => {
+                    self.selected = (self.selected + 1).min(self.records.len().saturating_sub(1));
+                    self.scroll = 0;
+                }
+                KeyCode::Char('?') => {
+                    self.show_help = !self.show_help;
+                    self.scroll = 0;
+                }
+                KeyCode::Char('n') => self.new_note(),
+                KeyCode::Char('e') => self.edit_selected(),
+                KeyCode::Char(' ') => {
+                    if let Some(id) = self.selected_record().map(|record| record.id) {
+                        if self.selected_ids.contains(&id) {
+                            self.selected_ids.retain(|selected| *selected != id);
+                        } else if self.selected_ids.len() < memory::MAX_SELECTED {
+                            self.selected_ids.push(id);
+                        } else {
+                            self.notice = format!(
+                                "Select at most {} memories for a request.",
+                                memory::MAX_SELECTED
+                            );
+                        }
+                    }
+                }
+                KeyCode::Char('d') if self.selected_record().is_some() => {
+                    self.mode = Mode::Delete;
+                    self.scroll = 0;
+                    self.invalidate_review();
+                    self.notice = "Delete only this approved memory? Review affected scope. Stay is selected; no deletion yet.".into();
+                }
+                _ => {}
+            },
+            Mode::Preview | Mode::Delete => match key.code {
+                KeyCode::Esc => {
+                    self.mode = if self.mode == Mode::Preview {
+                        Mode::Edit
+                    } else {
+                        Mode::Browse
+                    };
+                    self.invalidate_review();
+                }
+                KeyCode::Left => self.affirmative = false,
+                KeyCode::Right if self.reviewed => self.affirmative = true,
+                KeyCode::Char('s') if self.mode == Mode::Preview => {
+                    if let Some(candidate) = &mut self.candidate {
+                        candidate.scope = candidate.scope.next();
+                    }
+                    self.scroll = 0;
+                    self.invalidate_review();
+                }
+                KeyCode::Char('e') if self.mode == Mode::Preview => {
+                    self.mode = Mode::Edit;
+                    self.invalidate_review();
+                }
+                KeyCode::Char('r') if self.mode == Mode::Preview => {
+                    self.clear_draft();
+                    self.notice =
+                        "Proposal rejected. Nothing was saved or added to context.".into();
+                }
+                KeyCode::Enter if self.affirmative && self.reviewed => {
+                    let mutation = if self.mode == Mode::Delete {
+                        self.selected_record().map(|record| Mutation::Delete {
+                            id: record.id,
+                            expected_revision: record.revision,
+                        })
+                    } else {
+                        self.candidate.clone().map(|proposal| match self.target {
+                            Some((id, expected_revision)) => Mutation::Edit {
+                                id,
+                                expected_revision,
+                                proposal,
+                            },
+                            None => Mutation::Approve(proposal),
+                        })
+                    };
+                    if let Some(mutation) = mutation {
+                        self.pending = Some(mutation);
+                        self.saving = true;
+                        self.notice = "Saving approved memory change; waiting for committed store acknowledgement.".into();
+                        self.invalidate_review();
+                    }
+                }
+                _ => {}
+            },
+            Mode::Discard => match key.code {
+                KeyCode::Left => self.affirmative = false,
+                KeyCode::Right => self.affirmative = true,
+                KeyCode::Esc => {
+                    self.mode = Mode::Edit;
+                    self.affirmative = false;
+                }
+                KeyCode::Enter if self.affirmative => self.clear_draft(),
+                KeyCode::Enter => self.mode = Mode::Edit,
+                _ => {}
+            },
+            Mode::Edit => unreachable!(),
+        }
+        true
+    }
+}
+
+impl super::App {
+    pub(super) fn memory_key(&mut self, key: KeyEvent) -> bool {
+        if key.kind == KeyEventKind::Press
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && key.code == KeyCode::Char('c')
+        {
+            self.request_quit();
+            return true;
+        }
+        if self.memory_loading {
+            if key.code == KeyCode::Esc {
+                self.close_overlay();
+            } else {
+                self.memory.notice =
+                    "Loading approved memories; wait before editing. Esc Back / Ctrl+C safe quit."
+                        .into();
+            }
+            return true;
+        }
+        let before = self.memory.draft_snapshot();
+        let remember = self.memory.mode == Mode::Browse
+            && !self.memory.saving
+            && key.kind == KeyEventKind::Press
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            && key.code == KeyCode::Char('r')
+            && self.width >= 60
+            && self.height >= 18;
+        let handled = if remember {
+            if !matches!(self.storage, super::StorageState::Saved)
+                || self.saved_revision != self.revision
+                || self.save_requested
+            {
+                self.memory.notice =
+                    "Save the task first, then Remember its committed next-action note.".into();
+            } else {
+                let provenance = Provenance {
+                    kind: SourceKind::UserAuthored,
+                    reference: format!(
+                        "task:{}/next-action/revision:{}",
+                        self.task_id, self.saved_revision
+                    ),
+                    task_id: self.task_id,
+                };
+                if let Err(error) = self.memory.propose(&self.next_action, provenance, false) {
+                    self.memory.notice = if self.next_action.trim().is_empty() {
+                        "No saved next-action note. Set Next action first, or n to author a memory note.".into()
+                    } else {
+                        error
+                    };
+                }
+            }
+            true
+        } else {
+            self.memory.key(key, self.width >= 60 && self.height >= 18)
+        };
+        if !handled && key.code == KeyCode::Esc {
+            self.close_overlay();
+        }
+        if before != self.memory.draft_snapshot() {
+            self.changed_task();
+        }
+        true
+    }
+
+    pub(super) fn memory_paste(&mut self, value: &str) -> bool {
+        if self.memory_loading {
+            self.memory.notice = "Loading approved memories; paste was not inserted.".into();
+            return true;
+        }
+        let before = self.memory.draft_snapshot();
+        let handled = self.memory.paste(value);
+        if before != self.memory.draft_snapshot() {
+            self.changed_task();
+        }
+        handled
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state() -> State {
+        let mut state = State::new();
+        state.reset(7, "/project/a");
+        state
+    }
+
+    fn key(state: &mut State, code: KeyCode) {
+        state.key(KeyEvent::new(code, KeyModifiers::NONE), true);
+    }
+
+    #[test]
+    fn neutral_preview_reject_and_failed_save_preserve_draft() {
+        let mut state = state();
+        key(&mut state, KeyCode::Char('n'));
+        state.paste("Keep focused tests.");
+        key(&mut state, KeyCode::Enter);
+        key(&mut state, KeyCode::Enter);
+        assert!(state.pending.is_none());
+        state.reviewed = true;
+        key(&mut state, KeyCode::Right);
+        key(&mut state, KeyCode::Enter);
+        assert!(matches!(state.pending, Some(Mutation::Approve(_))));
+        state.finish(Err("database full".into()));
+        assert_eq!(state.draft, "Keep focused tests.");
+        assert!(!state.affirmative);
+        assert!(!state.reviewed);
+        key(&mut state, KeyCode::Char('r'));
+        assert!(state.candidate.is_none());
+        assert!(state.records.is_empty());
+    }
+
+    #[test]
+    fn literal_paste_graphemes_and_durable_task_scope() {
+        let mut state = state();
+        key(&mut state, KeyCode::Char('n'));
+        state.paste("中e\u{301}\nq approve");
+        assert_eq!(state.mode, Mode::Edit);
+        key(&mut state, KeyCode::Home);
+        key(&mut state, KeyCode::Backspace);
+        key(&mut state, KeyCode::Backspace);
+        assert_eq!(state.draft, "中q approve");
+        let saved = state.draft_snapshot();
+        let mut restored = super::State::new();
+        restored.reset(7, "/project/a");
+        restored.restore_draft(&saved).unwrap();
+        assert_eq!(restored.draft, state.draft);
+        assert!(!restored.reviewed);
+        restored.reset(8, "/project/a");
+        assert!(restored.restore_draft(&saved).is_err());
+    }
+
+    #[test]
+    fn excluded_and_secret_source_notes_are_never_candidates() {
+        let mut state = state();
+        let source = Provenance {
+            kind: SourceKind::VerifiedNote,
+            reference: "run:3/verified-note".into(),
+            task_id: 7,
+        };
+        assert!(
+            state
+                .propose("private content", source.clone(), true)
+                .is_err()
+        );
+        assert!(
+            state
+                .propose("token=private-content", source, false)
+                .is_err()
+        );
+        assert!(state.candidate.is_none());
+    }
+
+    #[test]
+    fn dirty_discard_and_small_terminal_cannot_approve() {
+        let mut state = state();
+        key(&mut state, KeyCode::Char('n'));
+        state.paste("Draft");
+        key(&mut state, KeyCode::Esc);
+        assert_eq!(state.mode, Mode::Discard);
+        key(&mut state, KeyCode::Enter);
+        assert_eq!(state.mode, Mode::Edit);
+        assert_eq!(state.draft, "Draft");
+        key(&mut state, KeyCode::Enter);
+        state.reviewed = true;
+        state.affirmative = true;
+        state.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), false);
+        assert!(state.pending.is_none());
+        assert!(!state.affirmative);
+    }
+
+    #[test]
+    fn restoring_or_loading_never_discards_a_pending_draft() {
+        let mut original = state();
+        key(&mut original, KeyCode::Char('n'));
+        original.paste("Uncommitted note");
+        key(&mut original, KeyCode::Esc);
+        let saved = original.draft_snapshot();
+        let mut restored = state();
+        restored.restore_draft(&saved).unwrap();
+        assert_eq!(restored.mode, Mode::Edit);
+        restored.finish(Ok(Vec::new()));
+        assert_eq!(restored.draft, "Uncommitted note");
+        assert_eq!(restored.mode, Mode::Edit);
+        assert!(restored.pending.is_none());
+    }
+
+    #[test]
+    fn scope_changes_and_repeated_enter_never_reuse_approval() {
+        let mut state = state();
+        let source = Provenance {
+            kind: SourceKind::VerifiedNote,
+            reference: "run:3/verified-note".into(),
+            task_id: 7,
+        };
+        state
+            .propose("Use the observed command.", source, false)
+            .unwrap();
+        state.reviewed = true;
+        state.affirmative = true;
+        key(&mut state, KeyCode::Char('s'));
+        assert_eq!(state.candidate.as_ref().unwrap().scope, Scope::Project);
+        assert!(!state.reviewed);
+        assert!(!state.affirmative);
+        state.reviewed = true;
+        state.affirmative = true;
+        state.key(
+            KeyEvent::new_with_kind(KeyCode::Enter, KeyModifiers::NONE, KeyEventKind::Repeat),
+            true,
+        );
+        assert!(state.pending.is_none());
+        key(&mut state, KeyCode::Char('e'));
+        state.paste(" Updated by the user.");
+        key(&mut state, KeyCode::Enter);
+        assert_eq!(
+            state.candidate.as_ref().unwrap().provenance.kind,
+            SourceKind::UserAuthored
+        );
+    }
+}

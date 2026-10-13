@@ -227,7 +227,11 @@ impl State {
         self.items = session.items;
         self.selected = session.selected;
         self.omitted = session.omitted;
-        self.notice = "Role policy selected locally. New/Resume requires fresh scope and executable consent; no permission carried.".into();
+        self.notice = if operation == Operation::Review {
+            "Independent Review selected locally. New always constructs fresh requirements/patch/evidence context and a separate provider session. Resume and source writes are unavailable; fixes require a deliberate implementation handoff.".into()
+        } else {
+            "Role policy selected locally. New/Resume requires fresh scope and executable consent; no permission carried.".into()
+        };
     }
 
     pub fn journal_started(&mut self) {
@@ -643,6 +647,10 @@ impl State {
         if self.busy() {
             return;
         }
+        if self.operation == Operation::Review && (resume || inspect_sessions) {
+            self.notice = "Review requires a fresh session and freshly constructed evidence context. Resume/session inspection is unavailable here; choose New.".into();
+            return;
+        }
         if self.journal_failed() {
             self.notice =
                 "Retry failed journal storage before preparing another provider request.".into();
@@ -670,8 +678,16 @@ impl State {
             resume: if resume { self.thread_id.clone() } else { None },
             agent: self.agent,
             operation: self.operation,
-            edit_paths: self.edit_paths.clone(),
-            handoff: self.handoff.clone(),
+            edit_paths: if self.operation == Operation::Review {
+                Vec::new()
+            } else {
+                self.edit_paths.clone()
+            },
+            handoff: if self.operation == Operation::Review {
+                None
+            } else {
+                self.handoff.clone()
+            },
             inspect_sessions,
         })));
         self.awaiting_preview = true;
@@ -1159,6 +1175,10 @@ impl State {
                 }
             }
             KeyCode::Char('f') if !self.busy() => {
+                if self.operation == Operation::Review {
+                    self.notice = "Review cannot apply its own findings. Return to the review desk and deliberately hand the fix to implementation.".into();
+                    return true;
+                }
                 self.set_operation(if self.operation == Operation::Plan {
                     Operation::Implement
                 } else {
@@ -1166,6 +1186,10 @@ impl State {
                 });
             }
             KeyCode::Char('x') if !self.busy() => {
+                if self.operation == Operation::Review {
+                    self.notice = "Source-writing tools and edit-path grants are unavailable in Review. Use a deliberate implementation handoff for a fix.".into();
+                    return true;
+                }
                 let paths: Vec<_> = if self.edit_paths.is_empty() {
                     excerpts
                         .iter()
@@ -1280,6 +1304,35 @@ mod tests {
             Some(Request::Run { generation: 11 })
         ));
         state
+    }
+
+    #[test]
+    fn review_never_resumes_or_carries_implementation_grants_or_handoff() {
+        let mut state = State::new();
+        state.reset(7);
+        state.set_operation(Operation::Implement);
+        state.thread_id = Some("implementation-session".into());
+        state.edit_paths.push("src/file.rs".into());
+        state.handoff = Some(crate::handoff::from_task(&task(), &[], &[]).unwrap());
+        state.set_operation(Operation::Review);
+        assert!(state.thread_id.is_none());
+        state.thread_id = Some("previous-review-session".into());
+        press(&mut state, KeyCode::Char('r'), true);
+        assert!(state.pending.is_none());
+        assert!(state.notice.contains("fresh session"));
+        press(&mut state, KeyCode::Char('x'), true);
+        assert!(state.paths_editor.is_none());
+        press(&mut state, KeyCode::Char('f'), true);
+        assert_eq!(state.operation, Operation::Review);
+        press(&mut state, KeyCode::Char('n'), true);
+        let Some(Request::Preview(input)) = state.pending.take() else {
+            panic!("New review must prepare a local preview");
+        };
+        assert_eq!(input.operation, Operation::Review);
+        assert!(input.resume.is_none());
+        assert!(input.edit_paths.is_empty());
+        assert!(input.handoff.is_none());
+        assert!(!input.inspect_sessions);
     }
 
     #[test]

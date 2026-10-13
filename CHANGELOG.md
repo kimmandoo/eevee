@@ -5,6 +5,13 @@
 - fix(ci): isolated ConPTY child standard handles from redirected runner pipes and moved native transport regressions before compilation.
 - fix(ci): waited for actual bounded process exit when ConPTY cleanup raced an already-terminating Windows Job, retaining real termination errors.
 - fix(ci): waited for committed task-card navigation before approving native task switches, preserving pending-save refusal and all ownership checks.
+- feat(workflows): added evidence-linked diagnosis, bounded baseline/refactor comparison, independent read-only review and resumable unresolved findings.
+- feat(handoff): included selected hypotheses and unresolved findings in reviewed portable handoffs without transferring grants or declaring completion.
+- feat(memory): added explicitly approved task/project/personal notes with exact-content previews, separate outgoing-context selection and shared-memory-safe task deletion.
+- feat(recipes): added strict versioned TOML previews and explicit plan-only application without running commands or expanding permissions.
+- fix(storage): released the writer lock explicitly despite inherited descriptors and prevented late first-insert acknowledgements from resurrecting a cleared draft.
+- test(acceptance): added native specialist/memory/recipe journeys, real independent-review checks, schema-upgrade refusal and measured release-performance workloads.
+- fix(ci): based native quota-recovery fixtures on actual schema cost while retaining real exhaustion, draft-preservation and explicit-reclamation checks.
 
 ## 0.1.0
 

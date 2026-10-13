@@ -1,8 +1,10 @@
 mod agents;
 mod execution;
 mod handoff;
+mod memory;
 mod planning;
 mod sources;
+mod workflows;
 
 use std::borrow::Cow;
 
@@ -368,6 +370,10 @@ pub fn render(
             planning::render_small(frame, area, &mut app.planning, &paint);
         } else if app.overlay == Some(Overlay::Handoff) {
             handoff::render_small(frame, area, &mut app.handoff, &paint);
+        } else if app.overlay == Some(Overlay::Memory) {
+            memory::render_small(frame, area, &mut app.memory, &paint);
+        } else if app.overlay == Some(Overlay::Workflows) {
+            workflows::render(frame, area, app, config, &paint);
         }
         return;
     }
@@ -416,6 +422,8 @@ pub fn render(
             Overlay::Agents => agents::render(frame, area, app, config, &paint),
             Overlay::Planning => planning::render(frame, area, app, config, &paint),
             Overlay::Handoff => handoff::render(frame, area, app, config, &paint),
+            Overlay::Workflows => workflows::render(frame, area, app, config, &paint),
+            Overlay::Memory => memory::render(frame, area, &mut app.memory, config, &paint),
             Overlay::Images => images(frame, area, app, config, &paint, artwork),
             Overlay::Inspector => {
                 let area = drawer(area);
@@ -538,6 +546,31 @@ fn workspace(
         paint.accent,
     )];
     lines.push(Line::from(""));
+    match app.form {
+        5 => lines.push(Line::styled(
+            format!(
+                "Enter Diagnosis desk · {} hypotheses · source/run links",
+                app.workflows.hypotheses.len()
+            ),
+            paint.accent,
+        )),
+        6 => lines.push(Line::styled(
+            "Enter Refactor desk · contract → baseline → bounded change → compare",
+            paint.accent,
+        )),
+        7 => lines.push(Line::styled(
+            format!(
+                "Enter Review desk · {} findings · no source-writing tools",
+                app.workflows.findings.len()
+            ),
+            paint.accent,
+        )),
+        8 => lines.push(Line::styled(
+            "Enter Evidence-linked handoff · m Approved memories",
+            paint.accent,
+        )),
+        _ => {}
+    }
     lines.push(Line::styled("NEXT ACTION", paint.muted));
     if app.next_action.is_empty() {
         lines.push(Line::from("Choose your next step from Ctrl+K Actions."));
@@ -1164,6 +1197,9 @@ fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &P
     let value = format!(
         "GETTING STARTED\n Type directly in the visible Goal box on a new task.\n Enter saves locally; no provider message is sent.\n F1 Help / F2 Connections / F3 Evolutions / F4 Images.\n Ctrl+K opens the action list; arrows choose, Enter opens.\n These controls retain an unfinished draft before navigating.\n Esc leaves a clean editor; changed drafts get a neutral review.\n Ctrl+C requests a safe exit.\n\nCONNECTIONS / F2\n Up/Down chooses a provider; Enter opens its visible actions.\n Choose Connect, then an available sign-in method.\n The compact review starts on Back; select Connect explicitly.\n Details, version checks and status are secondary actions.\n Native login owns browser/credentials and may open its own chat.\n No task is sent and no token is copied into Eevee.\n Installed, authenticated and model eligibility are distinct.\n Claude SDK uses permitted API/cloud credentials, not subscription OAuth.\n\nIMAGES / F4\n Download all 9 is optional and explicitly chosen.\n Reload local rereads cache without networking.\n Cancel keeps completed images; retry fetches only missing files.\n Image-derived cells work without a native graphics protocol.\n\nADVANCED NAVIGATION (Esc leaves the input first)\n{value}\n\nSPECIALIST REQUESTS / e\n n New session / r Reviewed same-task resume\n f Plan or Implement / x Select edit paths\n Review payload and effects, then authorize once.\n Permissions start at Deny; cancellation is not rollback.\n d Review selected decision as a next action / h Journal\n Provider history/configuration/billing remain external.\n No automatic replay, private reasoning or portable permissions."
     );
+    let value = format!(
+        "{value}\n\nSPECIALIST DESK / u\n Left/Right chooses Diagnosis, Refactor, Review or Recipe.\n Up/Down chooses a field or action; Enter opens it.\n Text fields: Ctrl+S applies locally; Enter adds a line.\n Source/run evidence retains task ownership and freshness.\n Refactor and diagnosis handoffs open normal approvals.\n Managed review starts fresh and has no source-writing tools.\n Recipes preview before Apply; Apply stages only, never runs.\n\nAPPROVED MEMORIES / m\n r Remember the saved next-action note; n author a note.\n Scope and contents require explicit preview/approval.\n Space chooses memories for future provider context.\n Editing/deleting invalidates old request snapshots.\n Prior exports and provider history are outside local erasure."
+    );
     scroll_text(
         frame,
         content,
@@ -1252,6 +1288,7 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
             Some(Overlay::Agents) => "",
             Some(Overlay::Planning) => "",
             Some(Overlay::Handoff) => "",
+            Some(Overlay::Workflows | Overlay::Memory) => "",
             Some(Overlay::Tasks) => {
                 "Enter Resume / h Archives / a Archive or r Restore / Del / Esc"
             }
@@ -1260,6 +1297,12 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
             None => match app.effective_focus() {
                 Pane::Companion => "Enter Evolution / Tab Focus / i Inspect / ? Help / q Quit",
                 Pane::Inspector => "Enter Inspect / Tab Focus / t Tasks / ? Help / q Quit",
+                Pane::Workspace if matches!(app.form, 5..=7) => {
+                    "Enter Specialist desk / u Desk / m Memories / Ctrl+K Actions"
+                }
+                Pane::Workspace if app.form == 8 => {
+                    "Enter Handoff / z Handoff / m Memories / Ctrl+K Actions"
+                }
                 Pane::Workspace => {
                     "Enter Edit / Ctrl+K Actions / Ctrl+C Quit\nF1 Help / F2 Connect / F3 Evolution / F4 Images"
                 }
@@ -1449,6 +1492,10 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
         "Input limit reached; draft retained.\nEnter Save locally / Esc Review"
     } else if editing {
         "Enter Save locally / Ctrl+N Newline\nNo message or command is sent."
+    } else if matches!(app.form, 5..=7) {
+        "Enter Open specialist desk / g Edit goal\nu Diagnosis · refactor · review · recipes"
+    } else if app.form == 8 {
+        "Enter Prepare handoff / m Approved memories\nNo automatic documentation writes or completion."
     } else {
         "Enter Edit goal / Ctrl+K Actions\nSaved locally; no automatic model calls."
     };
@@ -1649,7 +1696,7 @@ fn delete_confirmation(
     let content = block.inner(area);
     frame.render_widget(block, area);
     let question = format!(
-        "Delete {} task records/drafts and listed excerpts/runs? Sources, exports and provider sessions stay. Not secure erasure. Page {}/{} (n/p).",
+        "Delete {} tasks/drafts and listed evidence/task memories? Shared memories, sources, exports and provider sessions stay. Not secure erasure. Page {}/{} (n/p).",
         app.delete_targets.len(),
         app.delete_page + 1,
         app.deletion_pages()
@@ -1661,6 +1708,7 @@ fn delete_confirmation(
         Excerpt(i64, &'a str),
         Run(&'a str, bool),
         Provider(&'a str, crate::provider::Agent),
+        Memory(&'a crate::memory::Record),
     }
     let lines: Vec<_> = app
         .delete_preview
@@ -1685,6 +1733,7 @@ fn delete_confirmation(
                         .iter()
                         .map(|(id, agent)| Item::Provider(id, *agent)),
                 )
+                .chain(target.memories.iter().map(Item::Memory))
         })
         .skip(app.delete_page * crate::app::DELETE_PREVIEW_PAGE)
         .take(crate::app::DELETE_PREVIEW_PAGE)
@@ -1709,6 +1758,14 @@ fn delete_confirmation(
                 Item::Provider(id, agent) => {
                     format!("  provider {} / observation {id}", agent.label())
                 }
+                Item::Memory(record) => format!(
+                    "  task memory #{} {}",
+                    record.id,
+                    clipped(
+                        &record.proposal.content,
+                        details.width.saturating_sub(24) as usize
+                    )
+                ),
             })
         })
         .collect();

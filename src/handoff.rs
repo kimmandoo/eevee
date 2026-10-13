@@ -89,8 +89,10 @@ pub(crate) fn without_local_provenance(text: &str) -> Cow<'_, str> {
                 "Codex planning"
                     | "Codex Plan"
                     | "Codex Implement"
+                    | "Codex Review"
                     | "Claude Agent Plan"
                     | "Claude Agent Implement"
+                    | "Claude Agent Review"
                     | "OpenCode ACP Plan"
                     | "OpenCode ACP Implement"
                     | "Gemini ACP Plan"
@@ -263,6 +265,8 @@ pub fn from_task(
     if !task.next_action.trim().is_empty() {
         unresolved.push(approved_text(&task.next_action));
     }
+    let (facts, risks) = task.workflows.portable_notes();
+    unresolved.extend(risks);
     let document = Document {
         schema_version: SCHEMA_VERSION,
         task: Task {
@@ -276,7 +280,7 @@ pub fn from_task(
                 .map(|criterion| approved_text(&criterion.text))
                 .collect(),
         },
-        facts: Vec::new(),
+        facts,
         sources,
         decisions: decisions
             .iter()
@@ -509,7 +513,7 @@ fn macos_handoff_path(path: PathBuf, root: &File) -> Result<PathBuf, String> {
 /// system aliases, and anchors the final create/read against ancestor replacement.
 /// New exports use private mode 0600. No arbitrary parent canonicalization occurs.
 #[cfg(unix)]
-fn open_regular(path: &Path, create: bool) -> Result<File, String> {
+pub(crate) fn open_regular(path: &Path, create: bool) -> Result<File, String> {
     use std::os::{
         fd::{AsRawFd, FromRawFd},
         unix::{ffi::OsStrExt, fs::OpenOptionsExt},
@@ -569,7 +573,7 @@ fn open_regular(path: &Path, create: bool) -> Result<File, String> {
 /// Deny-delete ancestor handles pin the Windows path while the final no-follow
 /// handle is opened. Reparse points are rejected instead of resolved.
 #[cfg(windows)]
-fn open_regular(path: &Path, create: bool) -> Result<File, String> {
+pub(crate) fn open_regular(path: &Path, create: bool) -> Result<File, String> {
     use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
     let path = absolute_path(path)?;
     let parent = path.parent().ok_or("Missing handoff parent directory")?;

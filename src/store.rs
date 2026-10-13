@@ -15,7 +15,12 @@ const MAX_GOAL_BYTES: usize = 4096;
 const MAX_TASKS: usize = 256;
 const TASK_COLUMNS_V2: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at";
 const TASK_COLUMNS_V3: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted";
-const TASK_COLUMNS: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted, command";
+const TASK_COLUMNS_V5: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted, command";
+const TASK_COLUMNS: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted, command, workflows, memory_draft, approved_memories, workflow_draft";
+const EMPTY_WORKFLOW_COLUMNS: &str = "'{}','null','[]','null'";
+const MAX_WORKFLOW_BYTES: usize = 512 * 1024;
+const MAX_MEMORY_BYTES: usize = 64 * 1024;
+const MAX_MEMORIES: usize = 256;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Policy {
@@ -54,6 +59,7 @@ pub struct DeletionTarget {
     pub excerpts: Vec<(i64, String)>,
     pub runs: Vec<(String, bool)>,
     pub provider_records: Vec<(String, crate::provider::Agent)>,
+    pub memories: Vec<crate::memory::Record>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -67,6 +73,14 @@ pub struct Snapshot {
     pub next_action: String,
     #[serde(default)]
     pub command: String,
+    #[serde(default)]
+    pub workflows: crate::workflows::State,
+    #[serde(default)]
+    pub memory_draft: serde_json::Value,
+    #[serde(default)]
+    pub approved_memories: Vec<crate::memory::Record>,
+    #[serde(default)]
+    pub workflow_draft: serde_json::Value,
     pub complete: bool,
     pub drafts: Vec<Draft>,
     pub navigation: Navigation,
@@ -87,6 +101,10 @@ impl Snapshot {
             criteria: Vec::new(),
             next_action: String::new(),
             command: String::new(),
+            workflows: crate::workflows::State::default(),
+            memory_draft: serde_json::Value::Null,
+            approved_memories: Vec::new(),
+            workflow_draft: serde_json::Value::Null,
             complete: false,
             drafts: Vec::new(),
             navigation: Navigation::default(),
@@ -282,6 +300,10 @@ pub enum JournalResponse {
     Records(Vec<ProviderRecord>),
     Purged,
 }
+pub struct MemoryRequest {
+    pub task_id: i64,
+    pub mutation: Option<crate::memory::Mutation>,
+}
 #[derive(Debug)]
 pub enum Event {
     Loaded(Project),
@@ -315,6 +337,10 @@ pub enum Event {
         task_id: i64,
         result: Result<JournalResponse, String>,
     },
+    Memory {
+        task_id: i64,
+        result: Result<Vec<crate::memory::Record>, String>,
+    },
 }
 
 struct Managed {
@@ -324,12 +350,13 @@ struct Managed {
 }
 
 enum Command {
-    Save(Snapshot),
+    Save(Box<Snapshot>),
     Select(i64),
     Manage(Management),
     Context(ContextRequest),
     Run(Box<RunRequest>),
     Journal(JournalRequest),
+    Memory(MemoryRequest),
     Retry,
 }
 
@@ -363,11 +390,11 @@ impl Worker {
         let Some(snapshot) = pending.take() else {
             return false;
         };
-        match commands.try_send(Command::Save(snapshot)) {
+        match commands.try_send(Command::Save(Box::new(snapshot))) {
             Ok(()) => true,
             Err(TrySendError::Full(Command::Save(snapshot)))
             | Err(TrySendError::Disconnected(Command::Save(snapshot))) => {
-                *pending = Some(snapshot);
+                *pending = Some(*snapshot);
                 false
             }
             Err(_) => unreachable!("try_send returns the submitted command"),
@@ -452,6 +479,24 @@ impl Worker {
         }
     }
 
+    pub fn try_memory(&self, pending: &mut Option<MemoryRequest>) -> bool {
+        let Some(commands) = &self.commands else {
+            return false;
+        };
+        let Some(request) = pending.take() else {
+            return false;
+        };
+        match commands.try_send(Command::Memory(request)) {
+            Ok(()) => true,
+            Err(TrySendError::Full(Command::Memory(request)))
+            | Err(TrySendError::Disconnected(Command::Memory(request))) => {
+                *pending = Some(request);
+                false
+            }
+            Err(_) => unreachable!("try_send returns the submitted command"),
+        }
+    }
+
     pub fn try_select(&self, id: i64) -> bool {
         self.commands
             .as_ref()
@@ -508,6 +553,10 @@ fn run(
                 task_id: request.task_id,
                 result: state.journal_request(request).map_err(actionable),
             },
+            Command::Memory(request) => Event::Memory {
+                task_id: request.task_id,
+                result: state.memory_request(request).map_err(actionable),
+            },
             Command::Run(request) => {
                 let task_id = request.task_id;
                 let (request_id, run_id) = request.correlation();
@@ -545,7 +594,7 @@ fn run(
             },
             Command::Save(snapshot) => {
                 let revision = snapshot.revision;
-                match state.save(snapshot) {
+                match state.save(*snapshot) {
                     Ok(saved) => Event::Saved(saved),
                     Err(error) => Event::Failed {
                         revision: Some(revision),
@@ -575,6 +624,17 @@ struct State {
     // Declared last so SQLite closes before the stable sidecar lock is released.
     // Keep it locked even when initialization or a transaction fails.
     lock: Option<File>,
+}
+
+impl Drop for State {
+    fn drop(&mut self) {
+        self.connection.take();
+        if let Some(lock) = self.lock.take() {
+            // A concurrent fork can retain this open-file description until exec.
+            // Closing our descriptor alone would keep the writer lock alive there.
+            let _ = lock.unlock();
+        }
+    }
 }
 
 impl State {
@@ -721,6 +781,10 @@ impl State {
         let drafts = serde_json::to_string(&snapshot.drafts).map_err(|error| error.to_string())?;
         let navigation =
             serde_json::to_string(&snapshot.navigation).map_err(|error| error.to_string())?;
+        let workflows = bounded_json(&snapshot.workflows, MAX_WORKFLOW_BYTES)?;
+        let memory_draft = bounded_json(&snapshot.memory_draft, MAX_MEMORY_BYTES)?;
+        let approved_memories = bounded_json(&snapshot.approved_memories, MAX_WORKFLOW_BYTES)?;
+        let workflow_draft = bounded_json(&snapshot.workflow_draft, MAX_WORKFLOW_BYTES)?;
         let updated_at: i64 = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|error| format!("Cannot timestamp the save: {error}"))?
@@ -729,10 +793,11 @@ impl State {
             .map_err(|_| "Save timestamp exceeds SQLite's integer range")?;
         let id = if snapshot.id == 0 {
             transaction.execute(
-                "INSERT INTO tasks(project,goal,form,revision,criteria,next_action,complete,drafts,navigation,updated_at,redacted,command)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                "INSERT INTO tasks(project,goal,form,revision,criteria,next_action,complete,drafts,navigation,updated_at,redacted,command,workflows,memory_draft,approved_memories,workflow_draft)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
                 params![snapshot.project, snapshot.goal, snapshot.form as i64, snapshot.revision as i64,
-                    criteria, snapshot.next_action, snapshot.complete, drafts, navigation, updated_at, snapshot.redacted, snapshot.command],
+                    criteria, snapshot.next_action, snapshot.complete, drafts, navigation, updated_at, snapshot.redacted, snapshot.command,
+                    workflows, memory_draft, approved_memories, workflow_draft],
             ).map_err(|error| format!("Cannot insert the task: {error}"))?;
             let id = transaction.last_insert_rowid();
             select_task(&transaction, &self.project, id)?;
@@ -740,10 +805,12 @@ impl State {
         } else {
             transaction.execute(
                 "UPDATE tasks SET goal=?1,form=?2,revision=?3,criteria=?4,next_action=?5,complete=?6,
-                 drafts=?7,navigation=?8,updated_at=?9,redacted=?12,command=?13 WHERE id=?10 AND project=?11",
+                 drafts=?7,navigation=?8,updated_at=?9,redacted=?12,command=?13,
+                 workflows=?14,memory_draft=?15,approved_memories=?16,workflow_draft=?17 WHERE id=?10 AND project=?11",
                 params![snapshot.goal, snapshot.form as i64, snapshot.revision as i64, criteria,
                     snapshot.next_action, snapshot.complete, drafts, navigation, updated_at,
-                    snapshot.id, snapshot.project, snapshot.redacted, snapshot.command],
+                    snapshot.id, snapshot.project, snapshot.redacted, snapshot.command,
+                    workflows, memory_draft, approved_memories, workflow_draft],
             ).map_err(|error| format!("Cannot write the task: {error}"))?;
             snapshot.id
         };
@@ -854,11 +921,34 @@ impl State {
                 .into_iter()
                 .map(|record| (record.id, record.agent))
                 .collect();
+            let mut statement = connection
+                .prepare(
+                    "SELECT id,revision,project,task_id,proposal FROM memories
+                 WHERE task_id=?1 AND scope='task' ORDER BY id LIMIT 257",
+                )
+                .map_err(|error| error.to_string())?;
+            let memories = statement
+                .query_map([id], memory_row)
+                .map_err(|error| error.to_string())?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|error| error.to_string())?;
+            if memories.len() > MAX_MEMORIES {
+                return Err("Memory deletion preview exceeds its bounded capacity".into());
+            }
+            for record in &memories {
+                validate_memory(record)?;
+                if !crate::memory::visible(record, &self.project, *id)
+                    || record.proposal.scope != crate::memory::Scope::Task
+                {
+                    return Err("Memory deletion preview has conflicting task ownership".into());
+                }
+            }
             targets.push(DeletionTarget {
                 task,
                 excerpts,
                 runs,
                 provider_records,
+                memories,
             });
         }
         Ok(targets)
@@ -933,6 +1023,9 @@ impl State {
                         .execute("DELETE FROM provider_journal WHERE task_id=?1", [id])
                         .map_err(|error| error.to_string())?;
                     transaction
+                        .execute("DELETE FROM memories WHERE task_id=?1", [id])
+                        .map_err(|error| error.to_string())?;
+                    transaction
                         .execute(
                             "DELETE FROM tasks WHERE project=?1 AND id=?2",
                             params![self.project, id],
@@ -997,6 +1090,295 @@ impl State {
             affected,
             warning,
         })
+    }
+}
+
+impl State {
+    fn memory_request(
+        &mut self,
+        request: MemoryRequest,
+    ) -> Result<Vec<crate::memory::Record>, String> {
+        use crate::memory::{Mutation, Scope};
+        let connection = self
+            .connection
+            .as_mut()
+            .ok_or("Storage is unavailable; retry opening it")?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("Cannot begin memory transaction: {error}"))?;
+        let task = load_task(&transaction, &self.project, request.task_id)?
+            .ok_or("Memory task is missing or belongs to another project")?;
+        let mut records = memories(&transaction, &self.project, request.task_id)?;
+        if let Some(mutation) = request.mutation {
+            if task.archived {
+                return Err("Restore the archived task before changing memories".into());
+            }
+            let (previous, proposal) = match mutation {
+                Mutation::Approve(proposal) => (None, Some(proposal)),
+                Mutation::Edit {
+                    id,
+                    expected_revision,
+                    proposal,
+                } => {
+                    let previous = records
+                        .iter()
+                        .find(|record| record.id == id)
+                        .ok_or("Memory is missing or outside this task's visible scope")?;
+                    if previous.revision != expected_revision {
+                        return Err("Memory changed; reload before editing".into());
+                    }
+                    (Some(previous), Some(proposal))
+                }
+                Mutation::Delete {
+                    id,
+                    expected_revision,
+                } => {
+                    let previous = records
+                        .iter()
+                        .find(|record| record.id == id)
+                        .ok_or("Memory is missing or outside this task's visible scope")?;
+                    if previous.revision != expected_revision {
+                        return Err("Memory changed; reload before deleting".into());
+                    }
+                    (Some(previous), None)
+                }
+            };
+            if let Some(proposal) = proposal {
+                crate::memory::validate_proposal(&proposal)?;
+                // Existing shared provenance is historical and may survive source-task purge.
+                if proposal.provenance.task_id != request.task_id
+                    && !previous
+                        .is_some_and(|record| record.proposal.provenance == proposal.provenance)
+                {
+                    return Err("Memory provenance must identify this task or its unchanged approved source".into());
+                }
+                let task_id = (proposal.scope == Scope::Task).then_some(request.task_id);
+                let scope = match proposal.scope {
+                    Scope::Task => "task",
+                    Scope::Project => "project",
+                    Scope::Personal => "personal",
+                };
+                let json = bounded_json(&proposal, MAX_MEMORY_BYTES)?;
+                if let Some(previous) = previous {
+                    let revision = previous
+                        .revision
+                        .checked_add(1)
+                        .filter(|revision| *revision <= i64::MAX as u64)
+                        .ok_or("Memory revision exhausted")?;
+                    transaction.execute(
+                        "UPDATE memories SET revision=?1,project=?2,task_id=?3,scope=?4,proposal=?5 WHERE id=?6 AND revision=?7",
+                        params![revision as i64, self.project, task_id, scope, json, previous.id, previous.revision as i64],
+                    ).map_err(|error| format!("Cannot edit memory: {error}"))?;
+                } else {
+                    let count: i64 = transaction
+                        .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
+                        .map_err(|error| error.to_string())?;
+                    if count >= MAX_MEMORIES as i64 {
+                        return Err(
+                            "Memory capacity reached (256 records); nothing was evicted".into()
+                        );
+                    }
+                    transaction.execute(
+                        "INSERT INTO memories(revision,project,task_id,scope,proposal) VALUES(1,?1,?2,?3,?4)",
+                        params![self.project, task_id, scope, json],
+                    ).map_err(|error| format!("Cannot approve memory: {error}"))?;
+                }
+                enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
+            } else if let Some(previous) = previous {
+                transaction
+                    .execute(
+                        "DELETE FROM memories WHERE id=?1 AND revision=?2",
+                        params![previous.id, previous.revision as i64],
+                    )
+                    .map_err(|error| format!("Cannot delete memory: {error}"))?;
+            }
+            records = memories(&transaction, &self.project, request.task_id)?;
+        }
+        transaction
+            .commit()
+            .map_err(|error| format!("Cannot commit memory transaction: {error}"))?;
+        Ok(records)
+    }
+}
+
+fn validate_memory(record: &crate::memory::Record) -> Result<(), String> {
+    crate::memory::validate_record(record)?;
+    reject_secret_identity(&record.project)?;
+    if record.revision > i64::MAX as u64 || record.project.len() > 4096 {
+        return Err("Memory identity exceeds its bounded storage range".into());
+    }
+    Ok(())
+}
+
+fn memory_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<crate::memory::Record> {
+    Ok(crate::memory::Record {
+        id: row.get(0)?,
+        revision: row.get(1)?,
+        project: row.get(2)?,
+        task_id: row.get(3)?,
+        proposal: json_column(row, 4, MAX_MEMORY_BYTES)?,
+    })
+}
+
+fn memories(
+    connection: &Connection,
+    project: &str,
+    task_id: i64,
+) -> Result<Vec<crate::memory::Record>, String> {
+    let mut statement = connection.prepare(
+        "SELECT id,revision,project,task_id,proposal FROM memories WHERE scope='personal'
+         OR (project=?1 AND (scope='project' OR (scope='task' AND task_id=?2))) ORDER BY id LIMIT 257",
+    ).map_err(|error| error.to_string())?;
+    let records = statement
+        .query_map(params![project, task_id], memory_row)
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| error.to_string())?;
+    if records.len() > MAX_MEMORIES {
+        return Err("Memory capacity exceeds its bounded limit".into());
+    }
+    for record in &records {
+        validate_memory(record)?;
+        if !crate::memory::visible(record, project, task_id) {
+            return Err("Stored memory scope differs from its ownership".into());
+        }
+    }
+    Ok(records)
+}
+
+fn inspect_memories(connection: &Connection) -> Result<(), String> {
+    inspect_columns(
+        connection,
+        "memories",
+        &[
+            ("id", "INTEGER", false, 1),
+            ("revision", "INTEGER", true, 0),
+            ("project", "TEXT", true, 0),
+            ("task_id", "INTEGER", false, 0),
+            ("scope", "TEXT", true, 0),
+            ("proposal", "TEXT", true, 0),
+        ],
+    )?;
+    let invalid: bool = connection
+        .query_row(
+            "SELECT (SELECT count(*) FROM memories)>256 OR EXISTS(
+         SELECT 1 FROM memories m LEFT JOIN tasks t ON t.id=m.task_id
+         WHERE (m.scope='task' AND (t.id IS NULL OR t.project!=m.project))
+         OR (m.scope!='task' AND m.task_id IS NOT NULL))",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if invalid {
+        return Err("Stored memories have invalid ownership or capacity".into());
+    }
+    let mut statement = connection
+        .prepare("SELECT id,revision,project,task_id,proposal,scope FROM memories")
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |row| Ok((memory_row(row)?, row.get::<_, String>(5)?)))
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        let (record, scope) = row.map_err(|error| error.to_string())?;
+        validate_memory(&record)?;
+        let expected = match record.proposal.scope {
+            crate::memory::Scope::Task => "task",
+            crate::memory::Scope::Project => "project",
+            crate::memory::Scope::Personal => "personal",
+        };
+        if scope != expected {
+            return Err("Stored memory scope differs from its proposal".into());
+        }
+    }
+    Ok(())
+}
+
+fn migrate_workflows(connection: &Connection) -> Result<(), String> {
+    connection.execute_batch(
+        "ALTER TABLE tasks ADD COLUMN workflows TEXT NOT NULL DEFAULT '{}' CHECK(length(CAST(workflows AS BLOB))<=524288);
+         ALTER TABLE tasks ADD COLUMN memory_draft TEXT NOT NULL DEFAULT 'null' CHECK(length(CAST(memory_draft AS BLOB))<=65536);
+         ALTER TABLE tasks ADD COLUMN approved_memories TEXT NOT NULL DEFAULT '[]' CHECK(length(CAST(approved_memories AS BLOB))<=524288);
+         ALTER TABLE tasks ADD COLUMN workflow_draft TEXT NOT NULL DEFAULT 'null' CHECK(length(CAST(workflow_draft AS BLOB))<=524288);
+         CREATE TABLE memories(
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           revision INTEGER NOT NULL CHECK(revision>=1),
+           project TEXT NOT NULL CHECK(length(CAST(project AS BLOB))<=4096),
+           task_id INTEGER,
+           scope TEXT NOT NULL CHECK(scope IN ('task','project','personal')),
+           proposal TEXT NOT NULL CHECK(length(CAST(proposal AS BLOB))<=65536),
+           CHECK((scope='task' AND task_id IS NOT NULL AND task_id>0) OR (scope!='task' AND task_id IS NULL)));
+         PRAGMA user_version=6;"
+    ).map_err(|error| format!("Cannot migrate workflow and memory storage: {error}"))
+}
+
+fn check_json_size<T: Serialize>(value: &T, max: usize) -> Result<(), String> {
+    struct Capacity(usize);
+    impl Write for Capacity {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0 = self.0.checked_sub(bytes.len()).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Stored JSON exceeds its bounded size",
+                )
+            })?;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    serde_json::to_writer(Capacity(max), value).map_err(|error| error.to_string())
+}
+
+fn validate_draft_shape(value: &serde_json::Value, depth: usize) -> Result<(), String> {
+    if depth > 32 {
+        return Err("Stored drawer draft exceeds its nesting limit".into());
+    }
+    match value {
+        serde_json::Value::Array(values) => {
+            for value in values {
+                validate_draft_shape(value, depth + 1)?;
+            }
+        }
+        serde_json::Value::Object(values) => {
+            for (key, value) in values {
+                if crate::privacy::redact(key) != key.as_str() {
+                    return Err("Stored draft field names must not contain credentials".into());
+                }
+                validate_draft_shape(value, depth + 1)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn bounded_json<T: Serialize>(value: &T, max: usize) -> Result<String, String> {
+    let json = serde_json::to_string(value).map_err(|error| error.to_string())?;
+    if json.len() > max {
+        return Err(format!(
+            "Stored workflow or memory JSON exceeds {max} bytes"
+        ));
+    }
+    Ok(json)
+}
+
+fn redact_json(value: &mut serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::String(text) => match crate::privacy::redact(text) {
+            std::borrow::Cow::Owned(clean) if clean != *text => {
+                *text = clean;
+                true
+            }
+            _ => false,
+        },
+        serde_json::Value::Array(values) => values
+            .iter_mut()
+            .fold(false, |changed, value| redact_json(value) | changed),
+        serde_json::Value::Object(values) => values
+            .values_mut()
+            .fold(false, |changed, value| redact_json(value) | changed),
+        _ => false,
     }
 }
 
@@ -1158,7 +1540,7 @@ fn active_state(state: &crate::runner::RunState) -> bool {
     )
 }
 
-fn valid_run_id(id: &str) -> bool {
+pub(crate) fn valid_run_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 96
         && id
@@ -2334,6 +2716,8 @@ fn redact_snapshot(snapshot: &mut Snapshot) {
     snapshot.redacted |= redact_field(&mut snapshot.goal);
     snapshot.redacted |= redact_field(&mut snapshot.next_action);
     snapshot.redacted |= redact_field(&mut snapshot.command);
+    snapshot.redacted |= redact_json(&mut snapshot.memory_draft);
+    snapshot.redacted |= redact_json(&mut snapshot.workflow_draft);
     for criterion in &mut snapshot.criteria {
         snapshot.redacted |= redact_field(&mut criterion.text);
     }
@@ -2398,6 +2782,26 @@ fn validate(snapshot: &Snapshot) -> Result<(), String> {
     if snapshot.command.len() > MAX_GOAL_BYTES {
         return Err("A command exceeds the 4096-byte storage limit".into());
     }
+    snapshot.workflows.validate(snapshot.id)?;
+    validate_draft_shape(&snapshot.memory_draft, 0)?;
+    validate_draft_shape(&snapshot.workflow_draft, 0)?;
+    check_json_size(&snapshot.workflows, MAX_WORKFLOW_BYTES)?;
+    check_json_size(&snapshot.memory_draft, MAX_MEMORY_BYTES)?;
+    check_json_size(&snapshot.workflow_draft, MAX_WORKFLOW_BYTES)?;
+    check_json_size(&snapshot.approved_memories, MAX_WORKFLOW_BYTES)?;
+    if snapshot.approved_memories.len() > crate::memory::MAX_SELECTED {
+        return Err("Selected memories exceed their bounded capacity".into());
+    }
+    for (index, record) in snapshot.approved_memories.iter().enumerate() {
+        validate_memory(record)?;
+        if !crate::memory::visible(record, &snapshot.project, snapshot.id)
+            || snapshot.approved_memories[..index]
+                .iter()
+                .any(|other| other.id == record.id)
+        {
+            return Err("Selected memory has duplicate or foreign ownership".into());
+        }
+    }
     if snapshot.criteria.len() > 64 || snapshot.criteria.iter().any(|item| item.text.len() > 256) {
         return Err("Acceptance criteria exceed 64 entries or 256 bytes per entry".into());
     }
@@ -2427,7 +2831,7 @@ fn validate(snapshot: &Snapshot) -> Result<(), String> {
         || nav.form_selection >= 9
         || nav.palette_selection >= crate::app::PALETTE.len()
         || nav.criterion_selection >= 64
-        || nav.overlay.is_some_and(|overlay| overlay > 5)
+        || nav.overlay.is_some_and(|overlay| overlay > 7)
     {
         return Err("Stored navigation indices are out of bounds".into());
     }
@@ -2531,6 +2935,10 @@ fn snapshot_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Snapshot> {
         archived_at: row.get(12)?,
         redacted: row.get(13)?,
         command: row.get(14)?,
+        workflows: json_column(row, 15, MAX_WORKFLOW_BYTES)?,
+        memory_draft: json_column(row, 16, MAX_MEMORY_BYTES)?,
+        approved_memories: json_column(row, 17, MAX_WORKFLOW_BYTES)?,
+        workflow_draft: json_column(row, 18, MAX_WORKFLOW_BYTES)?,
     })
 }
 
@@ -2551,6 +2959,7 @@ enum Schema {
     Tasks,
     Lifecycle,
     Evidence,
+    ProviderJournal,
     Current,
 }
 
@@ -2572,9 +2981,9 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=5).contains(&version) {
+    if !(0..=6).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0 through 5"
+            "Unsupported database schema version {version}; this ev supports versions 0 through 6"
         ));
     }
     let mut statement = connection
@@ -2627,6 +3036,22 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
                     ])
                     .all(|((kind, name), expected)| kind == "table" && name == expected) =>
         {
+            Schema::ProviderJournal
+        }
+        (6, objects)
+            if objects.len() == 6
+                && objects
+                    .iter()
+                    .zip([
+                        "excerpts",
+                        "executions",
+                        "memories",
+                        "provider_journal",
+                        "selections",
+                        "tasks",
+                    ])
+                    .all(|((kind, name), expected)| kind == "table" && name == expected) =>
+        {
             Schema::Current
         }
         _ => return Err("Unrecognized or nonempty foreign database schema".into()),
@@ -2652,7 +3077,11 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
             ],
             "SELECT project, goal, form, revision FROM projects",
         ),
-        Schema::Tasks | Schema::Lifecycle | Schema::Evidence | Schema::Current => {
+        Schema::Tasks
+        | Schema::Lifecycle
+        | Schema::Evidence
+        | Schema::ProviderJournal
+        | Schema::Current => {
             inspect_columns(
                 connection,
                 "selections",
@@ -2684,13 +3113,23 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
             if version >= 4 {
                 expected.push(("command", "TEXT", true, 0));
             }
+            if version >= 6 {
+                expected.extend([
+                    ("workflows", "TEXT", true, 0),
+                    ("memory_draft", "TEXT", true, 0),
+                    ("approved_memories", "TEXT", true, 0),
+                    ("workflow_draft", "TEXT", true, 0),
+                ]);
+            }
             inspect_columns(connection, "tasks", &expected)?;
-            let columns = if version >= 4 {
+            let columns = if version >= 6 {
                 TASK_COLUMNS.to_string()
+            } else if version >= 4 {
+                format!("{TASK_COLUMNS_V5},{EMPTY_WORKFLOW_COLUMNS}")
             } else if version == 3 {
-                format!("{TASK_COLUMNS_V3},''")
+                format!("{TASK_COLUMNS_V3},'',{EMPTY_WORKFLOW_COLUMNS}")
             } else {
-                format!("{TASK_COLUMNS_V2},0,0,0,''")
+                format!("{TASK_COLUMNS_V2},0,0,0,'',{EMPTY_WORKFLOW_COLUMNS}")
             };
             let mut rows = connection
                 .prepare(&format!("SELECT {columns} FROM tasks"))
@@ -2729,7 +3168,7 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
             if version >= 4 {
                 inspect_evidence(connection)?;
             }
-            if version == 5 {
+            if version >= 5 {
                 inspect_columns(
                     connection,
                     "provider_journal",
@@ -2761,6 +3200,9 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
                         return Err("Provider journal row identity differs from record".into());
                     }
                 }
+            }
+            if version >= 6 {
+                inspect_memories(connection)?;
             }
             return Ok(schema);
         }
@@ -2826,7 +3268,11 @@ fn migrate(connection: &Connection, schema: Schema) -> Result<(), String> {
         return Ok(());
     }
     if matches!(schema, Schema::Evidence) {
-        return connection.execute_batch("CREATE TABLE provider_journal(id TEXT PRIMARY KEY,task_id INTEGER NOT NULL,record TEXT NOT NULL CHECK(length(CAST(record AS BLOB)) <= 65536)); PRAGMA user_version=5;").map_err(|error| format!("Cannot migrate provider journal: {error}"));
+        connection.execute_batch("CREATE TABLE provider_journal(id TEXT PRIMARY KEY,task_id INTEGER NOT NULL,record TEXT NOT NULL CHECK(length(CAST(record AS BLOB)) <= 65536)); PRAGMA user_version=5;").map_err(|error| format!("Cannot migrate provider journal: {error}"))?;
+        return migrate_workflows(connection);
+    }
+    if matches!(schema, Schema::ProviderJournal) {
+        return migrate_workflows(connection);
     }
     if matches!(schema, Schema::Tasks | Schema::Lifecycle) {
         connection
@@ -2872,11 +3318,15 @@ fn migrate(connection: &Connection, schema: Schema) -> Result<(), String> {
         )),
         Schema::Tasks => Some((
             "old_tasks",
-            format!("SELECT {TASK_COLUMNS_V2},0,0,0,'' FROM old_tasks ORDER BY id"),
+            format!(
+                "SELECT {TASK_COLUMNS_V2},0,0,0,'',{EMPTY_WORKFLOW_COLUMNS} FROM old_tasks ORDER BY id"
+            ),
         )),
         Schema::Lifecycle => Some((
             "old_tasks",
-            format!("SELECT {TASK_COLUMNS_V3},'' FROM old_tasks ORDER BY id"),
+            format!(
+                "SELECT {TASK_COLUMNS_V3},'',{EMPTY_WORKFLOW_COLUMNS} FROM old_tasks ORDER BY id"
+            ),
         )),
         _ => None,
     };
@@ -2932,7 +3382,8 @@ fn migrate(connection: &Connection, schema: Schema) -> Result<(), String> {
             .execute_batch(&format!("DROP TABLE {table};"))
             .map_err(|error| error.to_string())?;
     }
-    create_evidence_schema(connection)
+    create_evidence_schema(connection)?;
+    migrate_workflows(connection)
 }
 
 fn sqlite_no_follow() -> OpenFlags {
@@ -2971,20 +3422,7 @@ pub fn validate_planning_input(
     let transaction = connection
         .transaction()
         .map_err(|error| error.to_string())?;
-    let current = load_task(&transaction, &expected.project, expected.id)?
-        .ok_or("The previewed task no longer exists in this project")?;
-    if current.revision != expected.revision
-        || current.goal != expected.goal
-        || current.criteria != expected.criteria
-        || current.next_action != expected.next_action
-        || current.command != expected.command
-        || current.form != expected.form
-        || current.complete != expected.complete
-        || current.archived != expected.archived
-        || current.drafts != expected.drafts
-    {
-        return Err("Task changed since preview; save and review a new request".into());
-    }
+    validate_committed_task(&transaction, expected)?;
     let retained = excerpts(&transaction, expected.id)?;
     for (index, excerpt) in selected.iter().enumerate() {
         excerpt.validate()?;
@@ -2998,6 +3436,108 @@ pub fn validate_planning_input(
         }
     }
     Ok(())
+}
+
+fn validate_committed_task(connection: &Connection, expected: &Snapshot) -> Result<(), String> {
+    let current = load_task(connection, &expected.project, expected.id)?
+        .ok_or("The previewed task no longer exists in this project")?;
+    if current.revision != expected.revision
+        || current.goal != expected.goal
+        || current.criteria != expected.criteria
+        || current.next_action != expected.next_action
+        || current.command != expected.command
+        || current.form != expected.form
+        || current.complete != expected.complete
+        || current.archived != expected.archived
+        || current.drafts != expected.drafts
+        || current.workflows != expected.workflows
+        || current.approved_memories != expected.approved_memories
+        || current.memory_draft != expected.memory_draft
+        || current.workflow_draft != expected.workflow_draft
+    {
+        return Err("Task changed since preview; save and review a new request".into());
+    }
+    if expected.approved_memories.is_empty() {
+        return Ok(());
+    }
+    crate::memory::revalidate(
+        &expected.approved_memories,
+        &memories(connection, &expected.project, expected.id)?,
+        &expected.project,
+        expected.id,
+    )
+}
+
+/// Reads only explicitly linked local observations, not provider claims or spool content.
+/// Missing/purged references remain absent so the review reports them as unavailable.
+pub fn review_run_observations(
+    data_dir: &Path,
+    task: &Snapshot,
+) -> Result<Vec<crate::runner::RunRecord>, String> {
+    validate(task)?;
+    if task.id <= 0 || task.archived {
+        return Err("Review observations require a committed active task".into());
+    }
+    let mut connection = open_readonly(&data_dir.join(DATABASE))?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| error.to_string())?;
+    validate_committed_task(&transaction, task)?;
+    let references = task
+        .workflows
+        .review
+        .iter()
+        .flat_map(|review| {
+            review
+                .criteria
+                .iter()
+                .flat_map(|criterion| &criterion.evidence)
+        })
+        .chain(
+            task.workflows
+                .findings
+                .iter()
+                .flat_map(|finding| &finding.evidence),
+        );
+    let mut ids = Vec::new();
+    for reference in references {
+        if let crate::workflows::EvidenceRef::Run { task_id, run_id } = reference {
+            if *task_id != task.id {
+                return Err("Review run reference belongs to another task".into());
+            }
+            if !ids.contains(&run_id.as_str()) {
+                if ids.len() == 32 {
+                    return Err("Review may include at most 32 linked local runs".into());
+                }
+                ids.push(run_id.as_str());
+            }
+        }
+    }
+    let mut records = Vec::with_capacity(ids.len());
+    let mut statement = transaction
+        .prepare("SELECT record FROM executions WHERE task_id=?1 AND run_id=?2")
+        .map_err(|error| error.to_string())?;
+    for id in ids {
+        let record = statement
+            .query_row(params![task.id, id], |row| {
+                json_column::<crate::runner::RunRecord>(row, 0, MAX_RUN_BYTES)
+            })
+            .optional()
+            .map_err(|error| error.to_string())?;
+        if let Some(record) = record {
+            run_json(&record)?;
+            if record.prepared.task_id != task.id || record.prepared.run_id != id {
+                return Err("Stored review observation has conflicting ownership".into());
+            }
+            let mut sanitized = record.clone();
+            sanitized.redact_for_storage();
+            if record != sanitized {
+                return Err("Stored review observation violates before-storage masking".into());
+            }
+            records.push(record);
+        }
+    }
+    Ok(records)
 }
 
 fn open_readonly(path: &Path) -> Result<Connection, String> {
@@ -3267,12 +3807,21 @@ fn export_inner(data_dir: &Path, output: &Path) -> Result<(), String> {
             |row| row.get(0),
         )
         .map_err(|error| error.to_string())?;
-    let columns = if command {
+    let workflows: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('tasks') WHERE name='workflows')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    let columns = if workflows {
         TASK_COLUMNS.to_string()
+    } else if command {
+        format!("{TASK_COLUMNS_V5},{EMPTY_WORKFLOW_COLUMNS}")
     } else if modern {
-        format!("{TASK_COLUMNS_V3},''")
+        format!("{TASK_COLUMNS_V3},'',{EMPTY_WORKFLOW_COLUMNS}")
     } else {
-        format!("{TASK_COLUMNS_V2},0,0,0,''")
+        format!("{TASK_COLUMNS_V2},0,0,0,'',{EMPTY_WORKFLOW_COLUMNS}")
     };
     let task_query = format!("SELECT {columns} FROM tasks ORDER BY project,id");
     for (table, query) in [
@@ -3442,6 +3991,19 @@ mod tests {
         enqueue(worker, snapshot);
         saved(worker)
     }
+
+    fn downgrade_workflows(connection: &Connection) {
+        connection
+            .execute_batch(
+                "DROP TABLE memories;
+             ALTER TABLE tasks DROP COLUMN workflows;
+             ALTER TABLE tasks DROP COLUMN memory_draft;
+             ALTER TABLE tasks DROP COLUMN approved_memories;
+             ALTER TABLE tasks DROP COLUMN workflow_draft;
+             PRAGMA user_version=5;",
+            )
+            .unwrap();
+    }
     #[test]
     fn provider_journal_survives_restart_with_owner_origin_and_explicit_purge() {
         let directory = Directory::new();
@@ -3529,6 +4091,7 @@ mod tests {
     fn provider_journal_migrates_v4_and_enforces_quota_without_partial_record() {
         let mut connection = Connection::open_in_memory().unwrap();
         initialize(&mut connection).unwrap();
+        downgrade_workflows(&connection);
         connection
             .execute_batch("DROP TABLE provider_journal; PRAGMA user_version=4;")
             .unwrap();
@@ -3836,7 +4399,7 @@ mod tests {
                 connection
                     .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                     .unwrap(),
-                5
+                6
             );
             assert!(connection.prepare("SELECT * FROM goals").is_err());
             assert!(connection.prepare("SELECT * FROM projects").is_err());
@@ -4127,7 +4690,7 @@ mod tests {
             },
             Snapshot {
                 navigation: Navigation {
-                    overlay: Some(6),
+                    overlay: Some(8),
                     ..Navigation::default()
                 },
                 ..snapshot("project", 1)
@@ -4410,7 +4973,7 @@ mod tests {
                 connection
                     .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                     .unwrap(),
-                5
+                6
             );
         }
     }
@@ -4447,6 +5010,24 @@ mod tests {
                  PRAGMA user_version=1;",
             ).unwrap();
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn closed_store_releases_writer_lock_despite_inherited_descriptor() {
+        let directory = Directory::new();
+        let store = state(&directory, "project", Policy::default());
+        let inherited = store.lock.as_ref().unwrap().try_clone().unwrap();
+        drop(store);
+        let mut reopened = state(&directory, "project", Policy::default());
+        let saved = reopened.save(snapshot("project", 1)).unwrap();
+        assert_eq!(
+            load(reopened.connection.as_ref().unwrap(), "project")
+                .unwrap()
+                .tasks,
+            vec![saved]
+        );
+        drop(inherited);
     }
 
     #[test]
@@ -5186,8 +5767,15 @@ mod tests {
     #[test]
     fn real_quota_rolls_back_and_deletion_recovers_without_eviction() {
         let directory = Directory::new();
+        let initial = state(&directory, "project", Policy::default());
+        let connection = initial.connection.as_ref().unwrap();
+        let schema_bytes = live_bytes(connection).unwrap();
+        let page_bytes: u64 = connection
+            .pragma_query_value(None, "page_size", |row| row.get(0))
+            .unwrap();
+        drop(initial);
         let policy = Policy {
-            quota_bytes: 64 * 1024,
+            quota_bytes: schema_bytes + 4 * page_bytes,
             ..Policy::default()
         };
         let mut store = state(&directory, "project", policy);
@@ -5206,7 +5794,7 @@ mod tests {
             }
             assert!(
                 committed.len() < 64,
-                "a 64 KiB SQLite quota must stop actual payload growth"
+                "a bounded SQLite quota must stop actual payload growth"
             );
         }
         assert!(!committed.is_empty());
@@ -5237,7 +5825,7 @@ mod tests {
         );
         drop(store);
         let small = Policy {
-            quota_bytes: 48 * 1024,
+            quota_bytes: schema_bytes + page_bytes,
             ..policy
         };
         let mut store = state(&directory, "project", small);
@@ -5756,6 +6344,7 @@ mod tests {
         drop(store);
         let path = directory.0.join(DATABASE);
         let mut connection = Connection::open(&path).unwrap();
+        downgrade_workflows(&connection);
         connection.execute_batch("DROP TABLE provider_journal; DROP TABLE excerpts; DROP TABLE executions; ALTER TABLE tasks DROP COLUMN command; PRAGMA user_version=3;").unwrap();
         {
             let transaction = connection.transaction().unwrap();
@@ -6163,6 +6752,7 @@ mod tests {
                 .unwrap();
             drop(store);
             let mut connection = Connection::open(directory.0.join(DATABASE)).unwrap();
+            downgrade_workflows(&connection);
             connection
                 .execute_batch(
                     "DROP TABLE provider_journal; DROP TABLE excerpts; DROP TABLE executions;
@@ -6187,5 +6777,358 @@ mod tests {
             let mut reopened = state(&directory, "project", Policy::default());
             assert!(reopened.save(snapshot("project", 1)).unwrap().id > deleted.id);
         }
+    }
+    fn memory_proposal(task_id: i64, scope: crate::memory::Scope) -> crate::memory::Proposal {
+        crate::memory::Proposal {
+            scope,
+            content: "Prefer explicit, bounded changes".into(),
+            provenance: crate::memory::Provenance {
+                kind: crate::memory::SourceKind::UserAuthored,
+                reference: "User-authored task note".into(),
+                task_id,
+            },
+        }
+    }
+
+    #[test]
+    fn schema_six_migration_is_atomic_and_defaults_preserve_old_snapshots() {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let task = store.save(snapshot("project", 1)).unwrap();
+        drop(store);
+        let mut connection = Connection::open(directory.0.join(DATABASE)).unwrap();
+        downgrade_workflows(&connection);
+        {
+            let transaction = connection.transaction().unwrap();
+            migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
+            assert!(matches!(inspect(&transaction).unwrap(), Schema::Current));
+        }
+        assert!(matches!(
+            inspect(&connection).unwrap(),
+            Schema::ProviderJournal
+        ));
+        initialize(&mut connection).unwrap();
+        assert_eq!(
+            load_task(&connection, "project", task.id).unwrap().unwrap(),
+            task
+        );
+        assert!(
+            memories(&connection, "project", task.id)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(matches!(inspect(&connection).unwrap(), Schema::Current));
+    }
+
+    #[test]
+    fn memories_are_scoped_cas_guarded_and_survive_only_shared_task_purge() {
+        use crate::memory::{Mutation, Scope};
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let task = store.save(snapshot("project", 1)).unwrap();
+        let other = store.save(snapshot("project", 1)).unwrap();
+        for scope in [Scope::Task, Scope::Project, Scope::Personal] {
+            store
+                .memory_request(MemoryRequest {
+                    task_id: task.id,
+                    mutation: Some(Mutation::Approve(memory_proposal(task.id, scope))),
+                })
+                .unwrap();
+        }
+        let records = store
+            .memory_request(MemoryRequest {
+                task_id: task.id,
+                mutation: None,
+            })
+            .unwrap();
+        assert_eq!(records.len(), 3);
+        let shared = store
+            .memory_request(MemoryRequest {
+                task_id: other.id,
+                mutation: None,
+            })
+            .unwrap();
+        assert_eq!(shared.len(), 2);
+        assert_eq!(
+            memories(store.connection.as_ref().unwrap(), "foreign", 777)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            store
+                .memory_request(MemoryRequest {
+                    task_id: other.id,
+                    mutation: Some(Mutation::Delete {
+                        id: records[0].id,
+                        expected_revision: 1
+                    })
+                })
+                .is_err()
+        );
+        let mut proposal = records[1].proposal.clone();
+        proposal.content = "Updated explicit note".into();
+        let changed = store
+            .memory_request(MemoryRequest {
+                task_id: task.id,
+                mutation: Some(Mutation::Edit {
+                    id: records[1].id,
+                    expected_revision: 1,
+                    proposal: proposal.clone(),
+                }),
+            })
+            .unwrap();
+        assert_eq!(changed[1].revision, 2);
+        assert!(
+            store
+                .memory_request(MemoryRequest {
+                    task_id: task.id,
+                    mutation: Some(Mutation::Edit {
+                        id: records[1].id,
+                        expected_revision: 1,
+                        proposal
+                    })
+                })
+                .is_err()
+        );
+        assert!(
+            store
+                .memory_request(MemoryRequest {
+                    task_id: task.id,
+                    mutation: Some(Mutation::Delete {
+                        id: records[1].id,
+                        expected_revision: 1
+                    })
+                })
+                .is_err()
+        );
+        let preview = store.preview_delete(&[task.id], None).unwrap();
+        assert_eq!(preview[0].memories, vec![records[0].clone()]);
+        store
+            .manage(Management::Delete {
+                ids: vec![task.id],
+                expired_before: None,
+            })
+            .unwrap();
+        let retained = store
+            .memory_request(MemoryRequest {
+                task_id: other.id,
+                mutation: None,
+            })
+            .unwrap();
+        assert_eq!(retained.len(), 2);
+        assert!(retained.iter().all(|record| record.task_id.is_none()));
+        drop(store);
+        let mut store = state(&directory, "project", Policy::default());
+        assert_eq!(
+            store
+                .memory_request(MemoryRequest {
+                    task_id: other.id,
+                    mutation: None
+                })
+                .unwrap(),
+            retained
+        );
+    }
+
+    #[test]
+    fn explicit_memory_snapshot_is_stable_and_dispatch_rejects_changed_approval() {
+        use crate::memory::{Mutation, Scope};
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let mut task = store.save(snapshot("project", 1)).unwrap();
+        let records = store
+            .memory_request(MemoryRequest {
+                task_id: task.id,
+                mutation: Some(Mutation::Approve(memory_proposal(task.id, Scope::Project))),
+            })
+            .unwrap();
+        task.memory_draft =
+            serde_json::json!({"selected_ids":[records[0].id],"text":"unfinished note"});
+        task.workflow_draft = serde_json::json!({"text":"password=private-draft"});
+        task.approved_memories =
+            crate::memory::snapshot(&records, &[records[0].id], "project", task.id).unwrap();
+        task.revision += 1;
+        let committed = store.save(task).unwrap();
+        assert!(committed.redacted);
+        assert!(
+            !committed
+                .workflow_draft
+                .to_string()
+                .contains("private-draft")
+        );
+        assert_eq!(committed.approved_memories, records);
+        validate_planning_input(&directory.0, &committed, &[]).unwrap();
+        let mut proposal = records[0].proposal.clone();
+        proposal.content = "Changed after preview".into();
+        store
+            .memory_request(MemoryRequest {
+                task_id: committed.id,
+                mutation: Some(Mutation::Edit {
+                    id: records[0].id,
+                    expected_revision: 1,
+                    proposal,
+                }),
+            })
+            .unwrap();
+        assert!(validate_planning_input(&directory.0, &committed, &[]).is_err());
+        assert_eq!(
+            load_task(store.connection.as_ref().unwrap(), "project", committed.id)
+                .unwrap()
+                .unwrap(),
+            committed
+        );
+        assert_eq!(store.save(committed.clone()).unwrap(), committed);
+        drop(store);
+        let mut store = state(&directory, "project", Policy::default());
+        assert_eq!(store.select(committed.id).unwrap(), committed);
+        store
+            .memory_request(MemoryRequest {
+                task_id: committed.id,
+                mutation: Some(Mutation::Delete {
+                    id: records[0].id,
+                    expected_revision: 2,
+                }),
+            })
+            .unwrap();
+        assert!(validate_planning_input(&directory.0, &committed, &[]).is_err());
+    }
+
+    #[test]
+    fn memory_worker_events_and_backpressure_retain_owned_requests() {
+        let directory = Directory::new();
+        let store = worker(&directory, "project");
+        loaded(&store);
+        let task = create(&store, snapshot("project", 1));
+        let mut pending = Some(MemoryRequest {
+            task_id: task.id,
+            mutation: None,
+        });
+        assert!(store.try_memory(&mut pending));
+        assert!(pending.is_none());
+        assert!(
+            matches!(event(&store), Event::Memory { task_id, result: Ok(records) }
+            if task_id == task.id && records.is_empty())
+        );
+        drop(store);
+        let (commands, incoming) = mpsc::sync_channel(1);
+        let store = Worker {
+            commands: Some(commands),
+            events: None,
+            thread: None,
+        };
+        let mut pending = Some(MemoryRequest {
+            task_id: 1,
+            mutation: None,
+        });
+        assert!(store.try_memory(&mut pending));
+        pending = Some(MemoryRequest {
+            task_id: 2,
+            mutation: None,
+        });
+        assert!(!store.try_memory(&mut pending));
+        assert_eq!(pending.as_ref().unwrap().task_id, 2);
+        drop(incoming);
+        assert!(!store.try_memory(&mut pending));
+        assert_eq!(pending.as_ref().unwrap().task_id, 2);
+    }
+
+    #[test]
+    fn memory_secrets_and_quota_fail_without_partial_approval() {
+        use crate::memory::{Mutation, Scope};
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let task = store.save(snapshot("project", 1)).unwrap();
+        let mut proposal = memory_proposal(task.id, Scope::Task);
+        proposal.content = "password=memory-secret".into();
+        assert!(
+            store
+                .memory_request(MemoryRequest {
+                    task_id: task.id,
+                    mutation: Some(Mutation::Approve(proposal))
+                })
+                .is_err()
+        );
+        store.policy.quota_bytes = 1;
+        assert!(
+            store
+                .memory_request(MemoryRequest {
+                    task_id: task.id,
+                    mutation: Some(Mutation::Approve(memory_proposal(task.id, Scope::Task)))
+                })
+                .is_err()
+        );
+        assert!(
+            store
+                .memory_request(MemoryRequest {
+                    task_id: task.id,
+                    mutation: None
+                })
+                .unwrap()
+                .is_empty()
+        );
+    }
+    #[test]
+    fn review_reads_only_linked_owned_observations_and_rejects_unsaved_selection() {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let mut task = store.save(snapshot("project", 1)).unwrap();
+        let prepared = prepared_run(task.id, &store.data_dir, "review");
+        let _permit = store.reserve_run(task.id, prepared.clone(), 4096).unwrap();
+        assert!(
+            review_run_observations(&directory.0, &task)
+                .unwrap()
+                .is_empty()
+        );
+        let reference = crate::workflows::EvidenceRef::Run {
+            task_id: task.id,
+            run_id: prepared.run_id.clone(),
+        };
+        task.workflows.review = Some(crate::workflows::Review {
+            requested: crate::workflows::Verdict::Inconclusive,
+            criteria: vec![
+                crate::workflows::CriterionEvidence {
+                    criterion: "Observed result".into(),
+                    evidence: vec![reference.clone()],
+                },
+                crate::workflows::CriterionEvidence {
+                    criterion: "Explicit duplicate link".into(),
+                    evidence: vec![reference],
+                },
+            ],
+        });
+        assert!(review_run_observations(&directory.0, &task).is_err());
+        task.revision += 1;
+        task = store.save(task).unwrap();
+        let records = review_run_observations(&directory.0, &task).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].prepared.run_id, prepared.run_id);
+        assert_eq!(records[0].prepared.task_id, task.id);
+        assert!(
+            !serde_json::to_string(&records)
+                .unwrap()
+                .contains("journal-value")
+        );
+        let mut foreign = task.clone();
+        foreign.workflows.review.as_mut().unwrap().criteria[0].evidence =
+            vec![crate::workflows::EvidenceRef::Run {
+                task_id: task.id + 1,
+                run_id: prepared.run_id,
+            }];
+        assert!(review_run_observations(&directory.0, &foreign).is_err());
+    }
+
+    #[test]
+    fn drawer_drafts_reject_excess_bytes_depth_and_secret_field_names() {
+        let mut task = snapshot("project", 1);
+        task.memory_draft = serde_json::Value::String("x".repeat(MAX_MEMORY_BYTES));
+        assert!(validate(&task).is_err());
+        task.memory_draft = serde_json::Value::Null;
+        for _ in 0..34 {
+            task.memory_draft = serde_json::Value::Array(vec![task.memory_draft]);
+        }
+        assert!(validate(&task).is_err());
+        task.memory_draft = serde_json::json!({"password=private-key":"draft"});
+        assert!(validate(&task).is_err());
     }
 }

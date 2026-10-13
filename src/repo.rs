@@ -337,6 +337,29 @@ impl State {
     }
 }
 
+/// Re-observe the whole reviewed patch at provider admission, including additions
+/// and deletions that are not in the selected source basket.
+pub(crate) fn revalidate_review(report: &Report) -> Result<(), String> {
+    let stopped = AtomicBool::new(false);
+    let git = Git::new(
+        &report.repository.root,
+        &stopped,
+        Instant::now() + SCAN_TIMEOUT,
+    )?;
+    let current = capture(&report.repository, &git, Limits::default())?;
+    if !current.complete
+        || !current.stable
+        || current.files != report.current.files
+        || current.head != report.current.head
+        || current.working_diff.text != report.current.working_diff.text
+        || current.working_diff.truncated
+        || current.working_diff.unavailable.is_some()
+    {
+        return Err("Review patch changed or coverage is unavailable; refresh repository evidence and prepare a new review.".into());
+    }
+    Ok(())
+}
+
 struct Git<'a> {
     executable: PathBuf,
     cwd: &'a Path,

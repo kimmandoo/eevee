@@ -299,6 +299,7 @@ fn worker(
     busy.store(false, Ordering::Release);
 }
 fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
+    input.validate_review()?;
     if std::path::Path::new(&input.task.project) != workspace.project.as_path()
         || !matches!(input.agent, Agent::OpenCode | Agent::Gemini)
         || (input.operation == Operation::Plan && !input.edit_paths.is_empty())
@@ -336,6 +337,7 @@ fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
     let text = serde_json::to_string_pretty(&json!({
         "purpose":"Plan the user's task. Do not implement or write files. Ask for decisions and report proposals as unverified planning. This instruction is not an enforced sandbox.",
         "task":{"id":input.task.id,"revision":input.task.revision,"goal":input.task.goal,"acceptance_criteria":input.task.criteria,"next_action":crate::handoff::without_local_provenance(&input.task.next_action)},
+        "approved_memories":input.task.approved_memories,
         "selected_sources":serde_json::from_str::<Value>(&sources.text).map_err(|_| "Invalid selected source JSON")?,
         "accepted_handoff":input.handoff
     })).map_err(|_| "Could not encode ACP payload")?;
@@ -1587,6 +1589,33 @@ fn bounded(text: &str, limit: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn managed_review_is_refused_before_loading_or_dispatching_an_acp_session() {
+        let workspace = Workspace {
+            project: PathBuf::from("unopened-project"),
+            data_dir: PathBuf::from("unopened-storage"),
+            exclusions: Vec::new(),
+        };
+        for agent in [Agent::OpenCode, Agent::Gemini] {
+            let input = Input {
+                task: crate::store::Snapshot::empty("unopened-project".into()),
+                excerpts: Vec::new(),
+                report: None,
+                resume: None,
+                agent,
+                operation: Operation::Review,
+                edit_paths: Vec::new(),
+                handoff: None,
+                inspect_sessions: false,
+            };
+            assert!(
+                payload(&workspace, &input)
+                    .unwrap_err()
+                    .contains("no-source-write")
+            );
+        }
+    }
+
     #[test]
     fn cancellation_requests_do_not_override_authoritative_stop_reason() {
         assert_eq!(prompt_outcome("end_turn"), Outcome::Completed);

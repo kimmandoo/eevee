@@ -177,9 +177,9 @@ fn capture_edit_baseline(
     input: &Input,
     exclusions: &[PathBuf],
 ) -> Result<Vec<EditBaseline>, String> {
-    if input.operation == Operation::Plan {
+    if input.operation != Operation::Implement {
         if !input.edit_paths.is_empty() {
-            return Err("Plan requests cannot carry write paths".into());
+            return Err("Plan and Review requests cannot carry write paths".into());
         }
         return Ok(Vec::new());
     }
@@ -487,6 +487,9 @@ fn worker(
                         preview.blockers.push("Controlled implementation requires a fresh thread; planning/resumed threads do not carry the dynamic write tool".into());
                     }
                 }
+                if input.operation == Operation::Review {
+                    preview.trust.push("REVIEW: fresh requirements/patch/selected-observation context and a new provider thread. No implementation transcript, dynamic edit tool, native file-write approval or command escalation. Read-only is acknowledged provider policy, not an Eevee OS sandbox; independent provider configuration remains disclosed.".into());
+                }
                 if project.to_str() != Some(input.task.project.as_str()) {
                     preview
                         .blockers
@@ -594,7 +597,11 @@ fn worker(
     busy.store(false, Ordering::Release);
 }
 fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<String, String> {
+    input.validate_review()?;
     crate::store::validate_planning_input(data_dir, &input.task, &input.excerpts)?;
+    if let Some(text) = input.review_payload(data_dir, exclusions)? {
+        return Ok(text);
+    }
     let sources = crate::context::planning_payload(
         input.task.id,
         input.report.as_ref(),
@@ -618,6 +625,7 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
         "edit_paths": input.edit_paths,
         "edit_baseline": baseline.iter().map(|b| json!({"path":b.path,"sha256":b.digest,"working_content":b.text})).collect::<Vec<_>>(),
         "handoff": input.handoff,
+        "approved_memories": input.task.approved_memories,
         "selected_sources": serde_json::from_str::<Value>(&sources.text).map_err(|_| "Source payload is not valid JSON")?
     })).map_err(|_| "Could not encode provider payload")?;
     if text.len() > FRAME_LIMIT / 2 {
@@ -1793,10 +1801,10 @@ impl Engine<'_> {
             return self.request_edit(id, params);
         }
         if method == "item/commandExecution/requestApproval"
-            && self.run.input.operation == Operation::Implement
+            && self.run.input.operation != Operation::Plan
         {
             self.queue(json!({"id":id,"result":{"decision":"decline"}}))?;
-            return self.status("Command escalation denied: selected-file controlled implementation permits only eevee_edit_file; choose a local check separately");
+            return self.status("Command escalation denied: implementation/review cannot grant command effects; choose an explicitly approved local check separately");
         }
         if method == "item/fileChange/requestApproval" {
             self.queue(json!({"id":id,"result":{"decision":"decline"}}))?;
@@ -1942,7 +1950,7 @@ impl Engine<'_> {
         if self.pending_edit.is_some() {
             return self.answer_edit(generation, id, answer, index);
         }
-        if self.run.input.operation == Operation::Plan {
+        if self.run.input.operation != Operation::Implement {
             revalidate(self.project, self.data_dir, self.exclusions, self.run)?;
         } else {
             self.revalidate_edit_session()?;
@@ -2319,6 +2327,25 @@ fn bounded(text: &str, limit: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn review_has_no_edit_baseline_and_refuses_selected_write_paths() {
+        let mut input = Input {
+            task: crate::store::Snapshot::empty("unopened-project".into()),
+            excerpts: Vec::new(),
+            report: None,
+            resume: None,
+            agent: Agent::Codex,
+            operation: Operation::Review,
+            edit_paths: Vec::new(),
+            handoff: None,
+            inspect_sessions: false,
+        };
+        let root = Path::new(&input.task.project);
+        assert!(capture_edit_baseline(root, &input, &[]).unwrap().is_empty());
+        input.edit_paths.push("src/file.rs".into());
+        assert!(capture_edit_baseline(root, &input, &[]).is_err());
+    }
+
     #[test]
     fn controlled_route_refuses_protected_unselected_and_escaping_paths() {
         let paths = vec![

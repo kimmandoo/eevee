@@ -100,14 +100,44 @@ Startup, form selection, context previews, and manual handoffs do **not** submit
 | Local commands | Reviewed argv or explicit shell, output and run history | Owned process cleanup, not a filesystem/network sandbox |
 | Agents | Planning, selected-file edits, questions and once-only approvals | Capability and enforcement differ by adapter |
 | Handoffs | Reviewed JSON/Markdown export and import | Imported claims remain unverified; no credentials or grants |
+| Specialist desk (`u`) | Evidence-linked hypotheses, bounded comparisons, independent findings and recipes | A conclusion is not execution, permission, or task completion |
+| Approved memories (`m`) | Explicit task/project/personal notes and outgoing-context selection | No transcript mining; shared notes survive deletion of their source task |
 
 For a local command, open `j` → `e` and enter a JSON argv array, such as `["cargo","test"]`. Saving prepares a review; it does not execute. Open `v` inside that drawer to review the exact command and effects, then explicitly authorize it. Shell syntax requires an explicit shell object, not an implicitly parsed string.
 
 For an agent request, open `e` → `n` for a new-session preview, or `r` to review resuming an eligible same-task session. Read to the end with PgDn/End, then Tab → Enter to authorize once. Questions and tool permissions have their own review. Cancellation invalidates pending answers; an unconfirmed outcome stays **unknown**.
 
-In the agent drawer, `f` selects Plan/Implement and `x` selects existing files. Codex's controlled POSIX write route accepts **1–8 regular UTF-8 files, at most 12 KiB each**. Every replacement requires review of the exact before/after patch. Protected, unselected, linked, or changed-baseline paths are refused; native edit/command escalation is denied. Other platforms refuse this controlled route. Inspect `w` afterward and deliberately run a separate local check with `j`.
+In the agent drawer, `f` selects Plan/Implement and `x` selects existing files. Managed Review is opened separately from the specialist desk, not by changing a review into its own fix. Codex's controlled POSIX write route accepts **1–8 regular UTF-8 files, at most 12 KiB each**. Every replacement requires review of the exact before/after patch. Protected, unselected, linked, or changed-baseline paths are refused; native edit/command escalation is denied. Other platforms refuse this controlled route. Inspect `w` afterward and deliberately run a separate local check with `j`.
 
 Select a completed, visible decision and press `d` to open it in the next-action editor; Enter saves it. Decisions over 4096 UTF-8 bytes are refused rather than silently truncated. `h` in the agent drawer shows provider-origin journals, separately from local command evidence.
+
+### Diagnose, refine, review, remember
+
+Open **`u`** from navigation, or choose **Diagnosis, refactor, review and recipes** in Ctrl+K. Left/Right changes tabs; Up/Down selects an action; Enter performs the selected local action. In desk text fields, Enter adds a newline and **Ctrl+S** finishes editing the draft; **Add/Record** is a separate action. Esc retains the draft. At 60×18, PgUp/PgDn exposes the complete selected details; smaller terminals refuse editing/approval without discarding text.
+
+- **Diagnosis:** Record an explanation, then explicitly attach supporting/refuting source captures and actual run IDs. Missing proof remains unresolved. Open a link to inspect its captured source or retained output. Jolteon uses the existing command approval flow; a Flareon handoff stages only the selected explanation and links, never the whole transcript or an automatic request.
+- **Refactor:** Record the behavior contract, current bounded source hotspot and passing baseline. Compare a distinct post-change run of the same command, cwd and executable. Failed, incomplete, unrelated or stale checks cannot establish preservation. Displayed single-run elapsed times are observations, not proof of a speedup.
+- **Review:** Record an actionable finding against a criterion, attach evidence, and deliberately resolve it. Accept requires current source and a complete relevant passing check for every criterion; editing afterward invalidates the effective verdict. Managed Review constructs fresh requirements/patch/selected-observation context, refuses Resume and write grants, and requires separate Preview/Run consent. Codex uses acknowledged read-only policy; the optional SDK uses its restricted tool policy. ACP managed Review is unavailable because the adapter cannot establish that no-write boundary. Provider output never automatically saves a finding, verdict, or completion.
+- **Memories:** Open **`m`**; `n` authors a note and `r` proposes the saved next-action note. In preview, `s` cycles Task/Project/Personal, `r` rejects, and Right → Enter approves only after all pages are reviewed. Approval does not select context: **Space** separately includes/excludes a note from future request previews. `e` edits, `d` previews deletion, and `?` lists actions. Changed/deleted/scope-mismatched memory invalidates pending context. Deletion cannot erase prior exports, provider history, or backups.
+
+### Local recipes are plans, not grants
+
+In the desk's **Recipe** tab, enter a literal local file path, load it read-only, inspect every preview page, then explicitly choose **Apply plan only**. The strict version-1 TOML schema stages form steps, proposed scope/context, validation argv and completion criteria; it does not run commands, send a model request, edit source/docs, or grant permissions. Unknown fields, unsupported versions and unsafe paths are refused.
+
+```toml
+schema_version = 1
+name = "Bounded bug fix"
+scope = ["src/calculator.rs"]
+context = ["src/calculator.rs"]
+steps = [
+  { form = "Umbreon", action = "Link the failure to a source-backed hypothesis" },
+  { form = "Flareon", action = "Propose a bounded fix for separate approval" },
+  { form = "Glaceon", action = "Review the patch against fresh evidence" },
+]
+validation_commands = [["cargo", "test", "calculator"]]
+completion_criteria = ["The focused regression passes and unrelated behavior is preserved"]
+```
+
 
 ## Connect an agent
 
@@ -193,7 +223,7 @@ Letter shortcuts apply in navigation mode—Esc leaves the input first. F1–F4 
 | Linux | `$XDG_DATA_HOME/eevee`, or `~/.local/share/eevee` |
 | Windows | `%LOCALAPPDATA%\eevee` |
 
-Schemas 0–4 migrate to schema 5. Bounds include 256 tasks/project, 64 criteria/task, 4096 UTF-8 bytes per goal/next-action/draft, and 16 source excerpts/task. Source files are bounded to 2 MiB, individual captures to 64 KiB. Credential paths, binary/ignored files, and unsafe links are excluded; `--exclude-context PATH` adds case-insensitive repository-relative exclusions.
+Schemas 0–5 migrate transactionally to schema 6, which adds specialist records and approved scoped memories. Older binaries refuse the newer schema without changing data. Bounds include 256 tasks/project, 64 criteria/task, 4096 UTF-8 bytes per goal/next-action/draft, and 16 source excerpts/task. Source files are bounded to 2 MiB, individual captures to 64 KiB. Credential paths, binary/ignored files, and unsafe links are excluded; `--exclude-context PATH` adds case-insensitive repository-relative exclusions.
 
 `--quota-kib N` controls shared storage (default 65536, minimum 64); `--spool-kib N` bounds each command's output reservation (1–8192, default 64). Quotas do not silently evict evidence. Task storage retries with `r`; context/local journal storage has a separate `s` retry, and provider journals use `r` in their history view.
 
@@ -310,9 +340,12 @@ For real terminal smoke checks, install `pyte==0.8.2` and `wcwidth==0.2.13` in a
 python scripts/terminal_smoke.py --binary target/release/ev --output target/native-smoke
 python scripts/workbench_smoke.py --binary target/release/ev --output target/workbench-smoke
 python scripts/handoff_smoke.py --binary target/release/ev --output target/handoff-smoke
+python scripts/workflow_smoke.py --binary target/release/ev --output target/workflow-smoke
 npm ci --ignore-scripts --no-audit --no-fund --prefix sidecar
 npm test --prefix sidecar
 ```
+
+The optional performance harness additionally requires `psutil==7.0.0`: run `python scripts/performance_smoke.py --binary target/release/ev --output target/performance-smoke`. It measures 30 warm starts, 60-second idle, streaming input, bounded 10 MiB output and a 10,000-line diff, reporting process scopes separately; unavailable provider measurements are not zero. `scripts/schema_upgrade_smoke.py` accepts an actual previous-schema binary for migration/downgrade proof. `scripts/review_smoke.py --live --binary target/release/ev --output target/review-smoke` makes two explicitly approved real independent Codex review requests; provider access/usage is required and is never part of release CI.
 
 The [native CI workflow](.github/workflows/native.yml) runs on pull requests, pushes to `main`, and manual dispatch. Five native macOS/Linux/Windows build jobs run Rust 1.90 formatting, tests, Clippy, release qualification regressions, release builds, dependency notices and packaging. Separate native smoke jobs download those exact packages and run installation/update/uninstall/refusal checks plus installed-binary PTY/ConPTY workbench, repository, context, execution, recovery and handoff journeys. Lifecycle probes use real compiled executables and a loopback release fixture in a throwaway build; production binaries retain fixed HTTPS endpoints. A separate Node job checks SDK policy without provider credentials. Automated smoke does not log into providers or send model requests.
 
