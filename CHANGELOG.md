@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-14
+
+- fix(ci): isolated ConPTY child standard handles from redirected runner pipes and moved native transport regressions before compilation.
+
 ## 0.1.0
 
 - feat(ux): show the Goal composer and caret immediately; retain drafts across F1 help, F2 connections, F3 evolution, F4 images and the action palette.

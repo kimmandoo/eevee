@@ -94,8 +94,8 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12.9'
-      - name: Test release qualification trust boundary
-        run: python -m unittest discover -s scripts -p 'test_release_qualification.py'
+      - name: Test release qualification and native ConPTY boundaries
+        run: python -m unittest discover -s scripts -p 'test_*.py'
       - name: Install pinned toolchain
         run: |
           rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
@@ -212,8 +212,6 @@ jobs:
           path: target/packages
       - name: Record observed native host and versions
         run: python scripts/terminal_smoke.py --record-host --output "$SMOKE_OUTPUT"
-      - name: Verify native ConPTY byte transport
-        run: python -m unittest discover -s scripts -p 'test_windows_conpty.py'
       - name: Verify install, upgrade, refusal, and installed terminal lifecycle
         run: python scripts/installation_smoke.py --package-dir target/packages --output "$SMOKE_OUTPUT/installation"
       - name: Verify durable workbench in the installed binary

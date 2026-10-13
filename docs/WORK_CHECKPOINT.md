@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-14 — Correct redirected-parent ConPTY initialization
+
+- **Active request:** Stop the previous wait and fix the reported native regression `WinError 6` carefully, then run again. Release remains paused.
+- **Observed failure:** Run `38417411635` failed both real ConPTY tests at the child's initial `GetConsoleMode`, with stderr leaking to the runner log and no ConPTY bytes. This is a new transport initialization defect, not a reason to skip the tests.
+- **Correction:** Set `STARTF_USESTDHANDLES` with null stdin/stdout/stderr in `scripts/windows_conpty.py`; the attached console supplies child handles rather than inheriting redirected runner streams. No parent standard handles are changed. Moved native regressions into the pre-build Python test step in `native.yml`.
+- **Checks so far:** actionlint passed; local Python tests passed 14 portable cases and explicitly skipped two Windows-only cases. Native success is not claimed.
+- **Exact next action:** Push this correction, require both real Windows transport regressions to pass, then inspect the installed terminal suite including original help-back equality. Keep repairing any demonstrated native failure before completion. Changed files: native workflow, ConPTY transport, changelog, troubleshooting and checkpoint.
+
 ## 2026-10-13 — User-prioritized Windows help-return failure
 
 - **Active request:** The user interrupted release work to fix `help back did not restore the invoking surface`. Release monitoring was stopped; no tag or release has been published. Do not resume publication as part of this focused correction.

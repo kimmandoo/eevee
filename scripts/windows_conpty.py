@@ -31,6 +31,7 @@ WAIT_OBJECT_0 = 0
 WAIT_TIMEOUT = 258
 EXTENDED_STARTUPINFO_PRESENT = 0x00080000
 CREATE_UNICODE_ENVIRONMENT = 0x00000400
+STARTF_USESTDHANDLES = 0x00000100
 PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016
 
 
@@ -180,6 +181,9 @@ class ConPTYProcess:
                                                     process._console, ctypes.sizeof(HANDLE), None, None))
             startup = STARTUPINFOEXW()
             startup.StartupInfo.cb = ctypes.sizeof(STARTUPINFOEXW)
+            # Null standard handles with this flag prevent inheriting the
+            # parent's redirected CI pipes; ConPTY supplies its console handles.
+            startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES
             startup.lpAttributeList = ctypes.cast(attributes, ctypes.c_void_p)
             _check(kernel.CreateProcessW(None, command, None, None, False,
                                           EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,

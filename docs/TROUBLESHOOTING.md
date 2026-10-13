@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-14] Raw ConPTY child inherited redirected CI standard handles
+
+- **Context / Symptom:** Run `38417411635` failed both native transport regressions before any console output: `GetConsoleMode` raised `OSError: [WinError 6] The handle is invalid`. The child's traceback went directly to the CI log while the ConPTY reader received nothing.
+- **Root Cause:** The new `STARTUPINFOEXW` omitted `STARTF_USESTDHANDLES`. With redirected parent streams, child standard handles could retain the runner's pipes instead of being initialized to the attached pseudoconsole. `bInheritHandles=False` alone does not select console standard handles.
+- **Solution:** Set `STARTF_USESTDHANDLES` with all three standard-handle slots null, allowing ConPTY to populate console handles without changing or closing the parent's handles. Moved native transport regressions before compilation so this prerequisite fails immediately rather than after packaging.
+- **Reference:** [Microsoft GetStdHandle attachment rules](https://learn.microsoft.com/en-us/windows/console/getstdhandle), [Alacritty's equivalent ConPTY startup isolation](https://github.com/alacritty/alacritty/blob/master/alacritty_terminal/src/tty/windows/conpty.rs). Hosted Windows revalidation is pending; local macOS skips are not native proof.
+
 ### [2026-10-13] Windows help return capture corrupted UTF-8 border characters
 
 - **Context / Symptom:** Run `38412094582` failed `help back did not restore the invoking surface` at 100×30. `help-back.txt` contained `╰─────────���──────────╯`, wrapped the adjacent border and scrolled the screen; the help overlay itself had closed. The 120×36 journey and initial idle check had passed.
