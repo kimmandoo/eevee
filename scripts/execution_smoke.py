@@ -271,6 +271,7 @@ def main():
                 session.close()
 
             first = launch("approval-output")
+            first.send(ESC)  # Enter navigation from the clean first-run composer.
             first.send("g")
             first.paste("execution task A")
             first.send("\r")

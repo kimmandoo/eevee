@@ -105,7 +105,7 @@ impl State {
         Self {
             pending: None, decision: None, edit_goal: false, preview: None, request: None,
             items: Vec::new(), selected: 0, thread_id: None,
-            notice: "No connection. New and Resume first prepare a local trust and outgoing-payload preview.".into(),
+            notice: "No model session yet. New and Resume prepare an outgoing-payload review; F2 manages provider login separately.".into(),
             scroll: 0, scroll_max: 0, reviewed: false, affirmative: false,
             question: 0, option: 0, answers: Vec::new(), editing: false, submit_review: false,
             quit_review: false, quit_ready: false, cancelling: false, omitted: 0,

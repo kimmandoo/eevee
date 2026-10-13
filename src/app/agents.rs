@@ -3,8 +3,40 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::agent::{Event, Profile, Request};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Page {
+    Providers,
+    Actions,
+    Methods,
+    Diagnostics,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    Connect,
+    Status,
+    Version,
+    Diagnostics,
+    Refresh,
+    UseForTask,
+}
+
+impl Action {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Connect => "Connect / credential setup",
+            Self::Status => "Check connection status",
+            Self::Version => "Check installed version",
+            Self::Diagnostics => "Advanced diagnostics",
+            Self::Refresh => "Refresh installed providers",
+            Self::UseForTask => "Use for task",
+        }
+    }
+}
+
 pub struct State {
     pub pending: Option<Request>,
+    pub use_for_task: Option<usize>,
     pub profiles: Vec<Profile>,
     pub selected: usize,
     pub preview: bool,
@@ -20,6 +52,11 @@ pub struct State {
     pub pending_auth: Option<crate::auth::Plan>,
     auth_preparing: Option<(usize, u64)>,
     pub method: usize,
+    pub page: Page,
+    pub action: usize,
+    pub auth_details: bool,
+    pub review_choice: usize,
+    outcomes: Vec<Option<crate::auth::Outcome>>,
 }
 
 impl Default for State {
@@ -32,6 +69,7 @@ impl State {
     pub fn new() -> Self {
         Self {
             pending: Some(Request::Discover),
+            use_for_task: None,
             profiles: Vec::new(),
             selected: 0,
             preview: false,
@@ -47,6 +85,11 @@ impl State {
             pending_auth: None,
             auth_preparing: None,
             method: 0,
+            page: Page::Providers,
+            action: 0,
+            auth_details: false,
+            review_choice: 0,
+            outcomes: Vec::new(),
         }
     }
 
@@ -58,8 +101,148 @@ impl State {
         self.auth_preparing.is_some() || self.pending_auth.is_some()
     }
 
+    pub fn at_root(&self) -> bool {
+        self.page == Page::Providers
+    }
+
+    pub fn actions(&self) -> &'static [Action] {
+        if crate::auth::status_method(self.selected).is_some() {
+            &[
+                Action::Connect,
+                Action::Status,
+                Action::Version,
+                Action::Diagnostics,
+                Action::Refresh,
+                Action::UseForTask,
+            ]
+        } else {
+            &[
+                Action::Connect,
+                Action::Version,
+                Action::Diagnostics,
+                Action::Refresh,
+                Action::UseForTask,
+            ]
+        }
+    }
+
+    pub fn connection_status(&self, index: usize) -> &'static str {
+        if self.discovering
+            || self.inflight.is_some_and(|(profile, _)| profile == index)
+            || self
+                .auth_preparing
+                .is_some_and(|(profile, _)| profile == index)
+            || self
+                .pending_auth
+                .as_ref()
+                .is_some_and(|plan| plan.profile == index)
+        {
+            return "Checking";
+        }
+        if index != 1
+            && self
+                .profiles
+                .get(index)
+                .is_some_and(|p| p.executable.is_none())
+        {
+            return "Not installed";
+        }
+        match self.outcomes.get(index).copied().flatten() {
+            Some(crate::auth::Outcome::Authenticated) => "Connected",
+            Some(crate::auth::Outcome::NotAuthenticated) => "Not connected",
+            _ => "Unknown",
+        }
+    }
+
+    pub fn setup_hint(&self) -> String {
+        match self.selected {
+            0 => format!(
+                "Install the official Codex CLI on PATH: npm install -g @openai/codex@{}. Then Refresh installed providers.",
+                crate::agent::CODEX_RELEASE
+            ),
+            1 => crate::auth::CLAUDE_POLICY.into(),
+            2 => format!(
+                "Install the official OpenCode CLI on PATH: npm install -g opencode-ai@{}. Then Refresh installed providers.",
+                crate::agent::OPENCODE_RELEASE
+            ),
+            _ => format!(
+                "Install the official Gemini CLI on PATH: npm install -g @google/gemini-cli@{}. Then Refresh installed providers.",
+                crate::agent::GEMINI_RELEASE
+            ),
+        }
+    }
+
+    fn prepare_auth(&mut self, method: Option<crate::auth::Method>) {
+        if let Some(method) = method {
+            self.generation += 1;
+            self.auth_preparing = Some((self.selected, self.generation));
+            self.pending = Some(Request::PrepareAuth {
+                profile: self.selected,
+                generation: self.generation,
+                method,
+            });
+            self.notice = "Preparing connection review; no provider program launched.".into();
+        } else {
+            self.notice = if self.selected == 1 {
+                crate::auth::CLAUDE_POLICY.into()
+            } else {
+                "No read-only status command is available. Native exit leaves connection status unknown.".into()
+            };
+        }
+    }
+
+    fn activate(&mut self, action: Action) {
+        match action {
+            Action::Connect => {
+                if self.selected == 1 {
+                    self.notice = crate::auth::CLAUDE_POLICY.into();
+                    self.page = Page::Diagnostics;
+                } else if self
+                    .profiles
+                    .get(self.selected)
+                    .is_none_or(|p| p.executable.is_none())
+                {
+                    self.notice = self.setup_hint();
+                } else if crate::auth::methods(self.selected).len() > 1 {
+                    self.page = Page::Methods;
+                } else {
+                    self.prepare_auth(crate::auth::methods(self.selected).first().copied());
+                }
+            }
+            Action::Status => self.prepare_auth(crate::auth::status_method(self.selected)),
+            Action::Version => {
+                if self
+                    .profiles
+                    .get(self.selected)
+                    .is_some_and(|p| p.probe_allowed)
+                {
+                    self.preview = true;
+                    self.affirmative = false;
+                    self.reviewed = false;
+                    self.scroll = 0;
+                    self.scroll_max = 0;
+                } else {
+                    self.notice = self.setup_hint();
+                }
+            }
+            Action::Diagnostics => {
+                self.page = Page::Diagnostics;
+                self.scroll = 0;
+            }
+            Action::Refresh => {
+                self.discovering = true;
+                self.pending = Some(Request::Discover);
+                self.notice = "Refreshing installed providers; no program launched.".into();
+            }
+            Action::UseForTask => self.use_for_task = Some(self.selected),
+        }
+    }
+
     pub fn auth_returned(&mut self, profile: usize, outcome: crate::auth::Outcome) {
         self.notice = outcome.label().into();
+        if let Some(current) = self.outcomes.get_mut(profile) {
+            *current = Some(outcome);
+        }
         if let Some(profile) = self.profiles.get_mut(profile) {
             profile.authentication = self.notice.clone();
         }
@@ -71,11 +254,10 @@ impl State {
             Event::Discovered(profiles) if self.discovering => {
                 self.method = 0;
                 self.profiles = profiles;
+                self.outcomes = vec![None; self.profiles.len()];
                 self.selected = self.selected.min(self.profiles.len().saturating_sub(1));
                 self.discovering = false;
-                self.notice =
-                    "Discovery is passive. Enter previews a version probe; it does not run it."
-                        .into();
+                self.notice = "Choose a provider to connect. No login or model request starts without your approval.".into();
             }
             Event::Probed {
                 profile,
@@ -86,7 +268,8 @@ impl State {
                 if let Some(current) = self.profiles.get_mut(profile) {
                     *current = *result;
                 }
-                self.notice = "Preflight returned. Review evidence and blockers; e separately previews the selected provider and action.".into();
+                self.notice =
+                    "Version check returned. Installation does not prove authentication.".into();
             }
             Event::AuthPrepared {
                 profile,
@@ -101,6 +284,8 @@ impl State {
                         self.reviewed = false;
                         self.scroll = 0;
                         self.scroll_max = 0;
+                        self.auth_details = false;
+                        self.review_choice = 0;
                     }
                     Err(reason) => self.notice = reason,
                 }
@@ -121,6 +306,8 @@ impl State {
         self.reviewed = false;
         self.scroll = 0;
         self.scroll_max = 0;
+        self.auth_details = false;
+        self.review_choice = 0;
     }
 
     pub fn key(&mut self, key: KeyEvent, large_enough: bool) -> bool {
@@ -129,15 +316,6 @@ impl State {
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
         {
-            return false;
-        }
-        if key.code == KeyCode::Esc {
-            self.cancel_preview();
-            return true;
-        }
-        if !large_enough {
-            self.affirmative = false;
-            self.reviewed = false;
             return false;
         }
         if key.kind == KeyEventKind::Repeat
@@ -153,156 +331,180 @@ impl State {
         {
             return false;
         }
-        match key.code {
-            KeyCode::Enter if self.auth_preview.is_some() => {
-                if !self.affirmative {
-                    self.cancel_preview();
-                } else if self.reviewed && !self.busy() {
-                    self.pending_auth = self.auth_preview.take();
+        if key.code == KeyCode::Esc {
+            if self.preview || self.auth_preview.is_some() || self.auth_busy() {
+                self.cancel_preview();
+            } else {
+                self.page = match self.page {
+                    Page::Methods | Page::Diagnostics => Page::Actions,
+                    _ => Page::Providers,
+                };
+            }
+            self.scroll = 0;
+            return true;
+        }
+        if !large_enough {
+            self.affirmative = false;
+            self.reviewed = false;
+            return false;
+        }
+        if self.preview || self.auth_preview.is_some() {
+            match key.code {
+                KeyCode::Enter => {
+                    if self.auth_preview.is_some() && (self.review_choice == 2 || self.auth_details)
+                    {
+                        self.auth_details = !self.auth_details;
+                        self.affirmative = false;
+                        self.review_choice = 0;
+                        self.scroll = 0;
+                    } else if !self.affirmative {
+                        self.cancel_preview();
+                    } else if self.reviewed && !self.busy() {
+                        if self.auth_preview.is_some() {
+                            self.pending_auth = self.auth_preview.take();
+                            self.affirmative = false;
+                            self.reviewed = false;
+                            self.notice =
+                                "Connection approved once; checking launch prerequisites.".into();
+                        } else if self
+                            .profiles
+                            .get(self.selected)
+                            .is_some_and(|p| p.probe_allowed)
+                        {
+                            self.generation += 1;
+                            self.inflight = Some((self.selected, self.generation));
+                            self.pending = Some(Request::Probe {
+                                profile: self.selected,
+                                generation: self.generation,
+                            });
+                            self.cancel_preview();
+                            self.notice = "Checking version only. Closing this drawer does not cancel the bounded check.".into();
+                        }
+                    }
+                }
+                KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right => {
+                    if self.auth_preview.is_some() && !self.auth_details {
+                        let backwards = matches!(key.code, KeyCode::BackTab | KeyCode::Left);
+                        self.review_choice =
+                            (self.review_choice + if backwards { 2 } else { 1 }) % 3;
+                        if !self.reviewed && self.review_choice == 1 {
+                            self.review_choice = if backwards { 0 } else { 2 };
+                        }
+                        self.affirmative = self.review_choice == 1 && self.reviewed;
+                    } else if self.reviewed && !self.auth_details {
+                        self.affirmative = !self.affirmative;
+                    }
+                }
+                KeyCode::Char('d') if self.auth_preview.is_some() => {
+                    self.auth_details = !self.auth_details;
                     self.affirmative = false;
-                    self.reviewed = false;
-                    self.notice =
-                        "Authentication authorized once; final app and trust admission pending."
-                            .into();
+                    self.review_choice = 0;
+                    self.scroll = 0;
                 }
+                KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::PageUp
+                | KeyCode::PageDown
+                | KeyCode::Home
+                | KeyCode::End => self.scroll_key(key.code),
+                _ => return false,
             }
-            KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right
-                if self.auth_preview.is_some() =>
-            {
-                if self.reviewed {
-                    self.affirmative = !self.affirmative;
+            return true;
+        }
+        if self.auth_busy() {
+            return false;
+        }
+        match key.code {
+            KeyCode::Enter if !self.busy() => match self.page {
+                Page::Providers => {
+                    self.page = Page::Actions;
+                    self.action = 0;
                 }
+                Page::Actions => self.activate(self.actions()[self.action]),
+                Page::Methods => self.prepare_auth(
+                    crate::auth::methods(self.selected)
+                        .get(self.method)
+                        .copied(),
+                ),
+                Page::Diagnostics => self.page = Page::Actions,
+            },
+            KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right => {
+                self.page = match self.page {
+                    Page::Providers => Page::Actions,
+                    _ => Page::Providers,
+                };
+                self.scroll = 0;
             }
-            KeyCode::Char('m') if !self.preview && self.auth_preview.is_none() && !self.busy() => {
+            KeyCode::Up | KeyCode::Down if self.page != Page::Diagnostics => {
+                let (selected, count) = match self.page {
+                    Page::Providers => (&mut self.selected, self.profiles.len()),
+                    Page::Methods => (&mut self.method, crate::auth::methods(self.selected).len()),
+                    _ => {
+                        let count = self.actions().len();
+                        (&mut self.action, count)
+                    }
+                };
+                if count == 0 {
+                    return false;
+                }
+                *selected = if key.code == KeyCode::Up {
+                    (*selected + count - 1) % count
+                } else {
+                    (*selected + 1) % count
+                };
+                if self.page == Page::Providers {
+                    self.method = 0;
+                    self.action = 0;
+                }
+                self.scroll = 0;
+            }
+            KeyCode::Up
+            | KeyCode::Down
+            | KeyCode::PageUp
+            | KeyCode::PageDown
+            | KeyCode::Home
+            | KeyCode::End => self.scroll_key(key.code),
+            KeyCode::Char('m') if !self.busy() => {
                 let count = crate::auth::methods(self.selected).len();
                 if count > 0 {
                     self.method = (self.method + 1) % count;
                 }
-                self.scroll = 0;
             }
-            KeyCode::Char('l' | 's')
-                if !self.preview && self.auth_preview.is_none() && !self.busy() =>
-            {
-                let method = if key.code == KeyCode::Char('s') {
-                    crate::auth::status_method(self.selected)
-                } else {
-                    crate::auth::methods(self.selected)
-                        .get(self.method)
-                        .copied()
-                };
-                if let Some(method) = method {
-                    self.generation += 1;
-                    self.auth_preparing = Some((self.selected, self.generation));
-                    self.pending = Some(Request::PrepareAuth {
-                        profile: self.selected,
-                        generation: self.generation,
-                        method,
-                    });
-                    self.notice =
-                        "Preparing passive authentication review; no executable launched.".into();
-                } else {
-                    self.notice = if self.selected == 1 { crate::auth::CLAUDE_POLICY } else {
-                        "Gemini has no qualified read-only auth-status command. Review l to open its official native login chooser. Native exit leaves authentication unknown; e separately reviews a model request and provider eligibility."
-                    }.into();
-                    self.scroll = 0;
-                }
+            KeyCode::Char('l') if !self.busy() => self.prepare_auth(
+                crate::auth::methods(self.selected)
+                    .get(self.method)
+                    .copied(),
+            ),
+            KeyCode::Char('s') if !self.busy() => {
+                self.prepare_auth(crate::auth::status_method(self.selected))
             }
-            KeyCode::PageUp => self.scroll = self.scroll.saturating_sub(5),
-            KeyCode::PageDown => self.scroll = self.scroll.saturating_add(5).min(self.scroll_max),
-            KeyCode::Home => self.scroll = 0,
-            KeyCode::End => self.scroll = self.scroll_max,
-            KeyCode::Up | KeyCode::Down if self.preview || self.auth_preview.is_some() => {
-                self.scroll = if key.code == KeyCode::Up {
-                    self.scroll.saturating_sub(1)
-                } else {
-                    self.scroll.saturating_add(1).min(self.scroll_max)
-                };
-            }
-            KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right if self.preview => {
-                if self.reviewed {
-                    self.affirmative = !self.affirmative;
-                }
-            }
-            KeyCode::Enter if self.preview => {
-                if !self.affirmative {
-                    self.cancel_preview();
-                } else if self.reviewed
-                    && !self.busy()
-                    && self
-                        .profiles
-                        .get(self.selected)
-                        .is_some_and(|p| p.probe_allowed)
-                {
-                    self.generation += 1;
-                    self.inflight = Some((self.selected, self.generation));
-                    self.pending = Some(Request::Probe {
-                        profile: self.selected,
-                        generation: self.generation,
-                    });
-                    self.cancel_preview();
-                    self.notice = "Trusted version probe pending. No authentication or model request. Esc closes the drawer, not the bounded probe.".into();
-                }
-            }
-            KeyCode::Enter if !self.busy() => {
-                if self
-                    .profiles
-                    .get(self.selected)
-                    .is_some_and(|p| p.probe_allowed)
-                {
-                    self.preview = true;
-                    self.affirmative = false;
-                    self.reviewed = false;
-                    self.scroll = 0;
-                    self.scroll_max = 0;
-                } else {
-                    self.notice =
-                        "Probe unavailable. Review this profile's prerequisites and blockers."
-                            .into();
-                }
-            }
-            KeyCode::Up
-            | KeyCode::Down
-            | KeyCode::Left
-            | KeyCode::Right
-            | KeyCode::Tab
-            | KeyCode::BackTab
-                if !self.preview && self.auth_preview.is_none() && !self.auth_busy() =>
-            {
-                let count = self.profiles.len();
-                if count == 0 {
-                    return false;
-                }
-                if matches!(key.code, KeyCode::Up | KeyCode::Left | KeyCode::BackTab) {
-                    self.selected = (self.selected + count - 1) % count;
-                } else {
-                    self.selected = (self.selected + 1) % count;
-                }
-                self.method = 0;
-                self.scroll = 0;
-                self.scroll_max = 0;
-            }
-            KeyCode::Char('1'..='4')
-                if !self.preview && self.auth_preview.is_none() && !self.auth_busy() =>
-            {
+            KeyCode::Char('r') if !self.busy() => self.activate(Action::Refresh),
+            KeyCode::Char('1'..='4') => {
                 if let KeyCode::Char(digit) = key.code {
                     let index = digit as usize - '1' as usize;
                     if index < self.profiles.len() {
                         self.selected = index;
                         self.method = 0;
+                        self.action = 0;
                         self.scroll = 0;
-                        self.scroll_max = 0;
                     }
                 }
-            }
-            KeyCode::Char('r') if !self.preview && self.auth_preview.is_none() && !self.busy() => {
-                self.discovering = true;
-                self.pending = Some(Request::Discover);
-                self.scroll = 0;
-                self.notice = "Refreshing passive discovery; no executable probe.".into();
             }
             _ => return false,
         }
         true
+    }
+
+    fn scroll_key(&mut self, code: KeyCode) {
+        self.scroll = match code {
+            KeyCode::Up => self.scroll.saturating_sub(1),
+            KeyCode::Down => self.scroll.saturating_add(1).min(self.scroll_max),
+            KeyCode::PageUp => self.scroll.saturating_sub(5),
+            KeyCode::PageDown => self.scroll.saturating_add(5).min(self.scroll_max),
+            KeyCode::Home => 0,
+            KeyCode::End => self.scroll_max,
+            _ => self.scroll,
+        };
     }
 }
 
@@ -349,25 +551,40 @@ mod tests {
     }
 
     #[test]
-    fn discovery_selection_and_neutral_enter_never_probe() {
+    fn provider_and_method_navigation_is_passive() {
         let mut state = discovered();
-        press(&mut state, KeyCode::Char('4'));
-        assert_eq!(state.selected, 3);
-        assert!(!state.busy());
+        press(&mut state, KeyCode::Down);
+        assert_eq!(state.selected, 1);
+        press(&mut state, KeyCode::Up);
         press(&mut state, KeyCode::Enter);
-        assert!(state.preview);
-        assert!(!state.affirmative);
-        press(&mut state, KeyCode::Tab);
-        assert!(!state.affirmative, "unreviewed preview cannot authorize");
-        press(&mut state, KeyCode::Enter);
-        assert!(!state.preview);
+        assert_eq!(state.page, Page::Actions);
         assert!(state.pending.is_none());
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.page, Page::Methods);
+        assert!(state.pending.is_none());
+        press(&mut state, KeyCode::Down);
+        press(&mut state, KeyCode::Enter);
+        assert!(matches!(
+            state.pending,
+            Some(Request::PrepareAuth {
+                profile: 0,
+                method: crate::auth::Method::CodexDevice,
+                ..
+            })
+        ));
+        assert!(state.pending_auth.is_none());
+        press(&mut state, KeyCode::Esc);
+        assert!(!state.auth_busy());
+        press(&mut state, KeyCode::Esc);
+        assert_eq!(state.page, Page::Actions);
+        press(&mut state, KeyCode::Esc);
+        assert!(state.at_root());
     }
 
     #[test]
     fn reviewed_deliberate_consent_is_generation_correlated() {
         let mut state = discovered();
-        press(&mut state, KeyCode::Enter);
+        state.activate(Action::Version);
         state.reviewed = true;
         press(&mut state, KeyCode::Tab);
         press(&mut state, KeyCode::Enter);
@@ -404,7 +621,7 @@ mod tests {
     #[test]
     fn undersize_repeat_and_cancel_cannot_approve() {
         let mut state = discovered();
-        press(&mut state, KeyCode::Enter);
+        state.activate(Action::Version);
         state.reviewed = true;
         press(&mut state, KeyCode::Tab);
         let mut repeated = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
@@ -423,12 +640,23 @@ mod tests {
     fn missing_profile_cannot_open_trust_and_refresh_is_passive() {
         let mut state = discovered();
         state.profiles[0].probe_allowed = false;
-        press(&mut state, KeyCode::Enter);
+        state.activate(Action::Version);
         assert!(!state.preview);
         assert!(state.pending.is_none());
         press(&mut state, KeyCode::Char('r'));
         assert!(matches!(state.pending, Some(Request::Discover)));
         assert!(state.busy());
+        state.pending.take();
+        state.event(Event::Discovered(vec![Profile {
+            executable: None,
+            probe_allowed: false,
+            ..profile()
+        }]));
+        press(&mut state, KeyCode::Enter);
+        press(&mut state, KeyCode::Enter);
+        assert!(state.pending.is_none());
+        assert!(state.auth_preview.is_none());
+        assert_eq!(state.connection_status(0), "Not installed");
     }
 
     #[test]
@@ -482,6 +710,14 @@ mod tests {
         assert!(state.pending_auth.is_none());
         assert!(!state.auth_busy());
         assert_eq!(state.method, 0);
+        for code in [KeyCode::Enter, KeyCode::Tab] {
+            let mut key = KeyEvent::new(code, KeyModifiers::NONE);
+            key.kind = KeyEventKind::Repeat;
+            state.key(key, true);
+            state.key(KeyEvent::new(code, KeyModifiers::NONE), false);
+        }
+        assert_eq!(state.page, Page::Providers);
+        assert!(state.pending.is_none());
     }
 
     #[test]
@@ -492,10 +728,59 @@ mod tests {
         press(&mut state, KeyCode::Char('2'));
         assert_eq!(state.method, 0);
         press(&mut state, KeyCode::Char('l'));
-        assert_eq!(state.notice, crate::auth::CLAUDE_POLICY);
+        assert!(!state.auth_busy());
         assert!(state.pending.is_none());
         press(&mut state, KeyCode::Char('s'));
         assert!(state.pending.is_none());
+        press(&mut state, KeyCode::Enter);
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.page, Page::Diagnostics);
+        assert!(state.pending.is_none());
+        assert!(state.pending_auth.is_none());
+    }
+
+    #[test]
+    fn native_exit_does_not_claim_connected_and_status_checks_are_explicit() {
+        let mut state = discovered();
+        assert_eq!(state.connection_status(0), "Unknown");
+        state.auth_returned(0, crate::auth::Outcome::Authenticated);
+        assert_eq!(state.connection_status(0), "Connected");
+        state.auth_returned(0, crate::auth::Outcome::Unknown);
+        assert_eq!(state.connection_status(0), "Unknown");
+        state.auth_returned(0, crate::auth::Outcome::NotAuthenticated);
+        assert_eq!(state.connection_status(0), "Not connected");
+        press(&mut state, KeyCode::Enter);
+        press(&mut state, KeyCode::Down);
+        assert!(state.pending.is_none());
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.connection_status(0), "Checking");
+        assert!(matches!(
+            state.pending,
+            Some(Request::PrepareAuth {
+                method: crate::auth::Method::CodexStatus,
+                ..
+            })
+        ));
+        assert!(state.pending_auth.is_none());
+        press(&mut state, KeyCode::Esc);
+        assert!(!state.auth_busy());
+    }
+
+    #[test]
+    fn sole_native_method_skips_method_picker_without_launching() {
+        for (index, method) in [
+            (2, crate::auth::Method::OpenCode),
+            (3, crate::auth::Method::GeminiNative),
+        ] {
+            let mut state = discovered();
+            state.selected = index;
+            press(&mut state, KeyCode::Enter);
+            press(&mut state, KeyCode::Enter);
+            assert!(matches!(state.pending, Some(Request::PrepareAuth {
+                profile, method: selected_method, ..
+            }) if profile == index && selected_method == method));
+            assert!(state.pending_auth.is_none());
+        }
     }
 
     #[test]

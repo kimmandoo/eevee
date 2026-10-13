@@ -369,6 +369,8 @@ pub fn decode(text: &str) -> Result<Document, String> {
 }
 
 /// Export only to a new file. No overwrite flag is intentionally provided.
+/// Paths reject links except verified macOS `/var` and `/tmp` system aliases;
+/// their fixed `/private` destinations are still traversed without following links.
 pub fn write_new(path: &Path, document: &Document, format: Format) -> Result<(), String> {
     let text = encode(document, format)?;
     let file = open_regular(path, true)?;
@@ -471,8 +473,41 @@ fn ensure_regular(metadata: &std::fs::Metadata) -> Result<(), String> {
     Ok(())
 }
 
-/// POSIX dirfd walking rejects links in every component and anchors the final
-/// create/read against ancestor replacement. New exports use private mode 0600.
+/// Bind only the two standard macOS temporary-directory aliases, never arbitrary
+/// user-selected links. The root-owned alias must have its exact system target,
+/// and its parent must not be writable by other users. The destination is then
+/// opened component-by-component with no-follow, just like a literal path.
+#[cfg(target_os = "macos")]
+fn macos_handoff_path(path: PathBuf, root: &File) -> Result<PathBuf, String> {
+    use std::os::unix::fs::MetadataExt;
+
+    for (alias, target, relative_target) in [
+        ("/var", "/private/var", "private/var"),
+        ("/tmp", "/private/tmp", "private/tmp"),
+    ] {
+        let Ok(suffix) = path.strip_prefix(alias) else {
+            continue;
+        };
+        let metadata = std::fs::symlink_metadata(alias).map_err(|error| error.to_string())?;
+        if !metadata.file_type().is_symlink() {
+            return Ok(path);
+        }
+        let root_metadata = root.metadata().map_err(|error| error.to_string())?;
+        if root_metadata.uid() != 0 || root_metadata.mode() & 0o022 != 0 || metadata.uid() != 0 {
+            return Err("Handoff system aliases must be protected and owned by root".into());
+        }
+        let link = std::fs::read_link(alias).map_err(|error| error.to_string())?;
+        if link != Path::new(target) && link != Path::new(relative_target) {
+            return Err("Handoff system alias has an unexpected destination".into());
+        }
+        return Ok(Path::new(target).join(suffix));
+    }
+    Ok(path)
+}
+
+/// POSIX dirfd walking rejects links in every component after binding the macOS
+/// system aliases, and anchors the final create/read against ancestor replacement.
+/// New exports use private mode 0600. No arbitrary parent canonicalization occurs.
 #[cfg(unix)]
 fn open_regular(path: &Path, create: bool) -> Result<File, String> {
     use std::os::{
@@ -485,6 +520,8 @@ fn open_regular(path: &Path, create: bool) -> Result<File, String> {
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open("/")
         .map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    let path = macos_handoff_path(path, &directory)?;
     let mut parts = path
         .components()
         .filter_map(|part| match part {
@@ -673,7 +710,11 @@ mod tests {
         let excerpt = context::Excerpt {
             id: 4,
             task_id: task.id,
-            root: "/workspace".into(),
+            root: std::env::current_dir()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned(),
             path: "src/example.rs".into(),
             start_line: 1,
             end_line: 1,
@@ -729,6 +770,7 @@ mod tests {
             write_new(&target, &document(), format).unwrap();
             assert_eq!(read_file(&target).unwrap(), document());
             assert!(write_new(&target, &document(), format).is_err());
+            assert_eq!(read_file(&target).unwrap(), document());
         }
         std::fs::write(path.join("large"), vec![b'x'; MAX_FILE_BYTES + 1]).unwrap();
         assert!(read_file(&path.join("large")).is_err());
@@ -738,10 +780,66 @@ mod tests {
             assert!(read_file(&path.join("link")).is_err());
             assert!(write_new(&path.join("link"), &document(), Format::Json).is_err());
             std::os::unix::fs::symlink(&path, path.join("ancestor")).unwrap();
+            assert!(read_file(&path.join("ancestor/review.json")).is_err());
             assert!(write_new(&path.join("ancestor/new"), &document(), Format::Json).is_err());
             std::fs::remove_file(path.join("ancestor")).unwrap();
         }
         std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_system_aliases_bind_only_their_fixed_destinations() {
+        use std::os::unix::fs::symlink;
+
+        let root = File::open("/").unwrap();
+        for (alias, target) in [("/var", "/private/var"), ("/tmp", "/private/tmp")] {
+            assert!(
+                std::fs::symlink_metadata(alias)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink()
+            );
+            let selected = Path::new(alias).join("handoff.json");
+            assert_eq!(
+                macos_handoff_path(selected, &root).unwrap(),
+                Path::new(target).join("handoff.json")
+            );
+        }
+        // Component boundaries matter: a user directory merely named like an
+        // alias must not be rewritten, nor may nested user-created links pass.
+        let unrelated = PathBuf::from("/var-user/handoff.json");
+        assert_eq!(
+            macos_handoff_path(unrelated.clone(), &root).unwrap(),
+            unrelated
+        );
+
+        let name = format!(
+            "ev-handoff-system-alias-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let selected = Path::new("/tmp").join(name);
+        std::fs::create_dir(&selected).unwrap();
+        let bound = selected.canonicalize().unwrap();
+        let target = selected.join("review.json");
+        write_new(&target, &document(), Format::Json).unwrap();
+        assert_eq!(read_file(&target).unwrap(), document());
+        assert_eq!(read_file(&bound.join("review.json")).unwrap(), document());
+        assert!(write_new(&bound.join("review.json"), &document(), Format::Json).is_err());
+        assert_eq!(read_file(&target).unwrap(), document());
+        symlink(&bound, selected.join("nested")).unwrap();
+        assert!(read_file(&selected.join("nested/review.json")).is_err());
+        assert!(write_new(&selected.join("nested/new.json"), &document(), Format::Json).is_err());
+        assert!(!bound.join("new.json").exists());
+        std::fs::remove_file(selected.join("nested")).unwrap();
+        symlink(bound.join("review.json"), selected.join("leaf.json")).unwrap();
+        assert!(read_file(&selected.join("leaf.json")).is_err());
+        assert!(write_new(&selected.join("leaf.json"), &document(), Format::Json).is_err());
+        std::fs::remove_dir_all(selected).unwrap();
     }
 
     #[test]

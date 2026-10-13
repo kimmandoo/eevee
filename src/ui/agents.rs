@@ -1,11 +1,14 @@
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Constraint, Direction, Layout, Rect},
     widgets::{Clear, Paragraph, Wrap},
 };
 
-use super::{Paint, centered, clipped, panel, row, selection_details, text};
-use crate::{app::App, config::Config};
+use super::{Paint, centered, panel, row, selection_details, text};
+use crate::{
+    app::{App, agents::Page},
+    config::Config,
+};
 
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
     let area = centered(area, 104, area.height.saturating_sub(2));
@@ -15,14 +18,15 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     if state.auth_preview.is_some() && !auth_room {
         state.reviewed = false;
         state.affirmative = false;
+        state.review_choice = 0;
     }
     let block = panel(
         if state.auth_preview.is_some() {
-            " Explicit authentication / no task replay "
+            " Review connection "
         } else if state.preview {
-            " Trust executable / version probe only "
+            " Review version check "
         } else {
-            " Agent connections / no model requests "
+            " Connections "
         },
         config,
         paint,
@@ -34,81 +38,177 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         text(
             frame,
             content,
-            "Passive discovery pending. No executable is running.\nEsc Back / local workflow remains available",
+            "Checking installed providers…\nNo provider program launched. Esc Back",
             paint.surface,
         );
         return;
     };
-    let header = format!(
-        "{}/{} {}{}",
-        state.selected + 1,
-        state.profiles.len(),
-        profile.name,
-        if state.busy() { " / working" } else { "" }
-    );
-    text(
-        frame,
-        row(content, 0, 1),
-        &clipped(&header, content.width as usize),
-        paint.accent,
-    );
-    let mut value = String::new();
-    let executable_debug = format!("{:?}", profile.executable);
-    let executable = crate::privacy::redact(&executable_debug);
-    if let Some(plan) = &state.auth_preview {
-        value.push_str(&plan.lines.join("\n\n"));
-    } else if state.preview {
-        value.push_str("Trust applies to ONE version probe, not a session. Even --version executes arbitrary program code. No sandbox or safety guarantee is implied.\n\n");
-        value.push_str(&format!(
-            "Executable: {}\nLiteral argv: {:?}\nConfiguration / effects: {}\n\n",
-            executable, profile.argv, profile.configuration
-        ));
-        for line in &profile.trust_preview {
-            value.push_str(line);
-            value.push('\n');
+    if !state.preview && state.auth_preview.is_none() {
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(25), Constraint::Min(20)])
+            .split(row(content, 0, content.height.saturating_sub(2)));
+        text(frame, row(columns[0], 0, 1), "PROVIDERS", paint.accent);
+        for (index, provider) in state.profiles.iter().enumerate() {
+            let selected = index == state.selected;
+            text(
+                frame,
+                row(columns[0], 1 + index as u16 * 2, 2),
+                &format!(
+                    "{} {}\n  {}",
+                    if selected { ">" } else { " " },
+                    provider.name,
+                    state.connection_status(index)
+                ),
+                if selected && state.page == Page::Providers {
+                    paint.accent
+                } else {
+                    paint.surface
+                },
+            );
         }
-        value.push_str("\nNo login, model request, adapter launch, or Eevee configuration/credential mutation is authorized. Executable/config identity is revalidated before launch; changes require a new preview. Provider code can have its own effects. Cancel if you do not trust this executable and its configuration.\n\nEND OF TRUST PREVIEW. Default is Stay. Select Trust explicitly only after reviewing these effects.");
-    } else {
-        value.push_str(&format!("LAST CONNECTION RESULT: {}\n\n", state.notice));
-        if let Some(method) = crate::auth::methods(state.selected).get(state.method) {
-            value.push_str(&format!(
-                "Selected login method: {} (m changes method; l reviews it)\n\n",
-                method.label()
-            ));
-        } else if state.selected == 1 {
-            value.push_str(crate::auth::CLAUDE_POLICY);
-            value.push_str("\n\n");
+        let body = columns[1];
+        text(
+            frame,
+            row(body, 0, 1),
+            &format!(
+                "{} · {}",
+                profile.name,
+                state.connection_status(state.selected)
+            ),
+            paint.accent,
+        );
+        if state.page == Page::Diagnostics {
+            let mut value = format!(
+                "{}\n\nInstalled: {}\nExecutable: {:?}\nArguments: {:?}\nVersion: {}\nAuthentication: {}\nBilling: {}\nAdapter: {}\nAction: {}\nHost: {}/{}\nContract revision: {}\n\n{}\n\n",
+                state.setup_hint(),
+                profile.installed,
+                profile.executable,
+                profile.argv,
+                profile.version,
+                profile.authentication,
+                profile.billing,
+                profile.adapter,
+                profile.action,
+                profile.os,
+                profile.architecture,
+                profile.revision,
+                profile.configuration
+            );
+            for blocker in &profile.blockers {
+                value.push_str(&format!("Blocker / remedy: {blocker}\n"));
+            }
+            for capability in &profile.capabilities {
+                value.push_str(&format!(
+                    "\n{}: {}\nEvidence: {}\nRestriction: {}\n",
+                    capability.action, capability.boundary, capability.evidence, capability.blocker
+                ));
+            }
+            state.scroll_max = selection_details(
+                frame,
+                row(body, 1, body.height.saturating_sub(1)),
+                Paragraph::new(crate::privacy::redact(&value))
+                    .style(paint.surface)
+                    .wrap(Wrap { trim: false }),
+                state.scroll,
+            );
+            state.scroll = state.scroll.min(state.scroll_max);
+        } else {
+            let methods = state.page == Page::Methods;
+            text(
+                frame,
+                row(body, 2, 1),
+                if methods {
+                    "CHOOSE SIGN-IN METHOD"
+                } else {
+                    "ACTIONS"
+                },
+                paint.accent,
+            );
+            let count = if methods {
+                for (index, method) in crate::auth::methods(state.selected).iter().enumerate() {
+                    text(
+                        frame,
+                        row(body, 3 + index as u16 * 2, 2),
+                        &format!(
+                            "{} {}",
+                            if index == state.method { ">" } else { " " },
+                            method.label()
+                        ),
+                        if index == state.method {
+                            paint.accent
+                        } else {
+                            paint.surface
+                        },
+                    );
+                }
+                crate::auth::methods(state.selected).len() as u16 * 2
+            } else {
+                for (index, action) in state.actions().iter().enumerate() {
+                    text(
+                        frame,
+                        row(body, 3 + index as u16, 1),
+                        &format!(
+                            "{} {}",
+                            if index == state.action { ">" } else { " " },
+                            action.label()
+                        ),
+                        if index == state.action && state.page == Page::Actions {
+                            paint.accent
+                        } else {
+                            paint.surface
+                        },
+                    );
+                }
+                state.actions().len() as u16
+            };
+            let hint = if state.selected == 1 || profile.executable.is_none() {
+                state.setup_hint()
+            } else if state.auth_busy() {
+                "Preparing review… Esc cancels. No provider program launched.".into()
+            } else {
+                state.notice.clone()
+            };
+            let start = 4 + count;
+            frame.render_widget(
+                Paragraph::new(crate::privacy::redact(&hint))
+                    .style(paint.surface)
+                    .wrap(Wrap { trim: false }),
+                row(body, start, body.height.saturating_sub(start)),
+            );
         }
-        value.push_str(&format!(
-            "Installed: {}\nExecutable: {}\nLiteral argv: {:?}\nVersion / compatibility: {}\nAuthentication: {}\nBilling source: {}\nConfiguration / trust scope: {}\nOS: {} / architecture: {}\nAdapter: {}\nAction readiness: {}\nProfile contract revision: {}\n\nPREFLIGHT ONLY: e separately reviews the selected provider/action. Each adapter needs its own pinned runtime, authentication and negotiated capabilities. Installed does not mean authenticated or supported.\n\n",
-            profile.installed, executable, profile.argv, profile.version,
-            profile.authentication, profile.billing, profile.configuration, profile.os,
-            profile.architecture, profile.adapter, profile.action, profile.revision,
-        ));
-        for blocker in &profile.blockers {
-            value.push_str(&format!("Blocker / remedy: {blocker}\n"));
-        }
-        value.push_str("\nPER-ACTION BOUNDARIES / EVIDENCE\n");
-        for capability in &profile.capabilities {
-            value.push_str(&format!(
-                "{}: {}\nEvidence: {}\nRestriction / blocker: {}\n\n",
-                capability.action, capability.boundary, capability.evidence, capability.blocker
-            ));
-        }
-        value.push_str("Eevee-mediated controls, agent-policy controls and observed/external behavior are distinct. A cwd or permission prompt is not OS isolation. l separately reviews authentication; s reviews official status where available. Login never resumes a model request.\n\n");
-        value.push_str(&state.notice);
+        text(
+            frame,
+            row(content, content.height.saturating_sub(2), 2),
+            if state.page == Page::Diagnostics {
+                "Up/Down Scroll · Enter/Esc Back · Tab Providers\nInstalled ≠ connected. Model requests need separate approval."
+            } else {
+                "Up/Down Select · Tab Providers/Actions · Enter Open · Esc Back\nConnect always opens a review first. No automatic model requests."
+            },
+            paint.accent,
+        );
+        return;
     }
-    let details = row(content, 1, content.height.saturating_sub(4));
+    let value = if let Some(plan) = &state.auth_preview {
+        if state.auth_details {
+            plan.lines.join("\n\n")
+        } else {
+            plan.summary.join("\n")
+        }
+    } else {
+        profile.trust_preview.join("\n\n")
+    };
+    let details = row(content, 0, content.height.saturating_sub(3));
     state.scroll_max = selection_details(
         frame,
         details,
-        Paragraph::new(value)
+        Paragraph::new(crate::privacy::redact(&value))
             .style(paint.surface)
             .wrap(Wrap { trim: false }),
         state.scroll,
     );
     state.scroll = state.scroll.min(state.scroll_max);
-    if (state.preview || state.auth_preview.is_some())
+    if !state.auth_details
         && (state.auth_preview.is_none() || auth_room)
         && details.width >= 40
         && details.height >= 3
@@ -116,31 +216,57 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     {
         state.reviewed = true;
     }
-    let footer = if state.auth_preview.is_some() {
+    let footer = if let Some(plan) = &state.auth_preview {
         if !auth_room {
-            "Authentication approval requires at least 80 columns x 24 rows.\nResize to review / Esc Cancel / no launch"
-        } else if !state.reviewed {
-            "[Stay] / Authorize locked until end of review\nUp/Down or PgDn Review / Esc Cancel"
-        } else if state.affirmative {
-            "Stay / [Authorize this auth operation]\nTab Choose / Enter Confirm / Esc Cancel"
+            "Resize to 80 × 24 to review. Esc Back; nothing launches.".into()
+        } else if state.auth_details {
+            "[Back to summary]\nUp/Down Scroll · Enter Summary · Esc Cancel".into()
         } else {
-            "[Stay] / Authorize this auth operation\nTab Choose / Enter Stay / Esc Cancel"
+            let approve = if plan.method.is_status() {
+                "Check status"
+            } else {
+                "Connect"
+            };
+            let choice = if state.affirmative {
+                1
+            } else if state.review_choice == 2 {
+                2
+            } else {
+                0
+            };
+            let labels = ["Back", approve, "Details"];
+            let buttons = labels
+                .iter()
+                .enumerate()
+                .map(|(index, label)| {
+                    if index == choice {
+                        format!("[{label}]")
+                    } else {
+                        (*label).to_owned()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("   ");
+            format!(
+                "{buttons}\n{}",
+                if state.reviewed {
+                    "Tab Choose · Enter Confirm · Esc Back"
+                } else {
+                    "Up/Down Read remaining effects · Tab Details/Back · Esc Back"
+                }
+            )
         }
-    } else if state.preview {
-        if !state.reviewed {
-            "[Stay] / Trust locked until end of preview\nUp/Down or PgDn Review / Esc Cancel"
-        } else if state.affirmative {
-            "Stay / [Trust this version probe]\nTab Choose / Enter Confirm / Esc Cancel"
-        } else {
-            "[Stay] / Trust this version probe\nTab Choose / Enter Stay / Esc Cancel"
-        }
+    } else if !state.reviewed {
+        "[Back]   Check version (read remaining effects first)\nUp/Down Scroll · Esc Back".into()
+    } else if state.affirmative {
+        "Back   [Check version]\nTab Choose · Enter Confirm · Esc Back".into()
     } else {
-        "1-4 Profile / Enter Probe / m Method / l Login / s Status\nr Refresh / PgUp/Dn Scroll / Esc Back / no task replay"
+        "[Back]   Check version\nTab Choose · Enter Confirm · Esc Back".into()
     };
     text(
         frame,
         row(content, content.height.saturating_sub(3), 3),
-        footer,
+        &footer,
         paint.accent,
     );
 }

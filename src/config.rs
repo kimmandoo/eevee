@@ -49,6 +49,8 @@ pub enum Command {
     Run(Config),
     Download(Config),
     Export { data_dir: PathBuf, output: PathBuf },
+    Update { check_only: bool },
+    Uninstall,
     Help,
     Version,
 }
@@ -56,6 +58,13 @@ pub enum Command {
 pub const HELP: &str = "Eevee — local-first evolution workbench
 
 Usage: ev [OPTIONS]
+       ev update [--check]
+       ev uninstall
+
+Binary lifecycle:
+  update --check       Check the latest release without changing files
+  update               Update an installer-owned binary in its original directory
+  uninstall            Remove the owned binary and licenses; keep all user data
 
 Options:
   --theme dark|light    Terminal theme (default: dark)
@@ -80,7 +89,9 @@ TERM=dumb or an explicitly non-UTF-8 locale also selects ASCII. Windows
 defaults to UTF-8 without locale variables. Locale precedence: LC_ALL,
 LC_CTYPE, LANG (first nonempty value). Repeated options use the last value.
 
-Local durable tasks; no model execution. Storage failures retain editable drafts.
+Type in the visible Goal box; Enter saves locally. F2 connects a provider;
+F3 selects an evolution; F4 sets up optional images; Ctrl+K lists actions.
+Model requests require separate approval. Storage failures retain drafts.
 Secret detection is best-effort. Purge is not forensic secure erasure.
 ";
 
@@ -109,7 +120,35 @@ fn parse_with(
     args: impl IntoIterator<Item = OsString>,
     environment: impl Fn(&str) -> Option<OsString>,
 ) -> Result<Command, String> {
-    let mut args = args.into_iter();
+    let mut args = args.into_iter().peekable();
+    if let Some(command @ ("update" | "uninstall")) =
+        args.peek().and_then(|argument| argument.to_str())
+    {
+        let update = command == "update";
+        args.next();
+        let option = args.next();
+        if option
+            .as_ref()
+            .is_some_and(|value| value == "--help" || value == "-h")
+            && args.peek().is_none()
+        {
+            return Ok(Command::Help);
+        }
+        let check_only = update && option.as_ref().is_some_and(|value| value == "--check");
+        if (option.is_some() && !check_only) || args.next().is_some() {
+            return Err(if update {
+                "usage: ev update [--check]"
+            } else {
+                "usage: ev uninstall"
+            }
+            .into());
+        }
+        return Ok(if update {
+            Command::Update { check_only }
+        } else {
+            Command::Uninstall
+        });
+    }
     let mut theme = Theme::Dark;
     let mut color = None;
     let mut ascii = false;
@@ -476,6 +515,31 @@ mod tests {
             vec!["--help", "--unknown"],
         ] {
             assert!(parse(&args, &[]).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn binary_lifecycle_commands_reject_ambiguous_or_tui_arguments() {
+        let lifecycle = |args: &[&str]| parse_with(args.iter().map(OsString::from), |_| None);
+        assert!(matches!(
+            lifecycle(&["update", "--check"]),
+            Ok(Command::Update { check_only: true })
+        ));
+        assert!(matches!(
+            lifecycle(&["update"]),
+            Ok(Command::Update { check_only: false })
+        ));
+        assert!(matches!(lifecycle(&["uninstall"]), Ok(Command::Uninstall)));
+        let invalid: &[&[&str]] = &[
+            &["uninstall", "--check"],
+            &["update", "--check", "--check"],
+            &["update", "--data-dir", "/tmp/tasks"],
+            &["uninstall", "--data-dir", "/tmp/tasks"],
+            &["--images", "off", "uninstall"],
+            &["update", "--help", "uninstall"],
+        ];
+        for args in invalid {
+            assert!(lifecycle(args).is_err(), "{args:?}");
         }
     }
 

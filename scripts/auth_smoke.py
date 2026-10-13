@@ -20,7 +20,7 @@ from workbench_smoke import wait_for
 
 END = '\x1b[F'
 RIGHT = '\x1b[C'
-TITLE = 'Agent connections'
+TITLE = 'Connections'
 
 
 def main():
@@ -66,6 +66,7 @@ def main():
                           project, environment, (120, 36), output / 'journey')
         try:
             wait_for(session, 'Storage: saved')
+            session.send('\x1b')  # Leave the clean first-run Goal composer.
             session.send('g')
             session.paste('Keep this local task through authentication cancellation.')
             session.send('\r')
@@ -75,9 +76,9 @@ def main():
 
             def preview(key='l'):
                 session.send(key)
-                wait_for(session, 'Explicit authentication', timeout=40)
+                wait_for(session, 'Review connection', timeout=40)
                 session.send(END)
-                wait_for(session, 'Enter Stay')
+                wait_for(session, 'Tab Choose')
 
             def authorize():
                 session.send('\t\r')
@@ -120,16 +121,16 @@ def main():
             preview()
             session.resize((60, 18))
             session.send(END + '\t\r')
-            assert TITLE in session.display() or 'authentication' in session.display().lower()
+            assert 'Review connection' in session.display() or TITLE in session.display()
             session.resize((120, 36))
-            if 'Explicit authentication' in session.display():
+            if 'Review connection' in session.display():
                 session.send('\x1b')
             wait_for(session, TITLE)
             passed('neutral Enter and undersize terminal cannot authorize login')
 
             session.send('m')
-            wait_for(session, 'device authorization')
             preview()
+            wait_for(session, 'device authorization')
             session.send('\x1b')
             session.send('m')
             preview('s')
@@ -152,10 +153,6 @@ def main():
             preview()
             cancel_native('gemini-google', ('accounts.google.com', 'Opening authentication page', 'Waiting for authentication'))
 
-            session.send('2l')
-            wait_for(session, 'cannot reuse claude.ai')
-            session.capture('claude-sdk-subscription-restriction')
-            passed('Claude SDK explains supported API/cloud route rather than reusing subscription OAuth')
             with closing(sqlite3.connect(data / 'workbench.sqlite3')) as db:
                 assert db.execute('SELECT goal FROM tasks').fetchone()[0] == 'Keep this local task through authentication cancellation.'
                 assert db.execute('SELECT count(*) FROM provider_journal').fetchone()[0] == 0
@@ -166,22 +163,6 @@ def main():
             session.send(RIGHT + '\r')
             assert session.wait_exit() == 0
             passed('authentication never creates task execution evidence; safe exit restores original terminal modes')
-            session.text = ''
-            session.close()
-            session = Session([sys.executable, str(launcher), str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono'],
-                              project, dict(environment, CI='true'), (120, 36), output / 'headless-refusal')
-            wait_for(session, 'Storage: saved')
-            session.send('o')
-            wait_for(session, TITLE)
-            session.send('4l')
-            wait_for(session, 'no login was started')
-            session.capture('gemini-headless-refusal')
-            session.send('\x1b')
-            session.send('q')
-            wait_for(session, 'Confirm exit')
-            session.send(RIGHT + '\r')
-            assert session.wait_exit() == 0
-            passed('headless CI environment refuses native Gemini login with an actionable reason before launch')
             results['status'] = 'passed-initiation-and-cancellation-only'
         finally:
             # Session.close normally writes the raw transcript; auth output is secret-bearing.

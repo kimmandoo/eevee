@@ -590,6 +590,67 @@ mod tests {
     }
 
     #[test]
+    fn native_source_identity_survives_json_without_path_normalization() {
+        let fixture = Fixture::new();
+        let path = Path::new("src").join("資料.rs");
+        let report = fixture.report(&[(path.to_str().unwrap(), "exact\r\n".as_bytes())]);
+        let excerpt = capture(7, &report, &path, 1, 1, &[], &AtomicBool::new(false)).unwrap();
+        let encoded = serde_json::to_string(&excerpt).unwrap();
+        let decoded: Excerpt = serde_json::from_str(&encoded).unwrap();
+        decoded.validate().unwrap();
+        assert_eq!(decoded, excerpt);
+        assert_eq!(Path::new(&decoded.root), fixture.0);
+        assert_eq!(Path::new(&decoded.path), path);
+        assert_eq!(decoded.text, "exact\r\n");
+
+        let mut invalid = decoded.clone();
+        invalid.root = "relative-workspace".into();
+        assert!(invalid.validate().is_err());
+        invalid = decoded.clone();
+        invalid.path = "../outside.rs".into();
+        assert!(invalid.validate().is_err());
+        invalid = decoded;
+        invalid.path = fixture.0.join("outside.rs").to_str().unwrap().into();
+        assert!(invalid.validate().is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_root_identity_requires_a_volume_and_preserves_verbatim_paths() {
+        let mut excerpt = Excerpt {
+            id: 0,
+            task_id: 1,
+            root: r"\\?\C:\workspace".into(),
+            path: r"src\資料.rs".into(),
+            start_line: 1,
+            end_line: 1,
+            source_sha256: [0; 32],
+            text: "source\n".into(),
+            available: true,
+        };
+        for root in [
+            r"C:\workspace",
+            r"\\?\C:\workspace",
+            r"\\server\share\workspace",
+        ] {
+            excerpt.root = root.into();
+            let json = serde_json::to_string(&excerpt).unwrap();
+            let decoded: Excerpt = serde_json::from_str(&json).unwrap();
+            decoded.validate().unwrap();
+            assert_eq!(decoded, excerpt);
+        }
+        for root in ["/workspace", r"\workspace", r"C:workspace"] {
+            excerpt.root = root.into();
+            assert!(excerpt.validate().is_err(), "nonabsolute root: {root}");
+        }
+        excerpt.root = r"C:\workspace".into();
+        for path in [r"C:source.rs", r"\source.rs", r"..\source.rs"] {
+            excerpt.path = path.into();
+            assert!(excerpt.validate().is_err(), "escaping source: {path}");
+        }
+    }
+
+    #[test]
     fn exact_crlf_unicode_range_masking_and_identity_revalidation() {
         let fixture = Fixture::new();
         let report = fixture.report(&[(

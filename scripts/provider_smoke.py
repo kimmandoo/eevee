@@ -59,6 +59,7 @@ def main():
                               project, environment, (120, 36), output / 'journey')
             sessions.append(session)
             wait_for(session, 'Storage: saved')
+            session.send('\x1b')  # Leave the clean first-run Goal composer.
 
             def task():
                 with closing(sqlite3.connect((data / 'workbench.sqlite3').as_uri() + '?mode=ro', uri=True)) as db:
@@ -78,7 +79,7 @@ def main():
             def goal(text):
                 old = task()
                 session.send('g')
-                wait_for(session, '4096 bytes')
+                wait_for(session, 'Enter Save locally')
                 if old:
                     session.send(HOME)
                     for offset in range(0, len(old[0]), 32):
@@ -114,7 +115,7 @@ def main():
             wait_for(session, IDLE, timeout=180)
             for _ in range(128):
                 session.send('d')
-                if '4096 bytes' in session.display():
+                if 'Enter Save locally' in session.display():
                     break
                 session.send('\x1b[B')
             else:
@@ -194,7 +195,7 @@ def main():
             session.send('c')
             wait_for(session, IDLE, timeout=30)
             session.send('\t\r')
-            if '4096 bytes' in session.display():
+            if 'Enter Save locally' in session.display():
                 session.send('\x1b')
             assert 'PROVIDER REQUEST' not in session.display()
             passed('real ACP explicit session load and pending-permission cancellation reject stale response')

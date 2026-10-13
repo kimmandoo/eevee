@@ -125,6 +125,8 @@ def main():
 
             def create_task(session, goal, first=False):
                 assert session.context_mode == "closed"
+                if first:
+                    session.send(ESC)  # Leave the fresh, clean Goal composer.
                 session.send("g" if first else "n")
                 session.paste(goal)
                 session.send("\r")

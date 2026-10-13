@@ -6,6 +6,7 @@ import argparse
 import ctypes
 import hashlib
 import io
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,8 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
+import time
 import zipfile
 
 import package_binary
@@ -76,6 +79,90 @@ def malformed_archive(original, destination, member, link=False, broken_binary=F
     return checksum
 
 
+class ReleaseFixture:
+    """Serve actual native packages; transport rewrites exist only in throwaway source."""
+
+    def __init__(self, archive, checksums, tag):
+        self.requests = []
+        self.corrupt_checksum = False
+        self.throttle = False
+        fixture = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def do_HEAD(self):
+                self.respond(False)
+
+            def do_GET(self):
+                self.respond(True)
+
+            def respond(self, body):
+                fixture.requests.append(self.path)
+                if self.path == "/releases/latest":
+                    self.send_response(302)
+                    self.send_header("Location", fixture.base + "/tag/" + tag)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if self.path == "/releases/tag/" + tag:
+                    self.send_response(200)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                prefix = "/releases/download/" + tag + "/"
+                if self.path == prefix + "SHA256SUMS":
+                    content = (f"{'0' * 64}  {archive.name}\n" if fixture.corrupt_checksum
+                               else checksums.read_text()).encode("ascii")
+                    # Public releases also contain checksum entries for both installers.
+                    content += f"{'1' * 64}  install.sh\n{'2' * 64}  install.ps1\n".encode("ascii")
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(content)))
+                    self.end_headers()
+                    if body:
+                        self.wfile.write(content)
+                    return
+                if self.path == prefix + archive.name:
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(archive.stat().st_size))
+                    self.end_headers()
+                    if body:
+                        with archive.open("rb") as source:
+                            while chunk := source.read(256 * 1024):
+                                self.wfile.write(chunk)
+                                self.wfile.flush()
+                                if fixture.throttle:
+                                    time.sleep(0.05)
+                    return
+                self.send_error(404)
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.base = f"http://127.0.0.1:{self.server.server_port}/releases"
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+
+    def configure_source(self, package):
+        for relative in ("src/distribution.rs", "install.sh", "install.ps1"):
+            path = package / relative
+            source = path.read_text()
+            source = source.replace("https://github.com/kimmandoo/eevee/releases", self.base)
+            source = source.replace(".https_only(true)", ".https_only(false)")
+            source = source.replace("'=https'", "'=http'")
+            source = source.replace("$Uri.Scheme -cne 'https'", "$Uri.Scheme -cne 'http'")
+            source = source.replace(r"https://github\.com/kimmandoo/eevee/releases",
+                                    re.escape(self.base))
+            path.write_text(source)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--package-dir", required=True)
@@ -107,8 +194,13 @@ def main():
         run_case("fresh-spaces-CJK", succeeds)
         version = subprocess.check_output([str(destination / binary_name), "--version"], text=True).strip()
         assert re.fullmatch(r"ev [0-9][0-9A-Za-z.+_-]*", version)
+        original_hash = sha(destination / binary_name)
         marker = (destination / ".ev-install/.native-install").read_text()
-        assert marker == f"ev-native-install-v1\nversion={version}\nsha256={sha(destination / binary_name)}\n"
+        assert marker == (
+            f"ev-native-install-v2\nversion={version}\nsha256={sha(destination / binary_name)}\n"
+            f"license-sha256={sha(destination / '.ev-install/LICENSE')}\n"
+            f"notices-sha256={sha(destination / '.ev-install/THIRD_PARTY_NOTICES')}\n"
+        )
         run_case("owned-reinstall", succeeds)
         with tempfile.TemporaryDirectory(prefix="failures-", dir=output) as temporary:
             temporary = Path(temporary)
@@ -152,21 +244,65 @@ def main():
                 link = temporary / "linked-destination"
                 link.symlink_to(destination, target_is_directory=True)
                 run_case("symlink-destination-preserved", lambda: rejects(archive,checksums,link))
-        # Compile the real source under another package version; no fake version wrapper.
-        with tempfile.TemporaryDirectory(prefix="upgrade-source-",dir=output) as temporary:
+        # Compile a real older binary whose release transport is isolated to localhost.
+        current = version.split()[1]
+        with ReleaseFixture(archive, checksums, "v" + current) as release, \
+                tempfile.TemporaryDirectory(prefix="upgrade-source-", dir=output) as temporary:
             package = Path(temporary)
             shutil.copytree(root / "src", package / "src")
             shutil.copyfile(root / "Cargo.lock", package / "Cargo.lock")
+            for installer in ("install.sh", "install.ps1"):
+                shutil.copyfile(root / installer, package / installer)
             manifest = (root / "Cargo.toml").read_text()
-            current = version.split()[1]
             assert f'version = "{current}"' in manifest
-            upgrade = current + "-install-smoke"
-            (package / "Cargo.toml").write_text(manifest.replace(f'version = "{current}"',f'version = "{upgrade}"',1))
+            upgrade = "0.0.0"
+            assert current != upgrade
+            fixture_manifest = manifest.replace(f'version = "{current}"', f'version = "{upgrade}"', 1)
+            fixture_manifest = fixture_manifest.replace('name = "ev"', 'name = "ev-lifecycle-fixture"', 1)
+            (package / "Cargo.toml").write_text(fixture_manifest)
+            release.configure_source(package)
             result = terminal_smoke.run_owned(["cargo","build","--release","--manifest-path",str(package / "Cargo.toml"),
                                                "--target-dir",str(root / "target")],timeout=900,text=True)
             (output / "upgrade-build.log").write_text(result.stdout + result.stderr)
             assert result.returncode == 0, "real upgrade source build failed; see upgrade-build.log"
-            upgrade_binary = root / "target/release" / binary_name
+            upgrade_binary = root / "target/release" / ("ev-lifecycle-fixture.exe" if os.name == "nt" else "ev-lifecycle-fixture")
+
+            def bootstrap():
+                downloaded = output / "downloaded-native" / "bin"
+                command = (["powershell.exe", "-NoLogo", "-NoProfile", "-File", str(package / "install.ps1"),
+                            "-InstallDir", str(downloaded)] if os.name == "nt" else
+                           ["sh", str(package / "install.sh"), "--install-dir", str(downloaded)])
+                environment = terminal_smoke.terminal_environment("mono")
+                environment.pop("CI", None)
+                environment.pop("EV_VERSION", None)
+                environment["NO_COLOR"] = "1"
+                release.throttle = True
+                session = terminal_smoke.Session(command, root, environment, (120, 36), output / "installer-animation")
+                try:
+                    deadline = time.monotonic() + 60
+                    captured = False
+                    while session.alive() and time.monotonic() < deadline:
+                        session.pump(0.1)
+                        if not captured and "(|o|)" in session.text:
+                            session.capture("rolling-ball")
+                            captured = True
+                    assert not session.alive(), "interactive release installation timed out"
+                    assert session.wait_exit(tui=False) == 0, session.display()
+                    plain = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", session.text)
+                    for frame in ("(-o-)", "(|o|)", "(/o/)"):
+                        assert frame in plain, "rolling-ball frame was not displayed: " + frame
+                    assert re.search(r"\r {2,6}\(", plain), "ball never rolled across the terminal"
+                    assert "\x1b[31m" not in session.text and "\x1b[97m" not in session.text
+                    assert sha(downloaded / binary_name) == original_hash
+                finally:
+                    session.close()
+                    release.throttle = False
+                result = terminal_smoke.run_owned([str(downloaded / binary_name), "uninstall"], timeout=180, text=True)
+                assert result.returncode == 0, result.stdout + result.stderr
+                assert not (downloaded / binary_name).exists()
+                assert not list(downloaded.glob(".ev-stage*"))
+
+            run_case("latest-bootstrap-and-monochrome-rolling-ball", bootstrap)
             with tempfile.TemporaryDirectory(prefix="upgrade-package-",dir=output) as upgrade_dir:
                 upgrade_dir = Path(upgrade_dir)
                 members = (binary_name,"LICENSE","THIRD_PARTY_NOTICES")
@@ -194,15 +330,87 @@ def main():
                         for member in (binary_name,"LICENSE","THIRD_PARTY_NOTICES"): bundle.add(upgrade_dir / member,arcname=member,recursive=False)
                 upgrade_sums = upgrade_dir / "SHA256SUMS"
                 upgrade_sums.write_text(f"{sha(upgraded_archive)}  {archive.name}\n")
-                run_case("real-version-upgrade", lambda: succeeds(upgraded_archive,upgrade_sums))
-                assert subprocess.check_output([str(destination / binary_name),"--version"],text=True).strip() == "ev " + upgrade
-                run_case("restore-current-version", succeeds)
+                run_case("install-real-older-version", lambda: succeeds(upgraded_archive, upgrade_sums))
+                assert subprocess.check_output([str(destination / binary_name), "--version"], text=True).strip() == "ev " + upgrade
+
+                def lifecycle(arguments):
+                    environment = os.environ.copy()
+                    environment.pop("EV_VERSION", None)
+                    result = terminal_smoke.run_owned(
+                        [str(destination / binary_name), *arguments],
+                        timeout=180, text=True, env=environment,
+                    )
+                    assert "\x1b" not in result.stdout + result.stderr, "redirected lifecycle output contains terminal escapes"
+                    (output / ("-".join(arg.strip("-") for arg in arguments) + ".log")).write_text(
+                        result.stdout + result.stderr
+                    )
+                    return result
+
+                def check_only():
+                    before = snapshot(destination)
+                    release.requests.clear()
+                    result = lifecycle(["update", "--check"])
+                    assert result.returncode == 0, result.stdout + result.stderr
+                    assert snapshot(destination) == before
+                    assert release.requests == ["/releases/latest"], release.requests
+
+                run_case("self-update-check-is-read-only", check_only)
+
+                def corrupt_update():
+                    before = snapshot(destination)
+                    release.corrupt_checksum = True
+                    try:
+                        result = lifecycle(["update"])
+                        assert result.returncode != 0, result.stdout + result.stderr
+                        assert snapshot(destination) == before, "failed self-update changed owned files"
+                    finally:
+                        release.corrupt_checksum = False
+
+                run_case("self-update-checksum-failure-preserves-install", corrupt_update)
+
+                def self_update():
+                    result = lifecycle(["update"])
+                    assert result.returncode == 0, result.stdout + result.stderr
+                    assert subprocess.check_output([str(destination / binary_name), "--version"], text=True).strip() == version
+                    assert sha(destination / binary_name) == original_hash
+                    assert not list(destination.glob(".ev-stage*")), "retired self-update files were not cleaned"
+
+                run_case("live-owned-binary-self-update", self_update)
+                evidence["release_requests"] = list(release.requests)
         # Run the installed executable, not the source build, through the real native terminal harness.
         result = terminal_smoke.run_owned([sys.executable,str(root / "scripts/terminal_smoke.py"),"--binary",str(destination / binary_name),
                                           "--output",str(output / "terminal")],timeout=1100,text=True)
         (output / "terminal-smoke.log").write_text(result.stdout + result.stderr)
         assert result.returncode == 0, result.stdout + result.stderr
         evidence["cases"].append("installed-native-34-scenarios")
+        unrelated = destination / "user-task-data"
+        unrelated.mkdir()
+        (unrelated / "keep.json").write_text('{"goal":"Keep user work through uninstall"}\n')
+        kept = snapshot(unrelated)
+
+        def unrecognized_metadata():
+            extra = destination / ".ev-install/user-note"
+            extra.write_text("Not owned by the installer\n")
+            try:
+                before = snapshot(destination)
+                result = lifecycle(["uninstall"])
+                assert result.returncode != 0, result.stdout + result.stderr
+                assert snapshot(destination) == before
+            finally:
+                extra.unlink()
+
+        run_case("uninstall-refuses-unrecognized-metadata", unrecognized_metadata)
+
+        def uninstall_owned():
+            result = lifecycle(["uninstall"])
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert not (destination / binary_name).exists()
+            assert not (destination / ".ev-install").exists()
+            assert snapshot(unrelated) == kept
+            assert not list(destination.glob(".ev-stage*")), "retired uninstall files were not cleaned"
+
+        run_case("live-owned-uninstall-keeps-user-data", uninstall_owned)
+        run_case("reinstall-after-uninstall", succeeds)
         evidence["status"] = "passed"
     except BaseException as error:
         evidence["error"] = str(error)

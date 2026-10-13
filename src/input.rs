@@ -94,6 +94,8 @@ mod decoding {
             let sequence = std::mem::take(&mut self.sequence);
             if sequence == "\x1b" {
                 Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+            } else if sequence == "\x1bO" {
+                Event::Key(KeyEvent::new(KeyCode::Char('O'), KeyModifiers::ALT))
             } else {
                 Event::Paste(sequence)
             }
@@ -119,7 +121,7 @@ mod decoding {
             }
             if !self.sequence.is_empty() || character == '\x1b' {
                 self.sequence.push(character);
-                if self.sequence == "\x1b" || self.sequence == "\x1b[" {
+                if matches!(self.sequence.as_str(), "\x1b" | "\x1b[" | "\x1bO") {
                     return None;
                 }
                 if self.sequence == "\x1b[200~" {
@@ -169,7 +171,9 @@ mod decoding {
     }
 
     fn csi(sequence: &str) -> Option<Event> {
-        let body = sequence.strip_prefix("\x1b[")?;
+        let body = sequence
+            .strip_prefix("\x1b[")
+            .or_else(|| sequence.strip_prefix("\x1bO"))?;
         let final_byte = *body.as_bytes().last()?;
         if !final_byte.is_ascii() {
             return None;
@@ -205,12 +209,17 @@ mod decoding {
             'H' => KeyCode::Home,
             'F' => KeyCode::End,
             'Z' => KeyCode::BackTab,
+            'P'..='S' => KeyCode::F(final_byte - b'P' + 1),
             '~' => match first {
                 "1" | "7" => KeyCode::Home,
                 "4" | "8" => KeyCode::End,
                 "3" => KeyCode::Delete,
                 "5" => KeyCode::PageUp,
                 "6" => KeyCode::PageDown,
+                "11" => KeyCode::F(1),
+                "12" => KeyCode::F(2),
+                "13" => KeyCode::F(3),
+                "14" => KeyCode::F(4),
                 _ => return None,
             },
             'u' => match first.parse::<u32>().ok()? {
@@ -231,6 +240,32 @@ mod decoding {
                 .chars()
                 .filter_map(|character| decoder.character(character, KeyModifiers::NONE))
                 .collect()
+        }
+        #[test]
+        fn function_navigation_decodes_ss3_csi_and_modified_keys_without_typing_letters() {
+            let mut decoder = Decoder::default();
+            for (sequence, function, modifiers) in [
+                ("\x1bOP", 1, KeyModifiers::NONE),
+                ("\x1bOQ", 2, KeyModifiers::NONE),
+                ("\x1bOR", 3, KeyModifiers::NONE),
+                ("\x1bOS", 4, KeyModifiers::NONE),
+                ("\x1b[12~", 2, KeyModifiers::NONE),
+                ("\x1b[1;2S", 4, KeyModifiers::SHIFT),
+            ] {
+                assert_eq!(
+                    feed(&mut decoder, sequence),
+                    vec![Event::Key(KeyEvent::new(KeyCode::F(function), modifiers))]
+                );
+            }
+            assert_eq!(
+                feed(&mut decoder, "\x1b[200~\x1bOQ\x1b[201~"),
+                vec![Event::Paste("\x1bOQ".into())]
+            );
+            assert!(feed(&mut decoder, "\x1bO").is_empty());
+            assert_eq!(
+                decoder.escape_timeout(),
+                Event::Key(KeyEvent::new(KeyCode::Char('O'), KeyModifiers::ALT))
+            );
         }
         #[test]
         fn paste_is_one_literal_event_not_navigation_or_local_apply() {

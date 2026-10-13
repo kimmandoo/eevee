@@ -57,7 +57,7 @@ pub fn methods(profile: usize) -> &'static [Method] {
         _ => &[],
     }
 }
-pub const CLAUDE_POLICY: &str = "Claude Agent SDK uses permitted Anthropic API credentials (ANTHROPIC_API_KEY) or configured Bedrock/Vertex cloud credentials. This integration cannot reuse claude.ai subscription OAuth. Configure credentials outside Eevee, then review e again; Eevee does not collect tokens or run Claude CLI login as an SDK login.";
+pub const CLAUDE_POLICY: &str = "Claude Agent SDK uses Anthropic API credentials (ANTHROPIC_API_KEY) or configured Bedrock/Vertex cloud credentials. Set these outside Eevee and install the pinned SDK sidecar described in Setup (README). Claude CLI login is not SDK setup: claude.ai subscription OAuth tokens cannot be reused here. Eevee never collects tokens. A model request still needs separate Run approval.";
 pub fn status_method(profile: usize) -> Option<Method> {
     match profile {
         0 => Some(Method::CodexStatus),
@@ -134,6 +134,7 @@ pub struct Plan {
     pub profile: usize,
     pub method: Method,
     pub lines: Vec<String>,
+    pub summary: Vec<String>,
     trust: agent::ExternalTrust,
     created: Instant,
     directory: AuthDirectory,
@@ -174,7 +175,7 @@ impl Plan {
             lines.push("This launches the official local status command; the provider may read its own credentials. Output is transient, not copied into task state. A credential inventory is not proof of account eligibility or a successful model request.".into());
         } else {
             lines.push("May open your browser, contact provider identity/account services, bind a local OAuth callback, and write/replace provider-owned credentials and auth-method settings. Switching Gemini auth method can clear previous cached credentials. Provider-native prompts choose accounts/providers; trust their displayed scopes before consenting. Eevee never requests or persists tokens, API keys, device codes or account identifiers.".into());
-            lines.push("Eevee sends no task context or model prompt and never replays the task. After return, open e and grant a fresh Run consent. Cancellation does not revoke already-issued credentials; use the provider's account controls to revoke them.".into());
+            lines.push("Eevee sends no task context or model prompt and never replays the task. Any later model request needs a separate review and Run approval. Cancellation does not revoke already-issued credentials; use the provider's account controls to revoke them.".into());
             if matches!(method, Method::CodexBrowser | Method::CodexDevice) {
                 lines.push("After the native UI returns, literal argv [\"login\", \"status\"] refreshes Codex status if reviewed identities still match. Only an exact recognized status is kept; all raw output is discarded.".into());
             }
@@ -190,11 +191,39 @@ impl Plan {
             );
         }
         lines.push("Use the native UI's exit/cancel action or Ctrl+C. Native output can contain secrets and remains in your terminal scrollback; Eevee does not capture it. A successful process exit alone is NOT proof of authentication.".into());
-        lines.push("Approval expires in five minutes; login expires after ten minutes (status after fifteen seconds). Esc cancels this preview without launching anything. END OF AUTH REVIEW. Default is Stay; choose Authorize explicitly.".into());
+        lines.push("Approval expires in five minutes; login expires after ten minutes (status after fifteen seconds). Esc cancels without launching. Back is selected by default.".into());
+        let mut summary = vec![
+            format!("Method: {}", method.label()),
+            format!("Run: {} {:?}", trust.prepared.executable.path.display(), method.args()),
+            format!("First: --version (requires {}). Cwd: {}", release(profile), trust.prepared.cwd.display()),
+            "Private empty cwd outside your project; removed only while empty. Inherits environment, dependencies, config/hooks and browser launcher; not sandboxed. Executable and known config identities rechecked.".into(),
+        ];
+        if method.is_status() {
+            summary.push("Reads provider credentials; shows native status, not model/account eligibility. Eevee keeps only a recognized classification, never raw output.".into());
+        } else {
+            summary.push("May open browser, contact account services, bind OAuth callback, and replace provider credentials/settings. Choose accounts/scopes in the native UI; Eevee collects no tokens or codes.".into());
+            if matches!(method, Method::CodexBrowser | Method::CodexDevice) {
+                summary.push("Then runs [\"login\", \"status\"] if identities still match; keeps recognized status only.".into());
+            } else if method == Method::OpenCode {
+                summary.push("--pure: official built-in auth only, no external auth plugins or Claude subscription OAuth.".into());
+            } else if method == Method::GeminiNative {
+                summary.push("Gemini opens its full CLI, NOT auth-only. Use /auth for Google/API key/Vertex; switching can clear credentials. It may initialize services and enter chat: what YOU type can start model work. Exit/Ctrl+C to return; exit does not prove login.".into());
+            }
+        }
+        summary.push("No task prompt sent or replayed. Native output may contain secrets in terminal scrollback. Exit/Ctrl+C returns; cancellation does not revoke issued credentials. Native exit alone is not authentication proof.".into());
+        summary.push(format!(
+            "Approval: 5 min. Timeout: {}. Full configuration/effects are under Details.",
+            if method.is_status() {
+                "15 sec"
+            } else {
+                "10 min"
+            }
+        ));
         Ok(Self {
             profile,
             method,
             lines,
+            summary,
             trust,
             created: Instant::now(),
             directory,

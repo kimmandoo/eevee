@@ -100,7 +100,7 @@ def main():
     for installer in ("install.sh", "install.ps1"):
         shutil.copyfile(root / installer, output / installer)
     print(f"Packaged {version}: {output / name}")
-    print("Verification artifact only; public Release and remote bootstrap remain withheld.")
+    print("Package includes code/dependency notices, no artwork or provider credentials.")
 
 
 if __name__ == "__main__":

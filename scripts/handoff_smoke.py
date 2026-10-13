@@ -50,6 +50,7 @@ def main():
                               project, environment, (120, 36), output / 'manual')
             sessions.append(session)
             wait_for(session, 'Storage: saved')
+            session.send('\x1b')  # Leave the clean first-run Goal composer.
             session.send('g')
             session.paste('Portable local goal 漢字; password=handoff-private-canary')
             session.send('\r')

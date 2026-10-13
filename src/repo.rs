@@ -388,7 +388,6 @@ impl<'a> Git<'a> {
         limit: usize,
     ) -> Result<GitOutput, String> {
         self.check_deadline()?;
-        let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
         let mut command = Command::new(&self.executable);
         command.current_dir(self.cwd).env_clear();
         // Windows process/runtime setup needs these. No inherited GIT_* or helper configuration.
@@ -400,8 +399,9 @@ impl<'a> Git<'a> {
         command
             .env("LC_ALL", "C")
             .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_SYSTEM", null)
-            .env("GIT_CONFIG_GLOBAL", null)
+            // Git maps /dev/null on Windows too; uppercase NUL fails its access check.
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_ATTR_NOSYSTEM", "1")
             .env("GIT_OPTIONAL_LOCKS", "0")
             .env("GIT_TERMINAL_PROMPT", "0")
@@ -1542,10 +1542,7 @@ mod tests {
             }
             let output = command
                 .env("GIT_CONFIG_NOSYSTEM", "1")
-                .env(
-                    "GIT_CONFIG_GLOBAL",
-                    if cfg!(windows) { "NUL" } else { "/dev/null" },
-                )
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
                 .args(args)
                 .output()
                 .unwrap();
@@ -1582,6 +1579,26 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn isolated_git_reads_empty_global_and_system_configuration() {
+        let fixture = Fixture::git();
+        let stopped = AtomicBool::new(false);
+        let git = Git::new(&fixture.0, &stopped, Instant::now() + SCAN_TIMEOUT).unwrap();
+        for scope in ["--global", "--system"] {
+            let output = git.run(&["config", scope, "--list"], None, 1024).unwrap();
+            assert!(output.success, "{scope}: {}", output.diagnostic());
+            assert!(
+                output.stdout.bytes.is_empty(),
+                "{scope} configuration leaked"
+            );
+        }
+        let local = git
+            .run(&["config", "--local", "user.name"], None, 1024)
+            .unwrap();
+        assert!(local.success);
+        assert_eq!(local.stdout.bytes, b"Repository Test\n");
     }
 
     fn report(event: Event) -> Arc<Report> {

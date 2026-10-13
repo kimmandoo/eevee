@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0
+
+- feat(ux): show the Goal composer and caret immediately; retain drafts across F1 help, F2 connections, F3 evolution, F4 images and the action palette.
+- feat(connections): replace hidden shortcut-driven setup with provider/action/method lists, compact neutral consent, optional diagnostics and a visible reviewed “Use for task” action. Login remains separate from model submission.
+- fix(artwork): trim transparent padding, preserve proportions and native alpha, composite cells against their actual panel surface without background boxes, and retain backing colors in ASCII mode. Invalidate native caches after reload; add explicit background download, progress, cancellation, missing-file resume and local reload for all nine forms.
+- feat(distribution): add pinned HTTPS release installation, `ev update --check`, embedded-installer updates and owned uninstall with user-data preservation. Verify executable and legal-file ownership; retain rollback and locked-file refusal.
+- feat(installer): show an original rolling Poké Ball text animation during interactive installation/update, with monochrome and plain-output modes and cursor cleanup.
+- fix(platform): use Git's portable `/dev/null` isolation on Windows, accept only verified macOS system temporary-directory aliases, and decode SS3/CSI F1–F4 keys without turning them into typed text.
+- ci(release): publish five native archives, both installers and combined checksums only after the tag's native installation/PTY-or-ConPTY and credential-free SDK checks pass. Keep installer bytes identical across native checkouts.
+- docs: add release installation/update/uninstall instructions, replace the README sprite with a verified alpha-transparent illustration, and separate original code/text animation from third-party images, names and rights.
+
 ## 2026-10-13
 
 - ci: retained five native credential-free installation/TUI rows, added installed JSON/Markdown handoff and isolated Node 24 SDK policy coverage, pinned Rust dependency/tool caching with main-only saves, disabled persisted checkout credentials, and avoided duplicate branch-push/PR runs. OAuth and real provider/model smoke remain opt-in.

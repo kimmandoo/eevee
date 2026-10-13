@@ -41,9 +41,9 @@ def main():
             project = root / "project 漢字"
             project.mkdir()
             data = root / "data 空 格"
-            def launch(name, directory=data, cwd=project, size=(120,36), extra=()):
+            def launch(name, directory=data, cwd=project, size=(120,36), extra=(), environment=None):
                 session = Session([str(binary), "--data-dir", str(directory), "--images", "off", "--color", "mono", *extra],
-                                  cwd, terminal_environment("mono"), size, output / name)
+                                  cwd, terminal_environment("mono") if environment is None else environment, size, output / name)
                 sessions.append(session)
                 session.pump(0.5)
                 return session
@@ -70,9 +70,142 @@ def main():
                         return rows
                     assert time.monotonic() < deadline, "stored state did not settle"
                     time.sleep(0.05)
+            # Unlike legacy navigation journeys below, first use must receive text
+            # without Esc, g, Enter, or any other activation key.
+            empty_path = root / "no-provider-programs"
+            empty_path.mkdir()
+            isolated_home = root / "first-use-home"
+            isolated_home.mkdir()
+            first_use_environment = terminal_environment("mono")
+            for key in list(first_use_environment):
+                if key.startswith(("OPENAI_", "CODEX_", "ANTHROPIC_", "CLAUDE_", "GEMINI_", "GOOGLE_", "AWS_", "OPENCODE_")):
+                    first_use_environment.pop(key, None)
+            first_use_environment.update(
+                PATH=str(empty_path), HOME=str(isolated_home), USERPROFILE=str(isolated_home),
+                XDG_CONFIG_HOME=str(isolated_home / "config"), XDG_DATA_HOME=str(isolated_home / "data"),
+                XDG_CACHE_HOME=str(isolated_home / "cache"), APPDATA=str(isolated_home / "config"),
+                LOCALAPPDATA=str(isolated_home / "cache"),
+            )
+            for width in (120, 60):
+                first_use_data = root / ("first-use-" + str(width))
+                assets = root / ("first-use-artwork-" + str(width))
+                size = (width, 36 if width == 120 else 18)
+                first_use_args = dict(directory=first_use_data, size=size,
+                                      extra=("--assets-dir", str(assets), "--images", "cells"), environment=first_use_environment)
+                fresh = launch("first-use-" + str(width), **first_use_args)
+                wait_for(fresh, "Storage: saved")
+                wait_for(fresh, "What would you like to work on?")
+                wait_for(fresh, "Type your task here.")
+                assert not fresh.screen.cursor.hidden, "first-run task input has no visible caret"
+                fresh.capture("visible-first-run-input")
+                typed = "qgo? direct typing "
+                pasted = "漢字\nlocal-only pasted goal"
+                fresh.send(typed)
+                fresh.paste(pasted)
+                assert "qgo? direct typing" in fresh.display()
+                assert "local-only pasted goal" in fresh.display()
+                assert fresh.alive(), "typing a navigation letter executed a shortcut"
+                fresh.capture("direct-typing-and-paste")
+                fresh.send("\r")
+                saved_goal = typed + pasted
+                stored_when(first_use_data, lambda rows: len(rows) == 1 and rows[0]["goal"] == saved_goal)
+                wait_for(fresh, "Storage: saved")
+                quit_app(fresh)
+                fresh = launch("first-use-restart-" + str(width), **first_use_args)
+                wait_for(fresh, "qgo? direct typing")
+                assert inspect_store(first_use_data)[0]["goal"] == saved_goal
+                fresh.capture("local-apply-restart")
+                passed("first-run-visible-input-direct-type-paste-local-apply-restart-" + str(width))
+
+                fresh.send("g")
+                fresh.paste(" retained shortcut draft")
+                fresh.send("\x1bOQ")  # F2 works directly from a dirty inline composer.
+                wait_for(fresh, "Connections")
+                wait_for(fresh, "Not installed")
+                wait_for(fresh, "Connect / credential setup")
+                fresh.capture("f2-provider-list")
+                fresh.send("\r")  # Provider -> visible actions.
+                fresh.capture("f2-actions")
+                fresh.send("\r")  # Missing provider: setup guidance, never auth.
+                wait_for(fresh, "npm install")
+                assert "Review connection" not in fresh.display()
+                fresh.capture("f2-missing-provider-guidance")
+                fresh.send("\x1b")
+                wait_for(fresh, "PROVIDERS")
+                fresh.send("\x1b")
+                wait_for(fresh, "Storage: saved")
+                fresh.send("g")
+                assert "retained shortcut draft" in fresh.display(), "F2 discarded the task draft"
+                fresh.send("\x13")
+                wait_for(fresh, "Storage: saved")
+                retained = inspect_store(first_use_data)[0]
+                assert retained["goal"] == saved_goal
+                assert retained["drafts"][0]["text"] == saved_goal + " retained shortcut draft"
+                passed("f2-discoverable-provider-actions-back-preserves-draft-without-auth-" + str(width))
+                for key, title, label in (("\x1bOP", "Keyboard / local actions", "f1-help"),
+                                          ("\x0b", "Local command palette", "ctrl-k-actions")):
+                    fresh.send("g")
+                    fresh.send(key)
+                    wait_for(fresh, title)
+                    fresh.capture(label)
+                    fresh.send("\x1b")
+                    fresh.send("g")
+                    assert "retained shortcut draft" in fresh.display(), label + " discarded the draft"
+                    fresh.send("\x13")
+                    wait_for(fresh, "Storage: saved")
+                    assert inspect_store(first_use_data)[0]["drafts"] == retained["drafts"]
+                passed("global-help-and-actions-preserve-inline-draft-" + str(width))
+
+                fresh.send("\x1bOR")  # F3, not the legacy f shortcut.
+                wait_for(fresh, "1-9")
+                fresh.send("9")
+                wait_for(fresh, "Sylveon")
+                fresh.capture("f3-evolution-preview")
+                fresh.send("\x1b")
+                assert inspect_store(first_use_data)[0]["form"] == 0, "preview/Back applied an evolution"
+                fresh.send("\x1bOR9\r")
+                stored_when(first_use_data, lambda rows: rows[0]["form"] == 8)
+                assert inspect_store(first_use_data)[0]["drafts"] == retained["drafts"]
+                passed("f3-evolution-preview-back-and-explicit-select-" + str(width))
+                fresh.send("g")
+                fresh.send("\x1bOS")  # F4 preserves the draft and only opens a review.
+                wait_for(fresh, "Images / Eevee and evolutions")
+                wait_for(fresh, "0/9 portraits ready")
+                wait_for(fresh, "> Back")
+                wait_for(fresh, "Download all 9")
+                wait_for(fresh, "Reload local")
+                fresh.capture("f4-image-review-neutral")
+                fresh.send("\x1b[F")
+                wait_for(fresh, "Enter Select")
+                fresh.send("\r")  # Even a fully read review defaults to Back.
+                wait_for(fresh, "Storage: saved")
+                assert not assets.exists(), "neutral image review downloaded artwork"
+                fresh.send("\x1bOS")
+                wait_for(fresh, "> Back")
+                fresh.send("\x1b[F\t")
+                wait_for(fresh, "> Download all 9")
+                fresh.capture("f4-download-selected-not-approved")
+                fresh.send("\x1b")  # Highlighting Download is not consent.
+                wait_for(fresh, "Storage: saved")
+                assert "Downloading pinned artwork" not in fresh.text, "neutral image navigation launched a download"
+                assert not assets.exists(), "Esc from image review downloaded artwork"
+                fresh.send("g")
+                assert "retained shortcut draft" in fresh.display(), "F4 discarded the task draft"
+                fresh.send("\x13")
+                wait_for(fresh, "Storage: saved")
+                assert inspect_store(first_use_data)[0]["drafts"] == retained["drafts"]
+                passed("f4-image-review-neutral-enter-and-escape-no-download-" + str(width))
+                with closing(sqlite3.connect((first_use_data / "workbench.sqlite3").as_uri() + "?mode=ro", uri=True)) as db:
+                    assert db.execute("SELECT count(*) FROM provider_journal").fetchone()[0] == 0
+                    assert db.execute("SELECT count(*) FROM executions").fetchone()[0] == 0
+                assert not assets.exists(), "first-use navigation created an unapproved artwork cache"
+                assert not any(path.is_file() for path in isolated_home.rglob("*")), "navigation wrote provider-owned configuration or credentials"
+                quit_app(fresh)
+
             goal = "durable 漢字 cafe\u0301\nsecond line"
             first = launch("save")
             wait_for(first, "Storage: saved")
+            first.send("\x1b")  # Legacy navigation starts outside the clean composer.
             first.send("g")
             first.paste(goal)
             first.send("\r")
@@ -91,6 +224,7 @@ def main():
             other.mkdir()
             conflict = launch("writer-conflict", cwd=other)
             wait_for(conflict, "Storage: save failed")
+            conflict.send("\x1b")
             conflict.send("g")
             conflict.paste("retained writer conflict")
             conflict.send("\r")
@@ -138,6 +272,7 @@ def main():
                 before = path.read_bytes()
                 failed = launch(kind, folder)
                 wait_for(failed, "Storage: save failed")
+                failed.send("\x1b")
                 failed.send("g")
                 failed.paste("recoverable draft")
                 failed.send("\r")
@@ -165,6 +300,7 @@ def main():
             passed("transactional-migration-and-nondestructive-export")
             pending = launch("quit-after-apply", root / "pending")
             wait_for(pending, "Storage: saved")
+            pending.send("\x1b")
             pending.send("g")
             pending.paste("save before exit")
             pending.send("\rq\x1b[C\r")
@@ -179,6 +315,7 @@ def main():
                 size = (width,36 if width == 120 else 18)
                 card = launch("cards-" + str(width), cards, size=size)
                 wait_for(card, "Storage: saved")
+                card.send("\x1b")
                 card.send("g")
                 card.paste("card one 漢字")
                 card.send("\r")
@@ -278,6 +415,7 @@ def main():
             untouched.write_bytes(b"user bytes\r\nnot managed by ev\n")
             life = launch("lifecycle", lifecycle, size=(60,18), extra=("--retention-days","0"))
             wait_for(life, "Storage: saved")
+            life.send("\x1b")
             life.send("g")
             life.paste("private 漢字 api_key=" + secret)
             life.send("\r")
@@ -326,6 +464,7 @@ def main():
             life = launch("lifecycle-restart", lifecycle, size=(60,18), extra=("--retention-days","0"))
             wait_for(life, "Storage: saved")
             assert "retained second task" not in life.display()
+            life.send("\x1b")  # All cards are archived, so this is a fresh composer.
             life.send("th")
             wait_for(life, "retained second task")
             life.send("x")
@@ -339,6 +478,7 @@ def main():
             quota_data = root / "quota"
             quota = launch("quota", quota_data, extra=("--quota-kib","64"))
             wait_for(quota, "Storage: saved")
+            quota.send("\x1b")
             failed_goal = None
             for index in range(16):
                 quota.send("g" if index == 0 else "n")

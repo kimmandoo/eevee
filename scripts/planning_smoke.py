@@ -81,8 +81,10 @@ def main():
 
             def goal(session, text):
                 old = task(session)
+                if old is None:
+                    session.send('\x1b')  # Fresh tasks start in the clean composer.
                 session.send('g')
-                wait_for(session, '4096 bytes')
+                wait_for(session, 'Enter Save locally')
                 if old:
                     session.send(HOME + DELETE * len(old[0]))
                 session.paste(text)
@@ -219,7 +221,7 @@ def main():
             session.capture('completed-plan')
             for _ in range(128):
                 session.send('d')
-                if '4096 bytes' in session.display():
+                if 'Enter Save locally' in session.display():
                     break
                 session.send(DOWN)
             else:

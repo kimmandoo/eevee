@@ -7,6 +7,7 @@ mod claude;
 mod codex;
 mod config;
 mod context;
+mod distribution;
 mod domain;
 mod handoff;
 mod input;
@@ -35,6 +36,20 @@ fn main() -> ExitCode {
             println!("ev {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
+        Ok(Command::Update { check_only }) => match distribution::update(check_only) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("ev: {error}");
+                ExitCode::FAILURE
+            }
+        },
+        Ok(Command::Uninstall) => match distribution::uninstall() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("ev: {error}");
+                ExitCode::FAILURE
+            }
+        },
         Ok(Command::Export { data_dir, output }) => {
             match store::export_readable(&data_dir, &output) {
                 Ok(()) => ExitCode::SUCCESS,
@@ -82,6 +97,7 @@ fn run(config: Config) -> io::Result<()> {
         let sources = context::Worker::start(config.context_exclusions.clone())?;
         let execution = runner::Worker::start()?;
         let agents = agent::Worker::start(project.clone())?;
+        let artwork_worker = artwork::Worker::start(config.clone())?;
         let planning = provider::Worker::start(
             project.clone(),
             config.data_dir.clone(),
@@ -95,6 +111,7 @@ fn run(config: Config) -> io::Result<()> {
         );
         app.linear = config.layout == config::LayoutMode::Linear;
         app.policy = config.storage_policy;
+        app.images_enabled = config.images != config::ImageMode::Off;
         app.execution.set_capture_capacity(config.capture_capacity);
         let mut graphics = native::NativeGraphics::new(&config);
         let mut dirty = true;
@@ -107,6 +124,15 @@ fn run(config: Config) -> io::Result<()> {
         let mut context_task = None;
         let mut outstanding_agents = 0_usize;
         loop {
+            if let Some(request) = app.images_pending
+                && artwork_worker.try_request(request)
+            {
+                app.images_pending = None;
+            }
+            if app.images_cancel {
+                artwork_worker.cancel();
+                app.images_cancel = false;
+            }
             if let Some(plan) = app.agents.pending_auth.take() {
                 if app.overlay != Some(app::Overlay::Agents)
                     || !app.authentication_ready()
@@ -244,6 +270,8 @@ fn run(config: Config) -> io::Result<()> {
                 || outstanding_sources > 0
                 || outstanding_agents > 0
                 || app.agents.pending.is_some()
+                || artwork_worker.busy()
+                || app.images_pending.is_some()
                 || app.planning.busy()
                 || app.planning.pending.is_some()
                 || planning.busy()
@@ -268,6 +296,23 @@ fn run(config: Config) -> io::Result<()> {
             }
             if let Some(event) = event {
                 dirty |= app.update(event);
+            }
+            while let Some(event) = artwork_worker.try_event() {
+                match event {
+                    artwork::Event::Progress(message) => app.images_notice = message,
+                    artwork::Event::Finished {
+                        artwork: loaded,
+                        result,
+                    } => {
+                        artwork = *loaded;
+                        app.images_busy = false;
+                        app.images_selected = 0;
+                        app.images_notice = match result {
+                            Ok(message) | Err(message) => message,
+                        };
+                    }
+                }
+                dirty = true;
             }
             while let Some(event) = agents.try_event() {
                 outstanding_agents = outstanding_agents.saturating_sub(1);

@@ -15,7 +15,7 @@ use crate::store;
 pub const MAX_GOAL_BYTES: usize = 4096;
 pub const DELETE_PREVIEW_PAGE: usize = 256;
 
-pub const PALETTE: [&str; 19] = [
+pub const PALETTE: [&str; 20] = [
     "Choose evolution",
     "Edit task goal",
     "Inspect task and storage",
@@ -32,9 +32,10 @@ pub const PALETTE: [&str; 19] = [
     "Repository baseline and diff",
     "Source map and context basket",
     "Command execution and evidence",
-    "Agent connections and trusted version preflight",
+    "Connect a provider",
     "Specialist request / planning and implementation",
     "Portable task handoff",
+    "Set up Eevee and evolution images",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,6 +61,7 @@ pub enum Overlay {
     Agents,
     Planning,
     Handoff,
+    Images,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,6 +130,13 @@ pub struct App {
     pub input_truncated: bool,
     pub confirmation: Option<Confirmation>,
     pub editing: bool,
+    pub images_pending: Option<crate::artwork::Request>,
+    pub images_busy: bool,
+    pub images_cancel: bool,
+    pub images_selected: usize,
+    pub images_notice: String,
+    pub images_enabled: bool,
+    pub images_reviewed: bool,
     pub linear: bool,
     pub cwd: String,
     pub width: u16,
@@ -201,7 +210,14 @@ impl App {
             cursor: 0,
             input_truncated: false,
             confirmation: None,
-            editing: false,
+            editing: true,
+            images_pending: None,
+            images_busy: false,
+            images_cancel: false,
+            images_selected: 0,
+            images_notice: String::new(),
+            images_enabled: true,
+            images_reviewed: false,
             linear: false,
             cwd,
             width,
@@ -988,6 +1004,8 @@ impl App {
                 self.height = height;
                 self.agents.affirmative = false;
                 self.agents.reviewed = false;
+                self.images_reviewed = false;
+                self.images_selected = 0;
                 self.planning.invalidate_review();
                 self.handoff.invalidate_review();
                 true
@@ -1250,6 +1268,7 @@ impl App {
                 && !self.agents.preview
                 && self.agents.auth_preview.is_none()
                 && !self.agents.auth_busy()
+                && self.agents.at_root()
             {
                 self.close_overlay();
                 return true;
@@ -1293,7 +1312,17 @@ impl App {
                 self.agents.notice = "Finish or retry task/context/journal saves and active work before authentication. No login started.".into();
                 return true;
             }
-            return self.agents.key(key, self.width >= 60 && self.height >= 18);
+            let changed = self.agents.key(key, self.width >= 60 && self.height >= 18);
+            if let Some(profile) = self.agents.use_for_task.take() {
+                self.open_overlay(Overlay::Planning);
+                if self.overlay == Some(Overlay::Planning) {
+                    self.planning_key(KeyEvent::new(
+                        KeyCode::Char(char::from(b'1' + profile as u8)),
+                        KeyModifiers::NONE,
+                    ));
+                }
+            }
+            return changed;
         }
         // Auto-repeat must never apply a draft or approve/open a destructive action.
         if key.kind == KeyEventKind::Repeat
@@ -1307,6 +1336,37 @@ impl App {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.request_quit();
             return true;
+        }
+        if self.width >= 60
+            && self.height >= 18
+            && (self.overlay.is_none()
+                || matches!(self.overlay, Some(Overlay::Forms | Overlay::Companion)))
+        {
+            let destination = match key.code {
+                KeyCode::F(1) => Some(Overlay::Help),
+                KeyCode::F(2) => Some(Overlay::Agents),
+                KeyCode::F(3) => Some(Overlay::Forms),
+                KeyCode::F(4) => Some(Overlay::Images),
+                KeyCode::Char('k') if key.modifiers == KeyModifiers::CONTROL => {
+                    Some(Overlay::Palette)
+                }
+                _ => None,
+            };
+            if let Some(destination) = destination {
+                if self.editing {
+                    if self.draft_dirty() {
+                        self.edit_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+                    } else {
+                        self.input.clear();
+                        self.finish_edit();
+                    }
+                }
+                self.open_overlay(destination);
+                return true;
+            }
+        }
+        if self.overlay == Some(Overlay::Images) {
+            return self.images_key(key);
         }
         if self.editing {
             return self.edit_key(key);
@@ -1913,6 +1973,11 @@ impl App {
         ) {
             self.surface_scroll[ScrollSurface::Preview.index()] = 0;
         }
+        if overlay == Overlay::Images {
+            self.images_selected = 0;
+            self.images_reviewed = false;
+            self.surface_scroll[ScrollSurface::Preview.index()] = 0;
+        }
         self.overlay = Some(overlay);
         self.restore_selection();
         if overlay == Overlay::Sources {
@@ -1933,6 +1998,51 @@ impl App {
         if self.overlay == Some(Overlay::Execution) {
             self.execution.open(self.task_id);
         }
+    }
+
+    fn images_key(&mut self, key: KeyEvent) -> bool {
+        if key.code == KeyCode::Esc {
+            self.close_overlay();
+            return true;
+        }
+        if self.width < 60 || self.height < 18 || !key.modifiers.is_empty() {
+            return false;
+        }
+        match key.code {
+            KeyCode::Up | KeyCode::Left | KeyCode::BackTab => {
+                self.images_selected = (self.images_selected + 2) % 3;
+            }
+            KeyCode::Down | KeyCode::Right | KeyCode::Tab => {
+                self.images_selected = (self.images_selected + 1) % 3;
+            }
+            KeyCode::Enter => match self.images_selected {
+                0 => self.close_overlay(),
+                1 if self.images_busy => {
+                    self.images_cancel = true;
+                    self.images_notice =
+                        "Cancelling; current request may take up to 30 seconds. Downloaded files stay available.".into();
+                }
+                1 if !self.images_enabled => {
+                    self.images_notice =
+                        "Images are disabled. Restart with --images auto or --images cells.".into();
+                }
+                1 if self.images_reviewed => {
+                    self.images_pending = Some(crate::artwork::Request::Download);
+                    self.images_busy = true;
+                    self.images_selected = 0;
+                    self.images_notice = "Downloading pinned artwork; you can keep working.".into();
+                }
+                2 if !self.images_busy => {
+                    self.images_pending = Some(crate::artwork::Request::Reload);
+                    self.images_busy = true;
+                    self.images_selected = 0;
+                    self.images_notice = "Reloading local images; no network request.".into();
+                }
+                _ => return false,
+            },
+            code => return self.scroll_key(code),
+        }
+        true
     }
 
     fn task_overlay_key(&mut self, overlay: Overlay, key: KeyCode) -> bool {
@@ -2020,6 +2130,10 @@ impl App {
     }
 
     fn overlay_key(&mut self, overlay: Overlay, key: KeyCode) -> bool {
+        if key == KeyCode::F(4) {
+            self.open_overlay(Overlay::Images);
+            return true;
+        }
         if matches!(overlay, Overlay::Tasks | Overlay::Criteria) {
             return self.task_overlay_key(overlay, key);
         }
@@ -2119,6 +2233,7 @@ impl App {
                         16 => self.open_overlay(Overlay::Agents),
                         17 => self.open_overlay(Overlay::Planning),
                         18 => self.open_overlay(Overlay::Handoff),
+                        19 => self.open_overlay(Overlay::Images),
                         _ => unreachable!("palette selection is bounded"),
                     }
                 }
@@ -2140,7 +2255,8 @@ impl App {
                 | Overlay::Tasks
                 | Overlay::Criteria
                 | Overlay::Repository
-                | Overlay::Sources,
+                | Overlay::Sources
+                | Overlay::Images,
             ) => ScrollSurface::Preview,
             _ => match self.effective_focus() {
                 Pane::Companion => ScrollSurface::Companion,
@@ -2197,12 +2313,14 @@ mod tests {
     use super::*;
 
     fn app() -> App {
+        // Navigation-focused tests explicitly leave the first-run composer.
         let mut app = App::new("/workspace".into(), 120, 36);
         app.store_event(store::Event::Loaded(store::Project {
             tasks: Vec::new(),
             active_id: None,
             usage_bytes: 0,
         }));
+        app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
         app
     }
 
@@ -2221,6 +2339,48 @@ mod tests {
     }
 
     #[test]
+    fn first_run_typing_is_input_and_global_navigation_retains_the_draft() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        key(&mut app, KeyCode::Char('q'));
+        app.update(Event::Paste("uick task 한글".into()));
+        assert_eq!(app.input, "quick task 한글");
+        assert!(!app.quit);
+        assert!(app.goal.is_empty());
+        key(&mut app, KeyCode::F(2));
+        assert_eq!(app.overlay, Some(Overlay::Agents));
+        assert_eq!(app.drafts[0].text, "quick task 한글");
+        assert!(app.agents.pending_auth.is_none());
+        key(&mut app, KeyCode::Esc);
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.input, "quick task 한글");
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.goal, "quick task 한글");
+        assert!(app.drafts.is_empty());
+    }
+
+    #[test]
+    fn image_download_requires_visible_review_and_survives_resize_as_neutral() {
+        let mut app = app();
+        key(&mut app, KeyCode::F(4));
+        key(&mut app, KeyCode::Enter);
+        assert!(app.images_pending.is_none());
+        assert!(app.overlay.is_none());
+        key(&mut app, KeyCode::F(4));
+        app.images_reviewed = true;
+        key(&mut app, KeyCode::Down);
+        app.update(Event::Resize(60, 18));
+        key(&mut app, KeyCode::Enter);
+        assert!(app.images_pending.is_none());
+        key(&mut app, KeyCode::F(4));
+        app.images_reviewed = true;
+        app.images_enabled = false;
+        key(&mut app, KeyCode::Down);
+        key(&mut app, KeyCode::Enter);
+        assert!(app.images_pending.is_none());
+        assert!(!app.images_busy);
+    }
+
+    #[test]
     fn all_forms_preview_confirm_and_cancel_in_grid_list_and_linear_layouts() {
         for (width, height, linear) in [
             (120, 36, false),
@@ -2230,6 +2390,7 @@ mod tests {
             (120, 36, true),
         ] {
             let mut app = App::new("/workspace".into(), width, height);
+            key(&mut app, KeyCode::Esc);
             app.linear = linear;
             app.goal = "Keep existing work\n한글".into();
             app.focus = Pane::Inspector;
@@ -2280,12 +2441,7 @@ mod tests {
         key(&mut app, KeyCode::Char('q'));
         assert!(!app.quit);
         assert!(!key(&mut app, KeyCode::Tab));
-        for code in [
-            KeyCode::Char('k'),
-            KeyCode::Left,
-            KeyCode::Enter,
-            KeyCode::Esc,
-        ] {
+        for code in [KeyCode::Left, KeyCode::Enter, KeyCode::Esc] {
             assert!(!modified_key(&mut app, code, KeyModifiers::CONTROL));
             assert!(!modified_key(&mut app, code, KeyModifiers::ALT));
         }
@@ -2586,6 +2742,7 @@ mod tests {
         assert!(app.next_action.is_empty());
 
         let mut app = super::App::new("project".into(), 120, 36);
+        key(&mut app, KeyCode::Esc);
         app.handoff.decision = Some("x".repeat(4097));
         assert!(app.settle_planning());
         assert!(!app.editing);
@@ -2930,7 +3087,6 @@ mod tests {
     #[test]
     fn startup_load_retains_new_edit_without_overwriting_existing_task() {
         let mut app = App::new("/workspace".into(), 120, 36);
-        key(&mut app, KeyCode::Char('g'));
         app.update(Event::Paste("new edit".into()));
         key(&mut app, KeyCode::Enter);
         let mut existing = store::Snapshot::empty("/workspace".into());

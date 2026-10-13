@@ -39,7 +39,7 @@
 
 - **Context / Symptom:** After successful five-row installation run `38282091481`, run `38285280853` failed every job with zero steps. The check annotation said: `The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings`.
 - **Root Cause:** GitHub account billing/spending admission, not compilation, installer behavior, or a test failure.
-- **Solution:** Pending account-owner action in GitHub Billing & plans. Kept local implementation/acceptance moving and left subsequent native parity unclaimed. Do not repeatedly rerun unchanged jobs while the external admission problem remains.
+- **Resolution status:** Historical admission blocker. Run [38354348498](https://github.com/kimmandoo/eevee/actions/runs/38354348498) subsequently started all five native rows; Linux and SDK policy passed, while macOS/Windows exposed real code/fixture failures. Diagnose those step logs rather than attributing current failures to billing. This does not identify which account-setting change resolved admission.
 - **Prevention / Reference:** Check-run annotation `114932046529`; [blocked run](https://github.com/kimmandoo/eevee/actions/runs/38285280853). Earlier native installation evidence remains valid only for its own source revision and exercised capabilities.
 
 ### [2026-10-13] SQLite no-follow rejected macOS temporary-directory aliases

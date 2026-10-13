@@ -310,7 +310,7 @@ impl State {
         if self.journal_saving {
             return "Finalizing local execution journal";
         }
-        "Agent: not connected / no local work running"
+        "Local work idle / F2 provider connections"
     }
     pub fn visible(&self) -> bool {
         self.shown

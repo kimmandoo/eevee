@@ -1,11 +1,19 @@
 use std::fs::{self, OpenOptions};
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::thread;
 use std::time::Duration;
 
 use image::{DynamicImage, ImageDecoder, Limits, RgbaImage, codecs::png::PngDecoder};
-use ratatui::{buffer::Buffer, layout::Rect, style::Color};
+use ratatui::{
+    buffer::Buffer,
+    layout::{Alignment, Rect},
+    style::Color,
+    widgets::{Paragraph, Widget, Wrap},
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -36,6 +44,7 @@ const MAX_CELL_HEIGHT: u16 = 128;
 const MAX_CACHE_CELLS: usize = 128 * 1024;
 const MAX_CACHE_ENTRIES: usize = 36;
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static ARTWORK_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -86,16 +95,18 @@ fn validate_manifest(value: &Manifest) -> Result<(), String> {
         || value.attribution != ATTRIBUTION
         || value.images.len() != SPECIES.len()
     {
-        return Err("source manifest does not match the pinned PokeAPI source; use an empty directory for --download-artwork, or remove the manifest to use unverified local PNGs".into());
+        return Err("source manifest does not match the pinned PokeAPI source; move sources.json aside and retry Images setup, or choose an empty --assets-dir (existing files were preserved)".into());
     }
     for (&id, hash) in SPECIES.iter().zip(HASHES) {
         let mut records = value.images.iter().filter(|record| record.id == id);
         let Some(record) = records.next() else {
-            return Err(format!("source manifest is missing species {id}"));
+            return Err(format!(
+                "source manifest is missing species {id}; move sources.json aside and retry Images setup"
+            ));
         };
         if records.next().is_some() || record.url != image_url(id) || record.sha256 != hash {
             return Err(format!(
-                "source manifest has an invalid URL/hash or duplicate species {id}; restore the pinned manifest"
+                "source manifest has an invalid URL/hash or duplicate species {id}; move sources.json aside and retry Images setup (existing files were preserved)"
             ));
         }
     }
@@ -145,8 +156,9 @@ fn load_manifest(directory: &Path) -> Result<Option<Manifest>, String> {
         Ok(_) => {}
     }
     let bytes = read_bounded(&path, MAX_MANIFEST_BYTES)?;
-    let value = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("{}: corrupt source manifest: {error}", path.display()))?;
+    let value = serde_json::from_slice(&bytes).map_err(|error| {
+        format!("{}: corrupt source manifest: {error}. Move sources.json aside and retry Images setup; existing files were preserved.", path.display())
+    })?;
     validate_manifest(&value)?;
     Ok(Some(value))
 }
@@ -217,6 +229,7 @@ pub struct Artwork {
     ascii: bool,
     theme: Theme,
     tick: u64,
+    generation: u64,
 }
 
 impl Artwork {
@@ -241,7 +254,7 @@ impl Artwork {
                 if source.is_some() {
                     verify_hash(&bytes, HASHES[index])?;
                 }
-                decode_png(&bytes)
+                decode_png(&bytes).map(trim_transparent_border)
             })();
             match result {
                 Ok(image) => Asset {
@@ -255,7 +268,7 @@ impl Artwork {
                 Err(error) => Asset {
                     image: None,
                     status: format!(
-                        "Artwork unavailable: {error}. Supply {}.png with --assets-dir, or run --download-artwork in an empty directory.",
+                        "Artwork unavailable: {error}. Open Images to download/retry, or supply {}.png with --assets-dir and reload.",
                         SPECIES[index]
                     ),
                 },
@@ -268,6 +281,7 @@ impl Artwork {
             ascii: config.ascii,
             theme: config.theme,
             tick: 0,
+            generation: ARTWORK_GENERATION.fetch_add(1, Ordering::Relaxed),
         }
     }
 
@@ -275,6 +289,17 @@ impl Artwork {
         self.assets
             .get(index)
             .map_or("Unknown species", |asset| asset.status.as_str())
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub fn available(&self) -> usize {
+        self.assets
+            .iter()
+            .filter(|asset| asset.image.is_some())
+            .count()
     }
 
     /// The same bounded decoded source is available to the native renderer.
@@ -339,6 +364,18 @@ impl Artwork {
 
     /// Copies prepared cells only: no image IO, allocation, decode, or resizing.
     pub fn render(&self, index: usize, area: Rect, buffer: &mut Buffer) {
+        if self.original(index).is_none() {
+            let label = if self.status(index).starts_with("Artwork off") {
+                "Images off"
+            } else {
+                "No image\nImages: setup"
+            };
+            Paragraph::new(label)
+                .alignment(Alignment::Center)
+                .wrap(Wrap { trim: true })
+                .render(area, buffer);
+            return;
+        }
         let Some(raster) = self
             .cache
             .iter()
@@ -364,13 +401,35 @@ impl Artwork {
                 {
                     let prepared = &raster.cells
                         [usize::from(row) * usize::from(raster.width) + usize::from(column)];
-                    cell.set_symbol(prepared.symbol)
-                        .set_fg(prepared.foreground)
-                        .set_bg(prepared.background);
+                    cell.set_symbol(prepared.symbol);
+                    if !raster.key.ascii && raster.key.color != ColorMode::Mono {
+                        cell.set_fg(prepared.foreground).set_bg(prepared.background);
+                    }
                 }
             }
         }
     }
+}
+
+// Official images use a large transparent canvas. Fit the visible subject, not
+// the empty border, so ears/tails remain visible without shrinking the portrait.
+fn trim_transparent_border(image: RgbaImage) -> RgbaImage {
+    let mut left = image.width();
+    let mut top = image.height();
+    let mut right = 0;
+    let mut bottom = 0;
+    for (x, y, pixel) in image.enumerate_pixels() {
+        if pixel[3] != 0 {
+            left = left.min(x);
+            top = top.min(y);
+            right = right.max(x + 1);
+            bottom = bottom.max(y + 1);
+        }
+    }
+    if right == 0 || (left == 0 && top == 0 && right == image.width() && bottom == image.height()) {
+        return image;
+    }
+    image::imageops::crop_imm(&image, left, top, right - left, bottom - top).to_image()
 }
 
 fn fitted_dimensions(image: &RgbaImage, width: u16, rows: u16) -> (u16, u16) {
@@ -444,6 +503,32 @@ fn sample(
     height: u16,
     background: [u8; 3],
 ) -> [u8; 3] {
+    if image.width() > u32::from(width) || image.height() > u32::from(height) {
+        // A half-cell covers many source pixels at thumbnail sizes. Bilinear
+        // point sampling discarded outlines and fine features; integrate the
+        // complete footprint instead, compositing alpha before averaging.
+        let left = f64::from(x) * f64::from(image.width()) / f64::from(width);
+        let right = f64::from(x + 1) * f64::from(image.width()) / f64::from(width);
+        let top = f64::from(y) * f64::from(image.height()) / f64::from(height);
+        let bottom = f64::from(y + 1) * f64::from(image.height()) / f64::from(height);
+        let mut total = [0.0; 3];
+        for sy in top.floor() as u32..(bottom.ceil() as u32).min(image.height()) {
+            let vertical = (bottom.min(f64::from(sy + 1)) - top.max(f64::from(sy))).max(0.0);
+            for sx in left.floor() as u32..(right.ceil() as u32).min(image.width()) {
+                let weight =
+                    vertical * (right.min(f64::from(sx + 1)) - left.max(f64::from(sx))).max(0.0);
+                let pixel = image.get_pixel(sx, sy);
+                let alpha = f64::from(pixel[3]) / 255.0;
+                for channel in 0..3 {
+                    total[channel] += (f64::from(pixel[channel]) * alpha
+                        + f64::from(background[channel]) * (1.0 - alpha))
+                        * weight;
+                }
+            }
+        }
+        let area = (right - left) * (bottom - top);
+        return total.map(|value| (value / area).round().clamp(0.0, 255.0) as u8);
+    }
     let source_x = ((f64::from(x) + 0.5) * f64::from(image.width()) / f64::from(width) - 0.5)
         .clamp(0.0, f64::from(image.width() - 1));
     let source_y = ((f64::from(y) + 0.5) * f64::from(image.height()) / f64::from(height) - 0.5)
@@ -607,45 +692,105 @@ fn write_staged(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Explicit command only. Normal load/prepare/render cannot initiate networking.
-/// Files are completely written in create-new staging before no-clobber atomic
-/// publication; the manifest is published last. Existing user assets are refused.
+/// Resume a partial pinned cache without replacing any existing file.
 pub fn download(config: &Config) -> Result<String, String> {
+    download_with_progress(config, &AtomicBool::new(false), |_| {})
+}
+
+fn check_cancelled(cancelled: &AtomicBool) -> Result<(), String> {
+    if cancelled.load(Ordering::Acquire) {
+        Err(
+            "Image setup cancelled. Completed images were kept; retry resumes missing files."
+                .into(),
+        )
+    } else {
+        Ok(())
+    }
+}
+
+fn missing_images(directory: &Path) -> Result<Vec<usize>, String> {
+    let mut missing = Vec::with_capacity(SPECIES.len());
+    // Inspect every destination before any network request. Never overwrite a
+    // user's custom/corrupt image, even when a pinned manifest is present.
+    for (index, id) in SPECIES.iter().enumerate() {
+        let path = directory.join(format!("{id}.png"));
+        match fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => missing.push(index),
+            Err(error) => return Err(format!("{}: {error}", path.display())),
+            Ok(metadata) => {
+                let result = if metadata.file_type().is_symlink() {
+                    Err("symbolic links are not download destinations".into())
+                } else {
+                    read_bounded(&path, MAX_FILE_BYTES).and_then(|bytes| {
+                        verify_hash(&bytes, HASHES[index])?;
+                        decode_png(&bytes).map(|_| ())
+                    })
+                };
+                if let Err(error) = result {
+                    return Err(format!(
+                        "{} was preserved: {error}. Move this conflicting file aside and Retry, or choose an empty --assets-dir.",
+                        path.display()
+                    ));
+                }
+            }
+        }
+    }
+    Ok(missing)
+}
+
+fn publish(directory: &Path, staging: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {
+    let staged = staging.join(name);
+    write_staged(&staged, bytes)?;
+    let destination = directory.join(name);
+    // Unlike rename, hard_link fails if another process created the destination.
+    fs::hard_link(&staged, &destination).map_err(|error| {
+        format!(
+            "Cannot publish {} without overwriting: {error}. Existing files were preserved; reload or retry.",
+            destination.display()
+        )
+    })
+}
+
+fn download_with_progress(
+    config: &Config,
+    cancelled: &AtomicBool,
+    mut progress: impl FnMut(String),
+) -> Result<String, String> {
+    check_cancelled(cancelled)?;
     let directory = &config.assets_dir;
     fs::create_dir_all(directory).map_err(|error| format!("{}: {error}", directory.display()))?;
-    if let Some(_sources) = load_manifest(directory)? {
-        for (index, id) in SPECIES.iter().enumerate() {
-            let bytes = read_bounded(&directory.join(format!("{id}.png")), MAX_FILE_BYTES)?;
-            verify_hash(&bytes, HASHES[index]).map_err(|error| format!("{id}.png: {error}"))?;
-            decode_png(&bytes).map_err(|error| format!("{id}.png: {error}"))?;
-        }
-        return Ok(format!(
-            "All nine pinned PNGs already verified in {}; no download needed.",
-            directory.display()
-        ));
-    }
-    if fs::read_dir(directory)
-        .map_err(|error| error.to_string())?
-        .next()
-        .is_some()
-    {
-        return Err(format!(
-            "{} is not empty and has no matching source manifest; choose an empty --assets-dir (existing assets were not changed)",
-            directory.display()
-        ));
-    }
+    let has_manifest = load_manifest(directory)?.is_some();
+    let missing = missing_images(directory)?;
+    let mut complete = SPECIES.len() - missing.len();
+    progress(format!(
+        "Verified {complete}/9 cached images; existing files are preserved."
+    ));
     let staging = staging_directory(directory)?;
+    if !has_manifest {
+        check_cancelled(cancelled)?;
+        let bytes = serde_json::to_vec_pretty(&manifest()).map_err(|error| error.to_string())?;
+        // Establish provenance before the first image, allowing safe resume after
+        // a cancellation, failed download, or process exit.
+        publish(directory, &staging.0, "sources.json", &bytes)?;
+    }
     let agent = ureq::AgentBuilder::new()
         .https_only(true)
         .redirects(0)
         .timeout_connect(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
         .build();
-    for (index, id) in SPECIES.iter().enumerate() {
-        let url = image_url(*id);
+    for index in missing {
+        check_cancelled(cancelled)?;
+        let id = SPECIES[index];
+        progress(format!(
+            "Downloading {id}.png from PokeAPI; {complete}/9 ready…"
+        ));
+        let url = image_url(id);
         let response = agent
             .get(&url)
             .call()
-            .map_err(|error| format!("{url}: {error}"))?;
+            .map_err(|error| format!("{url}: {error}. Retry resumes completed images."))?;
+        check_cancelled(cancelled)?;
         if response.status() != 200 {
             return Err(format!(
                 "{url}: expected HTTP 200, got {}",
@@ -660,51 +805,138 @@ pub fn download(config: &Config) -> Result<String, String> {
             return Err(format!("{url}: exceeds {MAX_FILE_BYTES}-byte limit"));
         }
         let mut bytes = Vec::new();
-        response
-            .into_reader()
-            .take(MAX_FILE_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|error| format!("{url}: {error}"))?;
+        let mut reader = response.into_reader().take(MAX_FILE_BYTES + 1);
+        let mut chunk = [0; 16 * 1024];
+        loop {
+            check_cancelled(cancelled)?;
+            let count = reader
+                .read(&mut chunk)
+                .map_err(|error| format!("{url}: {error}"))?;
+            if count == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&chunk[..count]);
+        }
         if bytes.len() as u64 > MAX_FILE_BYTES {
             return Err(format!("{url}: exceeds {MAX_FILE_BYTES}-byte limit"));
         }
         verify_hash(&bytes, HASHES[index]).map_err(|error| format!("{url}: {error}"))?;
         decode_png(&bytes).map_err(|error| format!("{url}: {error}"))?;
-        write_staged(&staging.0.join(format!("{id}.png")), &bytes)?;
-    }
-    let manifest_bytes =
-        serde_json::to_vec_pretty(&manifest()).map_err(|error| error.to_string())?;
-    write_staged(&staging.0.join("sources.json"), &manifest_bytes)?;
-    let mut published = Vec::new();
-    let result = (|| {
-        for name in SPECIES
-            .iter()
-            .map(|id| format!("{id}.png"))
-            .chain(std::iter::once("sources.json".into()))
-        {
-            let destination = directory.join(&name);
-            // hard_link publishes complete bytes and fails if the destination exists,
-            // unlike rename, which could silently replace an asset created meanwhile.
-            fs::hard_link(staging.0.join(&name), &destination).map_err(|error| {
-                format!(
-                    "cannot publish {} without overwriting: {error}",
-                    destination.display()
-                )
-            })?;
-            published.push(destination);
-        }
-        Ok(())
-    })();
-    if let Err(error) = result {
-        for path in published {
-            let _ = fs::remove_file(path);
-        }
-        return Err(error);
+        check_cancelled(cancelled)?;
+        publish(directory, &staging.0, &format!("{id}.png"), &bytes)?;
+        complete += 1;
     }
     Ok(format!(
-        "Downloaded and SHA256-verified nine pinned PNGs to {}. {ATTRIBUTION}",
+        "All nine pinned PNGs are SHA256-verified in {}. {ATTRIBUTION}",
         directory.display()
     ))
+}
+
+#[derive(Clone, Copy)]
+pub enum Request {
+    Download,
+    Reload,
+}
+
+pub enum Event {
+    Progress(String),
+    Finished {
+        artwork: Box<Artwork>,
+        result: Result<String, String>,
+    },
+}
+
+/// One explicit operation at a time. No network request is made on startup.
+pub struct Worker {
+    commands: SyncSender<Request>,
+    events: Receiver<Event>,
+    busy: AtomicBool,
+    cancelled: Arc<AtomicBool>,
+    stopped: Arc<AtomicBool>,
+}
+
+impl Worker {
+    pub fn start(config: Config) -> std::io::Result<Self> {
+        let (commands, requests) = mpsc::sync_channel(1);
+        // At most ten progress messages and one completion per request.
+        let (results, events) = mpsc::sync_channel(16);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let stopped = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = cancelled.clone();
+        let worker_stopped = stopped.clone();
+        thread::Builder::new()
+            .name("eevee-artwork".into())
+            .spawn(move || {
+                while let Ok(request) = requests.recv() {
+                    if worker_stopped.load(Ordering::Acquire) {
+                        break;
+                    }
+                    let result = match request {
+                        Request::Download => {
+                            download_with_progress(&config, &worker_cancelled, |message| {
+                                let _ = results.send(Event::Progress(message));
+                            })
+                        }
+                        Request::Reload => Ok("Reloaded local artwork; no network request.".into()),
+                    };
+                    if worker_stopped.load(Ordering::Acquire) {
+                        break;
+                    }
+                    // Reload on failure too: completed downloads remain useful.
+                    let artwork = Box::new(Artwork::load(&config));
+                    if results.send(Event::Finished { artwork, result }).is_err() {
+                        break;
+                    }
+                }
+            })?;
+        Ok(Self {
+            commands,
+            events,
+            busy: AtomicBool::new(false),
+            cancelled,
+            stopped,
+        })
+    }
+
+    pub fn try_request(&self, request: Request) -> bool {
+        if self
+            .busy
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return false;
+        }
+        self.cancelled.store(false, Ordering::Release);
+        if self.commands.try_send(request).is_err() {
+            self.busy.store(false, Ordering::Release);
+            return false;
+        }
+        true
+    }
+
+    pub fn busy(&self) -> bool {
+        self.busy.load(Ordering::Acquire)
+    }
+
+    /// A current socket read may take up to its 30-second request timeout.
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+    }
+
+    pub fn try_event(&self) -> Option<Event> {
+        let event = self.events.try_recv().ok()?;
+        if matches!(&event, Event::Finished { .. }) {
+            self.busy.store(false, Ordering::Release);
+        }
+        Some(event)
+    }
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        self.stopped.store(true, Ordering::Release);
+        self.cancel();
+    }
 }
 
 #[cfg(test)]
@@ -887,6 +1119,41 @@ mod tests {
     }
 
     #[test]
+    fn ascii_art_preserves_the_backing_surface_instead_of_resetting_its_colors() {
+        let directory = TestDirectory::new();
+        let mut image = RgbaImage::from_pixel(2, 2, Rgba([255, 255, 255, 255]));
+        image.put_pixel(0, 0, Rgba([255, 0, 0, 0]));
+        fs::write(directory.0.join("133.png"), png(&image)).unwrap();
+        let area = Rect::new(0, 0, 2, 1);
+        let background = Color::Rgb(24, 33, 45);
+        let foreground = Color::Rgb(232, 237, 244);
+        for (mode, ascii) in [
+            (ColorMode::Mono, false),
+            (ColorMode::TrueColor, true),
+            (ColorMode::Indexed, true),
+        ] {
+            let mut settings = config(&directory.0);
+            settings.color = mode;
+            settings.ascii = ascii;
+            let mut artwork = Artwork::load(&settings);
+            artwork.prepare(&[(0, area)], background);
+            let mut buffer = Buffer::empty(area);
+            for cell in &mut buffer.content {
+                cell.set_bg(background).set_fg(foreground);
+            }
+            artwork.render(0, area, &mut buffer);
+            assert_eq!(buffer[(0, 0)].symbol(), "=");
+            assert_eq!(buffer[(1, 0)].symbol(), "@");
+            assert!(
+                buffer
+                    .content
+                    .iter()
+                    .all(|cell| cell.bg == background && cell.fg == foreground)
+            );
+        }
+    }
+
+    #[test]
     fn local_missing_corrupt_and_off_states_are_honest() {
         let directory = TestDirectory::new();
         let mut settings = config(&directory.0);
@@ -991,11 +1258,101 @@ mod tests {
         file.set_len(MAX_FILE_BYTES + 1).unwrap();
         assert!(read_bounded(&path, MAX_FILE_BYTES).is_err());
         let error = download(&config(&directory.0)).unwrap_err();
-        assert!(error.contains("not empty"));
+        assert!(error.contains("was preserved"));
         assert_eq!(fs::metadata(path).unwrap().len(), MAX_FILE_BYTES + 1);
         let staged = directory.0.join("stage");
         write_staged(&staged, b"original").unwrap();
         assert!(write_staged(&staged, b"replacement").is_err());
         assert_eq!(fs::read(staged).unwrap(), b"original");
+    }
+
+    #[test]
+    fn thumbnails_average_source_coverage_and_trim_only_empty_border() {
+        let mut image = RgbaImage::new(16, 16);
+        for y in 4..12 {
+            for x in 2..14 {
+                image.put_pixel(x, y, Rgba([240, 120, 60, 255]));
+            }
+        }
+        let cropped = trim_transparent_border(image);
+        assert_eq!(cropped.dimensions(), (12, 8));
+        assert_eq!(cropped.get_pixel(0, 0), &Rgba([240, 120, 60, 255]));
+        let mut narrow_line = RgbaImage::from_pixel(8, 8, Rgba([0, 0, 0, 255]));
+        for y in 0..8 {
+            narrow_line.put_pixel(0, y, Rgba([255, 255, 255, 255]));
+        }
+        // Point sampling the center lost this entire one-pixel feature.
+        assert_eq!(sample(&narrow_line, 0, 0, 1, 1, [0; 3]), [32; 3]);
+        let transparent = RgbaImage::new(4, 4);
+        assert_eq!(trim_transparent_border(transparent).dimensions(), (4, 4));
+    }
+
+    #[test]
+    fn every_missing_form_has_a_setup_placeholder_and_reload_generation() {
+        let directory = TestDirectory::new();
+        let settings = config(&directory.0);
+        let artwork = Artwork::load(&settings);
+        assert_eq!(artwork.available(), 0);
+        assert_ne!(artwork.generation(), Artwork::load(&settings).generation());
+        let area = Rect::new(0, 0, 20, 3);
+        for index in 0..SPECIES.len() {
+            let mut buffer = Buffer::empty(area);
+            artwork.render(index, area, &mut buffer);
+            let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+            assert!(text.contains("Images: setup"));
+        }
+    }
+
+    #[test]
+    fn partial_manifest_is_resumable_and_conflicts_are_never_replaced() {
+        let directory = TestDirectory::new();
+        fs::write(
+            directory.0.join("sources.json"),
+            serde_json::to_vec(&manifest()).unwrap(),
+        )
+        .unwrap();
+        assert!(load_manifest(&directory.0).unwrap().is_some());
+        assert_eq!(
+            missing_images(&directory.0).unwrap(),
+            (0..9).collect::<Vec<_>>()
+        );
+        fs::write(directory.0.join("700.png"), b"keep this custom file").unwrap();
+        let error = missing_images(&directory.0).unwrap_err();
+        assert!(error.contains("700.png was preserved"));
+        assert_eq!(
+            fs::read(directory.0.join("700.png")).unwrap(),
+            b"keep this custom file"
+        );
+        let cancelled = AtomicBool::new(true);
+        assert!(
+            download_with_progress(&config(&directory.0), &cancelled, |_| {})
+                .unwrap_err()
+                .contains("cancelled")
+        );
+    }
+
+    #[test]
+    fn worker_starts_idle_and_reloads_local_images_without_network() {
+        let directory = TestDirectory::new();
+        let worker = Worker::start(config(&directory.0)).unwrap();
+        assert!(!worker.busy());
+        assert!(worker.try_event().is_none());
+        assert!(worker.try_request(Request::Reload));
+        assert!(!worker.try_request(Request::Reload));
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(Event::Finished { artwork, result }) = worker.try_event() {
+                assert_eq!(artwork.available(), 0);
+                assert!(result.unwrap().contains("no network"));
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "local reload did not finish"
+            );
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(!worker.busy());
+        assert!(!directory.0.join("sources.json").exists());
     }
 }

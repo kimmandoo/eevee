@@ -1,10 +1,17 @@
-# Install an explicitly supplied, verified Windows package without downloads or elevation.
+# Install, update, or remove an owned Windows release without elevation.
 # PowerShell 5.1+; never changes the execution policy or permanent PATH.
+# Online: .\install.ps1 [-Version v0.1.0] [-InstallDir C:\Tools\ev]
+# Offline: .\install.ps1 -Archive C:\Downloads\ev-windows-x86_64.zip -Checksums C:\Downloads\SHA256SUMS
+# Remove only hash-matching owned files: .\install.ps1 -Uninstall [-InstallDir C:\Tools\ev]
+# -OwnerProcessId is reserved for the synchronously waiting `ev update`/`ev uninstall`.
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Archive,
-    [Parameter(Mandatory = $true)][string]$Checksums,
-    [string]$InstallDir
+    [string]$Archive,
+    [string]$Checksums,
+    [string]$InstallDir,
+    [string]$Version,
+    [switch]$Uninstall,
+    [int]$OwnerProcessId = 0
 )
 
 Set-StrictMode -Version 2.0
@@ -12,12 +19,205 @@ $ErrorActionPreference = 'Stop'
 $archiveLimit = 64MB
 $extractedLimit = 96MB
 $archiveName = 'ev-windows-x86_64.zip'
-$recognizedArchive = 'ev-(?:(?:darwin|linux)-(?:arm64|x86_64)\.tar\.gz|windows-x86_64\.zip)'
+$recognizedArchive = '(?:ev-(?:(?:darwin|linux)-(?:arm64|x86_64)\.tar\.gz|windows-x86_64\.zip)|install\.(?:sh|ps1))'
 $stage = $null
 $keepStage = $false
 $installLock = $null
 $archiveStream = $null
 $zip = $null
+$animation = $false
+$animationClock = [Diagnostics.Stopwatch]::new()
+$animationFrame = 0
+$animationWidth = 0
+$oldCursorVisible = $true
+$oldSecurityProtocol = [Net.ServicePointManager]::SecurityProtocol
+$ownerProcess = $null
+$ownerStartTicks = 0L
+$deferCleanup = $false
+
+function Assert-RunningOwner([string]$Binary) {
+    if ($OwnerProcessId -lt 0) { throw 'OwnerProcessId must be a positive process ID.' }
+    if ($OwnerProcessId -ne 0 -and $null -eq $script:ownerProcess) {
+        $script:ownerProcess = [Diagnostics.Process]::GetProcessById($OwnerProcessId)
+        $script:ownerStartTicks = $script:ownerProcess.StartTime.ToUniversalTime().Ticks
+    }
+    if ($null -ne $script:ownerProcess) {
+        if ($script:ownerProcess.HasExited -or
+            -not [string]::Equals($script:ownerProcess.MainModule.FileName, $Binary, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'OwnerProcessId must identify the running owned ev.exe being changed.'
+        }
+    }
+    foreach ($process in [Diagnostics.Process]::GetProcessesByName('ev')) {
+        try {
+            if ($process.HasExited) { continue }
+            if ([string]::Equals($process.MainModule.FileName, $Binary, [StringComparison]::OrdinalIgnoreCase) -and
+                $process.Id -ne $OwnerProcessId) {
+                throw 'Another ev process is using this installation. Close it and retry.'
+            }
+        } finally { $process.Dispose() }
+    }
+}
+
+function Start-RetiredCleanup([string]$Directory) {
+    # Publication is already complete. This helper only deletes the retired, owned tree.
+    # Never wait for it from ev: ev's own running image keeps the retired file mapped.
+    $source = "`$ErrorActionPreference = 'Stop'; Set-StrictMode -Version 2.0;`n"
+    foreach ($name in @('Get-PathAttributes', 'Assert-SafePath', 'Assert-SafeAncestry', 'Remove-PrivateTree')) {
+        $source += "function $name {`n" + (Get-Item -LiteralPath "Function:\$name").Definition + "`n}`n"
+    }
+    $literal = $Directory.Replace("'", "''")
+    $source += @"
+`$directory = '$literal'
+try {
+    `$owner = `$null
+    try { `$owner = [Diagnostics.Process]::GetProcessById($OwnerProcessId) }
+    catch [ArgumentException] { }
+    if (`$null -ne `$owner) {
+        try {
+            if (`$owner.StartTime.ToUniversalTime().Ticks -eq $ownerStartTicks -and -not `$owner.WaitForExit(120000)) {
+                throw 'Original updater did not exit within 120 seconds.'
+            }
+        } finally { `$owner.Dispose() }
+    }
+    Remove-PrivateTree `$directory
+} catch {
+    [Console]::Error.WriteLine('ev: retired installation cleanup failed; remove this owned recovery directory after ev exits: ' + `$directory + '. ' + `$_.Exception.Message)
+    exit 1
+}
+"@
+    $info = [Diagnostics.ProcessStartInfo]::new()
+    $info.FileName = [IO.Path]::Combine([Environment]::GetFolderPath([Environment+SpecialFolder]::System),
+        'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    $info.Arguments = '-NoLogo -NoProfile -NonInteractive -EncodedCommand ' +
+        [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($source))
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $helper = [Diagnostics.Process]::Start($info)
+    if ($null -eq $helper) { throw 'Could not start retired-installation cleanup.' }
+    $helper.Dispose()
+}
+
+function Start-InstallAnimation {
+    if ([Console]::IsOutputRedirected -or [Console]::IsErrorRedirected -or
+        -not [string]::IsNullOrEmpty($env:CI) -or $env:TERM -eq 'dumb' -or
+        $Host.Name -ne 'ConsoleHost') { return }
+    try {
+        $script:animationWidth = [Math]::Min(64, [Console]::WindowWidth - 1)
+        if ($script:animationWidth -lt 32) { return }
+        $script:oldCursorVisible = [Console]::CursorVisible
+        $script:animation = $true
+        [Console]::CursorVisible = $false
+        $script:animationClock.Start()
+        Update-InstallAnimation
+    } catch { Stop-InstallAnimation }
+}
+
+function Update-InstallAnimation {
+    if (-not $script:animation -or $script:animationClock.ElapsedMilliseconds -lt 90) { return }
+    try {
+        $frames = @('(-o-)', '(\o\)', '(|o|)', '(/o/)')
+        $position = $script:animationFrame % 12
+        if ($position -gt 6) { $position = 12 - $position }
+        $line = (' ' * $position) + $frames[$script:animationFrame % 4] + '  Rolling Poke Ball - installing'
+        [Console]::Error.Write("`r" + $line.PadRight($script:animationWidth).Substring(0, $script:animationWidth))
+        $script:animationFrame++
+        $script:animationClock.Restart()
+    } catch { Stop-InstallAnimation }
+}
+
+function Stop-InstallAnimation {
+    if (-not $script:animation) { return }
+    $script:animation = $false
+    try { [Console]::Error.Write("`r" + (' ' * $script:animationWidth) + "`r") } catch { }
+    try { [Console]::CursorVisible = $script:oldCursorVisible } catch { }
+}
+
+function Get-ReleaseResponse([uri]$Uri, [Diagnostics.Stopwatch]$Clock, [string]$Method) {
+    for ($redirect = 0; $redirect -le 10; $redirect++) {
+        if ($Uri.Scheme -cne 'https' -or -not [string]::IsNullOrEmpty($Uri.UserInfo)) {
+            throw 'Release downloads require HTTPS without URL credentials.'
+        }
+        $request = [Net.HttpWebRequest]::Create($Uri)
+        $request.Method = $Method
+        $request.AllowAutoRedirect = $false
+        $request.Timeout = 15000
+        $request.ReadWriteTimeout = 15000
+        $request.UserAgent = 'eevee-native-installer'
+        $response = $null
+        try {
+            $pending = $request.GetResponseAsync()
+            $requestClock = [Diagnostics.Stopwatch]::StartNew()
+            while (-not $pending.IsCompleted) {
+                if ($Clock.ElapsedMilliseconds -gt 180000 -or $requestClock.ElapsedMilliseconds -gt 15000) {
+                    throw 'Release request timed out.'
+                }
+                Update-InstallAnimation
+                Start-Sleep -Milliseconds 50
+            }
+            $response = $pending.GetAwaiter().GetResult()
+            $status = [int]$response.StatusCode
+            if ($status -ge 300 -and $status -lt 400) {
+                $location = $response.Headers['Location']
+                if ([string]::IsNullOrEmpty($location)) { throw 'Release redirect has no destination.' }
+                $Uri = [uri]::new($Uri, $location)
+                $response.Dispose()
+                $response = $null
+                # Resolve latest without downloading a release's HTML page.
+                if ($Method -eq 'HEAD' -and $Uri.AbsoluteUri -cmatch '\Ahttps://github\.com/kimmandoo/eevee/releases/tag/(v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))\z') {
+                    return $Matches[1]
+                }
+                continue
+            }
+            if ($status -ne 200) { throw "Unexpected release HTTP status: $status" }
+            if ($Method -eq 'HEAD') { throw 'Latest release did not resolve to an exact version tag.' }
+            return $response
+        } catch {
+            if ($null -ne $response) { $response.Dispose() }
+            $request.Abort()
+            throw
+        } finally {
+            # Also abort a pending request on Ctrl+C, which may skip catch.
+            if ($null -eq $response) { $request.Abort() }
+        }
+    }
+    throw 'Too many release redirects.'
+}
+
+function Save-ReleaseFile([string]$Url, [string]$Path, [long]$Limit) {
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $response = $null
+    $inputStream = $null
+    $outputStream = $null
+    try {
+        $response = Get-ReleaseResponse ([uri]$Url) $clock 'GET'
+        if ($response.ContentLength -gt $Limit) { throw 'Release download exceeds its size limit.' }
+        $inputStream = $response.GetResponseStream()
+        $outputStream = [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        $buffer = [byte[]]::new(65536)
+        [long]$total = 0
+        while ($true) {
+            $pending = $inputStream.ReadAsync($buffer, 0, $buffer.Length)
+            while (-not $pending.IsCompleted) {
+                if ($clock.ElapsedMilliseconds -gt 180000) { throw 'Release download timed out.' }
+                Update-InstallAnimation
+                Start-Sleep -Milliseconds 50
+            }
+            if ($clock.ElapsedMilliseconds -gt 180000) { throw 'Release download timed out.' }
+            $count = $pending.GetAwaiter().GetResult()
+            if ($count -eq 0) { break }
+            $total += $count
+            if ($total -gt $Limit) { throw 'Release download exceeds its size limit.' }
+            $outputStream.Write($buffer, 0, $count)
+            Update-InstallAnimation
+        }
+        if ($total -eq 0) { throw 'Release download is empty.' }
+        $outputStream.Flush($true)
+    } finally {
+        if ($null -ne $response) { $response.Dispose() }
+        if ($null -ne $inputStream) { $inputStream.Dispose() }
+        if ($null -ne $outputStream) { $outputStream.Dispose() }
+    }
+}
 
 function Get-AbsolutePath([string]$Value, [string]$Label) {
     if ([string]::IsNullOrWhiteSpace($Value) -or
@@ -25,14 +225,16 @@ function Get-AbsolutePath([string]$Value, [string]$Label) {
         $Value.StartsWith('\\?\') -or $Value.StartsWith('\\.\')) {
         throw "$Label must be an absolute Windows filesystem path."
     }
-    $result = [IO.Path]::GetFullPath($Value)
-    $root = [IO.Path]::GetPathRoot($result)
-    # Reject alternate data streams and Win32 aliases, not ordinary spaces or Unicode.
-    foreach ($part in $result.Substring($root.Length).Split([char]'\')) {
-        if ($part.Contains(':') -or $part.EndsWith('.') -or $part.EndsWith(' ')) {
+    # Validate before normalization, which can erase trailing-space/dot aliases.
+    $valueRoot = [IO.Path]::GetPathRoot($Value)
+    foreach ($part in ($Value.Substring($valueRoot.Length) -split '[\\/]')) {
+        if ($part.Contains(':') -or $part.EndsWith('.') -or $part.EndsWith(' ') -or
+            $part -match '\A(?:CON|PRN|AUX|NUL|COM[1-9\u00b9\u00b2\u00b3]|LPT[1-9\u00b9\u00b2\u00b3])(?:\.|\z)') {
             throw "$Label contains an alternate stream or ambiguous path component."
         }
     }
+    $result = [IO.Path]::GetFullPath($Value)
+    $root = [IO.Path]::GetPathRoot($result)
     if ($result.Length -gt $root.Length) { $result = $result.TrimEnd([char]'\') }
     return $result
 }
@@ -104,7 +306,7 @@ function Read-ExpectedChecksum([string]$Path) {
         $selected = $null
         while ($null -ne ($line = $reader.ReadLine())) {
             if ($line -cnotmatch ('\A([0-9a-fA-F]{64})  (' + $recognizedArchive + ')\z')) {
-                throw 'SHA256SUMS must contain only SHA-256, two spaces, and recognized archive basenames.'
+                throw 'SHA256SUMS must contain only SHA-256, two spaces, and recognized release basenames.'
             }
             $hash = $Matches[1].ToLowerInvariant()
             $name = $Matches[2]
@@ -142,11 +344,17 @@ function Assert-OwnedInstall([string]$Binary, [string]$Metadata) {
     $markerPath = [IO.Path]::Combine($Metadata, '.native-install')
     if ([IO.FileInfo]::new($markerPath).Length -gt 4096) { throw 'Invalid ev ownership marker.' }
     $marker = [IO.File]::ReadAllText($markerPath, [Text.UTF8Encoding]::new($false, $true))
-    $pattern = '\Aev-native-install-v1\r?\nversion=ev [0-9][0-9A-Za-z.+_-]*\r?\nsha256=([0-9a-f]{64})\r?\n\z'
+    $pattern = '\Aev-native-install-v2\r?\nversion=ev [0-9][0-9A-Za-z.+_-]*\r?\nsha256=([0-9a-f]{64})\r?\nlicense-sha256=([0-9a-f]{64})\r?\nnotices-sha256=([0-9a-f]{64})\r?\n\z'
     if ($marker -cnotmatch $pattern) { throw 'Invalid ev ownership marker; refusing to replace the executable.' }
     $ownedHash = $Matches[1]
+    $licenseHash = $Matches[2]
+    $noticesHash = $Matches[3]
     if ((Get-BinarySha256 $Binary) -cne $ownedHash) {
         throw 'Existing ev.exe does not match its ownership marker; refusing to replace it.'
+    }
+    if ((Get-BinarySha256 ([IO.Path]::Combine($Metadata, 'LICENSE'))) -cne $licenseHash -or
+        (Get-BinarySha256 ([IO.Path]::Combine($Metadata, 'THIRD_PARTY_NOTICES'))) -cne $noticesHash) {
+        throw 'Existing license metadata does not match its ownership marker; refusing to change it.'
     }
     return $true
 }
@@ -193,6 +401,7 @@ function Get-StagedVersion([string]$Binary) {
             }
             if (-not $process.HasExited -or $null -ne $stdoutRead -or $null -ne $stderrRead) {
                 Start-Sleep -Milliseconds 10
+                Update-InstallAnimation
             }
         }
         $process.WaitForExit()
@@ -239,10 +448,18 @@ try {
     if (-not [Environment]::Is64BitOperatingSystem -or $nativeArchitecture -cne 'AMD64') {
         throw 'Only native Windows x86_64 is supported; ARM64/emulation is not supported.'
     }
-    $archivePath = Get-AbsolutePath $Archive 'Archive'
-    $checksumPath = Get-AbsolutePath $Checksums 'Checksums'
-    if ([IO.Path]::GetFileName($archivePath) -cne $archiveName) {
-        throw "Archive basename must be exactly $archiveName."
+    $offline = -not [string]::IsNullOrEmpty($Archive) -or -not [string]::IsNullOrEmpty($Checksums)
+    if ($offline -and ([string]::IsNullOrEmpty($Archive) -or [string]::IsNullOrEmpty($Checksums))) {
+        throw 'Supply both -Archive and -Checksums for an offline installation.'
+    }
+    if ($Uninstall -and ($offline -or -not [string]::IsNullOrEmpty($Version))) {
+        throw '-Uninstall cannot be combined with -Archive, -Checksums, or -Version.'
+    }
+    $releaseTag = $Version
+    if (-not $Uninstall -and [string]::IsNullOrEmpty($releaseTag)) { $releaseTag = $env:EV_VERSION }
+    if (-not [string]::IsNullOrEmpty($releaseTag) -and
+        ($releaseTag.Length -gt 64 -or $releaseTag -cnotmatch '\Av(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\z')) {
+        throw 'Version must be an exact release tag such as v0.1.0.'
     }
     if ([string]::IsNullOrEmpty($InstallDir)) {
         if (-not [string]::IsNullOrEmpty($env:EV_INSTALL_DIR)) { $InstallDir = $env:EV_INSTALL_DIR }
@@ -252,6 +469,70 @@ try {
     }
     $destination = Get-AbsolutePath $InstallDir 'InstallDir'
     Assert-SafeAncestry $destination
+    if ($Uninstall) { Assert-SafePath $destination $true $true }
+    else { New-SafeDirectory $destination }
+    Assert-SafeAncestry $destination
+    $binary = [IO.Path]::Combine($destination, 'ev.exe')
+    $metadata = [IO.Path]::Combine($destination, '.ev-install')
+    $lockPath = [IO.Path]::Combine($destination, '.ev-install.lock')
+    Assert-SafePath $lockPath $false $false
+    # CreateNew and DeleteOnClose serialize installers without overwriting an existing lock.
+    $installLock = [IO.FileStream]::new($lockPath, [IO.FileMode]::CreateNew,
+        [IO.FileAccess]::ReadWrite, [IO.FileShare]::None, 4096, [IO.FileOptions]::DeleteOnClose)
+    $hadInstall = Assert-OwnedInstall $binary $metadata
+    if (($Uninstall -or $OwnerProcessId -ne 0) -and -not $hadInstall) {
+        throw 'No owned ev installation exists at this destination.'
+    }
+    Assert-RunningOwner $binary
+    $stage = [IO.Path]::Combine($destination, '.ev-stage-' + [Guid]::NewGuid().ToString('N'))
+    if ($null -ne (Get-PathAttributes $stage)) { throw 'Staging path already exists.' }
+    [void][IO.Directory]::CreateDirectory($stage)
+    Assert-SafeAncestry $stage
+    if ($Uninstall) {
+        $backupBinary = [IO.Path]::Combine($stage, 'previous-ev.exe')
+        $backupMetadata = [IO.Path]::Combine($stage, 'previous-metadata')
+        $metadataRetired = $false
+        $binaryRetired = $false
+        $keepStage = $true
+        try {
+            [IO.Directory]::Move($metadata, $backupMetadata)
+            $metadataRetired = $true
+            [IO.File]::Move($binary, $backupBinary)
+            $binaryRetired = $true
+        } catch {
+            $uninstallError = $_.Exception.Message
+            try {
+                if ($binaryRetired) { [IO.File]::Move($backupBinary, $binary) }
+                if ($metadataRetired) { [IO.Directory]::Move($backupMetadata, $metadata) }
+                $keepStage = $false
+            } catch {
+                throw "Uninstall failed: $uninstallError. Recovery files retained at ${stage}: $($_.Exception.Message)"
+            }
+            throw "Could not uninstall ev; previous installation was preserved. Close running ev and retry. Details: $uninstallError"
+        }
+        $keepStage = $false
+        $deferCleanup = $null -ne $ownerProcess
+        Write-Output "Uninstalled ev from $binary. Task, cache, and provider data were retained."
+        return
+    }
+    Start-InstallAnimation
+    if ($offline) {
+        $archivePath = Get-AbsolutePath $Archive 'Archive'
+        $checksumPath = Get-AbsolutePath $Checksums 'Checksums'
+        if ([IO.Path]::GetFileName($archivePath) -cne $archiveName) {
+            throw "Archive basename must be exactly $archiveName."
+        }
+    } else {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        if ([string]::IsNullOrEmpty($releaseTag)) {
+            $releaseTag = Get-ReleaseResponse ([uri]'https://github.com/kimmandoo/eevee/releases/latest') ([Diagnostics.Stopwatch]::StartNew()) 'HEAD'
+        }
+        $releaseBase = "https://github.com/kimmandoo/eevee/releases/download/$releaseTag"
+        $archivePath = [IO.Path]::Combine($stage, $archiveName)
+        $checksumPath = [IO.Path]::Combine($stage, 'SHA256SUMS')
+        Save-ReleaseFile "$releaseBase/SHA256SUMS" $checksumPath 1MB
+        Save-ReleaseFile "$releaseBase/$archiveName" $archivePath $archiveLimit
+    }
     $expectedHash = Read-ExpectedChecksum $checksumPath
     Assert-SafeAncestry ([IO.Path]::GetDirectoryName($archivePath))
     Assert-SafePath $archivePath $false $true
@@ -287,20 +568,6 @@ try {
         $members[$entry.FullName] = $entry
     }
 
-    New-SafeDirectory $destination
-    Assert-SafeAncestry $destination
-    $binary = [IO.Path]::Combine($destination, 'ev.exe')
-    $metadata = [IO.Path]::Combine($destination, '.ev-install')
-    $lockPath = [IO.Path]::Combine($destination, '.ev-install.lock')
-    Assert-SafePath $lockPath $false $false
-    # CreateNew and DeleteOnClose serialize installers without overwriting an existing lock.
-    $installLock = [IO.FileStream]::new($lockPath, [IO.FileMode]::CreateNew,
-        [IO.FileAccess]::ReadWrite, [IO.FileShare]::None, 4096, [IO.FileOptions]::DeleteOnClose)
-    $hadInstall = Assert-OwnedInstall $binary $metadata
-    $stage = [IO.Path]::Combine($destination, '.ev-stage-' + [Guid]::NewGuid().ToString('N'))
-    if ($null -ne (Get-PathAttributes $stage)) { throw 'Staging path already exists.' }
-    [void][IO.Directory]::CreateDirectory($stage)
-    Assert-SafeAncestry $stage
     $stageMetadata = [IO.Path]::Combine($stage, '.ev-install')
     [void][IO.Directory]::CreateDirectory($stageMetadata)
     $stageBinary = [IO.Path]::Combine($stage, 'ev.exe')
@@ -323,6 +590,7 @@ try {
                     throw 'Archive expands beyond its declared size or the 96 MiB limit.'
                 }
                 $output.Write($buffer, 0, $count)
+                Update-InstallAnimation
             }
             if ($written -ne $entry.Length) { throw "Truncated archive member: $name" }
             $output.Flush($true)
@@ -335,26 +603,38 @@ try {
     $archiveStream.Dispose(); $archiveStream = $null
     $binaryHash = Get-BinarySha256 $stageBinary
     $version = Get-StagedVersion $stageBinary
+    if (-not [string]::IsNullOrEmpty($releaseTag) -and $version -cne ('ev ' + $releaseTag.Substring(1))) {
+        throw 'Staged executable version does not match the pinned release tag.'
+    }
     if ((Get-BinarySha256 $stageBinary) -cne $binaryHash) { throw 'Staged executable changed during --version.' }
-    $marker = "ev-native-install-v1`nversion=$version`nsha256=$binaryHash`n"
+    $licenseHash = Get-BinarySha256 ([IO.Path]::Combine($stageMetadata, 'LICENSE'))
+    $noticesHash = Get-BinarySha256 ([IO.Path]::Combine($stageMetadata, 'THIRD_PARTY_NOTICES'))
+    $marker = "ev-native-install-v2`nversion=$version`nsha256=$binaryHash`nlicense-sha256=$licenseHash`nnotices-sha256=$noticesHash`n"
     [IO.File]::WriteAllText([IO.Path]::Combine($stageMetadata, '.native-install'), $marker, [Text.UTF8Encoding]::new($false))
     Assert-SafeAncestry $destination
     if ((Assert-OwnedInstall $binary $metadata) -ne $hadInstall) { throw 'Installation changed during staging.' }
+    Assert-RunningOwner $binary
     $backupBinary = [IO.Path]::Combine($stage, 'previous-ev.exe')
     $backupMetadata = [IO.Path]::Combine($stage, 'previous-metadata')
     $binaryPublished = $false
     $metadataBackedUp = $false
     $metadataPublished = $false
+    $keepStage = $true
     try {
-        # Publish metadata first; the executable's atomic rename is the final commit.
-        # A locked executable therefore leaves the old binary untouched while metadata rolls back.
+        # Publish metadata first; the executable rename is the final commit.
+        # A locked executable leaves the old binary untouched while metadata rolls back.
         if ($hadInstall) {
             [IO.Directory]::Move($metadata, $backupMetadata)
             $metadataBackedUp = $true
         }
         [IO.Directory]::Move($stageMetadata, $metadata)
         $metadataPublished = $true
-        if ($hadInstall) {
+        if ($hadInstall -and $null -ne $ownerProcess) {
+            # A running image can be renamed, but not deleted. Only this verified
+            # updater's image may take this path; other running ev instances were rejected.
+            [IO.File]::Move($binary, $backupBinary)
+            [IO.File]::Move($stageBinary, $binary)
+        } elseif ($hadInstall) {
             # ReplaceFile may move the old executable before reporting a failure.
             [IO.File]::Replace($stageBinary, $binary, $backupBinary, $false)
         } else { [IO.File]::Move($stageBinary, $binary) }
@@ -369,7 +649,10 @@ try {
         try {
             if ($hadInstall -and [IO.File]::Exists($backupBinary)) {
                 if ([IO.File]::Exists($binary)) {
-                    [IO.File]::Replace($backupBinary, $binary, $stageBinary, $false)
+                    if ($null -ne $ownerProcess) {
+                        [IO.File]::Move($binary, $stageBinary)
+                        [IO.File]::Move($backupBinary, $binary)
+                    } else { [IO.File]::Replace($backupBinary, $binary, $stageBinary, $false) }
                 } else {
                     [IO.File]::Move($backupBinary, $binary)
                 }
@@ -381,8 +664,12 @@ try {
             $keepStage = $true
             throw "Publication failed: $publicationError. Rollback also failed: $($rollbackErrors -join '; '). Recovery files retained at $stage."
         }
+        $keepStage = $false
         throw "Could not publish ev; previous installation was preserved. Close any running ev and retry. The installer never stops installed ev processes. Details: $publicationError"
     }
+    $keepStage = $false
+    $deferCleanup = $hadInstall -and $null -ne $ownerProcess
+    Stop-InstallAnimation
     Write-Output "Installed $version at $binary"
     $onPath = $false
     foreach ($pathEntry in ($env:PATH -split ';')) {
@@ -399,14 +686,22 @@ try {
         Write-Output $destination
     }
 } catch {
+    Stop-InstallAnimation
     [Console]::Error.WriteLine('ev installer: ' + $_.Exception.Message)
     exit 1
 } finally {
+    Stop-InstallAnimation
+    [Net.ServicePointManager]::SecurityProtocol = $oldSecurityProtocol
     if ($null -ne $zip) { $zip.Dispose() }
     if ($null -ne $archiveStream) { $archiveStream.Dispose() }
     if ($null -ne $stage -and -not $keepStage) {
-        try { Remove-PrivateTree $stage }
-        catch { [Console]::Error.WriteLine("Temporary installation files remain at ${stage}: " + $_.Exception.Message) }
+        try {
+            if ($deferCleanup) { Start-RetiredCleanup $stage }
+            else { Remove-PrivateTree $stage }
+        } catch { [Console]::Error.WriteLine("Temporary installation files remain at ${stage}: " + $_.Exception.Message) }
+    } elseif ($keepStage) {
+        [Console]::Error.WriteLine("Installation transaction was interrupted or could not roll back; recovery files retained at $stage.")
     }
     if ($null -ne $installLock) { $installLock.Dispose() }
+    if ($null -ne $ownerProcess) { $ownerProcess.Dispose() }
 }

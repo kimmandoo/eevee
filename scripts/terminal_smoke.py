@@ -406,7 +406,7 @@ class Session:
         assert len(self.text) == before, "app emitted output while idle"
         self.events.append({"idle_seconds": 0.5, "output_bytes": 0})
 
-    def wait_exit(self):
+    def wait_exit(self, *, tui=True):
         deadline = time.monotonic() + 8
         while self.alive() and time.monotonic() < deadline:
             self.pump(0.1)
@@ -419,17 +419,19 @@ class Session:
             self.status = native["child_status"]
             self.events.append({"console_restoration": native})
             assert native["before"] == native["after"], "Windows console modes not restored"
-            assert any(not mode[0] & 0x0007 for mode in native["observed"]), "Windows raw console mode not observed"
-            assert native["primary_hidden_during_child"], "native alternate buffer was not observed"
-            assert native["primary_before"] == native["primary_after"] == "EEVEE_PRIMARY_SENTINEL", \
-                "native primary screen contents were not restored"
+            if tui:
+                assert any(not mode[0] & 0x0007 for mode in native["observed"]), "Windows raw console mode not observed"
+                assert native["primary_hidden_during_child"], "native alternate buffer was not observed"
+                assert native["primary_before"] == native["primary_after"] == "EEVEE_PRIMARY_SENTINEL", \
+                    "native primary screen contents were not restored"
         else:
             import termios
             self.status = self.process.wait(timeout=2)
             after = termios.tcgetattr(self.slave)
             native = {"before": repr(self.mode_before), "raw": repr(self.mode_raw), "after": repr(after)}
             self.events.append({"termios_restoration": native})
-            assert self.mode_raw is not None, "POSIX raw input mode not observed"
+            if tui:
+                assert self.mode_raw is not None, "POSIX raw input mode not observed"
             before_flags, after_flags = list(self.mode_before), list(after)
             # macOS kernel-managed pending input is not a terminal mode owned
             # by the app; all raw/canonical/echo and other attributes must match.
@@ -442,10 +444,10 @@ class Session:
             for number in sequence.group(1).split(";"):
                 modes[int(number)] = sequence.group(2) == "h"
         self.events.append({"status": self.status, "final_vt_modes": modes})
-        assert modes.get(25) is True, "cursor was not shown on exit"
+        assert modes.get(25, not tui) is True, "cursor was not shown on exit"
         if not WINDOWS:
-            assert modes.get(1049) is False, "alternate screen was not left"
-        assert modes.get(2004) is False, "bracketed paste was not disabled"
+            assert modes.get(1049, False if not tui else None) is False, "alternate screen was not left"
+        assert modes.get(2004, False if not tui else None) is False, "bracketed paste was not disabled"
         self.events.append({"status": self.status, "restoration": native, "final_vt_modes": modes})
         return self.status
 
@@ -506,6 +508,7 @@ def exercise_ui(session, size, cwd):
     assert ESC + "]0;SMOKE_CWD" not in session.text, "cwd controls escaped sanitization"
     session.capture("initial")
     session.idle()
+    session.send(ESC)  # This legacy journey explicitly enters navigation first.
     session.send("g")
     session.paste("🐾 smoke_goal 漢字 cafe\u0301")
     assert "smoke_goal 漢字 café" in session.display(), "CJK/combining paste not visible"
@@ -693,6 +696,8 @@ def main():
                 try:
                     session.pump(0.8)
                     session.capture("initial")
+                    if key == "q":
+                        session.send(ESC)  # q is literal text until navigation is entered.
                     session.send(key)
                     assert session.wait_exit() == 0
                     results["cases"].append({"name": name, "status": "passed"})

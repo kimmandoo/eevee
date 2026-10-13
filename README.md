@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/PokeAPI/sprites/0dc105d5b12416932f29b594078282ab4be045f5/sprites/pokemon/133.png" width="96" height="96" alt="Eevee pixel sprite">
+<img src="https://raw.githubusercontent.com/PokeAPI/sprites/0dc105d5b12416932f29b594078282ab4be045f5/sprites/pokemon/other/official-artwork/133.png" width="144" height="144" alt="Eevee artwork with a transparent background">
 
 <h1>
   <picture>
@@ -23,7 +23,7 @@ One persistent partner. Nine task-specific forms. Your work stays local until yo
 
 Eevee brings durable tasks, repository context, reviewed commands, and optional coding agents into a native Rust TUI. The executable is **`ev`**. You can use the local workbench without an account, API key, Node runtime, or model connection.
 
-> **Project status:** Active development. Local workflows and scoped agent integrations are implemented; authenticated interoperability and current native-platform parity remain separate acceptance gates. Public releases are withheld. See the [backlog](task.md) and [verification checkpoint](docs/WORK_CHECKPOINT.md) for exact coverage.
+> **0.1.0:** A standalone local-first workbench with optional provider integrations. Native installation/terminal checks and authenticated provider interoperability are separate qualifications. See the [release](https://github.com/kimmandoo/eevee/releases/tag/v0.1.0), [backlog](task.md), and [verification checkpoint](docs/WORK_CHECKPOINT.md) for exact coverage.
 
 ## Why Eevee
 
@@ -36,30 +36,54 @@ Eevee brings durable tasks, repository context, reviewed commands, and optional 
 
 ## Quick start
 
-Build the current source with **Rust 1.90 or later**:
+**macOS / Linux** — install the latest verified release binary:
+
+```sh
+curl -fsSL https://github.com/kimmandoo/eevee/releases/latest/download/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+ev
+```
+
+Prefer to inspect the script first, pin a version, or use **Windows**? See [installation](#installation-and-platform-status). The core executable needs **no Rust, Node, account, or API key**.
+
+```sh
+ev update --check   # Read-only release check
+ev update           # Upgrade in the original install directory
+ev uninstall        # Remove the binary and licenses; keep user data
+```
+
+Use an interactive terminal of at least **60 × 18** cells; **120 × 36** leaves room for all three panes. Authentication review requires **80 × 24**.
+
+1. **Type directly into the visible Goal box.** Enter saves locally; wait for **Storage: saved**.
+2. **F2 — Connect:** choose a provider with arrows, Enter opens its actions, then choose Connect and a sign-in method.
+3. **F3 — Evolution:** preview a form, then Enter selects it. This never starts work.
+4. **F4 — Images:** optionally choose **Download all 9**. Progress, cancellation, retry and local reload stay in the app.
+5. **Ctrl+K — Actions:** browse task cards, criteria, source context, local commands and model requests without memorizing shortcuts.
+
+F1 opens help. Global navigation retains an unfinished draft; Esc leaves a clean editor or reviews a changed one. Enter in the goal box never sends a model request.
+
+<details>
+<summary>Build from source instead</summary>
+
+Requires Rust 1.90 or later:
 
 ```sh
 git clone https://github.com/kimmandoo/eevee.git
 cd eevee
 cargo build --locked --release
-./target/release/ev --images off
+./target/release/ev
 ```
 
-On Windows, run `.\target\release\ev.exe --images off` after building.
+On Windows, run `.\target\release\ev.exe`. Source builds use the same durable data paths as installed releases.
 
-Use an interactive terminal of at least **60 × 18** cells; **120 × 36** leaves room for all three panes. Authentication review requires **80 × 24**. No artwork or provider is needed to start.
-
-1. Press **`g`** to write a goal; Enter applies it. Wait for **Storage: saved**.
-2. Press **`c`**, then **`e`**, to add acceptance criteria.
-3. Press **`v`** to inspect and capture source context, or **`j`** to review a local command.
-4. Connect an agent with **`o`** when you want one. Open **`e`** to separately review a model request.
+</details>
 
 ```sh
-./target/release/ev --theme light
-./target/release/ev --layout linear --images off
-./target/release/ev --ascii --color mono
-./target/release/ev --data-dir /absolute/path/to/isolated-data
-./target/release/ev --help
+ev --theme light
+ev --layout linear --images off
+ev --ascii --color mono
+ev --data-dir /absolute/path/to/isolated-data
+ev --help
 ```
 
 Startup, form selection, context previews, and manual handoffs do **not** submit model requests.
@@ -89,18 +113,18 @@ Select a completed, visible decision and press `d` to open it in the next-action
 
 Authentication is only needed for the provider operation you choose—not for local tasks, source browsing, or local commands. Subscription access, API billing, and cloud credentials are distinct routes.
 
-Open **`o`** to discover installed profiles without launching them:
+Open **F2** for a visible provider list. Discovery does not launch providers.
 
-| Key inside `o` | Action |
+| Step | Interaction |
 | --- | --- |
-| `1`–`4` / arrows | Select a profile |
-| Enter | Review an explicit, bounded `--version` probe |
-| `m` | Select a supported login method |
-| `l` | Review starting the official login flow |
-| `s` | Review the official status/inventory command, where supported |
-| `r` | Refresh passive discovery |
+| Choose a provider | Up/Down, then Enter or Tab to its actions |
+| Connect | Select **Connect**; choose browser/device login when available |
+| Confirm | Review the compact command/effects summary, select **Connect**, then Enter |
+| Inspect or troubleshoot | Select status, version check, setup instructions, or diagnostics |
+| Use the provider | Select **Use for task** to open the existing provider-switch review; no request is sent |
+| Go back | Esc returns one level; it never starts a login |
 
-All reviews start on **Stay**. Read to the end, then Tab → Enter to authorize. Login is not an implicit side effect of discovery or a failed model request.
+Reviews start on **Back**. Full technical details remain available separately. Missing providers show installation guidance. Login is never an implicit side effect of discovery or a failed model request.
 
 | Provider | Integration | Supported connection route |
 | --- | --- | --- |
@@ -131,6 +155,8 @@ SDK inspection imports the real SDK without a model request; it is not authentic
 
 | Key | Action |
 | --- | --- |
+| F1 / F2 / F3 / F4 | Help / connections / evolutions / image setup |
+| Enter in the visible Goal box | Save locally; never send to a model |
 | `g` / `a` | Edit goal / next action |
 | `c` | Open criteria; `e` edits, Space toggles |
 | `t` / `n` | Browse task cards / create a task |
@@ -147,7 +173,7 @@ SDK inspection imports the real SDK without a model request; it is not authentic
 | Esc | Back, cancel review, or review discarding a changed draft |
 | `q` / Ctrl+C | Request safe exit; pending saves and active work are not bypassed |
 
-Keys are contextual; the active drawer's footer is authoritative. Enter never turns an untouched neutral review into approval. Small terminals can still cancel and exit. Cancellation is not rollback.
+Letter shortcuts apply in navigation mode—Esc leaves the input first. F1–F4 and Ctrl+K also work from the primary input while preserving its draft. Keys are contextual; the active drawer's footer is authoritative. Enter never turns an untouched neutral review into approval. Small terminals can still cancel and exit. Cancellation is not rollback.
 
 ## Data and trust
 
@@ -178,14 +204,16 @@ Schemas 0–4 migrate to schema 5. Bounds include 256 tasks/project, 64 criteria
 <details>
 <summary>Optional artwork and terminal graphics</summary>
 
-No images are bundled or downloaded on startup/form selection. `--images off` skips image reads. Supply local `133.png`, `134.png`, `135.png`, `136.png`, `196.png`, `197.png`, `470.png`, `471.png`, and `700.png`, or deliberately fetch the pinned source set:
+No images are bundled or downloaded on startup/form selection. Press **F4 → Download all 9** to explicitly fetch the pinned source set; **Reload local** rereads files without networking. Cancellation keeps completed images, and retry resumes only missing files. Existing conflicting files are never silently replaced. `--images off` skips reads and disables in-app download until restarted with `--images auto` or `--images cells`.
+
+The equivalent explicit command is:
 
 ```sh
-./target/release/ev --download-artwork --assets-dir ./local-artwork
-./target/release/ev --assets-dir ./local-artwork --images cells
+ev --download-artwork --assets-dir ./local-artwork
+ev --assets-dir ./local-artwork --images cells
 ```
 
-Downloads require an empty destination or complete matching cache; existing artwork is not silently replaced. `sources.json` records source revision, attribution, and hashes. Static PNGs are bounded to 4 MiB and 1024 × 1024; APNG is refused. Do not commit downloaded artwork.
+You can also supply local `133.png`, `134.png`, `135.png`, `136.png`, `196.png`, `197.png`, `470.png`, `471.png`, and `700.png`. The downloaded `sources.json` records source revision, attribution, and hashes. Static PNGs are bounded to 4 MiB and 1024 × 1024; APNG is refused. Transparent padding is trimmed and images scale proportionally. Native images preserve alpha; cells blend against the actual panel surface, without gray/white background boxes. ASCII artwork retains the underlying terminal colors. Do not commit downloaded artwork.
 
 Native Kitty graphics are qualified only on macOS arm64 / Ghostty 1.3.1 without SSH/tmux/screen, with usable pixel dimensions. Other routes use image-derived cells. Mono/ASCII/NO_COLOR never emits colored native graphics. Linear mode offers the same local actions without art; screen-reader compatibility is not claimed.
 
@@ -193,44 +221,66 @@ Native Kitty graphics are qualified only on macOS arm64 / Ghostty 1.3.1 without 
 
 ## Installation and platform status
 
-Building source is the way to get the current implementation. Older [verification artifacts](https://github.com/kimmandoo/eevee/actions/runs/38282091481) contain revision **`ea8ade7`**, not the current workbench/provider changes; availability depends on GitHub artifact retention and may require sign-in. Public Releases and remote `curl | sh` installation are intentionally withheld.
+Installers automatically choose the matching native package, resolve an exact release tag, and verify its SHA-256 before installation. Installation and updates show a **rolling Poké Ball** in an interactive terminal; redirected output, CI and dumb terminals get plain progress. `NO_COLOR` keeps the animation monochrome. Public downloads need no GitHub account.
 
-<details>
-<summary>Install an older verification package</summary>
-
-Download and unzip the outer `ev-*` workflow artifact. Inspect its installer before running it.
-
-| Machine | Inner archive |
+| Machine | Download |
 | --- | --- |
-| macOS Apple Silicon | `ev-darwin-arm64.tar.gz` |
-| macOS Intel | `ev-darwin-x86_64.tar.gz` |
-| Linux x86_64 | `ev-linux-x86_64.tar.gz` |
-| Linux arm64 | `ev-linux-arm64.tar.gz` |
-| Windows x86_64 | `ev-windows-x86_64.zip` |
+| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.0/ev-darwin-arm64.tar.gz) |
+| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.0/ev-darwin-x86_64.tar.gz) |
+| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.0/ev-linux-x86_64.tar.gz) |
+| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.0/ev-linux-arm64.tar.gz) |
+| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.0/ev-windows-x86_64.zip) |
+
+**macOS / Linux**
 
 ```sh
-# macOS/Linux: substitute the matching archive above.
-sh ./install.sh --archive ./ev-darwin-arm64.tar.gz --checksums ./SHA256SUMS
+# Download, inspect, then install a pinned release.
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.0/install.sh
+less install-ev.sh
+sh ./install-ev.sh --version v0.1.0
 export PATH="$HOME/.local/bin:$PATH"
 ev --version
 ```
 
+Omit `--version` to install the latest stable release. `EV_VERSION=v0.1.0` also pins a release; `EV_INSTALL_DIR="$HOME/tools/bin"` chooses an absolute installation directory.
+
+**Windows PowerShell**
+
 ```powershell
-# Windows PowerShell
-.\install.ps1 -Archive (Join-Path $PWD 'ev-windows-x86_64.zip') -Checksums (Join-Path $PWD 'SHA256SUMS')
+$base = 'https://github.com/kimmandoo/eevee/releases/download/v0.1.0'
+Invoke-WebRequest "$base/install.ps1" -OutFile install-ev.ps1
+Get-Content .\install-ev.ps1
+.\install-ev.ps1 -Version v0.1.0
 $env:PATH = "$env:LOCALAPPDATA\ev\bin;" + $env:PATH
 ev --version
 ```
 
-Installation needs no Rust, Node, Python, account, or sudo once downloaded. Defaults are `~/.local/bin` and `%LOCALAPPDATA%\ev\bin`; `EV_INSTALL_DIR` or the installer's directory flag overrides them. No permanent PATH/profile changes are made. Close running `ev` on Windows before updating.
+Omit `-Version` for the latest stable release; `-InstallDir` or `EV_INSTALL_DIR` selects an absolute directory. If local policy blocks unsigned scripts, follow your organization's approval process; the installer never changes execution policy.
+
+Defaults are `~/.local/bin` and `%LOCALAPPDATA%\ev\bin`. No compiler, package manager, elevation, or permanent PATH/profile changes are needed. Close other `ev` instances before a Windows update or uninstall; the invoking command safely replaces/removes its own executable and cleans up the retired file after exit.
 
 Installers verify SHA-256 before extraction and preserve an owned prior installation on failure; modified/unowned commands are not overwritten. Checksums are not publisher signatures. Packages are unsigned and macOS packages are not notarized—follow your organization's approval policy rather than disabling system security.
 
-To remove this preview installation, confirm the paths and manually remove the installed executable and adjacent `.ev-install` metadata. Task/cache/provider data is retained. There is no `ev uninstall` or implicit data purge.
+`ev update --check` changes no files. `ev update` runs the installer's **embedded, source-controlled code**, pinned to the resolved release—not a freshly fetched shell script. `ev uninstall` removes only the hash-matching owned executable and license metadata. Task databases, drafts, artwork, provider settings and credentials stay. Source builds and copied, modified or unowned binaries must be managed separately; lifecycle commands refuse to overwrite or remove them.
+
+<details>
+<summary>Offline installation and manual downloads</summary>
+
+Download the matching archive above, [SHA256SUMS](https://github.com/kimmandoo/eevee/releases/download/v0.1.0/SHA256SUMS), and [install.sh](https://github.com/kimmandoo/eevee/releases/download/v0.1.0/install.sh) or [install.ps1](https://github.com/kimmandoo/eevee/releases/download/v0.1.0/install.ps1) from the same release:
+
+```sh
+sh ./install.sh --archive ./ev-linux-x86_64.tar.gz --checksums ./SHA256SUMS
+```
+
+```powershell
+.\install.ps1 -Archive (Join-Path $PWD 'ev-windows-x86_64.zip') -Checksums (Join-Path $PWD 'SHA256SUMS')
+```
+
+Use the correct archive for your machine. Both offline modes require explicit archive and checksum paths and perform no downloads. The installers also support `--uninstall` / `-Uninstall` with an explicit installation directory.
 
 </details>
 
-The [historical native core run](https://github.com/kimmandoo/eevee/actions/runs/38274013013) qualified five macOS/Linux/Windows OS–architecture–PTY/ConPTY tuples at revision `9d49447`; it does not certify today's provider or persistence changes. Current provider evidence is Linux/WSL x86_64. Windows cross-checking is not native runtime proof, Windows ARM64 is unqualified, and arbitrary GUI terminals are not implied supported. See the [checkpoint](docs/WORK_CHECKPOINT.md) for version-specific results and blockers.
+Release publication requires all five native build/install/PTY-or-ConPTY rows and the credential-free SDK policy job to pass for the tag. Optional provider evidence remains separately qualified; Windows ARM64 and arbitrary desktop terminal graphics are not implied supported. See the [checkpoint](docs/WORK_CHECKPOINT.md) for version-specific results and remaining external acceptance.
 
 ## Documentation
 
@@ -264,9 +314,9 @@ npm ci --ignore-scripts --no-audit --no-fund --prefix sidecar
 npm test --prefix sidecar
 ```
 
-The [CI workflow](.github/workflows/native.yml) runs on pull requests, pushes to `main`, and manual dispatch. Five native macOS/Linux/Windows rows retain Rust 1.90 formatting, tests, Clippy, release builds, dependency notices, installation/upgrade/refusal checks and installed-binary PTY/ConPTY workbench, repository, context, execution, recovery and handoff smoke. A separate Node job checks SDK policy without provider credentials. Terminal smoke belongs in CI because unit tests cannot establish real terminal restoration or installed-binary behavior; automated smoke does not log into providers or send model requests.
+The [CI workflow](.github/workflows/native.yml) runs on pull requests, pushes to `main`, version tags, and manual dispatch. Five native macOS/Linux/Windows rows retain Rust 1.90 formatting, tests, Clippy, release builds, dependency notices, installation/update/uninstall/refusal checks and installed-binary PTY/ConPTY workbench, repository, context, execution, recovery and handoff smoke. Lifecycle tests use real compiled executables and a loopback release fixture in a throwaway build; production binaries retain fixed HTTPS endpoints. A separate Node job checks SDK policy without provider credentials. Terminal smoke belongs in CI because unit tests cannot establish real terminal restoration or installed-binary behavior; automated smoke does not log into providers or send model requests.
 
-Actions are pinned to immutable revisions, checkout credentials are not persisted, and Rust dependency/tool caches are saved only from `main`. Packages remain verification artifacts, not public Releases. A passing row covers its observed OS/architecture/terminal host—not arbitrary desktop terminals or live provider eligibility.
+Actions are pinned to immutable revisions, checkout credentials are not persisted, and Rust dependency/tool caches are saved only from `main`. Version tags publish a release only after every native row and SDK policy job passes; assembly checks the source version, all archive hashes/members, and installer identity before uploading. A passing row covers its observed OS/architecture/terminal host—not arbitrary desktop terminals or live provider eligibility.
 
 Repository, context, execution, recovery, authentication, planning, implementation, and provider journeys have dedicated scripts under `scripts/`. Live provider checks are **opt-in** (`--live`), require the pinned runtimes, and may contact providers or incur usage. OAuth initiation/cancellation is not proof of completed human authentication; SDK inspection is not live cloud/model acceptance. The detailed checkpoint records those distinctions.
 
@@ -276,6 +326,6 @@ Contributions should preserve the existing approval, storage, and cancellation c
 
 Original code, documentation prose, and the custom geometric wordmark are licensed under [Apache-2.0](LICENSE). See the [project NOTICE](NOTICE) and [asset licensing and attribution](docs/ASSET_LICENSES.md) for the separate third-party scope.
 
-The README's Eevee pixel sprite is third-party Pokémon artwork, referenced from a [pinned PokéAPI/sprites revision](https://github.com/PokeAPI/sprites/tree/0dc105d5b12416932f29b594078282ab4be045f5). Its [upstream notice](https://github.com/PokeAPI/sprites/blob/0dc105d5b12416932f29b594078282ab4be045f5/LICENCE.txt) explicitly attributes image copyright to **The Pokémon Company**. The project's Apache-2.0 license does not cover that artwork or grant trademark, redistribution, or commercial-use rights.
+The README's transparent Eevee illustration is third-party Pokémon artwork, referenced from a [pinned PokéAPI/sprites revision](https://github.com/PokeAPI/sprites/tree/0dc105d5b12416932f29b594078282ab4be045f5). Its [upstream notice](https://github.com/PokeAPI/sprites/blob/0dc105d5b12416932f29b594078282ab4be045f5/LICENCE.txt) explicitly attributes image copyright to **The Pokémon Company**. The project's Apache-2.0 license does not cover that artwork or grant trademark, redistribution, or commercial-use rights.
 
-No franchise image bytes are bundled in the repository or native packages. Remote display and optional downloads do not establish rights clearance. This is an independent, unofficial project with no affiliation or endorsement; making the repository public does not waive the existing rights/provider-policy release gates. The original wordmark has an editable [SVG source](docs/assets/wordmark.svg), not an embedded character image or third-party font.
+No franchise image bytes are bundled in the repository or native packages. Remote display and optional downloads do not establish rights clearance. This is an independent, unofficial project with no affiliation or endorsement; the software release grants no third-party image or trademark rights. The original wordmark has an editable [SVG source](docs/assets/wordmark.svg), not an embedded character image or third-party font.

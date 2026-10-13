@@ -59,6 +59,7 @@ pub fn cleanup() -> io::Result<()> {
 struct Cached {
     target: Rect,
     cell: (u16, u16),
+    generation: u64,
     protocol: Protocol,
 }
 
@@ -164,6 +165,7 @@ impl NativeGraphics {
                 cache.target.width != target.width
                     || cache.target.height != target.height
                     || cache.cell != cell
+                    || cache.generation != artwork.generation()
             });
             if regenerate {
                 if self.cache[index].is_some() {
@@ -178,6 +180,23 @@ impl NativeGraphics {
                     width.div_ceil(u32::from(cell.0)) as u16,
                     height.div_ceil(u32::from(cell.1)) as u16,
                 );
+                // Kitty's cell-sized virtual placement otherwise stretches the
+                // final partial row/column. Pad to that exact pixel extent so
+                // the fitted subject keeps its aspect ratio in the placement.
+                let padded_width = u32::from(size.width) * u32::from(cell.0);
+                let padded_height = u32::from(size.height) * u32::from(cell.1);
+                let image = if padded_width == width && padded_height == height {
+                    image
+                } else {
+                    let mut canvas = image::RgbaImage::new(padded_width, padded_height);
+                    image::imageops::replace(
+                        &mut canvas,
+                        &image,
+                        i64::from((padded_width - width) / 2),
+                        i64::from((padded_height - height) / 2),
+                    );
+                    canvas
+                };
                 let protocol = Kitty::new(
                     DynamicImage::ImageRgba8(image),
                     size,
@@ -189,6 +208,7 @@ impl NativeGraphics {
                 self.cache[index] = Some(Cached {
                     target,
                     cell,
+                    generation: artwork.generation(),
                     protocol,
                 });
                 ALLOCATED.fetch_or(1 << index, Ordering::SeqCst);

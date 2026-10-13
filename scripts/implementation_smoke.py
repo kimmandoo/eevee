@@ -103,6 +103,7 @@ def main():
                 session.close()
 
             session = launch('controlled-patch')
+            session.send('\x1b')  # Leave the clean first-run Goal composer.
             session.send('g')
             session.paste('Fix add(a,b) in calculator.py so it returns a+b. Use ONLY eevee_edit_file with full replacement content. '
                           'Preserve the exact pre-existing user comment and all other files. Do not run commands or checks; '

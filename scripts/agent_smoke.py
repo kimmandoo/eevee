@@ -53,25 +53,29 @@ def main():
                                   environment, size, output / name)
                 sessions.append(session)
                 wait_for(session, 'Storage: saved')
+                session.send('\x1b')  # Enter navigation from the clean composer.
                 session.send('o')
-                wait_for(session, 'Agent connections')
-                wait_for(session, 'Installed:')
+                wait_for(session, 'Connections')
+                wait_for(session, 'Connect / credential setup')
+                session.send('\r')
                 return session
 
             def preview(session):
-                session.send('\r')
-                wait_for(session, 'Trust executable')
+                session.send('\x1b')  # Actions -> Providers; reopening resets selection.
+                session.send('\r\x1b[B\x1b[B\r')
+                wait_for(session, 'Review version check')
 
             def approve(session):
                 session.send(END)
-                wait_for(session, 'Enter Stay')
+                wait_for(session, 'Tab Choose')
                 session.send('\t')
-                wait_for(session, '[Trust this version probe]')
+                wait_for(session, '[Check version]')
                 session.send('\r')
-                wait_for(session, 'Agent connections')
+                wait_for(session, 'Connections')
 
             def quit_session(session):
-                session.send('\x1b')
+                session.send('\x1b')  # Actions -> Providers.
+                session.send('\x1b')  # Providers -> workspace.
                 session.send('q')
                 assert session.wait_exit() == 0
                 session.close()
@@ -80,8 +84,12 @@ def main():
             session.capture('missing-codex')
             for number in '2341':
                 session.send(number)
-                assert 'missing' in session.display().lower() or 'absent' in session.display().lower(), session.display()
+                if number == '2':
+                    assert 'cannot reuse claude.ai' in session.display(), session.display()
+                else:
+                    assert 'Not installed' in session.display(), session.display()
                 session.capture('profile-' + number)
+            session.send('\x1b')
             session.send('\x1b')
             session.send('g')
             session.paste('Local-only 漢字 goal')
@@ -103,7 +111,7 @@ def main():
             assert not marker.exists(), 'neutral Enter executed repository code'
             preview(session)
             session.send(END)
-            wait_for(session, 'Enter Stay')
+            wait_for(session, 'Tab Choose')
             session.resize((39, 10))
             session.send('\t\r')
             assert not marker.exists(), 'undersized review executed repository code'
@@ -146,9 +154,12 @@ def main():
             approve(session)
             wait_for(session, args.installed_version, timeout=15)
             session.capture('installed-codex-version')
+            session.send('\x1b\r\x1b[B\x1b[B\x1b[B\r')
+            wait_for(session, 'Installed:')
             session.send(END)
             session.capture('installed-capabilities')
             session.idle()
+            session.send('\x1b')  # Diagnostics -> Actions before the common exit path.
             quit_session(session)
             passed('actual installed Codex version observed without model request; idle emits nothing')
         result['status'] = 'passed'

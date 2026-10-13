@@ -67,6 +67,7 @@ def main():
                 index_before = hashlib.sha256((project / ".git" / "index").read_bytes()).hexdigest()
                 session = launch("repo-" + str(width), project, root / ("data-" + str(width)), (width,36 if width == 120 else 18))
                 wait_for(session, "Storage: saved")
+                session.send("\x1b")  # Leave the clean first-run Goal composer.
                 session.send("g")
                 session.paste("repository task 漢字")
                 session.send("\r")
@@ -98,6 +99,7 @@ def main():
             data = root / "plain-data"
             session = launch("non-git", plain, data, (60,18))
             wait_for(session, "Storage: saved")
+            session.send("\x1b")  # Leave the clean first-run Goal composer.
             session.send("g")
             session.paste("nonGit retained task")
             session.send("\r")

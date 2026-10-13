@@ -145,6 +145,7 @@ def main():
                 return count, marker, release, process
 
             session = launch('freshness-and-capture', (60, 18))
+            session.send('\x1b')  # Leave the clean first-run Goal composer.
             session.send('g')
             session.paste('recovery task')
             session.send('\r')

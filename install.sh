@@ -1,23 +1,31 @@
 #!/bin/sh
-# Install a checksum-verified local Eevee package; no downloads or profile edits.
+# Install, update, or remove verified native Eevee releases without profile edits.
 set -eu
 LC_ALL=C
 export LC_ALL
 
+animation_pid=
+download_pid=
+terminal_active=0
+
 fail() {
+    if [ -n "$animation_pid" ]; then stop_animation; fi
     printf 'ev installer: %s\n' "$*" >&2
     exit 1
 }
 
 usage() {
     cat <<'USAGE'
-Usage: sh install.sh --archive PATH --checksums PATH [--install-dir PATH]
+Usage: sh install.sh [--version vX.Y.Z] [--install-dir PATH]
+       sh install.sh --archive PATH --checksums PATH [--install-dir PATH]
+       sh install.sh --uninstall [--install-dir PATH]
 
-Install a prebuilt ev package for this Mac or Linux machine from local files.
-Both --archive and --checksums are required; there is no default download URL.
---checksums must name the package's SHA256SUMS file. --install-dir must be an
-absolute directory, and defaults to EV_INSTALL_DIR or $HOME/.local/bin.
-Rerun with another verified package to upgrade an installer-owned executable.
+Download the latest release for this Mac or Linux machine, or select an exact
+release with --version / EV_VERSION. HTTPS downloads require curl.
+Offline installation requires both --archive and --checksums (SHA256SUMS).
+--install-dir must be absolute; it defaults to EV_INSTALL_DIR or $HOME/.local/bin.
+Rerun to update an installer-owned executable. --uninstall removes only verified
+owned executable/metadata, keeping all task, provider, and cache data.
 No sudo, shell profile changes, or Eevee cache/data changes are performed.
 USAGE
 }
@@ -28,6 +36,9 @@ install_dir=${EV_INSTALL_DIR:-}
 archive_set=0
 checksums_set=0
 dir_set=0
+selected_tag=${EV_VERSION:-}
+version_set=0
+uninstall=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --archive)
@@ -42,16 +53,30 @@ while [ "$#" -gt 0 ]; do
             [ "$#" -ge 2 ] && [ -n "$2" ] || { usage >&2; fail '--install-dir requires a path'; }
             [ "$dir_set" -eq 0 ] || fail 'provide --install-dir only once'
             install_dir=$2; dir_set=1; shift 2 ;;
+        --version)
+            [ "$#" -ge 2 ] && [ -n "$2" ] || { usage >&2; fail '--version requires vX.Y.Z'; }
+            [ "$version_set" -eq 0 ] || fail 'provide --version only once'
+            selected_tag=$2; version_set=1; shift 2 ;;
+        --uninstall)
+            [ "$uninstall" -eq 0 ] || fail 'provide --uninstall only once'
+            uninstall=1; shift ;;
         -h | --help) usage; exit 0 ;;
         *) usage >&2; fail "unknown argument: $1" ;;
     esac
 done
-[ "$archive_set" -eq 1 ] && [ "$checksums_set" -eq 1 ] || {
-    usage >&2
-    fail 'provide both --archive PATH and --checksums PATH'
+[ "$archive_set" -eq "$checksums_set" ] || fail 'provide both --archive PATH and --checksums PATH'
+if [ "$uninstall" -eq 1 ]; then
+    [ "$archive_set" -eq 0 ] && [ "$version_set" -eq 0 ] || fail '--uninstall cannot be combined with archive or version options'
+    selected_tag=
+fi
+valid_tag() {
+    printf '%s\n' "$1" | awk '
+        NR != 1 || $0 !~ /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/ || length($0) > 64 { invalid = 1 }
+        END { exit (invalid || NR != 1) }'
 }
+[ -z "$selected_tag" ] || valid_tag "$selected_tag" || fail 'release tag must be vX.Y.Z with canonical nonnegative integers'
 
-for prerequisite in uname tar mktemp awk mkdir cp chmod mv rm rmdir wc dd cat; do
+for prerequisite in uname tar mktemp awk mkdir cp chmod mv rm rmdir wc dd cat sleep; do
     command -v "$prerequisite" >/dev/null 2>&1 || fail "missing prerequisite: $prerequisite"
 done
 case "$(uname -s)" in
@@ -66,7 +91,6 @@ case "$machine" in
     *) fail "unsupported architecture: $machine (expected arm64/aarch64 or x86_64)" ;;
 esac
 asset="ev-$os-$arch.tar.gz"
-[ "${archive##*/}" = "$asset" ] || fail "this machine requires archive basename $asset"
 if command -v sha256sum >/dev/null 2>&1; then
     hash_tool=sha256sum
 elif command -v shasum >/dev/null 2>&1; then
@@ -129,10 +153,6 @@ check_directory() {
     done
 }
 check_directory inspect
-case "$archive" in /*) ;; *) archive=$PWD/$archive ;; esac
-case "$checksums" in /*) ;; *) checksums=$PWD/$checksums ;; esac
-[ -f "$archive" ] && [ -r "$archive" ] || fail "archive is not a readable regular file: $archive"
-[ -f "$checksums" ] && [ -r "$checksums" ] || fail "checksums are not a readable regular file: $checksums"
 case "${TMPDIR:-/tmp}" in /*) ;; *) fail 'TMPDIR must be an absolute directory path' ;; esac
 
 umask 077
@@ -144,11 +164,60 @@ publish_started=0
 metadata_attempted=0
 binary_attempted=0
 published=0
+stop_animation() {
+    if [ -n "$animation_pid" ]; then
+        kill "$animation_pid" 2>/dev/null || :
+        wait "$animation_pid" 2>/dev/null || :
+        animation_pid=
+    fi
+    if [ "$terminal_active" -eq 1 ]; then
+        printf '\r\033[2K\033[?25h' >&2
+        terminal_active=0
+    fi
+}
+phase() {
+    stop_animation
+    if [ -t 2 ] && [ "${TERM:-dumb}" != dumb ] && [ -z "${CI:-}" ]; then
+        terminal_active=1
+        printf '\033[?25l' >&2
+        (
+            tick_pid=
+            tick=0
+            trap 'trap "" 1 2 3 15; if [ -n "$tick_pid" ]; then kill "$tick_pid" 2>/dev/null || :; wait "$tick_pid" 2>/dev/null || :; fi; exit 0' 1 2 3 15
+            while :; do
+                for frame in '(-o-)' '(\o\)' '(|o|)' '(/o/)'; do
+                    position=$((tick % 12))
+                    [ "$position" -le 6 ] || position=$((12 - position))
+                    if [ -z "${NO_COLOR+x}" ]; then
+                        printf '\r\033[2K%*s\033[31m%s\033[97mo\033[31m%s\033[0m  %s' \
+                            "$position" '' "${frame%%o*}" "${frame#*o}" "$1" >&2
+                    else
+                        printf '\r\033[2K%*s%s  %s' "$position" '' "$frame" "$1" >&2
+                    fi
+                    tick=$((tick + 1))
+                    sleep 0.12 &
+                    tick_pid=$!
+                    wait "$tick_pid" || :
+                    tick_pid=
+                done
+            done
+        ) &
+        animation_pid=$!
+    else
+        printf 'ev installer: %s\n' "$1" >&2
+    fi
+}
 cleanup() {
     status=$?
     trap - 0
     trap '' 1 2 3 15
     set +e
+    if [ -n "$download_pid" ]; then
+        kill "$download_pid" 2>/dev/null || :
+        wait "$download_pid" 2>/dev/null || :
+        download_pid=
+    fi
+    stop_animation
     rollback_failed=0
     if [ "$publish_started" -eq 1 ] && [ "$published" -eq 0 ]; then
         if [ "$owned" -eq 1 ]; then
@@ -184,19 +253,131 @@ trap cleanup 0
 trap 'exit 1' 1 2 3 15
 temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/ev-install.XXXXXXXX") || fail 'cannot create private temporary directory'
 
-# Snapshot inputs before verification. dd caps reads even if an input grows.
-dd if="$archive" of="$temp_dir/$asset" bs=1048576 count=65 2>/dev/null || fail 'cannot read archive'
-archive_bytes=$(wc -c < "$temp_dir/$asset")
-[ "$archive_bytes" -gt 0 ] && [ "$archive_bytes" -le 67108864 ] || fail 'archive must be nonempty and at most 64 MiB'
-dd if="$checksums" of="$temp_dir/SHA256SUMS" bs=1048576 count=2 2>/dev/null || fail 'cannot read checksums'
+check_ownership() {
+    check_directory inspect
+    [ ! -L "$binary" ] && [ ! -L "$metadata" ] || fail 'refusing a symlink executable or metadata directory'
+    if [ -e "$binary" ]; then
+        [ -f "$binary" ] || fail "executable target is not a regular file: $binary"
+        [ -d "$metadata" ] || fail "refusing to replace unowned executable: $binary"
+        for item in "$metadata"/* "$metadata"/.[!.]* "$metadata"/..?*; do
+            [ -e "$item" ] || [ -L "$item" ] || continue
+            case "${item##*/}" in
+                LICENSE | THIRD_PARTY_NOTICES | .native-install) ;;
+                *) fail "unrecognized existing metadata; refusing to replace $item" ;;
+            esac
+            [ -f "$item" ] && [ ! -L "$item" ] || fail "unsafe existing metadata file: $item"
+        done
+        for member in LICENSE THIRD_PARTY_NOTICES .native-install; do
+            [ -f "$metadata/$member" ] && [ ! -L "$metadata/$member" ] || fail "missing or unsafe ownership metadata: $member"
+        done
+        owner_fields=$(awk '
+            NR == 1 { if ($0 != "ev-native-install-v2") invalid = 1 }
+            NR == 2 { if ($0 !~ /^version=ev [^[:cntrl:]]+$/ || length($0) > 264) invalid = 1 }
+            NR == 3 { hash = substr($0, 8); if (substr($0, 1, 7) != "sha256=" || length(hash) != 64 || hash !~ /^[0-9a-f]+$/) invalid = 1 }
+            NR == 4 { license = substr($0, 16); if (substr($0, 1, 15) != "license-sha256=" || length(license) != 64 || license !~ /^[0-9a-f]+$/) invalid = 1 }
+            NR == 5 { notices = substr($0, 16); if (substr($0, 1, 15) != "notices-sha256=" || length(notices) != 64 || notices !~ /^[0-9a-f]+$/) invalid = 1 }
+            END {
+                if (invalid || NR != 5) exit 1
+                print hash, license, notices
+            }
+        ' "$metadata/.native-install") || fail 'existing ownership marker is invalid; refusing replacement'
+        # Fields have been restricted to lowercase hashes.
+        set -- $owner_fields
+        owner_hash=$1
+        license_hash=$(hash_file "$metadata/LICENSE") || fail 'cannot hash existing LICENSE'
+        notices_hash=$(hash_file "$metadata/THIRD_PARTY_NOTICES") || fail 'cannot hash existing THIRD_PARTY_NOTICES'
+        [ "$license_hash" = "$2" ] && [ "$notices_hash" = "$3" ] || fail 'existing metadata no longer matches its ownership marker; refusing replacement'
+        current_hash=$(hash_file "$binary") || fail 'cannot hash existing executable'
+        [ "$current_hash" = "$owner_hash" ] || fail 'existing executable no longer matches its ownership marker; refusing replacement'
+        owned=1
+    else
+        [ ! -e "$metadata" ] || fail "orphaned metadata exists at $metadata; refusing to overwrite it"
+        owned=0
+    fi
+}
+
+if [ "$uninstall" -eq 1 ]; then
+    [ -d "$install_dir" ] || fail "no owned installation exists at $install_dir"
+    mkdir "$lock" 2>/dev/null || fail "installation is locked at $lock; remove only a stale lock after confirming no installer is running"
+    locked=1
+    check_ownership
+    [ "$owned" -eq 1 ] || fail "no owned executable exists at $binary"
+    phase 'Removing verified Eevee installation'
+    stage=$(mktemp -d "$install_dir/.ev-stage.XXXXXXXX") || fail 'cannot stage removal on destination filesystem'
+    cp -p "$binary" "$stage/old-ev" || fail 'cannot preserve executable for rollback'
+    check_ownership
+    publish_started=1
+    mv "$metadata" "$stage/old-metadata" || fail 'cannot preserve metadata for rollback'
+    binary_attempted=1
+    rm -f "$binary" || fail 'cannot remove executable'
+    published=1
+    stop_animation
+    printf 'Uninstalled %s; task, provider, and cache data were retained.\n' "$binary"
+    exit 0
+fi
+
+# curl runs as a tracked child. File limits also bound chunked responses on
+# curl versions whose --max-filesize only checks Content-Length.
+download() {
+    destination=$1
+    maximum=$2
+    shift 2
+    (
+        ulimit -f "$((maximum / 512))" || exit 1
+        exec curl --disable --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 180 --max-redirs 8 \
+            --max-filesize "$maximum" --output "$destination" "$@"
+    ) > "$temp_dir/effective-url" &
+    download_pid=$!
+    if wait "$download_pid"; then
+        download_pid=
+    else
+        download_pid=
+        fail 'HTTPS download failed; no release was installed (check connectivity and the requested release)'
+    fi
+    downloaded_bytes=$(wc -c < "$destination")
+    [ "$downloaded_bytes" -gt 0 ] && [ "$downloaded_bytes" -le "$maximum" ] || fail 'HTTPS response was empty or exceeded its size limit'
+}
+if [ "$archive_set" -eq 0 ]; then
+    command -v curl >/dev/null 2>&1 || fail 'install curl for HTTPS downloads, or supply --archive and --checksums'
+    if [ -z "$selected_tag" ]; then
+        phase 'Resolving latest Eevee release'
+        download "$temp_dir/latest-headers" 1048576 --head --write-out '%{url_effective}' \
+            https://github.com/kimmandoo/eevee/releases/latest
+        latest_url=$(cat "$temp_dir/effective-url")
+        case "$latest_url" in
+            https://github.com/kimmandoo/eevee/releases/tag/*)
+                selected_tag=${latest_url#https://github.com/kimmandoo/eevee/releases/tag/} ;;
+            *) fail 'latest release did not resolve to an exact GitHub release tag' ;;
+        esac
+        valid_tag "$selected_tag" || fail 'latest release has an unsupported tag; expected vX.Y.Z'
+    fi
+    release_url=https://github.com/kimmandoo/eevee/releases/download/$selected_tag
+    phase "Downloading Eevee $selected_tag for $os/$arch"
+    download "$temp_dir/SHA256SUMS" 1048576 "$release_url/SHA256SUMS"
+    download "$temp_dir/$asset" 67108864 "$release_url/$asset"
+else
+    [ "${archive##*/}" = "$asset" ] || fail "this machine requires archive basename $asset"
+    case "$archive" in /*) ;; *) archive=$PWD/$archive ;; esac
+    case "$checksums" in /*) ;; *) checksums=$PWD/$checksums ;; esac
+    [ -f "$archive" ] && [ -r "$archive" ] || fail "archive is not a readable regular file: $archive"
+    [ -f "$checksums" ] && [ -r "$checksums" ] || fail "checksums are not a readable regular file: $checksums"
+    # Snapshot inputs before verification. dd caps reads even if an input grows.
+    dd if="$archive" of="$temp_dir/$asset" bs=1048576 count=65 2>/dev/null || fail 'cannot read archive'
+    archive_bytes=$(wc -c < "$temp_dir/$asset")
+    [ "$archive_bytes" -gt 0 ] && [ "$archive_bytes" -le 67108864 ] || fail 'archive must be nonempty and at most 64 MiB'
+    dd if="$checksums" of="$temp_dir/SHA256SUMS" bs=1048576 count=2 2>/dev/null || fail 'cannot read checksums'
+fi
 checksum_bytes=$(wc -c < "$temp_dir/SHA256SUMS")
 [ "$checksum_bytes" -gt 0 ] && [ "$checksum_bytes" -le 1048576 ] || fail 'SHA256SUMS must be nonempty and at most 1 MiB'
+phase 'Verifying release checksum and archive'
 expected=$(awk -v wanted="$asset" '
     {
         hash = substr($0, 1, 64)
         filename = substr($0, 67)
         if (length(hash) != 64 || hash !~ /^[0-9a-fA-F]+$/ || substr($0, 65, 2) != "  " ||
-            filename !~ /^ev-((darwin|linux)-(arm64|x86_64)\.tar\.gz|windows-x86_64\.zip)$/ || seen[filename]++) {
+            filename !~ /^(ev-((darwin|linux)-(arm64|x86_64)\.tar\.gz|windows-x86_64\.zip)|install\.(sh|ps1))$/ || seen[filename]++) {
             invalid = 1; exit
         }
         count++
@@ -243,41 +424,11 @@ for member in ev LICENSE THIRD_PARTY_NOTICES; do
     [ "$total" -le 100663296 ] || fail 'expanded files exceed 96 MiB'
 done
 
+
+phase 'Staging verified Eevee installation'
 check_directory create
 mkdir "$lock" 2>/dev/null || fail "installation is locked at $lock; remove only a stale lock after confirming no installer is running"
 locked=1
-
-check_ownership() {
-    check_directory inspect
-    [ ! -L "$binary" ] && [ ! -L "$metadata" ] || fail 'refusing a symlink executable or metadata directory'
-    if [ -e "$binary" ]; then
-        [ -f "$binary" ] || fail "executable target is not a regular file: $binary"
-        [ -d "$metadata" ] || fail "refusing to replace unowned executable: $binary"
-        for item in "$metadata"/* "$metadata"/.[!.]* "$metadata"/..?*; do
-            [ -e "$item" ] || [ -L "$item" ] || continue
-            case "${item##*/}" in
-                LICENSE | THIRD_PARTY_NOTICES | .native-install) ;;
-                *) fail "unrecognized existing metadata; refusing to replace $item" ;;
-            esac
-            [ -f "$item" ] && [ ! -L "$item" ] || fail "unsafe existing metadata file: $item"
-        done
-        for member in LICENSE THIRD_PARTY_NOTICES .native-install; do
-            [ -f "$metadata/$member" ] && [ ! -L "$metadata/$member" ] || fail "missing or unsafe ownership metadata: $member"
-        done
-        owner_hash=$(awk '
-            NR == 1 { if ($0 != "ev-native-install-v1") invalid = 1 }
-            NR == 2 { if ($0 !~ /^version=ev [^[:cntrl:]]+$/ || length($0) > 264) invalid = 1 }
-            NR == 3 { hash = substr($0, 8); if (substr($0, 1, 7) != "sha256=" || length(hash) != 64 || hash !~ /^[0-9a-f]+$/) invalid = 1 }
-            END { if (invalid || NR != 3) exit 1; print hash }
-        ' "$metadata/.native-install") || fail 'existing ownership marker is invalid; refusing replacement'
-        current_hash=$(hash_file "$binary") || fail 'cannot hash existing executable'
-        [ "$current_hash" = "$owner_hash" ] || fail 'existing executable no longer matches its ownership marker; refusing replacement'
-        owned=1
-    else
-        [ ! -e "$metadata" ] || fail "orphaned metadata exists at $metadata; refusing to overwrite it"
-        owned=0
-    fi
-}
 check_ownership
 stage=$(mktemp -d "$install_dir/.ev-stage.XXXXXXXX") || fail 'cannot stage installation on destination filesystem'
 mkdir "$stage/metadata" || fail 'cannot stage metadata'
@@ -293,7 +444,13 @@ after_version_hash=$(hash_file "$stage/ev") || fail 'cannot verify staged execut
 awk 'NR != 1 || $0 !~ /^ev [^[:cntrl:]]+$/ || length($0) > 256 { invalid = 1 }
     END { if (invalid || NR != 1) exit 1 }' "$temp_dir/version" || fail 'staged ev --version must return one nonempty ev version line'
 version=$(cat "$temp_dir/version")
-printf 'ev-native-install-v1\nversion=%s\nsha256=%s\n' "$version" "$new_hash" > "$stage/metadata/.native-install" || fail 'cannot write ownership marker'
+if [ -n "$selected_tag" ]; then
+    [ "$version" = "ev ${selected_tag#v}" ] || fail "staged ev --version does not match $selected_tag; prior installation is unchanged"
+fi
+license_hash=$(hash_file "$stage/metadata/LICENSE") || fail 'cannot hash staged LICENSE'
+notices_hash=$(hash_file "$stage/metadata/THIRD_PARTY_NOTICES") || fail 'cannot hash staged THIRD_PARTY_NOTICES'
+printf 'ev-native-install-v2\nversion=%s\nsha256=%s\nlicense-sha256=%s\nnotices-sha256=%s\n' \
+    "$version" "$new_hash" "$license_hash" "$notices_hash" > "$stage/metadata/.native-install" || fail 'cannot write ownership marker'
 chmod 644 "$stage/metadata/.native-install" || fail 'cannot set ownership marker permissions'
 
 # Revalidate immediately before publishing; serialize cooperating installers.
@@ -311,11 +468,21 @@ mv "$stage/metadata" "$metadata" || fail 'cannot publish metadata'
 binary_attempted=1
 mv -f "$stage/ev" "$binary" || fail 'cannot publish executable'
 published=1
+stop_animation
 printf 'Installed %s to %s\n' "$version" "$binary"
 case ":${PATH:-}:" in
     *":$install_dir:"*) ;;
     *)
-        printf 'Add this directory to your shell PATH (no profile was modified):\n  %s\n' "$install_dir"
-        printf 'Then start a new shell and run ev. Rerun this installer with a verified local package to upgrade.\n'
+        path_literal=$(printf '%s\n' "$install_dir" | awk '{
+            printf "\047"
+            for (i = 1; i <= length($0); i++) {
+                c = substr($0, i, 1)
+                if (c == "\047") printf "%c%c%c%c", 39, 92, 39, 39
+                else printf "%s", c
+            }
+            printf "\047"
+        }')
+        printf 'For this shell, add the command directory to PATH:\n  export PATH=%s:"$PATH"\n' "$path_literal"
+        printf 'No profile was modified. Run ev update for future releases, or ev uninstall to remove the command.\n'
         ;;
 esac

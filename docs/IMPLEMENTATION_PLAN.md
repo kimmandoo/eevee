@@ -1,7 +1,7 @@
 # Eevee Implementation Plan
 
 Date: 2026-10-13
-Status: Section A and the five-row installation preview passed their recorded gates. Section B, R01/R02/UX02, A01–A03 and A05 passed scoped local acceptance. Of 31 tasks, 18 are checked and 13 remain unchecked. D code is implemented through A07, but A04/A06/full A07 real interoperability remains blocked by unavailable permitted Claude/Gemini credentials. P02 is billing-blocked before native runner startup and user-deferred; CI configuration is unchanged.
+Status: Section A and the five-row installation preview passed their recorded gates. Section B, R01/R02/UX02, A01–A03 and A05 passed scoped local acceptance. Of 31 tasks, 18 are checked and 13 remain unchecked. D code is implemented through A07, but A04/A06/full A07 real interoperability remains blocked by unavailable permitted Claude/Gemini credentials. The user now authorizes public 0.1.0 release, binary lifecycle support, commit and push; fresh native qualification is active, superseding earlier CI deferment.
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
 
 ## Outcome
@@ -149,7 +149,7 @@ Acceptance: end and resume a task using its handoff; approve and reject memory p
 
 Acceptance: publish observed measurements and real run results, not targets as achievements. All nine roles, persistence, cancellation, action-specific controls, context boundaries, evidence freshness, agent handoff, and terminal restoration must work. Include a real assistive-terminal check before claiming that environment accessible. No unimplemented forms, fictitious compatibility badges, or fake fallbacks may be presented as complete.
 
-P03 is the final distribution gate after P02, Q01, and Q02: produce versioned native archives and checksums; prove fresh install, upgrade, and uninstall per target row, preserving user data unless explicitly purged. Detect incompatible data schemas without destructive overwrite. Record build/run/install evidence separately from provider and graphics capabilities. Do not advertise unverified platform support or require Node or artwork for local-core installation. Release remains blocked until naming/artwork rights and provider authentication/branding/terms reviews pass.
+P03 remains the full distribution gate after P02, Q01, and Q02: prove native installation, update, uninstall, durable-schema continuity and measured integrated behavior. The user separately authorizes a scoped 0.1.0 local-core release after all five current native rows and SDK policy checks pass. That release includes verified archives/notices, pinned HTTPS bootstrap, embedded-installer self-update and owned uninstall without data purge; it does not claim full provider conformance, performance acceptance, signing/notarization, or artwork/trademark clearance.
 
 ## Explicit exclusions
 
@@ -157,4 +157,4 @@ No custom model runtime, autonomous multi-agent swarm, hosted synchronization, p
 
 ## Current next action
 
-Complete the remaining **A04/A06/full A07 real acceptance** using permitted Claude API/Bedrock/Vertex credentials and an eligible Gemini login selected through the official connection flow. A03 bounded implementation and A05 real OpenCode acceptance are already complete; do not repeat the obsolete A03 implementation step or represent unavailable credentials as missing adapter code. Login initiation/cancellation is not completed human authentication, SDK inspection is not a credentialed query, and native Windows cross-checking is not runtime parity. P02/CI stays user-deferred; public Release/remote bootstrap and P03 remain gated.
+Finish the immediate-input, provider-picker and artwork UX verification, then verify binary install/update/uninstall and rolling-ball progress on native targets; commit, push and publish the user-authorized 0.1.0 release only after those jobs pass. Keep **A04/A06/full A07** acceptance separate: permitted Claude API/Bedrock/Vertex credentials and eligible Gemini authentication are still required for their remaining real scenarios. Login initiation/cancellation is not human-auth completion, SDK inspection is not a credentialed query, and source fixes are not native runtime proof.
