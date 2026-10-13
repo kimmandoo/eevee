@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-13] Embedded Windows installer read uninitialized script-scoped state
+
+- **Context / Symptom:** Native bootstrap succeeded, but `ev uninstall` failed under StrictMode because `$script:animation` had not been initialized.
+- **Root Cause:** `-File` execution and invocation through a created ScriptBlock have different local/script scope boundaries. Initializers used local scope while helper functions explicitly read and wrote script scope.
+- **Solution:** Initialize all shared animation and running-owner fields explicitly in script scope. Keep StrictMode and ownership checks enabled.
+- **Verification:** Actual Windows PowerShell **5.1.26100.9444**, invoked from WSL, executed the full installer through an embedded ScriptBlock against a hash-owned removal fixture: executable/metadata removed, unrelated data retained, no transaction residue. This isolates the scope correction; native CI still proves real running-binary self-update/uninstall.
+
 ### [2026-10-13] macOS installer smoke lost its PTY before restoration inspection
 
 - **Context / Symptom:** The animated bootstrap completed its process lifetime, but post-exit `tcgetattr(slave)` failed with `ENOTTY` on macOS.

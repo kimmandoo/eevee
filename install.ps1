@@ -25,14 +25,15 @@ $keepStage = $false
 $installLock = $null
 $archiveStream = $null
 $zip = $null
-$animation = $false
-$animationClock = [Diagnostics.Stopwatch]::new()
-$animationFrame = 0
-$animationWidth = 0
-$oldCursorVisible = $true
+# Functions share these fields in both -File and embedded ScriptBlock execution.
+$script:animation = $false
+$script:animationClock = [Diagnostics.Stopwatch]::new()
+$script:animationFrame = 0
+$script:animationWidth = 0
+$script:oldCursorVisible = $true
 $oldSecurityProtocol = [Net.ServicePointManager]::SecurityProtocol
-$ownerProcess = $null
-$ownerStartTicks = 0L
+$script:ownerProcess = $null
+$script:ownerStartTicks = 0L
 $deferCleanup = $false
 
 function Assert-RunningOwner([string]$Binary) {
