@@ -31,6 +31,11 @@ libc = "=0.2.182"
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_Threading"] }
 unicode-normalization = "=0.1.25"
 
+# Runner tests hash the >100 MiB debug test executable; unoptimized SHA-256 made admission
+# exceed bounded deadlines on loaded macOS runners.
+[profile.dev.package.sha2]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

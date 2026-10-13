@@ -9,6 +9,7 @@
 - feat(installer): show an original rolling Poké Ball text animation during interactive installation/update, with monochrome and plain-output modes and cursor cleanup.
 - fix(platform): use Git's portable `/dev/null` isolation on Windows, accept only verified macOS system temporary-directory aliases, and decode SS3/CSI F1–F4 keys without turning them into typed text.
 - ci(release): publish five native archives, both installers and combined checksums only after the tag's native installation/PTY-or-ConPTY and credential-free SDK checks pass. Keep installer bytes identical across native checkouts.
+- ci: move pinned workflow actions to their Node 24 majors, optimize SHA-256 in test builds so runner admission stays within bounded deadlines on loaded macOS hosts, and make process-tree fixtures beat before spawning descendants.
 - docs: add release installation/update/uninstall instructions, replace the README sprite with a verified alpha-transparent illustration, and separate original code/text animation from third-party images, names and rights.
 
 ## 2026-10-13

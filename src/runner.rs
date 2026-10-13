@@ -1933,6 +1933,9 @@ mod tests {
                     _ => "root",
                 };
                 fs::write(format!("{name}.pid"), std::process::id().to_string()).unwrap();
+                // Beat before spawning so a descendant's marker implies every ancestor's beat.
+                fs::write(format!("{name}.beat"), "start").unwrap();
+                println!("{name} partial output start");
                 let mut child = if mode != "grandchild" && mode != "escape" {
                     let next = if mode == "child" {
                         "grandchild"
