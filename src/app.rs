@@ -294,6 +294,13 @@ impl App {
         }
     }
 
+    pub fn agent_event(&mut self, event: crate::agent::Event) -> bool {
+        self.agents.event(event);
+        // Discovery/probe results belong to the connections drawer. In
+        // particular, delayed startup discovery must not repaint an idle home.
+        self.overlay == Some(Overlay::Agents)
+    }
+
     pub fn repo_event(&mut self, event: repo::Event) {
         use std::fmt::Write;
         self.repo_loading = false;
@@ -2336,6 +2343,19 @@ mod tests {
 
     fn modified_key(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> bool {
         app.update(Event::Key(KeyEvent::new(code, modifiers)))
+    }
+
+    #[test]
+    fn passive_discovery_only_redraws_the_connections_drawer() {
+        for overlay in [None, Some(Overlay::Help), Some(Overlay::Agents)] {
+            let mut app = app();
+            app.overlay = overlay;
+            app.agents.pending = None;
+            assert!(app.agents.busy());
+            let redraw = app.agent_event(crate::agent::Event::Discovered(Vec::new()));
+            assert!(!app.agents.busy(), "hidden results must still be applied");
+            assert_eq!(redraw, overlay == Some(Overlay::Agents));
+        }
     }
 
     #[test]

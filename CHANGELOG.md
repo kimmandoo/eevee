@@ -8,12 +8,14 @@
 - feat(distribution): add pinned HTTPS release installation, `ev update --check`, embedded-installer updates and owned uninstall with user-data preservation. Verify executable and legal-file ownership; retain rollback and locked-file refusal.
 - feat(installer): show an original rolling Poké Ball text animation during interactive installation/update, with monochrome and plain-output modes and cursor cleanup.
 - fix(platform): use Git's portable `/dev/null` isolation on Windows, accept only verified macOS system temporary-directory aliases, and decode SS3/CSI F1–F4 keys without turning them into typed text.
-- ci(release): publish five native archives, both installers and combined checksums only after the tag's native installation/PTY-or-ConPTY and credential-free SDK checks pass. Keep installer bytes identical across native checkouts.
+- ci(release): separated tag publication from native build and interactive smoke, and promoted exact-commit qualified archives with both installers and combined checksums.
 - ci: move pinned workflow actions to their Node 24 majors, optimize SHA-256 in test builds so runner admission stays within bounded deadlines on loaded macOS hosts, and make process-tree fixtures beat before spawning descendants.
 - docs: add release installation/update/uninstall instructions, replace the README sprite with a verified alpha-transparent illustration, and separate original code/text animation from third-party images, names and rights.
 
 ## 2026-10-13
 
+- fix(ci): stopped hidden provider discovery from repainting the idle home, waited for complete saved terminal frames before idle checks, and retained failing-output diagnostics.
+- ci(release): separated five native build jobs from installed-package smoke jobs and tag publication; required successful same-commit main-push qualification and immutable artifact provenance without rebuilding or repeating release smoke.
 - ci: retained five native credential-free installation/TUI rows, added installed JSON/Markdown handoff and isolated Node 24 SDK policy coverage, pinned Rust dependency/tool caching with main-only saves, disabled persisted checkout credentials, and avoided duplicate branch-push/PR runs. OAuth and real provider/model smoke remain opt-in.
 - feat(auth): added reviewed official Codex browser/device OAuth and status, OpenCode auth chooser/inventory, and explicitly external Gemini native Google/API-key/Vertex login without automatic task replay; removed the mixed-protocol ACP auth route after reproducing real OAuth output contamination.
 - fix(terminal): restored native auth foreground/input ownership, neutral consent and stale-generation boundaries; removed cursor-response dependence when repainting after terminal handoff.

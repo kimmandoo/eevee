@@ -1,0 +1,88 @@
+name: Publish qualified native release
+
+on:
+  push:
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    name: Qualify exact-commit native artifacts
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run-id: ${{ steps.native.outputs.run-id }}
+      run-attempt: ${{ steps.native.outputs.run-attempt }}
+      artifact-ids: ${{ steps.native.outputs.artifact-ids }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12.9'
+      - name: Require successful main push, SDK policy, and five native smoke rows
+        id: native
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/release_qualification.py
+
+  release:
+    name: Publish verified native release
+    needs: qualify
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12.9'
+      - name: Download only immutable qualified package IDs
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.qualify.outputs.run-id }}
+          artifact-ids: ${{ needs.qualify.outputs.artifact-ids }}
+          path: target/release-input
+      - name: Verify tag, native checksums and complete release assets
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/release_assets.py --artifacts target/release-input --output target/release-assets --tag "$RELEASE_TAG"
+      - name: Reject qualification changes before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFIED_RUN: ${{ needs.qualify.outputs.run-id }}
+          QUALIFIED_ATTEMPT: ${{ needs.qualify.outputs.run-attempt }}
+          QUALIFIED_ARTIFACTS: ${{ needs.qualify.outputs.artifact-ids }}
+        run: |
+          python scripts/release_qualification.py --expected-run "$QUALIFIED_RUN" \
+            --expected-attempt "$QUALIFIED_ATTEMPT" --expected-artifacts "$QUALIFIED_ARTIFACTS"
+      - name: Upload all assets before publishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          QUALIFIED_RUN: ${{ needs.qualify.outputs.run-id }}
+          QUALIFIED_ATTEMPT: ${{ needs.qualify.outputs.run-attempt }}
+        run: |
+          gh release create "$RELEASE_TAG" target/release-assets/* --verify-tag --draft \
+            --title "Eevee $RELEASE_TAG" --generate-notes \
+            --notes "Standalone local-first workbench. These exact native packages passed all five install and terminal suites plus credential-free SDK policy in same-commit native run $QUALIFIED_RUN (attempt $QUALIFIED_ATTEMPT): https://github.com/$GH_REPO/actions/runs/$QUALIFIED_RUN. Optional provider runtimes and accounts are separate; authenticated provider interoperability is not implied. Artwork is opt-in and not bundled. Packages are unsigned and macOS builds are not notarized. See README for checksum-verified installation and support limits."
+          gh release edit "$RELEASE_TAG" --draft=false --latest

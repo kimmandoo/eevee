@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-13] Windows startup frames were mistaken for idle output
+
+- **Context / Symptom:** Native run `38374725065` passed four Unix rows and SDK policy, but Windows installation reached the nested terminal suite and failed with `app emitted output while idle`.
+- **Root Cause:** The captured initial ConPTY surface had the saved-storage header but not its footer; a fixed startup delay accepted a partially delivered frame. Separately, passive provider discovery unconditionally invalidated the UI, causing a full Windows repaint even while the connections drawer was hidden.
+- **Solution:** Apply discovery results without invalidating hidden UI, wait for the complete saved home surface, and drain the bounded in-flight frame before starting the uninterrupted idle observation. Keep zero-output assertions and capture before/after screens plus the exact unexpected output on failure.
+- **Prevention / Reference:** `passive_discovery_only_redraws_the_connections_drawer` covers visible versus hidden discovery. Local macOS installed-package acceptance passed 20 lifecycle cases and all 34 terminal scenarios; fresh hosted Windows qualification is required before release.
+
 ### [2026-10-13] Embedded Windows installer read uninitialized script-scoped state
 
 - **Context / Symptom:** Native bootstrap succeeded, but `ev uninstall` failed under StrictMode because `$script:animation` had not been initialized.

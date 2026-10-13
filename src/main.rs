@@ -316,8 +316,7 @@ fn run(config: Config) -> io::Result<()> {
             }
             while let Some(event) = agents.try_event() {
                 outstanding_agents = outstanding_agents.saturating_sub(1);
-                app.agents.event(event);
-                dirty = true;
+                dirty |= app.agent_event(event);
             }
             while let Some(event) = planning.try_event() {
                 if matches!(&event, provider::Event::Finished { .. })

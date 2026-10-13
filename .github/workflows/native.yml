@@ -3,7 +3,6 @@ name: Native core and terminal lifecycle
 on:
   push:
     branches: [main]
-    tags: ['v[0-9]*']
   pull_request:
   workflow_dispatch:
 
@@ -33,10 +32,10 @@ jobs:
       - name: Verify policy without account login or model calls
         run: npm test --prefix sidecar
 
-  # Real OAuth and paid/provider model smoke scripts are deliberately opt-in,
-  # never automatic PR jobs. Native offline TUI/installation coverage stays here.
+  # Authenticated provider/model smoke stays opt-in. Offline native smoke runs
+  # separately against these exact immutable packages, never a second app build.
   native:
-    name: ${{ matrix.name }} / Rust 1.90.0
+    name: Build / ${{ matrix.name }}
     # Labels are native hosts, not cross-compilation or WSL:
     # https://docs.github.com/en/actions/reference/runners/github-hosted-runners
     runs-on: ${{ matrix.runner }}
@@ -95,12 +94,12 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12.9'
-      - name: Install pinned toolchain and terminal emulator
+      - name: Test release qualification trust boundary
+        run: python -m unittest discover -s scripts -p 'test_release_qualification.py'
+      - name: Install pinned toolchain
         run: |
           rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
-          python -m pip install pyte==0.8.2 wcwidth==0.2.13
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            python -m pip install pywinpty==2.0.15
             printf '%s\n' 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"
           fi
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -124,6 +123,96 @@ jobs:
           python scripts/license_notices.py --report target/native-licenses.json --output target/THIRD_PARTY_NOTICES
       - name: Package the standalone native executable
         run: python scripts/package_binary.py --binary target/release/ev --notices target/THIRD_PARTY_NOTICES --output target/packages
+      - name: Upload native installation package
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ev-${{ matrix.package }}
+          path: target/packages/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload observed evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: native-build-${{ matrix.name }}
+          path: |
+            ${{ env.SMOKE_OUTPUT }}/*.json
+            ${{ env.SMOKE_OUTPUT }}/*.log
+            ${{ env.SMOKE_OUTPUT }}/**/*.ansi
+            ${{ env.SMOKE_OUTPUT }}/**/*.txt
+            ${{ env.SMOKE_OUTPUT }}/**/*.json
+            ${{ env.SMOKE_OUTPUT }}/**/*.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  smoke:
+    name: Smoke / ${{ matrix.name }}
+    needs: native
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            runner: macos-14
+            os: Darwin
+            arch: arm64
+            package: darwin-arm64
+          - name: macos-x86_64
+            runner: macos-15-intel
+            os: Darwin
+            arch: x86_64
+            package: darwin-x86_64
+          - name: linux-x86_64
+            runner: ubuntu-22.04
+            os: Linux
+            arch: x86_64
+            package: linux-x86_64
+          - name: linux-arm64
+            runner: ubuntu-22.04-arm
+            os: Linux
+            arch: arm64
+            package: linux-arm64
+          - name: windows-x86_64
+            runner: windows-2022
+            os: Windows
+            arch: x86_64
+            package: windows-x86_64
+    env:
+      RUSTUP_TOOLCHAIN: 1.90.0
+      CARGO_TERM_COLOR: never
+      PYTHONUTF8: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      NATIVE_EXPECT_OS: ${{ matrix.os }}
+      NATIVE_EXPECT_ARCH: ${{ matrix.arch }}
+      NATIVE_RUNNER_LABEL: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Isolate runtime evidence from the Cargo cache
+        run: printf 'SMOKE_OUTPUT=%s/ev-native-smoke\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12.9'
+      - name: Install pinned terminal dependencies and lifecycle probe toolchain
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          python -m pip install pyte==0.8.2 wcwidth==0.2.13
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            python -m pip install pywinpty==2.0.15
+            printf '%s\n' 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"
+          fi
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ev-${{ matrix.package }}
+          path: target/packages
+      - name: Record observed native host and versions
+        run: python scripts/terminal_smoke.py --record-host --output "$SMOKE_OUTPUT"
       - name: Verify install, upgrade, refusal, and installed terminal lifecycle
         run: python scripts/installation_smoke.py --package-dir target/packages --output "$SMOKE_OUTPUT/installation"
       - name: Verify durable workbench in the installed binary
@@ -138,13 +227,6 @@ jobs:
         run: python scripts/execution_recovery_smoke.py --binary "$SMOKE_OUTPUT/installation/installed 空 格/bin/ev" --output "$SMOKE_OUTPUT/execution-recovery"
       - name: Verify portable JSON and Markdown handoffs without providers
         run: python scripts/handoff_smoke.py --binary "$SMOKE_OUTPUT/installation/installed 空 格/bin/ev" --output "$SMOKE_OUTPUT/handoff"
-      - name: Upload verified offline installation package
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: ev-${{ matrix.package }}
-          path: target/packages/*
-          if-no-files-found: error
-          retention-days: 14
       - name: Upload observed evidence even on failure
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -159,37 +241,3 @@ jobs:
             ${{ env.SMOKE_OUTPUT }}/**/*.log
           if-no-files-found: warn
           retention-days: 14
-
-  release:
-    name: Publish verified native release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [native, sdk-policy]
-    runs-on: ubuntu-22.04
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version: '3.12.9'
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          pattern: ev-*
-          path: target/release-input
-      - name: Verify tag, native checksums and complete release assets
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: python scripts/release_assets.py --artifacts target/release-input --output target/release-assets --tag "$RELEASE_TAG"
-      - name: Upload all assets before publishing
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          gh release create "$RELEASE_TAG" target/release-assets/* --verify-tag --draft \
-            --title "Eevee $RELEASE_TAG" --generate-notes \
-            --notes "Standalone local-first workbench. Native packages passed this tag's install and terminal suites. Optional provider runtimes and accounts are separate; authenticated provider interoperability is not implied. Artwork is opt-in and not bundled. Packages are unsigned and macOS builds are not notarized. See README for checksum-verified installation and support limits."
-          gh release edit "$RELEASE_TAG" --draft=false --latest

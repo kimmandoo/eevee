@@ -400,11 +400,22 @@ class Session:
         (self.directory / (name + ".txt")).write_text(self.display() + "\n", encoding="utf-8")
 
     def idle(self):
-        self.pump(0.3)
+        # Drain an in-flight PTY/ConPTY frame before starting the measurement,
+        # using the same bounded quiet-stream boundary as interactive captures.
+        # Do not restart the observation window if new output arrives.
+        self.pump(0, settle=True)
+        assert self.alive(), "app exited before idle observation"
+        self.capture("idle-before")
         before = len(self.text)
         self.pump(0.5)
-        assert len(self.text) == before, "app emitted output while idle"
-        self.events.append({"idle_seconds": 0.5, "output_bytes": 0})
+        output = self.text[before:]
+        self.events.append({"idle_seconds": 0.5, "output_bytes": len(output.encode("utf-8")),
+                            "transcript_start": before, "transcript_end": len(self.text)})
+        self.capture("idle-after")
+        if output:
+            (self.directory / "idle-output.ansi").write_text(output, encoding="utf-8", newline="")
+        assert self.alive(), "app exited during idle observation"
+        assert not output, "app emitted output while idle; see idle-output.ansi and idle captures"
 
     def wait_exit(self, *, tui=True):
         deadline = time.monotonic() + 8
@@ -502,9 +513,18 @@ def await_saved(session):
 
 
 def exercise_ui(session, size, cwd):
-    session.pump(0.8)
-    assert session.alive(), "app failed at startup"
-    await_saved(session)
+    # Saved storage is asynchronous, and its header can arrive before ConPTY
+    # has delivered the rest of the frame. Wait for the completed home surface,
+    # not a fixed startup delay or just its first few rows.
+    deadline = time.monotonic() + 8
+    while True:
+        assert session.alive(), "app failed at startup"
+        screen = session.display()
+        if "Storage: saved" in screen and "Ctrl+K Actions" in screen:
+            break
+        assert time.monotonic() < deadline, "saved home surface did not finish rendering"
+        session.pump(0.05)
+    session.pump(0, settle=True)
     assert ESC + "]0;SMOKE_CWD" not in session.text, "cwd controls escaped sanitization"
     session.capture("initial")
     session.idle()
