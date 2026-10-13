@@ -2,6 +2,7 @@
 
 ## 2026-10-13
 
+- ci: retained five native credential-free installation/TUI rows, added installed JSON/Markdown handoff and isolated Node 24 SDK policy coverage, pinned Rust dependency/tool caching with main-only saves, disabled persisted checkout credentials, and avoided duplicate branch-push/PR runs. OAuth and real provider/model smoke remain opt-in.
 - feat(auth): added reviewed official Codex browser/device OAuth and status, OpenCode auth chooser/inventory, and explicitly external Gemini native Google/API-key/Vertex login without automatic task replay; removed the mixed-protocol ACP auth route after reproducing real OAuth output contamination.
 - fix(terminal): restored native auth foreground/input ownership, neutral consent and stale-generation boundaries; removed cursor-response dependence when repainting after terminal handoff.
 - feat(claude): supported explicit Bedrock bearer/web identity and opt-in AWS SSO/profile/workload or Vertex ADC chains, with credential-helper/network effects disclosed, isolated SDK configuration and effective-backend validation; claude.ai subscription OAuth remains prohibited.

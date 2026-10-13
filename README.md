@@ -254,14 +254,19 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo build --locked --release
 ```
 
-For real terminal smoke checks, install `pyte==0.8.2` and `wcwidth==0.2.13` in a Python virtual environment; native Windows additionally needs `pywinpty==2.0.15`.
+For real terminal smoke checks, install `pyte==0.8.2` and `wcwidth==0.2.13` in a Python virtual environment; native Windows additionally needs `pywinpty==2.0.15`. The separate SDK policy suite requires Node 24.
 
 ```sh
 python scripts/terminal_smoke.py --binary target/release/ev --output target/native-smoke
 python scripts/workbench_smoke.py --binary target/release/ev --output target/workbench-smoke
 python scripts/handoff_smoke.py --binary target/release/ev --output target/handoff-smoke
+npm ci --ignore-scripts --no-audit --no-fund --prefix sidecar
 npm test --prefix sidecar
 ```
+
+The [CI workflow](.github/workflows/native.yml) runs on pull requests, pushes to `main`, and manual dispatch. Five native macOS/Linux/Windows rows retain Rust 1.90 formatting, tests, Clippy, release builds, dependency notices, installation/upgrade/refusal checks and installed-binary PTY/ConPTY workbench, repository, context, execution, recovery and handoff smoke. A separate Node job checks SDK policy without provider credentials. Terminal smoke belongs in CI because unit tests cannot establish real terminal restoration or installed-binary behavior; automated smoke does not log into providers or send model requests.
+
+Actions are pinned to immutable revisions, checkout credentials are not persisted, and Rust dependency/tool caches are saved only from `main`. Packages remain verification artifacts, not public Releases. A passing row covers its observed OS/architecture/terminal host—not arbitrary desktop terminals or live provider eligibility.
 
 Repository, context, execution, recovery, authentication, planning, implementation, and provider journeys have dedicated scripts under `scripts/`. Live provider checks are **opt-in** (`--live`), require the pinned runtimes, and may contact providers or incur usage. OAuth initiation/cancellation is not proof of completed human authentication; SDK inspection is not live cloud/model acceptance. The detailed checkpoint records those distinctions.
 

@@ -23,6 +23,8 @@ def main():
     parser.add_argument('--output', default='target/handoff-smoke')
     args = parser.parse_args()
     binary, output = Path(args.binary).resolve(), Path(args.output).resolve()
+    if os.name == 'nt' and not binary.exists():
+        binary = binary.with_suffix('.exe')
     output.mkdir(parents=True, exist_ok=True)
     result = {'status': 'failed', 'cases': []}
     sessions = []
