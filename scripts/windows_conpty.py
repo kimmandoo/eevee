@@ -296,8 +296,11 @@ class ConPTYProcess:
             if self.isalive():
                 if not self._kernel.TerminateProcess(self._process, 1):
                     error = ctypes.get_last_error()
-                    # The process may have exited between the poll and kill.
-                    if self.isalive():
+                    # A Job close can already be terminating this child while
+                    # its process handle is not signalled yet. Only accept the
+                    # raced denial after observing actual bounded completion.
+                    if (error != 5 or
+                            self._kernel.WaitForSingleObject(self._process, 5000) != WAIT_OBJECT_0):
                         raise ctypes.WinError(error)
         finally:
             self._release(self._input)

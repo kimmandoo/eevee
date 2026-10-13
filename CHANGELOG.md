@@ -3,6 +3,7 @@
 ## 2026-10-14
 
 - fix(ci): isolated ConPTY child standard handles from redirected runner pipes and moved native transport regressions before compilation.
+- fix(ci): waited for actual bounded process exit when ConPTY cleanup raced an already-terminating Windows Job, retaining real termination errors.
 
 ## 0.1.0
 

@@ -1,11 +1,18 @@
 # Troubleshooting
 
+### [2026-10-14] ConPTY teardown raced asynchronous Windows Job termination
+
+- **Context / Symptom:** Run `38419475447` passed the real ConPTY regressions, all 34 Windows terminal scenarios and installation/workbench/repository/context/execution suites. The abrupt-death recovery case then failed `TerminateProcess` with `WinError 5` after `Session.close()` closed the owning Job.
+- **Root Cause:** Job teardown had already begun terminating the child, but its process handle had not yet signalled completion. A second termination request was denied during that interval; an immediate liveness check mistook termination-in-progress for failure.
+- **Solution:** Accept the raced access-denied result only after `WaitForSingleObject` observes process completion within five seconds. Other errors and an unsignalled process still fail. Added a real native Job-close/ConPTY-close regression.
+- **Verification:** Local six-case execution-recovery smoke passed, including abrupt death/no replay. Native validation of this additional race correction remains pending; the prior hosted run already established that raw UTF-8, redirected standard handles and exact help return were fixed.
+
 ### [2026-10-14] Raw ConPTY child inherited redirected CI standard handles
 
 - **Context / Symptom:** Run `38417411635` failed both native transport regressions before any console output: `GetConsoleMode` raised `OSError: [WinError 6] The handle is invalid`. The child's traceback went directly to the CI log while the ConPTY reader received nothing.
 - **Root Cause:** The new `STARTUPINFOEXW` omitted `STARTF_USESTDHANDLES`. With redirected parent streams, child standard handles could retain the runner's pipes instead of being initialized to the attached pseudoconsole. `bInheritHandles=False` alone does not select console standard handles.
 - **Solution:** Set `STARTF_USESTDHANDLES` with all three standard-handle slots null, allowing ConPTY to populate console handles without changing or closing the parent's handles. Moved native transport regressions before compilation so this prerequisite fails immediately rather than after packaging.
-- **Reference:** [Microsoft GetStdHandle attachment rules](https://learn.microsoft.com/en-us/windows/console/getstdhandle), [Alacritty's equivalent ConPTY startup isolation](https://github.com/alacritty/alacritty/blob/master/alacritty_terminal/src/tty/windows/conpty.rs). Hosted Windows revalidation is pending; local macOS skips are not native proof.
+- **Reference / Verification:** [Microsoft GetStdHandle attachment rules](https://learn.microsoft.com/en-us/windows/console/getstdhandle), [Alacritty's equivalent ConPTY startup isolation](https://github.com/alacritty/alacritty/blob/master/alacritty_terminal/src/tty/windows/conpty.rs). Run `38419475447` passed both real Windows transport regressions and the complete 34-scenario installed terminal suite; local skips were not treated as native proof.
 
 ### [2026-10-13] Windows help return capture corrupted UTF-8 border characters
 

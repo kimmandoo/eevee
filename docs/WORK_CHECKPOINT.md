@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-14 — Expanded request through task section G
+
+- **Active scope:** User requested autonomous CI repair plus all task implementation through G, emphasizing UI/UX. Native run `38419475447` verifies the standard-handle correction while independent feature implementation proceeds. Release publication remains paused during this work.
+- **Implementation sequence:** U01 hypotheses/actual evidence; L01 contract/baseline/post-change comparison using existing execution and patch machinery; G01 independent no-write review/findings/verdicts; S01 existing-schema evidence handoff; S02 explicitly approved task/project/personal memories; S03 strict preview-only TOML recipes. Then Q01 real integrated UI journeys, Q02 measured performance/resource scope, and P02/P03 native/schema/distribution qualification.
+- **Ownership:** SpecialistWorkflows owns task workflow state and root app/UI/store/provider integration; MemoryHabits owns memory core/drawer modules and supplies worker/context interfaces; ProviderAcceptance inspects permitted native runtime/auth prerequisites; PerformanceAcceptance prepares an actual measurement harness. Parent owns CI, end-to-end smoke, final checks, documentation and commits. No mid-flight tests or fabricated external-provider acceptance.
+- **Next action:** Integrate completed slices, verify actual native/UI paths, record exact results and unavailable external prerequisites. Every unchecked acceptance gate stays unchecked until its stated evidence exists.
+- **Native update:** `db66087`, run `38419475447`, passed all five build rows, both native ConPTY tests and all four Unix smoke rows. Windows passed installation/34 terminal cases, 21 workbench, three repository, ten context and eight execution cases. Its final abrupt-death recovery case exposed a Job-termination race, now corrected by requiring a bounded signalled process exit before accepting raced access denial. Local six-case recovery passed; the added native Job-close regression and complete Windows row need the next run.
+
 ## 2026-10-14 — Correct redirected-parent ConPTY initialization
 
 - **Active request:** Stop the previous wait and fix the reported native regression `WinError 6` carefully, then run again. Release remains paused.

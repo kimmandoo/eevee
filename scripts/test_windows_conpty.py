@@ -219,6 +219,22 @@ class ConPTYTests(unittest.TestCase):
         self.assertIsNotNone(process.exitstatus)
         # Cleanup closes it again and also proves that its blocking reader exits.
 
+    def test_close_after_owned_job_termination(self):
+        from terminal_smoke import WindowsJob
+
+        temporary = tempfile.TemporaryDirectory(prefix='eevee conpty job ')
+        self.addCleanup(temporary.cleanup)
+        process, chunks = self.spawn_child(Path(temporary.name))
+        job = WindowsJob(process.pid)
+        self.addCleanup(job.close)
+        self.expect_title(self.titles(chunks), 'EEVEE_READY:')
+        # Job teardown is asynchronous. ConPTY teardown must observe the
+        # already-requested exit rather than reject a raced TerminateProcess.
+        job.close()
+        process.close()
+        self.assertFalse(process.isalive())
+        self.assertIsNotNone(process.exitstatus)
+
 
 if __name__ == '__main__':
     unittest.main()
