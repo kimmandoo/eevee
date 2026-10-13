@@ -1827,8 +1827,13 @@ impl SpoolDirectory {
             }
             // SAFETY: fstatat succeeded.
             let stat = unsafe { stat.assume_init() };
+            // Match MetadataExt::dev's unsigned identity on macOS's signed dev_t.
+            #[cfg(target_os = "macos")]
+            let device = stat.st_dev as u64;
+            #[cfg(not(target_os = "macos"))]
+            let device = stat.st_dev;
             if stat.st_mode & libc::S_IFMT != libc::S_IFREG
-                || format!("{}:{}", stat.st_dev as u64, stat.st_ino) != identity
+                || format!("{}:{}", device, stat.st_ino) != identity
             {
                 // A link/replacement is not this artifact. In particular never traverse
                 // it to remove an external target or destroy another task's reference.

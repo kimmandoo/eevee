@@ -2,7 +2,7 @@
 
 ## Active work
 
-Section A and the five-row offline `ev` installation preview are complete on their recorded gates. **Section B and R01/R02/UX02 passed local implementation and actual-TUI acceptance. P02 remains blocked by GitHub account billing before runner startup.** Resolve Billing & plans, then run the installed-binary native matrix on the latest revision; do not infer new native parity from older artifacts. Providers remain outside this request.
+Section A and the five-row offline `ev` installation preview are complete on their recorded gates. **Section B, R01/R02/UX02, and A01 passed local implementation and actual-TUI acceptance. P02 remains blocked by GitHub account billing before runner startup and is deferred at the user's request.** CI configuration was left unchanged. A02 is the next dependency-ready task; model adapters remain unimplemented. Do not infer new native parity from older artifacts.
 
 Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapter/evidence contract: [agent compatibility](docs/AGENT_COMPATIBILITY.md). An unchecked task may have partial implementation, but its acceptance is not complete; consult its evidence note and the checkpoint.
 
@@ -164,10 +164,11 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ### A01 — Agent preflight and truthful connection state
 
-- [ ] Show real capabilities and prerequisites for each installed or configured agent.
+- [x] Showed observed prerequisites, explicit executable trust, and unavailable/unknown agent capabilities without a model request.
 - **Depends on:** UX02, C02.
 - **Change:** Introduce a small versioned agent-profile/capability contract and connection drawer for Codex, Claude Agent SDK, and ACP profiles. Inspect executable/protocol versions, effective configuration/trust scope, authentication/billing source labels, and adapter availability without a model request. Establish executable/config trust before probing: even `--version` executes code, so a repository-supplied binary/hook requires deliberate consent. Qualify readiness per OS, executable version, and action; installed is not authenticated or supported. Missing/unknown is not supported. Show per-action Eevee-mediated/agent-policy/observed boundaries; never mutate global agent configs or silently load an untrusted project hook/plugin.
 - **Accept:** Probe the installed Codex interface and missing executables/SDKs; preserve local-only use. A version mismatch, absent auth, or unknown enforcement capability disables the affected run with an actionable reason. No repository-supplied command or auth flow starts without trust/action; no credentials appear in profile snapshots or logs. Record observed versus merely documented capabilities.
+- **Evidence:** Rust checks passed 168 tests (two subprocess helpers ignored), warning-free Clippy, and release build. Five real Linux/WSL PTY scenarios exercised missing profiles/local-only editing, repository-executable neutral/cancel/undersize refusal and deliberate consent, executable replacement invalidation, withheld credential-like stdout, and the installed Codex `0.152.1` version probe. Inspected 120x36/60x18 captures; eleven existing workbench scenarios also passed. Known configuration declarations are non-authoritative; no provider auth/status, protocol handshake, model request, SDK runtime, or native Windows acceptance is claimed. Codex `0.147.0` remains a documented reference only; the observed mismatch and all absent adapters keep model actions disabled.
 
 ### A02 — Espeon scoped planning request
 
@@ -285,4 +286,4 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 
 ## Phase status
 
-Phase 1, all six section-A tasks, all five section-B tasks, and R01/R02/UX02 passed their recorded gates: 14 of 31 implementation tasks are checked; 17 remain unchecked. Gate B passed locally. Gate C remains incomplete only at P02's externally blocked native acceptance. D-G remains later scope. Installation preview passed at `ea8ade7`; current B/C native parity is not inferred from that older evidence.
+Phase 1, all six section-A tasks, all five section-B tasks, R01/R02/UX02, and A01 passed their recorded gates: 15 of 31 implementation tasks are checked; 16 remain unchecked. Gate B passed locally. Gate C remains incomplete only at P02's externally blocked native acceptance, deferred by the user. A02 is next; A01 does not establish provider interoperability. Installation preview passed at `ea8ade7`; current workbench/preflight native parity is not inferred from that older evidence.

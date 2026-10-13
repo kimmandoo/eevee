@@ -60,6 +60,16 @@ The local workbench includes durable tasks, repository baselines, source baskets
 
 Goals are limited to 4096 UTF-8 bytes and never sent to a model. Enter applies an edit and requests a local save; the header distinguishes saving, committed, and failed revisions. Ctrl+N inserts a newline. Shift+Enter works only when the terminal reports it distinctly. Esc on a changed draft asks whether to keep or discard it. Backspace/VT Ctrl+H and Delete remove complete graphemes; a truncated paste leaves a visible warning.
 
+### Agent preflight
+
+`o` opens the connection drawer for Codex, Claude Agent SDK, OpenCode ACP, and Gemini ACP. Discovery is passive: it inspects executable identity and known configuration sources without running an agent. `1`–`4` or arrows select a profile; `r` refreshes discovery. Installation, observed CLI version, authentication/billing source labels, configuration declarations, OS/architecture, adapter availability, and per-action control boundaries remain distinct.
+
+Enter opens a **neutral trust preview**, not a connection. Review with PgDn/End; only after reaching the end can Tab select **Trust this version probe**, then Enter runs the previewed executable with literal `--version`. Esc cancels; resize clears consent, and terminals below 60×18 cannot approve. Executable and known configuration identities are revalidated before launch. Probes use an outside-project temporary cwd, owned-process cleanup, a three-second timeout, and a 16 KiB output limit. Only recognized version text is retained; arbitrary stdout/stderr is withheld.
+
+Even `--version` executes arbitrary code. Consent includes the disclosed inherited environment, interpreters, dependencies, and provider-owned configuration effects; none is claimed sandboxed or fully pinned. Eevee never starts login/model requests, reads credential stores, or changes provider configuration during preflight. Known nonsecret declarations are not authoritative effective policy. Environment variable **names/presence**, never credential values, label possible authentication/billing sources.
+
+All model actions remain disabled until their adapters, release/protocol compatibility, authentication, and enforcement are qualified. Claude CLI discovery does not establish SDK availability. Locally observed Codex `0.152.1` differs from the documented `0.147.0` reference; neither is advertised as a supported Eevee adapter. This Linux/WSL observation is not native Windows/provider parity evidence.
+
 ### Artwork and terminal graphics
 
 No image bytes are bundled and no download occurs on startup or form selection. Supply a local directory containing `133.png`, `134.png`, `135.png`, `136.png`, `196.png`, `197.png`, `470.png`, `471.png`, and `700.png`, or deliberately download the pinned PokeAPI set:
@@ -91,6 +101,7 @@ Artwork rights remain with the original rights holders. Downloading or attributi
 | `w` | Inspect repository baseline/raw diff; `r` refreshes that read-only view |
 | `v` | Browse source files/ranges and the task-owned context basket |
 | `j` | Open local command approval, live output, history and recovery |
+| `o` | Open passive agent preflight and explicit version-probe trust review |
 | `p` | Inspect a local handoff preview; in the picker, inspect the previewed role |
 | `l` | Toggle sanctuary / linear text layout |
 | Ctrl+K | Open the command palette |

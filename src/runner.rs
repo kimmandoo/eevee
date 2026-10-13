@@ -1088,7 +1088,7 @@ impl Sanitizer {
 }
 
 #[cfg(unix)]
-mod native {
+pub(crate) mod native {
     use super::*;
     use std::io::PipeReader;
     use std::os::fd::AsRawFd;
@@ -1225,7 +1225,7 @@ mod native {
 }
 
 #[cfg(windows)]
-mod native {
+pub(crate) mod native {
     use super::*;
     use std::mem::{size_of, size_of_val};
     use std::os::windows::ffi::OsStrExt;

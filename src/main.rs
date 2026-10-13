@@ -1,3 +1,4 @@
+mod agent;
 mod app;
 mod artwork;
 mod config;
@@ -74,6 +75,7 @@ fn run(config: Config) -> io::Result<()> {
         let repository = repo::Worker::start(project.clone())?;
         let sources = context::Worker::start(config.context_exclusions.clone())?;
         let execution = runner::Worker::start()?;
+        let agents = agent::Worker::start(project.clone())?;
         let size = terminal.size()?;
         let mut app = App::new(
             cwd.chars().filter(|c| !c.is_control()).collect(),
@@ -92,6 +94,7 @@ fn run(config: Config) -> io::Result<()> {
         let mut outstanding_repo = 1_usize;
         let mut outstanding_sources = 0_usize;
         let mut context_task = None;
+        let mut outstanding_agents = 0_usize;
         loop {
             let activity = app.execution.activity_label();
             if let Some(action) = app.execution.drive(&execution, app.task_id, &project) {
@@ -134,6 +137,9 @@ fn run(config: Config) -> io::Result<()> {
             }
             if store.try_context(&mut app.sources.pending_store) {
                 outstanding_store += 1;
+            }
+            if agents.try_request(&mut app.agents.pending) {
+                outstanding_agents += 1;
             }
             if let Some(request) = app.execution.take_store_request() {
                 let mut pending = Some(request);
@@ -182,6 +188,8 @@ fn run(config: Config) -> io::Result<()> {
             let pending = outstanding_store > 0
                 || outstanding_repo > 0
                 || outstanding_sources > 0
+                || outstanding_agents > 0
+                || app.agents.pending.is_some()
                 || app.sources.pending.is_some()
                 || app.sources.pending_store.is_some()
                 || app.execution.busy()
@@ -203,6 +211,11 @@ fn run(config: Config) -> io::Result<()> {
             }
             if let Some(event) = event {
                 dirty |= app.update(event);
+            }
+            while let Some(event) = agents.try_event() {
+                outstanding_agents = outstanding_agents.saturating_sub(1);
+                app.agents.event(event);
+                dirty = true;
             }
             while let Some(event) = store.try_event() {
                 outstanding_store = outstanding_store.saturating_sub(1);

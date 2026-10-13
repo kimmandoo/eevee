@@ -1,3 +1,4 @@
+mod agents;
 mod execution;
 mod sources;
 
@@ -344,6 +345,8 @@ pub fn render(
     let paint = Paint::new(config, form, app.form.min(8));
     frame.render_widget(Block::default().style(paint.base), area);
     if area.width < 60 || area.height < 18 {
+        app.agents.affirmative = false;
+        app.agents.reviewed = false;
         text(
             frame,
             area,
@@ -394,6 +397,7 @@ pub fn render(
             Overlay::Repository => repository(frame, area, app, config, &paint),
             Overlay::Sources => sources::render(frame, area, app, config, &paint),
             Overlay::Execution => execution::render(frame, area, &mut app.execution, config),
+            Overlay::Agents => agents::render(frame, area, app, config, &paint),
             Overlay::Inspector => {
                 let area = drawer(area);
                 frame.render_widget(Clear, area);
@@ -1128,6 +1132,9 @@ fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &P
     let content = block.inner(area);
     frame.render_widget(block, area);
     let value = "TASKS\n g / Enter  Edit goal; Enter in workspace resumes\n t          Task cards; Enter resumes selection\n n          New task after saves and owned work settle\n c          Criteria; Space toggles, e edits lines\n a          Next action (descriptive, never execution)\n d          Review Complete; requires all criteria met\n w          Repository baseline; r refreshes current evidence\nExternal changes are unattributed, not agent-authored.\nTask cards: h active/archived; a archive; r restore.\nDelete reviews a task; x reviews eligible retention purge.\nDeletion: PgUp/Dn scroll; n/p artifact pages; neutral Stay.\nPurge leaves repository files, exports and provider sessions alone. Not forensic secure erasure.\nComplete is user review, not verified execution.\nGoal/criteria changes require explicit Reopen.\n\nSOURCES / v\n / filters filenames; r chooses inclusive start:end.\n Enter inspects line 1; p pins an inspected range.\n b toggles files/basket; Delete removes; x purges capture.\n a previews exact escaped envelope; d revalidates without sending.\n u refreshes repository; n/p pages a large envelope.\n s retries a failed retained storage operation explicitly.\nIgnore/exclusion, containment and source identity are rechecked. Provider history/config/independent reads are not constrained.\n\nCOMMANDS / j\n e edits JSON argv or explicit shell object; Apply prepares only.\n v opens neutral approval; closing it grants nothing.\n c reviews cancellation; h history; r fresh evidence.\n / searches output; n/N next/previous; f follows.\n Arrows/PgUp/Dn/Home/End scroll without following.\n [/] pages retained output; p reviews purge; d error details.\n s retries journal persistence, never command execution.\nApproval is not a sandbox. Cancellation does not roll back edits.\nTask/form changes and quit wait for owned work or explicit unknown-outcome review. Restart never replays a command.\n\nEDITOR\nEnter applies locally; Ctrl+S retains draft without applying.\nEsc reviews changed draft; unchanged drafts close directly.\nLeft/Right and deletion operate on graphemes.\nUp/Down move lines; Home/End line boundaries.\nCtrl+N newline; Shift+Enter only if terminal distinguishes it.\nPaste never applies or approves. Drafts survive restart.\nSecret masking is best-effort; volatile text may be unmasked.\n\nNAVIGATION\n f Evolution: arrows/1-9 preview, Enter activates\n p Local handoff preview; sends nothing\n i / b Inspector / companion\n r Retry failed task storage outside editor\n l Linear/sanctuary; Ctrl+K actions; Tab pane focus\n Esc closes overlay and restores focus; ? help\n q / Ctrl+C safe exit with neutral Stay\nDuring save-and-exit, Esc cancels exit.\nFailed persistence requires informed explicit exit.\nArtwork: --images cells|off. No automatic download or model request. Linear mode makes no screen-reader compatibility claim.";
+    let value = format!(
+        "AGENT CONNECTIONS / o\n1-4 or arrows select profiles; selection never probes.\nEnter previews executable, literal argv and config effects.\nPgUp/Dn or End reviews; Tab explicitly selects Trust; Enter confirms.\nStay is the default; Esc cancels then restores the prior overlay.\nr refreshes passive discovery. No login or model request.\nInstalled, authenticated, version-compatible and ready are distinct.\nAll model runs remain blocked until real adapters exist.\n\n{value}"
+    );
     scroll_text(
         frame,
         content,
@@ -1213,6 +1220,7 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
                 }
             }
             Some(Overlay::Execution) => "",
+            Some(Overlay::Agents) => "",
             Some(Overlay::Tasks) => {
                 "Enter Resume / h Archives / a Archive or r Restore / Del / Esc"
             }

@@ -1,6 +1,6 @@
 # Eevee Design Rules
 
-Status: the local runtime implements artwork/navigation, durable task lifecycle/privacy/quotas, read-only repository evidence, persisted source context, explicitly approved owned commands, and recoverable execution journals. B/C local evidence is recorded in `task.md` and the checkpoint. P02 native parity is billing-blocked; providers remain unimplemented.
+Status: the local runtime implements artwork/navigation, durable task lifecycle/privacy/quotas, read-only repository evidence, persisted source context, explicitly approved owned commands, recoverable execution journals, and A01 passive agent discovery/explicit version-probe trust. Local evidence is recorded in `task.md` and the checkpoint. P02 native parity is billing-blocked and user-deferred; provider model adapters remain unimplemented.
 
 Implemented B/C boundaries: context exclusions conservatively match case-folded path components without merging file/project identities; assembly revalidates source containment/content and persisted references. Payload previews show exact serialized bytes and a labelled bytes/4 token estimate, not a provider's effective prompt. Task-row export is not an evidence backup. Metadata deletion can commit while physical cleanup fails: report the committed scope and cleanup warning, never a fictional rollback. Below-minimum terminals must retain neutral owned-work cancellation while refusing command approval until the complete review surface fits. Restored nested overlays and search retain their input ownership.
 

@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod execution;
 pub mod sources;
 
@@ -12,7 +13,7 @@ use crate::store;
 pub const MAX_GOAL_BYTES: usize = 4096;
 pub const DELETE_PREVIEW_PAGE: usize = 256;
 
-pub const PALETTE: [&str; 16] = [
+pub const PALETTE: [&str; 17] = [
     "Choose evolution",
     "Edit task goal",
     "Inspect task and storage",
@@ -29,6 +30,7 @@ pub const PALETTE: [&str; 16] = [
     "Repository baseline and diff",
     "Source map and context basket",
     "Command execution and evidence",
+    "Agent connections and trusted version preflight",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,6 +53,7 @@ pub enum Overlay {
     Repository,
     Sources,
     Execution,
+    Agents,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -160,6 +163,7 @@ pub struct App {
     pub repo_refresh: bool,
     pub sources: sources::State,
     pub execution: execution::State,
+    pub agents: agents::State,
     pub command: String,
     pub delete_preview: Vec<store::DeletionTarget>,
     pub delete_page: usize,
@@ -231,6 +235,7 @@ impl App {
             repo_refresh: false,
             sources: sources::State::default(),
             execution: execution::State::default(),
+            agents: agents::State::new(),
             command: String::new(),
             delete_preview: Vec::new(),
             delete_page: 0,
@@ -936,6 +941,8 @@ impl App {
                 }
                 self.width = width;
                 self.height = height;
+                self.agents.affirmative = false;
+                self.agents.reviewed = false;
                 true
             }
             Event::Paste(text)
@@ -998,6 +1005,55 @@ impl App {
         }
         if self.overlay == Some(Overlay::Execution) {
             return self.execution_key(key);
+        }
+        if self.overlay == Some(Overlay::Agents) {
+            if key.kind == KeyEventKind::Release {
+                return false;
+            }
+            if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+                if key.kind == KeyEventKind::Repeat {
+                    return false;
+                }
+                self.agents.cancel_preview();
+                self.request_quit();
+                return true;
+            }
+            if key.code == KeyCode::Esc && !self.agents.preview {
+                self.close_overlay();
+                return true;
+            }
+            if !self.agents.preview && key.kind == KeyEventKind::Press {
+                if key.modifiers == KeyModifiers::CONTROL
+                    && key.code == KeyCode::Char('k')
+                    && self.width >= 60
+                    && self.height >= 18
+                {
+                    self.open_overlay(Overlay::Palette);
+                    return true;
+                }
+                if key.modifiers.is_empty() {
+                    match key.code {
+                        KeyCode::Char('o') => {
+                            self.close_overlay();
+                            return true;
+                        }
+                        KeyCode::Char('q') => {
+                            self.request_quit();
+                            return true;
+                        }
+                        KeyCode::Char('?') if self.width >= 60 && self.height >= 18 => {
+                            self.open_overlay(Overlay::Help);
+                            return true;
+                        }
+                        KeyCode::Char('l') if self.width >= 60 && self.height >= 18 => {
+                            self.linear = !self.linear;
+                            return true;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            return self.agents.key(key, self.width >= 60 && self.height >= 18);
         }
         // Auto-repeat must never apply a draft or approve/open a destructive action.
         if key.kind == KeyEventKind::Repeat
@@ -1083,6 +1139,7 @@ impl App {
             KeyCode::Char('w') => self.open_overlay(Overlay::Repository),
             KeyCode::Char('v') => self.open_overlay(Overlay::Sources),
             KeyCode::Char('j') => self.open_overlay(Overlay::Execution),
+            KeyCode::Char('o') => self.open_overlay(Overlay::Agents),
             KeyCode::Tab | KeyCode::BackTab => {
                 return self.cycle_focus(key.code == KeyCode::BackTab);
             }
@@ -1790,6 +1847,7 @@ impl App {
                         13 => self.open_overlay(Overlay::Repository),
                         14 => self.open_overlay(Overlay::Sources),
                         15 => self.open_overlay(Overlay::Execution),
+                        16 => self.open_overlay(Overlay::Agents),
                         _ => unreachable!("palette selection is bounded"),
                     }
                 }

@@ -1,7 +1,7 @@
 # Eevee Implementation Plan
 
 Date: 2026-10-13
-Status: Section A and the five-row installation preview passed their recorded gates. Section B and R01/R02/UX02 passed local implementation and actual-TUI acceptance. Of 31 tasks, 14 are checked and 17 remain unchecked. P02 is the only remaining B/C gate and is blocked before native runner startup by account billing.
+Status: Section A and the five-row installation preview passed their recorded gates. Section B, R01/R02/UX02, and A01 passed local implementation and actual-TUI acceptance. Of 31 tasks, 15 are checked and 16 remain unchecked. P02 is the only remaining B/C gate, blocked before native runner startup by account billing and deferred at the user's request. CI configuration is unchanged.
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
 
 ## Outcome
@@ -152,4 +152,4 @@ No custom model runtime, autonomous multi-agent swarm, hosted synchronization, p
 
 ## Current next action
 
-Resolve the account's **Billing & plans** admission failure, then run the native installed-binary matrix on the latest revision and collect host-qualified workbench/context/execution/recovery evidence. Mark P02 complete only after all required native rows pass. Section B and R01/R02/UX02 passed locally; no further B/C implementation is pending. Offline installation passed all five rows at `ea8ade7`, but those artifacts predate B/C. Public Release/remote bootstrap remain withheld; P03's integrated/performance/rights gates and provider work remain separate.
+Start **A02 — Espeon scoped planning request**, using an explicitly qualified installed Codex app-server release/schema. A01 observed Codex `0.152.1` locally; the earlier `0.147.0` documentation is not a compatibility qualification. Real authentication/schema availability remains an A02 prerequisite; never substitute a mock round trip. P02/CI stays deferred: account Billing & plans must be resolved before collecting the five native installed-binary rows. A01 and B/C local proof do not close P02. Public Release/remote bootstrap and P03 remain gated.

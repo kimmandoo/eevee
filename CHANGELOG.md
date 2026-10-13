@@ -2,6 +2,8 @@
 
 ## 2026-10-13
 
+- feat(agents): added versioned Codex/Claude SDK/ACP preflight profiles, passive discovery, neutral executable/configuration trust previews, bounded owned version probes, and explicit version/authentication/adapter/control blockers without model requests or credential-store access.
+- fix(platform): removed a Linux-only redundant device-ID cast while retaining macOS unsigned artifact identity semantics.
 - feat(context): added persisted source ranges, conservative exclusions, exact payload previews, and source/retained-reference revalidation without claiming provider isolation.
 - feat(execution): added explicit argv/shell approval, quota-backed owned-process execution, bounded sanitized output, and cancellation-aware task/form/quit transitions.
 - feat(evidence): persisted execution journals and exposed stale, ambiguous, interrupted, truncated, and unavailable results without replaying commands.
