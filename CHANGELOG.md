@@ -4,6 +4,7 @@
 
 - fix(ci): isolated ConPTY child standard handles from redirected runner pipes and moved native transport regressions before compilation.
 - fix(ci): waited for actual bounded process exit when ConPTY cleanup raced an already-terminating Windows Job, retaining real termination errors.
+- fix(ci): waited for committed task-card navigation before approving native task switches, preserving pending-save refusal and all ownership checks.
 
 ## 0.1.0
 

@@ -137,7 +137,12 @@ def main():
 
             def switch_task(session, index, task_id, goal):
                 close_sources(session)
-                session.send("t" + HOME + DOWN * index + "\r")
+                session.send("t")
+                wait_for(session, "Task cards / committed snapshots")
+                wait_for(session, "Storage: saved")
+                session.send(HOME + DOWN * index)
+                wait_for(session, "Storage: saved")
+                session.send("\r")
                 settled(session, lambda rows: rows[2] == task_id, "task selection did not commit")
                 wait_for(session, goal)
                 wait_for(session, "Storage: saved")

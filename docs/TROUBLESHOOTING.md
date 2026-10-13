@@ -1,11 +1,18 @@
 # Troubleshooting
 
+### [2026-10-14] Native task-switch smoke raced its own navigation save
+
+- **Context / Symptom:** Run `38425278423` passed all native builds, the three Windows ConPTY regressions, the full installed terminal suite and all four Unix smoke rows. Windows execution acceptance reached its eighth scenario, then remained on task cards with `Finish or retry task/context saves before switching; the current task was retained.`
+- **Root Cause:** The harness sent palette/card navigation and the affirmative Enter without observing the intervening navigation-save acknowledgement. Windows correctly refused the task switch while that save was pending; the harness then waited for a switch it had not successfully requested.
+- **Solution:** Wait for the actual task-card surface and `Storage: saved`, select the target, wait for its saved state, and only then press Enter. Applied the same prerequisite ordering to source-context task switching. No automatic retry, longer timeout, skipped case, or weakened task-ownership assertion was introduced.
+- **Verification:** The corrected harness passed all eight local execution and ten context cases against the actual previous installed binary. The next native run must complete Windows execution, recovery and handoff acceptance; the previous run did not reach the final two suites there.
+
 ### [2026-10-14] ConPTY teardown raced asynchronous Windows Job termination
 
 - **Context / Symptom:** Run `38419475447` passed the real ConPTY regressions, all 34 Windows terminal scenarios and installation/workbench/repository/context/execution suites. The abrupt-death recovery case then failed `TerminateProcess` with `WinError 5` after `Session.close()` closed the owning Job.
 - **Root Cause:** Job teardown had already begun terminating the child, but its process handle had not yet signalled completion. A second termination request was denied during that interval; an immediate liveness check mistook termination-in-progress for failure.
 - **Solution:** Accept the raced access-denied result only after `WaitForSingleObject` observes process completion within five seconds. Other errors and an unsignalled process still fail. Added a real native Job-close/ConPTY-close regression.
-- **Verification:** Local six-case execution-recovery smoke passed, including abrupt death/no replay. Native validation of this additional race correction remains pending; the prior hosted run already established that raw UTF-8, redirected standard handles and exact help return were fixed.
+- **Verification:** Local six-case execution-recovery smoke passed, including abrupt death/no replay. Run `38425278423` passed all three native Windows ConPTY regressions, including Job-close teardown. Its later task-switch harness race is recorded separately; complete Windows recovery acceptance remains required.
 
 ### [2026-10-14] Raw ConPTY child inherited redirected CI standard handles
 

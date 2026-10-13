@@ -209,7 +209,11 @@ def main():
             def task_menu(session, index):
                 # The palette works from both the workspace and execution overlay.
                 session.send("\x0b" + HOME + DOWN * 8 + "\r")
-                session.send(HOME + DOWN * index + "\r")
+                wait_for(session, "Task cards / committed snapshots")
+                wait_for(session, "Storage: saved")
+                session.send(HOME + DOWN * index)
+                wait_for(session, "Storage: saved")
+                session.send("\r")
 
             def switch(session, index, task_id):
                 task_menu(session, index)
