@@ -92,7 +92,15 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     } else if state.cancelling {
         "CANCELLING / waiting; outcome not yet known"
     } else if state.busy() {
-        "PLANNING / provider-owned history and billing"
+        if state.inspect_sessions {
+            "INSPECTING SESSION METADATA / no model turn authorized"
+        } else {
+            "PLANNING / provider-owned history and billing"
+        }
+    } else if state.inspection.is_some() {
+        "SESSION METADATA / not a selectable decision or model result"
+    } else if state.outcome_unknown() {
+        "IDLE / prior provider outcome UNKNOWN; effects may remain"
     } else {
         "IDLE / explicit New or same-task Resume"
     };
@@ -109,11 +117,15 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             value,
             "Task {} / {}\n",
             preview.task_id,
-            preview
-                .thread_id
-                .as_ref()
-                .map(|id| format!("RESUME provider thread {id}"))
-                .unwrap_or_else(|| "NEW provider thread".into())
+            if state.inspect_sessions {
+                "SESSION METADATA ONLY / no thread creation or model turn".into()
+            } else {
+                preview
+                    .thread_id
+                    .as_ref()
+                    .map(|id| format!("RESUME provider thread {id}"))
+                    .unwrap_or_else(|| "NEW provider thread".into())
+            }
         );
         value.push_str("EXECUTABLE TRUST AND PROVIDER EFFECTS\n");
         for line in &preview.trust {
@@ -125,7 +137,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         }
         value.push_str("\nEXACT OUTGOING PAYLOAD BEGIN\n");
         value.push_str(&preview.payload);
-        value.push_str("\nEXACT OUTGOING PAYLOAD END\n\nEND OF REVIEW. Run authorizes this executable and one planning turn only. Stay sends nothing.\n");
+        value.push_str("\nEXACT OUTGOING PAYLOAD END\n\nEND OF REVIEW. ");
+        value.push_str(if state.inspect_sessions {
+            "Run authorizes executable connection and session metadata inspection only, not a model turn. Stay sends nothing.\n"
+        } else {
+            "Run authorizes this executable and one turn under the selected role and scope only. Stay sends nothing.\n"
+        });
         review = true;
     } else if let Some(request) = &state.request {
         let _ = writeln!(
@@ -358,6 +375,13 @@ fn controls(state: &State) -> &'static str {
             }
         };
     }
+    if state.inspection.is_some() {
+        return if state.busy() {
+            "PgUp/Dn Scroll session metadata\nEsc or c Cancel / q Safe exit"
+        } else {
+            "PgUp/Dn Scroll session metadata / Esc Messages\nn New / r Resume / 1-4 Agent / h Journal"
+        };
+    }
     if state.busy() {
         "Up/Down Item / PgUp/Dn Scroll\nEsc or c Cancel / q Safe exit"
     } else {
@@ -496,7 +520,7 @@ fn paths_editor(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) {
 
 fn quit(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) {
     let text_value = if state.outcome_unknown() {
-        "UNKNOWN OUTCOME\nNo authoritative provider completion was received. Work may have run. Exiting does not undo side effects or erase provider history."
+        "UNKNOWN OUTCOME\nAt least one provider request ended without authoritative completion. Work may have run. Later requests or metadata inspection do not resolve it. Exiting does not undo side effects or erase provider history."
     } else {
         "Exit planning?\nCancellation does not undo side effects or erase provider history. Eevee waits for acknowledgement or bounded teardown. Unknown outcome requires a second explicit exit choice."
     };

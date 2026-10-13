@@ -21,14 +21,38 @@ const PASTE: u8 = 8;
 #[cfg(windows)]
 const WINDOWS_INPUT: u8 = 16;
 
-struct Modes {
+pub(crate) struct Modes {
     active: AtomicU8,
     cleanup: fn() -> io::Result<()>,
     #[cfg(windows)]
     original_input_mode: u32,
+    #[cfg(unix)]
+    original_termios: libc::termios,
 }
 
 impl Modes {
+    /// The caller pauses its sole input reader before lending the terminal.
+    /// Restore every owned mode even if entering the native UI failed, then
+    /// rebuild the fullscreen terminal state before allowing application input.
+    pub fn suspend<T>(&self, body: impl FnOnce() -> T) -> io::Result<T> {
+        self.restore()?;
+        let result = body();
+        // A failed/killed native UI may leave raw mode or its alternate screen
+        // enabled. Normalize OS state, not only Crossterm's cached mode flag.
+        disable_raw_mode()?;
+        self.restore()?;
+        execute!(
+            io::stdout(),
+            DisableBracketedPaste,
+            LeaveAlternateScreen,
+            ResetColor,
+            SetAttribute(Attribute::Reset),
+            Show
+        )?;
+        self.enter()?;
+        Ok(result)
+    }
+
     fn enter(&self) -> io::Result<()> {
         // Mark before each operation: a failed write may still have sent its escape.
         if !is_raw_mode_enabled()? {
@@ -61,11 +85,27 @@ impl Modes {
             record(&mut error, "disable raw mode", disable_raw_mode());
         }
         #[cfg(windows)]
-        if active & (RAW | WINDOWS_INPUT) != 0 {
+        {
             record(
                 &mut error,
                 "restore original Windows input mode",
                 crate::input::restore_mode(self.original_input_mode),
+            );
+        }
+        #[cfg(unix)]
+        {
+            // SAFETY: snapshot belongs to this terminal and remains valid.
+            let restored = unsafe {
+                libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &self.original_termios)
+            };
+            record(
+                &mut error,
+                "restore original terminal input",
+                if restored == 0 {
+                    Ok(())
+                } else {
+                    Err(io::Error::last_os_error())
+                },
             );
         }
         if active & PASTE != 0 {
@@ -108,9 +148,17 @@ fn record(error: &mut Option<io::Error>, operation: &str, result: io::Result<()>
     }
 }
 
+/// Invalidate the fullscreen buffers without requiring a cursor-report reply.
+pub fn clear(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> io::Result<()> {
+    terminal.backend_mut().clear()?;
+    terminal.current_buffer_mut().reset();
+    terminal.swap_buffers();
+    terminal.set_cursor_position((0, 0))
+}
+
 pub fn run<F>(cleanup: fn() -> io::Result<()>, body: F) -> io::Result<()>
 where
-    F: FnOnce(&mut Terminal<CrosstermBackend<Stdout>>) -> io::Result<()>,
+    F: FnOnce(&mut Terminal<CrosstermBackend<Stdout>>, &Modes) -> io::Result<()>,
 {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err(io::Error::new(
@@ -124,6 +172,15 @@ where
         cleanup,
         #[cfg(windows)]
         original_input_mode: crate::input::capture_mode()?,
+        #[cfg(unix)]
+        original_termios: {
+            let mut value = std::mem::MaybeUninit::<libc::termios>::uninit();
+            // SAFETY: tcgetattr initializes value on success.
+            if unsafe { libc::tcgetattr(libc::STDIN_FILENO, value.as_mut_ptr()) } != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            unsafe { value.assume_init() }
+        },
     });
     let original_hook = Arc::new(panic::take_hook());
     let panic_modes = Arc::clone(&modes);
@@ -142,11 +199,8 @@ where
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         modes.enter()?;
         let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-        // A new fullscreen buffer has no cursor to preserve. Terminal::clear
-        // queries the terminal cursor and can time out on otherwise usable PTYs.
-        terminal.backend_mut().clear()?;
-        terminal.set_cursor_position((0, 0))?;
-        body(&mut terminal)
+        clear(&mut terminal)?;
+        body(&mut terminal, &modes)
     }));
     let restored = modes.restore();
     drop(panic::take_hook());

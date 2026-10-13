@@ -6,7 +6,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { Query, CanUseTool, OnElicitation, Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { SDK_VERSION, CLI_VERSION, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, selectedWrite, QuestionInputSchema, credentialRoute } from './policy.ts';
+import { SDK_VERSION, CLI_VERSION, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, selectedWrite, selectedWriteIdentity, QuestionInputSchema, credentialRoute, sdkOutcome } from './policy.ts';
 
 const require = createRequire(import.meta.url);
 const sdkEntry = require.resolve('@anthropic-ai/claude-agent-sdk');
@@ -70,7 +70,7 @@ const deny = { behavior: 'deny' as const, message: 'User declined or request can
 const meta = () => ({ generation, task_id: taskId });
 
 async function ask(id: string, tool: string, input: unknown, kind: string, signal: AbortSignal, fallback: Response, accept: (answer: Response) => boolean): Promise<Response> {
-  if (cancelled || signal.aborted || seenRequests.has(id) || pending.size >= 16 || seenRequests.size >= 256) return fallback;
+  if (cancelled || signal.aborted || seenRequests.has(id) || pending.size !== 0 || seenRequests.size >= 256) return fallback;
   seenRequests.add(id);
   const { promise, resolve: resolveAnswer } = Promise.withResolvers<Response>();
   const close = (answer: Response) => {
@@ -86,9 +86,9 @@ async function ask(id: string, tool: string, input: unknown, kind: string, signa
   return promise;
 }
 
-function cleanEnvironment(configDir: string) {
-  // Credentials are inherited, never read from provider stores or serialized.
-  // Isolated SDK home ensures the installed claude.ai subscription is unavailable.
+function cleanEnvironment(configDir: string, externalCloud: boolean) {
+  // Only explicitly approved Bedrock/Vertex chains may use the inherited home for
+  // provider-owned SSO/ADC caches. Claude's own configuration remains isolated.
   for (const name of Object.keys(process.env)) {
     if ((name.startsWith('CLAUDE_') && !['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX'].includes(name)) ||
       ['ANTHROPIC_AUTH_TOKEN', 'NODE_OPTIONS', 'NODE_PATH', 'BUN_OPTIONS'].includes(name)) delete process.env[name];
@@ -104,8 +104,10 @@ function cleanEnvironment(configDir: string) {
   for (const file of ['.claude', '.claude.json']) {
     if (existsSync(join(isolatedHome, file))) throw new Error('SDK isolated home contains an unreviewed provider store/configuration');
   }
-  process.env.HOME = isolatedHome;
-  process.env.USERPROFILE = isolatedHome;
+  if (!externalCloud) {
+    process.env.HOME = isolatedHome;
+    process.env.USERPROFILE = isolatedHome;
+  }
   process.env.CLAUDE_CONFIG_DIR = configDir;
   process.env.CLAUDE_AGENT_SDK_CLIENT_APP = 'eevee/1.0';
   process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
@@ -119,11 +121,14 @@ async function run(command: z.infer<typeof RunSchema>) {
   if (Buffer.byteLength(command.prompt) > FRAME_LIMIT / 2) throw new Error('Query byte bound exceeded');
   const account = credentialRoute(process.env);
   if (!account) throw new Error('Permitted API key or exactly one supported cloud route required; claude.ai subscriptions are not supported');
-  cleanEnvironment(command.state_dir);
+  const expectedProvider = process.env.CLAUDE_CODE_USE_BEDROCK === '1' ? 'bedrock' :
+    process.env.CLAUDE_CODE_USE_VERTEX === '1' ? 'vertex' : 'firstParty';
+  cleanEnvironment(command.state_dir, expectedProvider !== 'firstParty' && process.env.EEVEE_CLAUDE_CLOUD_AUTH === 'provider-chain');
   controller = new AbortController();
   const tools = command.operation === 'implement' ? [...READ_TOOLS, 'Edit', 'Write'] : READ_TOOLS;
+  let activeWrite: string | undefined;
   const canUseTool: CanUseTool = async (tool, input, options) => {
-    if (cancelled || !tools.includes(tool)) return deny;
+    if (cancelled || options.signal.aborted || !tools.includes(tool)) return deny;
     const id = options.requestId || `permission-${++promptSequence}`;
     if (tool === 'AskUserQuestion') {
       const questions = QuestionInputSchema.safeParse(input);
@@ -135,15 +140,29 @@ async function run(command: z.infer<typeof RunSchema>) {
         return Object.keys(values).length === questions.data.questions.length &&
           questions.data.questions.every(q => typeof values[q.question] === 'string');
       });
+      if (cancelled || options.signal.aborted) return deny;
       const parsed = QuestionAnswerSchema.safeParse(answer);
       return parsed.success ? { behavior: 'allow', updatedInput: { ...input, answers: parsed.data.updatedInput.answers } } : deny;
     }
-    if ((tool === 'Edit' || tool === 'Write') && !selectedWrite(command.cwd, command.edit_paths, input.file_path)) return { behavior: 'deny', message: 'Write outside reviewed selected paths or through symlink refused' };
-    const allowed = { behavior: 'allow' as const, updatedInput: input };
-    const answer = await ask(id, options.toolUseID, { tool, input, description: options.description, title: options.title, blockedPath: options.blockedPath,
-      options: [{ label: 'Deny', answer: deny }, { label: 'Allow once', answer: allowed }], defaultToNo: true, suppressAlwaysAllowRule: true },
-      'approval', options.signal, deny, a => isDeepStrictEqual(a, allowed) || isDeepStrictEqual(a, deny));
-    return PermissionSchema.parse(answer);
+    const writes = tool === 'Edit' || tool === 'Write';
+    if (writes && activeWrite !== undefined) return { behavior: 'deny', message: 'Another write is awaiting review or a terminal tool result' };
+    const baseline = writes ? selectedWriteIdentity(command.cwd, command.edit_paths, input.file_path) : undefined;
+    if (writes && baseline === undefined) return { behavior: 'deny', message: 'Write outside reviewed selected paths or through symlink refused' };
+    if (writes) activeWrite = options.toolUseID;
+    let approved = false;
+    try {
+      const allowed = { behavior: 'allow' as const, updatedInput: input };
+      const answer = await ask(id, options.toolUseID, { tool, input, description: options.description, title: options.title, blockedPath: options.blockedPath,
+        options: [{ label: 'Deny', answer: deny }, { label: 'Allow once', answer: allowed }], defaultToNo: true, suppressAlwaysAllowRule: true },
+        'approval', options.signal, deny, a => isDeepStrictEqual(a, allowed) || isDeepStrictEqual(a, deny));
+      if (cancelled || options.signal.aborted ||
+        (writes && selectedWriteIdentity(command.cwd, command.edit_paths, input.file_path) !== baseline)) return deny;
+      const permission = PermissionSchema.parse(answer);
+      approved = permission.behavior === 'allow';
+      return permission;
+    } finally {
+      if (writes && !approved) activeWrite = undefined;
+    }
   };
   const onElicitation: OnElicitation = async (request, options) => {
     // MCP is mandatory-disabled. Never turn elicitation into a tool grant or open a login URL.
@@ -178,8 +197,9 @@ async function run(command: z.infer<typeof RunSchema>) {
       return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: 'Review this one operation in Eevee' } };
     }] }] };
   }
+  const authReady = Promise.withResolvers<boolean>();
   async function* onePrompt(): AsyncGenerator<SDKUserMessage> {
-    if (!cancelled) yield { type: 'user', session_id: command.resume || '', message: { role: 'user', content: command.prompt }, parent_tool_use_id: null };
+    if (await authReady.promise && !cancelled) yield { type: 'user', session_id: command.resume || '', message: { role: 'user', content: command.prompt }, parent_tool_use_id: null };
   }
   current = query({ prompt: onePrompt(), options });
   let resultSeen = false;
@@ -187,17 +207,27 @@ async function run(command: z.infer<typeof RunSchema>) {
   const streaming = new Map<string, { text: string; at: number; bytes: number }>();
   const toolCalls = new Map<string, { tool: string; input: unknown }>();
   try {
+    // The pinned control initialization exposes the backend without a model turn.
+    // Never send the prompt to a subscription, fallback backend, or gateway instead.
+    const { apiProvider } = await current.accountInfo();
+    if (apiProvider !== expectedProvider) throw new Error('Effective SDK authentication backend differs from reviewed route');
+    authReady.resolve(true);
     for await (const message of current) {
+      if (session && 'session_id' in message && message.session_id !== session) throw new Error('SDK message changed session identity');
       if (message.type === 'system' && message.subtype === 'init') {
         if (message.claude_code_version !== CLI_VERSION || message.permissionMode !== 'default' ||
           message.tools.some(t => !tools.includes(t)) || message.mcp_servers.length || message.plugins.length || message.skills.length ||
           (account === 'ANTHROPIC_API_KEY' && message.apiKeySource !== 'ANTHROPIC_API_KEY')) throw new Error('Effective SDK identity/tool/config/auth policy mismatch');
+        if (session) throw new Error('SDK emitted a second session initialization');
         session = message.session_id;
         if (command.resume && session !== command.resume) throw new Error('SDK resumed a different session');
         await emit({ type: 'thread', ...meta(), session_id: session, model: message.model, account });
       } else if (message.type === 'stream_event') {
         const event = message.event;
-        if (event.type === 'message_start') streamingMessage = event.message.id;
+        if (event.type === 'message_start') {
+          if (!session || message.session_id !== session) throw new Error('Unqualified SDK stream');
+          streamingMessage = event.message.id;
+        }
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
           if (!streamingMessage || message.session_id !== session) throw new Error('Unqualified SDK text stream');
           const id = `${streamingMessage}:${event.index}`;
@@ -226,8 +256,10 @@ async function run(command: z.infer<typeof RunSchema>) {
         }
       } else if (message.type === 'user' && Array.isArray(message.message.content)) {
         for (const block of message.message.content) if (block.type === 'tool_result') {
+          if (!toolCalls.has(block.tool_use_id)) throw new Error('SDK tool result lacks an observed call');
           const call = toolCalls.get(block.tool_use_id);
           toolCalls.delete(block.tool_use_id);
+          if (activeWrite === block.tool_use_id) activeWrite = undefined;
           await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: block.tool_use_id, kind: 'tool', text: JSON.stringify({
             provider: 'Claude Agent SDK', sdk_version: SDK_VERSION, cli_version: CLI_VERSION, coverage: 'provider-native tool result; not an Eevee local command/check or proof of confinement',
             ...call, result: block.content, is_error: block.is_error, status: block.is_error ? 'failed' : 'completed',
@@ -236,16 +268,25 @@ async function run(command: z.infer<typeof RunSchema>) {
       } else if (message.type === 'result') {
         resultSeen = true;
         if ((message.queued_turn_count ?? 0) !== 0) throw new Error('SDK reports an unexpected queued follow-up; stop without replay');
+        for (const [id, item] of streaming) {
+          await emit({ type: 'item', ...meta(), session_id: session, item_id: id, kind: 'message', text: item.text, complete: false });
+        }
+        streaming.clear();
         await emit({ type: 'usage', ...meta(), session_id: message.session_id, scope: 'query-pipeline cumulative snapshot including restored session; replace, never sum; excludes out-of-pipeline helpers',
           estimated_cost_usd: message.total_cost_usd, model_usage: message.modelUsage, main_loop_per_turn: message.usage });
-        await emit({ type: 'finished', ...meta(), session_id: message.session_id, outcome: cancelled ? 'cancelled' : message.is_error || message.subtype !== 'success' ? 'failed' : 'completed',
-          message: cancelled ? 'SDK terminal result observed after interrupt request; no queued follow-up' :
+        const outcome = sdkOutcome(cancelled, message.is_error, message.subtype);
+        await emit({ type: 'finished', ...meta(), session_id: message.session_id, outcome,
+          message: outcome === 'unknown' ? 'SDK terminal error observed after interrupt; cancellation was requested, not confirmed; prior actions are not rolled back' :
             message.is_error ? `SDK ${message.subtype}: provider reported an error; raw diagnostics withheld` : message.subtype });
         break;
       }
     }
     if (!resultSeen) throw new Error('SDK ended without terminal result; outcome unknown');
   } finally {
+    authReady.resolve(false);
+    for (const [id, item] of streaming) {
+      await emit({ type: 'item', ...meta(), session_id: session, item_id: id, kind: 'message', text: item.text, complete: false });
+    }
     for (const p of [...pending.values()]) p.resolve(p.deny);
     current.close();
     current = undefined;
@@ -282,9 +323,9 @@ if (process.argv.includes('--inspect')) {
           for (const p of [...pending.values()]) p.resolve(p.deny);
           if (current) void current.interrupt().then(() => emit({ type: 'status', ...meta(), message: 'SDK interrupt acknowledged; awaiting terminal result' })).catch(fatal);
           else controller?.abort();
-        } else if (command.type === 'answer' && command.generation === generation && !cancelled) {
+        } else if (command.type === 'answer' && command.generation === generation) {
           const p = pending.get(command.request_id);
-          if (p && p.accept(command.answer)) p.resolve(command.answer);
+          if (!cancelled && p && p.accept(command.answer)) p.resolve(command.answer);
           else void emit({ type: 'status', ...meta(), message: 'Stale or invalid SDK answer refused' }).catch(fatal);
         } else throw new Error('Unsupported or stale IPC request');
       } catch (error) { fatal(error); }

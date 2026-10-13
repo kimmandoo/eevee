@@ -1018,6 +1018,7 @@ impl State {
                 }
                 validate_provider_record(&record)?;
                 sanitize_provider_record(&mut record);
+                validate_provider_record(&record)?;
                 let json = serde_json::to_string(&record).map_err(|error| error.to_string())?;
                 if json.len() > 65536 {
                     return Err("Provider journal record exceeds 64 KiB".into());
@@ -1057,7 +1058,7 @@ impl State {
             }
             JournalOperation::List => {
                 let mut statement = transaction.prepare("SELECT record FROM provider_journal WHERE task_id=?1 ORDER BY rowid LIMIT 257").map_err(|error| error.to_string())?;
-                let records = statement
+                let mut records = statement
                     .query_map([request.task_id], |row| {
                         json_column::<ProviderRecord>(row, 0, 65536)
                     })
@@ -1067,7 +1068,11 @@ impl State {
                 if records.len() > 256 {
                     return Err("Provider journal exceeds bounded capacity".into());
                 }
-                for record in &records {
+                for record in &mut records {
+                    validate_provider_record(record)?;
+                    // Older observations may predate the current masking rules. Keep the
+                    // append-only bytes intact, but never expose an unmasked read response.
+                    sanitize_provider_record(record);
                     validate_provider_record(record)?;
                 }
                 JournalResponse::Records(records)
@@ -1090,11 +1095,13 @@ impl State {
 }
 fn sanitize_provider_record(record: &mut ProviderRecord) {
     for text in [&mut record.origin, &mut record.coverage, &mut record.text] {
+        // Normalize before masking: removing controls can join a split credential name
+        // (for example, "pass\u{0008}word") into one recognized by the privacy boundary.
+        text.retain(|ch| (!ch.is_control() || ch == '\n' || ch == '\t')
+            && !matches!(ch, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'));
         if let std::borrow::Cow::Owned(clean) = crate::privacy::redact(text) {
             *text = clean;
         }
-        text.retain(|ch| (!ch.is_control() || ch == '\n' || ch == '\t')
-            && !matches!(ch, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'));
     }
 }
 
@@ -1107,14 +1114,17 @@ fn validate_provider_record(record: &ProviderRecord) -> Result<(), String> {
     ] {
         if identity.is_empty()
             || identity.len() > 1024
-            || identity.chars().any(char::is_control)
+            || identity.chars().any(|ch| {
+                ch.is_control()
+                    || matches!(ch, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+            })
             || crate::privacy::redact(identity) != *identity
         {
             return Err("Provider journal identity is invalid or credential-bearing".into());
         }
     }
-    if record.origin.is_empty()
-        || record.coverage.is_empty()
+    if record.origin.trim().is_empty()
+        || record.coverage.trim().is_empty()
         || record.origin.len() > 4096
         || record.coverage.len() > 4096
         || record.text.len() > 32768
@@ -1238,10 +1248,22 @@ fn run_json(record: &crate::runner::RunRecord) -> Result<String, String> {
     if record.state == RunState::Succeeded
         && (record.started_at_ms.is_none()
             || record.exit_code != Some(0)
-            || record.tree != TreeOutcome::OwnedTreeExited)
+            || record.tree != TreeOutcome::OwnedTreeExited
+            || record.cancelled
+            || record.signal.is_some())
     {
         return Err(
             "Successful command metadata lacks observed start, exit zero or owned-tree exit".into(),
+        );
+    }
+    if record.state == RunState::Cancelling && !record.cancelled
+        || record.state == RunState::Cancelled
+            && (!record.cancelled
+                || record.started_at_ms.is_none()
+                || record.tree != TreeOutcome::OwnedTreeExited)
+    {
+        return Err(
+            "Cancelled command metadata lacks an observed cancellation and owned-tree exit".into(),
         );
     }
     if record
@@ -1570,13 +1592,9 @@ impl State {
             return Err("Late run event cannot rewrite terminal journal evidence".into());
         }
         let transition = match stored.record.state {
-            RunState::AwaitingDispatch => matches!(
-                record.state,
-                RunState::Running
-                    | RunState::Failed
-                    | RunState::Interrupted
-                    | RunState::OutcomeUnknown
-            ),
+            // Each notification carries a complete observation. A failed intermediate
+            // commit must not strand the reservation when a later observed state arrives.
+            RunState::AwaitingDispatch => record.state != RunState::AwaitingDispatch,
             RunState::Running => record.state != RunState::AwaitingDispatch,
             RunState::Cancelling => {
                 !matches!(record.state, RunState::AwaitingDispatch | RunState::Running)
@@ -1590,6 +1608,15 @@ impl State {
             && stored.record.started_at_ms != record.started_at_ms
         {
             return Err("Run start metadata is immutable".into());
+        }
+        if record.captured_bytes < stored.record.captured_bytes
+            || record.discarded_bytes < stored.record.discarded_bytes
+            || record.dropped_live_bytes < stored.record.dropped_live_bytes
+            || stored.record.cancelled && !record.cancelled
+            || stored.record.truncated && !record.truncated
+            || stored.record.output_unavailable && !record.output_unavailable
+        {
+            return Err("Run observation cannot erase previously committed capture or cancellation evidence".into());
         }
         stored.reserved = active_state(&record.state);
         if !stored.reserved {
@@ -2886,6 +2913,21 @@ fn migrate(connection: &Connection, schema: Schema) -> Result<(), String> {
                 .execute_batch("INSERT INTO selections SELECT project,id FROM tasks;")
                 .map_err(|error| error.to_string())?;
         }
+        if matches!(schema, Schema::Tasks | Schema::Lifecycle) {
+            // Rebuilding a task table must preserve deleted identities too. Otherwise
+            // AUTOINCREMENT restarts at the highest surviving row and reuses old task IDs.
+            connection
+                .execute_batch(
+                    "UPDATE sqlite_sequence SET seq=max(seq,coalesce(
+                    (SELECT seq FROM sqlite_sequence WHERE name='old_tasks'),seq))
+                 WHERE name='tasks';
+                 INSERT INTO sqlite_sequence(name,seq)
+                 SELECT 'tasks',seq FROM sqlite_sequence
+                 WHERE name='old_tasks'
+                 AND NOT EXISTS(SELECT 1 FROM sqlite_sequence WHERE name='tasks');",
+                )
+                .map_err(|error| format!("Cannot preserve task identity sequence: {error}"))?;
+        }
         connection
             .execute_batch(&format!("DROP TABLE {table};"))
             .map_err(|error| error.to_string())?;
@@ -3528,6 +3570,120 @@ mod tests {
                     operation: JournalOperation::List
                 })
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn provider_journal_masks_after_normalization_and_rejects_empty_provenance() {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let task = store.save(snapshot("project", 1)).unwrap();
+        let record = ProviderRecord {
+            id: "normalized-session-item".into(),
+            agent: crate::provider::Agent::Codex,
+            generation: 1,
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "item".into(),
+            origin: "provider-native".into(),
+            coverage: "observed only".into(),
+            text: "pass\u{0008}word=journal-private-value\nsafe".into(),
+            complete: true,
+        };
+        let response = store
+            .journal_request(JournalRequest {
+                task_id: task.id,
+                operation: JournalOperation::Put(record.clone()),
+            })
+            .unwrap();
+        let JournalResponse::Saved(saved) = response else {
+            panic!("expected committed provider record");
+        };
+        assert!(!saved.text.contains("journal-private-value"));
+        assert!(saved.text.contains("[REDACTED]") && saved.text.contains("safe"));
+        // Retrying the original observation is idempotent, including its normalization.
+        assert!(matches!(
+            store.journal_request(JournalRequest {
+                task_id: task.id,
+                operation: JournalOperation::Put(record.clone()),
+            }).unwrap(),
+            JournalResponse::Saved(retried) if retried == saved
+        ));
+        for coverage in ["\u{0008}", "\u{202e}", " \n\t "] {
+            let mut invalid = record.clone();
+            invalid.id = "invalid-provenance".into();
+            invalid.coverage = coverage.into();
+            assert!(
+                store
+                    .journal_request(JournalRequest {
+                        task_id: task.id,
+                        operation: JournalOperation::Put(invalid),
+                    })
+                    .is_err()
+            );
+        }
+        let mut invalid = record;
+        invalid.id = "misleading\u{202e}identity".into();
+        assert!(
+            store
+                .journal_request(JournalRequest {
+                    task_id: task.id,
+                    operation: JournalOperation::Put(invalid),
+                })
+                .is_err()
+        );
+        drop(store);
+        let mut reopened = state(&directory, "project", Policy::default());
+        assert!(matches!(
+            reopened.journal_request(JournalRequest {
+                task_id: task.id,
+                operation: JournalOperation::List,
+            }).unwrap(),
+            JournalResponse::Records(records) if records == vec![saved.clone()]
+        ));
+        let bytes = fs::read(directory.0.join(DATABASE)).unwrap();
+        assert!(
+            !bytes
+                .windows(b"journal-private-value".len())
+                .any(|window| window == b"journal-private-value")
+        );
+        // An observation written before the masking fix remains append-only on disk,
+        // but loading it must apply the current privacy boundary.
+        let mut legacy = saved.clone();
+        legacy.text = "password=legacy-journal-value".into();
+        let json = serde_json::to_string(&legacy).unwrap();
+        reopened
+            .connection
+            .as_ref()
+            .unwrap()
+            .execute(
+                "UPDATE provider_journal SET record=?1 WHERE id=?2",
+                params![json, legacy.id],
+            )
+            .unwrap();
+        let JournalResponse::Records(records) = reopened
+            .journal_request(JournalRequest {
+                task_id: task.id,
+                operation: JournalOperation::List,
+            })
+            .unwrap()
+        else {
+            panic!("expected provider journal records");
+        };
+        assert!(!records[0].text.contains("legacy-journal-value"));
+        let retained: String = reopened
+            .connection
+            .as_ref()
+            .unwrap()
+            .query_row(
+                "SELECT record FROM provider_journal WHERE id=?1",
+                [&legacy.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            retained, json,
+            "a journal read must not rewrite retained evidence"
         );
     }
 
@@ -5894,5 +6050,142 @@ mod tests {
         let current = store.save(changed).unwrap();
         assert!(validate_planning_input(&store.data_dir, &saved, &[]).is_err());
         validate_planning_input(&store.data_dir, &current, &[]).unwrap();
+    }
+
+    #[test]
+    fn terminal_run_observations_recover_after_failed_start_commit() {
+        use crate::runner::{RunRecord, RunState, TreeOutcome};
+        for terminal in [RunState::Succeeded, RunState::Cancelled] {
+            let directory = Directory::new();
+            let mut store = state(&directory, "project", Policy::default());
+            let task = store.save(snapshot("project", 1)).unwrap();
+            let prepared = prepared_run(task.id, &store.data_dir, "failed-start");
+            let permit = store.reserve_run(task.id, prepared.clone(), 4096).unwrap();
+            let mut record = RunRecord::awaiting(&prepared);
+            record.state = RunState::Running;
+            record.started_at_ms = Some(timestamp().unwrap() as u64);
+            store
+                .connection
+                .as_ref()
+                .unwrap()
+                .pragma_update(None, "query_only", true)
+                .unwrap();
+            assert!(store.update_run(task.id, record.clone()).is_err());
+            store
+                .connection
+                .as_ref()
+                .unwrap()
+                .pragma_update(None, "query_only", false)
+                .unwrap();
+            assert_eq!(
+                stored_run(
+                    store.connection.as_ref().unwrap(),
+                    task.id,
+                    &prepared.run_id
+                )
+                .unwrap()
+                .record
+                .state,
+                RunState::AwaitingDispatch
+            );
+            record.state = terminal;
+            record.ended_at_ms = record.started_at_ms;
+            record.exit_code = Some(0);
+            record.tree = TreeOutcome::OwnedTreeExited;
+            record.cancelled = terminal == RunState::Cancelled;
+            drop(permit);
+            store.update_run(task.id, record).unwrap();
+            no_active(store.connection.as_ref().unwrap(), Some(task.id)).unwrap();
+            drop(store);
+            let reopened = state(&directory, "project", Policy::default());
+            assert_eq!(reopened.load_runs(task.id).unwrap()[0].state, terminal);
+        }
+    }
+
+    #[test]
+    fn stale_run_observation_cannot_erase_committed_capture_evidence() {
+        use crate::runner::{RunRecord, RunState};
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let task = store.save(snapshot("project", 1)).unwrap();
+        let prepared = prepared_run(task.id, &store.data_dir, "monotonic");
+        let permit = store.reserve_run(task.id, prepared.clone(), 4096).unwrap();
+        let mut record = RunRecord::awaiting(&prepared);
+        record.state = RunState::Running;
+        record.started_at_ms = Some(timestamp().unwrap() as u64);
+        record.captured_bytes = 10;
+        record.discarded_bytes = 20;
+        record.dropped_live_bytes = 5;
+        record.truncated = true;
+        record.output_unavailable = true;
+        let committed = store.update_run(task.id, record.clone()).unwrap();
+        for mutation in 0..5 {
+            let mut stale = record.clone();
+            match mutation {
+                0 => stale.captured_bytes = 0,
+                1 => stale.discarded_bytes = 0,
+                2 => stale.dropped_live_bytes = 0,
+                3 => stale.truncated = false,
+                _ => stale.output_unavailable = false,
+            }
+            assert!(store.update_run(task.id, stale).is_err());
+            assert_eq!(
+                stored_run(
+                    store.connection.as_ref().unwrap(),
+                    task.id,
+                    &prepared.run_id
+                )
+                .unwrap()
+                .record,
+                committed
+            );
+        }
+        drop(permit);
+    }
+
+    #[test]
+    fn lifecycle_migration_never_reuses_deleted_task_identities() {
+        for keep_survivor in [false, true] {
+            let directory = Directory::new();
+            let mut store = state(&directory, "project", Policy::default());
+            let first = store.save(snapshot("project", 1)).unwrap();
+            let deleted = store.save(snapshot("project", 1)).unwrap();
+            let ids = if keep_survivor {
+                vec![deleted.id]
+            } else {
+                vec![first.id, deleted.id]
+            };
+            store
+                .manage(Management::Delete {
+                    ids,
+                    expired_before: None,
+                })
+                .unwrap();
+            drop(store);
+            let mut connection = Connection::open(directory.0.join(DATABASE)).unwrap();
+            connection
+                .execute_batch(
+                    "DROP TABLE provider_journal; DROP TABLE excerpts; DROP TABLE executions;
+                 ALTER TABLE tasks DROP COLUMN command; PRAGMA user_version=3;",
+                )
+                .unwrap();
+            {
+                let transaction = connection.transaction().unwrap();
+                migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
+                // Aborting the migration must preserve both schema and the high-water mark.
+            }
+            assert!(matches!(inspect(&connection).unwrap(), Schema::Lifecycle));
+            let sequence: i64 = connection
+                .query_row(
+                    "SELECT seq FROM sqlite_sequence WHERE name='tasks'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(sequence, deleted.id);
+            drop(connection);
+            let mut reopened = state(&directory, "project", Policy::default());
+            assert!(reopened.save(snapshot("project", 1)).unwrap().id > deleted.id);
+        }
     }
 }

@@ -615,7 +615,21 @@ fn resolve_executable(program: &str, cwd: &Path) -> Result<PathBuf, String> {
     Err(format!("Executable not found or not executable: {program}"))
 }
 fn executable_identity(path: &Path) -> io::Result<ExecutableIdentity> {
-    let mut file = File::open(path)?;
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // A replaced executable must fail closed, not block the admission worker on
+        // a FIFO/device or follow a newly substituted link before cancellation can run.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let mut file = options.open(path)?;
     let before = file.metadata()?;
     if !before.is_file() || before.len() > 512 * 1024 * 1024 {
         return Err(io::Error::other(
@@ -2359,6 +2373,23 @@ mod tests {
         assert!(admit(&p, &permit, &gate, &AtomicBool::new(false)).is_err());
         assert!(gate.lock().active.is_none());
         assert!(!temp.0.join("root.pid").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn executable_identity_refuses_fifo_and_link_substitutions_without_blocking() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::symlink;
+        let temp = Temp::new();
+        let fifo = temp.0.join("replaced-executable");
+        let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o700) }, 0);
+        let start = Instant::now();
+        assert!(executable_identity(&fifo).is_err());
+        assert!(start.elapsed() < Duration::from_secs(1));
+        fs::remove_file(&fifo).unwrap();
+        symlink(std::env::current_exe().unwrap(), &fifo).unwrap();
+        assert!(executable_identity(&fifo).is_err());
     }
 
     #[cfg(windows)]

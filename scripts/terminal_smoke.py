@@ -252,6 +252,12 @@ class Session:
             ("TERM", "COLORTERM", "LC_ALL", "LC_CTYPE", "LANG", "NO_COLOR", "PYWINPTY_BACKEND")}}]
         self.text = ""
         class TerminalScreen(pyte.Screen):
+            def select_graphic_rendition(self, *attributes, private=False):
+                # Native providers can emit private SGR extensions. Pyte does
+                # not model them; ignore only that unsupported styling family.
+                if not private:
+                    super().select_graphic_rendition(*attributes)
+
             def window_manipulation(self, operation, lines=0, columns=0):
                 # ConPTY announces its resize in the output stream. Apply it
                 # at that boundary, not before draining old-size output.
@@ -605,7 +611,7 @@ mod terminal;
 mod input;
 fn main() -> std::io::Result<()> {
     let mode = std::env::args().nth(1).unwrap();
-    terminal::run(|| Ok(()), |_| {
+    terminal::run(|| Ok(()), |_, _| {
         println!("EEVEE_LIFECYCLE_ENTERED");
         // Make raw input observable before either failure path unwinds.
         std::thread::sleep(std::time::Duration::from_millis(600));

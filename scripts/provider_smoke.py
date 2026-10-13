@@ -221,6 +221,8 @@ def main():
             assert 'did not negotiate sessionCapabilities.list' in session.display(), session.display()
             assert 'No session/new/load/prompt' in session.display(), session.display()
             passed('Gemini missing session/list is explained on the real TUI and never invoked')
+            session.send('\x1b')
+            wait_for(session, IDLE)
             preview()
             run()
             wait_for(session, IDLE, timeout=60)

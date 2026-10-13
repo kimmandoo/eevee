@@ -14,6 +14,30 @@ impl Input {
         })
     }
 
+    /// Forget partial native decoding and queued application keys at an explicit
+    /// terminal ownership boundary. No background reader survives this handoff.
+    pub fn discard_pending(&mut self) -> io::Result<()> {
+        #[cfg(windows)]
+        {
+            windows::flush()?;
+            self.windows = windows::ConsoleInput::new()?;
+        }
+        #[cfg(not(windows))]
+        {
+            for _ in 0..256 {
+                if !crossterm::event::poll(std::time::Duration::ZERO)? {
+                    return Ok(());
+                }
+                let _ = crossterm::event::read()?;
+            }
+            Err(io::Error::other(
+                "Input did not settle at authentication boundary",
+            ))
+        }
+        #[cfg(windows)]
+        Ok(())
+    }
+
     pub fn read(&mut self) -> io::Result<Event> {
         #[cfg(windows)]
         {
@@ -321,6 +345,15 @@ mod windows {
     pub fn restore_mode(mode: u32) -> io::Result<()> {
         // SAFETY: mode is a console input mode, not a pointer or external command.
         if unsafe { SetConsoleMode(handle()?, mode) } == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn flush() -> io::Result<()> {
+        // SAFETY: discard queued input only at the explicit ownership boundary.
+        if unsafe { FlushConsoleInputBuffer(handle()?) } == 0 {
             Err(io::Error::last_os_error())
         } else {
             Ok(())

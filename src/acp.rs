@@ -90,7 +90,7 @@ impl Worker {
             return false;
         }
         if let Request::Cancel { generation } = &request {
-            self.cancelled.store(*generation, Ordering::Release);
+            self.cancelled.fetch_max(*generation, Ordering::Release);
         }
         let marks_busy = matches!(request, Request::Preview(_) | Request::Run { .. });
         let previous = marks_busy && self.busy.swap(true, Ordering::AcqRel);
@@ -193,6 +193,16 @@ fn worker(
                         blockers.push("Controlled implementation refused: this ACP peer's agent-owned tools cannot enforce Eevee's selected-file boundary. Use the explicitly external-policy manual handoff instead; no sandbox claim.".into());
                     }
                     if let Some(id) = &input.resume
+                        && (id.is_empty() || id.len() > 256 || safe(id) != *id)
+                    {
+                        blockers.push("Resume refused: invalid ACP session identity".into());
+                    }
+                    if sessions.len() >= 256 && input.resume.is_none() {
+                        blockers.push(
+                            "ACP session bound reached; restart before another session".into(),
+                        );
+                    }
+                    if let Some(id) = &input.resume
                         && sessions.get(&(input.agent, id.clone())) != Some(&task_id)
                     {
                         blockers.push("Resume refused: session is not an observed session of this provider and task; no cross-provider session transfer.".into());
@@ -229,7 +239,11 @@ fn worker(
             Request::Run {
                 generation: requested,
             } => {
-                if let Some(run) = reviewed.take().filter(|run| run.generation == requested) {
+                if reviewed
+                    .as_ref()
+                    .is_some_and(|run| run.generation == requested)
+                {
+                    let run = reviewed.take().expect("matched reviewed generation");
                     let task_id = run.input.task.id;
                     preview_owner = None;
                     let (outcome, message) = transport(
@@ -285,6 +299,12 @@ fn worker(
     busy.store(false, Ordering::Release);
 }
 fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
+    if std::path::Path::new(&input.task.project) != workspace.project.as_path()
+        || !matches!(input.agent, Agent::OpenCode | Agent::Gemini)
+        || (input.operation == Operation::Plan && !input.edit_paths.is_empty())
+    {
+        return Err("ACP task/project/profile or planning write scope mismatch".into());
+    }
     crate::store::validate_planning_input(&workspace.data_dir, &input.task, &input.excerpts)?;
     if input.inspect_sessions {
         if input.resume.is_some() {
@@ -600,6 +620,14 @@ impl Item {
         }
     }
     fn tool_snapshot(&mut self, update: &Value) -> Result<(), String> {
+        if self.complete
+            && update
+                .get("status")
+                .and_then(Value::as_str)
+                .is_some_and(|status| !matches!(status, "completed" | "failed"))
+        {
+            return Err("ACP terminal tool identity cannot return to an in-progress state".into());
+        }
         // ACP tool updates patch named fields. Content is a snapshot, not a delta or usage total.
         for key in [
             "title",
@@ -614,9 +642,13 @@ impl Item {
                 self.fields.insert(key.into(), value.clone());
             }
         }
-        self.text = safe(
+        let text = safe(
             &serde_json::to_string_pretty(&self.fields).map_err(|_| "ACP tool encoding failed")?,
         );
+        if text.len() > 32 * 1024 {
+            return Err("ACP tool snapshot exceeds the 32 KiB journal bound; stopping with the prior bounded observation only".into());
+        }
+        self.text = text;
         if let Some(status) = update.get("status").and_then(Value::as_str) {
             self.complete = matches!(status, "completed" | "failed");
         }
@@ -637,6 +669,7 @@ struct Engine<'a> {
     sequence: u64,
     calls: Vec<PendingCall>,
     capabilities: Value,
+    sessions: &'a mut HashMap<(Agent, String), i64>,
     session: Option<String>,
     dispatched: bool,
     cancelling: Option<Instant>,
@@ -701,6 +734,7 @@ fn transport(
         sequence: 0,
         calls: Vec::new(),
         capabilities: json!({}),
+        sessions,
         session: None,
         dispatched: false,
         cancelling: None,
@@ -760,8 +794,16 @@ fn transport(
                         if engine.received > 32 * 1024 * 1024 {
                             return Err("ACP transport byte limit exceeded".into());
                         }
-                        for frame in engine.framer.push(&buffer[..count])? {
-                            engine.frame(frame)?;
+                        for chunk in buffer[..count].split_inclusive(|byte| *byte == b'\n') {
+                            for frame in engine.framer.push(chunk)? {
+                                engine.frame(frame)?;
+                            }
+                            if engine.terminal.is_some() {
+                                break;
+                            }
+                        }
+                        if engine.terminal.is_some() {
+                            break;
                         }
                     }
                     Err(error)
@@ -825,14 +867,18 @@ fn transport(
         Ok(()) => result,
         Err(error) => Err(error),
     };
-    if let Some(session) = &engine.session {
-        sessions.insert((run.input.agent, session.clone()), run.input.task.id);
+    let observed_session = engine.session.clone();
+    if let Some(session) = observed_session {
+        engine
+            .sessions
+            .entry((run.input.agent, session))
+            .or_insert(run.input.task.id);
     }
     let _ = engine.close_permissions();
     let cleanup = engine.teardown();
     match result {
         Ok((outcome, message)) => (
-            outcome,
+            if cleanup { outcome } else { Outcome::Unknown },
             if cleanup {
                 message
             } else {
@@ -1076,7 +1122,14 @@ impl Engine<'_> {
             }
             Call::Session => {
                 if self.run.input.resume.is_none() {
-                    self.session = Some(identity(result, "sessionId")?);
+                    let id = identity(result, "sessionId")?;
+                    if self
+                        .sessions
+                        .contains_key(&(self.run.input.agent, id.clone()))
+                    {
+                        return Err("ACP new session reused an existing session identity; no ownership transfer".into());
+                    }
+                    self.session = Some(id);
                 }
                 if self.cancelling.is_some() {
                     self.terminal = Some((
@@ -1109,29 +1162,20 @@ impl Engine<'_> {
                     .get("stopReason")
                     .and_then(Value::as_str)
                     .ok_or("ACP prompt response lacks stopReason")?;
-                let outcome = match reason {
-                    "end_turn" => Outcome::Completed,
-                    "cancelled" => Outcome::Cancelled,
-                    "refusal" => Outcome::Failed,
-                    "max_tokens" | "max_turn_requests" => Outcome::Failed,
-                    _ => Outcome::Unknown,
-                };
+                let outcome = prompt_outcome(reason);
                 self.close_permissions()?;
                 let ids = self.items.keys().cloned().collect::<Vec<_>>();
                 for id in ids {
                     if let Some(item) = self.items.get_mut(&id)
                         && item.kind != ItemKind::Tool
+                        && outcome == Outcome::Completed
                     {
                         item.complete = true;
                     }
                     self.emit_item(&id)?;
                 }
                 self.terminal = Some((
-                    if self.cancelling.is_some() {
-                        Outcome::Cancelled
-                    } else {
-                        outcome
-                    },
+                    outcome,
                     format!(
                         "ACP prompt stopped: {}; output is provider-origin, not verified local execution; token usage unavailable",
                         safe(reason)
@@ -1175,6 +1219,15 @@ impl Engine<'_> {
         if params.get("sessionId").and_then(Value::as_str) != Some(session.as_str()) {
             return Err("ACP permission has wrong session identity".into());
         }
+        if !self.permissions.pending.is_empty() {
+            if self.permissions.seen.len() >= 4096 || !self.permissions.seen.insert(id.to_string())
+            {
+                return Err("Repeated/excessive ACP permission request identity".into());
+            }
+            return self.send(
+                json!({"jsonrpc":"2.0","id":id,"result":{"outcome":{"outcome":"cancelled"}}}),
+            );
+        }
         let options = permission_options(&params)?;
         self.permissions.insert(&id, &options)?;
         let tool = params.get("toolCall").unwrap_or(&Value::Null);
@@ -1183,10 +1236,12 @@ impl Engine<'_> {
         } else {
             format!("acp-permission-{id}")
         };
-        let description = format!(
-            "External provider policy approval (not sandbox): {}",
-            safe(&serde_json::to_string(tool).map_err(|_| "ACP tool description encoding failed")?)
-        );
+        let details =
+            serde_json::to_string(tool).map_err(|_| "ACP tool description encoding failed")?;
+        if details.len() > 16000 || safe(&details) != details {
+            return Err("ACP permission details are oversized or require redaction; no partially visible grant offered".into());
+        }
+        let description = format!("External provider policy approval (not sandbox): {details}");
         emit(
             self.events,
             Event::Prompt {
@@ -1220,6 +1275,7 @@ impl Engine<'_> {
                 },
             );
         }
+        revalidate(self.workspace, self.run)?;
         // Check again immediately before queueing an allow; cancellation closes every pending request.
         if self.cancelled.load(Ordering::Acquire) == self.run.generation {
             self.send(
@@ -1278,10 +1334,8 @@ impl Engine<'_> {
     }
     fn update(&mut self, params: &Value) -> Result<(), String> {
         // session/load replays historical updates; never duplicate them as new-turn artifacts.
-        if self.terminal.is_some()
-            || !self.dispatched
-            || self.cancelling.is_some()
-            || self.cancelled.load(Ordering::Acquire) == self.run.generation
+        if self.terminal.is_some() || !self.dispatched
+        // Cancellation withdraws grants, not observations of already-started tools.
         {
             return Ok(());
         }
@@ -1310,7 +1364,7 @@ impl Engine<'_> {
                     .items
                     .entry(id.clone())
                     .or_insert_with(|| Item::new(ItemKind::Message));
-                item.text.push_str(&safe(text));
+                item.text.push_str(text);
                 self.check_items()?;
                 self.emit_item(&id)?;
             }
@@ -1371,7 +1425,11 @@ impl Engine<'_> {
                 turn_id: self.turn(),
                 item_id: id.into(),
                 kind: item.kind,
-                text: item.text.clone(),
+                text: safe(if item.kind == ItemKind::Message && !item.complete {
+                    &item.text[..item.text.rfind('\n').map_or(0, |end| end + 1)]
+                } else {
+                    &item.text
+                }),
                 complete: item.complete,
             },
         )
@@ -1417,7 +1475,7 @@ impl Engine<'_> {
                                 "Transport ended without a terminal tool status; side effects/outcome unknown."
                             }
                         ),
-                        text: item.text.clone(),
+                        text: safe(&item.text),
                         complete: item.complete,
                     },
                 },
@@ -1426,13 +1484,9 @@ impl Engine<'_> {
         Ok(())
     }
     fn teardown(&mut self) -> bool {
-        let deadline = Instant::now() + Duration::from_millis(100);
-        while !self.wire.is_empty() && Instant::now() < deadline {
-            if self.flush().is_err() {
-                break;
-            }
-            thread::sleep(Duration::from_millis(5));
-        }
+        // Teardown is never another chance to deliver a queued grant or model prompt.
+        self.wire.clear();
+        self.wire_offset = 0;
         self.process.close_stdin();
         let _ = self.process.terminate(false);
         let deadline = Instant::now() + Duration::from_millis(300);
@@ -1481,6 +1535,15 @@ impl Framer {
         Ok(frames)
     }
 }
+fn prompt_outcome(reason: &str) -> Outcome {
+    match reason {
+        "end_turn" => Outcome::Completed,
+        "cancelled" => Outcome::Cancelled,
+        "refusal" | "max_tokens" | "max_turn_requests" => Outcome::Failed,
+        _ => Outcome::Unknown,
+    }
+}
+
 fn identity(value: &Value, key: &str) -> Result<String, String> {
     let text = value
         .get(key)
@@ -1524,6 +1587,13 @@ fn bounded(text: &str, limit: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cancellation_requests_do_not_override_authoritative_stop_reason() {
+        assert_eq!(prompt_outcome("end_turn"), Outcome::Completed);
+        assert_eq!(prompt_outcome("cancelled"), Outcome::Cancelled);
+        assert_eq!(prompt_outcome("max_tokens"), Outcome::Failed);
+        assert_eq!(prompt_outcome("unknown"), Outcome::Unknown);
+    }
     #[test]
     fn session_list_does_not_expose_foreign_project_metadata_or_accept_malformed_results() {
         let project = std::path::Path::new("/reviewed-project");
@@ -1627,6 +1697,19 @@ mod tests {
         );
     }
     #[test]
+    fn oversized_tool_final_preserves_bounded_partial_observation() {
+        let mut item = Item::new(ItemKind::Tool);
+        item.tool_snapshot(&json!({"title":"Read","status":"in_progress"}))
+            .unwrap();
+        let partial = item.text.clone();
+        assert!(
+            item.tool_snapshot(&json!({"status":"completed","rawOutput":"x".repeat(32 * 1024)}))
+                .is_err()
+        );
+        assert_eq!(item.text, partial);
+        assert!(!item.complete);
+    }
+    #[test]
     fn tool_final_snapshots_do_not_duplicate_delta_or_completion() {
         let mut item = Item::new(ItemKind::Tool);
         item.tool_snapshot(&json!({"title":"Read","status":"in_progress","content":[{"type":"content","content":{"type":"text","text":"part"}}]})).unwrap();
@@ -1636,6 +1719,11 @@ mod tests {
         assert_eq!(item.text, final_text);
         assert!(item.complete);
         item.tool_snapshot(&json!({"locations":[]})).unwrap();
+        assert!(item.complete);
+        assert!(
+            item.tool_snapshot(&json!({"status":"in_progress"}))
+                .is_err()
+        );
         assert!(item.complete);
     }
 }

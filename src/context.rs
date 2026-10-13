@@ -244,7 +244,15 @@ pub(crate) fn excluded(path: &Path, exclusions: &[PathBuf]) -> bool {
             || name.starts_with(".env.")
             || matches!(
                 name.as_str(),
-                "id_rsa" | "id_dsa" | "id_ecdsa" | "id_ed25519" | ".npmrc" | ".netrc" | ".pypirc"
+                "id_rsa"
+                    | "id_dsa"
+                    | "id_ecdsa"
+                    | "id_ed25519"
+                    | ".npmrc"
+                    | ".netrc"
+                    | ".pypirc"
+                    | "auth.json"
+                    | "oauth_creds.json"
             )
             || name.ends_with(".pem")
             || name.ends_with(".key")
@@ -956,6 +964,54 @@ mod tests {
                 .unwrap()
                 .source_sha256
             );
+        }
+    }
+
+    #[test]
+    fn provider_credential_stores_never_enter_catalogue_capture_or_dispatch() {
+        let fixture = Fixture::new();
+        let report = fixture.report(&[
+            (".codex/auth.json", b"synthetic authentication fixture\n"),
+            (
+                ".gemini/oauth_creds.json",
+                b"synthetic authentication fixture\n",
+            ),
+            ("nested/Auth.JSON", b"synthetic authentication fixture\n"),
+            ("visible.rs", b"source\n"),
+        ]);
+        let stopped = AtomicBool::new(false);
+        let Response::Catalogue(sources) = execute(
+            1,
+            Operation::Catalogue {
+                report: report.clone(),
+                query: String::new(),
+            },
+            &[],
+            &stopped,
+        )
+        .unwrap() else {
+            panic!("expected source catalogue");
+        };
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].path, Path::new("visible.rs"));
+        for path in [
+            ".codex/auth.json",
+            ".gemini/oauth_creds.json",
+            "nested/Auth.JSON",
+        ] {
+            assert!(capture(1, &report, Path::new(path), 1, 1, &[], &stopped).is_err());
+            let excerpt = Excerpt {
+                id: 1,
+                task_id: 1,
+                root: fixture.0.to_str().unwrap().into(),
+                path: path.into(),
+                start_line: 1,
+                end_line: 1,
+                source_sha256: [0; 32],
+                text: "synthetic authentication fixture\n".into(),
+                available: true,
+            };
+            assert!(planning_payload(1, Some(&report), &[excerpt], &[]).is_err());
         }
     }
 }

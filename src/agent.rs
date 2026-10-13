@@ -63,6 +63,11 @@ pub enum Request {
         profile: usize,
         generation: u64,
     },
+    PrepareAuth {
+        profile: usize,
+        generation: u64,
+        method: crate::auth::Method,
+    },
 }
 
 #[derive(Debug)]
@@ -72,6 +77,11 @@ pub enum Event {
         profile: usize,
         generation: u64,
         result: Box<Profile>,
+    },
+    AuthPrepared {
+        profile: usize,
+        generation: u64,
+        result: Result<Box<crate::auth::Plan>, String>,
     },
 }
 
@@ -100,6 +110,9 @@ impl Worker {
                     Request::Discover => {
                         snapshots = (0..NAMES.len()).map(|index| discover(index, &project)).collect();
                         Event::Discovered(snapshots.iter().map(|s| s.profile.clone()).collect())
+                    }
+                    Request::PrepareAuth { profile, generation, method } => {
+                        Event::AuthPrepared { profile, generation, result: crate::auth::Plan::prepare(profile, method, &project).map(Box::new) }
                     }
                     Request::Probe { profile, generation } => {
                         let Some(previous) = snapshots.get(profile) else { continue };
@@ -1130,6 +1143,12 @@ pub(crate) struct ExternalTrust {
     index: usize,
     pub lines: Vec<String>,
     pub prepared: crate::runner::Prepared,
+}
+
+impl ExternalTrust {
+    pub(crate) fn authentication_configuration(&self) -> &str {
+        &self.snapshot.profile.configuration
+    }
 }
 
 pub(crate) fn external_trust(

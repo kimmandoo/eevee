@@ -1,5 +1,6 @@
 //! Reviewed, portable task context, never a provider session or execution receipt.
 use std::{
+    borrow::Cow,
     fs::{File, OpenOptions},
     io::{Read, Write},
     path::{Component, Path, PathBuf},
@@ -69,42 +70,60 @@ pub fn sanitize(text: &str) -> String {
         .collect()
 }
 
-/// Remove only Eevee's exact generated decision suffix, not arbitrary narrative.
-/// The approved decision bytes before it remain intact.
-pub(crate) fn without_local_provenance(text: &str) -> &str {
+/// Remove only exact generated decision annotations, including annotations retained
+/// when the user appends a note in the editor. Opaque IDs never become portable facts.
+pub(crate) fn without_local_provenance(text: &str) -> Cow<'_, str> {
     const PREFIX: &str = "\n\n[User-selected, unverified ";
     const END: &str = ". Not local execution evidence.]";
-    if let Some((body, suffix)) = text.rsplit_once(PREFIX)
-        && let Some(ids) = suffix.strip_suffix(END)
-        && let Some((origin, ids)) = ids.split_once("; thread ")
-        && matches!(
-            origin,
-            "Codex planning"
-                | "Codex Plan"
-                | "Codex Implement"
-                | "Claude Agent Plan"
-                | "Claude Agent Implement"
-                | "OpenCode ACP Plan"
-                | "OpenCode ACP Implement"
-                | "Gemini ACP Plan"
-                | "Gemini ACP Implement"
-        )
-        && let Some((thread, rest)) = ids.split_once("; turn ")
-        && let Some((turn, item)) = rest.split_once("; item ")
-        && [thread, turn, item].iter().all(|id| {
-            !id.is_empty()
-                && !id
-                    .chars()
-                    .any(|ch| ch.is_control() || matches!(ch, '[' | ']'))
-        })
-    {
-        body
-    } else {
-        text
+    let mut output: Option<String> = None;
+    let mut copied = 0;
+    for (start, _) in text.match_indices(PREFIX) {
+        let suffix = &text[start + PREFIX.len()..];
+        let Some(end) = suffix.find(END) else {
+            continue;
+        };
+        let ids = &suffix[..end];
+        if let Some((origin, ids)) = ids.split_once("; thread ")
+            && matches!(
+                origin,
+                "Codex planning"
+                    | "Codex Plan"
+                    | "Codex Implement"
+                    | "Claude Agent Plan"
+                    | "Claude Agent Implement"
+                    | "OpenCode ACP Plan"
+                    | "OpenCode ACP Implement"
+                    | "Gemini ACP Plan"
+                    | "Gemini ACP Implement"
+            )
+            && let Some((thread, rest)) = ids.split_once("; turn ")
+            && let Some((turn, item)) = rest.split_once("; item ")
+            && [thread, turn, item].iter().all(|id| {
+                !id.is_empty()
+                    && !id
+                        .chars()
+                        .any(|ch| ch.is_control() || matches!(ch, '[' | ']'))
+            })
+        {
+            let after = start + PREFIX.len() + end + END.len();
+            if output.is_none() && after == text.len() {
+                return Cow::Borrowed(&text[..start]);
+            }
+            let output = output.get_or_insert_with(|| String::with_capacity(text.len()));
+            output.push_str(&text[copied..start]);
+            copied = after;
+        }
+    }
+    match output {
+        Some(mut output) => {
+            output.push_str(&text[copied..]);
+            Cow::Owned(output)
+        }
+        None => Cow::Borrowed(text),
     }
 }
 fn approved_text(text: &str) -> String {
-    sanitize(without_local_provenance(text))
+    sanitize(&without_local_provenance(text))
 }
 
 fn portable_text(text: &str, bound: usize) -> Result<(), String> {
@@ -631,6 +650,17 @@ mod tests {
             );
             assert_eq!(approved_text(&text), "Approved decision");
             assert!(portable_text(&text, MAX_TEXT_BYTES).is_err());
+            let edited = format!("{text}\nUser appended another note.");
+            assert_eq!(
+                without_local_provenance(&edited),
+                "Approved decision\nUser appended another note."
+            );
+            assert!(portable_text(&edited, MAX_TEXT_BYTES).is_err());
+            let repeated = format!("{text}\nThen:\n{text}\nEnd");
+            assert_eq!(
+                without_local_provenance(&repeated),
+                "Approved decision\nThen:\nApproved decision\nEnd"
+            );
         }
         let narrative = "Decision\n\n[User-selected, unverified arbitrary; thread opaque; turn old; item old. Not local execution evidence.]";
         assert_eq!(approved_text(narrative), narrative);
@@ -712,5 +742,31 @@ mod tests {
             std::fs::remove_file(path.join("ancestor")).unwrap();
         }
         std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn imported_criteria_and_sources_cannot_supply_verification_fields() {
+        let mut value = serde_json::to_value(document()).unwrap();
+        value["task"]["criteria"] = serde_json::json!([{
+            "text": "Provider claims it passed", "met": true
+        }]);
+        assert!(decode(&value.to_string()).is_err());
+        value = serde_json::to_value(document()).unwrap();
+        value["sources"] = serde_json::json!([{
+            "excerpt_id": 1,
+            "path": "src/example.rs",
+            "start_line": 1,
+            "end_line": 1,
+            "source_sha256": vec![0_u8; 32],
+            "text": "User-supplied source",
+            "verified": true
+        }]);
+        assert!(decode(&value.to_string()).is_err());
+        value = serde_json::to_value(document()).unwrap();
+        value["facts"] = serde_json::json!(["The provider claims tests passed"]);
+        let imported = decode(&value.to_string()).unwrap();
+        let exported = serde_json::to_value(imported).unwrap();
+        assert!(exported["task"]["criteria"][0].is_string());
+        assert!(exported.get("verified").is_none());
     }
 }

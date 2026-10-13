@@ -54,7 +54,7 @@ pub struct State {
     pub thread_id: Option<String>,
     pub notice: String,
     pub inspection: Option<String>,
-    inspect_sessions: bool,
+    pub inspect_sessions: bool,
     pub scroll: u16,
     pub scroll_max: u16,
     pub reviewed: bool,
@@ -92,7 +92,6 @@ pub struct State {
     journal_inflight: VecDeque<store::JournalRequest>,
     failed_journal: VecDeque<store::JournalRequest>,
     pub journal_notice: String,
-    journal_nonce: String,
 }
 
 impl Default for State {
@@ -118,8 +117,6 @@ impl State {
             pending_journal: VecDeque::new(), journal_inflight: VecDeque::new(),
             failed_journal: VecDeque::new(), journal_notice: String::new(),
             inspection: None, inspect_sessions: false,
-            journal_nonce: format!("{}-{}", std::process::id(),
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos()),
         }
     }
 
@@ -131,6 +128,8 @@ impl State {
         key.kind == KeyEventKind::Press
             && !self.editing
             && !self.quit_review
+            && !self.journal_mode
+            && self.paths_editor.is_none()
             && ((self.preview.is_some() && self.affirmative && key.code == KeyCode::Enter)
                 || (!self.busy() && matches!(key.code, KeyCode::Char('n' | 'r' | 's' | '1'..='4'))))
     }
@@ -162,9 +161,33 @@ impl State {
         }
     }
 
+    pub fn invalidate_authentication(&mut self) {
+        if self.busy() {
+            return;
+        }
+        self.sessions.clear();
+        self.thread_id = None;
+        self.items.clear();
+        self.selected = 0;
+        self.omitted = 0;
+        self.inspection = None;
+        self.inspect_sessions = false;
+        self.decision = None;
+        self.generation = None;
+        self.close_request();
+        self.review_start();
+        self.notice = "Authentication may have changed. Provider sessions and consent cleared; prepare a fresh request.".into();
+    }
+
     pub fn invalidate_review(&mut self) {
         self.reviewed = false;
         self.affirmative = false;
+        if matches!(
+            self.request.as_ref().map(|request| &request.kind),
+            Some(PromptKind::Permission { .. })
+        ) {
+            self.option = 0;
+        }
     }
 
     fn review_start(&mut self) {
@@ -181,6 +204,9 @@ impl State {
         if self.operation == operation || self.busy() {
             return;
         }
+        self.close_request();
+        self.generation = None;
+        self.review_start();
         self.sessions.insert(
             (self.agent, self.operation),
             Session {
@@ -211,48 +237,64 @@ impl State {
     }
 
     pub fn journal_event(&mut self, task_id: i64, result: Result<store::JournalResponse, String>) {
-        let request = self.journal_inflight.pop_front();
-        match result {
-            Ok(store::JournalResponse::Saved(record)) => {
-                let correlated = request.as_ref().is_some_and(|request| {
-                    request.task_id == task_id
-                        && matches!(&request.operation,
-                        store::JournalOperation::Put(expected)
-                        if expected.id == record.id && expected.agent == record.agent
-                            && expected.generation == record.generation)
-                });
-                if correlated {
-                    self.journal_notice =
-                        "Provider-origin journal committed; not local execution evidence.".into();
-                } else {
-                    if let Some(request) = request {
-                        self.failed_journal.push_back(request);
-                    }
-                    self.journal_notice = "Uncorrelated journal acknowledgement refused; retained observation requires storage-only retry.".into();
+        let Some(request) = self.journal_inflight.pop_front() else {
+            self.journal_notice = "Unsolicited journal acknowledgement ignored.".into();
+            return;
+        };
+        let correlated = request.task_id == task_id
+            && match (&request.operation, &result) {
+                (
+                    store::JournalOperation::Put(expected),
+                    Ok(store::JournalResponse::Saved(record)),
+                ) => {
+                    expected.id == record.id
+                        && expected.agent == record.agent
+                        && expected.generation == record.generation
+                        && expected.thread_id == record.thread_id
+                        && expected.turn_id == record.turn_id
+                        && expected.item_id == record.item_id
+                        && expected.complete == record.complete
                 }
+                (store::JournalOperation::List, Ok(store::JournalResponse::Records(_)))
+                | (store::JournalOperation::Purge, Ok(store::JournalResponse::Purged))
+                | (_, Err(_)) => true,
+                _ => false,
+            };
+        if !correlated {
+            self.failed_journal.push_back(request);
+            self.journal_notice = "Uncorrelated journal acknowledgement refused; retained operation requires storage-only retry.".into();
+            return;
+        }
+        match result {
+            Ok(store::JournalResponse::Saved(_)) => {
+                self.journal_notice =
+                    "Provider-origin journal committed; not local execution evidence.".into();
             }
             Ok(store::JournalResponse::Records(records)) if task_id == self.task => {
                 self.journal_records = records;
                 self.journal_selected = self
                     .journal_selected
                     .min(self.journal_records.len().saturating_sub(1));
+                self.scroll = 0;
+                self.scroll_max = 0;
                 self.journal_notice =
                     "Retained provider observations, with actual origin and coverage.".into();
             }
             Ok(store::JournalResponse::Purged) if task_id == self.task => {
                 self.journal_records.clear();
                 self.journal_selected = 0;
+                self.scroll = 0;
+                self.scroll_max = 0;
                 self.failed_journal
                     .retain(|request| request.task_id != task_id);
                 self.journal_notice = "This task's local provider observations purged; provider history and exports remain.".into();
             }
             Ok(_) => {}
             Err(error) => {
-                if let Some(request) = request {
-                    self.failed_journal.push_back(request);
-                }
+                self.failed_journal.push_back(request);
                 self.journal_notice = format!(
-                    "Provider journal save/read failed: {error}. r retries storage only; never replays a turn."
+                    "Provider journal save/read failed: {}. r retries storage only; never replays a turn.",
+                    crate::handoff::sanitize(&error)
                 );
             }
         }
@@ -307,7 +349,7 @@ impl State {
         self.omitted = session.omitted;
         self.generation = None;
         self.close_request();
-        self.scroll = 0;
+        self.review_start();
         self.notice = format!(
             "{} selected at idle. All grants reset; New/Resume still requires full executable/context review.",
             next.label()
@@ -380,7 +422,10 @@ impl State {
                 generation,
                 task_id,
                 record,
-            } if self.matches(generation, task_id) => {
+            } if self.matches(generation, task_id)
+                && record.agent == self.agent
+                && record.generation == generation =>
+            {
                 self.queue_record(task_id, record);
             }
             Event::Preview(preview) if self.awaiting_preview && preview.task_id == self.task => {
@@ -405,7 +450,11 @@ impl State {
                 generation,
                 task_id,
                 text,
-            } if self.matches(generation, task_id) && self.active && self.inspect_sessions => {
+            } if self.matches(generation, task_id)
+                && self.active
+                && !self.cancelling
+                && self.inspect_sessions =>
+            {
                 self.inspection = Some(text);
                 self.scroll = 0;
             }
@@ -415,7 +464,7 @@ impl State {
                 thread_id,
                 model,
                 account,
-            } if self.matches(generation, task_id) && self.active => {
+            } if self.matches(generation, task_id) && self.active && !self.inspect_sessions => {
                 self.thread_id = Some(thread_id);
                 self.notice = format!(
                     "Provider connected / model {model} / account {account}. Provider owns billing and history."
@@ -430,17 +479,11 @@ impl State {
                 kind,
                 text,
                 complete,
-            } if self.matches(generation, task_id) && self.active && !self.cancelling => {
-                if complete && kind == ItemKind::Tool && self.agent == Agent::Claude {
-                    self.queue_record(task_id, store::ProviderRecord {
-                        id: format!("{}-{:?}-{generation}-{item_id}", self.journal_nonce, self.agent),
-                        agent: self.agent, generation, thread_id: thread_id.clone(),
-                        turn_id: turn_id.clone(), item_id: item_id.clone(),
-                        origin: "provider-native".into(),
-                        coverage: "Observed/external provider tool activity; actual callbacks and sandbox coverage disclosed by profile, not local runner evidence".into(),
-                        text: text.clone(), complete,
-                    });
-                }
+            } if self.matches(generation, task_id)
+                && self.active
+                && !self.cancelling
+                && !self.inspect_sessions =>
+            {
                 if let Some(item) = self.items.iter_mut().find(|item| {
                     item.thread_id == thread_id
                         && item.turn_id == turn_id
@@ -469,7 +512,11 @@ impl State {
                 generation,
                 task_id,
                 request,
-            } if self.matches(generation, task_id) && self.active && !self.cancelling => {
+            } if self.matches(generation, task_id)
+                && self.active
+                && !self.cancelling
+                && !self.inspect_sessions =>
+            {
                 self.saved_scroll = self.scroll;
                 self.answers = match &request.kind {
                     PromptKind::Questions(questions) => {
@@ -509,7 +556,8 @@ impl State {
                 self.close_request();
                 self.generation = None;
                 self.notice = message;
-                self.unknown = matches!(outcome, Outcome::Unknown);
+                self.cancel_when_ready = false;
+                self.unknown |= matches!(outcome, Outcome::Unknown);
                 if self.quit_after_cancel {
                     self.quit_after_cancel = false;
                     if self.unknown {
@@ -523,7 +571,7 @@ impl State {
             Event::Error {
                 generation,
                 message,
-            } if generation == self.generation
+            } if (generation.is_some() && generation == self.generation)
                 || (generation.is_none() && self.awaiting_preview) =>
             {
                 self.notice = message;
@@ -580,7 +628,7 @@ impl State {
 
     pub fn request_quit(&mut self) {
         self.quit_review = true;
-        self.affirmative = false;
+        self.invalidate_review();
         self.editing = false;
     }
 
@@ -593,6 +641,11 @@ impl State {
         report: Option<&Arc<repo::Report>>,
     ) {
         if self.busy() {
+            return;
+        }
+        if self.journal_failed() {
+            self.notice =
+                "Retry failed journal storage before preparing another provider request.".into();
             return;
         }
         if task.id <= 0 || task.archived || task.goal.trim().is_empty() {
@@ -805,7 +858,7 @@ impl State {
             return true;
         }
         if self.paths_editor.is_some() {
-            return if large_enough {
+            return if large_enough || key.code == KeyCode::Esc {
                 self.paths_key(key)
             } else {
                 false
@@ -818,6 +871,16 @@ impl State {
             } else {
                 self.journal_mode = false;
             }
+            return true;
+        }
+        if key.code == KeyCode::Esc && self.inspection.is_some() {
+            self.inspection = None;
+            if self.active {
+                self.cancel();
+            } else {
+                self.inspect_sessions = false;
+            }
+            self.review_start();
             return true;
         }
         if self.editing {
@@ -882,7 +945,7 @@ impl State {
                     self.journal_mode = false;
                     self.journal_purge = false;
                 }
-                KeyCode::Char('r') => self.retry_journal(),
+                KeyCode::Char('r') if !self.journal_purge => self.retry_journal(),
                 KeyCode::Char('p') if !self.busy() => {
                     self.journal_purge = true;
                     self.affirmative = false;
@@ -900,10 +963,16 @@ impl State {
                     self.journal_purge = false;
                     self.affirmative = false;
                 }
-                KeyCode::Up => self.journal_selected = self.journal_selected.saturating_sub(1),
-                KeyCode::Down => {
+                KeyCode::Up if !self.journal_purge => {
+                    self.journal_selected = self.journal_selected.saturating_sub(1);
+                    self.scroll = 0;
+                    self.scroll_max = 0;
+                }
+                KeyCode::Down if !self.journal_purge => {
                     self.journal_selected = (self.journal_selected + 1)
-                        .min(self.journal_records.len().saturating_sub(1))
+                        .min(self.journal_records.len().saturating_sub(1));
+                    self.scroll = 0;
+                    self.scroll_max = 0;
                 }
                 _ => return false,
             }
@@ -934,7 +1003,6 @@ impl State {
                         self.pending = Some(Request::Run { generation });
                         self.preview = None;
                         self.active = true;
-                        self.unknown = false;
                         self.review_start();
                         self.notice = "Explicit trust and run consent given for this exact preview. Connecting to provider.".into();
                     } else {
@@ -1117,6 +1185,8 @@ impl State {
             }
             KeyCode::Char('h') if !self.busy() && self.task > 0 => {
                 self.journal_mode = true;
+                self.journal_purge = false;
+                self.review_start();
                 self.pending_journal.push_back(store::JournalRequest {
                     task_id: self.task,
                     operation: store::JournalOperation::List,
@@ -1130,15 +1200,15 @@ impl State {
             KeyCode::Char('r') => self.prepare(true, false, task, excerpts, report),
             KeyCode::Char('s') => self.prepare(false, true, task, excerpts, report),
             KeyCode::Char('g') if !self.busy() => self.edit_goal = true,
-            KeyCode::Up => {
+            KeyCode::Up if self.inspection.is_none() => {
                 self.selected = self.selected.saturating_sub(1);
                 self.scroll = 0;
             }
-            KeyCode::Down => {
+            KeyCode::Down if self.inspection.is_none() => {
                 self.selected = (self.selected + 1).min(self.items.len().saturating_sub(1));
                 self.scroll = 0;
             }
-            KeyCode::Char('d') | KeyCode::Enter if !self.busy() => {
+            KeyCode::Char('d') | KeyCode::Enter if !self.busy() && self.inspection.is_none() => {
                 if let Some(item) = self.items.get(self.selected).filter(|item| {
                     item.complete && matches!(item.kind, ItemKind::Message | ItemKind::Plan)
                 }) {
@@ -1416,6 +1486,241 @@ mod tests {
         assert!(
             state.pending.is_none(),
             "Journal retry must not create a provider request"
+        );
+    }
+
+    fn message() -> Item {
+        Item {
+            thread_id: "old-thread".into(),
+            turn_id: "old-turn".into(),
+            item_id: "old-item".into(),
+            kind: ItemKind::Message,
+            text: "Visible decision".into(),
+            complete: true,
+        }
+    }
+
+    #[test]
+    fn metadata_inspection_cannot_select_a_hidden_message_or_replace_its_session() {
+        let mut state = active();
+        state.thread_id = Some("old-thread".into());
+        state.items.push(message());
+        state.inspect_sessions = true;
+        state.event(Event::Thread {
+            generation: 11,
+            task_id: 7,
+            thread_id: "listed-not-selected".into(),
+            model: "metadata".into(),
+            account: "metadata".into(),
+        });
+        state.event(Event::Item {
+            generation: 11,
+            task_id: 7,
+            thread_id: "listed-not-selected".into(),
+            turn_id: "not-a-turn".into(),
+            item_id: "metadata".into(),
+            kind: ItemKind::Message,
+            text: "not a decision".into(),
+            complete: true,
+        });
+        state.event(Event::Inspection {
+            generation: 11,
+            task_id: 7,
+            text: "Metadata only".into(),
+        });
+        state.event(Event::Finished {
+            generation: 11,
+            task_id: 7,
+            outcome: Outcome::Completed,
+            message: "Inspection completed".into(),
+        });
+        assert_eq!(state.thread_id.as_deref(), Some("old-thread"));
+        assert_eq!(state.items.len(), 1);
+        for code in [KeyCode::Char('d'), KeyCode::Enter, KeyCode::Down] {
+            press(&mut state, code, true);
+            assert!(state.decision.is_none());
+            assert_eq!(state.selected, 0);
+        }
+        press(&mut state, KeyCode::Esc, true);
+        assert!(state.inspection.is_none());
+        press(&mut state, KeyCode::Char('d'), true);
+        assert!(
+            state
+                .decision
+                .as_ref()
+                .unwrap()
+                .starts_with("Visible decision")
+        );
+    }
+
+    #[test]
+    fn leaving_live_metadata_inspection_cancels_and_rejects_late_metadata() {
+        let mut state = active();
+        state.inspect_sessions = true;
+        state.inspection = Some("Capabilities; session list still loading".into());
+        press(&mut state, KeyCode::Esc, true);
+        assert!(state.inspection.is_none());
+        assert!(state.cancelling);
+        assert!(matches!(
+            state.pending,
+            Some(Request::Cancel { generation: 11 })
+        ));
+        state.event(Event::Inspection {
+            generation: 11,
+            task_id: 7,
+            text: "Late list".into(),
+        });
+        assert!(state.inspection.is_none());
+        assert!(
+            state.inspect_sessions,
+            "Cancellation must not turn metadata into model output"
+        );
+    }
+
+    #[test]
+    fn resize_and_quit_reset_permission_to_deny() {
+        let mut state = active();
+        state.event(Event::Prompt {
+            generation: 11,
+            task_id: 7,
+            request: Prompt {
+                request_id: json!(1),
+                thread_id: "thread".into(),
+                turn_id: "turn".into(),
+                item_id: "item".into(),
+                kind: PromptKind::Permission {
+                    description: "Review exact scope".into(),
+                    options: vec![
+                        crate::provider::PermissionOption {
+                            label: "Deny".into(),
+                            description: "No permission".into(),
+                            answer: json!({"permission":"deny"}),
+                        },
+                        crate::provider::PermissionOption {
+                            label: "Allow once".into(),
+                            description: "One request".into(),
+                            answer: json!({"permission":"once"}),
+                        },
+                    ],
+                },
+            },
+        });
+        state.reviewed = true;
+        press(&mut state, KeyCode::Tab, true);
+        assert_eq!(state.option, 1);
+        press(&mut state, KeyCode::Enter, false);
+        assert_eq!(state.option, 0);
+        assert!(state.pending.is_none());
+        state.reviewed = true;
+        press(&mut state, KeyCode::Tab, true);
+        state.request_quit();
+        press(&mut state, KeyCode::Esc, true);
+        assert_eq!(state.option, 0);
+        press(&mut state, KeyCode::Enter, true);
+        assert!(matches!(
+            state.pending,
+            Some(Request::Answer { answer, .. }) if answer == json!({"permission":"deny"})
+        ));
+    }
+
+    #[test]
+    fn prior_unknown_outcome_survives_later_completion_and_authentication_reset() {
+        let mut state = active();
+        state.event(Event::Finished {
+            generation: 11,
+            task_id: 7,
+            outcome: Outcome::Unknown,
+            message: "No authoritative completion".into(),
+        });
+        press(&mut state, KeyCode::Char('s'), true);
+        state.pending.take();
+        state.event(Event::Preview(Preview {
+            generation: 12,
+            task_id: 7,
+            thread_id: None,
+            trust: Vec::new(),
+            payload: String::new(),
+            blockers: Vec::new(),
+        }));
+        state.reviewed = true;
+        press(&mut state, KeyCode::Tab, true);
+        press(&mut state, KeyCode::Enter, true);
+        state.pending.take();
+        assert!(state.outcome_unknown());
+        state.event(Event::Finished {
+            generation: 12,
+            task_id: 7,
+            outcome: Outcome::Completed,
+            message: "Metadata inspection succeeded".into(),
+        });
+        state.thread_id = Some("old-auth-thread".into());
+        state.items.push(message());
+        state.sessions.insert(
+            (Agent::Claude, Operation::Implement),
+            Session {
+                thread_id: Some("other-auth-thread".into()),
+                ..Session::default()
+            },
+        );
+        state.failed_journal.push_back(store::JournalRequest {
+            task_id: 7,
+            operation: store::JournalOperation::List,
+        });
+        state.invalidate_authentication();
+        assert!(state.outcome_unknown());
+        assert!(state.journal_failed());
+        assert!(state.thread_id.is_none());
+        assert!(state.items.is_empty());
+        assert!(state.sessions.is_empty());
+        assert!(!state.reviewed && !state.affirmative);
+    }
+
+    #[test]
+    fn journal_retry_is_not_blocked_by_provider_save_gate_and_selection_starts_at_top() {
+        let mut state = State::new();
+        state.reset(7);
+        state.failed_journal.push_back(store::JournalRequest {
+            task_id: 7,
+            operation: store::JournalOperation::List,
+        });
+        press(&mut state, KeyCode::Char('h'), true);
+        state.journal_started();
+        state.journal_event(7, Ok(store::JournalResponse::Records(Vec::new())));
+        assert!(!state.needs_saved_input(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)));
+        press(&mut state, KeyCode::Char('r'), true);
+        assert!(!state.journal_failed());
+        assert_eq!(state.pending_journal.len(), 1);
+        assert!(state.pending.is_none());
+        state.scroll = 40;
+        state.scroll_max = 80;
+        press(&mut state, KeyCode::Down, true);
+        assert_eq!(state.scroll, 0);
+        assert_eq!(state.scroll_max, 0);
+    }
+
+    #[test]
+    fn unsolicited_or_wrong_kind_journal_reply_cannot_clear_retained_failure() {
+        let mut state = State::new();
+        state.reset(7);
+        state.failed_journal.push_back(store::JournalRequest {
+            task_id: 7,
+            operation: store::JournalOperation::List,
+        });
+        state.journal_event(7, Ok(store::JournalResponse::Purged));
+        assert!(state.journal_failed());
+        state.pending_journal.push_back(store::JournalRequest {
+            task_id: 7,
+            operation: store::JournalOperation::List,
+        });
+        state.journal_started();
+        state.journal_event(7, Ok(store::JournalResponse::Purged));
+        assert_eq!(state.failed_journal.len(), 2);
+        state.retry_journal();
+        assert!(
+            state
+                .pending_journal
+                .iter()
+                .all(|request| matches!(request.operation, store::JournalOperation::List))
         );
     }
 }

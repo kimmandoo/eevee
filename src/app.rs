@@ -697,6 +697,11 @@ impl App {
     }
 
     fn request_navigation(&mut self, action: execution::Action) {
+        if matches!(action, execution::Action::Quit) && self.planning.outcome_unknown() {
+            self.planning.request_quit();
+            self.open_overlay(Overlay::Planning);
+            return;
+        }
         if self.planning.journal_failed() {
             self.planning.notice = "Provider observations are retained after journal failure; h then r retries storage only.".into();
             if matches!(action, execution::Action::Quit) {
@@ -1027,6 +1032,10 @@ impl App {
     }
 
     fn handoff_key(&mut self, key: KeyEvent) -> bool {
+        if self.handoff.needs_saved_input(&key) && !self.authentication_ready() {
+            self.handoff.notice = "Finish or retry task/context/journal saves and active work before exporting committed facts.".into();
+            return true;
+        }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.request_quit();
             return true;
@@ -1059,7 +1068,7 @@ impl App {
             if key.kind == KeyEventKind::Repeat {
                 return false;
             }
-            if self.planning.busy() {
+            if self.planning.busy() || self.planning.outcome_unknown() {
                 self.planning.request_quit();
             } else {
                 self.request_quit();
@@ -1071,6 +1080,7 @@ impl App {
             && self.planning.request.is_none()
             && !self.planning.editing
             && !self.planning.journal_mode
+            && self.planning.inspection.is_none()
         {
             self.close_overlay();
             return true;
@@ -1122,6 +1132,26 @@ impl App {
         changed
     }
 
+    pub fn authentication_ready(&self) -> bool {
+        matches!(self.storage, StorageState::Saved)
+            && self.saved_revision == self.revision
+            && !self.save_requested
+            && !self.sources.busy()
+            && !self.sources.store_failed
+            && !self.execution.busy()
+            && !self.planning.busy()
+            && !self.planning.journal_failed()
+            && !self.transitioning
+            && self.management.is_none()
+            && self.switch_task.is_none()
+            && !self.editing
+    }
+
+    pub fn authentication_returned(&mut self) {
+        self.planning.invalidate_authentication();
+        self.repo_refresh = true;
+    }
+
     pub fn settle_planning(&mut self) -> bool {
         if let Some(document) = self.handoff.output.take() {
             self.planning.handoff = Some(document);
@@ -1129,12 +1159,14 @@ impl App {
             return true;
         }
         if let Some(decision) = self.handoff.decision.take() {
-            self.planning.decision = Some(format!(
-                "{decision}\n\n[User-selected imported handoff decision; unverified, not execution evidence.]"
-            ));
+            self.planning.decision = Some(decision);
         }
         if std::mem::take(&mut self.planning.quit_ready) {
-            self.finish_request_quit();
+            if let Some(action) = self.execution.request_navigation(execution::Action::Quit) {
+                self.apply_execution_action(action);
+            } else if self.execution.visible() {
+                self.open_overlay(Overlay::Execution);
+            }
             return true;
         }
         if std::mem::take(&mut self.planning.edit_goal) {
@@ -1142,6 +1174,12 @@ impl App {
             return true;
         }
         if let Some(decision) = self.planning.decision.take() {
+            if decision.len() > 4096 {
+                self.planning.notice =
+                    "Decision exceeds the Next action limit; nothing was copied or truncated."
+                        .into();
+                return true;
+            }
             if self
                 .drafts
                 .iter()
@@ -1208,11 +1246,19 @@ impl App {
                 self.request_quit();
                 return true;
             }
-            if key.code == KeyCode::Esc && !self.agents.preview {
+            if key.code == KeyCode::Esc
+                && !self.agents.preview
+                && self.agents.auth_preview.is_none()
+                && !self.agents.auth_busy()
+            {
                 self.close_overlay();
                 return true;
             }
-            if !self.agents.preview && key.kind == KeyEventKind::Press {
+            if !self.agents.preview
+                && self.agents.auth_preview.is_none()
+                && !self.agents.auth_busy()
+                && key.kind == KeyEventKind::Press
+            {
                 if key.modifiers == KeyModifiers::CONTROL
                     && key.code == KeyCode::Char('k')
                     && self.width >= 60
@@ -1235,13 +1281,17 @@ impl App {
                             self.open_overlay(Overlay::Help);
                             return true;
                         }
-                        KeyCode::Char('l') if self.width >= 60 && self.height >= 18 => {
-                            self.linear = !self.linear;
-                            return true;
-                        }
                         _ => {}
                     }
                 }
+            }
+            if self.agents.auth_preview.is_some()
+                && self.agents.affirmative
+                && key.code == KeyCode::Enter
+                && !self.authentication_ready()
+            {
+                self.agents.notice = "Finish or retry task/context/journal saves and active work before authentication. No login started.".into();
+                return true;
             }
             return self.agents.key(key, self.width >= 60 && self.height >= 18);
         }
@@ -1874,6 +1924,9 @@ impl App {
     }
 
     fn close_overlay(&mut self) {
+        if self.overlay == Some(Overlay::Agents) {
+            self.agents.cancel_preview();
+        }
         self.save_selection();
         let frame = self.overlay_history.pop();
         self.restore_frame(frame);
@@ -2520,6 +2573,39 @@ mod tests {
         key(&mut app, KeyCode::Right);
         key(&mut app, KeyCode::Enter);
         assert!(app.quit);
+    }
+
+    #[test]
+    fn imported_decision_preserves_exact_reviewed_bytes_and_refuses_overflow() {
+        let mut app = app();
+        let decision = format!("{} [unverified imported decision]", "한".repeat(1300));
+        app.handoff.decision = Some(decision.clone());
+        assert!(app.settle_planning());
+        assert_eq!(app.input, decision);
+        assert!(app.editing);
+        assert!(app.next_action.is_empty());
+
+        let mut app = super::App::new("project".into(), 120, 36);
+        app.handoff.decision = Some("x".repeat(4097));
+        assert!(app.settle_planning());
+        assert!(!app.editing);
+        assert!(app.input.is_empty());
+        assert!(app.next_action.is_empty());
+    }
+
+    #[test]
+    fn provider_exit_acknowledgement_cannot_bypass_local_work_confirmation() {
+        let mut app = app();
+        assert!(
+            app.execution
+                .prepare_command(1, r#"["printf","not-dispatched"]"#)
+        );
+        app.planning.quit_ready = true;
+        assert!(app.settle_planning());
+        assert!(!app.quit);
+        assert!(app.execution.busy());
+        assert_eq!(app.overlay, Some(Overlay::Execution));
+        assert!(!app.authentication_ready());
     }
 
     #[test]

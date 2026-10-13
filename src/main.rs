@@ -2,6 +2,7 @@ mod acp;
 mod agent;
 mod app;
 mod artwork;
+mod auth;
 mod claude;
 mod codex;
 mod config;
@@ -74,7 +75,7 @@ fn run(config: Config) -> io::Result<()> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "project path must be Unicode"))?
         .to_owned();
     let mut artwork = artwork::Artwork::load(&config);
-    terminal::run(native::cleanup, |terminal| {
+    terminal::run(native::cleanup, |terminal, modes| {
         let store =
             store::Worker::start(config.data_dir.clone(), cwd.clone(), config.storage_policy)?;
         let repository = repo::Worker::start(project.clone())?;
@@ -106,6 +107,33 @@ fn run(config: Config) -> io::Result<()> {
         let mut context_task = None;
         let mut outstanding_agents = 0_usize;
         loop {
+            if let Some(plan) = app.agents.pending_auth.take() {
+                if app.overlay != Some(app::Overlay::Agents)
+                    || !app.authentication_ready()
+                    || app.width < 80
+                    || app.height < 24
+                {
+                    app.agents
+                        .auth_returned(plan.profile, auth::Outcome::Refused);
+                    dirty = true;
+                } else {
+                    input.discard_pending()?;
+                    let outcome = modes.suspend(|| auth::run(&plan, &project))?;
+                    // Native auth can change terminal dimensions/modes and provider
+                    // credentials even on cancellation. Never reuse prior Run consent.
+                    if !plan.method.is_status() {
+                        app.authentication_returned();
+                    }
+                    input = input::Input::new()?;
+                    input.discard_pending()?;
+                    graphics = native::NativeGraphics::new(&config);
+                    terminal::clear(terminal)?;
+                    let size = terminal.size()?;
+                    app.update(event::Event::Resize(size.width, size.height));
+                    app.agents.auth_returned(plan.profile, outcome);
+                    dirty = true;
+                }
+            }
             let activity = app.execution.activity_label();
             if let Some(action) = app.execution.drive(&execution, app.task_id, &project) {
                 app.apply_execution_action(action);
@@ -129,7 +157,7 @@ fn run(config: Config) -> io::Result<()> {
                 // cursor moves over old text, especially with indexed colors.
                 // Repaint only on state changes; idle input stays blocking.
                 #[cfg(windows)]
-                terminal.clear()?;
+                terminal::clear(terminal)?;
                 ui::portrait_targets(
                     &app,
                     ratatui::layout::Rect::new(0, 0, app.width, app.height),

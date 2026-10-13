@@ -7,7 +7,7 @@ use crate::provider::{
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const FRAME_LIMIT: usize = 2 * 1024 * 1024;
 const EVENTS_LIMIT: usize = 256;
@@ -84,7 +84,7 @@ impl Worker {
             return false;
         };
         if let Request::Cancel { generation } = &request {
-            self.cancelled.store(*generation, Ordering::Release);
+            self.cancelled.fetch_max(*generation, Ordering::Release);
         }
         if !matches!(request, Request::Cancel { .. })
             && self.events.lock().len() >= EVENTS_LIMIT - 32
@@ -132,7 +132,10 @@ fn emit(events: &Events, event: Event) -> Result<(), String> {
         && let Some(old) = queue.iter_mut().find(|old| matches!(old, Event::Item { generation: g, item_id: id, .. } if g == generation && id == item_id)) {
         *old = event; return Ok(());
     }
-    let limit = if matches!(event, Event::Item { .. } | Event::Status { .. }) {
+    let limit = if matches!(
+        event,
+        Event::Item { .. } | Event::Status { .. } | Event::Journal { .. }
+    ) {
         EVENTS_LIMIT - 24
     } else {
         EVENTS_LIMIT - 1
@@ -158,36 +161,77 @@ fn finish(events: &Events, generation: u64, task_id: i64, outcome: Outcome, mess
     }
 }
 fn safe(text: &str) -> String {
-    crate::privacy::redact(text).chars().filter(|c| (!c.is_control() || matches!(c, '\n' | '\t')) &&
-        !matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')).take(ITEM_LIMIT).collect()
+    let normalized: String = text.chars().filter(|c| (!c.is_control() || matches!(c, '\n' | '\t')) &&
+        !matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')).collect();
+    crate::privacy::redact(&normalized)
+        .chars()
+        .take(ITEM_LIMIT)
+        .collect()
 }
 fn env_present(name: &str) -> bool {
     std::env::var_os(name).is_some_and(|v| !v.is_empty())
 }
 fn credential_route() -> Result<String, String> {
-    let api = env_present("ANTHROPIC_API_KEY");
-    let bedrock = std::env::var("CLAUDE_CODE_USE_BEDROCK").ok().as_deref() == Some("1");
-    let vertex = std::env::var("CLAUDE_CODE_USE_VERTEX").ok().as_deref() == Some("1");
+    credential_route_from(env_present, |name, value| {
+        std::env::var(name).ok().as_deref() == Some(value)
+    })
+}
+fn credential_route_from(
+    present: impl Fn(&str) -> bool,
+    configured: impl Fn(&str, &str) -> bool,
+) -> Result<String, String> {
+    let api = present("ANTHROPIC_API_KEY");
+    let bedrock = configured("CLAUDE_CODE_USE_BEDROCK", "1");
+    let vertex = configured("CLAUDE_CODE_USE_VERTEX", "1");
+    let chain = configured("EEVEE_CLAUDE_CLOUD_AUTH", "provider-chain");
     if u8::from(api) + u8::from(bedrock) + u8::from(vertex) != 1 {
-        return Err("Claude Agent requires a permitted ANTHROPIC_API_KEY or exactly one explicitly configured Bedrock/Vertex route. Installed claude.ai subscription login is intentionally unavailable; no login/store reuse.".into());
+        return Err("Claude Agent requires a permitted ANTHROPIC_API_KEY or exactly one explicitly configured Bedrock/Vertex route. Installed claude.ai subscription login is intentionally unavailable.".into());
     }
-    if bedrock && !(env_present("AWS_ACCESS_KEY_ID") && env_present("AWS_SECRET_ACCESS_KEY")) {
-        return Err("Bedrock requires explicit provider-owned AWS environment credentials; profile/credential_process discovery is not trusted by this adapter".into());
+    if present("EEVEE_CLAUDE_CLOUD_AUTH") && (!chain || api) {
+        return Err("EEVEE_CLAUDE_CLOUD_AUTH=provider-chain applies only to an explicit Bedrock or Vertex route, never subscription/API-key auth".into());
     }
-    if vertex
-        && !(env_present("GOOGLE_APPLICATION_CREDENTIALS")
-            && env_present("ANTHROPIC_VERTEX_PROJECT_ID"))
-    {
-        return Err("Vertex requires an explicitly selected provider-owned GOOGLE_APPLICATION_CREDENTIALS source and ANTHROPIC_VERTEX_PROJECT_ID".into());
+    if !chain && configured("GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES", "1") {
+        return Err("Executable cloud credentials require explicit EEVEE_CLAUDE_CLOUD_AUTH=provider-chain consent".into());
     }
-    Ok(if api {
-        "ANTHROPIC_API_KEY (permitted API usage required; validity unknown until provider response)"
-    } else if bedrock {
-        "Amazon Bedrock (provider-owned AWS environment credentials; eligibility unknown)"
-    } else {
-        "Google Vertex (provider-owned selected cloud credentials; eligibility unknown)"
+    if bedrock {
+        if chain {
+            return Ok("Amazon Bedrock (explicit provider credential chain)".into());
+        }
+        if present("AWS_BEARER_TOKEN_BEDROCK") {
+            return Ok("Amazon Bedrock (provider-owned bearer credential)".into());
+        }
+        if [
+            "AWS_PROFILE",
+            "AWS_DEFAULT_PROFILE",
+            "AWS_CONFIG_FILE",
+            "AWS_SHARED_CREDENTIALS_FILE",
+        ]
+        .iter()
+        .any(|name| present(name))
+        {
+            return Err("AWS profile/config discovery requires EEVEE_CLAUDE_CLOUD_AUTH=provider-chain; credential_process is executable external policy, not implicitly trusted".into());
+        }
+        if present("AWS_ACCESS_KEY_ID") && present("AWS_SECRET_ACCESS_KEY") {
+            return Ok("Amazon Bedrock (provider-owned AWS credentials)".into());
+        }
+        if present("AWS_WEB_IDENTITY_TOKEN_FILE") && present("AWS_ROLE_ARN") {
+            return Ok("Amazon Bedrock (provider-owned web identity)".into());
+        }
+        return Err("Bedrock requires explicit environment keys, bearer or web-identity credentials, or EEVEE_CLAUDE_CLOUD_AUTH=provider-chain for provider-owned SSO/profile/workload discovery".into());
     }
-    .into())
+    if vertex {
+        if !present("ANTHROPIC_VERTEX_PROJECT_ID") {
+            return Err("Vertex requires an explicit ANTHROPIC_VERTEX_PROJECT_ID".into());
+        }
+        if chain {
+            return Ok("Google Vertex (explicit provider ADC credential chain)".into());
+        }
+        if present("GOOGLE_APPLICATION_CREDENTIALS") {
+            return Ok("Google Vertex (provider-owned cloud credentials)".into());
+        }
+        return Err("Vertex requires selected GOOGLE_APPLICATION_CREDENTIALS or EEVEE_CLAUDE_CLOUD_AUTH=provider-chain for provider-owned default ADC/workload discovery".into());
+    }
+    Ok("ANTHROPIC_API_KEY (permitted API usage required; validity unknown until provider response)".into())
 }
 fn environment_gate() -> Result<(), String> {
     for name in [
@@ -716,6 +760,11 @@ fn worker(
                     Ok(t) => preview.trust.extend([
                         format!("Consent executes Node {} sha256 {}, native-TypeScript sidecar {} and complete dependency tree sha256 {} ({} entries / {} bytes). SDK {} / embedded CLI {} are required; --inspect loads real SDK without a model before one query.", t.launch.executable.path.display(), t.launch.executable.sha256, t.entry.display(), t.stamp.digest, t.stamp.files, t.stamp.bytes, SDK_VERSION, CLI_VERSION),
                         format!("Authentication/billing source: {}. Credential values are never read/copied/stored by Eevee; installed claude.ai subscription auth is not used. SDK state/transcripts persist separately at {}.", t.account, t.state_dir.display()),
+                        if std::env::var("EEVEE_CLAUDE_CLOUD_AUTH").ok().as_deref() == Some("provider-chain") {
+                            "EXPLICIT EXTERNAL CLOUD AUTH: inherited HOME is available only for selected Bedrock/Vertex profile/SSO/ADC/workload credentials. Provider credential libraries may read cloud stores, refresh caches, execute credential_process or configured external-account helpers, and contact identity/metadata services. Eevee does not inspect/copy those stores or qualify helper executables. Claude's CLAUDE_CONFIG_DIR stays isolated; effective SDK backend is checked before prompt release. No live account/SSO/ADC validity claim.".into()
+                        } else {
+                            "CLOUD AUTH: only explicitly selected environment/bearer/web-identity/credential-file routes are admitted; HOME and Claude configuration are isolated. Profile/SSO/default ADC discovery requires EEVEE_CLAUDE_CLOUD_AUTH=provider-chain and a fresh preview. Effective SDK backend is checked before prompt release.".into()
+                        },
                         "Filesystem settingSources=[]; no project/user CLAUDE.md/hooks/plugins/skills/MCP are loaded. MCP strict-empty; Agent/Task/Bash/web/worktree/delegation tools are mandatory-disabled. System executable configuration is refused. Host policy hook runs only in implementation. Inherited OS/runtime and provider cloud credential libraries remain external dependencies.".into(),
                         "Read/Glob/Grep are provider-native agent-policy tools, not excerpt-only reads or Eevee confinement; preapproved reads may bypass canUseTool. Explicit ask rules mediate supported requests. Deny/allow once only; no permission updates, login flows or automatic queue/resend. Interrupt requires observed terminal result; forced cleanup is outcome unknown, never rollback. One query is bounded to 16 SDK turns and estimated incremental USD 5; estimates are not invoices.".into(),
                         if input.operation == Operation::Implement { "EXTERNAL-POLICY IMPLEMENTATION: Write/Edit only, mandatory selected-path hook plus explicit user approval. No shell/delegation/MCP mutations. Symlinks are refused at check; SDK path checks are NOT atomic OS confinement. Consent accepts that external-policy boundary; inspect dirty baseline/current diff and deliberately verify; no auto commit/merge.".into() } else { "PLAN: SDK tool exposure excludes all file-write/shell/delegation routes. This is verified configured agent tool policy, not filesystem/network isolation.".into() },
@@ -814,7 +863,21 @@ fn worker(
     }
     busy.store(false, Ordering::Release);
 }
+fn preserve_observations(
+    messages: Vec<Value>,
+    fault: &mut Option<String>,
+    error: &str,
+) -> Result<Vec<Value>, String> {
+    if messages.is_empty() {
+        Err(error.into())
+    } else {
+        *fault = Some(error.into());
+        Ok(messages)
+    }
+}
+
 struct Pipe {
+    cancelled: bool,
     process: crate::runner::native::Process,
     frame: Vec<u8>,
     received: usize,
@@ -822,10 +885,12 @@ struct Pipe {
     offset: usize,
     deadline: Option<Instant>,
     eof: bool,
+    fault: Option<String>,
 }
 impl Pipe {
     fn spawn(prepared: &crate::runner::Prepared) -> Result<Self, String> {
         Ok(Self {
+            cancelled: false,
             process: crate::runner::native::Process::spawn_piped(prepared)
                 .map_err(|_| "Trusted optional Claude runtime could not launch")?,
             frame: Vec::new(),
@@ -834,7 +899,20 @@ impl Pipe {
             offset: 0,
             deadline: None,
             eof: false,
+            fault: None,
         })
+    }
+    fn cancel(&mut self, generation: u64) -> Result<(), String> {
+        if self.cancelled {
+            return Ok(());
+        }
+        self.cancelled = true;
+        self.outgoing.clear();
+        if self.offset != 0 {
+            return Err("Claude cancelled during partial IPC write; no remaining grant bytes sent; outcome unknown".into());
+        }
+        self.deadline = None;
+        self.send(json!({"protocol":1,"type":"cancel","generation":generation}))
     }
     fn send(&mut self, value: Value) -> Result<(), String> {
         let mut bytes = serde_json::to_vec(&value).map_err(|_| "Claude IPC encoding failed")?;
@@ -845,7 +923,15 @@ impl Pipe {
         self.outgoing.push_back(bytes);
         Ok(())
     }
-    fn pump(&mut self) -> Result<Vec<Value>, String> {
+    fn pump(&mut self, cancellation: Option<(&AtomicU64, u64)>) -> Result<Vec<Value>, String> {
+        if let Some(error) = self.fault.take() {
+            return Err(error);
+        }
+        if let Some((cancelled, generation)) = cancellation
+            && cancelled.load(Ordering::Acquire) == generation
+        {
+            self.cancel(generation)?;
+        }
         if let Some(front) = self.outgoing.front() {
             let deadline = *self
                 .deadline
@@ -885,25 +971,44 @@ impl Pipe {
                     Ok(n) => {
                         self.received += n;
                         if self.received > 64 * 1024 * 1024 {
-                            return Err("Claude stdio stream bound exceeded".into());
+                            return preserve_observations(
+                                messages,
+                                &mut self.fault,
+                                "Claude stdio stream bound exceeded",
+                            );
                         }
                         if index == 1 {
                             continue;
                         } // Never disclose SDK stderr/auth/reasoning diagnostics.
                         for &byte in &buffer[..n] {
                             if byte == b'\n' {
-                                let value: Value = serde_json::from_slice(&self.frame).map_err(
-                                    |_| "Malformed Claude sidecar frame; outcome unknown",
-                                )?;
+                                let value: Value = match serde_json::from_slice(&self.frame) {
+                                    Ok(value) => value,
+                                    Err(_) => {
+                                        return preserve_observations(
+                                            messages,
+                                            &mut self.fault,
+                                            "Malformed Claude sidecar frame; outcome unknown",
+                                        );
+                                    }
+                                };
                                 self.frame.clear();
                                 if value["protocol"] != 1 {
-                                    return Err("Unsupported Claude IPC revision".into());
+                                    return preserve_observations(
+                                        messages,
+                                        &mut self.fault,
+                                        "Unsupported Claude IPC revision",
+                                    );
                                 }
                                 messages.push(value);
                             } else {
                                 self.frame.push(byte);
                                 if self.frame.len() > FRAME_LIMIT {
-                                    return Err("Claude IPC frame bound exceeded".into());
+                                    return preserve_observations(
+                                        messages,
+                                        &mut self.fault,
+                                        "Claude IPC frame bound exceeded",
+                                    );
                                 }
                             }
                         }
@@ -916,7 +1021,13 @@ impl Pipe {
                     {
                         break;
                     }
-                    Err(_) => return Err("Claude IPC read failed".into()),
+                    Err(_) => {
+                        return preserve_observations(
+                            messages,
+                            &mut self.fault,
+                            "Claude IPC read failed",
+                        );
+                    }
                 }
             }
         }
@@ -939,6 +1050,103 @@ impl Pipe {
         false
     }
 }
+struct SdkItem {
+    kind: ItemKind,
+    text: String,
+    complete: bool,
+}
+#[derive(Default)]
+struct SdkItems {
+    items: HashMap<String, SdkItem>,
+    retained: usize,
+}
+impl SdkItems {
+    fn observe(&mut self, value: &Value) -> Result<&SdkItem, String> {
+        let id = value["item_id"]
+            .as_str()
+            .ok_or("Missing SDK item identity")?;
+        let text = value["text"].as_str().ok_or("Missing SDK item text")?;
+        let kind = match value["kind"].as_str() {
+            Some("tool") => ItemKind::Tool,
+            Some("message") => ItemKind::Message,
+            _ => return Err("Unsupported SDK item kind".into()),
+        };
+        let complete = value["complete"]
+            .as_bool()
+            .ok_or("Missing SDK item completion state")?;
+        if id.is_empty()
+            || id.len() > 256
+            || safe(id) != id
+            || text.len() > ITEM_LIMIT
+            || (self.items.len() >= 128 && !self.items.contains_key(id))
+        {
+            return Err("Claude retained item bound/identity invalid".into());
+        }
+        let text = safe(text);
+        let previous = self.items.get(id);
+        if previous.is_some_and(|item| {
+            item.kind != kind || item.complete && (!complete || item.text != text)
+        }) {
+            return Err("SDK item changed type or rewrote a terminal observation".into());
+        }
+        let retained = self.retained - previous.map_or(0, |item| item.text.len()) + text.len();
+        if retained > OUTPUT_LIMIT {
+            return Err("Claude retained output bound exceeded".into());
+        }
+        self.retained = retained;
+        Ok(self
+            .items
+            .entry(id.into())
+            .insert_entry(SdkItem {
+                kind,
+                text,
+                complete,
+            })
+            .into_mut())
+    }
+    fn journal(
+        &self,
+        events: &Events,
+        run: &Prepared,
+        thread_id: &str,
+        turn: &str,
+        nonce: u128,
+    ) -> Result<(), String> {
+        for (id, item) in &self.items {
+            if item.kind != ItemKind::Tool {
+                continue;
+            }
+            let state = if item.complete { "final" } else { "partial" };
+            emit(
+                events,
+                Event::Journal {
+                    generation: run.generation,
+                    task_id: run.input.task.id,
+                    record: crate::store::ProviderRecord {
+                        id: format!(
+                            "claude-{}-{nonce}-{}-{id}",
+                            std::process::id(),
+                            run.generation
+                        ),
+                        agent: Agent::Claude,
+                        generation: run.generation,
+                        thread_id: thread_id.into(),
+                        turn_id: turn.into(),
+                        item_id: id.clone(),
+                        origin: "Claude Agent SDK provider-native tool observation".into(),
+                        coverage: format!(
+                            "Provider-reported {state} snapshot only; not local runner evidence or confinement proof. A partial tool has unknown side effects/outcome; cancellation does not roll back prior actions."
+                        ),
+                        text: item.text.clone(),
+                        complete: item.complete,
+                    },
+                },
+            )?;
+        }
+        Ok(())
+    }
+}
+
 fn transport(
     workspace: &Workspace,
     run: &Prepared,
@@ -980,7 +1188,7 @@ fn transport(
                 && !stop.load(Ordering::Acquire)
                 && cancelled.load(Ordering::Acquire) != run.generation
             {
-                let messages = probe.pump()?;
+                let messages = probe.pump(None)?;
                 if messages.len() > 1 {
                     return Err("SDK inspect emitted unexpected additional frames".into());
                 }
@@ -1040,8 +1248,12 @@ fn transport(
         let turn = format!("claude-query-{}", run.generation);
         let mut prompts: BTreeMap<String, Prompt> = BTreeMap::new();
         let mut thread_id = String::new();
-        let mut items = HashMap::<String, usize>::new();
-        let mut retained: usize = 0;
+        let mut items = SdkItems::default();
+        let mut seen_prompts = HashSet::new();
+        let journal_nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
         pipe.send(json!({"protocol":1,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
             "prompt":run.text,"operation":if run.input.operation == Operation::Plan {"plan"} else {"implement"},"edit_paths":run.input.edit_paths,"resume":run.input.resume}))?;
         dispatched = true;
@@ -1063,7 +1275,7 @@ fn transport(
                             },
                         )?;
                     }
-                    pipe.send(json!({"protocol":1,"type":"cancel","generation":run.generation}))?;
+                    pipe.cancel(run.generation)?;
                 }
                 if cancelling.is_some_and(|at| at.elapsed() > Duration::from_secs(3)) {
                     return Ok((Outcome::Unknown, "Claude interrupt deadline: forced teardown without authoritative SDK terminal result; no rollback/replay".into()));
@@ -1074,12 +1286,25 @@ fn transport(
                             generation,
                             request_id,
                             answer,
-                        } if generation == run.generation && cancelling.is_none() => {
+                        } if generation == run.generation
+                            && cancelling.is_none()
+                            && cancelled.load(Ordering::Acquire) != run.generation =>
+                        {
                             if let Some(id) = request_id.as_str()
                                 && let Some(prompt) = prompts.get(id)
                             {
                                 match provider_answer(&prompt.kind, answer) {
                                     Ok(answer) => {
+                                        crate::store::validate_planning_input(
+                                            data_dir,
+                                            &run.input.task,
+                                            &run.input.excerpts,
+                                        )?;
+                                        revalidate(project, data_dir, &run.trust)?;
+                                        if cancelled.load(Ordering::Acquire) == run.generation {
+                                            pipe.cancel(run.generation)?;
+                                            continue;
+                                        }
                                         pipe.send(json!({"protocol":1,"type":"answer","generation":generation,"request_id":request_id,"answer":answer}))?;
                                         prompts.remove(id);
                                     }
@@ -1104,14 +1329,14 @@ fn transport(
                             }
                         }
                         Request::Cancel { generation } if generation == run.generation => {
-                            cancelled.store(generation, Ordering::Release);
+                            cancelled.fetch_max(generation, Ordering::Release);
                         }
                         _ => {
                             emit(events, Event::Status { generation: run.generation, task_id: run.input.task.id, message: "Claude is active: additional submissions/stale answers rejected, never queued".into() })?;
                         }
                     }
                 }
-                for value in pipe.pump()? {
+                for value in pipe.pump(Some((cancelled, run.generation)))? {
                     if value["generation"].as_u64() != Some(run.generation)
                         || value["task_id"].as_i64() != Some(run.input.task.id)
                     {
@@ -1120,32 +1345,35 @@ fn transport(
                     match value["type"].as_str().unwrap_or("") {
                         "thread" => {
                             let id = value["session_id"].as_str().ok_or("Missing SDK session ID")?;
-                            if id.len() > 128 || run.input.resume.as_ref().is_some_and(|resume| resume != id) { return Err("SDK session identity mismatch".into()); }
-                            thread_id = id.into(); sessions.insert(id.into(), run.input.task.id); startup = None;
+                            if !thread_id.is_empty() || id.is_empty() || id.len() > 128 || safe(id) != id
+                                || run.input.resume.as_ref().is_some_and(|resume| resume != id)
+                                || (run.input.resume.is_none() && sessions.contains_key(id))
+                            { return Err("SDK session identity mismatch/reuse; no ownership transfer".into()); }
+                            thread_id = id.into(); sessions.entry(id.into()).or_insert(run.input.task.id); startup = None;
                             emit(events, Event::Thread { generation: run.generation, task_id: run.input.task.id, thread_id: id.into(), model: safe(value["model"].as_str().unwrap_or("unknown")), account: safe(value["account"].as_str().unwrap_or("unknown")) })?;
                         }
                         "item" => {
                             if thread_id.is_empty() || value["session_id"].as_str() != Some(thread_id.as_str()) { return Err("Claude item precedes/widens qualified session".into()); }
-                            let id = value["item_id"].as_str().ok_or("Missing SDK item identity")?;
-                            let text = value["text"].as_str().ok_or("Missing SDK item text")?;
-                            if id.len() > 256 || text.len() > ITEM_LIMIT || (items.len() >= 128 && !items.contains_key(id)) { return Err("Claude retained item bound exceeded".into()); }
-                            retained = retained.saturating_sub(items.get(id).copied().unwrap_or(0)) + text.len(); if retained > OUTPUT_LIMIT { return Err("Claude retained output bound exceeded".into()); } items.insert(id.into(), text.len());
-                            emit(events, Event::Item { generation: run.generation, task_id: run.input.task.id, thread_id: thread_id.clone(), turn_id: turn.clone(), item_id: id.into(), kind: if value["kind"] == "tool" { ItemKind::Tool } else { ItemKind::Message }, text: safe(text), complete: value["complete"] == true })?;
+                            let item = items.observe(&value)?;
+                            emit(events, Event::Item { generation: run.generation, task_id: run.input.task.id, thread_id: thread_id.clone(), turn_id: turn.clone(), item_id: value["item_id"].as_str().unwrap().into(), kind: item.kind, text: item.text.clone(), complete: item.complete })?;
                         }
                         "prompt" => {
                             let id = value["request_id"].as_str().ok_or("Missing callback request ID")?;
-                            if cancelling.is_some() { pipe.send(json!({"protocol":1,"type":"cancel","generation":run.generation}))?; continue; }
-                            if prompts.contains_key(id) || prompts.len() >= 16 || id.len() > 256 || thread_id.is_empty() || value["session_id"].as_str() != Some(thread_id.as_str()) { return Err("Stale/duplicate/unqualified SDK callback refused".into()); }
+                            if cancelling.is_some() || cancelled.load(Ordering::Acquire) == run.generation { pipe.cancel(run.generation)?; continue; }
+                            if !prompts.is_empty() || seen_prompts.len() >= 256 || !seen_prompts.insert(id.to_owned()) || id.is_empty() || id.len() > 256 || safe(id) != id || thread_id.is_empty() || value["session_id"].as_str() != Some(thread_id.as_str()) { return Err("Stale/duplicate/concurrent/unqualified SDK callback refused".into()); }
                             let kind = prompt_kind(&value)?;
                             let prompt = Prompt { request_id: json!(id), thread_id: thread_id.clone(), turn_id: turn.clone(), item_id: safe(value["item_id"].as_str().unwrap_or("unknown")), kind };
                             emit(events, Event::Prompt { generation: run.generation, task_id: run.input.task.id, request: prompt.clone() })?; prompts.insert(id.into(), prompt);
                         }
                         "prompt_closed" => { let id = value["request_id"].as_str().ok_or("Invalid prompt closure")?; prompts.remove(id); emit(events, Event::PromptClosed { generation: run.generation, request_id: json!(id) })?; }
                         "status" => emit(events, Event::Status { generation: run.generation, task_id: run.input.task.id, message: safe(value["message"].as_str().unwrap_or("SDK status")) })?,
-                        "usage" => emit(events, Event::Status { generation: run.generation, task_id: run.input.task.id, message: safe(&format!("SDK usage scope: {}. Latest cumulative estimated USD: {}. Model-pipeline snapshot: {}. Main-loop per-turn tokens: {}. Replace, never sum across resume.", value["scope"].as_str().unwrap_or("unknown"), value["estimated_cost_usd"], value["model_usage"], value["main_loop_per_turn"])) })?,
+                        "usage" => {
+                            if thread_id.is_empty() || value["session_id"].as_str() != Some(thread_id.as_str()) { return Err("Unqualified SDK usage snapshot".into()); }
+                            emit(events, Event::Status { generation: run.generation, task_id: run.input.task.id, message: safe(&format!("SDK usage scope: {}. Latest cumulative estimated USD: {}. Model-pipeline snapshot: {}. Main-loop per-turn tokens: {}. Replace, never sum across resume.", value["scope"].as_str().unwrap_or("unknown"), value["estimated_cost_usd"], value["model_usage"], value["main_loop_per_turn"])) })?;
+                        }
                         "finished" => {
                             if thread_id.is_empty() || value["session_id"].as_str() != Some(thread_id.as_str()) { return Err("Unqualified SDK terminal event".into()); }
-                            let outcome = match value["outcome"].as_str() { Some("completed") if cancelling.is_none() => Outcome::Completed, Some("failed") => Outcome::Failed, Some("cancelled") if cancelling.is_some() => Outcome::Cancelled, _ => Outcome::Unknown };
+                            let outcome = match value["outcome"].as_str() { Some("completed") => Outcome::Completed, Some("failed") => Outcome::Failed, _ => Outcome::Unknown };
                             return Ok((outcome, safe(value["message"].as_str().unwrap_or("SDK terminal result observed"))));
                         }
                         "fatal" => return Err("SDK fatal transport/config/provider error; raw diagnostics withheld; outcome unknown".into()),
@@ -1163,6 +1391,9 @@ fn transport(
                 thread::sleep(Duration::from_millis(10));
             }
         })();
+        let processing = items
+            .journal(events, run, &thread_id, &turn, journal_nonce)
+            .and(processing);
         for (id, _) in prompts {
             let _ = emit(
                 events,
@@ -1182,6 +1413,10 @@ fn transport(
         (
             if dispatched {
                 Outcome::Unknown
+            } else if stop.load(Ordering::Acquire)
+                || cancelled.load(Ordering::Acquire) == run.generation
+            {
+                Outcome::Cancelled
             } else {
                 Outcome::Failed
             },
@@ -1250,6 +1485,15 @@ fn prompt_kind(value: &Value) -> Result<PromptKind, String> {
     if !matches!(value["kind"].as_str(), Some("approval" | "elicitation")) {
         return Err("Unsupported SDK callback kind".into());
     }
+    let description = format!(
+        "Claude {} request: {input}",
+        value["kind"].as_str().unwrap()
+    );
+    if description.len() > ITEM_LIMIT || safe(&description) != description {
+        return Err(
+            "SDK permission details require truncation/redaction; no hidden grant offered".into(),
+        );
+    }
     let options = input["options"]
         .as_array()
         .ok_or("Missing exact SDK permission options")?;
@@ -1259,14 +1503,20 @@ fn prompt_kind(value: &Value) -> Result<PromptKind, String> {
     let mut offered = Vec::new();
     for (index, option) in options.iter().enumerate() {
         let answer = &option["answer"];
-        if answer.is_null()
-            || answer.get("updatedPermissions").is_some()
-            || (index == 0
-                && answer["behavior"] != "deny"
-                && answer["action"] != "decline"
-                && answer["action"] != "cancel")
-        {
-            return Err("SDK permission default/persistent rule rejected".into());
+        let valid = answer.as_object().is_some_and(|fields| {
+            if value["kind"] == "elicitation" {
+                fields.len() == 1 && matches!(answer["action"].as_str(), Some("decline" | "cancel"))
+            } else {
+                fields.len() == 2
+                    && match answer["behavior"].as_str() {
+                        Some("deny") => answer["message"].is_string(),
+                        Some("allow") if index != 0 => answer["updatedInput"].is_object(),
+                        _ => false,
+                    }
+            }
+        });
+        if !valid {
+            return Err("SDK permission default/schema/persistent rule rejected".into());
         }
         offered.push(PermissionOption {
             label: safe(option["label"].as_str().unwrap_or("Deny")),
@@ -1279,11 +1529,7 @@ fn prompt_kind(value: &Value) -> Result<PromptKind, String> {
         });
     }
     Ok(PromptKind::Permission {
-        description: safe(&format!(
-            "Claude {} request: {}",
-            value["kind"].as_str().unwrap_or("callback"),
-            input
-        )),
+        description,
         options: offered,
     })
 }
@@ -1331,6 +1577,95 @@ fn provider_answer(kind: &PromptKind, answer: Value) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn malformed_trailing_frames_do_not_discard_prior_observations() {
+        let observation = json!({"protocol":1,"type":"item","kind":"tool","text":"partial"});
+        let mut fault = None;
+        assert_eq!(
+            preserve_observations(vec![observation.clone()], &mut fault, "malformed").unwrap(),
+            vec![observation]
+        );
+        assert_eq!(fault.take().as_deref(), Some("malformed"));
+        assert!(preserve_observations(Vec::new(), &mut fault, "malformed").is_err());
+    }
+    #[test]
+    fn cloud_auth_chains_require_explicit_consent_and_selected_backend() {
+        let route = |pairs: &[(&str, &str)]| {
+            credential_route_from(
+                |key| {
+                    pairs
+                        .iter()
+                        .any(|(name, value)| *name == key && !value.is_empty())
+                },
+                |key, expected| {
+                    pairs
+                        .iter()
+                        .any(|(name, value)| *name == key && *value == expected)
+                },
+            )
+        };
+        let opt_in = ("EEVEE_CLAUDE_CLOUD_AUTH", "provider-chain");
+        let bedrock = ("CLAUDE_CODE_USE_BEDROCK", "1");
+        let vertex = ("CLAUDE_CODE_USE_VERTEX", "1");
+        assert!(route(&[bedrock, ("AWS_PROFILE", "work")]).is_err());
+        assert!(
+            route(&[bedrock, opt_in, ("AWS_PROFILE", "work")])
+                .unwrap()
+                .contains("provider credential chain")
+        );
+        assert!(
+            route(&[bedrock, ("AWS_BEARER_TOKEN_BEDROCK", "unit-test")])
+                .unwrap()
+                .contains("bearer")
+        );
+        assert!(
+            route(&[
+                bedrock,
+                ("AWS_WEB_IDENTITY_TOKEN_FILE", "/selected/cloud-file"),
+                ("AWS_ROLE_ARN", "unit-role")
+            ])
+            .unwrap()
+            .contains("web identity")
+        );
+        assert!(
+            route(&[
+                vertex,
+                opt_in,
+                ("ANTHROPIC_VERTEX_PROJECT_ID", "unit-project")
+            ])
+            .unwrap()
+            .contains("ADC")
+        );
+        assert!(route(&[vertex, opt_in]).is_err());
+        assert!(route(&[opt_in]).is_err());
+        assert!(route(&[("ANTHROPIC_API_KEY", "unit-test"), opt_in]).is_err());
+        assert!(route(&[bedrock, vertex, opt_in]).is_err());
+    }
+    #[test]
+    fn sdk_callbacks_never_offer_hidden_or_unsupported_grants() {
+        let deny = json!({"label":"Deny","answer":{"behavior":"deny","message":"No"}});
+        let oversized = json!({"kind":"approval","input":{"options":[deny.clone(), {"label":"Allow","answer":{"behavior":"allow","updatedInput":{"content":"x".repeat(ITEM_LIMIT)}}}]}});
+        assert!(prompt_kind(&oversized).is_err());
+        let elicitation = json!({"kind":"elicitation","input":{"options":[{"label":"Decline","answer":{"action":"decline"}},{"label":"Accept","answer":{"action":"accept"}}]}});
+        assert!(prompt_kind(&elicitation).is_err());
+        let escalation = json!({"kind":"approval","input":{"options":[deny, {"label":"Allow","answer":{"behavior":"allow","updatedInput":{},"updatedPermissions":[]}}]}});
+        assert!(prompt_kind(&escalation).is_err());
+    }
+    #[test]
+    fn sdk_tool_snapshots_retain_partial_and_preserve_terminal_identity() {
+        let mut items = SdkItems::default();
+        let pending =
+            json!({"item_id":"tool-1","kind":"tool","text":"requested edit","complete":false});
+        assert!(!items.observe(&pending).unwrap().complete);
+        assert_eq!(items.items["tool-1"].text, "requested edit");
+        let finished =
+            json!({"item_id":"tool-1","kind":"tool","text":"provider result","complete":true});
+        assert!(items.observe(&finished).unwrap().complete);
+        assert_eq!(items.items.len(), 1);
+        assert!(items.observe(&pending).is_err());
+        assert!(items.observe(&json!({"item_id":"tool-1","kind":"message","text":"provider result","complete":true})).is_err());
+        assert!(items.observe(&finished).is_ok());
+    }
     #[test]
     fn provider_permission_options_preserve_exact_answers_without_persistent_grants() {
         let value = json!({"kind":"approval","input":{"options":[{"label":"Deny","answer":{"behavior":"deny","message":"No"}},{"label":"Allow once","answer":{"behavior":"allow","updatedInput":{"file_path":"a.rs"}}}]}});

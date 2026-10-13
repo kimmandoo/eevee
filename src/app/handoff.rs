@@ -88,6 +88,26 @@ impl State {
         self.pending.is_some() || self.editing || self.mode != Mode::Idle
     }
 
+    pub fn needs_saved_input(&self, key: &KeyEvent) -> bool {
+        key.kind == KeyEventKind::Press
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            && ((self.mode == Mode::Idle && matches!(key.code, KeyCode::Char('j' | 'm')))
+                || (matches!(self.mode, Mode::Export(_)) && key.code == KeyCode::Enter))
+    }
+
+    pub fn selected_import_decision(&self) -> Option<&str> {
+        if !self.accepted_import || self.mode != Mode::Idle {
+            return None;
+        }
+        self.candidate
+            .as_ref()?
+            .decisions
+            .get(self.selected_decision)
+            .map(String::as_str)
+    }
+
     pub fn reset(&mut self, task_id: i64) {
         *self = Self::new();
         self.task_id = task_id;
@@ -253,6 +273,12 @@ impl State {
         {
             return false;
         }
+        if key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            return false;
+        }
         if self.task_id != task.id {
             self.reset(task.id);
         }
@@ -262,14 +288,16 @@ impl State {
         if self.pending.is_some() {
             return true;
         }
-        if key.code == KeyCode::Esc && self.busy() {
+        if key.code == KeyCode::Esc && (self.busy() || self.candidate.is_some()) {
             self.mode = Mode::Idle;
             self.editing = false;
             self.candidate = None;
+            self.accepted_import = false;
+            self.scroll = 0;
+            self.scroll_max = 0;
             self.preview.clear();
             self.invalidate_review();
-            self.notice =
-                "Stayed. No export, import acceptance, provider request, or task change.".into();
+            self.notice = "Closed this local review. No new write, provider request, or task change. Previously accepted planning context is unchanged.".into();
             return true;
         }
         if self.editing {
@@ -325,6 +353,8 @@ impl State {
                             self.output = Some(document);
                             self.accepted_import = true;
                             self.mode = Mode::Idle;
+                            self.scroll = 0;
+                            self.scroll_max = 0;
                             self.notice = "Explicitly accepted as user-supplied/unverified context only. Planning must recheck task/sources before sending; no session, grant, verification, or completion transferred.".into();
                             self.invalidate_review();
                         }
@@ -358,11 +388,7 @@ impl State {
             KeyCode::Char('m') => self.start(Mode::Export(Format::Markdown)),
             KeyCode::Char('i') => self.start(Mode::Import),
             KeyCode::Char('c') if large_enough && self.accepted_import => {
-                if let Some(decision) = self
-                    .candidate
-                    .as_ref()
-                    .and_then(|document| document.decisions.get(self.selected_decision))
-                {
+                if let Some(decision) = self.selected_import_decision() {
                     if decision.len() > crate::app::MAX_GOAL_BYTES {
                         self.notice = "Selected decision exceeds the existing editor limit; no silent truncation or save.".into();
                     } else {
@@ -385,13 +411,19 @@ impl State {
                     self.notice = "No separately accepted imported decision selected.".into();
                 }
             }
-            KeyCode::Char('[') => self.selected_decision = self.selected_decision.saturating_sub(1),
+            KeyCode::Char('[') => {
+                self.selected_decision = self.selected_decision.saturating_sub(1);
+                self.scroll = 0;
+                self.scroll_max = 0;
+            }
             KeyCode::Char(']') => {
                 let max = self
                     .candidate
                     .as_ref()
                     .map_or(0, |document| document.decisions.len().saturating_sub(1));
                 self.selected_decision = self.selected_decision.saturating_add(1).min(max);
+                self.scroll = 0;
+                self.scroll_max = 0;
             }
             KeyCode::Down => self.scroll = self.scroll.saturating_add(1).min(self.scroll_max),
             KeyCode::Up => self.scroll = self.scroll.saturating_sub(1),
@@ -489,5 +521,86 @@ mod tests {
         state.key(key(KeyCode::Esc), true, &task, &[], &[]);
         assert!(!state.busy());
         assert!(state.output.is_none());
+    }
+
+    #[test]
+    fn accepted_import_copies_only_the_displayed_decision_without_saving() {
+        let task = task();
+        let mut state = State::new();
+        state.reset(task.id);
+        state.mode = Mode::Import;
+        state
+            .review(
+                handoff::from_task(
+                    &task,
+                    &[],
+                    &["First decision".into(), "Second decision".into()],
+                )
+                .unwrap(),
+                Format::Json,
+            )
+            .unwrap();
+        assert!(state.selected_import_decision().is_none());
+        state.reviewed = true;
+        state.affirmative = true;
+        state.scroll = 80;
+        state.key(key(KeyCode::Enter), true, &task, &[], &[]);
+        assert_eq!(state.scroll, 0);
+        assert_eq!(state.selected_import_decision(), Some("First decision"));
+        state.scroll = 20;
+        state.key(key(KeyCode::Char(']')), true, &task, &[], &[]);
+        assert_eq!(state.scroll, 0);
+        assert_eq!(state.selected_import_decision(), Some("Second decision"));
+        state.key(key(KeyCode::Char('c')), true, &task, &[], &[]);
+        let decision = state.decision.take().unwrap();
+        assert!(decision.starts_with("Second decision"));
+        assert!(decision.contains("unverified"));
+        assert!(state.pending.is_none());
+        assert_eq!(task.next_action, "");
+        state.key(key(KeyCode::Esc), true, &task, &[], &[]);
+        assert!(!state.busy());
+        assert!(
+            state.candidate.is_none(),
+            "A second Escape must be able to close the drawer"
+        );
+        assert!(state.preview.is_empty());
+        assert!(state.selected_import_decision().is_none());
+        state.key(key(KeyCode::Char('i')), true, &task, &[], &[]);
+        assert!(state.selected_import_decision().is_none());
+    }
+
+    #[test]
+    fn exports_require_saved_input_but_import_review_does_not() {
+        let task = task();
+        let mut state = State::new();
+        assert!(state.needs_saved_input(&key(KeyCode::Char('j'))));
+        assert!(state.needs_saved_input(&key(KeyCode::Char('m'))));
+        assert!(!state.needs_saved_input(&key(KeyCode::Char('i'))));
+        state.key(key(KeyCode::Char('m')), true, &task, &[], &[]);
+        assert!(state.needs_saved_input(&key(KeyCode::Enter)));
+        state.key(key(KeyCode::Esc), true, &task, &[], &[]);
+        state.key(key(KeyCode::Char('i')), true, &task, &[], &[]);
+        assert!(!state.needs_saved_input(&key(KeyCode::Enter)));
+    }
+
+    #[test]
+    fn failed_export_never_claims_a_successful_write_or_accepts_context() {
+        let task = task();
+        let mut state = State::new();
+        state.reset(task.id);
+        state.mode = Mode::Export(Format::Json);
+        state.reviewed = true;
+        state.affirmative = true;
+        state.pending = Some(Action::Export {
+            path: std::env::temp_dir(),
+            document: handoff::from_task(&task, &[], &[]).unwrap(),
+            format: Format::Json,
+        });
+        state.process_pending();
+        assert_eq!(state.mode, Mode::Idle);
+        assert!(!state.reviewed && !state.affirmative);
+        assert!(state.output.is_none());
+        assert!(state.decision.is_none());
+        assert!(!state.notice.contains("Reviewed handoff written"));
     }
 }

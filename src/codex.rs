@@ -336,7 +336,7 @@ impl Worker {
         }
         if let Request::Cancel { generation } = &request {
             // Invalidate immediately, even while version/config validation owns the worker.
-            self.cancelled.store(*generation, Ordering::Release);
+            self.cancelled.fetch_max(*generation, Ordering::Release);
         }
         let marks_busy = matches!(request, Request::Preview(_) | Request::Run { .. });
         let previous = if marks_busy {
@@ -676,6 +676,7 @@ struct Engine<'a> {
     calls: Vec<PendingCall>,
     sequence: u64,
     thread_id: Option<String>,
+    threads: &'a mut HashMap<String, i64>,
     turn_id: Option<String>,
     model: String,
     effort: String,
@@ -754,6 +755,7 @@ fn run_transport(
         calls: Vec::new(),
         sequence: 0,
         thread_id: None,
+        threads,
         turn_id: None,
         model: String::new(),
         effort: String::new(),
@@ -910,14 +912,22 @@ fn run_transport(
             thread::sleep(Duration::from_millis(5));
         }
     })();
+    let result = engine.journal_partial_tools().and(result);
     if let Some(id) = &engine.thread_id {
-        threads.insert(id.clone(), run.input.task.id);
+        engine
+            .threads
+            .entry(id.clone())
+            .or_insert(run.input.task.id);
     }
     engine.close_prompts();
     let tree_exited = engine.teardown();
     match result {
         Ok((outcome, message)) => (
-            outcome,
+            if tree_exited {
+                outcome
+            } else {
+                Outcome::Unknown
+            },
             if tree_exited {
                 message
             } else {
@@ -1012,6 +1022,11 @@ impl Engine<'_> {
     }
     fn flush(&mut self) -> Result<(), String> {
         for _ in 0..32 {
+            if self.cancelling.is_none()
+                && self.cancelled.load(Ordering::Acquire) == self.run.generation
+            {
+                self.cancel()?;
+            }
             let Some(frame) = self.wire.front() else {
                 return Ok(());
             };
@@ -1130,6 +1145,9 @@ impl Engine<'_> {
                 let thread = result.get("thread").ok_or("Protocol thread response missing thread")?;
                 let id = identity(thread, "id")?;
                 if self.run.input.resume.as_ref().is_some_and(|expected| expected != &id) { return Err("Protocol layer: resume returned a different thread".into()); }
+                if self.run.input.resume.is_none() && self.threads.contains_key(&id) {
+                    return Err("Provider new thread reused an existing identity; no ownership transfer".into());
+                }
                 self.thread_id = Some(id.clone());
                 emit(self.events, Event::Thread { generation: self.run.generation, task_id: self.run.input.task.id, thread_id: id.clone(), model: safe(&self.model), account: self.account.clone() })?;
                 // Last read-only validation occurs after potentially slow startup and immediately
@@ -1351,6 +1369,7 @@ impl Engine<'_> {
         }
     }
     fn full_item(&mut self, item: &Value, complete: bool) -> Result<(), String> {
+        let complete = complete && provider_item_terminal(item);
         let kind = match item.get("type").and_then(Value::as_str) {
             Some("agentMessage") => ItemKind::Message,
             Some("plan") => ItemKind::Plan,
@@ -1491,7 +1510,7 @@ impl Engine<'_> {
             },
         )?;
         if kind == ItemKind::Tool && complete {
-            self.journal(&id, "Codex provider-native tool observation", "Public final provider item only; provider-owned execution/sandbox/config effects are not Eevee local execution evidence", &visible)?;
+            self.journal(&id, "Codex provider-native tool observation", "Public final provider item only; provider-owned execution/sandbox/config effects are not Eevee local execution evidence", &visible, true)?;
         }
         Ok(())
     }
@@ -1541,12 +1560,23 @@ impl Engine<'_> {
         self.terminal = Some((outcome, message));
         Ok(())
     }
+    fn journal_partial_tools(&self) -> Result<(), String> {
+        for (id, item) in &self.items {
+            if item.kind == ItemKind::Tool && !item.complete {
+                self.journal(id, "Codex provider-native partial tool observation",
+                    "Transport ended without a terminal tool status. Side effects/outcome unknown; not Eevee local execution evidence",
+                    &safe(&item.raw), false)?;
+            }
+        }
+        Ok(())
+    }
     fn journal(
         &self,
         item_id: &str,
         origin: &str,
         coverage: &str,
         text: &str,
+        complete: bool,
     ) -> Result<(), String> {
         emit(
             self.events,
@@ -1568,7 +1598,7 @@ impl Engine<'_> {
                     origin: origin.into(),
                     coverage: coverage.into(),
                     text: text.into(),
-                    complete: true,
+                    complete,
                 },
             },
         )
@@ -1724,7 +1754,7 @@ impl Engine<'_> {
             )
         };
         self.queue(json!({"id":id,"result":{"success":success,"contentItems":[{"type":"inputText","text":text}]}}))?;
-        self.journal(&format!("eevee-edit-{}", prompt.item_id), "Codex-requested Eevee-controlled file edit", "Only exact existing selected regular file replacement is mediated; baseline, path identity and exact patch revalidated. Provider-owned independent effects outside coverage; not a local check", &safe(&text))?;
+        self.journal(&format!("eevee-edit-{}", prompt.item_id), "Codex-requested Eevee-controlled file edit", "Only exact existing selected regular file replacement is mediated; baseline, path identity and exact patch revalidated. Provider-owned independent effects outside coverage; not a local check", &safe(&text), true)?;
         emit(
             self.events,
             Event::PromptClosed {
@@ -1849,16 +1879,18 @@ impl Engine<'_> {
             }
             let shown_command = safe(command);
             let shown_cwd = safe(cwd);
+            let shown_reason = safe(&reason);
             let allow_once = params.get("command").is_some_and(Value::is_string)
                 && params.get("cwd").is_some_and(Value::is_string)
                 && shown_command == command
                 && shown_cwd == cwd
+                && shown_reason == reason
                 && decisions
                     .is_none_or(|decisions| decisions.iter().any(|decision| decision == "accept"));
             PromptKind::Approval {
                 command: shown_command,
                 cwd: shown_cwd,
-                reason: safe(&reason),
+                reason: shown_reason,
                 allow_once,
                 deny_decision: deny_decision.into(),
             }
@@ -2031,6 +2063,26 @@ impl Engine<'_> {
             thread::sleep(Duration::from_millis(10));
         }
         false
+    }
+}
+
+fn provider_item_terminal(item: &Value) -> bool {
+    match item.get("type").and_then(Value::as_str) {
+        Some("commandExecution" | "fileChange") => matches!(
+            item.get("status").and_then(Value::as_str),
+            Some("completed" | "failed" | "declined")
+        ),
+        Some("mcpToolCall") => matches!(
+            item.get("status").and_then(Value::as_str),
+            Some("completed" | "failed")
+        ),
+        Some("dynamicToolCall") => {
+            matches!(
+                item.get("status").and_then(Value::as_str),
+                Some("completed" | "failed")
+            ) || item.get("success").is_some_and(Value::is_boolean)
+        }
+        _ => true,
     }
 }
 
@@ -2290,6 +2342,31 @@ mod tests {
             Path::new("src/main.rs"),
             &paths,
             &[PathBuf::from("src")]
+        ));
+    }
+    #[test]
+    fn terminal_turn_does_not_finalize_unfinished_native_tools() {
+        for kind in [
+            "commandExecution",
+            "fileChange",
+            "mcpToolCall",
+            "dynamicToolCall",
+        ] {
+            assert!(!provider_item_terminal(
+                &json!({"type":kind,"status":"inProgress"})
+            ));
+            assert!(provider_item_terminal(
+                &json!({"type":kind,"status":"completed"})
+            ));
+            assert!(provider_item_terminal(
+                &json!({"type":kind,"status":"failed"})
+            ));
+        }
+        assert!(provider_item_terminal(
+            &json!({"type":"dynamicToolCall","success":false})
+        ));
+        assert!(provider_item_terminal(
+            &json!({"type":"agentMessage","text":"complete text"})
         ));
     }
     #[cfg(unix)]

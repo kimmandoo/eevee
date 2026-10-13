@@ -40,6 +40,23 @@ export function selectedWrite(cwd: string, paths: string[], candidate: unknown):
   return realpathSync(target) === target;
 }
 
+// Recheck after the user has reviewed a write. Metadata identity is a stale-consent
+// guard, not an atomic filesystem sandbox; PreToolUse independently checks scope.
+export function selectedWriteIdentity(cwd: string, paths: string[], candidate: unknown): string | undefined {
+  try {
+    if (!selectedWrite(cwd, paths, candidate) || typeof candidate !== 'string') return undefined;
+    const target = resolve(realpathSync(cwd), candidate);
+    try {
+      const stat = lstatSync(target, { bigint: true });
+      return `file:${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+    } catch (error) {
+      if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') return undefined;
+      const stat = lstatSync(dirname(target), { bigint: true });
+      return `new:${stat.dev}:${stat.ino}:${stat.mtimeNs}:${stat.ctimeNs}`;
+    }
+  } catch { return undefined; }
+}
+
 export const QuestionInputSchema = z.object({
   questions: z.array(z.object({
     question: z.string().min(1).max(4096),
@@ -58,7 +75,28 @@ export function credentialRoute(env: NodeJS.ProcessEnv): string | undefined {
   const bedrock = env.CLAUDE_CODE_USE_BEDROCK === '1';
   const vertex = env.CLAUDE_CODE_USE_VERTEX === '1';
   if (Number(api) + Number(bedrock) + Number(vertex) !== 1) return undefined;
-  if (bedrock && !(env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY)) return undefined;
-  if (vertex && !(env.GOOGLE_APPLICATION_CREDENTIALS && env.ANTHROPIC_VERTEX_PROJECT_ID)) return undefined;
-  return api ? 'ANTHROPIC_API_KEY' : bedrock ? 'Amazon Bedrock (provider-owned AWS credentials)' : 'Google Vertex (provider-owned cloud credentials)';
+  const chain = env.EEVEE_CLAUDE_CLOUD_AUTH === 'provider-chain';
+  if ((env.EEVEE_CLAUDE_CLOUD_AUTH && !chain) || (chain && api)) return undefined;
+  if (!chain && env.GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES === '1') return undefined;
+  if (bedrock) {
+    if (chain) return 'Amazon Bedrock (explicit provider credential chain)';
+    if (env.AWS_BEARER_TOKEN_BEDROCK) return 'Amazon Bedrock (provider-owned bearer credential)';
+    if (env.AWS_PROFILE || env.AWS_DEFAULT_PROFILE || env.AWS_CONFIG_FILE || env.AWS_SHARED_CREDENTIALS_FILE) return undefined;
+    if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) return 'Amazon Bedrock (provider-owned AWS credentials)';
+    if (env.AWS_WEB_IDENTITY_TOKEN_FILE && env.AWS_ROLE_ARN) return 'Amazon Bedrock (provider-owned web identity)';
+    return undefined;
+  }
+  if (vertex) {
+    if (!env.ANTHROPIC_VERTEX_PROJECT_ID) return undefined;
+    if (chain) return 'Google Vertex (explicit provider ADC credential chain)';
+    return env.GOOGLE_APPLICATION_CREDENTIALS ? 'Google Vertex (provider-owned cloud credentials)' : undefined;
+  }
+  return 'ANTHROPIC_API_KEY';
+}
+
+// Interrupt acknowledgment is not a cancelled-result discriminator in this SDK.
+// Preserve an authoritative success; an error after interruption remains ambiguous.
+export function sdkOutcome(cancelRequested: boolean, isError: boolean, subtype: string): 'completed' | 'failed' | 'unknown' {
+  if (!isError && subtype === 'success') return 'completed';
+  return cancelRequested ? 'unknown' : 'failed';
 }

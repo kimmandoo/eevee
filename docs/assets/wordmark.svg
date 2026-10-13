@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 664 136" role="img" aria-labelledby="title description">
+  <title id="title">eevee</title>
+  <desc id="description">Custom rounded lowercase wordmark with an understated terminal cursor.</desc>
+  <defs>
+    <path id="e" fill-rule="evenodd" d="M64 8C29 8 8 31 8 66s22 58 59 58c20 0 37-6 51-19L99 85c-10 9-19 13-30 13-17 0-27-9-30-24h80V62C119 28 99 8 64 8Zm-1 26c15 0 24 9 26 22H39c3-14 11-22 24-22Z"/>
+  </defs>
+  <g fill="var(--fg, currentColor)">
+    <use href="#e"/>
+    <use href="#e" x="124"/>
+    <path d="M250 10h34l26 79 26-79h34l-43 112h-35Z"/>
+    <use href="#e" x="372"/>
+    <use href="#e" x="496"/>
+  </g>
+  <rect x="632" y="109" width="24" height="12" rx="2" fill="var(--accent, currentColor)"/>
+</svg>
