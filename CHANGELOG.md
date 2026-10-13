@@ -12,6 +12,7 @@
 - fix(storage): released the writer lock explicitly despite inherited descriptors and prevented late first-insert acknowledgements from resurrecting a cleared draft.
 - test(acceptance): added native specialist/memory/recipe journeys, real independent-review checks, schema-upgrade refusal and measured release-performance workloads.
 - fix(ci): based native quota-recovery fixtures on actual schema cost while retaining real exhaustion, draft-preservation and explicit-reclamation checks.
+- chore(release): published 0.1.0 from five-target qualified immutable packages with both installers and combined checksums, and verified anonymous downloads plus the public installed schema-6 workbench.
 
 ## 0.1.0
 

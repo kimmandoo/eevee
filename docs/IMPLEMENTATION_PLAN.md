@@ -1,7 +1,7 @@
 # Eevee Implementation Plan
 
 Date: 2026-10-13
-Status: 24 of 31 tasks passed their scoped gates, including U01/L01/G01/S01/S02/S03. Schema-6 specialist, memory and recipe journeys and real independent Codex review passed locally. Full A04/A06/A07 and therefore Q01/Q02/P03 remain pending on permitted Claude/Gemini authentication and their required conformance rows. Fresh five-target qualification is required before the separately authorized 0.1.0 core release.
+Status: 25 of 31 tasks passed their scoped gates, including P02 and U01/L01/G01/S01/S02/S03. Schema-6 specialist, memory and recipe journeys passed all five native installed-runtime rows at `d198fa5`; all eleven build/smoke/policy jobs passed. Local real independent Codex review and measured release workloads also passed. Full A04/A06/A07 and therefore Q01/Q02/P03 remain pending on permitted Claude/Gemini authentication and their required conformance rows. The separately authorized 0.1.0 core release promotes the exact qualified packages.
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
 
 ## Outcome
@@ -165,7 +165,6 @@ Resource scope is explicit rather than hidden in the core figures:
 
 | Window / scope | CPU (% of one core) | Sampled peak RSS (MiB) |
 | --- | ---: | ---: |
-| Idle / core and observed application total | 0.826 | 7.44 |
 | Idle / measurement harness | 28.904 | 45.61 |
 | Idle / application + harness | 29.730 | 53.05 |
 | Streaming / core | 2.660 | 7.97 |
@@ -176,6 +175,18 @@ Resource scope is explicit rather than hidden in the core figures:
 
 The sampler includes observed process descendants; short-lived/inaccessible helpers can be missed, CPU is a lower bound and RSS is a sampled simultaneous sum with possible shared-page double counting. The desktop terminal compositor is excluded. SDK/external-provider scopes were unavailable in this local-shell workload and are null, not zero; there is no token/cost or savings claim. Actual Codex/OpenCode context/permission/continuation checks and separate fresh-review checks passed, but do not substitute for missing Claude/Gemini interoperability or resource measurement. Full Q02 remains pending on Q01.
 
+Two additional actual Codex 0.152.1 independent review requests were measured on the same host/binary (`target/review-resource-measured/resources-summary.json`). Approval-to-completion windows were 9.97 s / 192 samples and 8.46 s / 163 samples, with a requested 20-ms sampling interval. Both reviews again preserved project bytes and used separate fresh threads.
+
+| Observed scope | Review 1 CPU (%) | Review 1 RSS (MiB) | Review 2 CPU (%) | Review 2 RSS (MiB) |
+| --- | ---: | ---: | ---: | ---: |
+| Native core | 0.484 | 8.52 | 0.476 | 8.55 |
+| Other app-owned helpers, including version preflight | 0.928 | 58.08 | 0.697 | 43.70 |
+| Owned Codex app-server launcher and descendants | 7.980 | 220.25 | 7.907 | 229.70 |
+| Observed application total | 9.392 | 228.77 | 9.080 | 238.22 |
+| Measurement harness | 49.657 | 41.08 | 49.585 | 42.17 |
+| Application + measurement harness | 59.048 | 269.84 | 58.665 | 280.39 |
+
+CPU uses one-core percentages. Aggregate RSS is the sampled simultaneous sum, not the sum of independently timed scope peaks. Provider/version-preflight helper costs remain visible and included, not hidden inside a core-only claim. SDK resources remain unavailable. Provider-added effective context, comparable token/cost totals and savings remain unknown; these resource observations do not complete the blocked interoperability gates.
 
 P03 remains the full distribution gate after P02, Q01, and Q02: prove native installation, update, uninstall, durable-schema continuity and measured integrated behavior. The user separately authorizes a scoped 0.1.0 local-core release after all five current native rows and SDK policy checks pass. That release includes verified archives/notices, pinned HTTPS bootstrap, embedded-installer self-update and owned uninstall without data purge; it does not claim full provider conformance, performance acceptance, signing/notarization, or artwork/trademark clearance.
 
@@ -185,4 +196,4 @@ No custom model runtime, autonomous multi-agent swarm, hosted synchronization, p
 
 ## Current next action
 
-Finish fresh native qualification of the integrated schema-6 changes, then publish only the separately authorized 0.1.0 core slice from exact successful main-push artifacts. Local specialist/memory/recipe acceptance passed 15 cases; independent real Codex review passed two; actual schema 5→6 migration/downgrade refusal passed three; all specified local performance workloads completed. Preserve A04/A06/full A07 and Q01/Q02/P03 as pending until permitted authentication and all required native/provider/graphics rows actually pass. No credentials were copied or subscription authentication repurposed for SDK access.
+The authorized 0.1.0 core release is public at `d198fa5`, after native run `38435667550` and publication run `38440422658` both passed. Anonymous downloads/checksums and the public installed binary's 15 specialist journeys plus three actual schema continuity cases passed. Local core implementation, five-target acceptance and available measured workloads are complete. Resume A04/A06/full A07 only after permitted Claude API/cloud and eligible Gemini authentication are available, then finish the dependent full Q01/Q02/P03 conformance/resource gates. Preserve those six unchecked tasks; no credentials were copied or subscription authentication repurposed for SDK access.

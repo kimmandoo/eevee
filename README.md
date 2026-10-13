@@ -312,6 +312,18 @@ Use the correct archive for your machine. Both offline modes require explicit ar
 
 Release publication requires all five native build/install/PTY-or-ConPTY rows and the credential-free SDK policy job to pass on a `main` push for the exact tagged commit. The release workflow promotes those tested packages without rebuilding or repeating interactive smoke. Optional provider evidence remains separately qualified; Windows ARM64 and arbitrary desktop terminal graphics are not implied supported. See the [checkpoint](docs/WORK_CHECKPOINT.md) for version-specific results and remaining external acceptance.
 
+**[0.1.0 is published](https://github.com/kimmandoo/eevee/releases/tag/v0.1.0)** from `d198fa5`. [Native qualification](https://github.com/kimmandoo/eevee/actions/runs/38435667550) passed all eleven jobs; [publication](https://github.com/kimmandoo/eevee/actions/runs/38440422658) promoted those exact immutable archives. The observed release baselines were:
+
+| Target | Observed native host | Interactive runtime |
+| --- | --- | --- |
+| macOS arm64 | macOS 14.8.9 / Darwin 23.6.0 | Native POSIX PTY |
+| macOS x86_64 | macOS 15.7.9 / Darwin 24.6.0 | Native POSIX PTY |
+| Linux x86_64 | Ubuntu 22.04.5 / kernel 6.8.0-1064-azure / glibc 2.35 | Native POSIX PTY |
+| Linux arm64 | Ubuntu 22.04.5 / kernel 6.8.0-1064-azure / glibc 2.35 | Native POSIX PTY |
+| Windows x86_64 | Windows Server 2022 / 10.0.20348 | Raw-pipe ConPTY with incremental UTF-8 |
+
+All rows used Rust 1.90.0, Python 3.12.9, pyte 0.8.2 and wcwidth 0.2.13 for qualification. Installed-package lifecycle, durable workbench, repository/context, command ownership, recovery, handoff and specialist/memory/recipe journeys passed. These are observed baselines, not a claim that older OS versions, arbitrary GUI terminals or optional providers are qualified. Packages remain unsigned and macOS builds are not notarized.
+
 ## Documentation
 
 | Document | Purpose |
