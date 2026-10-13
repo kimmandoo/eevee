@@ -65,7 +65,7 @@ impl State {
                 if let Some(current) = self.profiles.get_mut(profile) {
                     *current = *result;
                 }
-                self.notice = "Preflight returned. Review evidence and blockers; e separately previews qualified Codex planning.".into();
+                self.notice = "Preflight returned. Review evidence and blockers; e separately previews the selected provider and action.".into();
             }
             _ => {}
         }

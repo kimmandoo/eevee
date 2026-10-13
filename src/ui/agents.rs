@@ -61,7 +61,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         value.push_str("\nNo login, model request, adapter launch, or Eevee configuration/credential mutation is authorized. Executable/config identity is revalidated before launch; changes require a new preview. Provider code can have its own effects. Cancel if you do not trust this executable and its configuration.\n\nEND OF TRUST PREVIEW. Default is Stay. Select Trust explicitly only after reviewing these effects.");
     } else {
         value.push_str(&format!(
-            "Installed: {}\nExecutable: {}\nLiteral argv: {:?}\nVersion / compatibility: {}\nAuthentication: {}\nBilling source: {}\nConfiguration / trust scope: {}\nOS: {} / architecture: {}\nAdapter: {}\nAction readiness: {}\nProfile contract revision: {}\n\nPREFLIGHT ONLY: e opens separately reviewed Codex planning. Other adapters remain unavailable. Installed does not mean authenticated or supported.\n\n",
+            "Installed: {}\nExecutable: {}\nLiteral argv: {:?}\nVersion / compatibility: {}\nAuthentication: {}\nBilling source: {}\nConfiguration / trust scope: {}\nOS: {} / architecture: {}\nAdapter: {}\nAction readiness: {}\nProfile contract revision: {}\n\nPREFLIGHT ONLY: e separately reviews the selected provider/action. Each adapter needs its own pinned runtime, authentication and negotiated capabilities. Installed does not mean authenticated or supported.\n\n",
             profile.installed, executable, profile.argv, profile.version,
             profile.authentication, profile.billing, profile.configuration, profile.os,
             profile.architecture, profile.adapter, profile.action, profile.revision,

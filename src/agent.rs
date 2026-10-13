@@ -14,10 +14,15 @@ use sha2::{Digest, Sha256};
 
 const REVISION: u32 = 1;
 pub(crate) const CODEX_RELEASE: &str = "0.152.1";
+pub(crate) const OPENCODE_RELEASE: &str = "1.18.0";
+pub(crate) const GEMINI_RELEASE: &str = "0.28.0";
 const OUTPUT_LIMIT: usize = 16 * 1024;
 const CONFIG_LIMIT: u64 = 64 * 1024;
 const EXECUTABLE_LIMIT: u64 = 256 * 1024 * 1024;
-const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+fn probe_timeout(index: usize) -> Duration {
+    // Gemini's Node dependency graph exceeded three seconds on the qualified host.
+    Duration::from_secs(if index == 3 { 10 } else { 3 })
+}
 const NAMES: [&str; 4] = ["Codex", "Claude Agent SDK", "OpenCode ACP", "Gemini ACP"];
 const PROGRAMS: [&str; 4] = ["codex", "claude", "opencode", "gemini"];
 
@@ -217,19 +222,15 @@ fn discover(index: usize, project: &Path) -> Snapshot {
         let present = path.is_file();
         sources.push(source(path, false));
         if present {
-            "Project SDK manifest present; SDK version/runtime resolution unverified; Eevee SDK bridge absent"
+            "Project SDK manifest present; sidecar installation and pinned SDK/native runtime still require explicit qualification"
         } else {
-            "Project SDK manifest absent; global/custom SDK installation unknown; Eevee SDK bridge absent"
+            "Project SDK manifest absent; optional user-installed SDK sidecar is inspected separately, not established by Claude CLI"
         }
     } else {
         ""
     };
     let mut blockers = vec![
-        if index == 0 {
-            "Codex planning disconnected; review the planning trust preview before a session".into()
-        } else {
-            "No Eevee adapter implemented; agent runs remain disabled".into()
-        },
+        "Adapter disconnected; e separately previews executable/context trust and runtime qualification".into(),
         "Authentication/eligibility unverified; no status/login/model request was made".into(),
         "Filesystem/network enforcement and protocol capabilities unnegotiated".into(),
     ];
@@ -262,6 +263,16 @@ fn discover(index: usize, project: &Path) -> Snapshot {
         );
     }
     if index == 1 {
+        if ![
+            "ANTHROPIC_API_KEY",
+            "CLAUDE_CODE_USE_BEDROCK",
+            "CLAUDE_CODE_USE_VERTEX",
+        ]
+        .iter()
+        .any(|key| env::var_os(key).is_some())
+        {
+            blockers.push("Claude Agent requires permitted API/cloud credentials. Existing claude.ai subscription login is not reused by this integration.".into());
+        }
         blockers.push(sdk.into());
     }
     let configuration = format!(
@@ -281,7 +292,7 @@ fn discover(index: usize, project: &Path) -> Snapshot {
     let mut trust_preview = vec![
         "Trust executes code, even --version. Stay does not execute anything. Consent is only for this version probe, not an agent session or login.".into(),
         format!("Selected PATH entry: {}; canonical executable: {}", selected.as_deref().map(safe_path).unwrap_or_else(|| "missing".into()), executable.as_deref().map(safe_path).unwrap_or_else(|| "unresolved".into())),
-        "Literal argv: [--version]; stdin closed; stdout/stderr combined capture limited to 16 KiB; timeout 3 seconds. Only a strictly recognized version is retained; raw output is discarded.".into(),
+        format!("Literal argv: [--version]; stdin closed; stdout/stderr combined capture limited to 16 KiB; timeout {} seconds. Only a strictly recognized version is retained; raw output is discarded.", probe_timeout(index).as_secs()),
         format!("Probe cwd: {} (outside project); native host: {}/{}", cwd.as_deref().map(safe_path).unwrap_or_else(|| "unavailable".into()), env::consts::OS, env::consts::ARCH),
         "The executable inherits Eevee's environment, including provider-owned authentication and PATH. Wrappers, shebang interpreters, dynamic libraries, dependencies, environment preload hooks and provider configuration can execute code or persist changes. These dependencies are NOT fully pinned or sandboxed. Trust them explicitly or Stay; Eevee never loads a hook itself.".into(),
         "Executable bytes and known config-source metadata/declarations are rechecked before launch. This is not atomic execution isolation; malicious concurrent replacement or undiscovered transitive configuration is not bounded by this preview.".into(),
@@ -317,19 +328,13 @@ fn discover(index: usize, project: &Path) -> Snapshot {
         configuration,
         os: env::consts::OS.into(),
         architecture: env::consts::ARCH.into(),
-        adapter: if index == 0 {
-            format!(
-                "Codex app-server {CODEX_RELEASE} planning adapter; disconnected, not yet qualified"
-            )
-        } else {
-            "Unavailable — no adapter implemented; disconnected".into()
+        adapter: match index {
+            0 => format!("Codex app-server {CODEX_RELEASE}; Plan and POSIX controlled-file implementation"),
+            1 => "Optional pinned Claude Agent SDK sidecar; e performs separate runtime/auth qualification".into(),
+            2 => format!("OpenCode {OPENCODE_RELEASE} / negotiated ACP v1; provider-owned tools"),
+            _ => format!("Gemini {GEMINI_RELEASE} / negotiated ACP v1; absent credentials remain unavailable"),
         },
-        action: if index == 0 {
-            "Planning requires separate task/payload/executable trust and protocol qualification"
-                .into()
-        } else {
-            "Agent runs disabled; local workbench remains available".into()
-        },
+        action: "Requires explicit e request preview, supported installed release, authentication, negotiated action and control boundary; local workbench always remains available".into(),
         billing,
         probe_allowed,
         trust_preview,
@@ -375,7 +380,7 @@ fn capabilities(index: usize) -> Vec<Capability> {
             (
                 "Command/file/permission requests",
                 "Eevee-mediated callbacks",
-                "Supported deny or allow-once commands; file edits and unsupported requests refused",
+                "Plan: supported command deny/allow-once; Implement: selected-file Eevee dynamic tool with exact patch approval, native edits/escalation refused",
                 "Not every provider/MCP/hook action necessarily reaches a callback",
             ),
             (
@@ -407,22 +412,37 @@ fn capabilities(index: usize) -> Vec<Capability> {
         return result;
     }
     for action in [
-        "Text/image/excerpt input",
+        "Text/excerpt requests (images/audio unavailable)",
         "Streamed output and tool observation",
         "Command/file/permission requests",
         "Human questions",
         "Turn interruption",
-        "Resume/fork",
+        "Explicit same-task resume (fork unavailable)",
         "Usage and billing",
         "Filesystem/network restrictions",
     ] {
+        if index >= 2 && action == "Human questions" {
+            result.push(Capability {
+                action: action.into(), boundary: "Unsupported client callback".into(),
+                evidence: "These pinned ACP peers do not negotiate an implemented structured question/elicitation extension".into(),
+                blocker: "Unknown question requests are refused. Explicit reviewed follow-up turns remain separate; no missing method is invoked".into(),
+            });
+            continue;
+        }
+        if index >= 2 && action == "Usage and billing" {
+            result.push(Capability {
+                action: action.into(), boundary: "Provider-owned / unavailable".into(),
+                evidence: "No standardized usage accounting is negotiated by these pinned ACP adapters".into(),
+                blocker: "Usage/cost remain unknown; no token total or cross-provider cost sum is inferred".into(),
+            });
+            continue;
+        }
         result.push(Capability {
             action: action.into(),
-            boundary: "Observed/external — enforcement unknown".into(),
-            evidence: "Documented interface only; no adapter or handshake, no observed capability"
-                .into(),
-            blocker: "Disabled: no qualified adapter/version/authentication/enforcement evidence"
-                .into(),
+            boundary: if action == "Filesystem/network restrictions" { "Observed/external — no Eevee confinement" } else { "Eevee-mediated protocol callbacks / provider-owned tools" }.into(),
+            evidence: if index == 1 { "Pinned optional official SDK sidecar; tool/config policy separate from callbacks" }
+                else { "Negotiated ACP v1; exact once-only permission IDs; fs/terminal callbacks disabled" }.into(),
+            blocker: "Requires supported runtime/auth/capability qualification after explicit consent; installation alone is not support".into(),
         });
     }
     result.push(Capability {
@@ -799,11 +819,19 @@ fn apply_version(index: usize, profile: &mut Profile, version: &str) {
                 .push_str("; DOES NOT MATCH qualified planning release");
             profile.blockers.push(blocker);
         }
+    } else if index == 1 {
+        profile.blockers.push("Claude CLI version is not SDK version or permission to reuse claude.ai login. Qualify pinned sidecar and permitted API/cloud credentials in e.".into());
     } else {
-        profile.blockers.push(
-            "CLI version observed only; no qualified SDK/ACP protocol compatibility range exists"
-                .into(),
-        );
+        let expected = if index == 2 {
+            OPENCODE_RELEASE
+        } else {
+            GEMINI_RELEASE
+        };
+        if version != expected {
+            profile.blockers.push(format!("Version mismatch: observed {version}, required ACP peer release {expected}; review/install compatible peer before a request"));
+        } else {
+            profile.version.push_str("; release matches pinned ACP profile, handshake/auth/capabilities remain unqualified");
+        }
     }
 }
 
@@ -875,8 +903,11 @@ fn probe(index: usize, snapshot: &Snapshot, stopped: &AtomicBool) -> Result<Stri
         if stopped.load(Ordering::Acquire) {
             break Err("Probe cancelled during shutdown".into());
         }
-        if start.elapsed() >= PROBE_TIMEOUT {
-            break Err("Version probe timed out after 3 seconds; no version accepted".into());
+        if start.elapsed() >= probe_timeout(index) {
+            break Err(format!(
+                "Version probe timed out after {} seconds; no version accepted",
+                probe_timeout(index).as_secs()
+            ));
         }
         for (stream, ended) in eof.iter_mut().enumerate() {
             if *ended {
@@ -1092,6 +1123,135 @@ pub(crate) fn qualify_planning(
     })
 }
 
+/// Passive identity/configuration snapshot for a reviewed ACP launch.
+pub(crate) struct ExternalTrust {
+    snapshot: Snapshot,
+    project_identity: String,
+    index: usize,
+    pub lines: Vec<String>,
+    pub prepared: crate::runner::Prepared,
+}
+
+pub(crate) fn external_trust(
+    index: usize,
+    project: &Path,
+    launch: Vec<String>,
+) -> Result<ExternalTrust, String> {
+    if index >= NAMES.len()
+        || launch.len() > 64
+        || launch.iter().any(|arg| {
+            arg.len() > 32 * 1024
+                || arg.chars().any(char::is_control)
+                || crate::privacy::redact(arg) != arg.as_str()
+        })
+    {
+        return Err("Provider launch arguments cannot be reviewed safely".into());
+    }
+    let snapshot = discover(index, project);
+    if !snapshot.profile.probe_allowed {
+        return Err(format!(
+            "{} executable/config identity unavailable; inspect o preflight",
+            NAMES[index]
+        ));
+    }
+    let executable = snapshot
+        .identity
+        .clone()
+        .ok_or("Executable identity unavailable")?;
+    let cwd = snapshot
+        .cwd
+        .clone()
+        .ok_or("Outside-project temporary directory unavailable")?;
+    for path in [&executable.path, &cwd, project] {
+        let value = path.to_str().ok_or("Non-Unicode provider path")?;
+        if value.len() > 32 * 1024 || value.chars().any(|ch| ch.is_control()
+            || matches!(ch, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
+            || crate::privacy::redact(value) != value
+        {
+            return Err("Provider path contains private or directional display text".into());
+        }
+    }
+    let project_identity = crate::runner::native::directory_identity(project)
+        .map_err(|_| "Provider project identity unavailable")?;
+    let lines = vec![
+        format!("{}: explicit trust runs {} with --version, then literal argv {}.",
+            NAMES[index], executable.path.display(), serde_json::to_string(&launch).map_err(|error| error.to_string())?),
+        format!("Owned process cwd {} outside project; requested session cwd {}.", cwd.display(), project.display()),
+        snapshot.profile.configuration.clone(),
+        snapshot.profile.authentication.clone(),
+        snapshot.profile.billing.clone(),
+        "Executable, known configuration identities and project identity are revalidated. Inherited environment, interpreters, dependencies, provider instructions, hooks, plugins, MCP and provider-owned history may add context or execute effects. This is not a sandbox or atomic transitive-dependency pin.".into(),
+        "Consent authorizes this provider process and one reviewed request. Provider authentication/billing remain provider-owned; no login/config mutation or credential-store read by Eevee. Permission callbacks are not universal interception of provider-owned tools. Grants never cross provider switches.".into(),
+        "Process-tree ownership provides bounded cancellation, not filesystem/network isolation or rollback. Unsupported callback/capability is refused; missing authoritative completion remains outcome unknown. No automatic resend.".into(),
+    ];
+    let prepared = crate::runner::Prepared {
+        request_id: "provider-session".into(),
+        run_id: "provider-session".into(),
+        task_id: 0,
+        spec: crate::runner::CommandSpec::Direct {
+            program: executable
+                .path
+                .to_str()
+                .ok_or("Non-Unicode executable")?
+                .into(),
+            args: launch,
+        },
+        cwd_identity: crate::runner::native::directory_identity(&cwd)
+            .map_err(|_| "Provider process cwd identity unavailable")?,
+        executable,
+        cwd,
+        prepared_at_ms: 0,
+        expires_at_ms: 0,
+        before: crate::runner::InputSnapshot::default(),
+    };
+    Ok(ExternalTrust {
+        snapshot,
+        project_identity,
+        index,
+        lines,
+        prepared,
+    })
+}
+
+pub(crate) fn revalidate_external_trust(
+    index: usize,
+    project: &Path,
+    trust: &ExternalTrust,
+) -> Result<(), String> {
+    if index != trust.index {
+        return Err("Provider identity differs from the reviewed executable".into());
+    }
+    let current = discover(index, project);
+    if !current.profile.probe_allowed
+        || current.stamp != trust.snapshot.stamp
+        || crate::runner::native::directory_identity(project)
+            .ok()
+            .as_ref()
+            != Some(&trust.project_identity)
+    {
+        return Err("Provider executable/configuration/project changed; preview again".into());
+    }
+    Ok(())
+}
+
+pub(crate) fn qualify_external(
+    index: usize,
+    project: &Path,
+    trust: &ExternalTrust,
+    expected: &str,
+    stopped: &AtomicBool,
+) -> Result<crate::runner::Prepared, String> {
+    revalidate_external_trust(index, project, trust)?;
+    let version = probe(index, &trust.snapshot, stopped)?;
+    if version != expected {
+        return Err(format!(
+            "Provider version mismatch: observed {version}, required {expected}"
+        ));
+    }
+    revalidate_external_trust(index, project, trust)?;
+    Ok(trust.prepared.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1125,28 +1285,6 @@ mod tests {
         assert!(text.contains("disableAllHooks=true"));
         assert!(text.contains("hooks: declared"));
         assert!(!text.contains("canary"));
-    }
-
-    #[test]
-    fn exact_release_requires_separate_planning_qualification() {
-        let mut profile = discover(0, Path::new("/nonexistent-eevee-project")).profile;
-        assert!(profile.version.starts_with("Unknown"));
-        assert!(!profile.probe_allowed);
-        apply_version(0, &mut profile, "0.147.0");
-        assert!(
-            profile
-                .blockers
-                .iter()
-                .any(|b| b.contains("Version mismatch"))
-        );
-        assert!(profile.action.contains("separate"));
-        apply_version(0, &mut profile, CODEX_RELEASE);
-        assert!(profile.action.contains("separate"));
-        assert!(
-            profile
-                .version
-                .contains("session/authentication not yet qualified")
-        );
     }
 
     #[test]

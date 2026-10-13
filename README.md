@@ -64,11 +64,11 @@ Goals are limited to 4096 UTF-8 bytes and remain local unless explicitly include
 
 `o` opens the connection drawer for Codex, Claude Agent SDK, OpenCode ACP, and Gemini ACP. Discovery is passive: it inspects executable identity and known configuration sources without running an agent. `1`–`4` or arrows select a profile; `r` refreshes discovery. Installation, observed CLI version, authentication/billing source labels, configuration declarations, OS/architecture, adapter availability, and per-action control boundaries remain distinct.
 
-Enter opens a **neutral trust preview**, not a connection. Review with PgDn/End; only after reaching the end can Tab select **Trust this version probe**, then Enter runs the previewed executable with literal `--version`. Esc cancels; resize clears consent, and terminals below 60×18 cannot approve. Executable and known configuration identities are revalidated before launch. Probes use an outside-project temporary cwd, owned-process cleanup, a three-second timeout, and a 16 KiB output limit. Only recognized version text is retained; arbitrary stdout/stderr is withheld.
+Enter opens a **neutral trust preview**, not a connection. Review with PgDn/End; only after reaching the end can Tab select **Trust this version probe**, then Enter runs the previewed executable with literal `--version`. Esc cancels; resize clears consent, and terminals below 60×18 cannot approve. Executable and known configuration identities are revalidated before launch. Probes use an outside-project temporary cwd, owned-process cleanup, a three-second deadline (**ten seconds for Gemini's measured Node startup**), and a 16 KiB output limit. Only recognized version text is retained; arbitrary stdout/stderr is withheld.
 
 Even `--version` executes arbitrary code. Consent includes the disclosed inherited environment, interpreters, dependencies, and provider-owned configuration effects; none is claimed sandboxed or fully pinned. Eevee never starts login/model requests, reads credential stores, or changes provider configuration during preflight. Known nonsecret declarations are not authoritative effective policy. Environment variable **names/presence**, never credential values, label possible authentication/billing sources.
 
-Codex planning is pinned to **`codex-cli 0.152.1`** and rechecks the installed version, provider-owned account, available default model, and acknowledged policy after explicit consent. Other versions fail closed; the old `0.147.0` reference is not an adapter qualification. Claude CLI discovery does not establish SDK availability; Claude/ACP adapters remain unavailable. Current provider evidence is Linux/WSL x86_64 only, not native Windows/macOS parity.
+Provider releases are pinned: **Codex 0.152.1**, optional **Claude Agent SDK 0.3.296 / embedded CLI 2.1.296 / Node ≥24**, **OpenCode 1.18.0**, and **Gemini CLI 0.28.0**. Other versions fail closed. CLI discovery is not SDK availability or authenticated interoperability. Current provider evidence is Linux/WSL x86_64 only, not native Windows/macOS parity. Claude SDK model scenarios require permitted API/Bedrock/Vertex credentials; the installed claude.ai subscription is not reused. Gemini's real ACP session creation is authentication-blocked on this host.
 
 ### Espeon / Codex planning
 
@@ -86,6 +86,36 @@ One request is active at a time; task/form/source changes and local command star
 Provider configuration, instructions, hooks/MCP, independent reads, and resumed history can add context or effects beyond Eevee's displayed payload. **Provider read-only policy is not an Eevee sandbox**; an approved command may run outside that policy. Provider account, billing, and retained thread history remain provider-owned. Authenticate using the provider's supported tools outside Eevee; Eevee does not import credentials, initiate login, or change global provider configuration.
 
 Live verification is deliberately opt-in and may incur provider usage: `python3 scripts/planning_smoke.py --live --binary target/release/ev`. It requires the terminal-smoke Python dependencies and an already authenticated, compatible Codex installation; it is not wired into CI.
+
+### Flareon / controlled implementation
+
+Inside `e`, `1`–`4` preview an idle agent switch, `f` toggles Plan/Implement, and `x` edits a JSON array of root-relative existing files, e.g. `["src/main.rs"]`. Every switch and run requires fresh review; selection alone never starts a provider. Original sessions remain with their originating agent and operation.
+
+Codex Implement admits **1–8 existing regular UTF-8 files, each at most 12 KiB**, through `eevee_edit_file` under the provider's read-only/network-disabled policy. Each full replacement shows its exact before/after patch, starts on Deny, and requires Allow once. The POSIX anchored/no-follow write route rejects protected, excluded, unselected, symlink/hardlink and changed-baseline paths; other platforms refuse this controlled route. It preserves reviewed dirty content, never resets, commits, merges, creates files or widens scope. Native edit/command escalation is denied. Other provider reads/config/MCP effects remain outside this write route's coverage.
+
+After a change, inspect `w` against the pre-existing dirty baseline and deliberately choose a separate `j` check. `h` inside the agent drawer shows retained **provider-origin journals**, not Jolteon's local execution evidence. Records are append-only and quota-backed; failed persistence retains observations for storage-only retry, never provider replay. Purge is a separate neutral confirmation.
+
+### Optional SDK and ACP peers
+
+The Rust core/local-only workflow needs no Node or SDK. For the optional bridge:
+
+```sh
+npm ci --prefix sidecar --ignore-scripts --no-audit --no-fund
+export EEVEE_CLAUDE_SIDECAR="$PWD/sidecar/main.ts"
+node sidecar/main.ts --inspect
+```
+
+Supply an already configured, permitted `ANTHROPIC_API_KEY` or the explicit Bedrock/Vertex route described in [agent compatibility](docs/AGENT_COMPATIBILITY.md). Do not reuse a claude.ai subscription, copy login stores, or use an OAuth/helper fallback. Inspection loads the actual SDK without a model request; it does not prove authenticated query/question/permission/interrupt/resume behavior. SDK settings sources are empty, MCP strict-empty, and shell/delegation/web/worktree tools mandatory-disabled. Its selected-path Write/Edit hook is **agent policy, not atomic OS confinement**.
+
+OpenCode uses a private `acp --pure` child; Gemini 0.28.0 uses `--experimental-acp`, not newer documentation's `--acp`. Both negotiate ACP1. Client filesystem/terminal callbacks and unknown question extensions are refused; provider-owned tools/config/MCP effects are explicitly external policy, not read-only or sandboxed. Only exact once-only permission options are offered. Resume uses only an observed same-task session and negotiated `session/load`; loaded history is not replayed as new output. Controlled ACP implementation is refused.
+
+`s` inside the agent drawer explicitly previews **capability/session-list inspection without a model request**. It calls `session/list` only when negotiated, filters returned metadata to the reviewed project, and never turns listed sessions into resume grants. Gemini's absent method produces a visible refusal without calling it.
+
+### Portable task handoff
+
+`z` opens the manual handoff drawer: `j` JSON export, `m` Markdown export, `i` import. Exports are create-only and require exact review/consent. Version **1** carries only committed task facts, criteria, selected source excerpts/identities, selected decisions and unresolved work. Generated provider-session provenance is stripped from portable facts and outbound task metadata; provider sessions, grants, hidden reasoning and credentials are never portable.
+
+Imported claims stay **unverified** and cannot create execution evidence or complete a task. Unknown/newer fields or schemas, unsafe sources and stale dispatch bindings are rejected. An accepted handoff must still match the current task/source revision immediately before dispatch; `b` inside the agent drawer explicitly deselects a stale handoff. Manual export/import never launches a CLI. Full Codex→Claude→ACP acceptance remains blocked until permitted Claude and Gemini credentials are available.
 
 ### Artwork and terminal graphics
 
@@ -119,8 +149,9 @@ Artwork rights remain with the original rights holders. Downloading or attributi
 | `v` | Browse source files/ranges and the task-owned context basket |
 | `j` | Open local command approval, live output, history and recovery |
 | `o` | Open passive agent preflight and explicit version-probe trust review |
-| `e` | Open Espeon planning; `n`/`r` inside preview a new/resumed Codex turn |
+| `e` | Open the selected agent's Plan/Implement drawer; `n`/`r` preview new/resumed turns |
 | `p` | Inspect a local handoff preview; in the picker, inspect the previewed role |
+| `z` | Open reviewed version-1 JSON/Markdown handoff export/import |
 | `l` | Toggle sanctuary / linear text layout |
 | Ctrl+K | Open the command palette |
 | Tab / Shift+Tab | Cycle visible panes |
@@ -152,11 +183,11 @@ Use `ev --data-dir PATH` for isolation. `workbench.sqlite3` stores schema-versio
 
 Completion requires at least one criterion, all criteria checked, no retained goal/criteria draft, and a deliberate neutral-focus confirmation. It records your review, not verified execution evidence. Editing a completed goal or criteria first requires explicit reopening. Bounds are 256 tasks per project, 64 criteria of at most 256 UTF-8 bytes each, and 4096 bytes per goal/next-action/draft.
 
-Schemas 0–3 migrate transactionally to schema 4, retaining task lifecycle metadata and adding command drafts, task-owned excerpts and execution journals. Identifiable credentials are masked before persistence. Corrupt, foreign, or newer schemas are never reset. Interrupted single-database rollback migrations are first recovered and validated on private copies, bounded to 64 MiB per database/journal; WAL/SHM and multi-database recovery are refused rather than guessed. Preserve originals for manual recovery if automatic recovery is unavailable.
+Schemas 0–4 migrate transactionally to schema 5, retaining task lifecycle metadata, command drafts, excerpts and local execution journals, and adding task-owned provider-origin journals. Identifiable credentials are masked before persistence. Corrupt, foreign, or newer schemas are never reset. Interrupted single-database rollback migrations are first recovered and validated on private copies, bounded to 64 MiB per database/journal; WAL/SHM and multi-database recovery are refused rather than guessed. Preserve originals for manual recovery if automatic recovery is unavailable.
 
 `ev --data-dir PATH --export-data NEW_FILE.json` exports readable known **task rows only**, without creating/migrating the database or overwriting the output. It is not an excerpt/output backup, repair, or guarantee that corrupt data is readable. Project/data paths must be Unicode; display escaping never changes stored project identity.
 
-In task cards, `h` switches active/archived views; `a` archives and `r` restores. Archive is reversible and does not complete a task. Delete fetches an authoritative preview of tasks/drafts and owned excerpt/run IDs, starts on **Stay**, and requires confirmation. PgUp/PgDown scrolls; `n`/`p` pages large artifact lists. `x` previews archived records eligible under `--retention-days N` (default 30). Active work prevents archive/deletion/purge. Retention never silently evicts data. A physical-cleanup failure reports committed metadata plus a warning, not a fictitious rollback.
+In task cards, `h` switches active/archived views; `a` archives and `r` restores. Archive is reversible and does not complete a task. Delete fetches an authoritative preview of tasks/drafts and owned excerpt/run/provider-journal IDs, starts on **Stay**, and requires confirmation. PgUp/PgDown scrolls; `n`/`p` pages large artifact lists. `x` previews archived records eligible under `--retention-days N` (default 30). Active work prevents archive/deletion/purge. Retention never silently evicts data. A physical-cleanup failure reports committed metadata plus a warning, not a fictitious rollback.
 
 `--quota-kib N` limits shared live SQLite pages, retained output and committed capture reservations (default 65536, minimum 64). Schema overhead counts; physical database files may retain free pages, and transactions/migrations require temporary disk space. Lowering the quota preserves existing records. Failed task saves retain drafts; reclaim eligible data or increase capacity, then `r` retries task storage. Context/journal storage has its own explicit `s` retry, never automatic command replay.
 
@@ -202,6 +233,7 @@ python3 scripts/repository_smoke.py --binary target/release/ev --output target/r
 python3 scripts/context_smoke.py --binary target/release/ev --output target/context-smoke
 python3 scripts/execution_smoke.py --binary target/release/ev --output target/execution-smoke
 python3 scripts/execution_recovery_smoke.py --binary target/release/ev --output target/execution-recovery-smoke
+python3 scripts/handoff_smoke.py --binary target/release/ev --output target/handoff-smoke
 ```
 
 Run `python scripts/terminal_smoke.py --binary target/release/ev --output target/native-smoke` after building. Install `pyte==0.8.2` and `wcwidth==0.2.13`; Windows also needs `pywinpty==2.0.15`. The harness launches the real binary in POSIX PTYs or native Windows ConPTY, records screen/host/console evidence, and builds one isolated lifecycle probe for normal/error/panic restoration. CI also generates dependency license texts with pinned cargo-about 0.9.2, packages `ev`, and exercises fresh install, real-source upgrade, refusal/rollback, and the installed binary through the same terminal harness. It does not certify a GUI terminal or native images; see the checkpoint for observed package outcomes.
@@ -238,8 +270,8 @@ Section A and its five-row native core checkpoint are complete. Section B and R0
 
 Native core support is limited to the recorded OS/architecture/PTY or ConPTY tuples above. Windows ARM64, older OS versions, and untested GUI terminals remain unclaimed. Cross-compilation is not runtime proof. P02 gates filesystem/data-directory and owned process-tree lifecycle after recovery UX. P03 gates native archives/checksums and install/upgrade/uninstall preserving user data, after integrated acceptance and rights/provider review. Native-image and agent capabilities are qualified separately by OS/version/terminal.
 
-The [design contract](docs/DESIGN_RULES.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md) govern active-run switching/quit and context revalidation. Excerpts and local output share the storage privacy/quota/purge policy; selected planning decisions use ordinary task storage. Other provider adapters, automated memory, and public Release/remote bootstrap remain unimplemented or withheld as recorded in the task gates.
+The [design contract](docs/DESIGN_RULES.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md) govern active-run switching/quit and context revalidation. Excerpts, local output and provider journals share storage privacy/quota/purge rules; selected decisions use ordinary task storage. Automated memory and public Release/remote bootstrap remain withheld as recorded in the task gates.
 
-Codex app-server planning is implemented separately from later patch generation. Later integrations are an optional official Claude Agent SDK bridge and one ACP client exercised against OpenCode and Gemini. A form selects the workflow, not the vendor. Switching agents will require a reviewed fresh handoff; native provider sessions and grants are not portable. The Rust core/local UI needs no Node runtime; an installed Codex wrapper may have its own runtime dependencies.
+Codex planning and bounded POSIX implementation, the optional official Claude SDK bridge, one negotiated ACP client for OpenCode/Gemini, and reviewed manual/cross-agent handoffs are implemented. Implementation is distinct from authenticated interoperability acceptance: missing permitted Claude/Gemini credentials leave A04/A06/full A07 unchecked. A form selects workflow, not vendor; native provider sessions/grants are not portable. The Rust core/local UI needs no Node runtime.
 
 The SVGs are design illustrations, not runtime screenshots. Actual artwork rendering and the scoped Codex planning flow are implemented. Performance figures remain scoped acceptance targets, not measured results. Public distribution requires both artwork/name rights review and provider auth/branding/terms review.

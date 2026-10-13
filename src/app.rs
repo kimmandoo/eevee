@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod execution;
+pub mod handoff;
 pub mod planning;
 pub mod sources;
 
@@ -14,7 +15,7 @@ use crate::store;
 pub const MAX_GOAL_BYTES: usize = 4096;
 pub const DELETE_PREVIEW_PAGE: usize = 256;
 
-pub const PALETTE: [&str; 18] = [
+pub const PALETTE: [&str; 19] = [
     "Choose evolution",
     "Edit task goal",
     "Inspect task and storage",
@@ -32,7 +33,8 @@ pub const PALETTE: [&str; 18] = [
     "Source map and context basket",
     "Command execution and evidence",
     "Agent connections and trusted version preflight",
-    "Espeon scoped Codex planning",
+    "Specialist request / planning and implementation",
+    "Portable task handoff",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,6 +59,7 @@ pub enum Overlay {
     Execution,
     Agents,
     Planning,
+    Handoff,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -168,6 +171,7 @@ pub struct App {
     pub execution: execution::State,
     pub agents: agents::State,
     pub planning: planning::State,
+    pub handoff: handoff::State,
     pub command: String,
     pub delete_preview: Vec<store::DeletionTarget>,
     pub delete_page: usize,
@@ -241,6 +245,7 @@ impl App {
             execution: execution::State::default(),
             agents: agents::State::new(),
             planning: planning::State::new(),
+            handoff: handoff::State::new(),
             command: String::new(),
             delete_preview: Vec::new(),
             delete_page: 0,
@@ -356,6 +361,9 @@ impl App {
 
     pub fn store_event(&mut self, event: store::Event) {
         match event {
+            store::Event::Journal { task_id, result } => {
+                self.planning.journal_event(task_id, result);
+            }
             store::Event::Loaded(project) => {
                 let local_changes = self.revision != self.saved_revision;
                 self.usage_bytes = project.usage_bytes;
@@ -689,6 +697,15 @@ impl App {
     }
 
     fn request_navigation(&mut self, action: execution::Action) {
+        if self.planning.journal_failed() {
+            self.planning.notice = "Provider observations are retained after journal failure; h then r retries storage only.".into();
+            if matches!(action, execution::Action::Quit) {
+                self.finish_request_quit();
+            } else {
+                self.open_overlay(Overlay::Planning);
+            }
+            return;
+        }
         if self.planning.busy() {
             if matches!(action, execution::Action::Quit) {
                 self.planning.request_quit();
@@ -713,6 +730,13 @@ impl App {
             execution::Action::SelectForm(index) => {
                 if self.form != index {
                     self.form = index;
+                    if index == 3 || index == 4 {
+                        self.planning.set_operation(if index == 3 {
+                            crate::provider::Operation::Implement
+                        } else {
+                            crate::provider::Operation::Plan
+                        });
+                    }
                     self.changed_task();
                 }
                 if self.overlay == Some(Overlay::Execution) {
@@ -750,7 +774,7 @@ impl App {
             && !self.execution.busy()
             && !self.planning.busy()
         {
-            if self.sources.store_failed {
+            if self.sources.store_failed || self.planning.journal_failed() {
                 self.quit_after_save = false;
                 self.confirmation = Some(Confirmation {
                     kind: ConfirmationKind::Quit,
@@ -960,7 +984,11 @@ impl App {
                 self.agents.affirmative = false;
                 self.agents.reviewed = false;
                 self.planning.invalidate_review();
+                self.handoff.invalidate_review();
                 true
+            }
+            Event::Paste(text) if self.overlay == Some(Overlay::Handoff) => {
+                self.handoff.paste(&text)
             }
             Event::Paste(text) if self.overlay == Some(Overlay::Planning) => {
                 self.planning.paste(&text)
@@ -998,6 +1026,31 @@ impl App {
         changed
     }
 
+    fn handoff_key(&mut self, key: KeyEvent) -> bool {
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            self.request_quit();
+            return true;
+        }
+        if key.code == KeyCode::Esc && !self.handoff.busy() && self.handoff.candidate.is_none() {
+            self.close_overlay();
+            return true;
+        }
+        let empty;
+        let task = if let Some(task) = self.tasks.iter().find(|task| task.id == self.task_id) {
+            task
+        } else {
+            empty = store::Snapshot::empty(self.cwd.clone());
+            &empty
+        };
+        self.handoff.key(
+            key,
+            self.width >= 60 && self.height >= 18,
+            task,
+            &self.sources.basket,
+            &[],
+        )
+    }
+
     fn planning_key(&mut self, key: KeyEvent) -> bool {
         if key.kind == KeyEventKind::Release {
             return false;
@@ -1017,6 +1070,7 @@ impl App {
             && !self.planning.busy()
             && self.planning.request.is_none()
             && !self.planning.editing
+            && !self.planning.journal_mode
         {
             self.close_overlay();
             return true;
@@ -1028,6 +1082,7 @@ impl App {
                 || self.sources.busy()
                 || self.sources.store_failed
                 || self.execution.busy()
+                || self.planning.journal_failed()
             {
                 self.planning.notice = "Finish or retry task/context saves and local work before previewing or running.".into();
                 return true;
@@ -1048,16 +1103,36 @@ impl App {
             empty = store::Snapshot::empty(self.cwd.clone());
             &empty
         };
-        self.planning.key(
+        let operation = self.planning.operation;
+        let changed = self.planning.key(
             key,
             self.width >= 60 && self.height >= 18,
             task,
             &self.sources.basket,
             self.repository.as_ref(),
-        )
+        );
+        if operation != self.planning.operation {
+            self.form = if self.planning.operation == crate::provider::Operation::Implement {
+                3
+            } else {
+                4
+            };
+            self.changed_task();
+        }
+        changed
     }
 
     pub fn settle_planning(&mut self) -> bool {
+        if let Some(document) = self.handoff.output.take() {
+            self.planning.handoff = Some(document);
+            self.planning.notice = "Portable handoff accepted as unverified context. It grants no tool permission; review a fresh provider request.".into();
+            return true;
+        }
+        if let Some(decision) = self.handoff.decision.take() {
+            self.planning.decision = Some(format!(
+                "{decision}\n\n[User-selected imported handoff decision; unverified, not execution evidence.]"
+            ));
+        }
         if std::mem::take(&mut self.planning.quit_ready) {
             self.finish_request_quit();
             return true;
@@ -1111,6 +1186,9 @@ impl App {
             && (self.sources.editor.is_some() || self.sources.confirmation.is_some())
         {
             return self.source_key(key);
+        }
+        if self.overlay == Some(Overlay::Handoff) {
+            return self.handoff_key(key);
         }
         if self.overlay == Some(Overlay::Planning) {
             return self.planning_key(key);
@@ -1253,6 +1331,7 @@ impl App {
             KeyCode::Char('j') => self.open_overlay(Overlay::Execution),
             KeyCode::Char('o') => self.open_overlay(Overlay::Agents),
             KeyCode::Char('e') => self.open_overlay(Overlay::Planning),
+            KeyCode::Char('z') => self.open_overlay(Overlay::Handoff),
             KeyCode::Tab | KeyCode::BackTab => {
                 return self.cycle_focus(key.code == KeyCode::BackTab);
             }
@@ -1362,6 +1441,7 @@ impl App {
             || self.revision != self.saved_revision
             || self.sources.persistence_pending()
             || self.sources.store_failed
+            || self.planning.journal_failed()
         {
             self.confirmation = Some(Confirmation {
                 kind: ConfirmationKind::Quit,
@@ -1375,7 +1455,9 @@ impl App {
     pub fn deletion_pages(&self) -> usize {
         self.delete_preview
             .iter()
-            .map(|target| 1 + target.excerpts.len() + target.runs.len())
+            .map(|target| {
+                1 + target.excerpts.len() + target.runs.len() + target.provider_records.len()
+            })
             .sum::<usize>()
             .div_ceil(DELETE_PREVIEW_PAGE)
             .max(1)
@@ -1447,6 +1529,7 @@ impl App {
                             if matches!(self.storage, StorageState::Saving | StorageState::Loading)
                                 || self.sources.persistence_pending()
                                 || self.execution.busy()
+                                || self.planning.busy()
                             {
                                 self.quit_after_save = true;
                             } else {
@@ -1753,6 +1836,13 @@ impl App {
             self.notice = "Finish or cancel the local command before starting planning.".into();
             return;
         }
+        if overlay == Overlay::Planning && (self.form == 3 || self.form == 4) {
+            self.planning.set_operation(if self.form == 3 {
+                crate::provider::Operation::Implement
+            } else {
+                crate::provider::Operation::Plan
+            });
+        }
         self.save_selection();
         if let Some(previous) = self.overlay_frame() {
             if previous.overlay == overlay {
@@ -1975,6 +2065,7 @@ impl App {
                         15 => self.open_overlay(Overlay::Execution),
                         16 => self.open_overlay(Overlay::Agents),
                         17 => self.open_overlay(Overlay::Planning),
+                        18 => self.open_overlay(Overlay::Handoff),
                         _ => unreachable!("palette selection is bounded"),
                     }
                 }
@@ -2795,6 +2886,7 @@ mod tests {
                 task: app.tasks[0].clone(),
                 excerpts: Vec::new(),
                 runs: Vec::new(),
+                provider_records: Vec::new(),
             }],
             expired_before: None,
         });
@@ -2811,6 +2903,7 @@ mod tests {
                 task: app.tasks[0].clone(),
                 excerpts: Vec::new(),
                 runs: Vec::new(),
+                provider_records: Vec::new(),
             }],
             expired_before: None,
         });

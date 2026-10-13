@@ -225,7 +225,7 @@ fn excluded_prefix(path: &Path, prefix: &Path) -> bool {
     })
 }
 
-fn excluded(path: &Path, exclusions: &[PathBuf]) -> bool {
+pub(crate) fn excluded(path: &Path, exclusions: &[PathBuf]) -> bool {
     if !relative_path(path)
         || exclusions
             .iter()

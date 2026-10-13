@@ -1,5 +1,6 @@
 mod agents;
 mod execution;
+mod handoff;
 mod planning;
 mod sources;
 
@@ -360,6 +361,8 @@ pub fn render(
             execution::render_small_confirmation(frame, area, &mut app.execution, config);
         } else if app.overlay == Some(Overlay::Planning) {
             planning::render_small(frame, area, &mut app.planning, &paint);
+        } else if app.overlay == Some(Overlay::Handoff) {
+            handoff::render_small(frame, area, &mut app.handoff, &paint);
         }
         return;
     }
@@ -402,6 +405,7 @@ pub fn render(
             Overlay::Execution => execution::render(frame, area, &mut app.execution, config),
             Overlay::Agents => agents::render(frame, area, app, config, &paint),
             Overlay::Planning => planning::render(frame, area, app, config, &paint),
+            Overlay::Handoff => handoff::render(frame, area, app, config, &paint),
             Overlay::Inspector => {
                 let area = drawer(area);
                 frame.render_widget(Clear, area);
@@ -453,13 +457,13 @@ fn header(frame: &mut Frame, area: Rect, app: &App, form: &Form, paint: &Paint) 
         frame,
         row(area, 2, 1),
         if app.planning.cancelling {
-            "Codex cancellation pending / e status"
+            "Provider cancellation pending / e status"
         } else if app.planning.preview.is_some() {
-            "Codex local preview / no run consent yet"
+            "Local provider preview / no run consent yet"
         } else if app.planning.busy() {
-            "Codex planning workflow active / e status"
+            "Specialist request or journal save active / e status"
         } else if app.planning.thread_id.is_some() {
-            "Codex session-local thread available / e status"
+            "Provider session-local ID available / e status"
         } else {
             app.execution.activity_label()
         },
@@ -551,7 +555,7 @@ fn workspace(
     ));
     lines.push(Line::from(form.evidence));
     lines.push(Line::styled(
-        "e opens explicitly reviewed Codex planning; j opens local commands.",
+        "e reviews specialist requests; j local checks; z portable handoff.",
         paint.muted,
     ));
     let paragraph = Paragraph::new(lines)
@@ -658,7 +662,7 @@ fn inspect(
         let sampled = app.usage_bytes;
         let retention = app.policy.retention_days;
         format!(
-            "TASK\n{task} / {}\nUpdated: {updated}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete means user-reviewed criteria, not verified command evidence.\n\nPROJECT DIRECTORY\n{}\n\nSTORAGE\n{}\nRevision {} / committed {}\nDirectory: {}\n{}\nRecovery: r retries storage; --export-data FILE exports task rows, not an evidence backup.\nQuota: {quota} bytes. Last sample: {sampled} live SQLite, retained output and committed reservations; not physical database size.\nRetention: archived at least {retention} days; explicit purge only, no automatic eviction.\nSecret detection is best-effort. Volatile editor text may remain unmasked.\nArchive is reversible. Deletion affects selected local records and owned artifacts, not repository files, exports or provider sessions. Not forensic secure erasure.\n\nEXECUTION\nSession-local Codex planning status is available in e. j opens local command approval and observed evidence. Cancellation does not roll back files; approval is not a sandbox.\n\nARTWORK\n{}\n{}\n{}\n\nUp/Down scroll / Esc back",
+            "TASK\n{task} / {}\nUpdated: {updated}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete means user-reviewed criteria, not verified command evidence.\n\nPROJECT DIRECTORY\n{}\n\nSTORAGE\n{}\nRevision {} / committed {}\nDirectory: {}\n{}\nRecovery: r retries storage; --export-data FILE exports readable local records, not provider history.\nQuota: {quota} bytes. Last sample: {sampled} live SQLite, retained output and committed reservations; not physical database size.\nRetention: archived at least {retention} days; explicit purge only, no automatic eviction.\nSecret detection is best-effort. Volatile editor text may remain unmasked.\nArchive is reversible. Deletion affects selected local records and owned artifacts, not repository files, exports or provider sessions. Not forensic secure erasure.\n\nEXECUTION\nSpecialist request and provider-origin journal: e. Local command approval/evidence: j. Portable handoff: z. Cancellation does not roll back files; approval is not a sandbox.\n\nARTWORK\n{}\n{}\n{}\n\nUp/Down scroll / Esc back",
             if app.complete { "Complete" } else { "Open" },
             app.criteria
                 .iter()
@@ -682,7 +686,7 @@ fn inspect(
         )
     } else {
         format!(
-            "PROJECT\n{project}\n\nTASK\n{task} / {}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete is user review, not verified execution.\n\nSTORAGE\n{}\n{}\n\nCONTROL\nSession-local Codex planning status: e. j opens command approval/evidence. Approval is not a sandbox.\n\ni Details: saved timestamp, revisions, paths and recovery\nUp/Down scroll",
+            "PROJECT\n{project}\n\nTASK\n{task} / {}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete is user review, not verified execution.\n\nSTORAGE\n{}\n{}\n\nCONTROL\nSpecialist requests/journal: e. Local checks: j. Portable handoff: z. Exact control coverage is adapter/action-specific; approval is not a sandbox.\n\ni Details: saved timestamp, revisions, paths and recovery\nUp/Down scroll",
             if app.complete { "Complete" } else { "Open" },
             app.criteria
                 .iter()
@@ -816,7 +820,8 @@ fn form_details(frame: &mut Frame, area: Rect, index: usize, config: &Config, ar
             0 => "Task cards and resumption: available",
             1 => "Source ranges/context basket: v",
             2 => "Approved local commands/evidence: j",
-            4 => "Explicitly reviewed Codex planning: e",
+            3 => "Reviewed selected-file implementation: e / f",
+            4 => "Reviewed multi-agent planning: e",
             _ => "Provider specialist workflow: unavailable",
         },
         artwork.status(index)
@@ -1148,7 +1153,7 @@ fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &P
     frame.render_widget(block, area);
     let value = "TASKS\n g / Enter  Edit goal; Enter in workspace resumes\n t          Task cards; Enter resumes selection\n n          New task after saves and owned work settle\n c          Criteria; Space toggles, e edits lines\n a          Next action (descriptive, never execution)\n d          Review Complete; requires all criteria met\n w          Repository baseline; r refreshes current evidence\nExternal changes are unattributed, not agent-authored.\nTask cards: h active/archived; a archive; r restore.\nDelete reviews a task; x reviews eligible retention purge.\nDeletion: PgUp/Dn scroll; n/p artifact pages; neutral Stay.\nPurge leaves repository files, exports and provider sessions alone. Not forensic secure erasure.\nComplete is user review, not verified execution.\nGoal/criteria changes require explicit Reopen.\n\nSOURCES / v\n / filters filenames; r chooses inclusive start:end.\n Enter inspects line 1; p pins an inspected range.\n b toggles files/basket; Delete removes; x purges capture.\n a previews exact escaped envelope; d revalidates without sending.\n u refreshes repository; n/p pages a large envelope.\n s retries a failed retained storage operation explicitly.\nIgnore/exclusion, containment and source identity are rechecked. Provider history/config/independent reads are not constrained.\n\nCOMMANDS / j\n e edits JSON argv or explicit shell object; Apply prepares only.\n v opens neutral approval; closing it grants nothing.\n c reviews cancellation; h history; r fresh evidence.\n / searches output; n/N next/previous; f follows.\n Arrows/PgUp/Dn/Home/End scroll without following.\n [/] pages retained output; p reviews purge; d error details.\n s retries journal persistence, never command execution.\nApproval is not a sandbox. Cancellation does not roll back edits.\nTask/form changes and quit wait for owned work or explicit unknown-outcome review. Restart never replays a command.\n\nEDITOR\nEnter applies locally; Ctrl+S retains draft without applying.\nEsc reviews changed draft; unchanged drafts close directly.\nLeft/Right and deletion operate on graphemes.\nUp/Down move lines; Home/End line boundaries.\nCtrl+N newline; Shift+Enter only if terminal distinguishes it.\nPaste never applies or approves. Drafts survive restart.\nSecret masking is best-effort; volatile text may be unmasked.\n\nNAVIGATION\n f Evolution: arrows/1-9 preview, Enter activates\n p Local handoff preview; sends nothing\n i / b Inspector / companion\n r Retry failed task storage outside editor\n l Linear/sanctuary; Ctrl+K actions; Tab pane focus\n Esc closes overlay and restores focus; ? help\n q / Ctrl+C safe exit with neutral Stay\nDuring save-and-exit, Esc cancels exit.\nFailed persistence requires informed explicit exit.\nArtwork: --images cells|off. No automatic download or model request. Linear mode makes no screen-reader compatibility claim.";
     let value = format!(
-        "ESPEON / CODEX PLANNING / e\n g edits the saved goal; n previews New; r previews same-task Resume.\n New/Resume review trust, provider effects and exact outgoing payload.\n PgUp/Dn or End reaches the end; Tab explicitly selects Run.\n Opening the drawer or selecting a form never connects.\n Provider command requests default to Deny; Allow once only.\n Questions: arrows choose options; a types a literal answer.\n Tab changes question; s reviews answers before explicit Send.\n Paste is text only; Enter in the answer editor keeps a draft.\n Esc/c cancels the turn and waits for acknowledgement or teardown.\n Up/Down select source-qualified items; d opens a complete decision\n in NextAction for explicit edit/save. No execution success inferred.\n Provider owns auth/billing/history and may add context. Read-only\n policy and approval callbacks are not OS isolation guarantees.\n Threads are session-local in Eevee; provider retention is separate.\n\nAGENT CONNECTIONS / o\n1-4 or arrows select profiles; selection never probes.\nEnter previews executable, literal argv and config effects.\nPgUp/Dn or End reviews; Tab explicitly selects Trust; Enter confirms.\nStay is the default; Esc cancels then restores the prior overlay.\nr refreshes passive discovery. No login or model request here.\nInstalled, authenticated, version-compatible and ready are distinct.\nCodex planning is separately qualified and consented through e.\nOther provider adapters remain unavailable.\n\n{value}"
+        "SPECIALIST REQUESTS / e\n g Goal; n New; r explicit same-agent/task Resume.\n 1-4 previews idle agent switch and portable context; grants reset.\n f toggles Plan/Implement locally; x selects JSON edit paths.\n Run always reviews executable/config effects and exact payload.\n PgUp/Dn or End reviews; Tab explicitly selects one-time consent.\n Codex selected-file dynamic tool writes only reviewed existing files.\n Claude edits are explicitly labelled SDK/external-policy controlled.\n ACP selected-file implementation is refused without confinement.\n Permissions default to Deny and preserve exact once-only options.\n Questions: arrows option; a literal answer; s reviews before Send.\n Esc/c cancel and wait; q/Ctrl+C neutral safe exit, not rollback.\n d reviews a complete selected decision in NextAction before saving.\n h retained provider-origin journal; p neutral purge; r storage retry.\n z manual JSON/Markdown handoff, imported claims stay unverified.\n Provider-added context/history/auth/billing remain provider-owned.\n No private reasoning, automatic replay or portable sessions/grants.\n\nAGENT PREFLIGHT / o\n1-4 selects profiles without executing; Enter reviews a version probe.\nEnd/PgDn review; Tab explicitly Trust; Enter confirms once.\nInstalled is not authenticated, negotiated, supported or sandboxed.\nSDK/ACP credentials/capabilities require separate e qualification.\n\n{value}"
     );
     scroll_text(
         frame,
@@ -1237,6 +1242,7 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
             Some(Overlay::Execution) => "",
             Some(Overlay::Agents) => "",
             Some(Overlay::Planning) => "",
+            Some(Overlay::Handoff) => "",
             Some(Overlay::Tasks) => {
                 "Enter Resume / h Archives / a Archive or r Restore / Del / Esc"
             }
@@ -1503,6 +1509,7 @@ fn delete_confirmation(
         Task(&'a crate::store::Snapshot),
         Excerpt(i64, &'a str),
         Run(&'a str, bool),
+        Provider(&'a str, crate::provider::Agent),
     }
     let lines: Vec<_> = app
         .delete_preview
@@ -1520,6 +1527,12 @@ fn delete_confirmation(
                         .runs
                         .iter()
                         .map(|(id, available)| Item::Run(id, *available)),
+                )
+                .chain(
+                    target
+                        .provider_records
+                        .iter()
+                        .map(|(id, agent)| Item::Provider(id, *agent)),
                 )
         })
         .skip(app.delete_page * crate::app::DELETE_PREVIEW_PAGE)
@@ -1542,6 +1555,9 @@ fn delete_confirmation(
                     "  run {id} / output {}",
                     if available { "retained" } else { "unavailable" }
                 ),
+                Item::Provider(id, agent) => {
+                    format!("  provider {} / observation {id}", agent.label())
+                }
             })
         })
         .collect();

@@ -2,6 +2,10 @@
 
 ## 2026-10-13
 
+- feat(implementation): added Codex selected-file `eevee_edit_file` replacement with exact dirty-baseline patch consent, anchored POSIX protected/link/stale rejection, provider-native schema-5 journals, diff review and separately chosen local checks.
+- feat(agents): added optional pinned Claude Agent SDK 0.3.296 / CLI 2.1.296 TypeScript bridge with mandatory tool/config policy and permitted API/cloud auth; shared ACP1 OpenCode 1.18.0 / Gemini 0.28.0 transport with negotiated permissions/load/list and explicit external-tool boundaries. SDK/Gemini authenticated conformance remains credential-blocked.
+- feat(handoff): added strict version-1 create-only JSON/Markdown review/import, idle provider/role switching with original-session retention and grant reset, unverified imported claims and dispatch-time task/source binding.
+- fix(agents): made blocked-preview cancellation terminate cleanly, withheld generated provider-session provenance from all outbound task metadata, reconciled ACP native tool journals only at final/partial boundaries, and allowed Gemini's measured Node startup a disclosed bounded ten-second version probe.
 - feat(planning): added pinned Codex 0.152.1 app-server Plan turns with exact context/trust previews, last-moment task/source/config revalidation, provider-owned account/model checks, correlated questions and one-time approvals, explicit resume/cancellation, and reviewed provenance-labelled Next action decisions.
 - fix(planning): rendered consent controls after last-page review state updates, so reaching the end immediately shows the neutral available action rather than a stale locked footer.
 - feat(agents): added versioned Codex/Claude SDK/ACP preflight profiles, passive discovery, neutral executable/configuration trust previews, bounded owned version probes, and explicit version/authentication/adapter/control blockers without model requests or credential-store access.

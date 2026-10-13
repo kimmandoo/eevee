@@ -1,13 +1,20 @@
-//! Explicit, session-local Codex planning; provider text is never local execution evidence.
-use std::sync::Arc;
+//! Explicit session-local provider requests; provider text is never local execution evidence.
+use std::{
+    collections::{HashMap, VecDeque},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use serde_json::{Value, json};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    codex::{Event, Input, ItemKind, Outcome, Preview, Prompt, PromptKind, Request},
-    context, repo, store,
+    context,
+    provider::{
+        Agent, Event, Input, ItemKind, Operation, Outcome, Preview, Prompt, PromptKind, Request,
+    },
+    repo, store,
 };
 
 const ANSWER_BYTES: usize = 4096;
@@ -20,6 +27,14 @@ pub struct Item {
     pub kind: ItemKind,
     pub text: String,
     pub complete: bool,
+}
+
+#[derive(Default)]
+struct Session {
+    thread_id: Option<String>,
+    items: Vec<Item>,
+    selected: usize,
+    omitted: usize,
 }
 
 #[derive(Default)]
@@ -38,6 +53,8 @@ pub struct State {
     pub selected: usize,
     pub thread_id: Option<String>,
     pub notice: String,
+    pub inspection: Option<String>,
+    inspect_sessions: bool,
     pub scroll: u16,
     pub scroll_max: u16,
     pub reviewed: bool,
@@ -60,6 +77,22 @@ pub struct State {
     quit_after_cancel: bool,
     unknown: bool,
     saved_scroll: u16,
+    pub agent: Agent,
+    pub operation: Operation,
+    pub edit_paths: Vec<PathBuf>,
+    pub paths_editor: Option<Answer>,
+    pub switch_to: Option<Agent>,
+    pub handoff: Option<crate::handoff::Document>,
+    sessions: HashMap<(Agent, Operation), Session>,
+    pub journal_mode: bool,
+    pub journal_purge: bool,
+    pub journal_records: Vec<store::ProviderRecord>,
+    pub journal_selected: usize,
+    pub pending_journal: VecDeque<store::JournalRequest>,
+    journal_inflight: VecDeque<store::JournalRequest>,
+    failed_journal: VecDeque<store::JournalRequest>,
+    pub journal_notice: String,
+    journal_nonce: String,
 }
 
 impl Default for State {
@@ -79,6 +112,14 @@ impl State {
             quit_review: false, quit_ready: false, cancelling: false, omitted: 0,
             task: 0, revision: 0, generation: None, awaiting_preview: false, active: false,
             cancel_when_ready: false, quit_after_cancel: false, unknown: false, saved_scroll: 0,
+            agent: Agent::Codex, operation: Operation::Plan, edit_paths: Vec::new(),
+            paths_editor: None, switch_to: None, handoff: None, sessions: HashMap::new(),
+            journal_mode: false, journal_purge: false, journal_records: Vec::new(), journal_selected: 0,
+            pending_journal: VecDeque::new(), journal_inflight: VecDeque::new(),
+            failed_journal: VecDeque::new(), journal_notice: String::new(),
+            inspection: None, inspect_sessions: false,
+            journal_nonce: format!("{}-{}", std::process::id(),
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos()),
         }
     }
 
@@ -91,7 +132,7 @@ impl State {
             && !self.editing
             && !self.quit_review
             && ((self.preview.is_some() && self.affirmative && key.code == KeyCode::Enter)
-                || (!self.busy() && matches!(key.code, KeyCode::Char('n' | 'r'))))
+                || (!self.busy() && matches!(key.code, KeyCode::Char('n' | 'r' | 's' | '1'..='4'))))
     }
 
     pub fn busy(&self) -> bool {
@@ -100,6 +141,10 @@ impl State {
             || self.preview.is_some()
             || self.pending.is_some()
             || self.quit_review
+            || self.switch_to.is_some()
+            || self.paths_editor.is_some()
+            || !self.pending_journal.is_empty()
+            || !self.journal_inflight.is_empty()
     }
 
     pub fn task_id(&self) -> i64 {
@@ -111,7 +156,7 @@ impl State {
     }
 
     pub fn reset(&mut self, task_id: i64) {
-        if !self.busy() {
+        if !self.busy() && !self.journal_failed() {
             *self = Self::new();
             self.task = task_id;
         }
@@ -132,8 +177,212 @@ impl State {
         self.generation == Some(generation) && self.task == task
     }
 
+    pub fn set_operation(&mut self, operation: Operation) {
+        if self.operation == operation || self.busy() {
+            return;
+        }
+        self.sessions.insert(
+            (self.agent, self.operation),
+            Session {
+                thread_id: self.thread_id.take(),
+                items: std::mem::take(&mut self.items),
+                selected: self.selected,
+                omitted: self.omitted,
+            },
+        );
+        self.operation = operation;
+        self.inspection = None;
+        self.inspect_sessions = false;
+        let session = self
+            .sessions
+            .remove(&(self.agent, operation))
+            .unwrap_or_default();
+        self.thread_id = session.thread_id;
+        self.items = session.items;
+        self.selected = session.selected;
+        self.omitted = session.omitted;
+        self.notice = "Role policy selected locally. New/Resume requires fresh scope and executable consent; no permission carried.".into();
+    }
+
+    pub fn journal_started(&mut self) {
+        if let Some(request) = self.pending_journal.pop_front() {
+            self.journal_inflight.push_back(request);
+        }
+    }
+
+    pub fn journal_event(&mut self, task_id: i64, result: Result<store::JournalResponse, String>) {
+        let request = self.journal_inflight.pop_front();
+        match result {
+            Ok(store::JournalResponse::Saved(record)) => {
+                let correlated = request.as_ref().is_some_and(|request| {
+                    request.task_id == task_id
+                        && matches!(&request.operation,
+                        store::JournalOperation::Put(expected)
+                        if expected.id == record.id && expected.agent == record.agent
+                            && expected.generation == record.generation)
+                });
+                if correlated {
+                    self.journal_notice =
+                        "Provider-origin journal committed; not local execution evidence.".into();
+                } else {
+                    if let Some(request) = request {
+                        self.failed_journal.push_back(request);
+                    }
+                    self.journal_notice = "Uncorrelated journal acknowledgement refused; retained observation requires storage-only retry.".into();
+                }
+            }
+            Ok(store::JournalResponse::Records(records)) if task_id == self.task => {
+                self.journal_records = records;
+                self.journal_selected = self
+                    .journal_selected
+                    .min(self.journal_records.len().saturating_sub(1));
+                self.journal_notice =
+                    "Retained provider observations, with actual origin and coverage.".into();
+            }
+            Ok(store::JournalResponse::Purged) if task_id == self.task => {
+                self.journal_records.clear();
+                self.journal_selected = 0;
+                self.failed_journal
+                    .retain(|request| request.task_id != task_id);
+                self.journal_notice = "This task's local provider observations purged; provider history and exports remain.".into();
+            }
+            Ok(_) => {}
+            Err(error) => {
+                if let Some(request) = request {
+                    self.failed_journal.push_back(request);
+                }
+                self.journal_notice = format!(
+                    "Provider journal save/read failed: {error}. r retries storage only; never replays a turn."
+                );
+            }
+        }
+    }
+
+    pub fn journal_failed(&self) -> bool {
+        !self.failed_journal.is_empty()
+    }
+
+    pub fn retry_journal(&mut self) {
+        self.pending_journal.extend(self.failed_journal.drain(..));
+        self.journal_notice =
+            "Retrying retained journal operation only; no provider request.".into();
+    }
+
+    fn queue_record(&mut self, task_id: i64, record: store::ProviderRecord) {
+        if self.pending_journal.len() + self.journal_inflight.len() + self.failed_journal.len()
+            >= 128
+        {
+            self.journal_notice = "Provider journal queue limit reached; further observations cannot substantiate retained evidence.".into();
+            return;
+        }
+        self.pending_journal.push_back(store::JournalRequest {
+            task_id,
+            operation: store::JournalOperation::Put(record),
+        });
+    }
+
+    fn complete_switch(&mut self) {
+        let Some(next) = self.switch_to.take() else {
+            return;
+        };
+        self.sessions.insert(
+            (self.agent, self.operation),
+            Session {
+                thread_id: self.thread_id.take(),
+                items: std::mem::take(&mut self.items),
+                selected: self.selected,
+                omitted: self.omitted,
+            },
+        );
+        self.agent = next;
+        self.inspection = None;
+        self.inspect_sessions = false;
+        let session = self
+            .sessions
+            .remove(&(next, self.operation))
+            .unwrap_or_default();
+        self.thread_id = session.thread_id;
+        self.items = session.items;
+        self.selected = session.selected;
+        self.omitted = session.omitted;
+        self.generation = None;
+        self.close_request();
+        self.scroll = 0;
+        self.notice = format!(
+            "{} selected at idle. All grants reset; New/Resume still requires full executable/context review.",
+            next.label()
+        );
+    }
+
+    fn paths_key(&mut self, key: KeyEvent) -> bool {
+        if key.code == KeyCode::Esc {
+            self.paths_editor = None;
+            return true;
+        }
+        if key.code == KeyCode::Enter {
+            let value = &self.paths_editor.as_ref().expect("path editor").text;
+            let paths: Result<Vec<String>, _> = serde_json::from_str(value);
+            match paths {
+                Ok(paths) if !paths.is_empty() && paths.len() <= 16
+                    && paths.iter().enumerate().all(|(index, path)| {
+                        !path.is_empty() && path.len() <= 4096
+                            && !path.chars().any(char::is_control)
+                            && PathBuf::from(path).components().all(|part| matches!(part, std::path::Component::Normal(_)))
+                            && !paths[..index].contains(path)
+                    }) => {
+                    self.edit_paths = paths.into_iter().map(PathBuf::from).collect();
+                    self.paths_editor = None;
+                    self.notice = "Edit paths selected locally; no write or permission granted. Review exact scope before Run.".into();
+                }
+                _ => self.notice = "Use a JSON array of 1–16 distinct root-relative paths; no parent/absolute/control components.".into(),
+            }
+            return true;
+        }
+        if let KeyCode::Char(ch) = key.code
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            return self.paste(ch.encode_utf8(&mut [0; 4]));
+        }
+        let answer = self.paths_editor.as_mut().expect("path editor");
+        let before = answer.text[..answer.cursor]
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .next_back()
+            .unwrap_or(0);
+        let after = answer
+            .text
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .find(|index| *index > answer.cursor)
+            .unwrap_or(answer.text.len());
+        match key.code {
+            KeyCode::Home => answer.cursor = 0,
+            KeyCode::End => answer.cursor = answer.text.len(),
+            KeyCode::Left => answer.cursor = before,
+            KeyCode::Right => answer.cursor = after,
+            KeyCode::Backspace => {
+                answer.text.replace_range(before..answer.cursor, "");
+                answer.cursor = before;
+            }
+            KeyCode::Delete => {
+                answer.text.replace_range(answer.cursor..after, "");
+            }
+            _ => return false,
+        }
+        true
+    }
+
     pub fn event(&mut self, event: Event) {
         match event {
+            Event::Journal {
+                generation,
+                task_id,
+                record,
+            } if self.matches(generation, task_id) => {
+                self.queue_record(task_id, record);
+            }
             Event::Preview(preview) if self.awaiting_preview && preview.task_id == self.task => {
                 self.awaiting_preview = false;
                 self.generation = Some(preview.generation);
@@ -151,6 +400,14 @@ impl State {
                 message,
             } if self.matches(generation, task_id) && self.active => {
                 self.notice = message;
+            }
+            Event::Inspection {
+                generation,
+                task_id,
+                text,
+            } if self.matches(generation, task_id) && self.active && self.inspect_sessions => {
+                self.inspection = Some(text);
+                self.scroll = 0;
             }
             Event::Thread {
                 generation,
@@ -174,6 +431,16 @@ impl State {
                 text,
                 complete,
             } if self.matches(generation, task_id) && self.active && !self.cancelling => {
+                if complete && kind == ItemKind::Tool && self.agent == Agent::Claude {
+                    self.queue_record(task_id, store::ProviderRecord {
+                        id: format!("{}-{:?}-{generation}-{item_id}", self.journal_nonce, self.agent),
+                        agent: self.agent, generation, thread_id: thread_id.clone(),
+                        turn_id: turn_id.clone(), item_id: item_id.clone(),
+                        origin: "provider-native".into(),
+                        coverage: "Observed/external provider tool activity; actual callbacks and sandbox coverage disclosed by profile, not local runner evidence".into(),
+                        text: text.clone(), complete,
+                    });
+                }
                 if let Some(item) = self.items.iter_mut().find(|item| {
                     item.thread_id == thread_id
                         && item.turn_id == turn_id
@@ -287,6 +554,9 @@ impl State {
 
     pub fn cancel(&mut self) -> bool {
         self.invalidate_review();
+        if self.switch_to.take().is_some() || self.paths_editor.take().is_some() {
+            return true;
+        }
         if self.cancelling {
             return false;
         }
@@ -317,6 +587,7 @@ impl State {
     fn prepare(
         &mut self,
         resume: bool,
+        inspect_sessions: bool,
         task: &store::Snapshot,
         excerpts: &[context::Excerpt],
         report: Option<&Arc<repo::Report>>,
@@ -337,11 +608,18 @@ impl State {
             self.reset(task.id);
         }
         self.revision = task.revision;
+        self.inspect_sessions = inspect_sessions;
+        self.inspection = None;
         self.pending = Some(Request::Preview(Box::new(Input {
             task: task.clone(),
             excerpts: excerpts.to_vec(),
             report: report.cloned(),
             resume: if resume { self.thread_id.clone() } else { None },
+            agent: self.agent,
+            operation: self.operation,
+            edit_paths: self.edit_paths.clone(),
+            handoff: self.handoff.clone(),
+            inspect_sessions,
         })));
         self.awaiting_preview = true;
         self.notice =
@@ -351,6 +629,19 @@ impl State {
     }
 
     pub fn paste(&mut self, text: &str) -> bool {
+        if let Some(answer) = &mut self.paths_editor {
+            let remaining = ANSWER_BYTES.saturating_sub(answer.text.len());
+            let mut inserted = String::new();
+            for ch in text.chars().filter(|ch| !ch.is_control()) {
+                if inserted.len() + ch.len_utf8() > remaining {
+                    break;
+                }
+                inserted.push(ch);
+            }
+            answer.text.insert_str(answer.cursor, &inserted);
+            answer.cursor += inserted.len();
+            return !inserted.is_empty();
+        }
         if !self.editing || self.quit_review || self.cancelling {
             return false;
         }
@@ -468,6 +759,9 @@ impl State {
         if key.kind == KeyEventKind::Release {
             return false;
         }
+        if self.task != task.id && !self.busy() && !self.journal_failed() {
+            self.reset(task.id);
+        }
         if !large_enough && !self.quit_review {
             self.invalidate_review();
         }
@@ -498,7 +792,8 @@ impl State {
                     self.quit_review = false;
                     if self.affirmative {
                         self.quit_after_cancel = true;
-                        if !self.cancel() && !self.cancelling {
+                        self.cancel();
+                        if !self.active && !self.awaiting_preview && !self.cancelling {
                             self.quit_after_cancel = false;
                             self.quit_ready = true;
                         }
@@ -506,6 +801,22 @@ impl State {
                     self.affirmative = false;
                 }
                 _ => return false,
+            }
+            return true;
+        }
+        if self.paths_editor.is_some() {
+            return if large_enough {
+                self.paths_key(key)
+            } else {
+                false
+            };
+        }
+        if key.code == KeyCode::Esc && self.journal_mode {
+            if self.journal_purge {
+                self.journal_purge = false;
+                self.affirmative = false;
+            } else {
+                self.journal_mode = false;
             }
             return true;
         }
@@ -547,6 +858,57 @@ impl State {
             }
             _ => {}
         }
+        if self.switch_to.is_some() {
+            match key.code {
+                KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right
+                    if self.reviewed =>
+                {
+                    self.affirmative = !self.affirmative
+                }
+                KeyCode::Enter if self.reviewed && self.affirmative => self.complete_switch(),
+                KeyCode::Enter => {
+                    self.switch_to = None;
+                    self.invalidate_review();
+                }
+                KeyCode::Up => self.scroll = self.scroll.saturating_sub(1),
+                KeyCode::Down => self.scroll = self.scroll.saturating_add(1).min(self.scroll_max),
+                _ => return false,
+            }
+            return true;
+        }
+        if self.journal_mode {
+            match key.code {
+                KeyCode::Char('h') | KeyCode::Esc => {
+                    self.journal_mode = false;
+                    self.journal_purge = false;
+                }
+                KeyCode::Char('r') => self.retry_journal(),
+                KeyCode::Char('p') if !self.busy() => {
+                    self.journal_purge = true;
+                    self.affirmative = false;
+                }
+                KeyCode::Tab | KeyCode::Left | KeyCode::Right if self.journal_purge => {
+                    self.affirmative = !self.affirmative
+                }
+                KeyCode::Enter if self.journal_purge => {
+                    if self.affirmative {
+                        self.pending_journal.push_back(store::JournalRequest {
+                            task_id: self.task,
+                            operation: store::JournalOperation::Purge,
+                        });
+                    }
+                    self.journal_purge = false;
+                    self.affirmative = false;
+                }
+                KeyCode::Up => self.journal_selected = self.journal_selected.saturating_sub(1),
+                KeyCode::Down => {
+                    self.journal_selected = (self.journal_selected + 1)
+                        .min(self.journal_records.len().saturating_sub(1))
+                }
+                _ => return false,
+            }
+            return true;
+        }
         if self.preview.is_some() {
             match key.code {
                 KeyCode::Up => self.scroll = self.scroll.saturating_sub(1),
@@ -563,7 +925,7 @@ impl State {
                     let preview = self.preview.as_ref().expect("preview is open");
                     if preview.blockers.is_empty() {
                         let generation = preview.generation;
-                        if preview.thread_id.is_none() {
+                        if preview.thread_id.is_none() && !self.inspect_sessions {
                             self.items.clear();
                             self.selected = 0;
                             self.omitted = 0;
@@ -585,6 +947,27 @@ impl State {
         }
         if let Some(request) = &self.request {
             match &request.kind {
+                PromptKind::Permission { options, .. } => match key.code {
+                    KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right
+                        if self.reviewed =>
+                    {
+                        self.option = if options.is_empty() {
+                            0
+                        } else {
+                            (self.option + 1) % options.len()
+                        };
+                    }
+                    KeyCode::Up => self.scroll = self.scroll.saturating_sub(1),
+                    KeyCode::Down => {
+                        self.scroll = self.scroll.saturating_add(1).min(self.scroll_max)
+                    }
+                    KeyCode::Enter if self.option == 0 || self.reviewed => {
+                        if let Some(option) = options.get(self.option) {
+                            self.send_answer(option.answer.clone());
+                        }
+                    }
+                    _ => return false,
+                },
                 PromptKind::Approval {
                     allow_once,
                     deny_decision,
@@ -689,8 +1072,63 @@ impl State {
             return true;
         }
         match key.code {
-            KeyCode::Char('n') => self.prepare(false, task, excerpts, report),
-            KeyCode::Char('r') => self.prepare(true, task, excerpts, report),
+            KeyCode::Char('1'..='4') if !self.busy() => {
+                if let KeyCode::Char(digit) = key.code {
+                    let next = Agent::ALL[digit as usize - '1' as usize];
+                    if next != self.agent {
+                        if self.handoff.is_none() {
+                            match crate::handoff::from_task(task, excerpts, &[]) {
+                                Ok(document) => self.handoff = Some(document),
+                                Err(error) => {
+                                    self.notice = error;
+                                    return true;
+                                }
+                            }
+                        }
+                        self.switch_to = Some(next);
+                        self.review_start();
+                    }
+                }
+            }
+            KeyCode::Char('f') if !self.busy() => {
+                self.set_operation(if self.operation == Operation::Plan {
+                    Operation::Implement
+                } else {
+                    Operation::Plan
+                });
+            }
+            KeyCode::Char('x') if !self.busy() => {
+                let paths: Vec<_> = if self.edit_paths.is_empty() {
+                    excerpts
+                        .iter()
+                        .map(|excerpt| excerpt.path.clone())
+                        .collect()
+                } else {
+                    self.edit_paths
+                        .iter()
+                        .map(|path| path.to_string_lossy().into_owned())
+                        .collect()
+                };
+                let text = serde_json::to_string(&paths).unwrap_or_else(|_| "[]".into());
+                self.paths_editor = Some(Answer {
+                    cursor: text.len(),
+                    text,
+                });
+            }
+            KeyCode::Char('h') if !self.busy() && self.task > 0 => {
+                self.journal_mode = true;
+                self.pending_journal.push_back(store::JournalRequest {
+                    task_id: self.task,
+                    operation: store::JournalOperation::List,
+                });
+            }
+            KeyCode::Char('b') if !self.busy() => {
+                self.handoff = None;
+                self.notice = "Portable handoff deselected locally. Current task/source basket still requires fresh review; no original export or provider history was erased.".into();
+            }
+            KeyCode::Char('n') => self.prepare(false, false, task, excerpts, report),
+            KeyCode::Char('r') => self.prepare(true, false, task, excerpts, report),
+            KeyCode::Char('s') => self.prepare(false, true, task, excerpts, report),
             KeyCode::Char('g') if !self.busy() => self.edit_goal = true,
             KeyCode::Up => {
                 self.selected = self.selected.saturating_sub(1);
@@ -705,8 +1143,12 @@ impl State {
                     item.complete && matches!(item.kind, ItemKind::Message | ItemKind::Plan)
                 }) {
                     let provenance = format!(
-                        "\n\n[User-selected, unverified Codex planning; thread {}; turn {}; item {}. Not local execution evidence.]",
-                        item.thread_id, item.turn_id, item.item_id
+                        "\n\n[User-selected, unverified {} {:?}; thread {}; turn {}; item {}. Not local execution evidence.]",
+                        self.agent.label(),
+                        self.operation,
+                        item.thread_id,
+                        item.turn_id,
+                        item.item_id
                     );
                     if item.text.len() + provenance.len() > 4096 {
                         self.notice = "Decision exceeds the 4096-byte NextAction limit. Nothing was copied or truncated; select a shorter provider message or edit NextAction manually.".into();
@@ -724,7 +1166,7 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codex::Question;
+    use crate::provider::Question;
 
     fn task() -> store::Snapshot {
         let mut task = store::Snapshot::empty("project".into());
@@ -929,5 +1371,51 @@ mod tests {
             }
             _ => panic!("explicit deny should answer exactly the offered server decision"),
         }
+    }
+    #[test]
+    fn idle_switch_preserves_old_session_without_portable_grants_or_ids() {
+        let mut state = State::new();
+        state.reset(7);
+        state.thread_id = Some("opaque-old-thread".into());
+        press(&mut state, KeyCode::Char('2'), true);
+        assert_eq!(state.agent, Agent::Codex);
+        assert!(state.pending.is_none());
+        let document = serde_json::to_string(state.handoff.as_ref().unwrap()).unwrap();
+        assert!(!document.contains("opaque-old-thread"));
+        state.reviewed = true;
+        press(&mut state, KeyCode::Tab, true);
+        press(&mut state, KeyCode::Enter, true);
+        assert_eq!(state.agent, Agent::Claude);
+        assert!(state.thread_id.is_none());
+        assert!(state.pending.is_none());
+        press(&mut state, KeyCode::Char('1'), true);
+        state.reviewed = true;
+        press(&mut state, KeyCode::Tab, true);
+        press(&mut state, KeyCode::Enter, true);
+        assert_eq!(state.thread_id.as_deref(), Some("opaque-old-thread"));
+    }
+
+    #[test]
+    fn failed_journal_is_retained_for_storage_only_retry_and_prevents_reset() {
+        let mut state = State::new();
+        state.reset(7);
+        state.pending_journal.push_back(store::JournalRequest {
+            task_id: 7,
+            operation: store::JournalOperation::List,
+        });
+        state.journal_started();
+        state.journal_event(7, Err("locked storage".into()));
+        state.reset(9);
+        assert_eq!(state.task_id(), 7);
+        assert!(state.journal_failed());
+        state.retry_journal();
+        assert!(matches!(
+            state.pending_journal.front().unwrap().operation,
+            store::JournalOperation::List
+        ));
+        assert!(
+            state.pending.is_none(),
+            "Journal retry must not create a provider request"
+        );
     }
 }

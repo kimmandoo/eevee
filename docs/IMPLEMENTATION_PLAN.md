@@ -1,7 +1,7 @@
 # Eevee Implementation Plan
 
 Date: 2026-10-13
-Status: Section A and the five-row installation preview passed their recorded gates. Section B, R01/R02/UX02, A01 and A02 passed scoped local acceptance. Of 31 tasks, 16 are checked and 15 remain unchecked. P02 is the only remaining B/C gate, blocked before native runner startup by account billing and deferred at the user's request. CI configuration is unchanged.
+Status: Section A and the five-row installation preview passed their recorded gates. Section B, R01/R02/UX02, A01–A03 and A05 passed scoped local acceptance. Of 31 tasks, 18 are checked and 13 remain unchecked. D code is implemented through A07, but A04/A06/full A07 real interoperability remains blocked by unavailable permitted Claude/Gemini credentials. P02 is billing-blocked before native runner startup and user-deferred; CI configuration is unchanged.
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
 
 ## Outcome
@@ -19,7 +19,8 @@ One native Rust binary and one Cargo package with these module boundaries; an op
 - `store`: SQLite migrations, durable events/snapshots, output references, recovery.
 - `repo`: Git baseline, working-tree identities, diff, external-change detection.
 - `context`: bounded source catalogue/range capture, exclusion/containment checks, exact payload assembly and source revalidation.
-- `agent`: profile/version admission, request/context assembly, normalized events, and concrete Codex/Claude/ACP adapters.
+- `agent` / `provider`: profile/version admission and the minimal routed request/event contract; concrete `codex`, `claude` and shared `acp` workers own transport/policy details.
+- `handoff`: strict version-1 curated facts/source identities/decisions, create-only JSON/Markdown I/O, review and dispatch-binding validation; never session/grant portability.
 - `artwork`: bounded local PNG/source-manifest loading, explicit pinned downloads, and cached image-derived cells.
 - `native`: terminal/version-qualified Kitty encoding, physical-cell diff widths, placement/resource lifecycle, and kernel-only cell-size discovery.
 - `input`: one terminal-input owner; Crossterm on POSIX, bounded VT/Unicode console records on Windows.
@@ -115,6 +116,8 @@ Acceptance: execute real successful, failing, long-running, high-output, and chi
 5. A07: continue a task through a reviewed fresh cross-agent handoff; retain explicit same-agent resume and a manual fallback for other CLIs.
 
 Acceptance: every advertised adapter/version/OS passes the [shared conformance gate](AGENT_COMPATIBILITY.md#shared-conformance-gate) with real permitted credentials and a disposable dirty repository. Include missing/incompatible dependencies, configuration trust, deny/no side effect, supported questions, pending-request cancellation, malformed/late/replayed events, abrupt disconnect, exact-session resume, handoff, and scoped usage accounting. A provider success is not task completion. Missing optional executables/auth or unverified confinement block the affected interoperability gate, not independently delivered local-core work; full integrated acceptance stays pending until every required row passes. Fixtures and docs do not establish runtime compatibility.
+
+Current implementation: Codex 0.152.1 Plan plus POSIX controlled replacement of 1–8 existing regular UTF-8 files ≤12 KiB, native tool-origin schema-5 journals, optional Node ≥24 / official SDK 0.3.296 bridge, OpenCode 1.18.0 `acp --pure` and Gemini 0.28.0 `--experimental-acp` on one ACP1 client, negotiated metadata-only session-list inspection, idle agent/operation switches and schema-1 manual/cross-agent handoff. Actual dirty-patch/local-check and OpenCode prompt/permission/cancel/load gates passed. SDK module/policy inspection and Gemini handshake/capability refusal do not replace their missing authenticated scenarios. Full Q01/P03 remain gated; no provider/native-image/platform parity or commercial entitlement is inferred.
 
 ## Phase 5 — Diagnosis, refinement, and independent review
 

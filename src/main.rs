@@ -1,13 +1,17 @@
+mod acp;
 mod agent;
 mod app;
 mod artwork;
+mod claude;
 mod codex;
 mod config;
 mod context;
 mod domain;
+mod handoff;
 mod input;
 mod native;
 mod privacy;
+mod provider;
 mod repo;
 mod runner;
 mod store;
@@ -77,7 +81,7 @@ fn run(config: Config) -> io::Result<()> {
         let sources = context::Worker::start(config.context_exclusions.clone())?;
         let execution = runner::Worker::start()?;
         let agents = agent::Worker::start(project.clone())?;
-        let planning = codex::Worker::start(
+        let planning = provider::Worker::start(
             project.clone(),
             config.data_dir.clone(),
             config.context_exclusions.clone(),
@@ -111,9 +115,14 @@ fn run(config: Config) -> io::Result<()> {
             if context_task != Some(app.task_id) {
                 context_task = Some(app.task_id);
                 app.sources.reset(app.task_id);
+                app.handoff.reset(app.task_id);
                 if app.planning.task_id() != app.task_id {
                     app.planning.reset(app.task_id);
                 }
+            }
+            if app.handoff.pending.is_some() {
+                app.handoff.process_pending();
+                dirty = true;
             }
             if dirty {
                 // ConPTY's legacy cell projection can turn changed blanks into
@@ -146,6 +155,13 @@ fn run(config: Config) -> io::Result<()> {
             }
             if store.try_context(&mut app.sources.pending_store) {
                 outstanding_store += 1;
+            }
+            if let Some(request) = app.planning.pending_journal.front().cloned() {
+                let mut pending = Some(request);
+                if store.try_journal(&mut pending) {
+                    app.planning.journal_started();
+                    outstanding_store += 1;
+                }
             }
             if agents.try_request(&mut app.agents.pending) {
                 outstanding_agents += 1;
@@ -231,6 +247,11 @@ fn run(config: Config) -> io::Result<()> {
                 dirty = true;
             }
             while let Some(event) = planning.try_event() {
+                if matches!(&event, provider::Event::Finished { .. })
+                    && app.planning.operation == provider::Operation::Implement
+                {
+                    app.repo_refresh = true;
+                }
                 app.planning.event(event);
                 dirty = true;
             }

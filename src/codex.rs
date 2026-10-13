@@ -1,4 +1,4 @@
-//! Explicitly trusted Codex 0.152.1 planning. JSONL transport is owned, bounded and never retried.
+//! Explicitly trusted Codex 0.152.1 planning and client-controlled implementation.
 //! Provider sandbox policy is not an Eevee sandbox; no provider credentials/configuration are written.
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
@@ -9,6 +9,10 @@ use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use crate::provider::{
+    Agent, Event, Input, ItemKind, Operation, Outcome, PermissionOption, Preview, Prompt,
+    PromptKind, Question, QuestionOption, Request,
+};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 
@@ -23,129 +27,248 @@ const EVENT_RESERVE: usize = 16;
 const RPC_TIMEOUT: Duration = Duration::from_secs(20);
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(3);
 
-#[derive(Clone, Debug)]
-pub struct Input {
-    pub task: crate::store::Snapshot,
-    pub excerpts: Vec<crate::context::Excerpt>,
-    pub report: Option<Arc<crate::repo::Report>>,
-    pub resume: Option<String>,
+const EDIT_BYTES: usize = 12 * 1024;
+#[derive(Clone, Debug, PartialEq)]
+struct EditBaseline {
+    path: PathBuf,
+    text: String,
+    digest: String,
+    identity: String,
 }
-#[derive(Debug)]
-pub enum Request {
-    Preview(Box<Input>),
-    Run {
-        generation: u64,
-    },
-    Answer {
-        generation: u64,
-        request_id: Value,
-        answer: Value,
-    },
-    Cancel {
-        generation: u64,
-    },
-}
-#[derive(Clone, Debug)]
-pub struct Preview {
-    pub generation: u64,
-    pub task_id: i64,
-    pub thread_id: Option<String>,
-    pub trust: Vec<String>,
-    pub payload: String,
-    pub blockers: Vec<String>,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ItemKind {
-    Message,
-    Plan,
-    Tool,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Outcome {
-    Completed,
-    Failed,
-    Cancelled,
-    Unknown,
-}
-#[derive(Clone, Debug)]
-pub struct QuestionOption {
-    pub label: String,
-    pub description: String,
-}
-#[derive(Clone, Debug)]
-pub struct Question {
-    pub id: String,
-    pub header: String,
-    pub question: String,
-    pub options: Vec<QuestionOption>,
-    pub other: bool,
-    pub secret: bool,
-}
-#[derive(Clone, Debug)]
-pub enum PromptKind {
-    Questions(Vec<Question>),
-    Approval {
-        command: String,
-        cwd: String,
-        reason: String,
-        allow_once: bool,
-        deny_decision: String,
-    },
-}
-#[derive(Clone, Debug)]
-pub struct Prompt {
-    pub request_id: Value,
-    pub thread_id: String,
-    pub turn_id: String,
-    pub item_id: String,
-    pub kind: PromptKind,
-}
-#[derive(Clone, Debug)]
-pub enum Event {
-    Preview(Preview),
-    Status {
-        generation: u64,
-        task_id: i64,
-        message: String,
-    },
-    Thread {
-        generation: u64,
-        task_id: i64,
-        thread_id: String,
-        model: String,
-        account: String,
-    },
-    Item {
-        generation: u64,
-        task_id: i64,
-        thread_id: String,
-        turn_id: String,
-        item_id: String,
-        kind: ItemKind,
-        text: String,
-        complete: bool,
-    },
-    Prompt {
-        generation: u64,
-        task_id: i64,
-        request: Prompt,
-    },
-    PromptClosed {
-        generation: u64,
-        request_id: Value,
-    },
-    Finished {
-        generation: u64,
-        task_id: i64,
-        outcome: Outcome,
-        message: String,
-    },
-    Error {
-        generation: Option<u64>,
-        message: String,
-    },
+struct PendingEdit {
+    path: PathBuf,
+    content: String,
+    patch: String,
 }
 
+fn edit_path_allowed(path: &Path, selected: &[PathBuf], exclusions: &[PathBuf]) -> bool {
+    !path.as_os_str().is_empty()
+        && path.to_str().is_some()
+        && path.to_str().is_some_and(|text| safe(text) == text)
+        && path
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
+        && selected.iter().any(|p| p == path)
+        && !exclusions.iter().any(|prefix| {
+            let mut actual = path.components();
+            prefix.components().all(|excluded| {
+                actual.next().is_some_and(|part| {
+                    match (part.as_os_str().to_str(), excluded.as_os_str().to_str()) {
+                        (Some(a), Some(b)) => a
+                            .chars()
+                            .flat_map(char::to_lowercase)
+                            .eq(b.chars().flat_map(char::to_lowercase)),
+                        _ => false,
+                    }
+                })
+            })
+        })
+        && !path.components().any(|c| {
+            let name = c.as_os_str().to_string_lossy().to_ascii_lowercase();
+            name == ".git"
+                || matches!(
+                    name.as_str(),
+                    ".codex" | ".claude" | ".gemini" | ".opencode"
+                )
+                || name == ".env"
+                || name.starts_with(".env.")
+                || name.contains("secret")
+                || name.contains("credential")
+                || name.starts_with("id_")
+                || name.starts_with("private_key")
+                || name.ends_with(".pem")
+                || name.ends_with(".key")
+                || matches!(name.as_str(), ".npmrc" | ".netrc" | ".pypirc")
+        })
+}
+fn edit_digest(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(text.as_bytes()))
+}
+#[cfg(unix)]
+fn open_edit_file(root: &Path, path: &Path, write: bool) -> Result<std::fs::File, String> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut directory = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(root)
+        .map_err(|_| "Edit root cannot be opened without following links")?;
+    let mut components = path.components().peekable();
+    while let Some(component) = components.next() {
+        if !matches!(component, std::path::Component::Normal(_)) {
+            return Err("Edit path is not strictly root-relative".into());
+        }
+        let name = std::ffi::CString::new(component.as_os_str().as_bytes())
+            .map_err(|_| "Invalid edit path")?;
+        let final_file = components.peek().is_none();
+        let flags = (if final_file && write {
+            libc::O_RDWR
+        } else {
+            libc::O_RDONLY
+        }) | libc::O_NOFOLLOW
+            | libc::O_CLOEXEC
+            | libc::O_NONBLOCK
+            | if final_file { 0 } else { libc::O_DIRECTORY };
+        let fd = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags) };
+        if fd < 0 {
+            return Err("Edit path is missing, linked, or inaccessible; review again".into());
+        }
+        directory = unsafe { std::fs::File::from_raw_fd(fd) };
+    }
+    Ok(directory)
+}
+#[cfg(not(unix))]
+fn open_edit_file(_: &Path, _: &Path, _: bool) -> Result<std::fs::File, String> {
+    Err("Controlled implementation is unavailable on this OS: no qualified anchored write route; use manual handoff".into())
+}
+fn read_edit_file(root: &Path, path: &Path) -> Result<EditBaseline, String> {
+    use std::io::Read;
+    let mut file = open_edit_file(root, path, false)?;
+    let before = file
+        .metadata()
+        .map_err(|_| "Cannot inspect edit baseline")?;
+    if !before.is_file() || before.len() > EDIT_BYTES as u64 {
+        return Err("Edit requires an existing regular UTF-8 file at most 12 KiB".into());
+    }
+    #[cfg(unix)]
+    let identity = {
+        use std::os::unix::fs::MetadataExt;
+        if before.nlink() != 1 {
+            return Err("Hardlinked edit files are refused".into());
+        }
+        format!(
+            "{}:{}:{}:{}",
+            before.dev(),
+            before.ino(),
+            before.ctime(),
+            before.ctime_nsec()
+        )
+    };
+    #[cfg(not(unix))]
+    let identity = String::new();
+    let mut text = String::new();
+    (&mut file)
+        .take((EDIT_BYTES + 1) as u64)
+        .read_to_string(&mut text)
+        .map_err(|_| "Edit baseline is not readable UTF-8")?;
+    if text.len() > EDIT_BYTES || text.contains('\0') || safe(&text) != text {
+        return Err(
+            "Edit baseline is oversized, binary, credential-bearing, or contains unsafe controls"
+                .into(),
+        );
+    }
+    let after = file
+        .metadata()
+        .map_err(|_| "Cannot revalidate edit baseline")?;
+    if before.len() != after.len() || before.modified().ok() != after.modified().ok() {
+        return Err("Edit baseline changed while captured".into());
+    }
+    Ok(EditBaseline {
+        path: path.into(),
+        digest: edit_digest(&text),
+        text,
+        identity,
+    })
+}
+fn capture_edit_baseline(
+    root: &Path,
+    input: &Input,
+    exclusions: &[PathBuf],
+) -> Result<Vec<EditBaseline>, String> {
+    if input.operation == Operation::Plan {
+        if !input.edit_paths.is_empty() {
+            return Err("Plan requests cannot carry write paths".into());
+        }
+        return Ok(Vec::new());
+    }
+    if input.edit_paths.is_empty() || input.edit_paths.len() > 8 {
+        return Err("Implementation requires 1–8 deliberately selected existing files".into());
+    }
+    let mut files = Vec::new();
+    for path in &input.edit_paths {
+        if !edit_path_allowed(path, &input.edit_paths, exclusions)
+            || files.iter().any(|f: &EditBaseline| f.path == *path)
+        {
+            return Err("Protected, duplicate, excluded or non-relative edit path refused".into());
+        }
+        files.push(read_edit_file(root, path)?);
+    }
+    Ok(files)
+}
+fn replacement_patch(before: &EditBaseline, after: &str) -> String {
+    let mut patch = format!(
+        "--- a/{}\n+++ b/{}\n@@ exact full-file replacement; baseline sha256={} @@\n",
+        before.path.display(),
+        before.path.display(),
+        before.digest
+    );
+    for (prefix, text) in [('-', before.text.as_str()), ('+', after)] {
+        for line in text.split_inclusive('\n') {
+            patch.push(prefix);
+            patch.push_str(line);
+            if !line.ends_with('\n') {
+                patch.push_str("\n\\ No newline at end of file\n");
+            }
+        }
+    }
+    patch
+}
+fn apply_replacement(
+    root: &Path,
+    before: &EditBaseline,
+    after: &str,
+) -> Result<EditBaseline, String> {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    if read_edit_file(root, &before.path)? != *before {
+        return Err("Stale patch refused: working bytes or path identity changed; no write".into());
+    }
+    let mut file = open_edit_file(root, &before.path, true)?;
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::MetadataExt;
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return Err("Edit file is busy; no write".into());
+        }
+        let metadata = file
+            .metadata()
+            .map_err(|_| "Cannot inspect writable edit handle")?;
+        let identity = format!(
+            "{}:{}:{}:{}",
+            metadata.dev(),
+            metadata.ino(),
+            metadata.ctime(),
+            metadata.ctime_nsec()
+        );
+        if !metadata.is_file() || metadata.nlink() != 1 || identity != before.identity {
+            return Err("Writable file identity changed; no write".into());
+        }
+    }
+    let mut current = String::new();
+    (&mut file)
+        .take((EDIT_BYTES + 1) as u64)
+        .read_to_string(&mut current)
+        .map_err(|_| "Cannot validate writable edit handle")?;
+    if current != before.text || read_edit_file(root, &before.path)? != *before {
+        return Err("Stale working-file patch refused; no write".into());
+    }
+    file.seek(SeekFrom::Start(0))
+        .and_then(|_| file.write_all(after.as_bytes()))
+        .and_then(|_| file.set_len(after.len() as u64))
+        .and_then(|_| file.sync_all())
+        .map_err(
+            |_| "File write failed after approval; inspect working diff, partial changes possible",
+        )?;
+    let actual = read_edit_file(root, &before.path)?;
+    if actual.text != after {
+        return Err(
+            "Post-write file identity/content changed; inspect diff, outcome unknown".into(),
+        );
+    }
+    Ok(actual)
+}
 type Events = Arc<Mutex<VecDeque<Event>>>;
 pub struct Worker {
     requests: Option<SyncSender<Request>>,
@@ -254,6 +377,7 @@ struct Prepared {
     input: Box<Input>,
     trust: crate::agent::PlanningTrust,
     text: String,
+    baseline: Vec<EditBaseline>,
 }
 fn emit(events: &Events, event: Event) -> Result<(), String> {
     let mut queue = events.lock();
@@ -337,11 +461,31 @@ fn worker(
                     payload: String::new(),
                     blockers: Vec::new(),
                 };
+                if input.inspect_sessions {
+                    preview.blockers.push("session/list inspection requires an ACP peer; no Codex turn will be dispatched".into());
+                }
                 let trust = crate::agent::planning_trust(project);
                 if let Ok(trust) = &trust {
                     preview.trust = trust.lines.iter().map(|line| safe(line)).collect();
                 } else if let Err(error) = &trust {
                     preview.blockers.push(safe(error));
+                }
+                if input.agent != Agent::Codex {
+                    preview
+                        .blockers
+                        .push("Codex worker refuses a different provider identity".into());
+                }
+                let baseline = capture_edit_baseline(project, &input, exclusions);
+                if let Err(error) = &baseline {
+                    preview.blockers.push(safe(error));
+                }
+                if input.operation == Operation::Implement {
+                    preview.trust.push("Controlled route: eevee_edit_file replaces only exact reviewed existing regular files after an exact before/after patch and allow-once. Protected/symlink/hardlink paths refused. No grantRoot/session grant; native file-edit and command escalation denied.".into());
+                    preview.trust.push("Provider readOnly/network-disabled policy is acknowledged, not an Eevee process sandbox. Independent provider/config/MCP reads or side effects are outside this tool's coverage. No workspace-write trust configuration is changed.".into());
+                    preview.trust.push("Baseline includes current working bytes (including dirty user edits). No reset/commit/merge. Each replacement is reviewed against those bytes; changed baselines require fresh consent.".into());
+                    if input.resume.is_some() {
+                        preview.blockers.push("Controlled implementation requires a fresh thread; planning/resumed threads do not carry the dynamic write tool".into());
+                    }
                 }
                 if project.to_str() != Some(input.task.project.as_str()) {
                     preview
@@ -370,6 +514,7 @@ fn worker(
                         input,
                         trust,
                         text: preview.payload.clone(),
+                        baseline: baseline.unwrap_or_default(),
                     });
                 }
                 let _ = emit(&events, Event::Preview(preview));
@@ -399,7 +544,7 @@ fn worker(
                         requested,
                         0,
                         Outcome::Failed,
-                        "Stale planning consent rejected".into(),
+                        "Stale provider consent rejected".into(),
                     );
                     busy.store(false, Ordering::Release);
                     continue;
@@ -456,22 +601,36 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
         &input.excerpts,
         exclusions,
     )?;
+    if let Some(document) = &input.handoff {
+        crate::handoff::validate_dispatch(
+            document,
+            &input.task,
+            &input.excerpts,
+            input.report.as_ref(),
+            exclusions,
+        )?;
+    }
+    let baseline = capture_edit_baseline(Path::new(&input.task.project), input, exclusions)?;
     let text = serde_json::to_string_pretty(&json!({
-        "purpose": "Plan the user's task. Do not implement changes. Ask the user when a decision is needed; report proposals as unverified planning, never as local execution evidence.",
-        "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": input.task.next_action },
+        "purpose": if input.operation == Operation::Plan { "Plan the user's task. Do not implement changes. Ask the user when a decision is needed; report proposals as unverified planning, never as local execution evidence." } else { "Implement the approved requirement ONLY by calling eevee_edit_file with an exact selected root-relative path and full proposed replacement UTF-8 content. Preserve every unrelated existing dirty user change visible in edit_baseline. Never use apply_patch, shell writes, MCP, delegation, commits or merge. Native filesystem writes and command escalations will be denied. Ask for user input if unclear. Every proposed replacement requires a displayed exact patch and allow-once. Report results as unverified until the user reviews the working diff and chooses a local check." },
+        "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::handoff::without_local_provenance(&input.task.next_action) },
+        "operation": input.operation,
+        "edit_paths": input.edit_paths,
+        "edit_baseline": baseline.iter().map(|b| json!({"path":b.path,"sha256":b.digest,"working_content":b.text})).collect::<Vec<_>>(),
+        "handoff": input.handoff,
         "selected_sources": serde_json::from_str::<Value>(&sources.text).map_err(|_| "Source payload is not valid JSON")?
-    })).map_err(|_| "Could not encode planning payload")?;
+    })).map_err(|_| "Could not encode provider payload")?;
     if text.len() > FRAME_LIMIT / 2 {
-        return Err("Planning payload exceeds 1 MiB; reduce the source basket".into());
+        return Err("Provider payload exceeds 1 MiB; reduce the source basket/edit files".into());
     }
     if crate::privacy::redact(&text) != text {
         return Err(
-            "Planning payload contains a recognizable credential; edit it before review".into(),
+            "Provider payload contains a recognizable credential; edit it before review".into(),
         );
     }
     if text.chars().any(bidi) {
         return Err(
-            "Planning payload contains directional display controls; remove them before review"
+            "Provider payload contains directional display controls; remove them before review"
                 .into(),
         );
     }
@@ -532,6 +691,9 @@ struct Engine<'a> {
     interrupt_sent: bool,
     cancelling: Option<Instant>,
     terminal: Option<(Outcome, String)>,
+    edit_baseline: Vec<EditBaseline>,
+    pending_edit: Option<PendingEdit>,
+    journal_session: String,
 }
 fn run_transport(
     workspace: &Workspace,
@@ -607,6 +769,15 @@ fn run_transport(
         interrupt_sent: false,
         cancelling: None,
         terminal: None,
+        edit_baseline: run.baseline.clone(),
+        pending_edit: None,
+        journal_session: format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos())
+        ),
     };
     let result: Result<(Outcome, String), String> = (|| {
         engine.status("Trusted executable version qualified; initializing app-server (no model dispatched yet)")?;
@@ -629,7 +800,7 @@ fn run_transport(
                         answer,
                     }) => engine.answer(generation, request_id, answer)?,
                     Ok(_) => engine.status(
-                        "Stale or overlapping planning request rejected; no replay performed",
+                        "Stale or overlapping provider request rejected; no replay performed",
                     )?,
                     Err(mpsc::TryRecvError::Empty) => break,
                     Err(mpsc::TryRecvError::Disconnected) => {
@@ -778,6 +949,9 @@ fn revalidate(
     exclusions: &[PathBuf],
     run: &Prepared,
 ) -> Result<(), String> {
+    if capture_edit_baseline(project, &run.input, exclusions)? != run.baseline {
+        return Err("Selected edit path identity or working baseline changed; no dispatch. Review a fresh preview".into());
+    }
     if payload(data_dir, &run.input, exclusions)? != run.text {
         return Err(
             "Outgoing payload changed since review; no dispatch. Review a fresh preview".into(),
@@ -931,12 +1105,15 @@ impl Engine<'_> {
                     self.model = identity(model, "model")?;
                     self.effort = identity(model, "defaultReasoningEffort")?;
                     if model.get("inputModalities").and_then(Value::as_array).is_some_and(|modes| !modes.iter().any(|mode| mode == "text")) {
-                        return Err("Model layer: default model does not support text planning".into());
+                        return Err("Model layer: default model does not support text requests".into());
                     }
                     if !model.get("supportedReasoningEfforts").and_then(Value::as_array).is_some_and(|efforts| efforts.iter().any(|effort| effort.get("reasoningEffort").and_then(Value::as_str) == Some(self.effort.as_str()))) {
                         return Err("Model layer: default effort is not supported by the selected model".into());
                     }
                     let mut params = json!({"cwd":self.project,"model":self.model,"sandbox":"read-only","approvalPolicy":"on-request","approvalsReviewer":"user","config":{"features.multi_agent":false,"web_search":"disabled","allow_login_shell":false}});
+                    if self.run.input.operation == Operation::Implement {
+                        params["dynamicTools"] = json!([{"type":"function","name":"eevee_edit_file","description":"The ONLY allowed implementation write route. Propose replacing an exact selected existing UTF-8 file with full content, preserving unrelated dirty changes. User reviews exact before/after patch and must allow once. Protected/unselected/stale/link paths denied without writing.","inputSchema":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}]);
+                    }
                     let method = if let Some(id) = &self.run.input.resume {
                         params["threadId"] = json!(id); params["excludeTurns"] = json!(true); "thread/resume"
                     } else {
@@ -964,11 +1141,11 @@ impl Engine<'_> {
                     "threadId":id,"input":[{"type":"text","text":self.run.text,"text_elements":[]}],
                     "cwd":self.project,"model":self.model,"approvalPolicy":"on-request","approvalsReviewer":"user",
                     "sandboxPolicy":{"type":"readOnly","networkAccess":false},"summary":"none",
-                    "collaborationMode":{"mode":"plan","settings":{"model":self.model,"reasoning_effort":self.effort,"developer_instructions":null}}
+                    "collaborationMode":{"mode":if self.run.input.operation == Operation::Plan { "plan" } else { "default" },"settings":{"model":self.model,"reasoning_effort":self.effort,"developer_instructions":null}}
                 }))?;
                 // Enqueueing is conservatively treated as dispatch: partial writes are outcome-unknown.
                 self.dispatched = true;
-                self.status("Plan turn dispatched once; read-only policy acknowledged by provider")
+                self.status("Turn dispatched once; provider readOnly acknowledged. Implementation writes only through Eevee's reviewed selected-file tool.")
             }
             Call::Turn => {
                 let turn = result.get("turn").ok_or("Protocol turn/start response missing turn")?;
@@ -1039,6 +1216,7 @@ impl Engine<'_> {
                     .position(|prompt| Some(&prompt.request_id) == params.get("requestId"))
             {
                 let prompt = self.prompts.remove(index);
+                self.pending_edit = None;
                 emit(
                     self.events,
                     Event::PromptClosed {
@@ -1054,7 +1232,7 @@ impl Engine<'_> {
             && self.thread_id.as_deref() == params.get("threadId").and_then(Value::as_str)
         {
             // Exact installed ThreadSettings schema; a notification cannot silently weaken
-            // the boundary acknowledged by thread/start or switch out of Plan mode.
+            // the boundary acknowledged by thread/start or the explicitly requested operation.
             let settings = &params["threadSettings"];
             if settings.get("approvalPolicy").and_then(Value::as_str) != Some("on-request")
                 || settings.get("approvalsReviewer").and_then(Value::as_str) != Some("user")
@@ -1072,9 +1250,15 @@ impl Engine<'_> {
                     && settings
                         .pointer("/collaborationMode/mode")
                         .and_then(Value::as_str)
-                        != Some("plan")
+                        != Some(if self.run.input.operation == Operation::Plan {
+                            "plan"
+                        } else {
+                            "default"
+                        })
             {
-                return Err("Policy changed during planning; dispatch/continuation refused".into());
+                return Err(
+                    "Provider operation/policy changed; dispatch/continuation refused".into(),
+                );
             }
         }
         if matches!(
@@ -1161,8 +1345,8 @@ impl Engine<'_> {
                     false,
                 )
             }
-            // Private reasoning, raw response events, arbitrary MCP outputs and user echoes
-            // deliberately never enter the display or decision-selection stream.
+            // Private reasoning, raw response events and user echoes never enter the
+            // display or decision-selection stream. Tool finals use explicit public coverage.
             _ => Ok(()),
         }
     }
@@ -1173,14 +1357,14 @@ impl Engine<'_> {
             Some("commandExecution") => ItemKind::Tool,
             Some("fileChange") => {
                 if complete && item.get("status").and_then(Value::as_str) == Some("completed") {
-                    return Err("Policy boundary: provider reported applied file edits during read-only planning".into());
+                    return Err("Policy boundary: provider reported native applied file edits despite readOnly; controlled route did not authorize them".into());
                 }
                 let status = item
                     .get("status")
                     .and_then(Value::as_str)
                     .unwrap_or("unknown");
                 return self.item(identity(item, "id")?, ItemKind::Tool,
-                    &format!("File-edit activity: {status}. Eevee denies file-change approval callbacks; no diff retained."),
+                    &format!("Native file-edit activity: {status}. Eevee denies native file-change approval; only reviewed eevee_edit_file writes are permitted."),
                     complete, false);
             }
             Some("collabAgentToolCall" | "subAgentActivity" | "webSearch") => {
@@ -1188,15 +1372,33 @@ impl Engine<'_> {
                     "Policy boundary: provider attempted disabled delegation/web search".into(),
                 );
             }
-            Some("mcpToolCall") => {
-                return self.status("Provider-owned MCP tool activity observed; its enforcement/side effects are outside Eevee's callback coverage");
+            Some("mcpToolCall" | "dynamicToolCall") => {
+                let contents = item
+                    .get("contentItems")
+                    .or_else(|| item.pointer("/result/content"))
+                    .and_then(Value::as_array);
+                let public_text: Vec<&str> = contents
+                    .into_iter()
+                    .flatten()
+                    .filter(|part| {
+                        matches!(
+                            part.get("type").and_then(Value::as_str),
+                            Some("text" | "inputText")
+                        )
+                    })
+                    .filter_map(|part| part.get("text").and_then(Value::as_str))
+                    .collect();
+                return self.item(identity(item, "id")?, ItemKind::Tool,
+                    &format!("Provider-native {} (public text result only; binary/structured results and arguments omitted): {}",
+                        item["type"], serde_json::to_string(&json!({"tool":item.get("tool"),"server":item.get("server"),"status":item.get("status"),"success":item.get("success"),"text":public_text,"error":item.pointer("/error/message")})).map_err(|_| "Cannot encode public tool metadata")?),
+                    complete, false);
             }
             _ => return Ok(()),
         };
         let id = identity(item, "id")?;
         if kind == ItemKind::Tool {
             let text = format!(
-                "Command: {}\nCwd: {}\nStatus: {}\n{}",
+                "Command: {}\nCwd: {}\nStatus: {}\nExit code: {}\n{}",
                 item.get("command")
                     .and_then(Value::as_str)
                     .unwrap_or("(not supplied)"),
@@ -1206,6 +1408,7 @@ impl Engine<'_> {
                 item.get("status")
                     .and_then(Value::as_str)
                     .unwrap_or("unknown"),
+                item.get("exitCode").unwrap_or(&Value::Null),
                 item.get("aggregatedOutput")
                     .and_then(Value::as_str)
                     .unwrap_or("")
@@ -1273,6 +1476,7 @@ impl Engine<'_> {
         if visible.is_empty() && !complete {
             return Ok(());
         }
+        let visible = safe(visible);
         emit(
             self.events,
             Event::Item {
@@ -1280,12 +1484,16 @@ impl Engine<'_> {
                 task_id: self.run.input.task.id,
                 thread_id: self.thread_id.clone().ok_or("Missing item thread")?,
                 turn_id: self.turn_id.clone().ok_or("Missing item turn")?,
-                item_id: id,
+                item_id: id.clone(),
                 kind,
-                text: safe(visible),
+                text: visible.clone(),
                 complete,
             },
-        )
+        )?;
+        if kind == ItemKind::Tool && complete {
+            self.journal(&id, "Codex provider-native tool observation", "Public final provider item only; provider-owned execution/sandbox/config effects are not Eevee local execution evidence", &visible)?;
+        }
+        Ok(())
     }
     fn turn_terminal(&mut self, turn: &Value) -> Result<(), String> {
         let status = turn
@@ -1320,7 +1528,7 @@ impl Engine<'_> {
         } else if outcome == Outcome::Cancelled {
             "Provider authoritatively reported interrupted turn; prior provider actions are not rolled back".into()
         } else {
-            "Provider authoritatively completed the turn. Planning text is unverified, not local execution evidence".into()
+            "Provider authoritatively completed the turn. Output and patch remain unverified; review working diff and deliberately choose a local check. Provider observations are not local execution evidence".into()
         };
         if let Some(error) = capture_error {
             message.push_str(&format!(
@@ -1332,6 +1540,199 @@ impl Engine<'_> {
         }
         self.terminal = Some((outcome, message));
         Ok(())
+    }
+    fn journal(
+        &self,
+        item_id: &str,
+        origin: &str,
+        coverage: &str,
+        text: &str,
+    ) -> Result<(), String> {
+        emit(
+            self.events,
+            Event::Journal {
+                generation: self.run.generation,
+                task_id: self.run.input.task.id,
+                record: crate::store::ProviderRecord {
+                    id: format!(
+                        "codex-{}-{}-{}",
+                        self.journal_session,
+                        self.run.generation,
+                        edit_digest(item_id)
+                    ),
+                    agent: Agent::Codex,
+                    generation: self.run.generation,
+                    thread_id: self.thread_id.clone().ok_or("Journal thread missing")?,
+                    turn_id: self.turn_id.clone().ok_or("Journal turn missing")?,
+                    item_id: item_id.into(),
+                    origin: origin.into(),
+                    coverage: coverage.into(),
+                    text: text.into(),
+                    complete: true,
+                },
+            },
+        )
+    }
+    fn revalidate_edit_session(&self) -> Result<(), String> {
+        crate::store::validate_planning_input(
+            self.data_dir,
+            &self.run.input.task,
+            &self.run.input.excerpts,
+        )?;
+        crate::agent::revalidate_planning_trust(self.project, &self.run.trust)?;
+        for before in &self.edit_baseline {
+            if read_edit_file(self.project, &before.path)? != *before {
+                return Err("Selected working file changed since review; pending patch refused without writing".into());
+            }
+        }
+        Ok(())
+    }
+    fn request_edit(&mut self, id: Value, params: &Value) -> Result<(), String> {
+        let prepared = (|| -> Result<(Prompt, PendingEdit), String> {
+            if self.run.input.operation != Operation::Implement
+                || params.get("tool").and_then(Value::as_str) != Some("eevee_edit_file")
+                || params.get("namespace").is_some_and(|v| !v.is_null())
+            {
+                return Err("Unadvertised dynamic tool refused".into());
+            }
+            if !self.prompts.is_empty() || self.pending_edit.is_some() {
+                return Err("Concurrent write request refused".into());
+            }
+            self.revalidate_edit_session()?;
+            let arguments = params
+                .get("arguments")
+                .and_then(Value::as_object)
+                .ok_or("Edit tool requires an arguments object")?;
+            if arguments.len() != 2 {
+                return Err("Only exact path/content arguments are accepted".into());
+            }
+            let path = PathBuf::from(
+                arguments
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .ok_or("Edit path missing")?,
+            );
+            let content = arguments
+                .get("content")
+                .and_then(Value::as_str)
+                .ok_or("Edit content missing")?;
+            if !edit_path_allowed(&path, &self.run.input.edit_paths, self.exclusions) {
+                return Err("Protected/unselected path refused; no file opened for writing".into());
+            }
+            if content.len() > EDIT_BYTES || content.contains('\0') || safe(content) != content {
+                return Err("Unsafe or oversized replacement refused".into());
+            }
+            let before = self
+                .edit_baseline
+                .iter()
+                .find(|b| b.path == path)
+                .ok_or("Selected edit baseline missing")?;
+            let patch = replacement_patch(before, content);
+            if patch.len() > ITEM_LIMIT {
+                return Err("Exact patch exceeds the review bound; reduce change".into());
+            }
+            let item_id = identity(params, "callId")?;
+            let prompt = Prompt {
+                request_id: id.clone(), thread_id: self.thread_id.clone().unwrap(), turn_id: self.turn_id.clone().unwrap(), item_id,
+                kind: PromptKind::Permission {
+                    description: format!("Eevee-controlled file replacement; exact selected path: {}\nBaseline includes dirty user edits. Only this replacement is allowed once; no provider-native write grant. Review requirement and preserve unrelated lines.\n{patch}", path.display()),
+                    options: vec![
+                        PermissionOption { label: "Deny".into(), description: "No write; tell provider this tool call was denied".into(), answer: json!({"decision":"decline"}) },
+                        PermissionOption { label: "Allow once".into(), description: "Apply this exact patch after revalidating working bytes and path identity".into(), answer: json!({"decision":"accept"}) },
+                    ],
+                },
+            };
+            Ok((
+                prompt,
+                PendingEdit {
+                    path,
+                    content: content.into(),
+                    patch,
+                },
+            ))
+        })();
+        match prepared {
+            Ok((prompt, edit)) => {
+                emit(
+                    self.events,
+                    Event::Prompt {
+                        generation: self.run.generation,
+                        task_id: self.run.input.task.id,
+                        request: prompt.clone(),
+                    },
+                )?;
+                self.prompts.push(prompt);
+                self.pending_edit = Some(edit);
+                Ok(())
+            }
+            Err(error) => {
+                self.queue(json!({"id":id,"result":{"success":false,"contentItems":[{"type":"inputText","text":error}]}}))?;
+                self.status("Dynamic write request refused; no write permission or side effect through Eevee route")
+            }
+        }
+    }
+    fn answer_edit(
+        &mut self,
+        generation: u64,
+        id: Value,
+        answer: Value,
+        index: usize,
+    ) -> Result<(), String> {
+        let edit = self
+            .pending_edit
+            .take()
+            .ok_or("Edit request is no longer pending")?;
+        let prompt = self.prompts.remove(index);
+        let mut success = false;
+        let text = if answer.get("decision").and_then(Value::as_str) == Some("accept") {
+            let applied = (|| {
+                self.revalidate_edit_session()?;
+                if self.cancelled.load(Ordering::Acquire) == generation
+                    || self.stop.load(Ordering::Acquire)
+                {
+                    return Err("Cancelled edit refused before write".into());
+                }
+                if !edit_path_allowed(&edit.path, &self.run.input.edit_paths, self.exclusions) {
+                    return Err("Edit scope changed; no write".into());
+                }
+                let baseline = self
+                    .edit_baseline
+                    .iter_mut()
+                    .find(|b| b.path == edit.path)
+                    .ok_or("Edit baseline missing")?;
+                if replacement_patch(baseline, &edit.content) != edit.patch {
+                    return Err("Exact reviewed patch changed; no write".into());
+                }
+                *baseline = apply_replacement(self.project, baseline, &edit.content)?;
+                Ok::<_, String>(())
+            })();
+            match applied {
+                Ok(()) => {
+                    success = true;
+                    format!(
+                        "Applied reviewed replacement to {}. User must inspect working diff and choose a local check; no commit or verification occurred.\n{}",
+                        edit.path.display(),
+                        edit.patch
+                    )
+                }
+                Err(error) => format!("Patch refused/failed: {error}"),
+            }
+        } else {
+            format!(
+                "User denied edit to {}; no Eevee write occurred",
+                edit.path.display()
+            )
+        };
+        self.queue(json!({"id":id,"result":{"success":success,"contentItems":[{"type":"inputText","text":text}]}}))?;
+        self.journal(&format!("eevee-edit-{}", prompt.item_id), "Codex-requested Eevee-controlled file edit", "Only exact existing selected regular file replacement is mediated; baseline, path identity and exact patch revalidated. Provider-owned independent effects outside coverage; not a local check", &safe(&text))?;
+        emit(
+            self.events,
+            Event::PromptClosed {
+                generation,
+                request_id: prompt.request_id,
+            },
+        )?;
+        self.status(&text)
     }
     fn refuse(&mut self, id: Value, code: i64, message: &str) -> Result<(), String> {
         self.queue(json!({"id":id,"error":{"code":code,"message":message}}))
@@ -1358,15 +1759,24 @@ impl Engine<'_> {
             )?;
             return self.status("Stale/uncorrelated server request explicitly refused");
         }
+        if method == "item/tool/call" {
+            return self.request_edit(id, params);
+        }
+        if method == "item/commandExecution/requestApproval"
+            && self.run.input.operation == Operation::Implement
+        {
+            self.queue(json!({"id":id,"result":{"decision":"decline"}}))?;
+            return self.status("Command escalation denied: selected-file controlled implementation permits only eevee_edit_file; choose a local check separately");
+        }
         if method == "item/fileChange/requestApproval" {
             self.queue(json!({"id":id,"result":{"decision":"decline"}}))?;
-            return self.status("File-edit request denied by Eevee read-only planning policy");
+            return self.status("Native file-edit request denied; no native write grant. Implementation uses the exact Eevee-controlled dynamic file tool");
         }
         if !matches!(
             method,
             "item/commandExecution/requestApproval" | "item/tool/requestUserInput"
         ) {
-            self.refuse(id, -32601, "Unsupported server request; Eevee does not grant permissions, authenticate, run dynamic tools or accept MCP elicitation")?;
+            self.refuse(id, -32601, "Unsupported server request; no permissions, authentication, unadvertised dynamic tools or MCP elicitation")?;
             return self.status(
                 "Unsupported provider request explicitly refused; no permission was granted",
             );
@@ -1497,7 +1907,14 @@ impl Engine<'_> {
             return self.status(&format!("Answer not sent: {error}"));
         }
         // Grant scope and immutable input/config remain valid at approval/answer dispatch as well.
-        revalidate(self.project, self.data_dir, self.exclusions, self.run)?;
+        if self.pending_edit.is_some() {
+            return self.answer_edit(generation, id, answer, index);
+        }
+        if self.run.input.operation == Operation::Plan {
+            revalidate(self.project, self.data_dir, self.exclusions, self.run)?;
+        } else {
+            self.revalidate_edit_session()?;
+        }
         if self.cancelled.load(Ordering::Acquire) == self.run.generation {
             return self.cancel();
         }
@@ -1512,6 +1929,7 @@ impl Engine<'_> {
         )
     }
     fn close_prompts(&mut self) {
+        self.pending_edit = None;
         for prompt in self.prompts.drain(..) {
             let _ = emit(
                 self.events,
@@ -1528,6 +1946,7 @@ impl Engine<'_> {
         }
         self.cancelling = Some(Instant::now());
         self.discard_grants()?;
+        self.pending_edit = None;
         let prompts = std::mem::take(&mut self.prompts);
         for prompt in prompts {
             self.refuse(
@@ -1758,6 +2177,13 @@ fn validate_answer(kind: &PromptKind, answer: &Value) -> Result<(), String> {
         return Err("Answer contains unsupported fields".into());
     }
     match kind {
+        PromptKind::Permission { options, .. } => {
+            if options.iter().any(|option| option.answer == *answer) {
+                Ok(())
+            } else {
+                Err("Only the exact currently offered deny/allow-once choice is permitted".into())
+            }
+        }
         PromptKind::Approval {
             allow_once,
             deny_decision,
@@ -1841,6 +2267,95 @@ fn bounded(text: &str, limit: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn controlled_route_refuses_protected_unselected_and_escaping_paths() {
+        let paths = vec![
+            PathBuf::from("src/main.rs"),
+            PathBuf::from(".git/config"),
+            PathBuf::from(".env"),
+            PathBuf::from("credentials.json"),
+        ];
+        assert!(edit_path_allowed(Path::new("src/main.rs"), &paths, &[]));
+        for path in [
+            ".git/config",
+            ".env",
+            "credentials.json",
+            "../main.rs",
+            "/tmp/outside",
+            "src/unselected.rs",
+        ] {
+            assert!(!edit_path_allowed(Path::new(path), &paths, &[]));
+        }
+        assert!(!edit_path_allowed(
+            Path::new("src/main.rs"),
+            &paths,
+            &[PathBuf::from("src")]
+        ));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn exact_dirty_baseline_preserved_and_stale_or_linked_write_has_no_side_effect() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("eevee-edit-{}-{nonce}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("target.txt");
+        std::fs::write(&path, "user dirty line\nold requirement\n").unwrap();
+        let baseline = read_edit_file(&root, Path::new("target.txt")).unwrap();
+        let after = "user dirty line\nnew requirement\n";
+        let patch = replacement_patch(&baseline, after);
+        assert!(
+            patch.contains(
+                "-user dirty line\n-old requirement\n+user dirty line\n+new requirement\n"
+            )
+        );
+        let applied = apply_replacement(&root, &baseline, after).unwrap();
+        assert_eq!(applied.text, after);
+        std::fs::write(&path, "later user change\n").unwrap();
+        assert!(apply_replacement(&root, &applied, "must not overwrite").is_err());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "later user change\n"
+        );
+        std::os::unix::fs::symlink("target.txt", root.join("linked.txt")).unwrap();
+        assert!(read_edit_file(&root, Path::new("linked.txt")).is_err());
+        std::fs::hard_link(&path, root.join("hard.txt")).unwrap();
+        assert!(read_edit_file(&root, Path::new("target.txt")).is_err());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "later user change\n"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn exact_edit_permissions_do_not_offer_persistent_grants() {
+        let kind = PromptKind::Permission {
+            description: "exact patch".into(),
+            options: vec![
+                PermissionOption {
+                    label: "Deny".into(),
+                    description: String::new(),
+                    answer: json!({"decision":"decline"}),
+                },
+                PermissionOption {
+                    label: "Allow once".into(),
+                    description: String::new(),
+                    answer: json!({"decision":"accept"}),
+                },
+            ],
+        };
+        assert!(validate_answer(&kind, &json!({"decision":"decline"})).is_ok());
+        assert!(validate_answer(&kind, &json!({"decision":"accept"})).is_ok());
+        for answer in [
+            json!({"decision":"acceptForSession"}),
+            json!({"decision":"accept","grantRoot":"/"}),
+            json!({"decision":"allow-always"}),
+        ] {
+            assert!(validate_answer(&kind, &answer).is_err());
+        }
+    }
     #[test]
     fn bounded_events_replace_item_snapshots_and_reserve_terminal_capacity() {
         let events = Arc::new(Mutex::new(VecDeque::new()));
@@ -2018,5 +2533,75 @@ mod tests {
         assert!(!safe("\u{001b}[31m\u{202e} token=secret-canary").contains("secret-canary"));
         assert!(!safe("\u{001b}[31m\u{202e}").contains('\u{001b}'));
         assert!(!safe("\u{001b}[31m\u{202e}").contains('\u{202e}'));
+    }
+    #[test]
+    fn outbound_task_facts_do_not_leak_generated_provider_session_provenance() {
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = std::env::temp_dir().join(format!(
+            "ev-payload-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let cleanup = Cleanup(root.canonicalize().unwrap());
+        let data = cleanup.0.join("data");
+        let worker = crate::store::Worker::start(
+            data.clone(),
+            cleanup.0.to_str().unwrap().into(),
+            crate::store::Policy::default(),
+        )
+        .unwrap();
+        let mut task = crate::store::Snapshot::empty(cleanup.0.to_str().unwrap().into());
+        task.goal = "Continue the approved note workflow".into();
+        task.revision = 1;
+        task.next_action = "Choose Markdown.\n\n[User-selected, unverified OpenCode ACP Plan; thread opaque-old-session; turn opaque-old-turn; item opaque-old-item. Not local execution evidence.]".into();
+        let mut pending = Some(task);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let saved = loop {
+            worker.try_save(&mut pending);
+            if let Some(crate::store::Event::Saved(task)) = worker.try_event() {
+                break task;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "Committed fixture task was not acknowledged"
+            );
+            thread::sleep(Duration::from_millis(5));
+        };
+        let handoff = crate::handoff::from_task(&saved, &[], &[]).unwrap();
+        let input = Input {
+            task: saved,
+            excerpts: Vec::new(),
+            report: None,
+            resume: None,
+            agent: Agent::Codex,
+            operation: Operation::Plan,
+            edit_paths: Vec::new(),
+            handoff: Some(handoff),
+            inspect_sessions: false,
+        };
+        let text = payload(&data, &input, &[]).unwrap();
+        let outgoing: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            outgoing
+                .pointer("/task/next_action")
+                .and_then(Value::as_str),
+            Some("Choose Markdown.")
+        );
+        for private_id in ["opaque-old-session", "opaque-old-turn", "opaque-old-item"] {
+            assert!(
+                !text.contains(private_id),
+                "Provider control identity crossed the portable request boundary"
+            );
+        }
+        drop(worker);
     }
 }

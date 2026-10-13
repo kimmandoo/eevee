@@ -53,6 +53,7 @@ pub struct DeletionTarget {
     pub task: Snapshot,
     pub excerpts: Vec<(i64, String)>,
     pub runs: Vec<(String, bool)>,
+    pub provider_records: Vec<(String, crate::provider::Agent)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -248,6 +249,39 @@ impl RunRequest {
         }
     }
 }
+
+/// Provider observations are not local command evidence. IDs are scoped by an adapter
+/// session nonce so a later process cannot overwrite a previous process's journal.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRecord {
+    pub id: String,
+    pub agent: crate::provider::Agent,
+    pub generation: u64,
+    pub thread_id: String,
+    pub turn_id: String,
+    pub item_id: String,
+    pub origin: String,
+    pub coverage: String,
+    pub text: String,
+    pub complete: bool,
+}
+#[derive(Clone)]
+pub struct JournalRequest {
+    pub task_id: i64,
+    pub operation: JournalOperation,
+}
+#[derive(Clone)]
+pub enum JournalOperation {
+    Put(ProviderRecord),
+    List,
+    Purge,
+}
+#[derive(Debug)]
+pub enum JournalResponse {
+    Saved(ProviderRecord),
+    Records(Vec<ProviderRecord>),
+    Purged,
+}
 #[derive(Debug)]
 pub enum Event {
     Loaded(Project),
@@ -277,6 +311,10 @@ pub enum Event {
         run_id: Option<String>,
         result: Result<Box<RunResponse>, String>,
     },
+    Journal {
+        task_id: i64,
+        result: Result<JournalResponse, String>,
+    },
 }
 
 struct Managed {
@@ -291,6 +329,7 @@ enum Command {
     Manage(Management),
     Context(ContextRequest),
     Run(Box<RunRequest>),
+    Journal(JournalRequest),
     Retry,
 }
 
@@ -393,6 +432,25 @@ impl Worker {
             Err(_) => unreachable!("try_send returns the submitted command"),
         }
     }
+    pub fn try_journal(&self, pending: &mut Option<JournalRequest>) -> bool {
+        let Some(commands) = &self.commands else {
+            return false;
+        };
+        let Some(request) = pending.take() else {
+            return false;
+        };
+        match commands.try_send(Command::Journal(request)) {
+            Ok(()) => true,
+            Err(
+                TrySendError::Full(Command::Journal(request))
+                | TrySendError::Disconnected(Command::Journal(request)),
+            ) => {
+                *pending = Some(request);
+                false
+            }
+            Err(_) => unreachable!("try_send returns the submitted command"),
+        }
+    }
 
     pub fn try_select(&self, id: i64) -> bool {
         self.commands
@@ -445,6 +503,10 @@ fn run(
             Command::Context(request) => Event::Context {
                 task_id: request.task_id,
                 result: state.context(request).map_err(actionable),
+            },
+            Command::Journal(request) => Event::Journal {
+                task_id: request.task_id,
+                result: state.journal_request(request).map_err(actionable),
             },
             Command::Run(request) => {
                 let task_id = request.task_id;
@@ -775,10 +837,28 @@ impl State {
                     (run_id, has_output)
                 })
                 .collect();
+            let mut statement = connection
+                .prepare(
+                    "SELECT record FROM provider_journal WHERE task_id=?1 ORDER BY rowid LIMIT 257",
+                )
+                .map_err(|error| error.to_string())?;
+            let records = statement
+                .query_map([id], |row| json_column::<ProviderRecord>(row, 0, 65536))
+                .map_err(|error| error.to_string())?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|error| error.to_string())?;
+            if records.len() > 256 {
+                return Err("Provider journal deletion preview exceeds its bound".into());
+            }
+            let provider_records = records
+                .into_iter()
+                .map(|record| (record.id, record.agent))
+                .collect();
             targets.push(DeletionTarget {
                 task,
                 excerpts,
                 runs,
+                provider_records,
             });
         }
         Ok(targets)
@@ -850,6 +930,9 @@ impl State {
                         .execute("DELETE FROM executions WHERE task_id=?1", [id])
                         .map_err(|error| error.to_string())?;
                     transaction
+                        .execute("DELETE FROM provider_journal WHERE task_id=?1", [id])
+                        .map_err(|error| error.to_string())?;
+                    transaction
                         .execute(
                             "DELETE FROM tasks WHERE project=?1 AND id=?2",
                             params![self.project, id],
@@ -915,6 +998,133 @@ impl State {
             warning,
         })
     }
+}
+
+impl State {
+    fn journal_request(&mut self, request: JournalRequest) -> Result<JournalResponse, String> {
+        let connection = self
+            .connection
+            .as_mut()
+            .ok_or("Storage unavailable; provider evidence was not saved")?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        let task = load_task(&transaction, &self.project, request.task_id)?
+            .ok_or("Provider journal task is missing or belongs to another project")?;
+        let response = match request.operation {
+            JournalOperation::Put(mut record) => {
+                if task.archived {
+                    return Err("Archived tasks cannot accept provider evidence".into());
+                }
+                validate_provider_record(&record)?;
+                sanitize_provider_record(&mut record);
+                let json = serde_json::to_string(&record).map_err(|error| error.to_string())?;
+                if json.len() > 65536 {
+                    return Err("Provider journal record exceeds 64 KiB".into());
+                }
+                let existing: Option<(i64, String)> = transaction
+                    .query_row(
+                        "SELECT task_id,record FROM provider_journal WHERE id=?1",
+                        [&record.id],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .optional()
+                    .map_err(|error| error.to_string())?;
+                if let Some((owner, saved)) = existing {
+                    if owner != request.task_id || saved != json {
+                        return Err("Provider record ID cannot overwrite different task/origin/content; append a new identity".into());
+                    }
+                } else {
+                    let count: i64 = transaction
+                        .query_row(
+                            "SELECT count(*) FROM provider_journal WHERE task_id=?1",
+                            [request.task_id],
+                            |row| row.get(0),
+                        )
+                        .map_err(|error| error.to_string())?;
+                    if count >= 256 {
+                        return Err("Provider journal reached 256 records for this task; explicitly purge before capturing more".into());
+                    }
+                    transaction
+                        .execute(
+                            "INSERT INTO provider_journal(id,task_id,record) VALUES(?1,?2,?3)",
+                            params![record.id, request.task_id, json],
+                        )
+                        .map_err(|error| format!("Provider evidence was not saved: {error}"))?;
+                    enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
+                }
+                JournalResponse::Saved(record)
+            }
+            JournalOperation::List => {
+                let mut statement = transaction.prepare("SELECT record FROM provider_journal WHERE task_id=?1 ORDER BY rowid LIMIT 257").map_err(|error| error.to_string())?;
+                let records = statement
+                    .query_map([request.task_id], |row| {
+                        json_column::<ProviderRecord>(row, 0, 65536)
+                    })
+                    .map_err(|error| error.to_string())?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(|error| error.to_string())?;
+                if records.len() > 256 {
+                    return Err("Provider journal exceeds bounded capacity".into());
+                }
+                for record in &records {
+                    validate_provider_record(record)?;
+                }
+                JournalResponse::Records(records)
+            }
+            JournalOperation::Purge => {
+                transaction
+                    .execute(
+                        "DELETE FROM provider_journal WHERE task_id=?1",
+                        [request.task_id],
+                    )
+                    .map_err(|error| error.to_string())?;
+                JournalResponse::Purged
+            }
+        };
+        transaction.commit().map_err(|error| {
+            format!("Provider journal commit failed; no persistence claimed: {error}")
+        })?;
+        Ok(response)
+    }
+}
+fn sanitize_provider_record(record: &mut ProviderRecord) {
+    for text in [&mut record.origin, &mut record.coverage, &mut record.text] {
+        if let std::borrow::Cow::Owned(clean) = crate::privacy::redact(text) {
+            *text = clean;
+        }
+        text.retain(|ch| (!ch.is_control() || ch == '\n' || ch == '\t')
+            && !matches!(ch, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'));
+    }
+}
+
+fn validate_provider_record(record: &ProviderRecord) -> Result<(), String> {
+    for identity in [
+        &record.id,
+        &record.thread_id,
+        &record.turn_id,
+        &record.item_id,
+    ] {
+        if identity.is_empty()
+            || identity.len() > 1024
+            || identity.chars().any(char::is_control)
+            || crate::privacy::redact(identity) != *identity
+        {
+            return Err("Provider journal identity is invalid or credential-bearing".into());
+        }
+    }
+    if record.origin.is_empty()
+        || record.coverage.is_empty()
+        || record.origin.len() > 4096
+        || record.coverage.len() > 4096
+        || record.text.len() > 32768
+    {
+        return Err(
+            "Provider journal requires bounded public observations and explicit origin/coverage"
+                .into(),
+        );
+    }
+    Ok(())
 }
 const MAX_RUN_BYTES: usize = 128 * 1024;
 const MAX_RUNS: usize = 256;
@@ -1952,7 +2162,8 @@ fn create_evidence_schema(connection: &Connection) -> Result<(), String> {
            record TEXT NOT NULL CHECK(length(CAST(record AS BLOB)) <= 131072),
            output_name TEXT NOT NULL UNIQUE,output_identity TEXT NOT NULL,capacity INTEGER NOT NULL CHECK(capacity >= 1024 AND capacity <= 8388608),
            reserved INTEGER NOT NULL CHECK(reserved IN (0,1)));
-         PRAGMA user_version=4;"
+         CREATE TABLE provider_journal(id TEXT PRIMARY KEY,task_id INTEGER NOT NULL,record TEXT NOT NULL CHECK(length(CAST(record AS BLOB)) <= 65536));
+         PRAGMA user_version=5;"
     ).map_err(|error| format!("Cannot initialize source/journal storage: {error}"))
 }
 
@@ -2312,6 +2523,7 @@ enum Schema {
     Projects,
     Tasks,
     Lifecycle,
+    Evidence,
     Current,
 }
 
@@ -2333,9 +2545,9 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=4).contains(&version) {
+    if !(0..=5).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0 through 4"
+            "Unsupported database schema version {version}; this ev supports versions 0 through 5"
         ));
     }
     let mut statement = connection
@@ -2373,6 +2585,21 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
                     .zip(["excerpts", "executions", "selections", "tasks"])
                     .all(|((kind, name), expected)| kind == "table" && name == expected) =>
         {
+            Schema::Evidence
+        }
+        (5, objects)
+            if objects.len() == 5
+                && objects
+                    .iter()
+                    .zip([
+                        "excerpts",
+                        "executions",
+                        "provider_journal",
+                        "selections",
+                        "tasks",
+                    ])
+                    .all(|((kind, name), expected)| kind == "table" && name == expected) =>
+        {
             Schema::Current
         }
         _ => return Err("Unrecognized or nonempty foreign database schema".into()),
@@ -2398,7 +2625,7 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
             ],
             "SELECT project, goal, form, revision FROM projects",
         ),
-        Schema::Tasks | Schema::Lifecycle | Schema::Current => {
+        Schema::Tasks | Schema::Lifecycle | Schema::Evidence | Schema::Current => {
             inspect_columns(
                 connection,
                 "selections",
@@ -2427,11 +2654,11 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
                     ("redacted", "INTEGER", true, 0),
                 ]);
             }
-            if version == 4 {
+            if version >= 4 {
                 expected.push(("command", "TEXT", true, 0));
             }
             inspect_columns(connection, "tasks", &expected)?;
-            let columns = if version == 4 {
+            let columns = if version >= 4 {
                 TASK_COLUMNS.to_string()
             } else if version == 3 {
                 format!("{TASK_COLUMNS_V3},''")
@@ -2472,8 +2699,41 @@ fn inspect(connection: &Connection) -> Result<Schema, String> {
             if invalid {
                 return Err("Invalid project task selection or project capacity".into());
             }
-            if version == 4 {
+            if version >= 4 {
                 inspect_evidence(connection)?;
+            }
+            if version == 5 {
+                inspect_columns(
+                    connection,
+                    "provider_journal",
+                    &[
+                        ("id", "TEXT", false, 1),
+                        ("task_id", "INTEGER", true, 0),
+                        ("record", "TEXT", true, 0),
+                    ],
+                )?;
+                let invalid: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM provider_journal p LEFT JOIN tasks t ON t.id=p.task_id WHERE t.id IS NULL) OR EXISTS(SELECT 1 FROM provider_journal GROUP BY task_id HAVING count(*) > 256)", [], |row| row.get(0)).map_err(|error| error.to_string())?;
+                if invalid {
+                    return Err("Provider journal contains orphaned or excess task records".into());
+                }
+                let mut statement = connection
+                    .prepare("SELECT id,record FROM provider_journal")
+                    .map_err(|error| error.to_string())?;
+                for row in statement
+                    .query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            json_column::<ProviderRecord>(row, 1, 65536)?,
+                        ))
+                    })
+                    .map_err(|error| error.to_string())?
+                {
+                    let (id, record) = row.map_err(|error| error.to_string())?;
+                    validate_provider_record(&record)?;
+                    if id != record.id {
+                        return Err("Provider journal row identity differs from record".into());
+                    }
+                }
             }
             return Ok(schema);
         }
@@ -2537,6 +2797,9 @@ fn initialize(connection: &mut Connection) -> Result<(), String> {
 fn migrate(connection: &Connection, schema: Schema) -> Result<(), String> {
     if matches!(schema, Schema::Current) {
         return Ok(());
+    }
+    if matches!(schema, Schema::Evidence) {
+        return connection.execute_batch("CREATE TABLE provider_journal(id TEXT PRIMARY KEY,task_id INTEGER NOT NULL,record TEXT NOT NULL CHECK(length(CAST(record AS BLOB)) <= 65536)); PRAGMA user_version=5;").map_err(|error| format!("Cannot migrate provider journal: {error}"));
     }
     if matches!(schema, Schema::Tasks | Schema::Lifecycle) {
         connection
@@ -3020,6 +3283,26 @@ fn export_inner(data_dir: &Path, output: &Path) -> Result<(), String> {
     if !found {
         return Err("No readable known tasks, goals or projects table was found".into());
     }
+    let has_journal: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='provider_journal')", [], |row| row.get(0)).map_err(|error| error.to_string())?;
+    if has_journal {
+        let mut statement = connection
+            .prepare("SELECT task_id,record FROM provider_journal ORDER BY task_id,rowid")
+            .map_err(|error| error.to_string())?;
+        for row in statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    json_column::<ProviderRecord>(row, 1, 65536)?,
+                ))
+            })
+            .map_err(|error| error.to_string())?
+        {
+            let (task_id, mut record) = row.map_err(|error| error.to_string())?;
+            validate_provider_record(&record)?;
+            sanitize_provider_record(&mut record);
+            rows.push(serde_json::json!({"provider_journal":{"task_id":task_id,"record":record}}));
+        }
+    }
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -3116,6 +3399,136 @@ mod tests {
     fn create(worker: &Worker, snapshot: Snapshot) -> Snapshot {
         enqueue(worker, snapshot);
         saved(worker)
+    }
+    #[test]
+    fn provider_journal_survives_restart_with_owner_origin_and_explicit_purge() {
+        let directory = Directory::new();
+        let worker = worker(&directory, "journal-project");
+        loaded(&worker);
+        let task = create(&worker, Snapshot::empty("journal-project".into()));
+        let record = ProviderRecord {
+            id: "process-nonce-generation-item".into(),
+            agent: crate::provider::Agent::Codex,
+            generation: 1,
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "item".into(),
+            origin: "Codex provider-native".into(),
+            coverage: "Public observed result only; not a local check".into(),
+            text: "Final public output".into(),
+            complete: true,
+        };
+        let mut pending = Some(JournalRequest {
+            task_id: task.id,
+            operation: JournalOperation::Put(record.clone()),
+        });
+        assert!(worker.try_journal(&mut pending));
+        assert!(
+            matches!(event(&worker), Event::Journal { result: Ok(JournalResponse::Saved(saved)), .. } if saved == record)
+        );
+        drop(worker);
+        let reopened = super::Worker::start(
+            directory.0.clone(),
+            "journal-project".into(),
+            Policy::default(),
+        )
+        .unwrap();
+        loaded(&reopened);
+        let mut pending = Some(JournalRequest {
+            task_id: task.id,
+            operation: JournalOperation::List,
+        });
+        assert!(reopened.try_journal(&mut pending));
+        assert!(
+            matches!(event(&reopened), Event::Journal { result: Ok(JournalResponse::Records(records)), .. } if records == vec![record.clone()])
+        );
+        let mut changed = record.clone();
+        changed.text = "A later process must not overwrite".into();
+        let mut pending = Some(JournalRequest {
+            task_id: task.id,
+            operation: JournalOperation::Put(changed),
+        });
+        assert!(reopened.try_journal(&mut pending));
+        assert!(matches!(
+            event(&reopened),
+            Event::Journal { result: Err(_), .. }
+        ));
+        let mut pending = Some(JournalRequest {
+            task_id: task.id + 999,
+            operation: JournalOperation::List,
+        });
+        assert!(reopened.try_journal(&mut pending));
+        assert!(matches!(
+            event(&reopened),
+            Event::Journal { result: Err(_), .. }
+        ));
+        let mut pending = Some(JournalRequest {
+            task_id: task.id,
+            operation: JournalOperation::Purge,
+        });
+        assert!(reopened.try_journal(&mut pending));
+        assert!(matches!(
+            event(&reopened),
+            Event::Journal {
+                result: Ok(JournalResponse::Purged),
+                ..
+            }
+        ));
+        let mut pending = Some(JournalRequest {
+            task_id: task.id,
+            operation: JournalOperation::List,
+        });
+        assert!(reopened.try_journal(&mut pending));
+        assert!(
+            matches!(event(&reopened), Event::Journal { result: Ok(JournalResponse::Records(records)), .. } if records.is_empty())
+        );
+    }
+    #[test]
+    fn provider_journal_migrates_v4_and_enforces_quota_without_partial_record() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        initialize(&mut connection).unwrap();
+        connection
+            .execute_batch("DROP TABLE provider_journal; PRAGMA user_version=4;")
+            .unwrap();
+        assert!(matches!(inspect(&connection).unwrap(), Schema::Evidence));
+        initialize(&mut connection).unwrap();
+        assert!(matches!(inspect(&connection).unwrap(), Schema::Current));
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let task = store.save(Snapshot::empty("project".into())).unwrap();
+        let record = ProviderRecord {
+            id: "quota-session-item".into(),
+            agent: crate::provider::Agent::Codex,
+            generation: 1,
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "item".into(),
+            origin: "provider-native".into(),
+            coverage: "observed only".into(),
+            text: "bounded result".into(),
+            complete: true,
+        };
+        store.policy.quota_bytes = 0;
+        assert!(
+            store
+                .journal_request(JournalRequest {
+                    task_id: task.id,
+                    operation: JournalOperation::Put(record)
+                })
+                .is_err()
+        );
+        assert!(
+            matches!(store.journal_request(JournalRequest { task_id: task.id, operation: JournalOperation::List }).unwrap(), JournalResponse::Records(records) if records.is_empty())
+        );
+        store.project = "different-project".into();
+        assert!(
+            store
+                .journal_request(JournalRequest {
+                    task_id: task.id,
+                    operation: JournalOperation::List
+                })
+                .is_err()
+        );
     }
 
     #[test]
@@ -3267,7 +3680,7 @@ mod tests {
                 connection
                     .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                     .unwrap(),
-                4
+                5
             );
             assert!(connection.prepare("SELECT * FROM goals").is_err());
             assert!(connection.prepare("SELECT * FROM projects").is_err());
@@ -3841,7 +4254,7 @@ mod tests {
                 connection
                     .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                     .unwrap(),
-                4
+                5
             );
         }
     }
@@ -5187,7 +5600,7 @@ mod tests {
         drop(store);
         let path = directory.0.join(DATABASE);
         let mut connection = Connection::open(&path).unwrap();
-        connection.execute_batch("DROP TABLE excerpts; DROP TABLE executions; ALTER TABLE tasks DROP COLUMN command; PRAGMA user_version=3;").unwrap();
+        connection.execute_batch("DROP TABLE provider_journal; DROP TABLE excerpts; DROP TABLE executions; ALTER TABLE tasks DROP COLUMN command; PRAGMA user_version=3;").unwrap();
         {
             let transaction = connection.transaction().unwrap();
             migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
