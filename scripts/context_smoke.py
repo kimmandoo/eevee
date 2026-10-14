@@ -231,11 +231,12 @@ def main():
                     for x in range(screen.columns - len(SOURCE_TITLE) + 1):
                         if "".join(cells[column].data for column in range(x, x + len(SOURCE_TITLE))) != SOURCE_TITLE:
                             continue
-                        left = max(column for column in range(x) if cells[column].data in ("╭", "┌", "+"))
-                        right = min(column for column in range(x + len(SOURCE_TITLE), screen.columns) if cells[column].data in ("╮", "┐", "+"))
+                        # Frame style is presentation, not the payload contract.
+                        left = max(column for column in range(x) if cells[column].data in ("╭", "┌", "╔", "+"))
+                        right = min(column for column in range(x + len(SOURCE_TITLE), screen.columns) if cells[column].data in ("╮", "┐", "╗", "+"))
                         bottom = next(row for row in range(y + 1, screen.lines)
-                                      if screen.buffer[row][left].data in ("╰", "└", "+")
-                                      and screen.buffer[row][right].data in ("╯", "┘", "+"))
+                                      if screen.buffer[row][left].data in ("╰", "└", "╚", "+")
+                                      and screen.buffer[row][right].data in ("╯", "┘", "╝", "+"))
                         return "\n".join("".join(screen.buffer[row][column].data for column in range(left + 1, right))
                                          for row in range(y + 1, bottom))
                 raise AssertionError("source overlay cell boundaries are unavailable\n" + session.display())

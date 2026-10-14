@@ -2,6 +2,7 @@
 
 ## 2026-10-14
 
+- fix(ci): let the source-payload capture helper recognize double dialogue frames; preserve exact envelope/byte-count checks and all source/stored-reference revalidation scenarios.
 - docs(auth): record fresh Claude SDK permitted-route and native Linux/Windows Gemini ACP authentication blockers, passing local handoff/section-F regressions, and the user's explicit 0.1.1 authentication-preparation hold.
 - docs(release): describe online sprite-cache preparation accurately without changing exact-commit qualification or bundling image bytes.
 - fix(sprites): replace automatic character-cell mosaics with negotiated original-pixel Sixel/Kitty rendering; preserve integer scale, omit too-small images, clear overlays correctly and show the renderer in F4. Verify the nine-form surface in actual Windows Terminal 1.24.12741.0 on WSL2.

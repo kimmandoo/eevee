@@ -1,5 +1,11 @@
 # Troubleshooting
 
+### [2026-10-14] Native source-context smoke failed after dialogue-frame styling
+
+- **Observed failure:** Native run `38500866295` passed SDK policy and all five native builds, then every installed-runtime row stopped at source capture/revalidation. The local actual-TUI reproduction reached exact payload inspection and failed in `panel_text`: `max() iterable argument is empty`.
+- **Root cause:** The capture helper recognized rounded/single/ASCII frame corners, but the new active dialogue used double corners. It could not locate the panel; no incorrect payload or dispatch was established.
+- **Correction/proof:** Recognize double corners when extracting the actual panel cells, without asserting a border style or changing exact payload/byte-count/source-identity checks. The corrected actual-TUI journey passed all ten context cases, including CJK/CRLF, redaction, independent captures, purge, changed/missing source, link substitution and missing stored artifacts. Eight execution and six recovery cases also passed. Evidence: `target/pre-011-{context-fixed,execution,recovery}`. Fresh native qualification is still required after pushing this correction.
+
 ### [2026-10-14] Original sprites still looked like large broken pixels
 
 - **Root cause:** Correct 96×96 source files still passed through the half-cell renderer. Replacing illustrations with sprites did not remove that lossy character-grid conversion, and the old native gate excluded WSL/Windows Terminal.
