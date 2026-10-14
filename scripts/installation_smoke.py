@@ -86,6 +86,7 @@ class ReleaseFixture:
         self.requests = []
         self.corrupt_checksum = False
         self.throttle = False
+        self.animation_observed = threading.Event()
         fixture = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -128,6 +129,11 @@ class ReleaseFixture:
                     self.send_header("Content-Length", str(archive.stat().st_size))
                     self.end_headers()
                     if body:
+                        if fixture.throttle:
+                            # Keep an actual download pending until the terminal
+                            # observer has seen motion across both resize steps.
+                            # Package size/cache speed must not set that window.
+                            fixture.animation_observed.wait(timeout=10)
                         with archive.open("rb") as source:
                             while chunk := source.read(256 * 1024):
                                 self.wfile.write(chunk)
@@ -300,6 +306,64 @@ def main():
             assert result.returncode == 0, "real upgrade source build failed; see upgrade-build.log"
             upgrade_binary = root / "target/release" / ("ev-lifecycle-fixture.exe" if os.name == "nt" else "ev-lifecycle-fixture")
 
+            def animated_install(command, environment, capture_name):
+                release.throttle = True
+                release.animation_observed.clear()
+                session = terminal_smoke.Session(command, root, environment, (120, 36), output / capture_name)
+                try:
+                    deadline = time.monotonic() + 360
+                    columns = 120
+                    frames = {}
+                    narrow_frames = set()
+                    restored_frames = set()
+                    resized = False
+                    restored = False
+                    while session.alive() and time.monotonic() < deadline:
+                        session.pump(0.1)
+                        rows = [row.rstrip() for row in session.display().splitlines()]
+                        # Compare visible drawings under the same phase, not a
+                        # particular glyph, frame sequence, or screen position.
+                        drawing = tuple(row for row in rows if row.strip()
+                                        and not re.search(r"[A-NP-Za-np-z0-9]", row))
+                        if len(drawing) < 3:
+                            continue
+                        phase = tuple(row for row in rows if row.strip() and row not in drawing)
+                        frames.setdefault(phase, set()).add(drawing)
+                        assert all(len(row) < columns for row in drawing), \
+                            "animation reaches the wrap column"
+                        if not resized and len(frames[phase]) >= 3:
+                            session.capture("visible-motion")
+                            session.resize((24, 20))
+                            columns = 24
+                            resized = True
+                        elif resized and not restored:
+                            narrow_frames.add(drawing)
+                            if len(narrow_frames) >= 3:
+                                session.capture("narrow-visible-motion")
+                                session.resize((120, 36))
+                                columns = 120
+                                restored = True
+                        elif restored:
+                            restored_frames.add(drawing)
+                            if len(restored_frames) >= 3:
+                                if not release.animation_observed.is_set():
+                                    session.capture("restored-visible-motion")
+                                release.animation_observed.set()
+                    assert not session.alive(), "interactive release installation timed out"
+                    assert session.wait_exit(tui=False) == 0, session.display()
+                    assert any(len(seen) >= 3 for seen in frames.values()), \
+                        "no meaningful visible motion within a stable phase"
+                    assert restored, "animation did not remain visible after a narrow resize"
+                    assert len(restored_frames) >= 3, "animation did not resume at the restored width"
+                    for parameters in re.findall(r"\x1b\[([0-9;:]*)m", session.text):
+                        assert not any(30 <= int(code) <= 49 or 90 <= int(code) <= 107
+                                       for code in re.split("[;:]", parameters) if code), \
+                            "NO_COLOR animation emitted a color attribute"
+                finally:
+                    release.animation_observed.set()
+                    session.close()
+                    release.throttle = False
+
             def bootstrap():
                 downloaded = output / "downloaded-native" / "bin"
                 command = (["powershell.exe", "-NoLogo", "-NoProfile", "-File", str(package / "install.ps1"),
@@ -317,29 +381,10 @@ def main():
                 environment.pop("CI", None)
                 environment.pop("EV_VERSION", None)
                 environment["NO_COLOR"] = "1"
-                release.throttle = True
-                session = terminal_smoke.Session(command, root, environment, (120, 36), output / "installer-animation")
-                try:
-                    deadline = time.monotonic() + 360
-                    captured = False
-                    while session.alive() and time.monotonic() < deadline:
-                        session.pump(0.1)
-                        if not captured and "(|o|)" in session.text:
-                            session.capture("rolling-ball")
-                            captured = True
-                    assert not session.alive(), "interactive release installation timed out"
-                    assert session.wait_exit(tui=False) == 0, session.display()
-                    plain = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", session.text)
-                    for frame in ("(-o-)", "(|o|)", "(/o/)"):
-                        assert frame in plain, "rolling-ball frame was not displayed: " + frame
-                    assert re.search(r"\r {2,6}\(", plain), "ball never rolled across the terminal"
-                    assert "\x1b[31m" not in session.text and "\x1b[97m" not in session.text
-                    assert sha(downloaded / binary_name) == original_hash
-                    cached = verified_sprites()
-                    evidence["sprite_cache"] = str(sprite_cache)
-                finally:
-                    session.close()
-                    release.throttle = False
+                animated_install(command, environment, "installer-animation")
+                assert sha(downloaded / binary_name) == original_hash
+                cached = verified_sprites()
+                evidence["sprite_cache"] = str(sprite_cache)
                 launch = terminal_smoke.Session(
                     [str(downloaded / binary_name), "--images", "cells"],
                     root, environment, (120, 36), output / "installed-sprites",
@@ -351,10 +396,10 @@ def main():
                         launch.pump(0.1)
                     launch.send("\x1bOS")  # F4: inspect locally loaded assets, no download action.
                     deadline = time.monotonic() + 8
-                    while "9/9 original sprites ready" not in launch.display() and time.monotonic() < deadline:
+                    while not re.search(r"\b9/9\b", launch.display()) and time.monotonic() < deadline:
                         assert launch.alive(), "installed executable exited while inspecting sprites"
                         launch.pump(0.1)
-                    assert "9/9 original sprites ready" in launch.display(), launch.display()
+                    assert re.search(r"\b9/9\b", launch.display()), "installed sprites were not all loaded"
                     assert verified_sprites() == cached, "first launch modified the installed sprite cache"
                     launch.capture("first-launch-nine-original-sprites")
                     launch.send("\x03")
@@ -384,7 +429,7 @@ def main():
                 assert not (downloaded / binary_name).exists()
                 assert not list(downloaded.glob(".ev-stage*"))
 
-            run_case("latest-bootstrap-and-monochrome-rolling-ball", bootstrap)
+            run_case("latest-bootstrap-and-monochrome-capture-ball", bootstrap)
             with tempfile.TemporaryDirectory(prefix="upgrade-package-",dir=output) as upgrade_dir:
                 upgrade_dir = Path(upgrade_dir)
                 members = (binary_name,"LICENSE","THIRD_PARTY_NOTICES")
@@ -452,8 +497,13 @@ def main():
                 run_case("self-update-checksum-failure-preserves-install", corrupt_update)
 
                 def self_update():
-                    result = lifecycle(["update"])
-                    assert result.returncode == 0, result.stdout + result.stderr
+                    environment = terminal_smoke.terminal_environment("mono")
+                    environment.update(sprite_environment)
+                    environment.pop("CI", None)
+                    environment.pop("EV_VERSION", None)
+                    environment["NO_COLOR"] = "1"
+                    animated_install([str(destination / binary_name), "update"],
+                                     environment, "self-update-animation")
                     assert subprocess.check_output([str(destination / binary_name), "--version"], text=True).strip() == version
                     assert sha(destination / binary_name) == original_hash
                     assert not list(destination.glob(".ev-stage*")), "retired self-update files were not cleaned"

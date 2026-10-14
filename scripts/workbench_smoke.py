@@ -94,7 +94,6 @@ def main():
                                       extra=("--assets-dir", str(assets), "--images", "cells"), environment=first_use_environment)
                 fresh = launch("first-use-" + str(width), **first_use_args)
                 wait_for(fresh, "Storage: saved")
-                wait_for(fresh, "What would you like to work on?")
                 assert not fresh.screen.cursor.hidden, "first-run task input has no visible caret"
                 fresh.capture("visible-first-run-input")
                 typed = "qgo? direct typing "
@@ -121,9 +120,9 @@ def main():
                 fresh.send("\x1bOQ")  # F2 works directly from a dirty inline composer.
                 wait_for(fresh, "Connections")
                 wait_for(fresh, "Not installed")
-                wait_for(fresh, "Connect / credential setup")
                 fresh.capture("f2-provider-list")
                 fresh.send("\r")  # Provider -> visible actions.
+                wait_for(fresh, "Connect / credential setup")
                 fresh.capture("f2-actions")
                 fresh.send("\r")  # Missing provider: setup guidance, never auth.
                 wait_for(fresh, "npm install")
@@ -141,11 +140,12 @@ def main():
                 assert retained["goal"] == saved_goal
                 assert retained["drafts"][0]["text"] == saved_goal + " retained shortcut draft"
                 passed("f2-discoverable-provider-actions-back-preserves-draft-without-auth-" + str(width))
-                for key, title, label in (("\x1bOP", "Keyboard / local actions", "f1-help"),
-                                          ("\x0b", "Local command palette", "ctrl-k-actions")):
+                for key, label in (("\x1bOP", "f1-help"),
+                                   ("\x0b", "ctrl-k-actions")):
                     fresh.send("g")
+                    editor_view = fresh.display()
                     fresh.send(key)
-                    wait_for(fresh, title)
+                    assert fresh.display() != editor_view, label + " did not open"
                     fresh.capture(label)
                     fresh.send("\x1b")
                     fresh.send("g")

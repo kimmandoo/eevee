@@ -2,6 +2,9 @@
 
 ## 2026-10-14
 
+- fix(tui): shorten routine home/composer/status/help copy, reclaim a workspace row and keep action hints on deliberate lines; use compact connection pages and scrollable setup details without reducing consent or error information.
+- feat(installer): replace the one-line spinner with a four-line Poké Ball wobble/button pulse and separate phase output in POSIX and PowerShell install/update; preserve monochrome, resize, plain-output and cursor-restoration behavior.
+- docs(tasks): add six prioritized future improvements for searchable actions, attachment previews/budgets, connection diagnostics, readability/reduced motion, recipe authoring and reviewed update/rollback eligibility; keep them explicitly unimplemented and retain the 0.1.1 authentication hold.
 - fix(ci): let the source-payload capture helper recognize double dialogue frames; preserve exact envelope/byte-count checks and all source/stored-reference revalidation scenarios.
 - docs(auth): record fresh Claude SDK permitted-route and native Linux/Windows Gemini ACP authentication blockers, passing local handoff/section-F regressions, and the user's explicit 0.1.1 authentication-preparation hold.
 - docs(release): describe online sprite-cache preparation accurately without changing exact-commit qualification or bundling image bytes.

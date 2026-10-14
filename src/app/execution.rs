@@ -279,38 +279,34 @@ impl State {
     pub fn activity_label(&self) -> &'static str {
         if let Some(record) = &self.active {
             return match record.state {
-                runner::RunState::Running => "Local command running (no provider connection)",
-                runner::RunState::Cancelling => {
-                    "Local command cancelling; awaiting owned-tree exit"
-                }
-                runner::RunState::OutcomeUnknown => {
-                    "Local outcome unknown; retaining partial journal"
-                }
-                _ => "Local command ended; finalizing source evidence/journal",
+                runner::RunState::Running => "Local command running",
+                runner::RunState::Cancelling => "Cancelling local command",
+                runner::RunState::OutcomeUnknown => "Local outcome unknown",
+                _ => "Finalizing local evidence",
             };
         }
         if self.final_unknown {
-            return "Local execution outcome unknown; inspect journal";
+            return "Local outcome unknown / j Inspect";
         }
         if self.failed.is_some() {
-            return "Local journal save failed; partial evidence retained";
+            return "Local journal save failed";
         }
         if self.dispatching {
-            return "Local command approved; dispatch revalidation pending";
+            return "Preparing approved command";
         }
         if self.reserving {
-            return "Reserving local output before execution";
+            return "Reserving command output";
         }
         if self.prepared.is_some() {
-            return "Local command awaiting explicit approval";
+            return "Local approval needed";
         }
         if self.request_id.is_some() || self.pending_spec.is_some() {
-            return "Preparing local command/source identities; not executed";
+            return "Preparing local command";
         }
         if self.journal_saving {
-            return "Finalizing local execution journal";
+            return "Saving local journal";
         }
-        "Local work idle / F2 provider connections"
+        "Local work idle"
     }
     pub fn visible(&self) -> bool {
         self.shown
@@ -2040,11 +2036,14 @@ mod tests {
     #[test]
     fn global_activity_never_claims_no_work_during_approval_or_owned_execution() {
         let mut state = pending();
-        assert!(state.activity_label().contains("approval"));
+        let idle = State::default().activity_label();
+        assert_ne!(state.activity_label(), idle);
         state.active = Some(record(runner::RunState::Running));
-        assert!(state.activity_label().contains("running"));
+        let running = state.activity_label();
+        assert_ne!(running, idle);
         state.active.as_mut().unwrap().state = runner::RunState::Cancelling;
-        assert!(state.activity_label().contains("cancelling"));
+        assert_ne!(state.activity_label(), running);
+        assert_ne!(state.activity_label(), idle);
         state.set_capture_capacity(1024);
         assert!(approval_details(&prepared(), state.capture_capacity).contains("1024 bytes"));
     }

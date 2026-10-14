@@ -174,35 +174,60 @@ stop_animation() {
         animation_pid=
     fi
     if [ "$terminal_active" -eq 1 ]; then
-        printf '\r\033[2K\033[?25h' >&2
+        printf '\r\033[3A\033[J\033[?25h' >&2
         terminal_active=0
     fi
 }
+terminal_size() {
+    size=$(stty size <&2 2>/dev/null) || return 1
+    case "$size" in *[!0-9\ ]* | '' | \ *) return 1 ;; esac
+    rows=${size%% *}
+    columns=${size##* }
+    [ "$rows" -ge 8 ] && [ "$columns" -ge 16 ]
+}
 phase() {
     stop_animation
-    if [ -t 2 ] && [ "${TERM:-dumb}" != dumb ] && [ -z "${CI:-}" ]; then
+    if [ -t 2 ] && [ "${TERM:-dumb}" != dumb ] && [ -z "${CI:-}" ] && terminal_size; then
+        # Keep the phase outside the redraw area: resizing can reflow ordinary
+        # text without moving a long animated line across the screen.
+        printf '%.*s\n' "$((columns - 1))" "$1" >&2
         terminal_active=1
-        printf '\033[?25l' >&2
+        printf '\033[?25l\n\n\n' >&2
         (
             tick_pid=
             tick=0
             trap 'trap "" 1 2 3 15; if [ -n "$tick_pid" ]; then kill "$tick_pid" 2>/dev/null || :; wait "$tick_pid" 2>/dev/null || :; fi; exit 0' 1 2 3 15
             while :; do
-                for frame in '(-o-)' '(\o\)' '(|o|)' '(/o/)'; do
-                    position=$((tick % 12))
-                    [ "$position" -le 6 ] || position=$((12 - position))
+                # Recheck the real terminal, not a stale COLUMNS environment
+                # variable. A narrow resize clears the ball until it fits again.
+                if terminal_size; then
+                    case $((tick % 8)) in
+                        0 | 4) indent=1; button=o ;;
+                        1 | 2) indent=0; button=o ;;
+                        5 | 6) indent=2; button=o ;;
+                        *) indent=1; button=O ;;
+                    esac
+                    top='   .-----. '
+                    upper="  /#######\\"
+                    seam="  |--($button)--|"
+                    lower='   \_____/ '
                     if [ -z "${NO_COLOR+x}" ]; then
-                        printf '\r\033[2K%*s\033[31m%s\033[97mo\033[31m%s\033[0m  %s' \
-                            "$position" '' "${frame%%o*}" "${frame#*o}" "$1" >&2
+                        printf '\r\033[3A\033[J%*s\033[91m%s\n%*s%s\033[0m\n%*s%s\n%*s\033[97m%s\033[0m\r' \
+                            "$indent" '' "$top" "$indent" '' "$upper" \
+                            "$indent" '' "$seam" "$indent" '' "$lower" >&2
                     else
-                        printf '\r\033[2K%*s%s  %s' "$position" '' "$frame" "$1" >&2
+                        printf '\r\033[3A\033[J%*s%s\n%*s%s\n%*s%s\n%*s%s\r' \
+                            "$indent" '' "$top" "$indent" '' "$upper" \
+                            "$indent" '' "$seam" "$indent" '' "$lower" >&2
                     fi
-                    tick=$((tick + 1))
-                    sleep 0.12 &
-                    tick_pid=$!
-                    wait "$tick_pid" || :
-                    tick_pid=
-                done
+                else
+                    printf '\r\033[3A\033[J\n\n\n' >&2
+                fi
+                tick=$((tick + 1))
+                sleep 0.16 &
+                tick_pid=$!
+                wait "$tick_pid" || :
+                tick_pid=
             done
         ) &
         animation_pid=$!
@@ -455,19 +480,27 @@ if [ "$archive_set" -eq 0 ]; then
     phase 'Downloading and verifying all nine original sprites'
     # Use the verified release's pinned downloader and platform cache defaults,
     # exactly as normal startup does. Never run an unverified PATH executable.
-    "$stage/ev" --download-artwork &
+    "$stage/ev" --download-artwork > "$temp_dir/artwork-output" 2> "$temp_dir/artwork-error" &
     download_pid=$!
     if wait "$download_pid"; then
         download_pid=
+        stop_animation
+        cat "$temp_dir/artwork-output"
+        cat "$temp_dir/artwork-error" >&2
     else
         download_pid=
+        stop_animation
+        cat "$temp_dir/artwork-output"
+        cat "$temp_dir/artwork-error" >&2
         fail 'sprite setup failed; prior installation is unchanged. Completed sprites remain cached. Rerun to resume, or use --archive and --checksums for an explicit offline installation'
     fi
     after_sprite_hash=$(hash_file "$stage/ev") || fail 'cannot verify staged executable after sprite setup'
     [ "$after_sprite_hash" = "$new_hash" ] || fail 'staged executable changed during sprite setup; prior installation is unchanged'
 else
+    stop_animation
     printf 'Offline install: sprite cache unchanged. Missing images? Run ev --download-artwork when online, or provide --assets-dir.\n'
 fi
+phase 'Publishing verified Eevee installation'
 license_hash=$(hash_file "$stage/metadata/LICENSE") || fail 'cannot hash staged LICENSE'
 notices_hash=$(hash_file "$stage/metadata/THIRD_PARTY_NOTICES") || fail 'cannot hash staged THIRD_PARTY_NOTICES'
 printf 'ev-native-install-v2\nversion=%s\nsha256=%s\nlicense-sha256=%s\nnotices-sha256=%s\n' \

@@ -24,7 +24,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
     frame.render_widget(Clear, area);
     let block = panel(
         match menu.kind {
-            Kind::Files => " @ Attach context / inspect first ",
+            Kind::Files => " @ Files / inspect before attaching ",
             Kind::Commands => " / Commands ",
         },
         config,
@@ -83,7 +83,10 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
     text(
         frame,
         row(content, content.height.saturating_sub(1), 1),
-        "Type to filter / Arrows Choose / Enter / Esc Keep text",
+        match menu.kind {
+            Kind::Files => "Arrows Choose / Enter Inspect / Esc Keep text",
+            Kind::Commands => "Arrows Choose / Enter Open / Esc Keep text",
+        },
         paint.muted,
     );
 }

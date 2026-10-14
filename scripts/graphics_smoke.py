@@ -15,7 +15,6 @@ import tempfile
 import time
 
 from PIL import Image
-import pyte
 from terminal_smoke import Session, terminal_environment, ESC
 
 
@@ -125,14 +124,6 @@ def main():
                 session = Session([str(binary), '--data-dir', str(data), '--assets-dir', str(assets),
                                    '--images', mode], root, environment, (120, 40), output / protocol)
 
-                def text_screen():
-                    # Pyte does not implement APC/DCS images. Ignore their payloads
-                    # only for text assertions; independently decode/verify pixels.
-                    screen = pyte.Screen(120, 40)
-                    text = re.sub(r'\x1b(?:P|_)[^\x1b]*\x1b\\', '', session.text)
-                    pyte.Stream(screen).feed(text)
-                    return '\n'.join(screen.display)
-
                 def until(predicate, label):
                     deadline = time.monotonic() + 8
                     while not predicate():
@@ -165,7 +156,8 @@ def main():
                         assert 'U=1' not in session.text, 'Kitty virtual placeholders require an unprobed capability'
                         before = len(session.text)
                         session.send(ESC + 'OP')
-                        until(lambda: 'GETTING STARTED' in text_screen(), 'help overlay')
+                        until(lambda: (ESC + '[2J' if protocol == 'sixel' else 'a=d')
+                              in session.text[before:], 'native image removed for overlay')
                         changed = session.text[before:]
                         if protocol == 'sixel':
                             assert ESC + '[2J' in changed, 'Sixel image not erased before overlay'

@@ -2,9 +2,11 @@
 
 ## Active work
 
-**25 of 31 tasks passed scoped acceptance**, including P02 and U01/L01/G01/S01/S02/S03. Schema-6 specialist workflows, approved scoped memory and plan-only recipes passed all five native build/installed-runtime rows at `d198fa5`; SDK policy also passed. All specified local performance workloads and real Codex/OpenCode scenarios completed. The user-authorized **0.1.0 core release** promotes those exact qualified artifacts. **A04/A06/full A07 remain unchecked pending permitted Claude credentials and completed eligible Gemini authentication/model conformance; full Q01/Q02/P03 retain those dependencies.** Core acceptance is not advertised as complete provider interoperability.
+**Existing A–G scope: 25 of 31 tasks passed scoped acceptance**, including P02 and U01/L01/G01/S01/S02/S03. **Six additional planned items live in section H (0/6 complete); total backlog: 25/37 complete.** Schema-6 specialist workflows, approved scoped memory and plan-only recipes passed all five native build/installed-runtime rows at `d198fa5`; SDK policy also passed. All specified local performance workloads and real Codex/OpenCode scenarios completed. The user-authorized **0.1.0 core release** promotes those exact qualified artifacts. **A04/A06/full A07 remain unchecked pending permitted Claude credentials and completed eligible Gemini authentication/model conformance; full Q01/Q02/P03 retain those dependencies.** Core acceptance is not advertised as complete provider interoperability.
 
-**Current request (2026-10-14):** Finish unchecked tasks through section F in backlog order, commit/push each accepted increment, then publish **0.1.1** from freshly qualified same-commit native packages. The unchecked items in that scope are **A04, A06 and A07**; sections E/F already passed their stated scoped demos. Permitted Claude SDK credentials and authenticated eligible Gemini ACP remain prerequisites until real probes establish otherwise. Do not reuse Claude subscription tokens, fake provider evidence, or release before the requested F completion.
+**Current UX request (2026-10-14):** Shorten ordinary TUI explanations, improve action hierarchy and narrow layouts, make installation/update animation recognizably Poké Ball-inspired, and add concrete future product tasks. Mandatory execution/permission/deletion facts remain visible; this request does not clear the authentication/release hold.
+
+**Prior release request (2026-10-14), held:** Finish unchecked tasks through section F in backlog order, commit/push each accepted increment, then publish **0.1.1** from freshly qualified same-commit native packages. The unchecked items in that scope are **A04, A06 and A07**; sections E/F already passed their stated scoped demos. Permitted Claude SDK credentials and authenticated eligible Gemini ACP remain prerequisites until real probes establish otherwise. Do not reuse Claude subscription tokens, fake provider evidence, or release before the requested F completion.
 
 **Authentication hold selected by user:** After fresh permitted-route inspection, the user selected **wait until authentication is prepared**. A04/A07 and the conditional 0.1.1 version/tag/publication remain on hold; no unchecked provider gate is converted to completed local-core acceptance.
 
@@ -313,6 +315,58 @@ Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [i
 - **User-authorized 0.1.0 slice:** The latest request explicitly authorizes public release and commit/push, superseding the earlier offline-preview-only decision. Five native packages carry dependency notices and no franchise image bytes. Bootstrap, read-only update check, embedded-installer update, owned uninstall, rolling-ball progress and offline inputs are implemented; the release workflow requires all current native and SDK-policy jobs to pass. This bounded core release does not silently complete P03's remaining integrated/schema/performance/provider acceptance or signing/notarization.
 - **Published / verified (2026-10-14):** [v0.1.0](https://github.com/kimmandoo/eevee/releases/tag/v0.1.0) promoted `d198fa5`'s successful five-target packages without rebuild or repeated release smoke. All eight public assets downloaded anonymously and all seven checksum entries matched. Public macOS installation without compiler/provider runtime, version/update check, 15 specialist cases and three actual schema migration/refusal/resume cases passed. Signing/notarization and the full dependent provider/integrated gates remain unclaimed.
 
+## H — Planned product improvements
+
+These six items are a requested future backlog, **not implemented features** and not additional prerequisites retroactively attached to the existing A–G acceptance. Preserve the authentication hold above. Pick priority 1 before priority 2 when dependencies and real runtime access permit; each completed item needs its own actual-TUI demo and commit.
+
+### UX03 — Contextual, searchable actions
+
+- [ ] Make the next useful action discoverable without reading a manual.
+- **Priority:** 1.
+- **Depends on:** UX01, UX02.
+- **Change:** Reuse the existing `/` and Ctrl+K action registry with searchable aliases, current-surface actions and visible disabled reasons. Keep one concise primary hint; put the complete key map behind help. No second command dispatcher or execution-on-search.
+- **Accept:** At 120×36 and 60×18, locate attachment, provider, cancellation and evidence actions using a partial query; empty/disabled results explain the next step. Escape restores the exact draft and prior focus. Selecting a mutating action opens its normal review, never executes it.
+
+### C03 — Inspectable attachment chips and context budget
+
+- [ ] Show exactly which files/ranges will accompany a request.
+- **Priority:** 1.
+- **Depends on:** C02, A02.
+- **Change:** Extend `@` attachment with compact removable file/range chips, a selected-content preview, stale/unavailable markers and exact Eevee-sent bytes plus a labelled token estimate. Reuse stored excerpt identities and dispatch revalidation; do not imply control over provider-added reads/history.
+- **Accept:** Attach a full bounded file and a range, inspect/remove each by keyboard, restart and recover the same selection. Source changes become stale before sending; a missing capture blocks assembly. Displayed bytes equal the serialized request; excluded secrets and out-of-root links never become attachments. Long Unicode names fit without hiding remove/inspect actions.
+
+### A08 — Actionable connection diagnostics
+
+- [ ] Turn provider setup failures into one clear next step with details on demand.
+- **Priority:** 1.
+- **Depends on:** A01.
+- **Change:** Separate executable/version, permitted authentication, account eligibility and observed transport failures. Offer a supported native setup action and a redacted diagnostic view. Explain callback-free WSL login and disabled device authorization without silently switching methods/billing.
+- **Accept:** Exercise missing executable, incompatible version, actual authentication-required response and cancelled native login. Ordinary view shows the current blocker and next action; technical details remain reachable. No credential stores are read/copied, diagnostics contain no tokens/callback codes, and successful installation is never labelled successful authentication.
+
+### UX04 — Readability and reduced-motion preferences
+
+- [ ] Let users tune text density and motion without losing safety information.
+- **Priority:** 2.
+- **Depends on:** UX01, V01.
+- **Change:** Add documented compact/comfortable text density, a persistent reduced-motion preference and an explicit installer animation opt-out. Keep permission/error facts intact in both densities; honor accessibility settings without equating NO_COLOR with a request to remove all motion.
+- **Accept:** Change preferences, restart, and verify keyboard focus, CJK editing and all actions at 60×18 and 120×36. Reduced motion produces no animated frames during install/update but retains truthful phase output; redirected output remains escape-free. Test a real assistive setup before claiming screen-reader compatibility.
+
+### S04 — Create reusable recipes from reviewed work
+
+- [ ] Save a useful verified workflow without saving its authority or secrets.
+- **Priority:** 2.
+- **Depends on:** S03, R02, C02.
+- **Change:** Preview a recipe assembled from selected user-authored steps and actual validation commands; edit its name, scope and completion criteria before create-only TOML export. Reuse S03's schema and preview. Exclude transient grants, sessions, credentials and machine-specific absolute paths unless explicitly reviewed.
+- **Accept:** Export, reopen and apply a bug-fix recipe in another disposable project. Exact argv stays distinct from shell text; the new project still requires fresh context review and per-action approval. Cancelled export leaves no file, existing files are not overwritten, and imported steps never execute automatically.
+
+### P04 — Reviewed updates and safe rollback eligibility
+
+- [ ] Explain an update before replacement and refuse unsafe rollback.
+- **Priority:** 2.
+- **Depends on:** P02, E01.
+- **Change:** Add a compact TUI entry to the existing checksum-verified updater: current/target version, source, sprite-cache effects and retained-data policy. Offer rollback only when the retained package and data-schema compatibility can be established; never rewrite user data to make an older binary start.
+- **Accept:** In isolated installed layouts, review/cancel an update without changing files, approve a verified update and resume the task, then exercise both a compatible rollback and a newer-schema refusal with byte-identical data. Checksum failure/interruption preserves the last usable owned installation; no elevation, global profile edits or silent task/provider-data deletion.
+
 ## Phase status
 
-Phase 1, all six section-A tasks, all five section-B tasks, R01/R02/UX02/P02, A01–A03, A05 and U01/L01/G01/S01/S02/S03 passed their scoped gates: **25 of 31 implementation tasks checked; 6 remain unchecked**. A04/A06/full A07 still lack permitted Claude/Gemini authentication; full Q01/Q02/P03 therefore remain pending rather than inheriting local-core acceptance. The separately authorized 0.1.0 core release uses the successful exact-commit native artifacts, not an older green fallback.
+Existing A–G scope: **25/31 complete, 6 unchecked**. Requested future section H: **0/6 complete**. Total: **25/37 complete, 12 unchecked**. A04/A06/full A07 still lack permitted Claude/Gemini authentication; full Q01/Q02/P03 therefore remain pending rather than inheriting local-core acceptance. Section H does not retroactively widen existing acceptance or authorize its future changes. The separately authorized 0.1.0 core release used successful exact-commit native artifacts; 0.1.1 remains on the user-selected authentication hold.

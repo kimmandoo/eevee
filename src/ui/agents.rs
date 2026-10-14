@@ -38,46 +38,54 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         text(
             frame,
             content,
-            "Checking installed providers…\nNo provider program launched. Esc Back",
+            "Checking installed providers...\nEsc Back",
             paint.surface,
         );
         return;
     };
     if !state.preview && state.auth_preview.is_none() {
+        let narrow = content.width < 72;
+        let body_area = row(content, 0, content.height.saturating_sub(2));
         let columns = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Length(25), Constraint::Min(20)])
-            .split(row(content, 0, content.height.saturating_sub(2)));
-        text(frame, row(columns[0], 0, 1), "PROVIDERS", paint.accent);
-        for (index, provider) in state.profiles.iter().enumerate() {
-            let selected = index == state.selected;
+            .split(body_area);
+        let show_providers = !narrow || state.page == Page::Providers;
+        if show_providers {
+            let providers = if narrow { body_area } else { columns[0] };
+            text(frame, row(providers, 0, 1), "PROVIDERS", paint.accent);
+            for (index, provider) in state.profiles.iter().enumerate() {
+                text(
+                    frame,
+                    row(providers, 1 + index as u16 * 2, 2),
+                    &format!(
+                        "{} {}\n  {}",
+                        if index == state.selected { ">" } else { " " },
+                        provider.name,
+                        state.connection_status(index)
+                    ),
+                    if index == state.selected && state.page == Page::Providers {
+                        paint.accent
+                    } else {
+                        paint.surface
+                    },
+                );
+            }
+        }
+        let body = if narrow { body_area } else { columns[1] };
+        let provider_list = narrow && state.page == Page::Providers;
+        if !provider_list {
             text(
                 frame,
-                row(columns[0], 1 + index as u16 * 2, 2),
+                row(body, 0, 1),
                 &format!(
-                    "{} {}\n  {}",
-                    if selected { ">" } else { " " },
-                    provider.name,
-                    state.connection_status(index)
+                    "{} · {}",
+                    profile.name,
+                    state.connection_status(state.selected)
                 ),
-                if selected && state.page == Page::Providers {
-                    paint.accent
-                } else {
-                    paint.surface
-                },
+                paint.accent,
             );
         }
-        let body = columns[1];
-        text(
-            frame,
-            row(body, 0, 1),
-            &format!(
-                "{} · {}",
-                profile.name,
-                state.connection_status(state.selected)
-            ),
-            paint.accent,
-        );
         if state.page == Page::Diagnostics {
             let mut value = format!(
                 "{}\n\nInstalled: {}\nExecutable: {:?}\nArguments: {:?}\nVersion: {}\nAuthentication: {}\nBilling: {}\nAdapter: {}\nAction: {}\nHost: {}/{}\nContract revision: {}\n\n{}\n\n",
@@ -114,87 +122,95 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             );
             state.scroll = state.scroll.min(state.scroll_max);
         } else {
-            let methods = state.page == Page::Methods;
-            text(
-                frame,
-                row(body, 2, 1),
-                if methods {
-                    "CHOOSE SIGN-IN METHOD"
-                } else {
-                    "ACTIONS"
-                },
-                paint.accent,
-            );
-            let count = if methods {
-                for (index, method) in crate::auth::methods(state.selected).iter().enumerate() {
-                    text(
-                        frame,
-                        row(body, 3 + index as u16 * 2, 2),
-                        &format!(
-                            "{} {}{}",
-                            if index == state.method { ">" } else { " " },
-                            method.label(),
-                            if index == crate::auth::default_method(state.selected) {
-                                " (default)"
-                            } else {
-                                ""
-                            }
-                        ),
-                        if index == state.method {
-                            paint.accent
-                        } else {
-                            paint.surface
-                        },
-                    );
-                }
-                crate::auth::methods(state.selected).len() as u16 * 2
+            let start = if provider_list {
+                1 + state.profiles.len() as u16 * 2
             } else {
-                for (index, action) in state.actions().iter().enumerate() {
-                    text(
-                        frame,
-                        row(body, 3 + index as u16, 1),
-                        &format!(
-                            "{} {}",
-                            if index == state.action { ">" } else { " " },
-                            action.label()
-                        ),
-                        if index == state.action && state.page == Page::Actions {
-                            paint.accent
-                        } else {
-                            paint.surface
-                        },
-                    );
-                }
-                state.actions().len() as u16
+                let methods = state.page == Page::Methods;
+                text(
+                    frame,
+                    row(body, 1, 1),
+                    if methods {
+                        "CHOOSE SIGN-IN METHOD"
+                    } else {
+                        "ACTIONS"
+                    },
+                    paint.accent,
+                );
+                let count = if methods {
+                    for (index, method) in crate::auth::methods(state.selected).iter().enumerate() {
+                        text(
+                            frame,
+                            row(body, 2 + index as u16, 1),
+                            &format!(
+                                "{} {}{}",
+                                if index == state.method { ">" } else { " " },
+                                method.label(),
+                                if index == crate::auth::default_method(state.selected) {
+                                    " (default)"
+                                } else {
+                                    ""
+                                }
+                            ),
+                            if index == state.method {
+                                paint.accent
+                            } else {
+                                paint.surface
+                            },
+                        );
+                    }
+                    crate::auth::methods(state.selected).len() as u16
+                } else {
+                    for (index, action) in state.actions().iter().enumerate() {
+                        text(
+                            frame,
+                            row(body, 2 + index as u16, 1),
+                            &format!(
+                                "{} {}",
+                                if index == state.action { ">" } else { " " },
+                                action.label()
+                            ),
+                            if index == state.action && state.page == Page::Actions {
+                                paint.accent
+                            } else {
+                                paint.surface
+                            },
+                        );
+                    }
+                    state.actions().len() as u16
+                };
+                3 + count
             };
+            let methods = state.page == Page::Methods;
             let hint = if state.selected == 1 || profile.executable.is_none() {
                 state.setup_hint()
             } else if state.auth_busy() {
-                "Preparing review… Esc cancels. No provider program launched.".into()
+                "Preparing review... Esc cancels.".into()
             } else if methods {
                 let guidance = crate::auth::methods(state.selected)
                     .get(state.method)
                     .and_then(|method| method.guidance())
-                    .unwrap_or("Choose a method to review. Nothing launches before approval.");
+                    .unwrap_or("Enter reviews this method; nothing launches.");
                 format!("{}\n\n{guidance}", state.notice)
             } else {
                 state.notice.clone()
             };
-            let start = 4 + count;
-            frame.render_widget(
+            state.scroll_max = selection_details(
+                frame,
+                row(body, start, body.height.saturating_sub(start)),
                 Paragraph::new(crate::privacy::redact(&hint))
                     .style(paint.surface)
                     .wrap(Wrap { trim: false }),
-                row(body, start, body.height.saturating_sub(start)),
+                state.scroll,
             );
+            state.scroll = state.scroll.min(state.scroll_max);
         }
         text(
             frame,
             row(content, content.height.saturating_sub(2), 2),
             if state.page == Page::Diagnostics {
-                "Up/Down Scroll · Enter/Esc Back · Tab Providers\nInstalled ≠ connected. Model requests need separate approval."
+                "Up/Down Scroll / Enter Back / Tab Providers / Esc Back"
             } else {
-                "Up/Down Select · Tab Providers/Actions · Enter Open · Esc Back\nConnect always opens a review first. No automatic model requests."
+                "Arrows Select / Tab Providers/Actions / Enter Open\nPgUp/Dn Details / Esc Back"
             },
             paint.accent,
         );

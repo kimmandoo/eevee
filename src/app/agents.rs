@@ -77,7 +77,7 @@ impl State {
             reviewed: false,
             scroll: 0,
             scroll_max: 0,
-            notice: "Passive discovery only; no program has been launched.".into(),
+            notice: "Finding installed providers...".into(),
             discovering: true,
             generation: 0,
             inflight: None,
@@ -260,7 +260,7 @@ impl State {
                 self.selected = self.selected.min(self.profiles.len().saturating_sub(1));
                 self.method = crate::auth::default_method(self.selected);
                 self.discovering = false;
-                self.notice = "Choose a provider to connect. No login or model request starts without your approval.".into();
+                self.notice = "Choose a provider, then Enter for actions.".into();
             }
             Event::Probed {
                 profile,
@@ -271,8 +271,7 @@ impl State {
                 if let Some(current) = self.profiles.get_mut(profile) {
                     *current = *result;
                 }
-                self.notice =
-                    "Version check returned. Installation does not prove authentication.".into();
+                self.notice = "Version checked; authentication remains separate.".into();
             }
             Event::AuthPrepared {
                 profile,

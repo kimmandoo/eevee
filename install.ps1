@@ -31,7 +31,7 @@ $zip = $null
 $script:animation = $false
 $script:animationClock = [Diagnostics.Stopwatch]::new()
 $script:animationFrame = 0
-$script:animationWidth = 0
+$script:animationTop = 0
 $script:oldCursorVisible = $true
 $oldSecurityProtocol = [Net.ServicePointManager]::SecurityProtocol
 $script:ownerProcess = $null
@@ -100,29 +100,63 @@ try {
     $helper.Dispose()
 }
 
-function Start-InstallAnimation {
+function Start-InstallAnimation([string]$Phase) {
+    Stop-InstallAnimation
     if ([Console]::IsOutputRedirected -or [Console]::IsErrorRedirected -or
         -not [string]::IsNullOrEmpty($env:CI) -or $env:TERM -eq 'dumb' -or
-        $Host.Name -ne 'ConsoleHost') { return }
+        $Host.Name -ne 'ConsoleHost') {
+        [Console]::Error.WriteLine('ev installer: ' + $Phase)
+        return
+    }
     try {
-        $script:animationWidth = [Math]::Min(64, [Console]::WindowWidth - 1)
-        if ($script:animationWidth -lt 32) { return }
+        $width = [Console]::WindowWidth
+        [Console]::Error.WriteLine($Phase.Substring(0, [Math]::Min($Phase.Length, [Math]::Max(1, $width - 1))))
+        if ($width -lt 16 -or [Console]::WindowHeight -lt 8) { return }
         $script:oldCursorVisible = [Console]::CursorVisible
         $script:animation = $true
         [Console]::CursorVisible = $false
-        $script:animationClock.Start()
-        Update-InstallAnimation
+        [Console]::Error.Write("`n`n`n")
+        $script:animationTop = [Console]::CursorTop - 3
+        $script:animationFrame = 0
+        $script:animationClock.Restart()
+        Update-InstallAnimation -Force
     } catch { Stop-InstallAnimation }
 }
 
-function Update-InstallAnimation {
-    if (-not $script:animation -or $script:animationClock.ElapsedMilliseconds -lt 90) { return }
+function Update-InstallAnimation([switch]$Force) {
+    if (-not $script:animation -or (-not $Force -and $script:animationClock.ElapsedMilliseconds -lt 160)) { return }
     try {
-        $frames = @('(-o-)', '(\o\)', '(|o|)', '(/o/)')
-        $position = $script:animationFrame % 12
-        if ($position -gt 6) { $position = 12 - $position }
-        $line = (' ' * $position) + $frames[$script:animationFrame % 4] + '  Rolling Poke Ball - installing'
-        [Console]::Error.Write("`r" + $line.PadRight($script:animationWidth).Substring(0, $script:animationWidth))
+        $width = [Math]::Min([Console]::WindowWidth, [Console]::BufferWidth)
+        # The phase is ordinary text above a small redraw area, so reflow of
+        # long phase text never becomes part of a moving animation frame.
+        $script:animationTop = [Math]::Max(0, [Console]::CursorTop - 3)
+        $step = $script:animationFrame % 8
+        $indent = 1
+        $button = 'o'
+        if ($step -eq 1 -or $step -eq 2) { $indent = 0 }
+        elseif ($step -eq 5 -or $step -eq 6) { $indent = 2 }
+        elseif ($step -eq 3 -or $step -eq 7) { $button = 'O' }
+        $lines = @('   .-----. ', '  /#######\', ('  |--(' + $button + ')--|'), '   \_____/ ')
+        $colored = $null -eq [Environment]::GetEnvironmentVariable('NO_COLOR')
+        $oldColor = [Console]::ForegroundColor
+        try {
+            for ($row = 0; $row -lt 4; $row++) {
+                [Console]::SetCursorPosition(0, $script:animationTop + $row)
+                $line = ''
+                if ($width -ge 16 -and [Console]::WindowHeight -ge 8) {
+                    $line = (' ' * $indent) + $lines[$row]
+                }
+                if ($colored) {
+                    if ($row -lt 2) { [Console]::ForegroundColor = [ConsoleColor]::Red }
+                    elseif ($row -eq 3) { [Console]::ForegroundColor = [ConsoleColor]::White }
+                    else { [Console]::ForegroundColor = $oldColor }
+                }
+                [Console]::Error.Write($line.PadRight([Math]::Max(0, [Math]::Min(14, $width - 1))))
+            }
+        } finally {
+            if ($colored) { [Console]::ForegroundColor = $oldColor }
+        }
+        [Console]::SetCursorPosition(0, $script:animationTop + 3)
         $script:animationFrame++
         $script:animationClock.Restart()
     } catch { Stop-InstallAnimation }
@@ -131,7 +165,15 @@ function Update-InstallAnimation {
 function Stop-InstallAnimation {
     if (-not $script:animation) { return }
     $script:animation = $false
-    try { [Console]::Error.Write("`r" + (' ' * $script:animationWidth) + "`r") } catch { }
+    try {
+        $width = [Math]::Min([Console]::WindowWidth, [Console]::BufferWidth)
+        $top = [Math]::Max(0, [Console]::CursorTop - 3)
+        for ($row = 0; $row -lt 4; $row++) {
+            [Console]::SetCursorPosition(0, $top + $row)
+            [Console]::Error.Write(' ' * [Math]::Max(0, [Math]::Min(14, $width - 1)))
+        }
+        [Console]::SetCursorPosition(0, $top)
+    } catch { }
     try { [Console]::CursorVisible = $script:oldCursorVisible } catch { }
 }
 
@@ -518,7 +560,6 @@ try {
         Write-Output "Uninstalled ev from $binary. Task, cache, and provider data were retained."
         return
     }
-    Start-InstallAnimation
     if ($offline) {
         $archivePath = Get-AbsolutePath $Archive 'Archive'
         $checksumPath = Get-AbsolutePath $Checksums 'Checksums'
@@ -528,14 +569,17 @@ try {
     } else {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         if ([string]::IsNullOrEmpty($releaseTag)) {
+            Start-InstallAnimation 'Resolving latest Eevee release'
             $releaseTag = Get-ReleaseResponse ([uri]'https://github.com/kimmandoo/eevee/releases/latest') ([Diagnostics.Stopwatch]::StartNew()) 'HEAD'
         }
         $releaseBase = "https://github.com/kimmandoo/eevee/releases/download/$releaseTag"
         $archivePath = [IO.Path]::Combine($stage, $archiveName)
         $checksumPath = [IO.Path]::Combine($stage, 'SHA256SUMS')
+        Start-InstallAnimation "Downloading Eevee $releaseTag for Windows x86_64"
         Save-ReleaseFile "$releaseBase/SHA256SUMS" $checksumPath 1MB
         Save-ReleaseFile "$releaseBase/$archiveName" $archivePath $archiveLimit
     }
+    Start-InstallAnimation 'Verifying release checksum and archive'
     $expectedHash = Read-ExpectedChecksum $checksumPath
     Assert-SafeAncestry ([IO.Path]::GetDirectoryName($archivePath))
     Assert-SafePath $archivePath $false $true
@@ -571,6 +615,7 @@ try {
         $members[$entry.FullName] = $entry
     }
 
+    Start-InstallAnimation 'Staging verified Eevee installation'
     $stageMetadata = [IO.Path]::Combine($stage, '.ev-install')
     [void][IO.Directory]::CreateDirectory($stageMetadata)
     $stageBinary = [IO.Path]::Combine($stage, 'ev.exe')
@@ -604,6 +649,7 @@ try {
     }
     $zip.Dispose(); $zip = $null
     $archiveStream.Dispose(); $archiveStream = $null
+    Start-InstallAnimation 'Checking staged Eevee version'
     $binaryHash = Get-BinarySha256 $stageBinary
     $version = Invoke-StagedCommand $stageBinary '--version' 15000
     if ($version -cnotmatch '\Aev [0-9][0-9A-Za-z.+_-]*\z') {
@@ -614,17 +660,21 @@ try {
     }
     if ((Get-BinarySha256 $stageBinary) -cne $binaryHash) { throw 'Staged executable changed during --version.' }
     if ($offline) {
+        Stop-InstallAnimation
         Write-Output 'Offline install: sprite cache unchanged. Missing images? Run ev --download-artwork when online, or provide --assets-dir.'
     } else {
-        Write-Output 'Downloading and verifying all nine original sprites in the user cache.'
+        Start-InstallAnimation 'Downloading and verifying all nine original sprites'
         try {
             # Run only the SHA256-verified release, with the same cache defaults as startup.
-            Write-Output (Invoke-StagedCommand $stageBinary '--download-artwork' 300000)
+            $artworkOutput = Invoke-StagedCommand $stageBinary '--download-artwork' 300000
+            Stop-InstallAnimation
+            Write-Output $artworkOutput
         } catch {
             throw "Sprite setup failed; prior installation is unchanged. Completed sprites remain cached; rerun to resume, or use -Archive and -Checksums for an explicit offline installation. $($_.Exception.Message)"
         }
         if ((Get-BinarySha256 $stageBinary) -cne $binaryHash) { throw 'Staged executable changed during sprite setup.' }
     }
+    Start-InstallAnimation 'Publishing verified Eevee installation'
     $licenseHash = Get-BinarySha256 ([IO.Path]::Combine($stageMetadata, 'LICENSE'))
     $noticesHash = Get-BinarySha256 ([IO.Path]::Combine($stageMetadata, 'THIRD_PARTY_NOTICES'))
     $marker = "ev-native-install-v2`nversion=$version`nsha256=$binaryHash`nlicense-sha256=$licenseHash`nnotices-sha256=$noticesHash`n"

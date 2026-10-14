@@ -153,7 +153,7 @@ fn shell(area: Rect, linear: bool, focus: Pane) -> Shell {
     let outer = area.inner(ratatui::layout::Margin::new(1, 0));
     let header = row(outer, 0, 2);
     let footer = row(outer, outer.height.saturating_sub(2), 2);
-    let composer_height = if area.height >= 26 { 8 } else { 7 };
+    let composer_height = if area.height >= 26 { 7 } else { 6 };
     let composer = row(
         outer,
         outer.height.saturating_sub(composer_height + 2),
@@ -501,19 +501,19 @@ fn header(frame: &mut Frame, area: Rect, app: &App, form: &Form, paint: &Paint) 
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(" EEVEE ", paint.selected),
-            Span::styled(format!("  FIELD DESK / {project}"), paint.base),
+            Span::styled(format!("  {project}"), paint.base),
             Span::styled(format!("  /  {}", form.name), paint.muted),
         ])),
         row(area, 0, 1),
     );
     let activity = if app.planning.request.is_some() {
-        "Provider needs a response / e Review"
+        "Provider needs input / e Review"
     } else if app.planning.cancelling {
-        "Provider cancellation pending / e Status"
+        "Cancelling provider / e Status"
     } else if app.planning.preview.is_some() {
-        "Local provider preview / e Review before sending"
+        "Provider preview / e Review"
     } else if app.planning.busy() {
-        "Provider request or journal active / e Status"
+        "Provider active / e Status"
     } else if app.planning.outcome_unknown() {
         "Provider outcome unknown / e Inspect"
     } else {
@@ -523,7 +523,7 @@ fn header(frame: &mut Frame, area: Rect, app: &App, form: &Form, paint: &Paint) 
         frame,
         row(area, 1, 1),
         &clipped(
-            &format!("{}  /  {activity}", app.storage_label()),
+            &format!("{activity}  /  {}", app.storage_label()),
             area.width as usize,
         ),
         paint.muted,
@@ -554,22 +554,11 @@ fn workspace(
         .count();
     let mut lines = Vec::new();
     if app.goal.is_empty() {
-        lines.push(Line::styled("What are we working on?", paint.accent));
-        lines.push(Line::from(""));
-        lines.push(Line::from(format!(
-            "{} is ready for a new task.",
-            form.name
-        )));
-        lines.push(Line::styled(
-            "Enter saves your goal locally, not to a provider.",
-            paint.muted,
-        ));
-        lines.push(Line::from(""));
-        lines.push(Line::from("> F2  Connect a coding agent"));
-        lines.push(Line::from("> e   Review context and provider request"));
-        lines.push(Line::from("> Ctrl+K  Browse all actions"));
+        lines.push(Line::styled("Ready for a new task", paint.accent));
+        lines.push(Line::from("Type a goal below; Enter saves locally."));
+        lines.push(Line::styled("F2 Connect an agent", paint.muted));
     } else {
-        lines.push(Line::styled("QUEST / SAVED TASK", paint.accent));
+        lines.push(Line::styled("SAVED TASK", paint.accent));
         lines.extend(app.goal.lines().map(Line::from));
         lines.push(Line::styled(
             format!(
@@ -585,26 +574,19 @@ fn workspace(
         ));
         if !app.next_action.is_empty() {
             lines.push(Line::from(""));
-            lines.push(Line::styled("NEXT MOVE / LOCAL", paint.accent));
+            lines.push(Line::styled("NEXT ACTION", paint.accent));
             lines.extend(app.next_action.lines().map(Line::from));
         }
         lines.push(Line::from(""));
         if app.planning.items.is_empty() {
-            lines.push(Line::styled("CHOOSE YOUR NEXT MOVE", paint.accent));
-            lines.push(Line::from(
-                "e Provider request  /  v Sources  /  j Local checks",
-            ));
-            lines.push(Line::styled(
-                "Review the outgoing context before authorizing a run.",
-                paint.muted,
-            ));
+            lines.push(Line::from("e Review a provider request"));
         } else {
             lines.push(Line::styled(
                 format!("{} / PROVIDER ACTIVITY", app.planning.agent.label()),
                 paint.accent,
             ));
             lines.push(Line::styled(
-                "Provider output is unverified, not local execution evidence.",
+                "Unverified provider output / e Details",
                 paint.muted,
             ));
             // A bounded recent activity view, not a fabricated chat transcript.
@@ -753,7 +735,7 @@ fn companion(
         row(content, 0, 1),
     );
     frame.render_widget(
-        Paragraph::new("F4 Images / setup")
+        Paragraph::new("F3 Forms / F4 Images")
             .style(paint.accent)
             .alignment(Alignment::Center),
         row(content, 1, 1),
@@ -769,12 +751,8 @@ fn companion(
     );
     let lines = vec![
         Line::styled(form.element, paint.muted),
-        Line::from(""),
         Line::from(form.role),
-        Line::from(""),
         Line::styled(artwork.status(app.form), paint.muted),
-        Line::from(""),
-        Line::styled("f Choose evolution", paint.accent),
     ];
     scroll_text(
         frame,
@@ -894,7 +872,7 @@ fn forms(
         frame,
         row(content, 0, 1),
         &format!(
-            "Current: {} / Enter selects; no work starts",
+            "Current: {} / selection starts no work",
             FORMS[app.form].name
         ),
         paint.muted,
@@ -902,7 +880,10 @@ fn forms(
     text(
         frame,
         row(content, 1, 1),
-        &format!("F4 Images / setup  ·  {}/9 loaded", artwork.available()),
+        &format!(
+            "Enter Select / Esc Back / F4 Images ({}/9)",
+            artwork.available()
+        ),
         paint.accent,
     );
     let selected = app.selected.min(8);
@@ -970,7 +951,7 @@ fn forms(
             content.height.saturating_sub(3 + visible as u16),
         );
         let value = format!(
-            "{} / {}\nLocal selection grants nothing\np Inspect role / v Sources / j Commands",
+            "{} / {}\np Role details",
             FORMS[selected].name, FORMS[selected].role
         );
         text(frame, info, &value, paint.muted);
@@ -981,7 +962,7 @@ fn form_details(frame: &mut Frame, area: Rect, index: usize, config: &Config, ar
     let form = &FORMS[index];
     let paint = Paint::new(config, form, index);
     let value = format!(
-        "{} / {}\n{}\n\n{}\n\nLocal selection: available\n{}\n{}\n\nArrows / 1-9 preview\nEnter select / Esc keep current",
+        "{} / {}\n{}\n\n{}\n\n{}\n{}\n\nArrows / 1-9 Preview\np Role details",
         form.name,
         form.element,
         form.role,
@@ -1286,10 +1267,10 @@ fn selection_details(frame: &mut Frame, area: Rect, paragraph: Paragraph<'_>, of
 fn palette(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
     let area = centered(area, 66, 19);
     frame.render_widget(Clear, area);
-    let block = panel(" Local command palette ", config, paint, true);
+    let block = panel(" Actions ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let visible = content.height.saturating_sub(2) as usize;
+    let visible = content.height.saturating_sub(1) as usize;
     let start = app.selected.saturating_sub(visible.saturating_sub(1));
     for (index, command) in PALETTE.iter().enumerate().skip(start).take(visible) {
         text(
@@ -1309,8 +1290,8 @@ fn palette(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pa
     }
     text(
         frame,
-        row(content, content.height.saturating_sub(2), 2),
-        "Actions open separate reviews; no automatic provider request.",
+        row(content, content.height.saturating_sub(1), 1),
+        "Arrows Choose / Enter Open / Esc Back",
         paint.muted,
     );
 }
@@ -1318,12 +1299,12 @@ fn palette(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pa
 fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
     let area = centered(area, 78, 24);
     frame.render_widget(Clear, area);
-    let block = panel(" Keyboard / local actions ", config, paint, true);
+    let block = panel(" Help / PgUp/Dn Scroll / Esc Back ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
     let value = "TASKS\n g / Enter  Edit goal; Enter in workspace resumes\n t          Task cards; Enter resumes selection\n n          New task after saves and owned work settle\n c          Criteria; Space toggles, e edits lines\n a          Next action (descriptive, never execution)\n d          Review Complete; requires all criteria met\n w          Repository baseline; r refreshes current evidence\nExternal changes are unattributed, not agent-authored.\nTask cards: h active/archived; a archive; r restore.\nDelete reviews a task; x reviews eligible retention purge.\nDeletion: PgUp/Dn scroll; n/p artifact pages; neutral Stay.\nPurge leaves repository files, exports and provider sessions alone. Not forensic secure erasure.\nComplete is user review, not verified execution.\nGoal/criteria changes require explicit Reopen.\n\nSOURCES / v\n / filters filenames; r chooses inclusive start:end.\n Enter inspects line 1; p pins an inspected range.\n b toggles files/basket; Delete removes; x purges capture.\n a previews exact escaped envelope; d revalidates without sending.\n u refreshes repository; n/p pages a large envelope.\n s retries a failed retained storage operation explicitly.\nIgnore/exclusion, containment and source identity are rechecked. Provider history/config/independent reads are not constrained.\n\nCOMMANDS / j\n e edits JSON argv or explicit shell object; Apply prepares only.\n v opens neutral approval; closing it grants nothing.\n c reviews cancellation; h history; r fresh evidence.\n / searches output; n/N next/previous; f follows.\n Arrows/PgUp/Dn/Home/End scroll without following.\n [/] pages retained output; p reviews purge; d error details.\n s retries journal persistence, never command execution.\nApproval is not a sandbox. Cancellation does not roll back edits.\nTask/form changes and quit wait for owned work or explicit unknown-outcome review. Restart never replays a command.\n\nEDITOR\nEnter applies locally; Ctrl+S retains draft without applying.\nEsc reviews changed draft; unchanged drafts close directly.\nLeft/Right and deletion operate on graphemes.\nUp/Down move lines; Home/End line boundaries.\nCtrl+N newline; Shift+Enter only if terminal distinguishes it.\nPaste never applies or approves. Drafts survive restart.\nSecret masking is best-effort; volatile text may be unmasked.\n\nNAVIGATION\n f Evolution: arrows/1-9 preview, Enter activates\n p Local handoff preview; sends nothing\n i / b Inspector / companion\n r Retry failed task storage outside editor\n l Linear/sanctuary; Ctrl+K actions; Tab pane focus\n Esc closes overlay and restores focus; ? help\n q / Ctrl+C safe exit with neutral Stay\nDuring save-and-exit, Esc cancels exit.\nFailed persistence requires informed explicit exit.\nArtwork: --images cells|off. No automatic download or model request. Linear mode makes no screen-reader compatibility claim.";
     let value = format!(
-        "GETTING STARTED\n Type directly in the bottom Task composer on a new task.\n Enter saves locally; no provider message is sent.\n Saved task and recent provider activity appear above the composer.\n Provider text is unverified; e opens full items and approvals.\n F1 Help / F2 Connections / F3 Evolutions / F4 Images.\n Ctrl+K opens the action list; arrows choose, Enter opens.\n These controls retain an unfinished draft before navigating.\n Esc leaves a clean editor; changed drafts get a neutral review.\n Ctrl+C requests a safe exit.\n\nLAYOUT\n The composer stays full-width at the bottom.\n A small companion appears at 90+ columns; b opens its details.\n At 120+ columns Tab reveals inspector details on focus.\n i opens the inspector drawer at every supported size.\n Narrow and linear layouts put the task first; drawers keep all actions.\n Up/Down or PgUp/PgDown scroll the focused activity or details.\n\nCONNECTIONS / F2\n Up/Down chooses a provider; Enter opens its visible actions.\n Choose Connect, then an available sign-in method.\n The compact review starts on Back; select Connect explicitly.\n Details, version checks and status are secondary actions.\n Native login owns browser/credentials and may open its own chat.\n No task is sent and no token is copied into Eevee.\n Installed, authenticated and model eligibility are distinct.\n Claude SDK uses permitted API/cloud credentials, not subscription OAuth.\n\nIMAGES / F4\n Online installers download all nine original sprites.\n Download missing / Retry repairs the local sprite cache.\n Reload local rereads cache without networking.\n Cancel keeps completed images; retry fetches only missing files.\n Startup and form changes never download images.\n Image-derived cells work without a native graphics protocol.\n\nADVANCED NAVIGATION (Esc leaves the input first)\n{value}\n\nSPECIALIST REQUESTS / e\n n New session / r Reviewed same-task resume\n f Plan or Implement / x Select edit paths\n Review payload and effects, then authorize once.\n Permissions start at Deny; cancellation is not rollback.\n d Review selected decision as a next action / h Journal\n Provider history/configuration/billing remain external.\n No automatic replay, private reasoning or portable permissions."
+        "QUICK KEYS\n Enter       Save goal locally; never sends or runs\n @ / /       Files / commands in the composer\n F2          Connections\n F3 / F4     Forms / images\n Ctrl+K      All actions\n Esc         Back; review a changed draft\n Ctrl+C      Safe exit\n PgUp/Dn     Scroll focused details\n\nLAYOUT\n b Companion / i Inspector / Tab Focus\n Narrow layouts keep the composer full-width.\n Global shortcuts retain unfinished drafts.\n Provider output is unverified; e opens full items.\n\nCONNECTIONS / F2\n Arrows select; Enter opens actions or a review.\n Connect requires explicit approval; Back is default.\n Native login owns browser/credentials and may open chat.\n No task is sent and no token is copied into Eevee.\n Installed, authenticated and model eligibility differ.\n Claude uses permitted API/cloud credentials, not subscription OAuth.\n Diagnostics keeps executable, capability and blocker details.\n\nIMAGES / F4\n Download missing / Retry repairs the sprite cache.\n Reload local is offline; Cancel keeps completed images.\n Startup and form changes never download images.\n Auto uses Sixel/Kitty or falls back to text, not a mosaic.\n --images cells explicitly enables character art.\n\nMORE KEYS (Esc leaves the input first)\n{value}\n\nSPECIALIST REQUESTS / e\n n New session / r Reviewed same-task resume\n f Plan or Implement / x Select edit paths\n Review payload and effects, then authorize once.\n Permissions start at Deny; cancellation is not rollback.\n d Review selected decision as a next action / h Journal\n Provider history/configuration/billing remain external.\n No automatic replay, private reasoning or portable permissions."
     );
     let value = format!(
         "{value}\n\nSPECIALIST DESK / u\n Left/Right chooses Diagnosis, Refactor, Review or Recipe.\n Up/Down chooses a field or action; Enter opens it.\n Text fields: Ctrl+S applies locally; Enter adds a line.\n Source/run evidence retains task ownership and freshness.\n Refactor and diagnosis handoffs open normal approvals.\n Managed review starts fresh and has no source-writing tools.\n Recipes preview before Apply; Apply stages only, never runs.\n\nAPPROVED MEMORIES / m\n r Remember the saved next-action note; n author a note.\n Scope and contents require explicit preview/approval.\n Space chooses memories for future provider context.\n Editing/deleting invalidates old request snapshots.\n Prior exports and provider history are outside local erasure."
@@ -1384,13 +1365,11 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
         "Tab/arrows Choose / Enter Confirm / Esc Stay"
     } else if app.transitioning {
         "Applying task operation / mutation paused"
-    } else if app.editing {
-        "F2 Connect / F3 Forms / F4 Images / Ctrl+K Actions\nEsc Navigate or review draft / Ctrl+C Safe exit"
+    } else if app.editing && app.overlay.is_none() {
+        "F1 Help / F2 Connect / F3 Forms / F4 Images\nCtrl+K Actions / Ctrl+C Exit"
     } else {
         match app.overlay {
-            Some(Overlay::Forms) => {
-                "Arrows Preview / 1-9 Preview / Enter Select / p Details / Esc Back"
-            }
+            Some(Overlay::Forms) => "Arrows/1-9 Preview / Enter Select / p Details / Esc Back",
             Some(Overlay::Palette) => "Arrows Choose / Enter Open / Esc Back",
             Some(Overlay::Repository) => "r Refresh / Up/Down Scroll / PgUp/Dn Page / Esc Back",
             Some(Overlay::Sources) => {
@@ -1420,22 +1399,20 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
             Some(Overlay::Planning) => "",
             Some(Overlay::Handoff) => "",
             Some(Overlay::Workflows | Overlay::Memory) => "",
-            Some(Overlay::Tasks) => {
-                "Enter Resume / h Archives / a Archive or r Restore / Del / Esc"
-            }
+            Some(Overlay::Tasks) => "Enter Resume / h Archives / a Archive / r Restore / Del",
             Some(Overlay::Criteria) => "Space Toggle / e Edit / Arrows Choose / PgUp/Dn / Esc Back",
             Some(_) => "Up/Down Scroll / Esc Back / Ctrl+C Exit",
             None => match app.effective_focus() {
                 Pane::Companion => "Enter Evolution / Tab Focus / i Inspect / ? Help / q Quit",
                 Pane::Inspector => "Enter Inspect / Tab Focus / t Tasks / ? Help / q Quit",
                 Pane::Workspace if matches!(app.form, 5..=7) => {
-                    "Enter Specialist desk / u Desk / m Memories / Ctrl+K Actions"
+                    "Enter Desk / m Memories / Ctrl+K Actions / F1 Help"
                 }
                 Pane::Workspace if app.form == 8 => {
-                    "Enter Handoff / z Handoff / m Memories / Ctrl+K Actions"
+                    "Enter Handoff / m Memories / Ctrl+K Actions / F1 Help"
                 }
                 Pane::Workspace => {
-                    "Enter Edit / / Commands / @ Files\nPgUp/Dn Scroll / F2 Connect / Ctrl+K Actions"
+                    "F1 Help / F2 Connect / F3 Forms / F4 Images\nCtrl+K Actions / Ctrl+C Exit"
                 }
             },
         }
@@ -1511,14 +1488,14 @@ fn images(
     let display_path = format!("{:?}", config.assets_dir);
     let path = crate::privacy::redact(&display_path);
     let body = format!(
-        "{}/9 original sprites ready\nRenderer: {}\n\nAuto displays original pixels through Sixel or Kitty.\nNo compatible protocol or pixel size: text, not a mosaic.\n--images cells explicitly enables low-resolution character art.\n\nOnline installers download all nine sprites; startup stays offline.\nRecovery: pinned PokeAPI/sprites via raw.githubusercontent.com (HTTPS)\nSave to: {}\nMatching files are reused; conflicting files are preserved.\nPokemon belongs to its rights holders; download is not a rights license.\n\n{}",
+        "{}/9 sprites ready / {}\n\nDownload: pinned PokeAPI/sprites on raw.githubusercontent.com (HTTPS)\nSave to: {}\nMatching files are reused; conflicting files are preserved.\nPokemon belongs to its rights holders; download is not a rights license.\n\n{}\n\nStartup stays offline. Auto uses Sixel or Kitty; --images cells enables character art.",
         artwork.available(),
         graphics_status,
         path,
         if config.images == crate::config::ImageMode::Off {
             "Images disabled: restart with --images auto or --images cells."
         } else if app.images_notice.is_empty() {
-            "Missing sprites? Choose Download missing / Retry, or Reload local after copying files."
+            "Choose Download missing / Retry, or Reload local."
         } else {
             &app.images_notice
         }
@@ -1582,9 +1559,9 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
             EditorField::Goal | EditorField::NextAction
         );
     let title = if editing && app.editor_field == EditorField::NextAction {
-        " NEXT MOVE / local only "
+        " Next action / local "
     } else {
-        " DIALOGUE / Task composer / local only "
+        " Task composer / local "
     };
     let title = format!("{title}/ {} attached ", app.sources.basket.len());
     let block = panel(&title, config, paint, editing && app.overlay.is_none());
@@ -1601,11 +1578,11 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
             frame,
             input,
             if editing {
-                "What would you like to work on?"
+                "Describe your task..."
             } else if app.goal.is_empty() {
                 "Press g to describe a task."
             } else {
-                "g Edit goal  /  @ Files  /  / Commands"
+                "g Edit goal"
             },
             paint.muted,
         );
@@ -1631,15 +1608,15 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
     let hint = if app.input_truncated && editing {
         "Input limit reached; draft retained.\nEnter Save locally / Esc Review"
     } else if editing {
-        "Enter Save locally / @ Files / / Commands\nCtrl+N Newline / No message or command is sent."
+        "Enter Save locally / Ctrl+N Newline\n@ Files / / Commands / Esc Review draft"
     } else if app.effective_focus() != Pane::Workspace {
-        "g Edit goal / / Commands / @ Files\nTab changes focus; Enter opens focused details."
+        "g Edit goal / Tab Focus\nEnter opens focused details"
     } else if matches!(app.form, 5..=7) {
-        "Enter Specialist desk / g Edit goal\nSaved locally; no automatic model calls."
+        "Enter Specialist desk / g Edit goal"
     } else if app.form == 8 {
-        "Enter Prepare handoff / g Edit goal\nNo automatic writes or completion."
+        "Enter Prepare handoff / g Edit goal"
     } else {
-        "Enter Edit goal / Ctrl+K Actions\nSaved locally; e reviews a provider request."
+        "Enter Edit goal / e Review provider request"
     };
     text(
         frame,
@@ -2042,11 +2019,14 @@ mod tests {
 
     #[test]
     fn task_layout_keeps_composer_full_width_and_details_progressive() {
-        for (width, height) in [(120, 36), (100, 30), (70, 24), (60, 18)] {
+        for (width, height) in [(120, 36), (100, 30), (80, 24), (70, 24), (60, 18)] {
             let area = Rect::new(0, 0, width, height);
             let layout = shell(area, false, Pane::Workspace);
             assert_eq!(layout.composer.width, width - 2);
-            assert!(layout.composer.height >= 7);
+            assert!(
+                inner(layout.composer).height > 2,
+                "input remains above hints"
+            );
             assert!(layout.workspace.height > 0);
             assert!(layout.workspace.bottom() < layout.composer.y);
             assert_eq!(layout.composer.bottom(), layout.footer.y);
