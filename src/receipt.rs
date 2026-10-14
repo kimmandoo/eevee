@@ -39,6 +39,8 @@ pub struct Receipt {
     pub envelope_bytes: usize,
     pub bytes: usize,
     pub tokens: usize,
+    /// Captures emitted as a `same_bytes_as` citation instead of duplicated text.
+    pub deduplicated: usize,
 }
 
 const ORDER: [&str; 6] = [
@@ -103,11 +105,28 @@ pub fn receipt(payload: &str) -> Receipt {
         }),
     }
     let counted: usize = sections.iter().map(|s| s.bytes).sum();
+    let deduplicated = match serde_json::from_str::<Value>(payload) {
+        Ok(value) => count_refs(&value),
+        Err(_) => 0,
+    };
     Receipt {
         envelope_bytes: bytes.saturating_sub(counted),
         sections,
         bytes,
         tokens,
+        deduplicated,
+    }
+}
+
+/// Counts `same_bytes_as` citation markers anywhere inside the payload tree.
+fn count_refs(node: &Value) -> usize {
+    match node {
+        Value::Object(map) => {
+            usize::from(map.contains_key("same_bytes_as"))
+                + map.values().map(count_refs).sum::<usize>()
+        }
+        Value::Array(items) => items.iter().map(count_refs).sum(),
+        _ => 0,
     }
 }
 
@@ -121,6 +140,12 @@ impl Receipt {
                 section.bytes,
                 section.tokens,
                 section.keys.join(", ")
+            ));
+        }
+        if self.deduplicated > 0 {
+            lines.push(format!(
+                "Deduplicated locally: {} capture(s) cite earlier identical bytes (same_bytes_as) instead of repeating them; provider-side cache/billing effects are unknown.",
+                self.deduplicated
             ));
         }
         lines.push(format!("JSON keys/indentation: {} B", self.envelope_bytes));

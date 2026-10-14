@@ -176,11 +176,11 @@ fn run(config: Config) -> io::Result<()> {
                     {
                         app.planning.set_devin_credential(None);
                     }
-                    app.agents.session_credential = app
+                    app.agents.session_credential_until = app
                         .planning
                         .devin_credential
                         .as_ref()
-                        .is_some_and(|credential| !credential.expired());
+                        .map(|credential| credential.expires_at.unwrap_or(u64::MAX));
                     input = input::Input::new()?;
                     input.discard_pending()?;
                     graphics = native::NativeGraphics::new(&config);
