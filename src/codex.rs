@@ -3250,7 +3250,7 @@ mod tests {
             available: true,
         };
         // Whole-file pin with identical text -> citation, not duplication.
-        let entry = baseline_entry(&baseline, &[pinned.clone()]);
+        let entry = baseline_entry(&baseline, std::slice::from_ref(&pinned));
         assert_eq!(entry["working_content_same_as_capture"], 77);
         assert!(entry.get("working_content").is_none());
         // A partial range never replaces the baseline's current bytes.

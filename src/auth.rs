@@ -814,7 +814,7 @@ impl NativeSignals {
         // SAFETY: signal handler uses only a lock-free atomic; restore on Drop.
         unsafe {
             let mut action: libc::sigaction = std::mem::zeroed();
-            action.sa_sigaction = record_interrupt as usize;
+            action.sa_sigaction = record_interrupt as *const () as usize;
             libc::sigemptyset(&mut action.sa_mask);
             let mut interrupt = std::mem::zeroed();
             let mut background = std::mem::zeroed();
