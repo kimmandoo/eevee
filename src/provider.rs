@@ -151,6 +151,9 @@ pub struct Input {
     pub inspect_sessions: bool,
     pub inspect_models: bool,
     pub selection: ModelSelection,
+    /// Eevee-owned website login result, injected into the launched provider
+    /// process environment at Run time. Memory only; never serialized or logged.
+    pub credential: Option<crate::auth::SessionCredential>,
 }
 
 impl Input {
@@ -443,6 +446,7 @@ mod tests {
             inspect_sessions: false,
             inspect_models: false,
             selection: ModelSelection::default(),
+            credential: None,
         }
     }
 

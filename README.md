@@ -95,7 +95,7 @@ No command bypasses approval or executes pasted text. Model catalogues come from
 
 ## Connect an agent
 
-Authentication is only needed for provider requests. Login always runs in the provider's official CLI after its own review; Eevee never collects tokens.
+Authentication is only needed for provider requests. Login runs in the provider's official CLI after its own review, and Eevee never collects those tokens; the Devin website OAuth route is the exception — Eevee drives that flow itself and keeps the returned session credential in memory only (injected as `WINDSURF_API_KEY` into `devin acp`, never persisted).
 
 | Provider | Integration | Sign-in |
 | --- | --- | --- |
@@ -103,7 +103,7 @@ Authentication is only needed for provider requests. Login always runs in the pr
 | Claude Agent SDK **0.3.296** | Optional Node 24 sidecar | API key, Console OAuth via `ant` **1.40.0**, Bedrock or Vertex (no claude.ai subscription reuse) |
 | OpenCode **1.18.0** | ACP (`acp --pure`) | OpenCode's own `auth login` |
 | Gemini CLI **0.28.0** | ACP | Gemini's native CLI (OAuth, API key or Vertex) |
-| Devin CLI **3000.11.3** | ACP (local agent) | Browser OAuth or manual token |
+| Devin CLI **3000.11.3** | ACP (local agent) | Website OAuth (browser callback or pasted redirect; in-memory session credential injected as `WINDSURF_API_KEY`) or the CLI's own browser OAuth / manual token |
 
 Other provider versions fail closed. On WSL/SSH, use Codex **device authorization** instead of a localhost callback. The Claude sidecar:
 

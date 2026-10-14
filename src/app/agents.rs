@@ -68,6 +68,9 @@ pub struct State {
     pub auth_details: bool,
     pub review_choice: usize,
     outcomes: Vec<Option<crate::auth::Outcome>>,
+    /// True while a memory-only website-OAuth credential can satisfy Devin
+    /// ACP launches; synced from the planning drawer after each auth return.
+    pub session_credential: bool,
 }
 
 impl Default for State {
@@ -103,6 +106,8 @@ impl State {
             auth_details: false,
             review_choice: 0,
             outcomes: Vec::new(),
+
+            session_credential: false,
         }
     }
 
@@ -183,6 +188,9 @@ impl State {
             return "Not installed";
         }
         match self.outcomes.get(index).copied().flatten() {
+            _ if index == crate::agent::DEVIN && self.session_credential => {
+                "Connected (session credential)"
+            }
             Some(crate::auth::Outcome::Authenticated) => "Connected",
             Some(crate::auth::Outcome::NotAuthenticated) => "Not connected",
             _ => "Unknown",
@@ -300,7 +308,10 @@ impl State {
         match event {
             Event::Discovered(profiles) if self.discovering => {
                 self.profiles = profiles;
-                self.outcomes = vec![None; self.profiles.len()];
+                // Re-discovery must not erase in-session auth outcomes: a
+                // Refresh is not a logout. The profiles vec is registry-order
+                // stable, so index-aligned outcomes carry over.
+                self.outcomes.resize(self.profiles.len(), None);
                 self.selected = self.selected.min(self.profiles.len().saturating_sub(1));
                 self.method = crate::auth::default_method(self.selected);
                 self.discovering = false;

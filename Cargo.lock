@@ -336,6 +336,7 @@ version = "0.1.2"
 dependencies = [
  "base64-simd",
  "crossterm",
+ "getrandom",
  "image",
  "libc",
  "parking_lot",

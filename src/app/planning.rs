@@ -113,6 +113,8 @@ pub struct State {
     request_selection: ModelSelection,
     session_selection: ModelSelection,
     pub observed_model: Option<String>,
+    /// Website-OAuth session credential for Devin ACP launches; memory only.
+    pub devin_credential: Option<crate::auth::SessionCredential>,
 }
 
 impl Default for State {
@@ -144,6 +146,7 @@ impl State {
             selection_change: None, inspect_models: false,
             request_selection: ModelSelection::default(), session_selection: ModelSelection::default(),
             observed_model: None,
+            devin_credential: None,
         }
     }
 
@@ -199,6 +202,7 @@ impl State {
             let selections = std::mem::take(&mut self.selections);
             let catalogues = std::mem::take(&mut self.catalogues);
             let selection = self.selection.clone();
+            let credential = self.devin_credential.take();
             let agent = self.agent;
             *self = Self::new();
             self.task = task_id;
@@ -206,11 +210,25 @@ impl State {
             self.selection = selection;
             self.selections = selections;
             self.catalogues = catalogues;
+            self.devin_credential = credential;
         }
     }
 
+    /// Stores or replaces the website-login credential used for Devin ACP
+    /// launches; `None` detaches it (native login or explicit clear).
+    pub fn set_devin_credential(&mut self, credential: Option<crate::auth::SessionCredential>) {
+        self.devin_credential = credential;
+    }
+
     pub fn invalidate_authentication(&mut self) {
+        // Any open picker must close before its stale catalogue survives a
+        // credential change; a live request keeps its generation-correlated
+        // state and is only flagged for re-review.
+        self.picker = None;
+        self.selection_change = None;
         if self.busy() {
+            self.invalidate_review();
+            self.notice = "Authentication changed during a provider request; continuing work is not invalidated.".into();
             return;
         }
         self.sessions.clear();
@@ -222,13 +240,13 @@ impl State {
         self.omitted = 0;
         self.inspection = None;
         self.inspect_sessions = false;
+        self.inspect_models = false;
         self.decision = None;
         self.generation = None;
         self.close_request();
         self.review_start();
         self.notice = "Authentication may have changed. Provider sessions and consent cleared; prepare a fresh request.".into();
     }
-
     pub fn invalidate_review(&mut self) {
         self.reviewed = false;
         self.affirmative = false;
@@ -526,7 +544,16 @@ impl State {
             {
                 match catalogue.validate() {
                     Ok(()) => {
+                        // A refreshed catalogue that no longer advertises the
+                        // selected model must say so; the picker's Default row
+                        // is honest about a stale explicit id only here.
+                        let stale = self.selection.model.as_ref().is_some_and(|model| {
+                            !catalogue.models.iter().any(|entry| &entry.id == model)
+                        });
                         self.catalogues.insert(self.agent, catalogue);
+                        if stale {
+                            self.notice = "The refreshed catalogue no longer advertises the selected model; the next request fails its advertised check unless you reselect.".into();
+                        }
                     }
                     Err(reason) => self.notice = format!("Model catalogue rejected: {reason}"),
                 }
@@ -812,6 +839,11 @@ impl State {
             inspect_sessions,
             inspect_models,
             selection: self.request_selection.clone(),
+            credential: if self.agent == Agent::Devin {
+                self.devin_credential.clone()
+            } else {
+                None
+            },
         })));
         self.awaiting_preview = true;
         self.notice =
