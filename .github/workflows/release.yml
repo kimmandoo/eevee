@@ -31,7 +31,7 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12.9'
-      - name: Require successful main push, SDK policy, and five native smoke rows
+      - name: Require successful main push, check job, and five native build rows
         id: native
         env:
           GH_TOKEN: ${{ github.token }}
@@ -84,5 +84,5 @@ jobs:
         run: |
           gh release create "$RELEASE_TAG" target/release-assets/* --verify-tag --draft \
             --title "Eevee $RELEASE_TAG" --generate-notes \
-            --notes "Standalone local-first workbench. These exact native packages passed all five install and terminal suites plus credential-free SDK policy in same-commit native run $QUALIFIED_RUN (attempt $QUALIFIED_ATTEMPT): https://github.com/$GH_REPO/actions/runs/$QUALIFIED_RUN. Optional provider runtimes and accounts are separate; authenticated provider interoperability is not implied. Online installers download hash-verified sprites to the user cache; packages do not bundle franchise image bytes and offline installation stays offline. Packages are unsigned and macOS builds are not notarized. See README for checksum-verified installation and support limits."
+            --notes "Standalone local-first workbench. These exact native packages passed tests, an offline install check on all five native rows, and credential-free SDK policy in same-commit native run $QUALIFIED_RUN (attempt $QUALIFIED_ATTEMPT): https://github.com/$GH_REPO/actions/runs/$QUALIFIED_RUN. Optional provider runtimes and accounts are separate; authenticated provider interoperability is not implied. Online installers download hash-verified sprites to the user cache; packages do not bundle franchise image bytes and offline installation stays offline. Packages are unsigned and macOS builds are not notarized. See README for checksum-verified installation and support limits."
           gh release edit "$RELEASE_TAG" --draft=false --latest

@@ -484,7 +484,7 @@ fn worker(
                     input.selection.effort.as_deref().unwrap_or("selected model's advertised default"),
                 ));
                 if input.inspect_models {
-                    preview.trust.push("CATALOGUE ONLY: launch the qualified Codex app-server and initialize/account/read/model/list. Provider configuration/authentication and network access may be used; no login/auth refresh, thread start/resume, prompt, model turn, edit, journal or model-turn budget.".into());
+                    preview.trust.push("CATALOGUE ONLY: launch the qualified Codex app-server and initialize/account/read/model/list. Provider configuration/authentication and network access may be used; no login/auth refresh, thread start/resume, prompt, model turn, edit or journal.".into());
                 }
                 let baseline = if input.inspect_models {
                     Ok(Vec::new())

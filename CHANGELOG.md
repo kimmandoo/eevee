@@ -8,9 +8,11 @@
 - test(commands): migrate acceptance journeys to semantic commands and add regressions for literal drafts, neutral popups, stale scope/save/busy gates, provider-scoped selections, catalogue bounds, unsupported choices and model/effort acknowledgments.
 - feat(devin): add pinned Devin CLI 3000.11.3 as the fifth ACP provider with reviewed task switching, negotiated session inspection and native browser OAuth, explicit manual-token login and status. Credentials remain provider-owned; login never replays tasks. Validate the CLI release separately from its observed internal ACP agent version.
 - feat(token-economy): show a local, offline request receipt in every provider preview. It splits the exact Eevee-sent payload into instructions, task facts, attachments, handoff and memories with exact bytes and a labelled `eevee-local-v1` CJK-aware estimate; provider-added context, usage and billing stay unknown, never zero. Source-basket envelopes use the same estimator.
-- feat(token-economy): add per-task budgets: `--max-provider-turns`, `--max-commands` and `--max-input-tokens`. Turns come from the durable provider journal and commands from the run journal, so cancel or restart cannot reset them. A local command repeated with an unchanged source fingerprint pauses before approval; edits, cancellations and unknown outcomes are not loops. Pauses offer continue-once for that exact request, Stay, revise or deny, and no budget is a monetary cap.
+- revert(token-economy): drop per-task budgets (`--max-provider-turns`, `--max-commands`, `--max-input-tokens`) and the repeated-command pause; the local request receipt stays.
 - feat(claude): add the Anthropic Console OAuth route through the official `ant` CLI (browser or paste code, plus status). Claude API billing only; claude.ai subscription OAuth stays refused. The sidecar admits that profile exclusively and verifies the effective backend before releasing a prompt.
-- test(acceptance): add the offline `scripts/budget_smoke.py` real-TUI journey and an `--ant` Claude case to the live auth smoke.
+- test(auth): add an `--ant` Claude case to the live auth smoke.
+- ci: run fmt/Clippy/script tests/SDK policy once on Linux and, per native row, tests, release build, packaging and an offline install check. PTY journeys and the lifecycle upgrade fixture move to local scripts; release qualification now requires `Check` plus five `Build` rows.
+- docs(readme): shorten to quick start, commands, providers, install and development; details live in `docs/`.
 
 ## 2026-10-14
 

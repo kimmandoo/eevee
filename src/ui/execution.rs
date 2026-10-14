@@ -120,10 +120,6 @@ fn confirmation(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint)
         return;
     };
     let (title, affirmative, description) = match confirm {
-        Confirmation::Budget(reasons) => (
-            "Budget pause before another command", "Continue once",
-            format!("{}\n\nStay keeps the prepared command unapproved; /command-edit revises it. Continue once lifts this pause for this exact request only, then the normal one-shot approval follows; /deny denies it. Counts come from this task's committed run journal, so cancel or restart cannot reset them. Nothing has executed.\n\n{}", execution::safe_text(reasons), state.details()),
-        ),
         Confirmation::Approval => (
             "Review one-shot execution permission", "Approve this exact command",
             state.prepared.as_ref().map(|p| execution::approval_details(p, state.capture_capacity))

@@ -42,7 +42,6 @@ pub struct Config {
     pub storage_policy: crate::store::Policy,
     pub context_exclusions: Vec<PathBuf>,
     pub capture_capacity: u64,
-    pub budget: crate::budget::Limits,
 }
 
 #[derive(Debug)]
@@ -81,9 +80,6 @@ Options:
   --retention-days N   Archived purge eligibility age (default: 30; explicit purge only)
   --exclude-context PATH Exclude a repository-relative prefix (repeatable, conservative case-insensitive)
   --spool-kib N        Per-command capture reservation (default: 64; range: 1..8192 KiB)
-  --max-provider-turns N Pause before more provider turns per task (default: 20)
-  --max-commands N     Pause before more local command runs per task (default: 40)
-  --max-input-tokens N Pause when one request's local estimate exceeds N (default: 100000)
   -h, --help           Show this help
   -V, --version        Show the version
 
@@ -169,7 +165,6 @@ fn parse_with(
     let mut storage_policy = crate::store::Policy::default();
     let mut context_exclusions = Vec::new();
     let mut capture_capacity = 64 * 1024;
-    let mut budget = crate::budget::Limits::default();
     let mut download = false;
     let mut action = None;
     while let Some(argument) = args.next() {
@@ -301,18 +296,6 @@ fn parse_with(
                 }
                 capture_capacity = amount * 1024;
             }
-            "--max-provider-turns" | "--max-commands" | "--max-input-tokens" => {
-                let amount = value(flag, attached, &mut args)?
-                    .parse::<usize>()
-                    .ok()
-                    .filter(|amount| (1..=10_000_000).contains(amount))
-                    .ok_or_else(|| format!("{flag} requires an integer in 1..10000000"))?;
-                match flag {
-                    "--max-provider-turns" => budget.provider_turns = amount,
-                    "--max-commands" => budget.commands = amount,
-                    _ => budget.input_tokens = amount,
-                }
-            }
             "--download-artwork" if attached.is_none() => download = true,
             "--ascii" if attached.is_none() => ascii = true,
             "--help" | "-h" if attached.is_none() => action = Some(Command::Help),
@@ -379,7 +362,6 @@ fn parse_with(
         storage_policy,
         context_exclusions,
         capture_capacity,
-        budget,
     };
     Ok(if download {
         Command::Download(config)

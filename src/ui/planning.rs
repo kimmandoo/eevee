@@ -170,22 +170,6 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         for line in &state.receipt {
             let _ = writeln!(value, "{line}");
         }
-        if !state.inspect_sessions && !state.inspect_models {
-            let _ = writeln!(
-                value,
-                "BUDGET: {} of {} provider turns journaled for this task{}",
-                state
-                    .budget_turns
-                    .map(|turns| turns.to_string())
-                    .unwrap_or_else(|| "loading".into()),
-                state.limits.provider_turns,
-                if state.budget_paused() {
-                    " / PAUSED: /budget-continue lifts this preview only; Stay to revise"
-                } else {
-                    ""
-                }
-            );
-        }
         for blocker in &preview.blockers {
             let _ = writeln!(value, "\nBLOCKER: {blocker}");
         }

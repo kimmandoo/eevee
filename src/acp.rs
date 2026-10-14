@@ -200,7 +200,7 @@ fn worker(
                         lines.push("Requested model/reasoning changes use only advertised session configuration IDs. Setters affect the created or explicitly resumed provider session and can persist provider-owned configuration/session metadata; each exact value must be acknowledged before any prompt.".into());
                     }
                     if input.inspect_models {
-                        lines.push("MODEL INSPECTION ONLY: initialize, then one temporary session/new because ACP advertises session models/configOptions there, not in initialize. Session creation can persist provider metadata, load project/provider configuration, initialize services/MCP and contact provider/auth networks; external effects are not a read-only guarantee. Reviewed model/effort selections may change this temporary session's configuration. No session/prompt/load/list/history/authenticate, task content, turn budget, journal or retained resume grant. The process is closed afterward; provider-owned session metadata may remain.".into());
+                        lines.push("MODEL INSPECTION ONLY: initialize, then one temporary session/new because ACP advertises session models/configOptions there, not in initialize. Session creation can persist provider metadata, load project/provider configuration, initialize services/MCP and contact provider/auth networks; external effects are not a read-only guarantee. Reviewed model/effort selections may change this temporary session's configuration. No session/prompt/load/list/history/authenticate, task content, journal or retained resume grant. The process is closed afterward; provider-owned session metadata may remain.".into());
                     }
                     if input.inspect_sessions {
                         lines.push("CAPABILITY INSPECTION ONLY: initialize, then session/list only if negotiated. No session/new/load/prompt, model request, imported handoff or grant. Listed metadata does not authorize resuming foreign sessions.".into());
@@ -1654,9 +1654,9 @@ impl Engine<'_> {
                 },
             )?;
             self.terminal = Some((Outcome::Completed, if selectable {
-                "ACP model configuration observed; no prompt/history/turn budget/journal or retained resume grant. Temporary provider session metadata/configuration effects may remain."
+                "ACP model configuration observed; no prompt/history/journal or retained resume grant. Temporary provider session metadata/configuration effects may remain."
             } else {
-                "ACP inspection completed, but no selectable models advertised; connect/configure provider and explicitly refresh. No prompt/history/turn budget/journal or retained resume grant; temporary provider session metadata may remain."
+                "ACP inspection completed, but no selectable models advertised; connect/configure provider and explicitly refresh. No prompt/history/journal or retained resume grant; temporary provider session metadata may remain."
             }.into()));
             return Ok(());
         }

@@ -101,13 +101,8 @@ pub struct State {
     journal_inflight: VecDeque<store::JournalRequest>,
     failed_journal: VecDeque<store::JournalRequest>,
     pub journal_notice: String,
-    pub limits: crate::budget::Limits,
     /// Local receipt of the open preview's exact payload.
     pub receipt: Vec<String>,
-    receipt_tokens: usize,
-    /// Journaled provider turns for this task; None until the local journal answers.
-    pub budget_turns: Option<usize>,
-    budget_override: bool,
     pub selection: ModelSelection,
     selections: HashMap<Agent, ModelSelection>,
     pub catalogues: HashMap<Agent, ModelCatalogue>,
@@ -142,8 +137,7 @@ impl State {
             journal_mode: false, journal_purge: false, journal_records: Vec::new(), journal_selected: 0,
             pending_journal: VecDeque::new(), journal_inflight: VecDeque::new(),
             failed_journal: VecDeque::new(), journal_notice: String::new(),
-            limits: crate::budget::Limits::default(), receipt: Vec::new(), receipt_tokens: 0,
-            budget_turns: None, budget_override: false,
+            receipt: Vec::new(),
             inspection: None, inspect_sessions: false,
             selection: ModelSelection::default(), selections: HashMap::new(),
             catalogues: HashMap::new(), picker: None, picker_selected: 0,
@@ -176,16 +170,6 @@ impl State {
                 || name.starts_with("provider-") && name != "provider-journal")
     }
 
-    /// Model turns only: session-metadata inspection sends no model prompt.
-    pub fn budget_paused(&self) -> bool {
-        self.preview.is_some()
-            && !self.inspect_sessions
-            && !self.inspect_models
-            && !self.budget_override
-            && self.budget_turns.is_none_or(|turns| {
-                !crate::budget::provider_gate(turns, self.receipt_tokens, &self.limits).is_empty()
-            })
-    }
     pub fn busy(&self) -> bool {
         self.busy_except_picker() || self.picker.is_some()
     }
@@ -212,7 +196,6 @@ impl State {
 
     pub fn reset(&mut self, task_id: i64) {
         if !self.busy() && !self.journal_failed() {
-            let limits = self.limits;
             let selections = std::mem::take(&mut self.selections);
             let catalogues = std::mem::take(&mut self.catalogues);
             let selection = self.selection.clone();
@@ -223,7 +206,6 @@ impl State {
             self.selection = selection;
             self.selections = selections;
             self.catalogues = catalogues;
-            self.limits = limits;
         }
     }
 
@@ -348,16 +330,12 @@ impl State {
                     "Provider-origin journal committed; not local execution evidence.".into();
             }
             Ok(store::JournalResponse::Records(records)) if task_id == self.task => {
-                self.budget_turns = Some(crate::budget::provider_turns(&records));
                 self.journal_records = records;
                 self.journal_selected = self
                     .journal_selected
                     .min(self.journal_records.len().saturating_sub(1));
-                // A budget lookup must not move an open preview's review position.
-                if self.journal_mode {
-                    self.scroll = 0;
-                    self.scroll_max = 0;
-                }
+                self.scroll = 0;
+                self.scroll_max = 0;
                 self.journal_notice =
                     "Retained provider observations, with actual origin and coverage.".into();
             }
@@ -521,18 +499,7 @@ impl State {
             Event::Preview(preview) if self.awaiting_preview && preview.task_id == self.task => {
                 self.awaiting_preview = false;
                 self.generation = Some(preview.generation);
-                let receipt = crate::budget::receipt(&preview.payload);
-                self.receipt_tokens = receipt.tokens;
-                self.receipt = receipt.lines(&self.limits);
-                // Committed turns come from the durable journal, never an in-memory counter.
-                self.budget_turns = None;
-                self.budget_override = false;
-                if !self.inspect_sessions && !self.inspect_models {
-                    self.pending_journal.push_back(store::JournalRequest {
-                        task_id: self.task,
-                        operation: store::JournalOperation::List,
-                    });
-                }
+                self.receipt = crate::receipt::receipt(&preview.payload).lines();
                 self.preview = Some(preview);
                 self.notice = "Local preview only. Review every page; Stay is the default.".into();
                 self.review_start();
@@ -1155,7 +1122,7 @@ impl State {
             ];
         }
         if self.preview.is_some() {
-            let mut rows = vec![
+            return vec![
                 Choice::new("model", "Choose model / invalidate payload review"),
                 Choice::new(
                     "effort",
@@ -1163,13 +1130,6 @@ impl State {
                 ),
                 Choice::new("cancel", "Stay / cancel preview"),
             ];
-            if self.budget_paused() {
-                rows.push(Choice::new(
-                    "budget-continue",
-                    "Continue budget pause for this preview only",
-                ));
-            }
-            return rows;
         }
         if self.picker.is_some() {
             return vec![
@@ -1359,10 +1319,6 @@ impl State {
             "handoff-clear" => {
                 self.handoff = None;
                 self.notice = "Portable handoff deselected locally; no provider history or export was erased.".into();
-            }
-            "budget-continue" => {
-                self.budget_override = true;
-                self.notice = "Budget pause lifted for this exact preview only. Run still requires separate consent.".into();
             }
             "answer" => self.editing = true,
             "answers-review" => {
@@ -1684,14 +1640,6 @@ impl State {
                 KeyCode::Enter if !self.affirmative => {
                     self.cancel();
                 }
-                KeyCode::Enter
-                    if self.reviewed && self.pending.is_none() && self.budget_paused() =>
-                {
-                    self.notice = match self.budget_turns {
-                        None => "Budget accounting is still loading from the local journal; nothing was sent.".into(),
-                        Some(turns) => format!("{} Use /budget-continue for this preview, or Stay to revise; nothing was sent.", crate::budget::provider_gate(turns, self.receipt_tokens, &self.limits).join(" ")),
-                    };
-                }
                 KeyCode::Enter if self.reviewed && self.pending.is_none() => {
                     let preview = self.preview.as_ref().expect("preview is open");
                     if preview.blockers.is_empty() {
@@ -1887,7 +1835,7 @@ mod tests {
     }
 
     #[test]
-    fn model_picker_is_local_and_refresh_requires_preview_run_without_budget_or_journal() {
+    fn model_picker_is_local_and_refresh_requires_preview_run_without_journal() {
         let mut state = State::new();
         command(&mut state, "model", true);
         assert!(state.pending.is_none());
@@ -1906,7 +1854,6 @@ mod tests {
             payload: "{}".into(),
             blockers: vec![],
         }));
-        assert!(!state.budget_paused());
         assert!(state.pending_journal.is_empty());
         state.reviewed = true;
         press(&mut state, KeyCode::Tab, true);
@@ -2078,16 +2025,12 @@ mod tests {
             payload: "exact goal".into(),
             blockers: Vec::new(),
         }));
-        // The store worker answers the preview's budget accounting from the journal.
-        state.journal_started();
-        state.journal_event(7, Ok(store::JournalResponse::Records(Vec::new())));
         state
     }
 
     #[test]
-    fn provider_budget_pauses_run_until_journal_counted_and_continue_once() {
+    fn preview_shows_local_receipt() {
         let mut state = State::new();
-        state.limits.provider_turns = 1;
         command(&mut state, "new", true);
         state.pending.take();
         state.event(Event::Preview(Preview {
@@ -2104,38 +2047,7 @@ mod tests {
                 .iter()
                 .any(|line| line.starts_with("Instructions:"))
         );
-        state.reviewed = true;
-        press(&mut state, KeyCode::Tab, true);
-        press(&mut state, KeyCode::Enter, true);
-        assert!(
-            state.pending.is_none(),
-            "run sent before journal accounting"
-        );
-        assert!(state.notice.contains("loading"));
-        let record = store::ProviderRecord {
-            id: "r".into(),
-            agent: Agent::Codex,
-            generation: 1,
-            thread_id: "thread".into(),
-            turn_id: "turn".into(),
-            item_id: "item".into(),
-            origin: String::new(),
-            coverage: String::new(),
-            text: String::new(),
-            complete: true,
-        };
-        state.journal_started();
-        state.journal_event(7, Ok(store::JournalResponse::Records(vec![record])));
-        assert_eq!(state.budget_turns, Some(1));
-        press(&mut state, KeyCode::Enter, true);
-        assert!(state.pending.is_none(), "run sent past the turn budget");
-        assert!(state.notice.contains("Provider turn budget reached"));
-        command(&mut state, "budget-continue", true);
-        press(&mut state, KeyCode::Enter, true);
-        assert!(matches!(
-            state.pending.take(),
-            Some(Request::Run { generation: 11 })
-        ));
+        assert!(state.pending_journal.is_empty());
     }
 
     fn active() -> State {

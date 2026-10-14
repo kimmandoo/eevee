@@ -490,7 +490,7 @@ fn execute(
             }
             let text = serde_json::to_string(&excerpts).map_err(|error| error.to_string())?;
             let bytes = text.len();
-            let estimated_tokens = crate::budget::estimate_tokens(&text);
+            let estimated_tokens = crate::receipt::estimate_tokens(&text);
             Ok(Response::Assembled(Payload {
                 text,
                 bytes,

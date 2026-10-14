@@ -18,16 +18,14 @@ class QualificationTests(unittest.TestCase):
         }
         self.runs = [{'id': 41}, {'id': 42}]
         self.jobs = []
-        for kind in ('Build', 'Smoke'):
-            for row in gate.ROWS:
-                self.jobs.append({
-                    'name': f'{kind} / {row}', 'run_id': 42, 'run_attempt': 1,
-                    'head_sha': self.sha, 'status': 'completed', 'conclusion': 'success',
-                    'started_at': '2026-10-13T01:00:00Z' if kind == 'Build' else '2026-10-13T02:00:00Z',
-                    'completed_at': '2026-10-13T02:00:00Z' if kind == 'Build' else '2026-10-13T03:00:00Z',
-                    'steps': [{'status': 'completed', 'conclusion': 'success'}],
-                })
-        self.jobs.append({**deepcopy(self.jobs[0]), 'name': gate.SDK_JOB})
+        for row in gate.ROWS:
+            self.jobs.append({
+                'name': f'Build / {row}', 'run_id': 42, 'run_attempt': 1,
+                'head_sha': self.sha, 'status': 'completed', 'conclusion': 'success',
+                'started_at': '2026-10-13T01:00:00Z', 'completed_at': '2026-10-13T02:00:00Z',
+                'steps': [{'status': 'completed', 'conclusion': 'success'}],
+            })
+        self.jobs.append({**deepcopy(self.jobs[0]), 'name': gate.CHECK_JOB})
         self.artifacts = [{
             'id': index + 100, 'name': 'ev-' + target, 'expired': False,
             'expires_at': '2099-10-27T00:00:00Z', 'created_at': '2026-10-13T01:30:00Z',
@@ -95,12 +93,12 @@ class QualificationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.qualify()
 
-    def test_every_native_row_and_sdk_are_required(self):
+    def test_every_native_row_and_check_are_required(self):
         original = deepcopy(self.jobs)
         for missing in range(len(original)):
             with self.subTest(missing=original[missing]['name']):
                 self.jobs = original[:missing] + original[missing + 1:]
-                with self.assertRaisesRegex(ValueError, 'all five build and smoke'):
+                with self.assertRaisesRegex(ValueError, 'all five build rows'):
                     self.qualify()
 
     def test_failed_skipped_old_attempt_or_wrong_commit_job(self):
@@ -114,7 +112,7 @@ class QualificationTests(unittest.TestCase):
                     self.qualify()
 
     def test_skipped_acceptance_step(self):
-        self.jobs[5]['steps'][0]['conclusion'] = 'skipped'
+        self.jobs[3]['steps'][0]['conclusion'] = 'skipped'
         with self.assertRaisesRegex(ValueError, 'Incomplete or skipped steps'):
             self.qualify()
 

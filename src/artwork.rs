@@ -990,7 +990,6 @@ mod tests {
             storage_policy: crate::store::Policy::default(),
             context_exclusions: Vec::new(),
             capture_capacity: 64 * 1024,
-            budget: crate::budget::Limits::default(),
         }
     }
 

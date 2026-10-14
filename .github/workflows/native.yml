@@ -14,74 +14,61 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  sdk-policy:
-    name: Credential-free SDK policy / Node 24
+  # Platform-independent checks run once. PTY journeys, the lifecycle upgrade
+  # fixture and provider smoke stay local/opt-in scripts under scripts/.
+  check:
+    name: Check
     runs-on: ubuntu-22.04
-    timeout-minutes: 10
+    timeout-minutes: 20
+    env:
+      RUSTUP_TOOLCHAIN: 1.90.0
+      CARGO_TERM_COLOR: never
+      PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12.9'
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '24.18.0'
           cache: npm
           cache-dependency-path: sidecar/package-lock.json
-      - name: Install locked dependencies without lifecycle scripts
-        run: npm ci --ignore-scripts --no-audit --no-fund --prefix sidecar
-      - name: Verify policy without account login or model calls
-        run: npm test --prefix sidecar
+      - run: rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Check Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Test release qualification scripts
+        run: python -m unittest discover -s scripts -p 'test_*.py'
+      - name: Verify SDK policy without account login or model calls
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix sidecar
+          npm test --prefix sidecar
 
-  # Authenticated provider/model smoke stays opt-in. Offline native smoke runs
-  # separately against these exact immutable packages, never a second app build.
   native:
     name: Build / ${{ matrix.name }}
-    # Labels are native hosts, not cross-compilation or WSL:
-    # https://docs.github.com/en/actions/reference/runners/github-hosted-runners
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 50
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: macos-arm64
-            runner: macos-14
-            os: Darwin
-            arch: arm64
-            target: aarch64-apple-darwin
-            package: darwin-arm64
-          - name: macos-x86_64
-            runner: macos-15-intel
-            os: Darwin
-            arch: x86_64
-            target: x86_64-apple-darwin
-            package: darwin-x86_64
-          - name: linux-x86_64
-            runner: ubuntu-22.04
-            os: Linux
-            arch: x86_64
-            target: x86_64-unknown-linux-gnu
-            package: linux-x86_64
-          - name: linux-arm64
-            runner: ubuntu-22.04-arm
-            os: Linux
-            arch: arm64
-            target: aarch64-unknown-linux-gnu
-            package: linux-arm64
-          - name: windows-x86_64
-            runner: windows-2022
-            os: Windows
-            arch: x86_64
-            target: x86_64-pc-windows-msvc
-            package: windows-x86_64
+          - { name: macos-arm64, runner: macos-14, target: aarch64-apple-darwin, package: darwin-arm64 }
+          - { name: macos-x86_64, runner: macos-15-intel, target: x86_64-apple-darwin, package: darwin-x86_64 }
+          - { name: linux-x86_64, runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu, package: linux-x86_64 }
+          - { name: linux-arm64, runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, package: linux-arm64 }
+          - { name: windows-x86_64, runner: windows-2022, target: x86_64-pc-windows-msvc, package: windows-x86_64 }
     env:
       RUSTUP_TOOLCHAIN: 1.90.0
       CARGO_TERM_COLOR: never
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'
-      NATIVE_EXPECT_OS: ${{ matrix.os }}
-      NATIVE_EXPECT_ARCH: ${{ matrix.arch }}
-      NATIVE_RUNNER_LABEL: ${{ matrix.runner }}
     defaults:
       run:
         shell: bash
@@ -89,16 +76,12 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
-      - name: Isolate runtime evidence from the Cargo cache
-        run: printf 'SMOKE_OUTPUT=%s/ev-native-smoke\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12.9'
-      - name: Test release qualification and native ConPTY boundaries
-        run: python -m unittest discover -s scripts -p 'test_*.py'
       - name: Install pinned toolchain
         run: |
-          rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
+          rustup toolchain install 1.90.0 --profile minimal
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             printf '%s\n' 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"
           fi
@@ -106,139 +89,38 @@ jobs:
         with:
           key: ${{ matrix.target }}-cargo-about-0.9.2
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Record observed native host and versions
-        run: python scripts/terminal_smoke.py --record-host --output "$SMOKE_OUTPUT"
-      - name: Check formatting
-        run: cargo fmt --all -- --check 2>&1 | tee "$SMOKE_OUTPUT/fmt.log"
       - name: Test locked dependencies
-        run: cargo test --locked --all-targets 2>&1 | tee "$SMOKE_OUTPUT/test.log"
-      - name: Check Clippy
-        run: cargo clippy --locked --all-targets -- -D warnings 2>&1 | tee "$SMOKE_OUTPUT/clippy.log"
+        run: cargo test --locked --all-targets
       - name: Build native release
-        run: cargo build --release --locked 2>&1 | tee "$SMOKE_OUTPUT/release.log"
-      - name: Generate complete native dependency notices
+        run: cargo build --release --locked
+      - name: Generate native dependency notices
         run: |
           cargo install cargo-about --version 0.9.2 --locked --features cli
           cargo about generate --locked --fail --format json --target "${{ matrix.target }}" --output-file target/native-licenses.json
           python scripts/license_notices.py --report target/native-licenses.json --output target/THIRD_PARTY_NOTICES
       - name: Package the standalone native executable
         run: python scripts/package_binary.py --binary target/release/ev --notices target/THIRD_PARTY_NOTICES --output target/packages
+      - name: Install the package offline and run it
+        shell: python
+        run: |
+          import os, pathlib, subprocess
+          packages = pathlib.Path("target/packages").resolve()
+          dest = pathlib.Path(os.environ["RUNNER_TEMP"], "ev install", "bin")
+          if os.name == "nt":
+              archive = packages / "ev-${{ matrix.package }}.zip"
+              command = ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", "install.ps1",
+                         "-Archive", archive, "-Checksums", packages / "SHA256SUMS", "-InstallDir", dest]
+          else:
+              archive = packages / "ev-${{ matrix.package }}.tar.gz"
+              command = ["sh", "install.sh", "--archive", archive,
+                         "--checksums", packages / "SHA256SUMS", "--install-dir", dest]
+          subprocess.run([str(part) for part in command], check=True, timeout=120)
+          binary = dest / ("ev.exe" if os.name == "nt" else "ev")
+          subprocess.run([str(binary), "--version"], check=True, timeout=30)
       - name: Upload native installation package
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ev-${{ matrix.package }}
           path: target/packages/*
           if-no-files-found: error
-          retention-days: 14
-      - name: Upload observed evidence even on failure
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: native-build-${{ matrix.name }}
-          path: |
-            ${{ env.SMOKE_OUTPUT }}/*.json
-            ${{ env.SMOKE_OUTPUT }}/*.log
-            ${{ env.SMOKE_OUTPUT }}/**/*.ansi
-            ${{ env.SMOKE_OUTPUT }}/**/*.txt
-            ${{ env.SMOKE_OUTPUT }}/**/*.json
-            ${{ env.SMOKE_OUTPUT }}/**/*.log
-          if-no-files-found: warn
-          retention-days: 14
-
-  smoke:
-    name: Smoke / ${{ matrix.name }}
-    needs: native
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 50
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: macos-arm64
-            runner: macos-14
-            os: Darwin
-            arch: arm64
-            package: darwin-arm64
-          - name: macos-x86_64
-            runner: macos-15-intel
-            os: Darwin
-            arch: x86_64
-            package: darwin-x86_64
-          - name: linux-x86_64
-            runner: ubuntu-22.04
-            os: Linux
-            arch: x86_64
-            package: linux-x86_64
-          - name: linux-arm64
-            runner: ubuntu-22.04-arm
-            os: Linux
-            arch: arm64
-            package: linux-arm64
-          - name: windows-x86_64
-            runner: windows-2022
-            os: Windows
-            arch: x86_64
-            package: windows-x86_64
-    env:
-      RUSTUP_TOOLCHAIN: 1.90.0
-      CARGO_TERM_COLOR: never
-      PYTHONUTF8: '1'
-      PYTHONDONTWRITEBYTECODE: '1'
-      NATIVE_EXPECT_OS: ${{ matrix.os }}
-      NATIVE_EXPECT_ARCH: ${{ matrix.arch }}
-      NATIVE_RUNNER_LABEL: ${{ matrix.runner }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-        with:
-          persist-credentials: false
-      - name: Isolate runtime evidence from the Cargo cache
-        run: printf 'SMOKE_OUTPUT=%s/ev-native-smoke\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version: '3.12.9'
-      - name: Install pinned terminal dependencies and lifecycle probe toolchain
-        run: |
-          rustup toolchain install 1.90.0 --profile minimal
-          python -m pip install pyte==0.8.2 wcwidth==0.2.13
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            printf '%s\n' 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"
-          fi
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: ev-${{ matrix.package }}
-          path: target/packages
-      - name: Record observed native host and versions
-        run: python scripts/terminal_smoke.py --record-host --output "$SMOKE_OUTPUT"
-      - name: Verify install, upgrade, refusal, and installed terminal lifecycle
-        run: python scripts/installation_smoke.py --package-dir target/packages --output "$SMOKE_OUTPUT/installation"
-      - name: Verify durable workbench in the installed binary
-        run: python scripts/workbench_smoke.py --binary "$SMOKE_OUTPUT/installation/installed 空 格/bin/ev" --output "$SMOKE_OUTPUT/workbench"
-      - name: Verify read-only repository baseline and task preservation
-        run: python scripts/repository_smoke.py --binary "$SMOKE_OUTPUT/installation/installed 空 格/bin/ev" --output "$SMOKE_OUTPUT/repository"
-      - name: Verify source capture and dispatch-time revalidation
-        run: python scripts/context_smoke.py --binary "$SMOKE_OUTPUT/installation/installed 空 格/bin/ev" --output "$SMOKE_OUTPUT/context"
-      - name: Verify command approval ownership and retained evidence
-        run: python scripts/execution_smoke.py --binary "$SMOKE_OUTPUT/installation/installed 空 格/bin/ev" --output "$SMOKE_OUTPUT/execution"
-      - name: Verify partial stale interrupted and failed-save evidence
-        run: python scripts/execution_recovery_smoke.py --binary "$SMOKE_OUTPUT/installation/installed 空 格/bin/ev" --output "$SMOKE_OUTPUT/execution-recovery"
-      - name: Verify portable JSON and Markdown handoffs without providers
-        run: python scripts/handoff_smoke.py --binary "$SMOKE_OUTPUT/installation/installed 空 格/bin/ev" --output "$SMOKE_OUTPUT/handoff"
-      - name: Verify specialist evidence, scoped memory, and recipe consent
-        run: python scripts/workflow_smoke.py --binary "$SMOKE_OUTPUT/installation/installed 空 格/bin/ev" --output "$SMOKE_OUTPUT/workflows"
-      - name: Upload observed evidence even on failure
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: native-${{ matrix.name }}
-          path: |
-            ${{ env.SMOKE_OUTPUT }}/*.json
-            ${{ env.SMOKE_OUTPUT }}/*.log
-            ${{ env.SMOKE_OUTPUT }}/**/*.ansi
-            ${{ env.SMOKE_OUTPUT }}/**/*.txt
-            ${{ env.SMOKE_OUTPUT }}/**/*.json
-            ${{ env.SMOKE_OUTPUT }}/**/*.log
-          if-no-files-found: warn
           retention-days: 14

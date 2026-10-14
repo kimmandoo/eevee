@@ -27,7 +27,7 @@
 
 ### Model picker has no selectable models or reasoning values
 
-- Opening `/model` or `/effort` uses local cached state only. If no local task exists, use `/task-new` or save the Goal first. Choose **Refresh / inspect** or `/models-refresh`, review executable/configuration/network effects, then explicitly Run. Inspection sends no task prompt and consumes no model-turn budget.
+- Opening `/model` or `/effort` uses local cached state only. If no local task exists, use `/task-new` or save the Goal first. Choose **Refresh / inspect** or `/models-refresh`, review executable/configuration/network effects, then explicitly Run. Inspection sends no task prompt.
 - An unauthenticated Devin 3000.11.3 session can report a current model with an empty option list. That default is not evidence of selectable models or entitlement; connect through the native login and explicitly refresh again. No guessed model list is substituted.
 - ACP reasoning options can belong only to the model active during inspection. After selecting another model, refresh the catalogue for that selected model before choosing effort. Unsupported controls show an explanation and reject requests instead of ignoring the selection.
 - Claude SDK effort cannot be qualified before a prompt after organization caps, so `/effort` explains its unavailability. Claude model selection remains available through official model listing and effective-model control acknowledgment. Reinstall the optional sidecar for required bridge revision 2; an older bridge is refused before dispatch.

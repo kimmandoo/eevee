@@ -15,7 +15,7 @@ from release_assets import TARGETS
 
 WORKFLOW = '.github/workflows/native.yml'
 ROWS = ('macos-arm64', 'macos-x86_64', 'linux-x86_64', 'linux-arm64', 'windows-x86_64')
-SDK_JOB = 'Credential-free SDK policy / Node 24'
+CHECK_JOB = 'Check'
 
 
 def api(endpoint):
@@ -73,9 +73,9 @@ def qualify(repository, repository_id, sha):
             'Newest same-commit native run has not completed successfully')
 
     jobs = pages(f'{base}/actions/runs/{run_id}/attempts/{attempt}/jobs', 'jobs')
-    expected = {SDK_JOB} | {f'{kind} / {row}' for kind in ('Build', 'Smoke') for row in ROWS}
+    expected = {CHECK_JOB} | {f'Build / {row}' for row in ROWS}
     require(len(jobs) == len(expected) and {job['name'] for job in jobs} == expected,
-            'Require SDK policy and all five build and smoke rows in the same run attempt; '
+            'Require the check job and all five build rows in the same run attempt; '
             'partial reruns do not qualify, rerun all jobs instead')
     for job in jobs:
         require(job['run_id'] == run_id and job['head_sha'] == sha
@@ -108,10 +108,9 @@ def qualify(repository, repository_id, sha):
                 and re.fullmatch(r'sha256:[0-9a-f]{64}', artifact['digest'] or ''),
                 f'Missing, expired, oversized, or undigested package: {target}')
         build = by_name[f'Build / {row}']
-        smoke = by_name[f'Smoke / {row}']
         require(timestamp(build['started_at']) <= timestamp(artifact['created_at'])
-                <= timestamp(build['completed_at']) <= timestamp(smoke['started_at']),
-                f'Package must be uploaded by this attempt before native smoke: {target}')
+                <= timestamp(build['completed_at']),
+                f'Package must be uploaded by its build job in this attempt: {target}')
         artifact_ids.append(artifact['id'])
 
     # Detect a rerun or state change during the paginated qualification reads.
