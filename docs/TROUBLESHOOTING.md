@@ -1,5 +1,11 @@
 # Troubleshooting
 
+### [2026-10-14] Documented Windows install never started
+
+- **Observed failure:** Following the README on Windows 11 (PowerShell 5.1, every execution-policy scope `Undefined`, i.e. Restricted) failed at `.\install-ev.ps1` with "running scripts is disabled on this system". The offline example also failed: relative `-Archive`/`-Checksums` paths were rejected as non-absolute.
+- **Root cause:** The README ran the saved script directly, which the default client policy blocks; CI only invokes it with `-File` under a runner policy. `Get-AbsolutePath` resolved command-line paths against nothing but an absolute root.
+- **Correction/proof:** The README runs the installer as a script block (`& ([scriptblock]::Create((irm …)))`), which execution policy does not gate, and documents a process-only `-ExecutionPolicy Bypass` for saved scripts. Command-line paths now resolve against the PowerShell location after validating the user's own components; PATH entries stay strictly absolute. The installer prints the exact user-PATH command. On the reporting machine, a sandboxed `LOCALAPPDATA` online install via the published v0.1.1 script installed `ev 0.1.1` with all nine sprites; offline install with relative paths and the ambiguous `bin. ` rejection were verified with the patched script.
+
 ### [2026-10-14] Native source-context smoke failed after dialogue-frame styling
 
 - **Observed failure:** Native run `38500866295` passed SDK policy and all five native builds, then every installed-runtime row stopped at source capture/revalidation. The local actual-TUI reproduction reached exact payload inspection and failed in `panel_text`: `max() iterable argument is empty`.

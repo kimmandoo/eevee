@@ -31,13 +31,23 @@ Eevee brings durable tasks, repository context, reviewed commands, and optional 
 
 ## Quick start
 
+**macOS / Linux / WSL**
+
 ```sh
 curl -fsSL https://github.com/kimmandoo/eevee/releases/latest/download/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 ev
 ```
 
-Windows, pinned versions and offline installs: see [Installation](#installation).
+**Windows (PowerShell)** — works under the default execution policy; no admin needed:
+
+```powershell
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1)))
+$env:PATH = "$env:LOCALAPPDATA\ev\bin;" + $env:PATH
+ev
+```
+
+Keeping `ev` on PATH, pinned versions and offline installs: see [Installation](#installation).
 
 ```sh
 ev update --check   # read-only release check
@@ -117,27 +127,64 @@ Sprites are nine original PokeAPI images that installers download and hash-verif
 
 | Machine | Package |
 | --- | --- |
-| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.1/ev-darwin-arm64.tar.gz) |
-| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.1/ev-darwin-x86_64.tar.gz) |
-| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.1/ev-linux-x86_64.tar.gz) |
-| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.1/ev-linux-arm64.tar.gz) |
-| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.1/ev-windows-x86_64.zip) |
+| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.2/ev-darwin-arm64.tar.gz) |
+| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.2/ev-darwin-x86_64.tar.gz) |
+| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.2/ev-linux-x86_64.tar.gz) |
+| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.2/ev-linux-arm64.tar.gz) |
+| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.2/ev-windows-x86_64.zip) |
+
+Installers verify SHA-256, refuse to overwrite commands they don't own, and never edit your shell profile or persistent PATH — the last step on each platform is yours.
+
+### macOS
 
 ```sh
-# macOS / Linux: inspect, then install a pinned release
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.1/install.sh
-sh ./install-ev.sh --version v0.1.1
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.2/install.sh
+sh ./install-ev.sh --version v0.1.2          # installs to ~/.local/bin/ev
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && exec zsh
+```
+
+Builds are not notarized. The script installs via `curl`, which sets no quarantine flag; if you unpacked the archive from a browser download and macOS blocks `ev`, run `xattr -d com.apple.quarantine ~/.local/bin/ev`.
+
+### Linux and WSL
+
+```sh
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.2/install.sh
+sh ./install-ev.sh --version v0.1.2          # installs to ~/.local/bin/ev
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && exec bash
+```
+
+Inside WSL, use this Linux build, not the Windows one. For provider sign-in on WSL, prefer Codex **device authorization**.
+
+### Windows
+
+Run in **PowerShell** (5.1 or 7, no admin). Windows blocks downloaded `.ps1` files by default, so run the installer as a script block instead of `.\install.ps1`:
+
+```powershell
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.2/install.ps1))) -Version v0.1.2
+```
+
+It installs `%LOCALAPPDATA%\ev\bin\ev.exe`. Use it right away, and keep it on PATH for new terminals:
+
+```powershell
+$env:PATH = "$env:LOCALAPPDATA\ev\bin;" + $env:PATH
+[Environment]::SetEnvironmentVariable('Path', "$env:LOCALAPPDATA\ev\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')
+```
+
+Prefer a saved script? Run it with a process-only bypass: `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-ev.ps1 -Version v0.1.2`. Windows Terminal shows the sprites (Sixel); other consoles fall back to text.
+
+### Offline
+
+Download the archive for your machine plus `SHA256SUMS` from the table above, then:
+
+```sh
+sh ./install-ev.sh --archive ./ev-linux-x86_64.tar.gz --checksums ./SHA256SUMS
 ```
 
 ```powershell
-# Windows PowerShell
-$base = 'https://github.com/kimmandoo/eevee/releases/download/v0.1.1'
-Invoke-WebRequest "$base/install.ps1" -OutFile install-ev.ps1
-.\install-ev.ps1 -Version v0.1.1
-$env:PATH = "$env:LOCALAPPDATA\ev\bin;" + $env:PATH
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install-ev.ps1 -Archive "$PWD\ev-windows-x86_64.zip" -Checksums "$PWD\SHA256SUMS"
 ```
 
-Offline: download the archive plus `SHA256SUMS` and run `sh ./install.sh --archive ./ev-linux-x86_64.tar.gz --checksums ./SHA256SUMS` (or `.\install.ps1 -Archive … -Checksums …`). Installers verify SHA-256, never modify your shell profile, and refuse to overwrite unowned commands. Packages are unsigned and macOS builds are not notarized.
+Offline installs skip the sprites; run `ev --download-artwork` once you are online.
 
 <details>
 <summary>Build from source</summary>

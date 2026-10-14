@@ -29,6 +29,28 @@ impl Agent {
             Self::Devin => "Devin ACP",
         }
     }
+    /// Connection profiles are discovered in `ALL` order.
+    pub fn index(self) -> usize {
+        Self::ALL
+            .iter()
+            .position(|agent| *agent == self)
+            .unwrap_or(0)
+    }
+    pub fn from_index(index: usize) -> Option<Self> {
+        Self::ALL.get(index).copied()
+    }
+    pub fn command(self) -> &'static str {
+        match self {
+            Self::Codex => "provider-codex",
+            Self::Claude => "provider-claude",
+            Self::OpenCode => "provider-opencode",
+            Self::Gemini => "provider-gemini",
+            Self::Devin => "provider-devin",
+        }
+    }
+    pub fn from_command(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|agent| agent.command() == name)
+    }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Operation {
@@ -43,6 +65,17 @@ pub enum Operation {
 pub struct ModelSelection {
     pub model: Option<String>,
     pub effort: Option<String>,
+}
+
+impl ModelSelection {
+    /// Compact "model · effort" line shared by the connection hub and pickers.
+    pub fn summary(&self) -> String {
+        format!(
+            "model {} · effort {}",
+            self.model.as_deref().unwrap_or("default"),
+            self.effort.as_deref().unwrap_or("default")
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

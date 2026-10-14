@@ -83,9 +83,18 @@ def kitty_images(text):
     return images
 
 
-def original_pixels(rendered, source):
+def shared_box(assets):
+    """Union of opaque bounds across same-canvas sprites, as Eevee crops them for one shared scale."""
+    images = [Image.open(path).convert('RGBA') for path in sorted(assets.glob('*.png'))]
+    if len({image.size for image in images}) != 1:
+        return None
+    boxes = [box for box in (image.getbbox() for image in images) if box]
+    return (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes))
+
+
+def original_pixels(rendered, source, box=None):
     """Every opaque source pixel survives at an integer scale, within Sixel rounding."""
-    source = source.crop(source.getbbox())
+    source = source.crop(box or source.getbbox())
     for scale in range(1, min(rendered.width // source.width, rendered.height // source.height) + 1):
         expected = source.resize((source.width * scale, source.height * scale), Image.Resampling.NEAREST)
         left = (rendered.width - expected.width) // 2
@@ -113,6 +122,7 @@ def main():
     binary, assets, output = Path(args.binary).resolve(), Path(args.assets_dir).resolve(), Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=True)
     source = Image.open(assets / '133.png').convert('RGBA')
+    box = shared_box(assets)
     results = {'status': 'failed', 'cases': [], 'limits': ['PTY capability responder, not real terminal GUI rendering']}
     try:
         with tempfile.TemporaryDirectory(prefix='ev-graphics-') as temporary:
@@ -151,7 +161,7 @@ def main():
                         respond()
                         images = lambda: [decode_sixel(value) for value in sixels(session.text)] if protocol == 'sixel' else kitty_images(session.text)
                         until(lambda: bool(images()), 'native sprite payload')
-                        evidence = original_pixels(images()[0], source)
+                        evidence = original_pixels(images()[0], source, box)
                         images()[0].save(output / (protocol + '-decoded.png'))
                         assert 'U=1' not in session.text, 'Kitty virtual placeholders require an unprobed capability'
                         before = len(session.text)
@@ -172,9 +182,13 @@ def main():
                     else:
                         session.pump(.7)
                         assert not sixels(session.text) and not kitty_images(session.text), 'unsupported mode emitted native image'
-                        if protocol != 'cells':
-                            assert '▀' not in session.text and '▄' not in session.text, 'automatic fallback rendered a coarse mosaic'
-                        evidence = {'mode': mode, 'native_image_emitted': False}
+                        cell_art = any(glyph in session.display() for glyph in '▀▄▌▐▖▗▘▝▚▞▙▛▜▟█')
+                        if protocol == 'off':
+                            assert not cell_art, 'images off rendered cell art'
+                        else:
+                            # Unconfirmed native graphics route auto to the same cell art as --images cells.
+                            assert cell_art, protocol + ' mode rendered no cell-art portrait'
+                        evidence = {'mode': mode, 'native_image_emitted': False, 'cell_art': cell_art}
                     session.send('\r')
                     database = data / 'workbench.sqlite3'
                     def goal_saved():

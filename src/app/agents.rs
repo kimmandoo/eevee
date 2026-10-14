@@ -1,7 +1,10 @@
 //! Passive profile selection and explicit, generation-correlated executable trust.
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use crate::agent::{Event, Profile, Request};
+use crate::{
+    agent::{Event, Profile, Request},
+    provider::Agent,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
@@ -19,6 +22,8 @@ pub enum Action {
     Diagnostics,
     Refresh,
     UseForTask,
+    Model,
+    Effort,
 }
 
 impl Action {
@@ -30,6 +35,8 @@ impl Action {
             Self::Diagnostics => "Advanced diagnostics",
             Self::Refresh => "Refresh installed providers",
             Self::UseForTask => "Use for task",
+            Self::Model => "Choose model",
+            Self::Effort => "Choose reasoning effort",
         }
     }
 }
@@ -37,6 +44,10 @@ impl Action {
 pub struct State {
     pub pending: Option<Request>,
     pub use_for_task: Option<usize>,
+    /// Local picker the app should open for the task provider ("model" or "effort").
+    pub pick: Option<&'static str>,
+    /// Profile index of the provider the task currently uses; synced by the app.
+    pub active: usize,
     pub profiles: Vec<Profile>,
     pub selected: usize,
     pub preview: bool,
@@ -70,6 +81,8 @@ impl State {
         Self {
             pending: Some(Request::Discover),
             use_for_task: None,
+            pick: None,
+            active: 0,
             profiles: Vec::new(),
             selected: 0,
             preview: false,
@@ -105,24 +118,51 @@ impl State {
         self.page == Page::Providers
     }
 
-    pub fn actions(&self) -> &'static [Action] {
+    pub fn actions(&self) -> Vec<Action> {
+        let mut actions = vec![Action::Connect];
         if crate::auth::status_method(self.selected).is_some() {
-            &[
-                Action::Connect,
-                Action::Status,
-                Action::Version,
-                Action::Diagnostics,
-                Action::Refresh,
-                Action::UseForTask,
-            ]
+            actions.push(Action::Status);
+        }
+        if self.selected == self.active {
+            actions.extend([Action::Model, Action::Effort]);
         } else {
-            &[
-                Action::Connect,
-                Action::Version,
-                Action::Diagnostics,
-                Action::Refresh,
-                Action::UseForTask,
-            ]
+            actions.push(Action::UseForTask);
+        }
+        actions.extend([Action::Version, Action::Diagnostics, Action::Refresh]);
+        actions
+    }
+
+    /// Most likely next step: connect, then use for task, then choose a model.
+    fn default_action(&self) -> usize {
+        let next = if self.connection_status(self.selected) != "Connected" {
+            Action::Connect
+        } else if self.selected == self.active {
+            Action::Model
+        } else {
+            Action::UseForTask
+        };
+        self.actions()
+            .iter()
+            .position(|action| *action == next)
+            .unwrap_or(0)
+    }
+
+    /// Claude connects through the separate ant CLI, so its executable row is not required.
+    fn connectable(&self, index: usize) -> bool {
+        index == Agent::Claude.index()
+            || self
+                .profiles
+                .get(index)
+                .is_some_and(|p| p.executable.is_some())
+    }
+
+    /// Opens the hub on the task provider, as `/provider` does.
+    pub fn focus_active(&mut self) {
+        if !self.busy() && self.auth_preview.is_none() && !self.preview {
+            self.selected = self.active.min(self.profiles.len().saturating_sub(1));
+            self.method = crate::auth::default_method(self.selected);
+            self.page = Page::Providers;
+            self.scroll = 0;
         }
     }
 
@@ -139,12 +179,7 @@ impl State {
         {
             return "Checking";
         }
-        if index != 1
-            && self
-                .profiles
-                .get(index)
-                .is_some_and(|p| p.executable.is_none())
-        {
+        if self.profiles.get(index).is_some() && !self.connectable(index) {
             return "Not installed";
         }
         match self.outcomes.get(index).copied().flatten() {
@@ -188,7 +223,7 @@ impl State {
             });
             self.notice = "Preparing connection review; no provider program launched.".into();
         } else {
-            self.notice = if self.selected == 1 {
+            self.notice = if self.selected == Agent::Claude.index() {
                 crate::auth::CLAUDE_POLICY.into()
             } else {
                 "No read-only status command is available. Native exit leaves connection status unknown.".into()
@@ -199,13 +234,7 @@ impl State {
     fn activate(&mut self, action: Action) {
         match action {
             Action::Connect => {
-                // Claude connects through the separate ant CLI, qualified during review.
-                if self.selected != 1
-                    && self
-                        .profiles
-                        .get(self.selected)
-                        .is_none_or(|p| p.executable.is_none())
-                {
+                if !self.connectable(self.selected) {
                     self.notice = self.setup_hint();
                 } else if crate::auth::methods(self.selected).len() > 1 {
                     self.page = Page::Methods;
@@ -239,6 +268,8 @@ impl State {
                 self.notice = "Refreshing installed providers; no program launched.".into();
             }
             Action::UseForTask => self.use_for_task = Some(self.selected),
+            Action::Model => self.pick = Some("model"),
+            Action::Effort => self.pick = Some("effort"),
         }
     }
 
@@ -250,8 +281,17 @@ impl State {
         if let Some(profile) = self.profiles.get_mut(profile) {
             profile.authentication = self.notice.clone();
         }
+        if outcome == crate::auth::Outcome::Authenticated && profile == self.selected {
+            self.page = Page::Actions;
+            self.action = self.default_action();
+            self.notice.push_str(if profile == self.active {
+                " Next: Choose model."
+            } else {
+                " Next: Use for task."
+            });
+        }
         if profile == 0 && outcome != crate::auth::Outcome::Authenticated {
-            self.notice.push_str(" If the browser reported localhost connection refused on WSL, Windows port reservations can block Codex ports 1455/1457 even while its Linux listener is running. Choose Connect > device authorization to log in without changing Windows networking. Enable device-code authorization in ChatGPT Settings > Security (workspace policy may require an admin). Keep the official login open while entering its code in your browser. Never share codes or callback URLs; cancelled links cannot be reused.");
+            self.notice.push_str(" Next: if the browser showed localhost connection refused (WSL/SSH), choose Connect > device authorization. On WSL, Windows port reservations can block Codex ports 1455/1457 even while its Linux listener is running. Choose Connect > device authorization to log in without changing Windows networking. Enable device-code authorization in ChatGPT Settings > Security (workspace policy may require an admin). Keep the official login open while entering its code in your browser. Never share codes or callback URLs; cancelled links cannot be reused.");
         }
         self.scroll = 0;
     }
@@ -329,7 +369,7 @@ impl State {
         let missing = profile
             .is_none()
             .then_some("Wait for installed provider discovery.");
-        let connect = if self.selected != 1 && profile.is_none_or(|p| p.executable.is_none()) {
+        let connect = if profile.is_some() && !self.connectable(self.selected) {
             Some("This provider is not installed; inspect diagnostics for setup.")
         } else if crate::auth::methods(self.selected).is_empty() {
             Some("This provider has no supported connection method.")
@@ -542,7 +582,7 @@ impl State {
             KeyCode::Enter if !self.busy() => match self.page {
                 Page::Providers => {
                     self.page = Page::Actions;
-                    self.action = 0;
+                    self.action = self.default_action();
                 }
                 Page::Actions => self.activate(self.actions()[self.action]),
                 Page::Methods => self.prepare_auth(
@@ -890,6 +930,8 @@ mod tests {
         assert_eq!(state.connection_status(0), "Unknown");
         state.auth_returned(0, crate::auth::Outcome::NotAuthenticated);
         assert_eq!(state.connection_status(0), "Not connected");
+        press(&mut state, KeyCode::Esc);
+        assert!(state.at_root());
         press(&mut state, KeyCode::Enter);
         press(&mut state, KeyCode::Down);
         assert!(state.pending.is_none());
@@ -905,6 +947,41 @@ mod tests {
         assert!(state.pending_auth.is_none());
         press(&mut state, KeyCode::Esc);
         assert!(!state.auth_busy());
+    }
+
+    #[test]
+    fn hub_suggests_next_step_and_requests_local_pickers_only() {
+        let mut state = discovered();
+        state.active = 0;
+        press(&mut state, KeyCode::Down);
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.actions()[state.action], Action::Connect);
+        assert!(!state.actions().contains(&Action::Model));
+        state.auth_returned(1, crate::auth::Outcome::Authenticated);
+        assert_eq!(state.page, Page::Actions);
+        assert_eq!(state.actions()[state.action], Action::UseForTask);
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.use_for_task, Some(1));
+        assert!(state.pending.is_none() && state.pending_auth.is_none());
+
+        state.active = 1;
+        state.use_for_task = None;
+        press(&mut state, KeyCode::Esc);
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.actions()[state.action], Action::Model);
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.pick, Some("model"));
+        assert!(state.pending.is_none() && state.pending_auth.is_none());
+    }
+
+    #[test]
+    fn focus_active_selects_task_provider_without_launching() {
+        let mut state = discovered();
+        state.active = Agent::Devin.index();
+        state.focus_active();
+        assert_eq!(state.selected, Agent::Devin.index());
+        assert!(state.at_root());
+        assert!(state.pending.is_none());
     }
 
     #[test]

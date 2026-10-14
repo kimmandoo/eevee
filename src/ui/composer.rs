@@ -69,13 +69,7 @@ pub(super) fn commands(frame: &mut Frame, area: Rect, app: &App, config: &Config
     let Some(popup) = &app.command_popup else {
         return;
     };
-    // Keep storage/pending state visible even at the minimum supported size.
-    let viewport = Rect {
-        y: area.y.saturating_add(2),
-        height: area.height.saturating_sub(4),
-        ..area
-    };
-    let area = super::centered(viewport, 100, 22);
+    let area = super::command_popup_area(area, app);
     frame.render_widget(Clear, area);
     let block = panel(" / Commands / type to search ", config, paint, true);
     let content = block.inner(area);
@@ -137,7 +131,7 @@ pub(super) fn commands(frame: &mut Frame, area: Rect, app: &App, config: &Config
     text(
         frame,
         row(content, content.height.saturating_sub(3), 2),
-        selected_reason.as_deref().unwrap_or(&app.notice),
+        &super::brief(selected_reason.as_deref().unwrap_or(&app.notice)),
         paint.muted,
     );
     text(

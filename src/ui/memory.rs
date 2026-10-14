@@ -56,7 +56,12 @@ pub(super) fn render(
         }
     };
     text(frame, row(content, 0, 1), heading, paint.accent);
-    text(frame, row(content, 1, 2), &state.notice, paint.muted);
+    text(
+        frame,
+        row(content, 1, 2),
+        &super::brief(&state.notice),
+        paint.muted,
+    );
     let label = match state.mode {
         Mode::Edit | Mode::Preview | Mode::Discard => state
             .candidate

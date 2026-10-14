@@ -229,6 +229,9 @@ pub struct Artwork {
     tick: u64,
     generation: u64,
     cells_enabled: bool,
+    /// Auto mode draws cells once the terminal is known to lack native graphics.
+    auto: bool,
+    cell_fallback: bool,
     native_active: bool,
 }
 
@@ -254,7 +257,7 @@ impl Artwork {
                 if source.is_some() {
                     verify_hash(&bytes, HASHES[index])?;
                 }
-                decode_png(&bytes).map(trim_transparent_border)
+                decode_png(&bytes)
             })();
             match result {
                 Ok(image) => Asset {
@@ -274,6 +277,12 @@ impl Artwork {
                 },
             }
         });
+        let mut assets: [Asset; 9] = assets;
+        let mut images = assets.each_mut().map(|asset| asset.image.take());
+        trim_shared_border(&mut images);
+        for (asset, image) in assets.iter_mut().zip(images) {
+            asset.image = image;
+        }
         Self {
             assets,
             cache: Vec::new(),
@@ -282,6 +291,8 @@ impl Artwork {
             theme: config.theme,
             tick: 0,
             cells_enabled: config.images == ImageMode::Cells,
+            auto: config.images == ImageMode::Auto,
+            cell_fallback: false,
             native_active: false,
             generation: ARTWORK_GENERATION.fetch_add(1, Ordering::Relaxed),
         }
@@ -320,6 +331,15 @@ impl Artwork {
         self.native_active = active;
     }
 
+    /// Auto mode only: draw cell art because native graphics were not confirmed.
+    pub fn set_cell_fallback(&mut self, active: bool) {
+        self.cell_fallback = self.auto && active;
+    }
+
+    fn cells_active(&self) -> bool {
+        self.cells_enabled || (self.cell_fallback && !self.native_active)
+    }
+
     fn key(&self, index: usize, area: Rect, background: Color) -> CacheKey {
         CacheKey {
             species: index,
@@ -334,7 +354,7 @@ impl Artwork {
     /// Called before drawing, never by render. Bounded caches retain offline form
     /// switches and multiple thumbnail sizes without decoding or resizing frames.
     pub fn prepare(&mut self, targets: &[(usize, Rect)], background: Color) {
-        if !self.cells_enabled {
+        if !self.cells_active() {
             return;
         }
         self.tick = self.tick.wrapping_add(1);
@@ -390,7 +410,7 @@ impl Artwork {
                 .render(area, buffer);
             return;
         }
-        if !self.cells_enabled {
+        if !self.cells_active() {
             if self.native_active {
                 return;
             }
@@ -435,25 +455,54 @@ impl Artwork {
     }
 }
 
-// Fit the visible sprite without its transparent 96x96 canvas, preserving every
-// nontransparent pixel (including ears, tails, and partially transparent edges).
-fn trim_transparent_border(image: RgbaImage) -> RgbaImage {
-    let mut left = image.width();
-    let mut top = image.height();
-    let mut right = 0;
-    let mut bottom = 0;
+/// Opaque pixel bounds as (left, top, right, bottom); None when fully transparent.
+fn opaque_bounds(image: &RgbaImage) -> Option<(u32, u32, u32, u32)> {
+    let mut bounds: Option<(u32, u32, u32, u32)> = None;
     for (x, y, pixel) in image.enumerate_pixels() {
         if pixel[3] != 0 {
-            left = left.min(x);
-            top = top.min(y);
-            right = right.max(x + 1);
-            bottom = bottom.max(y + 1);
+            bounds = Some(bounds.map_or((x, y, x + 1, y + 1), |(l, t, r, b)| {
+                (l.min(x), t.min(y), r.max(x + 1), b.max(y + 1))
+            }));
         }
     }
-    if right == 0 || (left == 0 && top == 0 && right == image.width() && bottom == image.height()) {
+    bounds
+}
+
+fn crop_to(image: RgbaImage, (left, top, right, bottom): (u32, u32, u32, u32)) -> RgbaImage {
+    if left == 0 && top == 0 && right == image.width() && bottom == image.height() {
         return image;
     }
     image::imageops::crop_imm(&image, left, top, right - left, bottom - top).to_image()
+}
+
+// Fit the visible sprite without its transparent 96x96 canvas, preserving every
+// nontransparent pixel (including ears, tails, and partially transparent edges).
+fn trim_transparent_border(image: RgbaImage) -> RgbaImage {
+    match opaque_bounds(&image) {
+        Some(bounds) => crop_to(image, bounds),
+        None => image,
+    }
+}
+
+// Same-canvas forms are cropped to the union of their opaque bounds, so every form
+// shares one scale and baseline instead of each small sprite filling the frame.
+// Mixed canvas sizes (user-supplied art) fall back to per-image trimming.
+fn trim_shared_border(images: &mut [Option<RgbaImage>]) {
+    let mut loaded = images.iter().flatten().map(RgbaImage::dimensions);
+    let shared = loaded
+        .next()
+        .filter(|first| loaded.all(|size| size == *first))
+        .and_then(|_| {
+            images.iter().flatten().filter_map(opaque_bounds).reduce(
+                |(l, t, r, b), (l2, t2, r2, b2)| (l.min(l2), t.min(t2), r.max(r2), b.max(b2)),
+            )
+        });
+    for image in images.iter_mut() {
+        *image = image.take().map(|image| match shared {
+            Some(bounds) => crop_to(image, bounds),
+            None => trim_transparent_border(image),
+        });
+    }
 }
 
 /// Fit the explicitly selected low-resolution cell preview; native transport
@@ -476,44 +525,50 @@ fn fitted_dimensions(image: &RgbaImage, width: u16, rows: u16) -> (u16, u16) {
 fn rasterize(image: &RgbaImage, key: CacheKey, touched: u64) -> Raster {
     let (width, pixel_height) = fitted_dimensions(image, key.width, key.height);
     let height = pixel_height.div_ceil(2);
+    // Color cells use quadrant blocks: two half-width samples per column double
+    // horizontal detail. ASCII/mono keeps one luminance sample per half cell.
+    let quadrants = !key.ascii && key.color != ColorMode::Mono;
+    let columns = if quadrants { width * 2 } else { width };
+    let pixel = |x: u16, y: u16| {
+        if y < pixel_height {
+            sample(image, x, y, columns, pixel_height, key.background)
+        } else {
+            key.background
+        }
+    };
     let mut cells = Vec::with_capacity(usize::from(width) * usize::from(height));
     for row in 0..height {
         for column in 0..width {
-            let upper = sample(image, column, row * 2, width, pixel_height, key.background);
-            let lower = if row * 2 + 1 < pixel_height {
-                sample(
-                    image,
-                    column,
-                    row * 2 + 1,
-                    width,
-                    pixel_height,
-                    key.background,
-                )
-            } else {
-                key.background
-            };
-            if key.ascii || key.color == ColorMode::Mono {
-                let average = std::array::from_fn(|channel| {
-                    ((u16::from(upper[channel]) + u16::from(lower[channel])) / 2) as u8
-                });
-                let difference = (luminance(average) - luminance(key.background)).abs();
-                const RAMP: [&str; 10] = [" ", ".", ":", "-", "=", "+", "*", "#", "%", "@"];
-                let contrast = luminance(key.background)
-                    .max(255.0 - luminance(key.background))
-                    .max(1.0);
-                let level = ((difference / contrast) * 9.0).round().clamp(0.0, 9.0) as usize;
+            if quadrants {
+                let (x, y) = (column * 2, row * 2);
+                let (symbol, foreground, background) = quadrant([
+                    pixel(x, y),
+                    pixel(x + 1, y),
+                    pixel(x, y + 1),
+                    pixel(x + 1, y + 1),
+                ]);
                 cells.push(RasterCell {
-                    symbol: RAMP[level],
-                    foreground: Color::Reset,
-                    background: Color::Reset,
+                    symbol,
+                    foreground: output_color(foreground, key.color),
+                    background: output_color(background, key.color),
                 });
-            } else {
-                cells.push(RasterCell {
-                    symbol: "▀",
-                    foreground: output_color(upper, key.color),
-                    background: output_color(lower, key.color),
-                });
+                continue;
             }
+            let (upper, lower) = (pixel(column, row * 2), pixel(column, row * 2 + 1));
+            let average = std::array::from_fn(|channel| {
+                ((u16::from(upper[channel]) + u16::from(lower[channel])) / 2) as u8
+            });
+            let difference = (luminance(average) - luminance(key.background)).abs();
+            const RAMP: [&str; 10] = [" ", ".", ":", "-", "=", "+", "*", "#", "%", "@"];
+            let contrast = luminance(key.background)
+                .max(255.0 - luminance(key.background))
+                .max(1.0);
+            let level = ((difference / contrast) * 9.0).round().clamp(0.0, 9.0) as usize;
+            cells.push(RasterCell {
+                symbol: RAMP[level],
+                foreground: Color::Reset,
+                background: Color::Reset,
+            });
         }
     }
     Raster {
@@ -525,9 +580,47 @@ fn rasterize(image: &RgbaImage, key: CacheKey, touched: u64) -> Raster {
     }
 }
 
+/// Quadrant glyphs indexed by foreground bits: 1 upper-left, 2 upper-right,
+/// 4 lower-left, 8 lower-right.
+const QUADRANTS: [&str; 16] = [
+    " ", "▘", "▝", "▀", "▖", "▌", "▞", "▛", "▗", "▚", "▐", "▜", "▄", "▙", "▟", "█",
+];
+
+/// A cell holds two colors, so pick the pair of the block's own colors that
+/// fits its four samples best; no blended color is ever invented.
+fn quadrant(block: [[u8; 3]; 4]) -> (&'static str, [u8; 3], [u8; 3]) {
+    let distance = |a: [u8; 3], b: [u8; 3]| {
+        (0..3)
+            .map(|channel| (i32::from(a[channel]) - i32::from(b[channel])).pow(2))
+            .sum::<i32>()
+    };
+    let mut best = (QUADRANTS[15], block[0], block[0], i32::MAX);
+    for (index, &foreground) in block.iter().enumerate() {
+        for &background in &block[index + 1..] {
+            if foreground == background {
+                continue;
+            }
+            let (mut mask, mut error) = (0, 0);
+            for (bit, &pixel) in block.iter().enumerate() {
+                let (near, far) = (distance(pixel, foreground), distance(pixel, background));
+                if near <= far {
+                    mask |= 1 << bit;
+                    error += near;
+                } else {
+                    error += far;
+                }
+            }
+            if error < best.3 {
+                best = (QUADRANTS[mask], foreground, background, error);
+            }
+        }
+    }
+    (best.0, best.1, best.2)
+}
+
 // Nearest source pixels preserve the sprite's original palette and hard edges.
 // Composite alpha only after selecting the pixel, without filtering transparent
-// RGB into outlines. Each half-cell is a square sample (terminal cells are 1:2).
+// RGB into outlines. Rows are half-cell samples; quadrant columns are half that width.
 fn sample(
     image: &RgbaImage,
     x: u16,
@@ -1088,6 +1181,18 @@ mod tests {
         assert_eq!(raster.cells[0].background, Color::Rgb(220, 100, 40));
         let transparent = RgbaImage::from_pixel(1, 1, Rgba([200, 30, 20, 0]));
         assert_eq!(sample(&transparent, 0, 0, 1, 1, [10, 20, 30]), [10, 20, 30]);
+        // Quadrants split each cell horizontally, keeping only original colors.
+        let mut split = RgbaImage::from_pixel(2, 4, Rgba([0, 0, 255, 255]));
+        for y in 0..4 {
+            split.put_pixel(0, y, Rgba([255, 0, 0, 255]));
+        }
+        let raster = rasterize(&split, key(ColorMode::TrueColor, false, 1, 1, [0; 3]), 0);
+        assert_eq!((raster.width, raster.height), (1, 1));
+        assert_eq!(raster.cells[0].symbol, "▌");
+        assert_eq!(raster.cells[0].foreground, Color::Rgb(255, 0, 0));
+        assert_eq!(raster.cells[0].background, Color::Rgb(0, 0, 255));
+        let three = [[200, 0, 0], [0, 0, 200], [0, 0, 200], [190, 0, 0]];
+        assert_eq!(quadrant(three), ("▚", [200, 0, 0], [0, 0, 200]));
         let partial = RgbaImage::from_pixel(1, 1, Rgba([210, 120, 30, 128]));
         assert_eq!(sample(&partial, 0, 0, 1, 1, [10, 20, 30]), [110, 70, 30]);
     }
@@ -1168,7 +1273,7 @@ mod tests {
         assert_eq!(artwork.cache.len(), 1);
         let mut buffer = Buffer::empty(Rect::new(0, 0, 10, 10));
         artwork.render(0, Rect::new(0, 0, 10, 10), &mut buffer);
-        assert_eq!(buffer[(0, 2)].symbol(), "▀");
+        assert_eq!(buffer[(0, 2)].symbol(), "█");
         fs::write(directory.0.join("sources.json"), b"bad manifest").unwrap();
         assert!(
             Artwork::load(&settings)
@@ -1289,6 +1394,33 @@ mod tests {
     }
 
     #[test]
+    fn forms_on_one_canvas_share_a_crop_so_they_render_at_one_scale() {
+        let sprite = |left, top, right, bottom| {
+            let mut image = RgbaImage::new(16, 16);
+            for y in top..bottom {
+                for x in left..right {
+                    image.put_pixel(x, y, Rgba([240, 120, 60, 255]));
+                }
+            }
+            image
+        };
+        let mut images = [Some(sprite(6, 8, 10, 14)), None, Some(sprite(2, 3, 14, 14))];
+        trim_shared_border(&mut images);
+        assert_eq!(images[0].as_ref().unwrap().dimensions(), (12, 11));
+        assert_eq!(images[2].as_ref().unwrap().dimensions(), (12, 11));
+        // The small form keeps its relative size and baseline.
+        assert_eq!(images[0].as_ref().unwrap().get_pixel(4, 10)[3], 255);
+        assert_eq!(images[0].as_ref().unwrap().get_pixel(0, 0)[3], 0);
+
+        let mut mixed = [
+            Some(sprite(6, 8, 10, 14)),
+            Some(RgbaImage::from_pixel(3, 3, Rgba([1, 2, 3, 255]))),
+        ];
+        trim_shared_border(&mut mixed);
+        assert_eq!(mixed[0].as_ref().unwrap().dimensions(), (4, 6));
+    }
+
+    #[test]
     fn every_missing_form_has_a_setup_placeholder_and_reload_generation() {
         let directory = TestDirectory::new();
         let settings = config(&directory.0);
@@ -1305,7 +1437,7 @@ mod tests {
     }
 
     #[test]
-    fn auto_keeps_loaded_assets_but_never_creates_a_cell_mosaic() {
+    fn auto_falls_back_to_cells_only_after_native_graphics_are_ruled_out() {
         let directory = TestDirectory::new();
         let image = RgbaImage::from_pixel(96, 96, Rgba([80, 120, 160, 255]));
         fs::write(directory.0.join("133.png"), png(&image)).unwrap();
@@ -1313,32 +1445,33 @@ mod tests {
         settings.images = ImageMode::Auto;
         let mut artwork = Artwork::load(&settings);
         let target = Rect::new(0, 0, 20, 6);
-        artwork.prepare(&[(0, target)], Color::Black);
-        assert_eq!(artwork.available(), 1);
-        assert_eq!(artwork.original(0).unwrap().dimensions(), (96, 96));
-        assert!(artwork.cache.is_empty());
-        let mut buffer = Buffer::empty(target);
-        artwork.render(0, target, &mut buffer);
-        let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
-        assert!(text.contains("No native image"));
-        assert!(!text.contains('▀'));
-        artwork.set_native_active(true);
-        let mut native_buffer = Buffer::empty(target);
-        artwork.render(0, target, &mut native_buffer);
-        assert!(
-            native_buffer
+        let render = |artwork: &Artwork| {
+            let mut buffer = Buffer::empty(target);
+            artwork.render(0, target, &mut buffer);
+            buffer
                 .content
                 .iter()
-                .all(|cell| cell.symbol() == " ")
-        );
-        artwork.set_native_active(false);
-        artwork.render(0, target, &mut native_buffer);
-        let text: String = native_buffer
-            .content
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect();
-        assert!(text.contains("No native image"));
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+        };
+        // Still detecting: no mosaic that a native image would replace a moment later.
+        artwork.prepare(&[(0, target)], Color::Black);
+        assert!(artwork.cache.is_empty());
+        assert!(render(&artwork).contains("No native image"));
+        // Detection settled without native graphics: cell art.
+        artwork.set_cell_fallback(true);
+        artwork.prepare(&[(0, target)], Color::Black);
+        assert_eq!(artwork.cache.len(), 1);
+        assert!(render(&artwork).contains('█'));
+        // Native graphics own the target even if the fallback latch is set.
+        artwork.set_native_active(true);
+        assert!(render(&artwork).chars().all(|cell| cell == ' '));
+        // Explicit modes are unaffected by the auto fallback.
+        settings.images = ImageMode::Off;
+        let mut off = Artwork::load(&settings);
+        off.set_cell_fallback(true);
+        off.prepare(&[(0, target)], Color::Black);
+        assert!(off.cache.is_empty());
     }
 
     #[test]

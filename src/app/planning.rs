@@ -653,8 +653,7 @@ impl State {
                     && matches!(outcome, Outcome::Completed)
                     && !self.quit_after_cancel
                 {
-                    self.picker = Some(Picker::Model);
-                    self.picker_selected = 0;
+                    self.open_picker(Picker::Model);
                 }
                 self.cancel_when_ready = false;
                 self.unknown |= matches!(outcome, Outcome::Unknown);
@@ -972,6 +971,38 @@ impl State {
         catalogue.models.iter().find(|model| &model.id == id)
     }
 
+    /// Opens a local picker on the current value, or on Refresh when nothing is inspected yet.
+    fn open_picker(&mut self, picker: Picker) {
+        self.picker = Some(picker);
+        self.scroll = 0;
+        self.picker_selected = match self.picker_current() {
+            Some(index) => index,
+            None if picker == Picker::Model => self.picker_len() - 1,
+            None => 0,
+        };
+    }
+
+    /// Row of the current local selection; None when the model catalogue is uninspected.
+    pub fn picker_current(&self) -> Option<usize> {
+        match self.picker? {
+            Picker::Model => {
+                let catalogue = self.catalogues.get(&self.agent)?;
+                Some(self.selection.model.as_ref().map_or(0, |id| {
+                    catalogue
+                        .models
+                        .iter()
+                        .position(|model| &model.id == id)
+                        .map_or(0, |index| index + 1)
+                }))
+            }
+            Picker::Effort => Some(self.selection.effort.as_ref().map_or(0, |effort| {
+                self.effort_model()
+                    .and_then(|model| model.efforts.iter().position(|value| value == effort))
+                    .map_or(0, |index| index + 1)
+            })),
+        }
+    }
+
     pub fn picker_len(&self) -> usize {
         match self.picker {
             Some(Picker::Model) => {
@@ -1047,6 +1078,7 @@ impl State {
     }
 
     fn apply_selection(&mut self, selection: ModelSelection, fresh: bool) {
+        let model_changed = selection.model != self.selection.model;
         self.picker = None;
         self.selection_change = None;
         if self.preview.is_some() {
@@ -1063,6 +1095,16 @@ impl State {
         }
         self.review_start();
         self.notice = "Selection updated locally. Previous payload consent invalidated; /new or compatible /resume requires fresh review. No connection was authorized.".into();
+        // Continue straight to effort when the new model advertises choices.
+        if model_changed
+            && self.selection.model.is_some()
+            && self
+                .effort_model()
+                .is_some_and(|model| !model.efforts.is_empty())
+        {
+            self.open_picker(Picker::Effort);
+            self.notice = "Model updated locally. Choose reasoning effort, or Esc to keep the provider default.".into();
+        }
     }
 
     pub fn command_choices(&self) -> Vec<super::commands::Choice> {
@@ -1234,13 +1276,11 @@ impl State {
         }
         match name {
             "model" | "effort" => {
-                self.picker = Some(if name == "model" {
+                self.open_picker(if name == "model" {
                     Picker::Model
                 } else {
                     Picker::Effort
                 });
-                self.picker_selected = 0;
-                self.scroll = 0;
                 self.notice = "Local picker only. Default means provider configuration; inspection requires separate Preview/Run consent.".into();
             }
             "models-refresh" => {
@@ -1254,15 +1294,8 @@ impl State {
             "resume" => self.prepare(true, false, false, task, excerpts, report),
             "sessions" => self.prepare(false, true, false, task, excerpts, report),
             "goal" => self.edit_goal = true,
-            "provider-codex" | "provider-claude" | "provider-opencode" | "provider-gemini"
-            | "provider-devin" => {
-                let next = match name {
-                    "provider-codex" => Agent::Codex,
-                    "provider-claude" => Agent::Claude,
-                    "provider-opencode" => Agent::OpenCode,
-                    "provider-gemini" => Agent::Gemini,
-                    _ => Agent::Devin,
-                };
+            _ if Agent::from_command(name).is_some() => {
+                let next = Agent::from_command(name).expect("provider command");
                 if next != self.agent {
                     if self.handoff.is_none() {
                         match crate::handoff::from_task(task, excerpts, &[]) {
@@ -1926,9 +1959,11 @@ mod tests {
         command(&mut state, "model", true);
         press(&mut state, KeyCode::Down, true);
         press(&mut state, KeyCode::Enter, true);
-        command(&mut state, "effort", true);
+        // Choosing a model continues straight to its advertised efforts.
+        assert!(state.picker == Some(Picker::Effort));
         press(&mut state, KeyCode::Down, true);
         press(&mut state, KeyCode::Enter, true);
+        assert!(state.picker.is_none());
         command(&mut state, "new", true);
         let Some(Request::Preview(input)) = state.pending.take() else {
             panic!("turn preview");
@@ -1944,6 +1979,11 @@ mod tests {
             blockers: vec![],
         }));
         command(&mut state, "effort", true);
+        assert_eq!(
+            state.picker_selected, 1,
+            "picker opens on the current effort"
+        );
+        press(&mut state, KeyCode::Home, true);
         press(&mut state, KeyCode::Enter, true);
         assert!(state.selection.effort.is_none());
         assert!(state.preview.is_none() && !state.affirmative);

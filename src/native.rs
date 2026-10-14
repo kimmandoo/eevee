@@ -104,8 +104,8 @@ impl NativeGraphics {
         let status = match config.images {
             ImageMode::Off => "Images off; no graphics discovery",
             ImageMode::Cells => "Low-resolution cell preview (explicit --images cells)",
-            ImageMode::Auto if !eligible => "Text only: ASCII/monochrome mode",
-            ImageMode::Auto => "Text only: native graphics not confirmed",
+            ImageMode::Auto if !eligible => "Cell art: ASCII/monochrome mode",
+            ImageMode::Auto => "Cell art: native graphics not confirmed",
         };
         Self {
             eligible,
@@ -141,8 +141,8 @@ impl NativeGraphics {
                     "Sixel"
                 }
             ),
-            (None, _) => "Text only: terminal did not confirm Kitty or Sixel support".into(),
-            (_, None) => "Text only: terminal supplied no usable pixel/cell dimensions".into(),
+            (None, _) => "Cell art: terminal did not confirm Kitty or Sixel support".into(),
+            (_, None) => "Cell art: terminal supplied no usable pixel/cell dimensions".into(),
         };
     }
 

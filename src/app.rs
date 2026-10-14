@@ -113,6 +113,8 @@ pub struct App {
     pub confirmation: Option<Confirmation>,
     pub editing: bool,
     pub composer_menu: Option<composer::Menu>,
+    /// Full explanations instead of first-sentence summaries (`/verbose`).
+    pub verbose: bool,
     pub command_popup: Option<commands::Popup>,
     composer_catalogue: bool,
     composer_return: Option<store::EditorField>,
@@ -202,6 +204,7 @@ impl App {
             confirmation: None,
             editing: true,
             composer_menu: None,
+            verbose: false,
             command_popup: None,
             composer_catalogue: false,
             composer_return: None,
@@ -1478,6 +1481,7 @@ impl App {
                     self.agents.notice = "Finish or retry saves and active work before authentication. No login started.".into();
                     return true;
                 }
+                self.agents.active = self.planning.agent.index();
                 let changed = self.agents.key(key, self.width >= 60 && self.height >= 18);
                 self.use_selected_provider();
                 return changed;
@@ -1529,22 +1533,17 @@ impl App {
         true
     }
 
+    /// Hands hub requests (use for task, model, effort) to the planning drawer.
     fn use_selected_provider(&mut self) {
-        if let Some(profile) = self.agents.use_for_task.take() {
+        let name = if let Some(profile) = self.agents.use_for_task.take() {
+            crate::provider::Agent::from_index(profile).map(crate::provider::Agent::command)
+        } else {
+            self.agents.pick.take()
+        };
+        if let Some(name) = name {
             self.open_overlay(Overlay::Planning);
             if self.overlay == Some(Overlay::Planning) {
-                let name = [
-                    "provider-codex",
-                    "provider-claude",
-                    "provider-opencode",
-                    "provider-gemini",
-                    "provider-devin",
-                ]
-                .get(profile)
-                .copied();
-                if let Some(name) = name {
-                    self.planning_command(name);
-                }
+                self.planning_command(name);
             }
         }
     }

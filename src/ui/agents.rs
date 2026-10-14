@@ -14,7 +14,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let area = centered(area, 104, area.height.saturating_sub(2));
     frame.render_widget(Clear, area);
     let auth_room = app.width >= 80 && app.height >= 24;
+    let in_use = format!("in use · {}", app.planning.selection.summary());
     let state = &mut app.agents;
+    state.active = app.planning.agent.index();
     if state.auth_preview.is_some() && !auth_room {
         state.reviewed = false;
         state.affirmative = false;
@@ -59,9 +61,10 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     frame,
                     row(providers, 1 + index as u16 * 2, 2),
                     &format!(
-                        "{} {}\n  {}",
+                        "{} {}{}\n  {}",
                         if index == state.selected { ">" } else { " " },
                         provider.name,
+                        if index == state.active { " ●" } else { "" },
                         state.connection_status(index)
                     ),
                     if index == state.selected && state.page == Page::Providers {
@@ -78,11 +81,19 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             text(
                 frame,
                 row(body, 0, 1),
-                &format!(
-                    "{} · {}",
-                    profile.name,
-                    state.connection_status(state.selected)
-                ),
+                &if state.selected == state.active {
+                    format!(
+                        "{} · {} · {in_use}",
+                        profile.name,
+                        state.connection_status(state.selected)
+                    )
+                } else {
+                    format!(
+                        "{} · {}",
+                        profile.name,
+                        state.connection_status(state.selected)
+                    )
+                },
                 paint.accent,
             );
         }
@@ -182,8 +193,10 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             };
             let methods = state.page == Page::Methods;
             // Claude's executable row is the Claude CLI; its connection uses ant instead.
-            let hint = if state.selected != 1 && profile.executable.is_none() {
-                state.setup_hint()
+            let hint = if state.selected != crate::provider::Agent::Claude.index()
+                && profile.executable.is_none()
+            {
+                super::brief(&state.setup_hint()).into_owned()
             } else if state.auth_busy() {
                 "Preparing review... Esc cancels.".into()
             } else if methods {
@@ -191,11 +204,19 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     .get(state.method)
                     .and_then(|method| method.guidance())
                     .unwrap_or("Enter reviews this method; nothing launches.");
-                format!("{}\n\n{guidance}", state.notice)
-            } else if state.selected == 1 {
-                format!("{}\n\n{}", state.notice, state.setup_hint())
+                format!(
+                    "{}\n\n{}",
+                    super::brief(&state.notice),
+                    super::brief(guidance)
+                )
+            } else if state.selected == crate::provider::Agent::Claude.index() {
+                format!(
+                    "{}\n\n{}",
+                    super::brief(&state.notice),
+                    super::brief(&state.setup_hint())
+                )
             } else {
-                state.notice.clone()
+                super::brief(&state.notice).into_owned()
             };
             state.scroll_max = selection_details(
                 frame,
@@ -213,7 +234,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             if state.page == Page::Diagnostics {
                 "Up/Down Scroll · Enter Back · / choices · Esc Back"
             } else {
-                "Arrows Select · Tab Providers/Actions · Enter Open\n/ choices: connect, status, version, diagnostics · Esc Back"
+                "Arrows Select · Tab Providers/Actions · Enter Open (suggested step preselected)\n● task provider · / choices: connect, status, version, diagnostics · Esc Back"
             },
             paint.accent,
         );

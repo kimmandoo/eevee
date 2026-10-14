@@ -77,7 +77,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut State, config: &Config)
             state.search
         )
     } else {
-        state.notice.clone()
+        super::brief(&state.notice).into_owned()
     };
     text(
         frame,

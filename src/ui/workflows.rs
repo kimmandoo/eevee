@@ -43,7 +43,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     } else {
         &app.workflow.notice
     };
-    text(frame, row(content, 1, 2), notice, paint.muted);
+    text(
+        frame,
+        row(content, 1, 2),
+        &super::brief(notice),
+        paint.muted,
+    );
     let body = row(content, 3, content.height.saturating_sub(5));
     let footer = row(content, content.height.saturating_sub(2), 2);
     if let Some(field) = app.workflow.editor {

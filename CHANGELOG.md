@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.2
+
+- feat(providers): `/provider` and `/connect` open one hub that marks the task provider (●) with its model and effort, adds Choose model / Choose reasoning effort, and preselects the likely next step (Connect → Use for task → Choose model). Every connection, switch and request review is unchanged.
+- feat(models): pickers open on the current value (or Refresh when nothing is inspected), mark it `(current)`, and choosing a model continues straight to its advertised efforts.
+- refactor(providers): share provider identity through `Agent::index/from_index/command/from_command` and one `connectable` check instead of hard-coded lists and index comparisons.
+- feat(tui): explanations are brief by default — the first sentence plus any `Next:` step, marked `…`; `/verbose` toggles full text. The header shows `provider · model · effort`. Consent reviews stay complete.
+- fix(sprites): crop all nine forms to one shared box so they render at a single scale; keep the portrait visible while the `/` palette or `@` menu is open (the palette now stays left of the companion rail, so no Sixel full-screen erase).
+- feat(sprites): `--images auto` falls back to cell art once the terminal is known to lack Sixel/Kitty; color cell art uses quadrant blocks with each cell's own two original colors, doubling horizontal detail.
+- fix(install): document a Windows install that works under the default Restricted execution policy (script-block one-liner, or process-only `-ExecutionPolicy Bypass`); accept relative `-Archive`/`-Checksums`/`-InstallDir`; print the exact user-PATH command. README gives per-platform macOS, Linux/WSL, Windows and offline steps.
+
 ## 0.1.1
 
 - feat(commands): replace action-letter, numeric and F-key shortcuts with one searchable slash shell and contextual provider/role/action choices. Goal Enter saves locally and opens neutral next steps; drafts/caret/paste, storage acknowledgement, busy/resize and once-only consent boundaries remain intact. Ctrl+K opens the same shell.

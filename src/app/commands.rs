@@ -89,7 +89,7 @@ impl App {
             _ => Vec::new(),
         };
         for (name, label) in [
-            ("provider", "Provider request and session choices"),
+            ("provider", "Providers: connect, choose, model, effort"),
             ("connect", "Provider connections; nothing sent"),
             ("new", "New provider session"),
             ("resume", "Resume owned provider session"),
@@ -118,6 +118,7 @@ impl App {
             ("refresh", "Refresh repository inspection"),
             ("storage-retry", "Retry failed storage"),
             ("help", "Navigation help"),
+            ("verbose", "Toggle brief / full explanations"),
             ("quit", "Leave Eevee"),
         ] {
             if !choices.iter().any(|choice| choice.command == name) {
@@ -171,14 +172,17 @@ impl App {
             || self.execution.confirmation.is_some()
             || self.agents.preview
             || self.agents.auth_preview.is_some())
-            && !matches!(name, "close" | "cancel" | "deny" | "quit")
+            && !matches!(name, "close" | "cancel" | "deny" | "quit" | "verbose")
         {
             return Some(
                 "Resolve the visible neutral review before opening another action.".into(),
             );
         }
         if (self.width < 60 || self.height < 18)
-            && !matches!(name, "quit" | "cancel" | "close" | "storage-retry")
+            && !matches!(
+                name,
+                "quit" | "cancel" | "close" | "storage-retry" | "verbose"
+            )
         {
             return Some("Enlarge the terminal to review this action.".into());
         }
@@ -210,7 +214,7 @@ impl App {
             && !local_picker_refresh
             && !matches!(
                 name,
-                "cancel" | "quit" | "provider" | "answer" | "answers-review"
+                "cancel" | "quit" | "provider" | "answer" | "answers-review" | "verbose"
             )
         {
             return Some("Finish or cancel the active provider request first.".into());
@@ -268,7 +272,7 @@ impl App {
             vec![
                 Choice::new("new", "New provider session"),
                 Choice::new("resume", "Resume owned provider session"),
-                Choice::new("provider", "Choose provider"),
+                Choice::new("provider", "Choose provider, model and effort"),
                 Choice::new("connect", "Connect a provider; no prompt sent"),
             ]
         } else {
@@ -399,6 +403,7 @@ impl App {
                     self.apply_source_action(action)
                 }
                 Some(Overlay::Agents) => {
+                    self.agents.active = self.planning.agent.index();
                     let changed = self
                         .agents
                         .command(name, self.width >= 60 && self.height >= 18);
@@ -438,26 +443,12 @@ impl App {
             return false;
         }
         match name {
+            // Idle /provider opens the shared hub; an active request keeps its drawer.
+            "provider" if self.planning.busy() => self.open_overlay(Overlay::Planning),
             "provider" => {
-                self.open_overlay(Overlay::Planning);
-                if self.overlay == Some(Overlay::Planning) && !self.planning.busy() {
-                    let choices = self
-                        .planning
-                        .command_choices()
-                        .into_iter()
-                        .filter(|choice| {
-                            choice.command.starts_with("provider-")
-                                && choice.command != "provider-journal"
-                        })
-                        .collect();
-                    self.command_popup = Some(Popup {
-                        query: String::new(),
-                        selected: None,
-                        choices,
-                        scope: self.overlay,
-                        after_goal: false,
-                    });
-                }
+                self.open_overlay(Overlay::Agents);
+                self.agents.active = self.planning.agent.index();
+                self.agents.focus_active();
             }
             "connect" => self.open_overlay(Overlay::Agents),
             "task-new" => self.new_task(),
@@ -522,6 +513,14 @@ impl App {
                 self.storage = StorageState::Loading;
             }
             "help" => self.open_overlay(Overlay::Help),
+            "verbose" => {
+                self.verbose = !self.verbose;
+                self.notice = if self.verbose {
+                    "Full explanations on. /verbose again for brief.".into()
+                } else {
+                    "Brief explanations on. /verbose shows full text.".into()
+                };
+            }
             "quit" => self.request_quit(),
             "archive" => self.archive_selected(true),
             "restore" => self.archive_selected(false),

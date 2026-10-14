@@ -117,6 +117,9 @@ fn run(config: Config) -> io::Result<()> {
         app.images_enabled = config.images != config::ImageMode::Off;
         app.execution.set_capture_capacity(config.capture_capacity);
         let mut graphics = native::NativeGraphics::new(&config);
+        // Auto mode falls back to cell art once detection settles without native support;
+        // it stays latched across resize re-queries so the portrait never blinks.
+        let mut graphics_settled = false;
         let mut dirty = true;
         let mut targets = Vec::with_capacity(9);
         let mut input = input::Input::new()?;
@@ -204,7 +207,9 @@ fn run(config: Config) -> io::Result<()> {
                     ratatui::layout::Rect::new(0, 0, app.width, app.height),
                     &mut targets,
                 );
+                graphics_settled |= !input.graphics_pending();
                 artwork.set_native_active(graphics.is_native());
+                artwork.set_cell_fallback(graphics_settled);
                 if !graphics.is_native() {
                     artwork.prepare(&targets, ui::image_background(&config));
                 }

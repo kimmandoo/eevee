@@ -7,7 +7,7 @@ mod planning;
 mod sources;
 mod workflows;
 
-use std::borrow::Cow;
+use std::{borrow::Cow, cell::Cell};
 
 use ratatui::{
     Frame,
@@ -51,6 +51,47 @@ const ASCII_BORDER: border::Set = border::Set {
     horizontal_top: "-",
     horizontal_bottom: "-",
 };
+
+thread_local! {
+    /// `/verbose` for the frame being drawn; set once at the start of `render`.
+    static VERBOSE: Cell<bool> = const { Cell::new(false) };
+}
+
+/// First sentence of an explanation plus any "Next:" step, marked "…" when more
+/// is hidden. `/verbose` shows everything. Never use for consent reviews, which
+/// must stay complete.
+fn brief(value: &str) -> Cow<'_, str> {
+    if VERBOSE.get() {
+        return Cow::Borrowed(value);
+    }
+    let mut sentences = Vec::new();
+    let mut start = 0;
+    for (index, character) in value.char_indices() {
+        let rest = &value[index + character.len_utf8()..];
+        let end = match character {
+            '.' | '!' | '?' if rest.starts_with([' ', '\n']) => index + 1,
+            '\n' if rest.starts_with('\n') => index,
+            _ => continue,
+        };
+        if end > start {
+            sentences.push(value[start..end].trim());
+        }
+        start = end;
+    }
+    sentences.push(value[start..].trim());
+    sentences.retain(|sentence| !sentence.is_empty());
+    let kept: Vec<_> = sentences
+        .iter()
+        .enumerate()
+        .filter(|(index, sentence)| *index == 0 || sentence.starts_with("Next:"))
+        .map(|(_, sentence)| *sentence)
+        .collect();
+    if kept.len() == sentences.len() {
+        Cow::Borrowed(value)
+    } else {
+        Cow::Owned(format!("{} …", kept.join(" ")))
+    }
+}
 
 struct Paint {
     base: Style,
@@ -328,13 +369,7 @@ pub fn portrait_targets(app: &App, area: Rect, targets: &mut Vec<(usize, Rect)>)
             app.editor_field,
             EditorField::Criteria | EditorField::Command
         );
-    if area.width < 60
-        || area.height < 18
-        || modal_editor
-        || app.confirmation.is_some()
-        || app.composer_menu.is_some()
-        || app.command_popup.is_some()
-    {
+    if area.width < 60 || area.height < 18 || modal_editor || app.confirmation.is_some() {
         return;
     }
     match app.overlay {
@@ -355,6 +390,48 @@ pub fn portrait_targets(app: &App, area: Rect, targets: &mut Vec<(usize, Rect)>)
             }
         }
     }
+    targets.retain(|&(_, target)| !occluded(area, app, target));
+}
+
+/// Floating `/` palette. On the main screen it stays left of the companion rail,
+/// so opening it never has to erase the portrait.
+fn command_popup_area(area: Rect, app: &App) -> Rect {
+    // Keep storage/pending state visible even at the minimum supported size.
+    let mut viewport = Rect {
+        y: area.y.saturating_add(2),
+        height: area.height.saturating_sub(4),
+        ..area
+    };
+    if app.overlay.is_none()
+        && let Some(rail) = shell(area, app.linear, app.effective_focus()).rail
+    {
+        viewport.width = rail.x.saturating_sub(viewport.x);
+    }
+    centered(viewport, 100, 22)
+}
+
+fn composer_menu_area(area: Rect, app: &App) -> Option<Rect> {
+    if app.composer_menu.is_none() || app.overlay.is_some() || app.confirmation.is_some() {
+        return None;
+    }
+    let shell = shell(area, app.linear, app.effective_focus());
+    let height = shell
+        .composer
+        .y
+        .saturating_sub(shell.header.bottom())
+        .min(9);
+    Some(Rect::new(
+        shell.composer.x,
+        shell.composer.y.saturating_sub(height),
+        shell.composer.width.min(84),
+        height,
+    ))
+}
+
+/// Native images draw above cells, so only portraits under a popup are withheld.
+fn occluded(area: Rect, app: &App, target: Rect) -> bool {
+    app.command_popup.is_some() && command_popup_area(area, app).intersects(target)
+        || composer_menu_area(area, app).is_some_and(|menu| menu.intersects(target))
 }
 
 pub fn render(
@@ -364,6 +441,7 @@ pub fn render(
     artwork: &mut Artwork,
     graphics_status: &str,
 ) {
+    VERBOSE.set(app.verbose);
     let area = frame.area();
     let form = &FORMS[app.form.min(8)];
     let paint = Paint::new(config, form, app.form.min(8));
@@ -403,8 +481,7 @@ pub fn render(
             &paint,
             artwork,
             app.overlay.is_none()
-                && app.composer_menu.is_none()
-                && app.command_popup.is_none()
+                && !occluded(area, app, companion_portrait(rail))
                 && !(app.editing
                     && matches!(
                         app.editor_field,
@@ -426,24 +503,8 @@ pub fn render(
         );
     }
     footer(frame, shell.footer, app, &paint);
-    if app.composer_menu.is_some() && app.overlay.is_none() && app.confirmation.is_none() {
-        let height = shell
-            .composer
-            .y
-            .saturating_sub(shell.header.bottom())
-            .min(9);
-        composer::render(
-            frame,
-            Rect::new(
-                shell.composer.x,
-                shell.composer.y.saturating_sub(height),
-                shell.composer.width.min(84),
-                height,
-            ),
-            app,
-            config,
-            &paint,
-        );
+    if let Some(menu) = composer_menu_area(area, app) {
+        composer::render(frame, menu, app, config, &paint);
     }
     if let Some(overlay) = app.overlay {
         match overlay {
@@ -497,6 +558,19 @@ fn text(frame: &mut Frame, area: Rect, value: &str, style: Style) {
     );
 }
 
+fn selection_line(app: &App) -> String {
+    selection_text(&app.planning)
+}
+
+/// Provider, model and effort at a glance; `/verbose` adds observation caveats.
+fn selection_text(state: &crate::app::planning::State) -> String {
+    if VERBOSE.get() {
+        state.selection_label()
+    } else {
+        format!("{} · {}", state.agent.label(), state.selection.summary())
+    }
+}
+
 fn header(frame: &mut Frame, area: Rect, app: &App, form: &Form, paint: &Paint) {
     let project = std::path::Path::new(&app.cwd)
         .file_name()
@@ -507,7 +581,7 @@ fn header(frame: &mut Frame, area: Rect, app: &App, form: &Form, paint: &Paint) 
             Span::styled(" EEVEE ", paint.selected),
             Span::styled(format!("  {project}"), paint.base),
             Span::styled(
-                format!("  /  {}  /  {}", form.name, app.planning.selection_label()),
+                format!("  /  {}  /  {}", form.name, selection_line(app)),
                 paint.muted,
             ),
         ])),
@@ -1282,7 +1356,7 @@ fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &P
     let block = panel(" Help / PgUp/Dn Scroll / Esc Back ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let value = "COMMANDS\n / or Ctrl+K opens the same searchable choices from every nonediting workspace and the goal composer.\n Type a semantic command or navigate with arrows/Tab; Enter opens the selected action. Esc preserves your draft.\n /provider chooses a provider; /connect opens reviewed connection actions.\n /new prepares a new provider session; /resume chooses an owned provider session.\n /task-new creates a local task; /tasks resumes saved tasks.\n /model and /effort show cached choices; explicit model inspection requires Preview and Run consent.\n /role chooses Plan / Implement / Review; /forms chooses evolution. /files reviews source context; /run opens local command execution.\n /criteria, /next, /complete, /diff, /history, /handoff, /workflows and /memory open their workspaces.\n Context choices explain unavailable actions. Nothing sends or executes merely by opening a command.\n\nCOMPOSER\n Enter applies the goal locally and offers New / Resume / provider / connection choices; no prompt is sent.\n Provider previews wait for task and context storage acknowledgement.\n @ filters eligible repository files; Enter inspects, /range chooses lines, /attach pins reviewed context.\n Literal paste never dispatches slash commands. The searchable shell does not modify the actual draft or its caret.\n Shift+Enter or Ctrl+N inserts a newline. Ctrl+H/Backspace deletes a grapheme.\n Ctrl+S retains an unfinished draft; Esc reviews discard without selecting destruction.\n\nNAVIGATION AND SAFETY\n Arrows/Tab choose, Enter confirms, Esc goes back. Ctrl+C requests safe exit.\n PgUp/PgDn scroll details. Task completion is user-reviewed criteria, not verified execution.\n Connection, provider, tool, file-write and local-command approvals remain separate and start neutral.\n Exported handoffs and provider output are unverified context, not permission.\n Archive is reversible; deletion requires reviewed confirmation and leaves repository files and provider sessions alone.";
+    let value = "COMMANDS\n / or Ctrl+K opens the same searchable choices from every nonediting workspace and the goal composer.\n Type a semantic command or navigate with arrows/Tab; Enter opens the selected action. Esc preserves your draft.\n /provider chooses a provider; /connect opens reviewed connection actions.\n /new prepares a new provider session; /resume chooses an owned provider session.\n /task-new creates a local task; /tasks resumes saved tasks.\n /model and /effort show cached choices; explicit model inspection requires Preview and Run consent.\n /role chooses Plan / Implement / Review; /forms chooses evolution. /files reviews source context; /run opens local command execution.\n /criteria, /next, /complete, /diff, /history, /handoff, /workflows and /memory open their workspaces.\n /verbose toggles brief / full explanations; brief text ends with …\n Context choices explain unavailable actions. Nothing sends or executes merely by opening a command.\n\nCOMPOSER\n Enter applies the goal locally and offers New / Resume / provider / connection choices; no prompt is sent.\n Provider previews wait for task and context storage acknowledgement.\n @ filters eligible repository files; Enter inspects, /range chooses lines, /attach pins reviewed context.\n Literal paste never dispatches slash commands. The searchable shell does not modify the actual draft or its caret.\n Shift+Enter or Ctrl+N inserts a newline. Ctrl+H/Backspace deletes a grapheme.\n Ctrl+S retains an unfinished draft; Esc reviews discard without selecting destruction.\n\nNAVIGATION AND SAFETY\n Arrows/Tab choose, Enter confirms, Esc goes back. Ctrl+C requests safe exit.\n PgUp/PgDn scroll details. Task completion is user-reviewed criteria, not verified execution.\n Connection, provider, tool, file-write and local-command approvals remain separate and start neutral.\n Exported handoffs and provider output are unverified context, not permission.\n Archive is reversible; deletion requires reviewed confirmation and leaves repository files and provider sessions alone.";
     scroll_text(
         frame,
         content,
@@ -1365,7 +1439,7 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
         text(
             frame,
             row(area, 0, 1),
-            &clipped(&app.notice, area.width as usize),
+            &clipped(&brief(&app.notice), area.width as usize),
             paint.accent,
         );
         text(frame, row(area, 1, 1), value, paint.base);
@@ -1996,5 +2070,45 @@ mod tests {
         let focused = shell(Rect::new(0, 0, 120, 36), false, Pane::Inspector);
         assert!(focused.inspector.is_some());
         assert!(focused.rail.is_none());
+    }
+
+    #[test]
+    fn command_palette_keeps_the_companion_portrait_visible() {
+        use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+        for (width, height) in [(120, 36), (90, 24)] {
+            let mut app = App::new("/workspace".into(), width, height);
+            let area = Rect::new(0, 0, width, height);
+            let mut targets = Vec::new();
+            portrait_targets(&app, area, &mut targets);
+            assert_eq!(targets.len(), 1);
+            let before = targets.clone();
+            app.update(Event::Key(KeyEvent::new(
+                KeyCode::Char('k'),
+                KeyModifiers::CONTROL,
+            )));
+            assert!(app.command_popup.is_some());
+            portrait_targets(&app, area, &mut targets);
+            assert_eq!(targets, before, "opening / must not erase the portrait");
+            assert!(!command_popup_area(area, &app).intersects(before[0].1));
+        }
+    }
+
+    #[test]
+    fn brief_keeps_the_first_sentence_unless_verbose() {
+        VERBOSE.set(false);
+        assert_eq!(brief("Saved. Nothing was sent."), "Saved. …");
+        assert_eq!(brief("Version 0.152.1 ready"), "Version 0.152.1 ready");
+        assert_eq!(brief("Commands\n\nLong detail."), "Commands …");
+        assert_eq!(brief("One sentence. "), "One sentence. ");
+        assert_eq!(
+            brief("Failed. Why it failed. Next: try again. More."),
+            "Failed. Next: try again. …"
+        );
+        VERBOSE.set(true);
+        assert_eq!(
+            brief("Saved. Nothing was sent."),
+            "Saved. Nothing was sent."
+        );
+        VERBOSE.set(false);
     }
 }

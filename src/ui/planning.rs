@@ -128,7 +128,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         paint.accent,
     );
     let mut value = String::new();
-    let _ = writeln!(value, "{}\n", state.selection_label());
+    let _ = writeln!(value, "{}\n", super::selection_text(state));
     let mut review = false;
     if let Some(preview) = &state.preview {
         let selection = state.reviewed_selection();
@@ -342,9 +342,11 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             value.push_str("\n\nDecision selection copies only a complete message/plan into the NextAction editor. Review and explicitly save it. It is an unverified provider proposal, not command success, a saved review verdict, or task acceptance.\n");
         } else {
             if state.operation == Operation::Review {
-                value.push_str("Review compares saved acceptance criteria with the current working patch and selected evidence. Missing, stale or ambiguous evidence must be labelled inconclusive, never passed. Findings must name affected source/run references and a proposed next action; returning a response does not mark the task complete.\n\nNo review items yet. New opens a local outgoing-context preview before any provider launch.\n");
+                value.push_str(&super::brief("No review items yet. /new opens a local outgoing-context preview before any provider launch.\n\nReview compares saved acceptance criteria with the current working patch and selected evidence. Missing, stale or ambiguous evidence must be labelled inconclusive, never passed. Findings must name affected source/run references and a proposed next action; returning a response does not mark the task complete."));
+                value.push('\n');
             } else {
-                value.push_str("Current saved goal, acceptance criteria and selected source basket are included in the preview. An empty basket is goal-only planning. Save the goal first (/goal); use /sources before starting to change the basket.\n\nNo provider items yet. Item display is bounded and source-qualified; raw private reasoning is not displayed.\n");
+                value.push_str(&super::brief("No provider items yet. /new previews the saved goal, criteria and source basket before sending.\n\nAn empty basket is goal-only planning. Save the goal first (/goal); use /sources before starting to change the basket. Item display is bounded and source-qualified; raw private reasoning is not displayed."));
+                value.push('\n');
             }
             let _ = writeln!(
                 value,
@@ -378,7 +380,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     text(
         frame,
         row(content, content.height.saturating_sub(5), 2),
-        &state.notice,
+        &super::brief(&state.notice),
         paint.muted,
     );
     text(
@@ -455,7 +457,7 @@ fn controls(state: &State) -> &'static str {
 }
 
 fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
-    let mut value = format!("{}\n\n", state.selection_label());
+    let mut value = format!("{}\n\n", super::selection_text(state));
     if let Some(selection) = &state.selection_change {
         let _ = writeln!(
             value,
@@ -471,28 +473,35 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     } else {
         let _ = writeln!(
             value,
-            "{} / LOCAL ONLY / no connection on open\nDefault uses provider configuration, not a guessed value.",
-            if state.picker == Some(Picker::Model) {
-                "MODELS"
-            } else {
-                "REASONING EFFORT"
-            }
+            "{}",
+            super::brief(&format!(
+                "{}. Local only; nothing connects on open.\n\nDefault uses provider configuration, not a guessed value.",
+                if state.picker == Some(Picker::Model) {
+                    "MODELS"
+                } else {
+                    "REASONING EFFORT"
+                }
+            ))
         );
         if let Some(catalogue) = state.catalogues.get(&state.agent) {
             let _ = writeln!(
                 value,
-                "Catalogue source: {}\nReported current/default: {} (not a turn acknowledgment)",
-                clipped(&catalogue.source, area.width as usize),
-                catalogue.current.as_deref().unwrap_or("unobserved")
+                "{}",
+                super::brief(&format!(
+                    "Reported current/default: {}.\n\nCatalogue source: {} (not a turn acknowledgment)",
+                    catalogue.current.as_deref().unwrap_or("unobserved"),
+                    clipped(&catalogue.source, area.width as usize)
+                ))
             );
             if let Some(note) = &catalogue.effort_note {
-                let _ = writeln!(value, "{note}\n");
+                let _ = writeln!(value, "{}\n", super::brief(note));
             }
         }
         let visible = area.height.saturating_sub(11).max(1) as usize;
         let start = state
             .picker_selected
             .saturating_sub(visible.saturating_sub(1) / 2);
+        let current = state.picker_current();
         for index in start..(start + visible).min(state.picker_len()) {
             let Some(choice) = state.picker_choice(index) else {
                 continue;
@@ -508,6 +517,8 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                 clipped(&choice.label, area.width.saturating_sub(16) as usize),
                 if choice.reason.is_some() {
                     " [unavailable]"
+                } else if current == Some(index) {
+                    " (current)"
                 } else {
                     ""
                 }
@@ -518,7 +529,7 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         {
             let _ = writeln!(value, "\nUnavailable: {reason}");
         }
-        value.push_str("\nUp/Down Choose / Enter Select / Esc Back\nRefresh prepares a separate reviewed connection; Run consent remains required.");
+        value.push_str(&super::brief("\nUp/Down Choose / Enter Select / Esc Back.\n\nRefresh prepares a separate reviewed connection; Run consent remains required."));
     }
     let details = row(area, 0, area.height.saturating_sub(3));
     state.scroll_max = selection_details(
@@ -533,7 +544,7 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     text(
         frame,
         row(area, area.height.saturating_sub(3), 3),
-        &state.notice,
+        &super::brief(&state.notice),
         paint.muted,
     );
 }
@@ -610,7 +621,7 @@ fn journal(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     text(
         frame,
         row(area, area.height.saturating_sub(5), 2),
-        &state.journal_notice,
+        &super::brief(&state.journal_notice),
         paint.muted,
     );
     text(
@@ -662,7 +673,7 @@ fn paths_editor(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) {
     text(
         frame,
         row(area, area.height.saturating_sub(2), 2),
-        &state.notice,
+        &super::brief(&state.notice),
         paint.muted,
     );
 }
@@ -682,7 +693,7 @@ fn quit(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) {
     text(
         frame,
         row(area, area.height.saturating_sub(5), 2),
-        &state.notice,
+        &super::brief(&state.notice),
         paint.muted,
     );
     let choice = if state.outcome_unknown() {

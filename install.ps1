@@ -284,6 +284,19 @@ function Get-AbsolutePath([string]$Value, [string]$Label) {
     return $result
 }
 
+# Command-line paths may be relative to the PowerShell location (not the .NET
+# process directory); PATH entries stay strictly absolute.
+function Get-ArgumentPath([string]$Value, [string]$Label) {
+    if (-not [string]::IsNullOrWhiteSpace($Value) -and -not [IO.Path]::IsPathRooted($Value)) {
+        # Check the user's own components before . and .. are normalized away.
+        $parts = @($Value -split '[\\/]' | Where-Object { $_ -notin @('', '.', '..') })
+        $null = Get-AbsolutePath ('C:\' + ($parts -join '\')) $Label
+        $base = (Get-Location -PSProvider FileSystem).ProviderPath
+        $Value = [IO.Path]::GetFullPath([IO.Path]::Combine($base, $Value))
+    }
+    return Get-AbsolutePath $Value $Label
+}
+
 function Get-PathAttributes([string]$Path) {
     try { return [IO.File]::GetAttributes($Path) }
     catch [IO.FileNotFoundException] { return $null }
@@ -512,7 +525,7 @@ try {
             $InstallDir = [IO.Path]::Combine($env:LOCALAPPDATA, 'ev', 'bin')
         } else { throw 'LOCALAPPDATA is unset; supply -InstallDir or EV_INSTALL_DIR.' }
     }
-    $destination = Get-AbsolutePath $InstallDir 'InstallDir'
+    $destination = Get-ArgumentPath $InstallDir 'InstallDir'
     Assert-SafeAncestry $destination
     if ($Uninstall) { Assert-SafePath $destination $true $true }
     else { New-SafeDirectory $destination }
@@ -561,8 +574,8 @@ try {
         return
     }
     if ($offline) {
-        $archivePath = Get-AbsolutePath $Archive 'Archive'
-        $checksumPath = Get-AbsolutePath $Checksums 'Checksums'
+        $archivePath = Get-ArgumentPath $Archive 'Archive'
+        $checksumPath = Get-ArgumentPath $Checksums 'Checksums'
         if ([IO.Path]::GetFileName($archivePath) -cne $archiveName) {
             throw "Archive basename must be exactly $archiveName."
         }
@@ -750,8 +763,9 @@ try {
     if (-not $onPath) {
         $quotedDestination = $destination.Replace("'", "''")
         Write-Output "For this PowerShell session: `$env:PATH = '$quotedDestination;' + `$env:PATH"
-        Write-Output 'For future terminals, add this directory to your user PATH using Windows Environment Variables settings:'
-        Write-Output $destination
+        # Printed, never run: the installer does not change the persistent PATH.
+        Write-Output 'For future terminals (adds to your user PATH once):'
+        Write-Output "  [Environment]::SetEnvironmentVariable('Path', '$quotedDestination;' + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')"
     }
 } catch {
     Stop-InstallAnimation
