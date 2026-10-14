@@ -1,5 +1,12 @@
 # Work Checkpoint
 
+## 2026-10-14 — Token economy and tool-calling differentiation backlog
+
+- **Requested / specified:** Add substantive functionality beyond cosmetic polish. Section I in `task.md` adds twelve unchecked tasks: T01–T05, TC01–TC05, D01 and Q03. Each has priority, dependencies, bounded change scope and observable acceptance. Context selection, paged tool results and valid observation reuse target avoidable input and execution; usage receipts and paired quality benchmarks measure the actual outcome.
+- **Control boundary:** Provider capabilities are version-qualified, estimates are separate from billing, and opaque native tool behavior is not treated as controlled. No savings percentage, hard monetary cap, sandbox, remote erasure or exactly-once mutation is promised without an enforceable mechanism. Existing approvals, task isolation, retention and source revalidation remain prerequisites.
+- **Verification:** Parsed all 49 task IDs; confirmed uniqueness, 25 checked / 24 unchecked, twelve new pending tasks with all required fields, valid dependency references and an acyclic dependency graph. Documentation-only change: no new runtime functionality, model request or paid benchmark was executed.
+- **Status:** Existing A–G remains 25/31. Future H is 0/6 and I is 0/12, for 18 planned improvements. New scope does not retroactively alter existing acceptance or clear the user-selected authentication / 0.1.1 release hold.
+
 ## 2026-10-14 — Concise workbench and recognizable installation animation
 
 - **Delivered:** Shorter routine home/composer/help/status copy, a reclaimed workspace row, deliberate two-line home shortcuts, overlay-first hints, compact provider → action connection pages and scrollable setup/error guidance. Permission facts, destructive-operation reviews and local-only Enter semantics remain intact.

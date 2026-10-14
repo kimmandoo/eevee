@@ -2,9 +2,11 @@
 
 ## Active work
 
-**Existing A–G scope: 25 of 31 tasks passed scoped acceptance**, including P02 and U01/L01/G01/S01/S02/S03. **Six additional planned items live in section H (0/6 complete); total backlog: 25/37 complete.** Schema-6 specialist workflows, approved scoped memory and plan-only recipes passed all five native build/installed-runtime rows at `d198fa5`; SDK policy also passed. All specified local performance workloads and real Codex/OpenCode scenarios completed. The user-authorized **0.1.0 core release** promotes those exact qualified artifacts. **A04/A06/full A07 remain unchecked pending permitted Claude credentials and completed eligible Gemini authentication/model conformance; full Q01/Q02/P03 retain those dependencies.** Core acceptance is not advertised as complete provider interoperability.
+**Existing A–G scope: 25 of 31 tasks passed scoped acceptance**, including P02 and U01/L01/G01/S01/S02/S03. **Future sections H–I contain 18 planned items (0/18 complete); total backlog: 25/49 complete.** Schema-6 specialist workflows, approved scoped memory and plan-only recipes passed all five native build/installed-runtime rows at `d198fa5`; SDK policy also passed. All specified local performance workloads and real Codex/OpenCode scenarios completed. The user-authorized **0.1.0 core release** promotes those exact qualified artifacts. **A04/A06/full A07 remain unchecked pending permitted Claude credentials and completed eligible Gemini authentication/model conformance; full Q01/Q02/P03 retain those dependencies.** Core acceptance is not advertised as complete provider interoperability.
 
-**Current UX request (2026-10-14):** Shorten ordinary TUI explanations, improve action hierarchy and narrow layouts, make installation/update animation recognizably Poké Ball-inspired, and add concrete future product tasks. Mandatory execution/permission/deletion facts remain visible; this request does not clear the authentication/release hold.
+**Current differentiation request (2026-10-14):** Add substantive token-saving and tool-calling features, not just more commands or cosmetic changes. Section I defines twelve future tasks with measurable acceptance, explicit control boundaries and no promised savings before measurement. This is backlog design, not implementation or permission for paid model runs.
+
+**Previous UX request (2026-10-14), delivered:** Concise TUI guidance, compact connection navigation, recognizable Poké Ball installation/update animation and section H's six future tasks were committed/pushed as `1fbc3fe`. Mandatory execution/permission/deletion facts remain visible; the authentication/release hold is unchanged.
 
 **Prior release request (2026-10-14), held:** Finish unchecked tasks through section F in backlog order, commit/push each accepted increment, then publish **0.1.1** from freshly qualified same-commit native packages. The unchecked items in that scope are **A04, A06 and A07**; sections E/F already passed their stated scoped demos. Permitted Claude SDK credentials and authenticated eligible Gemini ACP remain prerequisites until real probes establish otherwise. Do not reuse Claude subscription tokens, fake provider evidence, or release before the requested F completion.
 
@@ -367,6 +369,111 @@ These six items are a requested future backlog, **not implemented features** and
 - **Change:** Add a compact TUI entry to the existing checksum-verified updater: current/target version, source, sprite-cache effects and retained-data policy. Offer rollback only when the retained package and data-schema compatibility can be established; never rewrite user data to make an older binary start.
 - **Accept:** In isolated installed layouts, review/cancel an update without changing files, approve a verified update and resume the task, then exercise both a compatible rollback and a newer-schema refusal with byte-identical data. Checksum failure/interruption preserves the last usable owned installation; no elevation, global profile edits or silent task/provider-data deletion.
 
+## I — Token economy and evidence-driven tool calling
+
+These twelve items are **planned, not implemented**. The product distinction is an inspectable context-and-tool pipeline: select less input, retrieve only needed output, reuse only valid observations, and stop waste before starting another action. Reuse the existing adapters, context basket, execution journal and approval flow; do not build a parallel agent runtime.
+
+- **Measurement boundary:** Distinguish exact Eevee-sent bytes, tokenizer/version-labelled estimates, provider-reported usage and actual billing. Unknown provider history, hidden tool schemas, cache hits or pricing stay unknown, never zero. A smaller transcript is not automatically a cheaper or equally correct run.
+- **Control boundary:** Tool discovery, injection, paging, caching and scheduling apply only to documented adapter capabilities and Eevee-owned execution. Qualify each supported provider/version; unavailable interception of provider-native tools is a visible limitation, not prompt-based enforcement or a silent fallback.
+- **Order:** Priority 1 establishes usage receipts, context selection, budgets, lazy tool discovery and paged results. Priority 2 adds session reuse, compaction, scheduling, caching, recovery and impact-directed checks. Q03 measures the composed result incrementally; no Q01/Q02 completion or authentication hold is inherited or cleared.
+- **UX:** Ordinary views show input budget, next action and blocker briefly. Exact payloads, tool arguments, omissions, cache provenance and cost breakdown stay inspectable in drawers at 120×36 and 60×18. Optimization never hides permission scope or turns retrieved text into instructions.
+
+### T01 — Per-turn context and usage receipts
+
+- [ ] Explain what each turn sends and where its tokens or cost went.
+- **Priority:** 1.
+- **Depends on:** C03, A02, R02.
+- **Change:** Add a request receipt separating instructions, task facts, attachments, history, tool schemas and tool results. Record available input/output/cache/reasoning usage without double-counting overlapping provider categories or cumulative events. Identify model, tokenizer and price-table version; unsupported counts/pricing stay unknown. Reuse manifests and journal identities without storing credentials or retaining purged source bytes.
+- **Accept:** Reconcile two real turns and an explicit resume against supported provider usage events. Delta/final/repeated events count once; CJK estimates are labelled, and opaque provider-added input is not attributed to selected files. Inspect exact outbound bytes and a before/after context selection; unavailable prices produce no invented cost. Restart preserves receipt identity and purge respects E03.
+
+### T02 — Budgeted, symbol-aware context compiler
+
+- [ ] Assemble the smallest reviewable source packet useful for the selected task.
+- **Priority:** 1.
+- **Depends on:** T01, C02.
+- **Change:** Start from the user's goal, selected symbols, working diff and pinned context. Prefer local definitions, signatures, direct references and relevant test/config excerpts over whole-file dumps; reuse available language tooling with an explicit text-only fallback. Deduplicate overlapping ranges, rank candidate evidence and show reasons/omissions under a user-set budget. Never drop mandatory instructions or pinned evidence silently; overflow requires a new decision.
+- **Accept:** In a fixed multi-file bug fixture, include the defect, caller and relevant check with fewer serialized input tokens than the same reviewed full-file baseline, using one named tokenizer. A seeded cross-file requirement remains discoverable; excluded files and links remain excluded. Unsupported syntax is labelled, not fabricated symbol knowledge. Edit a selected source after preview and dispatch must stop for review. Report live outcome quality separately through Q03.
+
+### T03 — Session-aware delta context and documented prompt-cache reuse
+
+- [ ] Avoid resending unchanged context when the selected provider can actually reuse it.
+- **Priority:** 2.
+- **Depends on:** T01, T02.
+- **Change:** Track which versioned context a particular provider session has acknowledged. Send changed excerpts plus necessary anchors only through documented retained-session semantics; a bare local hash is not model memory. Where explicitly supported, preserve stable cacheable prefixes without moving mutable data or weakening policy. Keep fresh-session and cross-provider requests self-contained; disclose retention/expiry and require normal preview.
+- **Accept:** Perform an initial request, an unchanged follow-up and a one-file edit in a real supported session. Inspect outbound deltas and reported cache usage independently. New/expired sessions, provider switches, uncertain delivery and source revocation require a safe self-contained request or refusal, never an assumed cache hit. Same-session continuation cannot claim that previously sent content was erased remotely. Compare total usage, including cache-write charges, without claiming a discount from bytes alone.
+
+### T04 — Evidence-linked compaction and rehydration
+
+- [ ] Continue long work with a compact ledger without losing decisions or unresolved failures.
+- **Priority:** 2.
+- **Depends on:** T01, C02, E02, R02.
+- **Change:** Preview a compact packet of user requirements, approved decisions, source/output references, unresolved hypotheses and next action. Prefer deterministic extraction; optional model summarization has its own visible cost and approval. Keep inferences distinct from observations and retain links to available originals. Preserve current permission facts but never convert an old approval into a new grant. Use a reviewed new request/session when in-place history replacement is unsupported.
+- **Accept:** Resume a long task with conflicting old/new decisions, a failed check and a changed source. The accepted latest decision and unresolved failure survive; inspecting references retrieves the correct original or an explicit unavailable state. Cancel leaves active context unchanged; compaction does not silently delete history. Count compaction plus rehydration usage, and do not claim savings when their combined cost exceeds the baseline.
+
+### T05 — Token budget and repeated-call circuit breaker
+
+- [ ] Stop avoidable next actions before an agent consumes an unbounded budget.
+- **Priority:** 1.
+- **Depends on:** T01, A02, R02.
+- **Change:** Add per-task limits for model requests, visible tool calls, input estimates and provider-reported spend where available. Reserve known in-flight exposure before scheduling another owned action. Detect repeated normalized calls with unchanged inputs/results and no new evidence; pause with continue-once, revise or stop choices. Do not equate a timeout or identical command text after an edit with a loop.
+- **Accept:** At an exact call limit, another controlled invocation is not sent; a repeated unchanged read pauses, while changed input can proceed under the remaining budget. Cancellation and restart cannot reset committed usage or auto-resume work. Delayed/unknown provider usage exposes possible in-flight overshoot; no hard monetary-cap claim is made without a documented enforceable limit. No automatic switch of model, account or billing route.
+
+### TC01 — On-demand tool catalog and scoped MCP discovery
+
+- [ ] Expose the few relevant tool definitions instead of flooding every request with every schema.
+- **Priority:** 1.
+- **Depends on:** A01, A02, C02.
+- **Change:** Index metadata for explicitly trusted local/MCP tools without invoking them. Retrieve relevant names/descriptions, then load exact versioned schemas on demand only through supported adapter APIs. Namespaced identity, trust origin, input limits and declared effects remain visible; relevance is not authorization, and a server's read-only hint is not a sandbox. Server startup/network configuration uses existing explicit consent.
+- **Accept:** Against a controlled catalog of 100 tools, discover and invoke the intended tool with fewer serialized schema tokens than the full catalog. Handle name collisions, changed schemas, malicious descriptions and a disconnected server without executing during search. An unsupported provider reports that lazy exposure is unavailable instead of claiming its hidden native catalog shrank. Complete one real compatible-provider round trip; no credential scraping or automatic server installation.
+
+### TC02 — Reviewed tool plans and dependency-aware execution
+
+- [ ] Execute a visible typed plan with fewer model round trips and no hidden effect expansion.
+- **Priority:** 2.
+- **Depends on:** TC01, R02, A03.
+- **Change:** Represent proposed calls as a bounded dependency graph with schema-validated arguments, result bindings and effects. Parallelize only independent calls whose read-only boundary Eevee can enforce; serialize conflicting writes and unknown effects. Reuse existing command/provider approvals, showing exact changed arguments before each effectful call. A batch is not blanket consent, and unresolved placeholders cannot be approved as executable commands.
+- **Accept:** Two independent contained reads overlap, a dependent step waits for both, and conflicting writes never overlap. A failed prerequisite blocks descendants while retaining successful observations; malformed bindings and changed reviewed inputs cause no side effect. Cancellation stops owned work and starts no queued node. Show actual tool-call/model-turn counts and elapsed time against serial execution rather than claiming every graph saves tokens.
+
+### TC03 — Searchable, paged tool-result artifacts
+
+- [ ] Let the model ask for the relevant output slice rather than ingest an entire log.
+- **Priority:** 1.
+- **Depends on:** TC01, E03, R02.
+- **Change:** Capture bounded tool output once under immutable artifact identities. Return an exit/status summary, explicit total/captured/omitted sizes and a preview; expose exact range/search retrieval for retained bytes through supported tools. Include parseable failure locations where available without replacing original evidence. References, pages and retained output inherit task isolation, redaction, quota and purge rules.
+- **Accept:** A real command produces a 10 MiB log with useful errors outside its initial preview. Configure sufficient explicit retention for this case; retrieve exact errors through search/pages with materially less model input than sending the entire retained log. A separate quota-limited run reports discarded bytes as unavailable. Wrong-task, purged and stale handles are refused; output that resembles instructions cannot approve another tool call. No unbounded in-memory transcript.
+
+### TC04 — Dependency-validated observation cache
+
+- [ ] Reuse unchanged read observations without pretending an old check just ran again.
+- **Priority:** 2.
+- **Depends on:** TC01, TC03, C02.
+- **Change:** Cache only allowlisted local observations whose complete input boundary can be recorded, such as bounded file reads and deterministic repository searches. Keys include operation/schema version, normalized arguments, project identity and relevant content/config fingerprints. Label hits with original time and provenance; invalidate on changed dependencies, exclusions or purge. Arbitrary shell, tests, builds, network reads and unknown-effect tools are non-cacheable by default.
+- **Accept:** Repeat an eligible query without spawning its worker, then change content, ignore rules, tool version and a path-to-link boundary separately and observe rejection/invalidation. Same path in another project never shares a result. Cached observations never become a fresh successful test or authorization. Compare actual executions avoided and hashing/index cost against uncached reads; bypass the cache when validation costs more than the read.
+
+### TC05 — Failed-step recovery and explicit tool replay
+
+- [ ] Recover a failed tool plan without repeating successful mutations or paying for the entire reasoning loop again.
+- **Priority:** 2.
+- **Depends on:** TC02, TC03, R02.
+- **Change:** Preserve node arguments, dependency fingerprints, results and completion certainty. Preview resuming only eligible failed/unstarted nodes after revalidation. A recorded response can be inspected without re-execution; a real retry needs current approval for its actual effects. Use documented idempotency/reconciliation where available, and keep ambiguous mutations blocked until their outcome is resolved; never promise exactly-once execution across crashes.
+- **Accept:** Interrupt after a confirmed write and before a dependent check; recovery does not repeat the write. Change an upstream input and require a revised plan. Simulate a lost mutation response: no automatic replay occurs, and supported reconciliation or an explicit user decision is required. Stale approval IDs and late responses cannot start work; recovered results retain original provenance rather than becoming new evidence.
+
+### D01 — Impact-directed verification plan
+
+- [ ] Recommend the checks most likely to catch a change's defects, with an honest coverage boundary.
+- **Priority:** 2.
+- **Depends on:** T02, TC02, C01.
+- **Change:** Use changed symbols, local dependency information, declared test mappings and prior observed failures to propose a minimal check set with reasons. Reuse Jolteon's exact-argv review and execution journal. Offer broader verification when mappings are incomplete or shared configuration/dependencies change; test selection is a recommendation, not proof of completeness or permission to execute.
+- **Accept:** In a seeded project, select the check that catches a changed callee's regression through its caller. A shared config change or dynamic/unmapped dependency triggers an explicit broader plan rather than a falsely complete narrow pass. Preserve unrelated dirty files and cancellation semantics. Compare actual commands/time with the full suite, and label a targeted pass as targeted rather than full verification.
+
+### Q03 — Token-saving and tool-efficiency quality benchmark
+
+- [ ] Prove the optimizations reduce measured work without hiding wrong answers or weaker checks.
+- **Priority:** 2.
+- **Depends on:** T01, T02, T03, T04, T05, TC01, TC02, TC03, TC04, TC05, D01.
+- **Change:** Maintain paired baseline/optimized journeys for bug fixing, code explanation, noisy-log diagnosis and resume, including Unicode, cross-file and stale-input cases. Hold model/version/settings, initial repository and success criteria constant; separate cold/warm caches and include discovery, indexing, summarization, rehydration and retries in the cost. This is targeted optimization acceptance, not a replacement for Q02's complete resource/platform gate.
+- **Accept:** Run at least three paired trials per journey on an actually qualified provider and report raw samples, task correctness, missed seeded defects, wall time, model turns, executed tools and available usage/cost. Baseline and optimized runs pass the same functional/permission checks. Show a measured reduction for context selection and tool-result paging; publish regressions and unknown billing separately, with no universal percentage claim. Missing credentials block live results, not offline byte/selection checks.
+
 ## Phase status
 
-Existing A–G scope: **25/31 complete, 6 unchecked**. Requested future section H: **0/6 complete**. Total: **25/37 complete, 12 unchecked**. A04/A06/full A07 still lack permitted Claude/Gemini authentication; full Q01/Q02/P03 therefore remain pending rather than inheriting local-core acceptance. Section H does not retroactively widen existing acceptance or authorize its future changes. The separately authorized 0.1.0 core release used successful exact-commit native artifacts; 0.1.1 remains on the user-selected authentication hold.
+Existing A–G scope: **25/31 complete, 6 unchecked**. Requested future section H: **0/6 complete**; section I: **0/12 complete**. Total: **25/49 complete, 24 unchecked**. A04/A06/full A07 still lack permitted Claude/Gemini authentication; full Q01/Q02/P03 therefore remain pending rather than inheriting local-core acceptance. Sections H–I do not retroactively widen existing acceptance or authorize implementation, paid experiments or provider access. The separately authorized 0.1.0 core release used successful exact-commit native artifacts; 0.1.1 remains on the user-selected authentication hold.
