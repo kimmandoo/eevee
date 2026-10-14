@@ -845,9 +845,9 @@ fn download_with_progress(
     fs::create_dir_all(directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     let has_manifest = load_manifest(directory)?.is_some();
     let missing = missing_images(directory)?;
-    let mut complete = SPECIES.len() - missing.len();
+    let initial_ready = SPECIES.len() - missing.len();
     progress(format!(
-        "Verified {complete}/9 cached images; existing files are preserved."
+        "Verified {initial_ready}/9 cached images; existing files are preserved."
     ));
     let staging = staging_directory(directory)?;
     if !has_manifest {
@@ -863,11 +863,12 @@ fn download_with_progress(
         .timeout_connect(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
         .build();
-    for index in missing {
+    for (done, index) in missing.iter().copied().enumerate() {
         check_cancelled(cancelled)?;
         let id = SPECIES[index];
         progress(format!(
-            "Downloading {id}.png from PokeAPI; {complete}/9 ready…"
+            "Downloading {id}.png from PokeAPI; {}/9 ready…",
+            initial_ready + done
         ));
         let url = image_url(id);
         let response = agent
@@ -908,7 +909,6 @@ fn download_with_progress(
         decode_png(&bytes).map_err(|error| format!("{url}: {error}"))?;
         check_cancelled(cancelled)?;
         publish(directory, &staging.0, &format!("{id}.png"), &bytes)?;
-        complete += 1;
     }
     Ok(format!(
         "All nine pinned PNGs are SHA256-verified in {}. {ATTRIBUTION}",
