@@ -97,9 +97,9 @@ Auto images require negotiated Kitty/Sixel support and real pixel/cell dimension
 Unsupported or too-small terminals show text, not a pixelated approximation.
 --images cells explicitly opts into low-resolution previews. Startup stays offline.
 
-Type in the visible Goal box; Enter saves locally. F2 connects a provider;
-F3 selects an evolution; F4 manages cached sprites; Ctrl+K lists actions.
-Model requests require separate approval. Storage failures retain drafts.
+Type in the visible Goal box; Enter saves locally and offers neutral next actions.
+Use / commands: /connect, /provider, /model, /effort, /forms, /images, /help.
+Model inspection and requests require separate approval. Storage failures retain drafts.
 Secret detection is best-effort. Purge is not forensic secure erasure.
 ";
 

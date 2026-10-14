@@ -155,7 +155,7 @@ def main():
                         images()[0].save(output / (protocol + '-decoded.png'))
                         assert 'U=1' not in session.text, 'Kitty virtual placeholders require an unprobed capability'
                         before = len(session.text)
-                        session.send(ESC + 'OP')
+                        session.command('help')
                         until(lambda: (ESC + '[2J' if protocol == 'sixel' else 'a=d')
                               in session.text[before:], 'native image removed for overlay')
                         changed = session.text[before:]
@@ -165,7 +165,7 @@ def main():
                         else:
                             assert 'a=d' in changed, 'Kitty placement not removed for overlay'
                         session.send(ESC)
-                        session.send('g')  # Resume the retained composer draft after help.
+                        session.command('goal')  # Resume the retained composer draft after help.
                         session.resize((100, 30))
                         respond()
                         session.pump(.4)

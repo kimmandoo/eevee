@@ -143,7 +143,6 @@ pub struct Navigation {
     pub focus: u8,
     pub linear: bool,
     pub form_selection: usize,
-    pub palette_selection: usize,
     pub criterion_selection: usize,
     pub scroll: [u16; 5],
     pub overlay: Option<u8>,
@@ -157,7 +156,6 @@ impl Default for Navigation {
             focus: 1,
             linear: false,
             form_selection: 0,
-            palette_selection: 0,
             criterion_selection: 0,
             scroll: [0; 5],
             overlay: None,
@@ -2829,7 +2827,6 @@ fn validate(snapshot: &Snapshot) -> Result<(), String> {
     let nav = &snapshot.navigation;
     if nav.focus > 2
         || nav.form_selection >= 9
-        || nav.palette_selection >= crate::app::PALETTE.len()
         || nav.criterion_selection >= 64
         || nav.overlay.is_some_and(|overlay| overlay > 7)
     {
@@ -4676,13 +4673,6 @@ mod tests {
             },
             Snapshot {
                 navigation: Navigation {
-                    palette_selection: crate::app::PALETTE.len(),
-                    ..Navigation::default()
-                },
-                ..snapshot("project", 1)
-            },
-            Snapshot {
-                navigation: Navigation {
                     criterion_selection: 64,
                     ..Navigation::default()
                 },
@@ -5064,7 +5054,6 @@ mod tests {
                     focus: 2,
                     linear: true,
                     form_selection: 8,
-                    palette_selection: 12,
                     criterion_selection: 63,
                     scroll: [1, 2, 3, 4, u16::MAX],
                     overlay: Some(5),
@@ -7130,5 +7119,21 @@ mod tests {
         assert!(validate(&task).is_err());
         task.memory_draft = serde_json::json!({"password=private-key":"draft"});
         assert!(validate(&task).is_err());
+    }
+
+    #[test]
+    fn old_palette_navigation_preserves_remaining_navigation() {
+        let stored = serde_json::json!({
+            "focus":2, "linear":true, "form_selection":8,
+            "palette_selection":21, "criterion_selection":4,
+            "scroll":[1,2,3,4,5], "overlay":5,
+            "editing":true, "editor_field":"NextAction"
+        });
+        let navigation: Navigation = serde_json::from_value(stored).unwrap();
+        assert_eq!(navigation.focus, 2);
+        assert_eq!(navigation.form_selection, 8);
+        assert_eq!(navigation.criterion_selection, 4);
+        assert_eq!(navigation.scroll, [1, 2, 3, 4, 5]);
+        assert_eq!(navigation.editor_field, EditorField::NextAction);
     }
 }

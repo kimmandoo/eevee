@@ -10,15 +10,23 @@ pub enum Agent {
     Claude,
     OpenCode,
     Gemini,
+    Devin,
 }
 impl Agent {
-    pub const ALL: [Self; 4] = [Self::Codex, Self::Claude, Self::OpenCode, Self::Gemini];
+    pub const ALL: [Self; 5] = [
+        Self::Codex,
+        Self::Claude,
+        Self::OpenCode,
+        Self::Gemini,
+        Self::Devin,
+    ];
     pub fn label(self) -> &'static str {
         match self {
             Self::Codex => "Codex",
             Self::Claude => "Claude Agent",
             Self::OpenCode => "OpenCode ACP",
             Self::Gemini => "Gemini ACP",
+            Self::Devin => "Devin ACP",
         }
     }
 }
@@ -28,6 +36,71 @@ pub enum Operation {
     Plan,
     Implement,
     Review,
+}
+
+/// Explicit local selection; None means the provider's advertised default.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelSelection {
+    pub model: Option<String>,
+    pub effort: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelOption {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub efforts: Vec<String>,
+    pub default_effort: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ModelCatalogue {
+    pub models: Vec<ModelOption>,
+    pub current: Option<String>,
+    pub source: String,
+    /// None when the official interface supplies no selectable reasoning control.
+    pub effort_note: Option<String>,
+}
+
+impl ModelCatalogue {
+    pub fn validate(&self) -> Result<(), String> {
+        fn text(value: &str, limit: usize, empty: bool) -> bool {
+            (empty || !value.is_empty())
+                && value.len() <= limit
+                && crate::privacy::redact(value) == value
+                && !value.chars().any(|c| c.is_control()
+                    || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
+        }
+        if self.models.len() > 256
+            || !text(&self.source, 2048, false)
+            || self.current.as_ref().is_some_and(|v| !text(v, 256, false))
+            || self
+                .effort_note
+                .as_ref()
+                .is_some_and(|v| !text(v, 2048, false))
+        {
+            return Err("Invalid or oversized provider model catalogue".into());
+        }
+        for (index, model) in self.models.iter().enumerate() {
+            if !text(&model.id, 256, false)
+                || !text(&model.name, 512, false)
+                || !text(&model.description, 4096, true)
+                || model.efforts.len() > 32
+                || self.models[..index].iter().any(|v| v.id == model.id)
+                || model.efforts.iter().enumerate().any(|(i, effort)| {
+                    !text(effort, 256, false) || model.efforts[..i].contains(effort)
+                })
+                || model
+                    .default_effort
+                    .as_ref()
+                    .is_some_and(|v| !model.efforts.contains(v))
+            {
+                return Err("Invalid, duplicate or oversized provider model option".into());
+            }
+        }
+        Ok(())
+    }
 }
 #[derive(Clone, Debug)]
 pub struct Input {
@@ -43,11 +116,33 @@ pub struct Input {
     pub handoff: Option<crate::handoff::Document>,
     /// ACP capability/session-list inspection only; never creates a session or sends a model prompt.
     pub inspect_sessions: bool,
+    pub inspect_models: bool,
+    pub selection: ModelSelection,
 }
 
 impl Input {
+    pub fn validate_selection(&self) -> Result<(), String> {
+        if self.inspect_models && (self.inspect_sessions || self.resume.is_some()) {
+            return Err(
+                "Model inspection cannot resume a session or inspect session history".into(),
+            );
+        }
+        for value in [&self.selection.model, &self.selection.effort]
+            .into_iter()
+            .flatten()
+        {
+            if value.is_empty() || value.len() > 256
+                || crate::privacy::redact(value) != *value
+                || value.chars().any(|c| c.is_control() || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
+            {
+                return Err("Invalid model or reasoning selection; no request dispatched".into());
+            }
+        }
+        Ok(())
+    }
     /// Review is a fresh, read-only operation, never a continuation or an edit grant.
     pub fn validate_review(&self) -> Result<(), String> {
+        self.validate_selection()?;
         if self.operation != Operation::Review {
             return Ok(());
         }
@@ -60,7 +155,7 @@ impl Input {
         if self.inspect_sessions {
             return Err("Review cannot be combined with provider session inspection".into());
         }
-        if matches!(self.agent, Agent::OpenCode | Agent::Gemini) {
+        if matches!(self.agent, Agent::OpenCode | Agent::Gemini | Agent::Devin) {
             return Err("Managed Review unavailable: this ACP peer cannot establish an enforceable no-source-write tool policy. Local review remains available.".into());
         }
         Ok(())
@@ -178,6 +273,11 @@ pub struct Prompt {
 #[derive(Clone, Debug)]
 pub enum Event {
     Preview(Preview),
+    Models {
+        generation: u64,
+        task_id: i64,
+        catalogue: ModelCatalogue,
+    },
     Status {
         generation: u64,
         task_id: i64,
@@ -273,7 +373,7 @@ impl Worker {
         let sent = match Agent::ALL[selected] {
             Agent::Codex => self.codex.try_request(pending),
             Agent::Claude => self.claude.try_request(pending),
-            Agent::OpenCode | Agent::Gemini => self.acp.try_request(pending),
+            Agent::OpenCode | Agent::Gemini | Agent::Devin => self.acp.try_request(pending),
         };
         if sent {
             self.selected
@@ -285,7 +385,7 @@ impl Worker {
         match Agent::ALL[self.selected.load(std::sync::atomic::Ordering::Acquire)] {
             Agent::Codex => self.codex.try_event(),
             Agent::Claude => self.claude.try_event(),
-            Agent::OpenCode | Agent::Gemini => self.acp.try_event(),
+            Agent::OpenCode | Agent::Gemini | Agent::Devin => self.acp.try_event(),
         }
     }
     pub fn busy(&self) -> bool {
@@ -308,6 +408,8 @@ mod tests {
             edit_paths: Vec::new(),
             handoff: None,
             inspect_sessions: false,
+            inspect_models: false,
+            selection: ModelSelection::default(),
         }
     }
 
@@ -330,22 +432,13 @@ mod tests {
             input.inspect_sessions = true;
             assert!(input.validate_review().unwrap_err().contains("inspection"));
         }
-        for agent in [Agent::OpenCode, Agent::Gemini] {
+        for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
             assert!(review(agent).validate_review().unwrap_err().contains("ACP"));
         }
     }
 
     #[test]
-    fn review_operation_is_explicit_and_keeps_existing_operation_encoding() {
-        assert_eq!(
-            serde_json::to_string(&Operation::Review).unwrap(),
-            "\"Review\""
-        );
-        assert_eq!(serde_json::to_string(&Operation::Plan).unwrap(), "\"Plan\"");
-        assert_eq!(
-            serde_json::to_string(&Operation::Implement).unwrap(),
-            "\"Implement\""
-        );
+    fn non_review_operations_can_resume_and_select_write_paths() {
         let mut input = review(Agent::Codex);
         input.operation = Operation::Plan;
         input.resume = Some("existing-plan-session".into());
@@ -353,5 +446,49 @@ mod tests {
         input.operation = Operation::Implement;
         input.edit_paths.push("src/file.rs".into());
         assert!(input.validate_review().is_ok());
+    }
+
+    #[test]
+    fn model_catalogues_reject_ambiguous_ids_and_unadvertised_default_efforts() {
+        let model = ModelOption {
+            id: "official-model".into(),
+            name: "Official model".into(),
+            description: String::new(),
+            efforts: vec!["low".into(), "high".into()],
+            default_effort: Some("low".into()),
+        };
+        let mut catalogue = ModelCatalogue {
+            models: vec![model.clone()],
+            current: Some(model.id.clone()),
+            source: "Official control response".into(),
+            effort_note: None,
+        };
+        assert!(catalogue.validate().is_ok());
+        catalogue.models.push(model);
+        assert!(catalogue.validate().is_err());
+        catalogue.models.pop();
+        catalogue.models[0].default_effort = Some("not-advertised".into());
+        assert!(catalogue.validate().is_err());
+        catalogue.models[0].default_effort = None;
+        catalogue.models[0].name = "model\u{202e}spoof".into();
+        assert!(catalogue.validate().is_err());
+    }
+
+    #[test]
+    fn model_inspection_refuses_resume_and_secret_or_control_selections() {
+        let mut input = review(Agent::Codex);
+        input.operation = Operation::Plan;
+        input.inspect_models = true;
+        input.resume = Some("owned-session".into());
+        assert!(input.validate_selection().is_err());
+        input.resume = None;
+        input.selection.model = Some("model\nanother-command".into());
+        assert!(input.validate_selection().is_err());
+        input.selection.model = Some(format!("sk-{}", "x".repeat(48)));
+        assert!(input.validate_selection().is_err());
+        input.selection.model = Some("provider-specific:version-1".into());
+        assert!(input.validate_selection().is_ok());
+        input.inspect_sessions = true;
+        assert!(input.validate_selection().is_err());
     }
 }

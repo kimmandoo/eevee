@@ -92,7 +92,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         paint.surface,
     );
     let body = row(content, 6, content.height.saturating_sub(10));
-    let empty = "j JSON export / m Markdown export / i import\n\nOnly committed task facts, criteria, approved source references/excerpt bytes, selected decisions, and unresolved work are portable. No provider session IDs, permissions, credentials, or private reasoning. Imported claims are user-supplied/unverified and never become execution evidence.\n\nReview recognizable-secret redaction before sharing; detection is best-effort, not proof of secret absence. Deleting local data cannot erase prior exports, copies, provider-owned history, or backups. JSON and Markdown require the version-1 strict schema. No automatic task completion or provider request.";
+    let empty = "/export-json /export-markdown /import-handoff\n\nOnly committed task facts, criteria, approved source references/excerpt bytes, selected decisions, and unresolved work are portable. No provider session IDs, permissions, credentials, or private reasoning. Imported claims are user-supplied/unverified and never become execution evidence.\n\nReview recognizable-secret redaction before sharing; detection is best-effort, not proof of secret absence. Deleting local data cannot erase prior exports, copies, provider-owned history, or backups. JSON and Markdown require the version-1 strict schema. No automatic task completion or provider request.";
     let value = if let Some(decision) = state.selected_import_decision() {
         format!(
             "SELECTED IMPORTED DECISION / {} / user-supplied, unverified\n\n{decision}\n\nCopy opens the existing editor for separate review/save. It creates no execution evidence.",
@@ -144,7 +144,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             .as_ref()
             .map_or(0, |document| document.decisions.len());
         format!(
-            "j JSON / m Markdown / i Import | [/ ] decision {}/{} / c copy to editor | PgUp/PgDn / Esc",
+            "/ Commands | Left/Right decision {}/{} /copy-decision | PgUp/PgDn / Esc",
             if count == 0 {
                 0
             } else {
@@ -153,7 +153,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             count
         )
     } else {
-        "j JSON / m Markdown / i Import | PgUp/PgDn Scroll / Esc Back".into()
+        "/export-json /export-markdown /import-handoff\nPgUp/PgDn Scroll / Esc Back".into()
     };
     text(
         frame,

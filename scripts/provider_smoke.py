@@ -78,8 +78,9 @@ def main():
 
             def goal(text):
                 old = task()
-                session.send('g')
-                wait_for(session, 'Enter Save locally')
+                session.command('goal')
+                wait_for(session, 'Task composer')
+                assert not session.screen.cursor.hidden, 'goal command did not activate editing'
                 if old:
                     session.send(HOME)
                     for offset in range(0, len(old[0]), 32):
@@ -89,7 +90,7 @@ def main():
                 until(lambda: task() is not None and task()[0] == text, 'goal commit', 20)
 
             def preview(resume=False):
-                session.send('r' if resume else 'n')
+                session.command('resume' if resume else 'new')
                 wait_for(session, 'LOCAL PREVIEW', timeout=40)
                 session.send(END)
                 wait_for(session, 'Enter Stay', timeout=40)
@@ -98,24 +99,24 @@ def main():
             def run():
                 session.send('\t\r')
 
-            def select_agent(digit, label):
-                session.send(digit)
+            def select_agent(provider, label):
+                session.command('provider-' + provider)
                 wait_for(session, 'IDLE AGENT SWITCH')
                 session.send(END)
                 wait_for(session, 'Enter Stay')
-                session.capture('switch-' + digit)
+                session.capture('switch-' + provider)
                 session.send('\t\r')
                 wait_for(session, 'Espeon / ' + label + ' planning')
 
             goal('Plan a two-step local note workflow and state one concise decision. Include EEVEE_HANDOFF_CONTINUED. Do not read files or run tools.')
-            session.send('e')
+            session.command('role-plan')
             wait_for(session, 'Espeon / Codex planning')
             preview()
             run()
             wait_for(session, IDLE, timeout=180)
             for _ in range(128):
-                session.send('d')
-                if 'Enter Save locally' in session.display():
+                session.command('decision')
+                if 'Next action / local' in session.display() and not session.screen.cursor.hidden:
                     break
                 session.send('\x1b[B')
             else:
@@ -124,8 +125,8 @@ def main():
             until(lambda: bool(task()[1]), 'approved Codex decision committed', 20)
             original_decision = task()[1]
             if 'Espeon /' not in session.display():
-                session.send('e')
-            select_agent('3', 'OpenCode ACP')
+                session.command('role-plan')
+            select_agent('opencode', 'OpenCode ACP')
             preview()
             session.capture('outgoing-portable-handoff')
             # Exact payload excludes provider IDs despite the locally stored decision provenance.
@@ -142,11 +143,11 @@ def main():
             session.send(HOME)
             passed('real Codex-to-OpenCode continuation uses reviewed portable facts not provider sessions/grants')
 
-            select_agent('1', 'Codex')
+            select_agent('codex', 'Codex')
             assert 'Session-local resumable thread:' in session.display(), 'old Codex session not retained under original provider'
-            select_agent('3', 'OpenCode ACP')
+            select_agent('opencode', 'OpenCode ACP')
             passed('idle agent switches preserve original per-provider sessions and reset permissions')
-            session.send('s')
+            session.command('sessions')
             wait_for(session, 'LOCAL PREVIEW', timeout=40)
             session.send(END)
             wait_for(session, 'Enter Stay')
@@ -161,8 +162,8 @@ def main():
                  "Do not ask a conversational permission question: the ACP permission callback must pause the tool "
                  "before execution. Do not write files. If the tool permission is denied, stop and report denial; "
                  "otherwise report its observed stdout.")
-            session.send('e')
-            session.send('b')  # Deliberately deselect stale old-revision handoff before a fresh task preview.
+            session.command('role-plan')
+            session.command('handoff-clear')  # Deliberately deselect stale old-revision handoff before a fresh task preview.
             preview()
             run()
             wait_for(session, 'PERMISSION / EXACT PROVIDER RESPONSE', timeout=180)
@@ -192,16 +193,16 @@ def main():
             preview(resume=True)
             run()
             wait_for(session, 'PERMISSION / EXACT PROVIDER RESPONSE', timeout=180)
-            session.send('c')
+            session.command('cancel')
             wait_for(session, IDLE, timeout=30)
             session.send('\t\r')
-            if 'Enter Save locally' in session.display():
+            if 'Next action / local' in session.display() and not session.screen.cursor.hidden:
                 session.send('\x1b')
             assert 'PROVIDER REQUEST' not in session.display()
             passed('real ACP explicit session load and pending-permission cancellation reject stale response')
 
-            select_agent('2', 'Claude Agent')
-            session.send('n')
+            select_agent('claude', 'Claude Agent')
+            session.command('new')
             until(lambda: 'Run blocked' in session.display() or 'requires a permitted' in session.display(), 'SDK credential blocker', 40)
             session.send(HOME)
             session.capture('sdk-permitted-auth-blocker')
@@ -211,8 +212,8 @@ def main():
             wait_for(session, IDLE, timeout=10)
             passed('installed real SDK remains blocked without permitted credentials; no subscription fallback')
 
-            select_agent('4', 'Gemini ACP')
-            session.send('s')
+            select_agent('gemini', 'Gemini ACP')
+            session.command('sessions')
             wait_for(session, 'LOCAL PREVIEW', timeout=40)
             session.send(END)
             wait_for(session, 'Enter Stay')
@@ -233,7 +234,7 @@ def main():
             passed('same ACP adapter initializes Gemini and reports an observed authentication refusal')
             assert task()[1] == original_decision
             session.send('\x1b')
-            session.send('q')
+            session.command('quit')
             wait_for(session, 'Confirm exit')
             session.send(RIGHT + '\r')
             assert session.wait_exit() == 0

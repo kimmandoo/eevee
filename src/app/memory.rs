@@ -65,7 +65,7 @@ impl State {
         Self {
             records: Vec::new(), selected_ids: Vec::new(), selected: 0,
             pending: None, mode: Mode::Browse, candidate: None, draft: String::new(),
-            cursor: 0, notice: "Only explicitly approved notes are remembered. Space selects a memory for future request previews.".into(),
+            cursor: 0, notice: "Only explicitly approved notes are remembered. /select-memory includes a memory in future request previews.".into(),
             saving: false, reviewed: false, affirmative: false, scroll: 0,
             scroll_max: 0, task_id: 0, project: String::new(), target: None,
             original: String::new(), show_help: false,
@@ -185,7 +185,7 @@ impl State {
                 self.selected_ids
                     .retain(|id| self.records.iter().any(|record| record.id == *id));
                 self.clear_draft();
-                self.notice = "Memory change committed. Context uses only Space-selected approved memories; prior requests/exports are unchanged.".into();
+                self.notice = "Memory change committed. Context uses only /select-memory selections of approved memories; prior requests/exports are unchanged.".into();
             }
             Err(error) => {
                 self.notice = format!(
@@ -458,6 +458,109 @@ impl State {
             .map_or(end, |(index, _)| next_start + index);
     }
 
+    pub fn command_choices(&self) -> Vec<super::commands::Choice> {
+        use super::commands::Choice;
+        if self.saving || self.pending.is_some() {
+            return Vec::new();
+        }
+        match self.mode {
+            Mode::Browse => {
+                let mut choices = vec![
+                    Choice::new("create-memory", "Author a memory note"),
+                    Choice::new("remember", "Remember the saved next-action note"),
+                    Choice::new("memory-help", "Show memory actions and scope policy"),
+                ];
+                if self.selected_record().is_some() {
+                    choices.extend([
+                        Choice::new("edit-memory", "Edit selected memory"),
+                        Choice::new(
+                            "select-memory",
+                            "Include/exclude selected memory in request context",
+                        ),
+                        Choice::new("delete-memory", "Review deletion of selected memory"),
+                    ]);
+                }
+                choices
+            }
+            Mode::Edit => vec![Choice::new("preview-memory", "Review memory proposal")],
+            Mode::Preview => vec![
+                Choice::new("memory-scope", "Cycle Task / Project / Personal scope"),
+                Choice::new("edit-memory", "Continue editing proposal"),
+                Choice::new("reject-memory", "Reject unsaved proposal"),
+            ],
+            Mode::Delete | Mode::Discard => Vec::new(),
+        }
+    }
+
+    pub fn command(&mut self, name: &str, large_enough: bool) -> bool {
+        let available = match self.mode {
+            Mode::Browse => {
+                matches!(name, "create-memory" | "memory-help")
+                    || (self.selected_record().is_some()
+                        && matches!(name, "edit-memory" | "select-memory" | "delete-memory"))
+            }
+            Mode::Edit => name == "preview-memory",
+            Mode::Preview => matches!(name, "memory-scope" | "edit-memory" | "reject-memory"),
+            Mode::Delete | Mode::Discard => false,
+        };
+        if self.saving || self.pending.is_some() || !available {
+            return false;
+        }
+        if !large_enough {
+            self.invalidate_review();
+            self.notice = "Resize to at least 60 columns x 18 rows before memory actions.".into();
+            return true;
+        }
+        match name {
+            "create-memory" => self.new_note(),
+            "memory-help" => {
+                self.show_help = !self.show_help;
+                self.scroll = 0;
+            }
+            "edit-memory" if self.mode == Mode::Browse => self.edit_selected(),
+            "edit-memory" => {
+                self.mode = Mode::Edit;
+                self.invalidate_review();
+            }
+            "preview-memory" => self.preview(),
+            "select-memory" => {
+                if let Some(id) = self.selected_record().map(|record| record.id) {
+                    if self.selected_ids.contains(&id) {
+                        self.selected_ids.retain(|selected| *selected != id);
+                    } else if self.selected_ids.len() < memory::MAX_SELECTED {
+                        self.selected_ids.push(id);
+                    } else {
+                        self.notice = format!(
+                            "Select at most {} memories for a request.",
+                            memory::MAX_SELECTED
+                        );
+                    }
+                }
+            }
+            "delete-memory" => {
+                self.mode = Mode::Delete;
+                self.scroll = 0;
+                self.invalidate_review();
+                self.notice = "Delete only this approved memory? Review affected scope. Stay is selected; no deletion yet.".into();
+            }
+            "memory-scope" => {
+                if let Some(candidate) = &mut self.candidate {
+                    candidate.scope = candidate.scope.next();
+                }
+                self.scroll = 0;
+                self.invalidate_review();
+            }
+            "reject-memory" => {
+                self.clear_draft();
+                self.notice = "Proposal rejected. Nothing was saved or added to context.".into();
+            }
+            // Remember requires the App's committed next-action snapshot.
+            "remember" => return false,
+            _ => return false,
+        }
+        true
+    }
+
     pub fn key(&mut self, key: KeyEvent, large_enough: bool) -> bool {
         if key.kind == KeyEventKind::Release {
             return true;
@@ -520,32 +623,6 @@ impl State {
                     self.selected = (self.selected + 1).min(self.records.len().saturating_sub(1));
                     self.scroll = 0;
                 }
-                KeyCode::Char('?') => {
-                    self.show_help = !self.show_help;
-                    self.scroll = 0;
-                }
-                KeyCode::Char('n') => self.new_note(),
-                KeyCode::Char('e') => self.edit_selected(),
-                KeyCode::Char(' ') => {
-                    if let Some(id) = self.selected_record().map(|record| record.id) {
-                        if self.selected_ids.contains(&id) {
-                            self.selected_ids.retain(|selected| *selected != id);
-                        } else if self.selected_ids.len() < memory::MAX_SELECTED {
-                            self.selected_ids.push(id);
-                        } else {
-                            self.notice = format!(
-                                "Select at most {} memories for a request.",
-                                memory::MAX_SELECTED
-                            );
-                        }
-                    }
-                }
-                KeyCode::Char('d') if self.selected_record().is_some() => {
-                    self.mode = Mode::Delete;
-                    self.scroll = 0;
-                    self.invalidate_review();
-                    self.notice = "Delete only this approved memory? Review affected scope. Stay is selected; no deletion yet.".into();
-                }
                 _ => {}
             },
             Mode::Preview | Mode::Delete => match key.code {
@@ -559,22 +636,6 @@ impl State {
                 }
                 KeyCode::Left => self.affirmative = false,
                 KeyCode::Right if self.reviewed => self.affirmative = true,
-                KeyCode::Char('s') if self.mode == Mode::Preview => {
-                    if let Some(candidate) = &mut self.candidate {
-                        candidate.scope = candidate.scope.next();
-                    }
-                    self.scroll = 0;
-                    self.invalidate_review();
-                }
-                KeyCode::Char('e') if self.mode == Mode::Preview => {
-                    self.mode = Mode::Edit;
-                    self.invalidate_review();
-                }
-                KeyCode::Char('r') if self.mode == Mode::Preview => {
-                    self.clear_draft();
-                    self.notice =
-                        "Proposal rejected. Nothing was saved or added to context.".into();
-                }
                 KeyCode::Enter if self.affirmative && self.reviewed => {
                     let mutation = if self.mode == Mode::Delete {
                         self.selected_record().map(|record| Mutation::Delete {
@@ -637,13 +698,34 @@ impl super::App {
             return true;
         }
         let before = self.memory.draft_snapshot();
-        let remember = self.memory.mode == Mode::Browse
+        let handled = self.memory.key(key, self.width >= 60 && self.height >= 18);
+        if !handled && key.code == KeyCode::Esc {
+            self.close_overlay();
+        }
+        if before != self.memory.draft_snapshot() {
+            self.changed_task();
+        }
+        true
+    }
+
+    pub fn memory_command_choices(&self) -> Vec<super::commands::Choice> {
+        if self.memory_loading {
+            Vec::new()
+        } else {
+            self.memory.command_choices()
+        }
+    }
+
+    pub fn memory_command(&mut self, name: &str) -> bool {
+        if self.memory_loading {
+            self.memory.notice = "Loading approved memories; wait before editing.".into();
+            return true;
+        }
+        let before = self.memory.draft_snapshot();
+        let remember = name == "remember"
+            && self.memory.mode == Mode::Browse
             && !self.memory.saving
-            && key.kind == KeyEventKind::Press
-            && !key
-                .modifiers
-                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-            && key.code == KeyCode::Char('r')
+            && self.memory.pending.is_none()
             && self.width >= 60
             && self.height >= 18;
         let handled = if remember {
@@ -664,7 +746,7 @@ impl super::App {
                 };
                 if let Err(error) = self.memory.propose(&self.next_action, provenance, false) {
                     self.memory.notice = if self.next_action.trim().is_empty() {
-                        "No saved next-action note. Set Next action first, or n to author a memory note.".into()
+                        "No saved next-action note. Set Next action first, or /create-memory to author a memory note.".into()
                     } else {
                         error
                     };
@@ -672,15 +754,13 @@ impl super::App {
             }
             true
         } else {
-            self.memory.key(key, self.width >= 60 && self.height >= 18)
+            self.memory
+                .command(name, self.width >= 60 && self.height >= 18)
         };
-        if !handled && key.code == KeyCode::Esc {
-            self.close_overlay();
-        }
         if before != self.memory.draft_snapshot() {
             self.changed_task();
         }
-        true
+        handled
     }
 
     pub(super) fn memory_paste(&mut self, value: &str) -> bool {
@@ -714,7 +794,7 @@ mod tests {
     #[test]
     fn neutral_preview_reject_and_failed_save_preserve_draft() {
         let mut state = state();
-        key(&mut state, KeyCode::Char('n'));
+        state.command("create-memory", true);
         state.paste("Keep focused tests.");
         key(&mut state, KeyCode::Enter);
         key(&mut state, KeyCode::Enter);
@@ -727,7 +807,7 @@ mod tests {
         assert_eq!(state.draft, "Keep focused tests.");
         assert!(!state.affirmative);
         assert!(!state.reviewed);
-        key(&mut state, KeyCode::Char('r'));
+        state.command("reject-memory", true);
         assert!(state.candidate.is_none());
         assert!(state.records.is_empty());
     }
@@ -735,7 +815,7 @@ mod tests {
     #[test]
     fn literal_paste_graphemes_and_durable_task_scope() {
         let mut state = state();
-        key(&mut state, KeyCode::Char('n'));
+        state.command("create-memory", true);
         state.paste("中e\u{301}\nq approve");
         assert_eq!(state.mode, Mode::Edit);
         key(&mut state, KeyCode::Home);
@@ -776,7 +856,7 @@ mod tests {
     #[test]
     fn dirty_discard_and_small_terminal_cannot_approve() {
         let mut state = state();
-        key(&mut state, KeyCode::Char('n'));
+        state.command("create-memory", true);
         state.paste("Draft");
         key(&mut state, KeyCode::Esc);
         assert_eq!(state.mode, Mode::Discard);
@@ -794,7 +874,7 @@ mod tests {
     #[test]
     fn restoring_or_loading_never_discards_a_pending_draft() {
         let mut original = state();
-        key(&mut original, KeyCode::Char('n'));
+        original.command("create-memory", true);
         original.paste("Uncommitted note");
         key(&mut original, KeyCode::Esc);
         let saved = original.draft_snapshot();
@@ -820,7 +900,7 @@ mod tests {
             .unwrap();
         state.reviewed = true;
         state.affirmative = true;
-        key(&mut state, KeyCode::Char('s'));
+        state.command("memory-scope", true);
         assert_eq!(state.candidate.as_ref().unwrap().scope, Scope::Project);
         assert!(!state.reviewed);
         assert!(!state.affirmative);
@@ -831,12 +911,53 @@ mod tests {
             true,
         );
         assert!(state.pending.is_none());
-        key(&mut state, KeyCode::Char('e'));
+        state.command("edit-memory", true);
         state.paste(" Updated by the user.");
         key(&mut state, KeyCode::Enter);
         assert_eq!(
             state.candidate.as_ref().unwrap().provenance.kind,
             SourceKind::UserAuthored
         );
+    }
+
+    #[test]
+    fn semantic_actions_select_edit_and_review_deletion_without_implicit_consent() {
+        let mut state = state();
+        assert!(state.command("create-memory", true));
+        state.paste("Keep checks scoped.");
+        key(&mut state, KeyCode::Enter);
+        let proposal = state.candidate.clone().unwrap();
+        state.clear_draft();
+        state.receive_records(vec![Record {
+            id: 11,
+            revision: 3,
+            project: "/project/a".into(),
+            task_id: Some(7),
+            proposal,
+        }]);
+        assert!(state.command("select-memory", true));
+        assert_eq!(state.selected_ids, vec![11]);
+        assert!(state.command("select-memory", true));
+        assert!(state.selected_ids.is_empty());
+        assert!(state.command("edit-memory", true));
+        assert_eq!(state.draft, "Keep checks scoped.");
+        assert!(!state.command("delete-memory", true));
+        assert_eq!(state.mode, Mode::Edit);
+        key(&mut state, KeyCode::Esc);
+        assert!(state.command("delete-memory", true));
+        assert_eq!(state.mode, Mode::Delete);
+        assert!(!state.affirmative);
+        key(&mut state, KeyCode::Enter);
+        assert!(state.pending.is_none());
+        state.reviewed = true;
+        key(&mut state, KeyCode::Right);
+        key(&mut state, KeyCode::Enter);
+        assert!(matches!(
+            state.pending,
+            Some(Mutation::Delete {
+                id: 11,
+                expected_revision: 3
+            })
+        ));
     }
 }

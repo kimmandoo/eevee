@@ -180,9 +180,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         frame,
         footer,
         if app.workflow.chooser.is_some() {
-            "Up/Down evidence / Enter attach / o Open\nLeft/Right Supporting/Refuting / Esc Back"
+            "Up/Down evidence / Enter attach /open-evidence\nLeft/Right Supporting/Refuting / Esc Back"
         } else {
-            "Left/Right tabs / Up/Down actions / Enter\nPgUp/PgDn details / Esc Back"
+            "/ Commands / Left/Right tabs / Up/Down actions / Enter\nPgUp/PgDn details / Esc Back"
         },
         paint.accent,
     );

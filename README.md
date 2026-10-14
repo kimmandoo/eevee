@@ -54,19 +54,19 @@ ev uninstall        # Remove the binary and licenses; keep user data
 
 Use an interactive terminal of at least **60 × 18** cells; **120 × 36** gives the task and activity more breathing room. Authentication review requires **80 × 24**.
 
-1. **Type directly into the bottom Task composer.** Enter saves locally; wait for **Storage: saved**. The saved task, next action and recent provider activity appear above it.
-2. **F2 — Connect:** choose a provider with arrows, Enter opens its actions, then choose Connect and a sign-in method.
-3. **F3 — Evolution:** preview a form, then Enter selects it. This never starts work.
-4. **F4 — Images:** online installation prepares all nine original sprites. Use this screen to retry missing downloads or reload local images.
-5. **Ctrl+K — Actions:** browse task cards, criteria, source context, local commands and model requests without memorizing shortcuts.
+1. **Type directly into the bottom Task composer.** Enter saves locally and opens neutral next-action choices. Wait for **Storage: saved**; no prompt is sent merely by saving or opening a menu.
+2. **`/connect`:** choose a provider, then Connect and a supported sign-in method. Login has its own review.
+3. **`/provider` and `/model`:** select the provider and inspect its available models. Opening the model picker is local; **Refresh / inspect** prepares a separately approved connection.
+4. **`/forms` and `/images`:** choose an evolution or manage cached sprites. Form changes never start work.
+5. **`/`:** search current actions. `/new` and `/resume` prepare provider requests; `/task-new` creates a local task. Ctrl+K opens the same command menu.
 
-F1 opens help. Global navigation retains an unfinished draft; Esc leaves a clean editor or reviews a changed one. Enter in the composer never sends a model request. Connections use a single-column provider → action flow on compact screens; PgUp/PgDn scrolls setup details without hiding permission facts. The compact companion appears at 90+ columns; `b` opens its details. At 120+ columns, Tab reveals the inspector only when focused. `i` opens its drawer at every supported size; linear mode keeps the task and composer full-width.
+Arrows, Tab, Enter and Esc navigate choices. Old single-letter, numeric and F-key action shortcuts are removed. Drafts and caret positions survive command navigation; pasted slash text remains literal. Connections use a provider → action flow on compact screens. PgUp/PgDn scrolls details without hiding permission facts. `/companion` and `/inspect` open secondary details.
 
 The TUI keeps this coding-agent workflow inside a handheld-game-inspired skin: **FIELD LOG** for task/activity, a bottom **Task composer**, a **PARTNER** sprite/status card, and the evolution **PARTY** picker. Routine guidance stays brief; help and detail drawers retain the full explanation. Dark sage and light cream themes use square/double borders; `--theme light` selects the cream palette, while `--color mono --ascii` preserves a plain-terminal fallback. Partner objectives reflect real acceptance criteria, not simulated HP or experience.
 
-**Attach files with `@`:** type `@` at a word boundary in the composer and filter repository paths. Arrows/Tab select; Enter inspects the complete eligible UTF-8 file before attachment. Press `p` to pin the reviewed capture, or `r` to select an inclusive line range (required above the 64 KiB capture limit). Esc returns to your preserved composer; its title shows the stored attachment count. A new task's draft is saved locally before context selection, without applying the goal or sending it. Ignored, excluded, binary and linked files remain unavailable; attachments are revalidated in the ordinary outgoing-context review.
+**Attach files with `@`:** type `@` at a word boundary in the composer and filter repository paths. Arrows/Tab select; Enter inspects the complete eligible UTF-8 file before attachment. Choose `/attach` to attach the reviewed capture, or `/range` for inclusive lines (required above the 64 KiB capture limit). Esc returns to the preserved composer. A new task's draft is saved before context selection without applying the goal or sending it. Ignored, excluded, binary and linked files remain unavailable; attachments are revalidated before dispatch.
 
-**Use `/` commands:** type `/` at the start of a composer line, filter the action menu, then Enter. `/help`, `/connect`, `/provider`, `/files`, `/tasks`, `/criteria`, `/forms`, `/inspect`, `/diff`, `/handoff`, `/memory` and `/workflows` open the real corresponding controls. `/run` opens the local command editor: enter JSON argv or an explicit shell object, save to prepare, then review and authorize in the command drawer. No slash action bypasses approvals or runs arbitrary pasted text. Esc dismisses a picker while retaining its literal text; pasting `@` or `/` does not invoke an action.
+**Use `/` commands:** type `/` to search actions available on the current surface. `/help`, `/connect`, `/provider`, `/model`, `/effort`, `/new`, `/resume`, `/files`, `/tasks`, `/criteria`, `/forms`, `/inspect`, `/diff`, `/history`, `/handoff`, `/memory` and `/workflows` use the real corresponding controls. Disabled actions show prerequisites. `/run` opens local execution; `/command-edit` authors JSON argv or an explicit shell object. Saving prepares a review, then `/run` opens its neutral execution consent. No slash command bypasses approval or executes arbitrary pasted text. Esc dismisses a popup without changing the underlying draft.
 
 <details>
 <summary>Build from source instead</summary>
@@ -106,25 +106,25 @@ Startup, form selection, context previews, and manual handoffs do **not** submit
 | Local commands | Reviewed argv or explicit shell, output and run history | Owned process cleanup, not a filesystem/network sandbox |
 | Agents | Planning, selected-file edits, questions and once-only approvals | Capability and enforcement differ by adapter |
 | Handoffs | Reviewed JSON/Markdown export and import | Imported claims remain unverified; no credentials or grants |
-| Specialist desk (`u`) | Evidence-linked hypotheses, bounded comparisons, independent findings and recipes | A conclusion is not execution, permission, or task completion |
-| Approved memories (`m`) | Explicit task/project/personal notes and outgoing-context selection | No transcript mining; shared notes survive deletion of their source task |
+| Specialist desk (`/workflows`) | Evidence-linked hypotheses, bounded comparisons, independent findings and recipes | A conclusion is not execution, permission, or task completion |
+| Approved memories (`/memory`) | Explicit task/project/personal notes and outgoing-context selection | No transcript mining; shared notes survive deletion of their source task |
 
-For a local command, open `j` → `e` and enter a JSON argv array, such as `["cargo","test"]`. Saving prepares a review; it does not execute. Open `v` inside that drawer to review the exact command and effects, then explicitly authorize it. Shell syntax requires an explicit shell object, not an implicitly parsed string.
+For a local command, open `/run` → `/command-edit` and enter a JSON argv array such as `["cargo","test"]`. Saving prepares a review; it does not execute. Choose `/run` in that drawer, read the exact command and effects, then explicitly authorize. Shell syntax requires an explicit shell object rather than implicit parsing.
 
-For an agent request, open `e` → `n` for a new-session preview, or `r` to review resuming an eligible same-task session. Read to the end with PgDn/End, then Tab → Enter to authorize once. Questions and tool permissions have their own review. Cancellation invalidates pending answers; an unconfirmed outcome stays **unknown**.
+For an agent request, select `/provider`, then `/new` for a new-session preview or `/resume` for an eligible same-task session. Read to the end with PgDn/End, then Tab → Enter to authorize once. Questions and tool permissions have their own review. Cancellation invalidates pending answers; an unconfirmed outcome stays **unknown**.
 
-In the agent drawer, `f` selects Plan/Implement and `x` selects existing files. Managed Review is opened separately from the specialist desk, not by changing a review into its own fix. Codex's controlled POSIX write route accepts **1–8 regular UTF-8 files, at most 12 KiB each**. Every replacement requires review of the exact before/after patch. Protected, unselected, linked, or changed-baseline paths are refused; native edit/command escalation is denied. Other platforms refuse this controlled route. Inspect `w` afterward and deliberately run a separate local check with `j`.
+`/role` selects Plan/Implement/Review, with unsupported boundaries explained. `/paths` in the provider drawer selects existing files. Review cannot resume implementation history or turn itself into its own fix. Codex's controlled POSIX write route accepts **1–8 regular UTF-8 files, at most 12 KiB each**. Each replacement requires exact before/after patch consent. Protected, unselected, linked, or changed-baseline paths are refused; native edit/command escalation is denied. Other platforms refuse this controlled route. Inspect `/diff` afterward and deliberately run a separate local check with `/run`.
 
-Select a completed, visible decision and press `d` to open it in the next-action editor; Enter saves it. Decisions over 4096 UTF-8 bytes are refused rather than silently truncated. `h` in the agent drawer shows provider-origin journals, separately from local command evidence.
+Select a completed provider message and choose `/decision` to review it in the next-action editor; Enter saves it. Decisions over 4096 UTF-8 bytes are refused instead of truncated. `/history` shows provider journals; local command history remains a separate execution-drawer action.
 
 ### Diagnose, refine, review, remember
 
-Open **`u`** from navigation, or choose **Diagnosis, refactor, review and recipes** in Ctrl+K. Left/Right changes tabs; Up/Down selects an action; Enter performs the selected local action. In desk text fields, Enter adds a newline and **Ctrl+S** finishes editing the draft; **Add/Record** is a separate action. Esc retains the draft. At 60×18, PgUp/PgDn exposes the complete selected details; smaller terminals refuse editing/approval without discarding text.
+Open `/workflows`. Left/Right changes tabs; Up/Down selects an action; Enter performs the selected local action. In desk text fields, Enter adds a newline and **Ctrl+S** finishes the draft; **Add/Record** is separate. Esc retains drafts. At 60×18, PgUp/PgDn exposes selected details; smaller terminals refuse editing/approval without discarding text.
 
 - **Diagnosis:** Record an explanation, then explicitly attach supporting/refuting source captures and actual run IDs. Missing proof remains unresolved. Open a link to inspect its captured source or retained output. Jolteon uses the existing command approval flow; a Flareon handoff stages only the selected explanation and links, never the whole transcript or an automatic request.
 - **Refactor:** Record the behavior contract, current bounded source hotspot and passing baseline. Compare a distinct post-change run of the same command, cwd and executable. Failed, incomplete, unrelated or stale checks cannot establish preservation. Displayed single-run elapsed times are observations, not proof of a speedup.
 - **Review:** Record an actionable finding against a criterion, attach evidence, and deliberately resolve it. Accept requires current source and a complete relevant passing check for every criterion; editing afterward invalidates the effective verdict. Managed Review constructs fresh requirements/patch/selected-observation context, refuses Resume and write grants, and requires separate Preview/Run consent. Codex uses acknowledged read-only policy; the optional SDK uses its restricted tool policy. ACP managed Review is unavailable because the adapter cannot establish that no-write boundary. Provider output never automatically saves a finding, verdict, or completion.
-- **Memories:** Open **`m`**; `n` authors a note and `r` proposes the saved next-action note. In preview, `s` cycles Task/Project/Personal, `r` rejects, and Right → Enter approves only after all pages are reviewed. Approval does not select context: **Space** separately includes/excludes a note from future request previews. `e` edits, `d` previews deletion, and `?` lists actions. Changed/deleted/scope-mismatched memory invalidates pending context. Deletion cannot erase prior exports, provider history, or backups.
+- **Memories:** `/memory` opens notes; `/create-memory` authors one and `/remember` proposes the saved next action. Enter in its literal editor opens proposal review. `/memory-scope` cycles Task/Project/Personal; `/reject-memory` rejects. Right → Enter approves only after all pages are reviewed. `/select-memory` separately includes/excludes a note from future requests. `/edit-memory` edits and `/delete-memory` reviews deletion. Changed, deleted or scope-mismatched notes invalidate pending context; deletion cannot erase prior exports, provider history or backups.
 
 ### Local recipes are plans, not grants
 
@@ -149,7 +149,7 @@ completion_criteria = ["The focused regression passes and unrelated behavior is 
 
 Authentication is only needed for the provider operation you choose—not for local tasks, source browsing, or local commands. Subscription access, API billing, and cloud credentials are distinct routes.
 
-Open **F2** for a visible provider list. Discovery does not launch providers.
+Open `/connect` for the provider list. Discovery does not launch providers.
 
 | Step | Interaction |
 | --- | --- |
@@ -168,12 +168,15 @@ Reviews start on **Back**. Full technical details remain available separately. M
 | Claude Agent SDK **0.3.296** | Optional Node sidecar; embedded CLI **2.1.296** | Anthropic API key, Anthropic Console OAuth via official `ant` **1.40.0** (browser or paste code; status), Amazon Bedrock, or Google Vertex AI; **no claude.ai subscription OAuth reuse** |
 | OpenCode **1.18.0** | ACP1 via `acp --pure` | Official `auth login --pure` provider/method chooser; available OAuth/API-key methods belong to OpenCode |
 | Gemini CLI **0.28.0** | ACP1 for model requests | Official native CLI chooser for Google OAuth (browser/manual code), API key, or Vertex |
+| Devin CLI **3000.11.3** | ACP1 via `acp` (local agent, not cloud mode) | Official browser OAuth via `auth login`; explicit manual-token alternative; native `auth status` |
 
 Other provider versions fail closed. Installed, authenticated, eligible, and successfully tested are separate states. OpenCode's credential inventory or a login process exiting successfully does not by itself prove authentication. Gemini 0.28.0 mixes interactive OAuth prompts into its ACP output, so authentication deliberately uses its **official native CLI**, not a custom parser or token collector. Choose the method there (`/auth` if already connected), then exit back to Eevee. This is an explicitly external workflow: the CLI can initialize provider services and continue into chat; anything you type there is handled by Gemini and can start model work. Eevee sends no task or prompt automatically, and native exit leaves authentication **unknown** until separately checked.
 
 The reviewed operation temporarily hands the terminal to the official provider. It may open a browser, contact its service, and modify its own credential/configuration stores. Native auth output is not retained in Eevee's task logs, but can remain in your terminal scrollback. Approval expires after five minutes; login is bounded to ten minutes and status to fifteen seconds. Ctrl+C cancels the native flow and returns to the local task. Authentication does not replay a task: prior Run consent and cached model sessions are invalidated, and a new explicit request is required.
 
-**WSL / SSH login:** Codex defaults to **device authorization**, which does not need a localhost callback or Windows networking changes. Enable device-code authorization in **ChatGPT Settings → Security** (workspace policy may require an administrator), then use **F2 → Codex → Connect → device authorization**. Open the official link, enter the one-time code shown by Codex, and keep the terminal open until login finishes. Windows-reserved ports can block browser OAuth even with a healthy WSL listener; do not disable firewalls or change port reservations just to sign in. See [diagnosis and verification](docs/TROUBLESHOOTING.md#2026-10-14-browser-oauth-returns-to-localhost-with-connection-refused).
+**Devin:** install official [Devin CLI](https://docs.devin.ai/cli/index) **3000.11.3** on PATH, then use **`/connect` → Devin ACP → Connect → browser OAuth**. The dedicated `devin auth login` UI runs outside the project. SSH/loopback alternatives use explicit **manual token paste** (`auth login --force-manual-token-flow`), only in Devin's native UI. This is not device OAuth; no automatic fallback occurs. Exit alone does not establish authentication or eligibility. `/provider` reviews selecting Devin; managed Review and controlled implementation remain unavailable under the ACP boundary.
+
+**WSL / SSH login:** Codex defaults to **device authorization**, with no localhost callback or Windows networking changes. Enable device-code authorization in **ChatGPT Settings → Security** (workspace policy may require an administrator), then use **`/connect` → Codex → Connect → device authorization**. Enter the official CLI's one-time code in the official browser page and keep the terminal open. Do not disable firewalls or change reserved ports just to sign in. See [diagnosis and verification](docs/TROUBLESHOOTING.md#2026-10-14-browser-oauth-returns-to-localhost-with-connection-refused).
 
 ### Optional Claude SDK
 
@@ -185,35 +188,38 @@ export EEVEE_CLAUDE_SIDECAR="$PWD/sidecar/main.ts"
 node sidecar/main.ts --inspect
 ```
 
-Use a permitted `ANTHROPIC_API_KEY`, sign in with Anthropic Console OAuth, or explicitly select Bedrock/Vertex. **F2 → Claude Agent SDK → Connect** runs the official Anthropic CLI (`ant` **1.40.0** on PATH) as `ant auth login --profile eevee` (browser) or with `--no-browser` (paste the code; default on WSL/SSH). This is Claude Console login billed as API usage to the chosen organization/workspace, not a claude.ai Pro/Max login. Set `ANTHROPIC_PROFILE` to use another `ant` profile. The sidecar passes only that profile's directory/name to the SDK, and the SDK may refresh its token in place. Exactly one route may be configured. For provider-managed AWS SSO/profile/workload or Google ADC/workload chains, opt in with `EEVEE_CLAUDE_CLOUD_AUTH=provider-chain` **and** the selected `CLAUDE_CODE_USE_BEDROCK`/`CLAUDE_CODE_USE_VERTEX` route. Review the [credential and cloud-policy contract](docs/AGENT_COMPATIBILITY.md#claude-agent-sdk): these chains can read/refresh caches, execute credential helpers, and contact identity or metadata endpoints. Eevee isolates Claude SDK configuration and verifies the effective backend; it never falls back to claude.ai subscription tokens.
+Use a permitted `ANTHROPIC_API_KEY`, Anthropic Console OAuth, or explicitly selected Bedrock/Vertex. **`/connect` → Claude Agent SDK → Connect** uses official `ant` **1.40.0** as `ant auth login --profile eevee`, or with `--no-browser` for paste-code login. This is Console API billing, not claude.ai Pro/Max subscription login. `ANTHROPIC_PROFILE` selects another profile; the SDK may refresh that profile's token in place. Configure exactly one route. Provider-managed AWS/Google chains require `EEVEE_CLAUDE_CLOUD_AUTH=provider-chain` and the selected `CLAUDE_CODE_USE_BEDROCK`/`CLAUDE_CODE_USE_VERTEX` route. Review the [credential and cloud-policy contract](docs/AGENT_COMPATIBILITY.md#claude-agent-sdk): chains can read/refresh caches, execute helpers and contact identity endpoints. Eevee isolates SDK configuration and verifies the backend; no subscription-token fallback.
 
 SDK inspection imports the real SDK without a model request; it is not authenticated-query proof. Selected-path SDK Write/Edit hooks are **agent policy, not atomic OS confinement**. ACP provider-owned tools are also external policy; controlled ACP implementation is refused. [Compatibility details →](docs/AGENT_COMPATIBILITY.md)
 
-## Keyboard reference
+## Commands and model selection
 
-| Key | Action |
+| Command/control | Action |
 | --- | --- |
-| F1 / F2 / F3 / F4 | Help / connections / evolutions / image setup |
-| Enter in the Task composer | Save locally; never send to a model |
-| `@` in composer | Filter eligible files; Enter inspects, `p` attaches |
-| `/` at composer line start | Filter real actions; `/run` prepares a reviewed command |
-| `g` / `a` | Edit goal / next action |
-| `c` | Open criteria; `e` edits, Space toggles |
-| `t` / `n` | Browse task cards / create a task |
-| `f` | Choose a task-specific form |
-| `w` / `v` | Inspect repository / source context |
-| `j` | Local command review, output and history |
-| `o` / `e` | Agent connection / model-request drawer |
-| `z` | Reviewed portable handoff export/import |
-| `i` / `b` | Inspector / companion drawer |
-| `l` | Toggle companion / linear layout |
-| Ctrl+K / `?` | Command palette / keyboard help |
-| Ctrl+S in editor | Retain a draft without applying it |
-| Ctrl+N in editor | Insert a newline |
-| Esc | Back, cancel review, or review discarding a changed draft |
-| `q` / Ctrl+C | Request safe exit; pending saves and active work are not bypassed |
+| `/` / Ctrl+K | Search current actions; disabled choices explain prerequisites |
+| `/provider` / `/connect` | Select execution provider / manage its native authentication |
+| `/model` / `/effort` | Local model and reasoning pickers; Default means provider configuration |
+| `/models-refresh` | Review and approve official model discovery; never a task/model prompt |
+| `/new` / `/resume` | Review a fresh provider request / an owned compatible session |
+| `/role` / `/forms` | Select Plan/Implement/Review / choose evolution |
+| `/goal` / `/next` / `/criteria` | Edit task facts or review completion criteria |
+| `/tasks` / `/task-new` | Browse saved tasks / create a local task |
+| `/files` / `@` | Inspect source context / filter files from the composer |
+| `/run` / `/command-edit` | Local execution drawer / author literal argv or explicit shell |
+| `/history` / `/decision` | Provider journal / review a selected complete proposal |
+| `/handoff` / `/memory` / `/workflows` | Portable context / approved notes / specialist desk |
+| `/images` / `/inspect` / `/companion` / `/layout` | Artwork / details / companion / layout |
+| Arrows / Tab / Enter / Esc | Navigate, explicitly select, and return; untouched consent stays neutral |
+| Ctrl+S / Ctrl+N in editors | Retain draft / insert newline |
+| `/quit` / Ctrl+C | Safe exit review; pending saves and active work are not bypassed |
 
-Letter shortcuts apply in navigation mode—Esc leaves the input first. F1–F4 and Ctrl+K also work from the primary input while preserving its draft. Keys are contextual; the active drawer's footer is authoritative. Enter never turns an untouched neutral review into approval. Small terminals can still cancel and exit. Cancellation is not rollback.
+Catalogue data comes from the pinned provider's official interface, never a hardcoded cross-provider list. Opening pickers starts no process or network request. Inspection requires a committed local task; use `/task-new` or save the Goal first. Codex uses bounded `model/list`; Claude uses SDK `supportedModels()` without releasing the task prompt; ACP requires an explicitly disclosed temporary session to inspect its model/configuration options. Inspection grants no resume ownership and consumes no model-turn budget.
+
+Selections are provider-specific and included in the immutable request review. A different model invalidates prior consent. Incompatible owned sessions offer **Keep current / New session / Back** instead of silently switching models on Resume. Requested selection, reported catalogue default, and observed session model are distinct.
+
+Codex reasoning values come from each advertised model. ACP values are accepted only through supported model/configuration controls and exact setting acknowledgments; model-dependent effort lists may require another inspected connection after changing models. Claude model selection is qualified through public SDK controls before prompt release. **Claude effort selection is unavailable:** the SDK advertises capability but cannot acknowledge the effective pre-prompt value after organization caps; Eevee refuses explicit effort rather than silently accepting a downgrade.
+
+Reinstall the optional Claude sidecar when updating: its **bridge revision 2** is mandatory. Older installed bridges fail before a task or catalogue prompt can be submitted. Model inspection does not establish model entitlement or successful authenticated inference.
 
 ## Data and trust
 

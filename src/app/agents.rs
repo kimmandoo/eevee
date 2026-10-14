@@ -165,10 +165,15 @@ impl State {
                 "Install the official OpenCode CLI on PATH: npm install -g opencode-ai@{}. Then Refresh installed providers.",
                 crate::agent::OPENCODE_RELEASE
             ),
-            _ => format!(
+            3 => format!(
                 "Install the official Gemini CLI on PATH: npm install -g @google/gemini-cli@{}. Then Refresh installed providers.",
                 crate::agent::GEMINI_RELEASE
             ),
+            crate::agent::DEVIN => format!(
+                "Install the official Devin CLI from https://docs.devin.ai/cli/ on PATH and use the supported {} release. Then Refresh installed providers. Eevee does not run an installer.",
+                crate::agent::DEVIN_RELEASE
+            ),
+            _ => "Select a supported provider before installation or connection setup.".into(),
         }
     }
 
@@ -311,6 +316,130 @@ impl State {
         self.review_choice = 0;
     }
 
+    pub fn command_choices(&self) -> Vec<super::commands::Choice> {
+        use super::commands::Choice;
+        let blocked = if self.preview || self.auth_preview.is_some() {
+            Some("Finish or cancel the current consent review first.")
+        } else if self.busy() {
+            Some("A provider operation is pending.")
+        } else {
+            None
+        };
+        let profile = self.profiles.get(self.selected);
+        let missing = profile
+            .is_none()
+            .then_some("Wait for installed provider discovery.");
+        let connect = if self.selected != 1 && profile.is_none_or(|p| p.executable.is_none()) {
+            Some("This provider is not installed; inspect diagnostics for setup.")
+        } else if crate::auth::methods(self.selected).is_empty() {
+            Some("This provider has no supported connection method.")
+        } else {
+            None
+        };
+        let choice = |name, label, reason: Option<&str>| match reason {
+            Some(reason) => Choice::disabled(name, label, reason),
+            None => Choice::new(name, label),
+        };
+        vec![
+            choice(
+                "connect",
+                "Choose provider connection method",
+                blocked.or(missing).or(connect),
+            ),
+            choice(
+                "connect-method",
+                "Review selected connection method",
+                blocked.or(missing).or(connect),
+            ),
+            choice(
+                "method-next",
+                "Select next connection method",
+                blocked.or(missing).or(connect),
+            ),
+            choice(
+                "status",
+                "Review provider connection status check",
+                blocked.or(missing).or_else(|| {
+                    crate::auth::status_method(self.selected)
+                        .is_none()
+                        .then_some("This provider has no supported status check.")
+                }),
+            ),
+            choice(
+                "version",
+                "Review installed provider version check",
+                blocked.or(missing).or_else(|| {
+                    profile
+                        .is_none_or(|p| !p.probe_allowed)
+                        .then_some("No installed executable is eligible for this version check.")
+                }),
+            ),
+            choice(
+                "diagnostics",
+                "Inspect provider diagnostics",
+                blocked.or(missing),
+            ),
+            choice(
+                "refresh",
+                "Refresh installed providers without launching",
+                blocked,
+            ),
+            choice(
+                "provider-use",
+                "Use selected provider for task",
+                blocked.or(missing),
+            ),
+            choice(
+                "details",
+                "Toggle full connection review details",
+                self.auth_preview
+                    .is_none()
+                    .then_some("No connection consent review is open."),
+            ),
+        ]
+    }
+
+    pub fn command(&mut self, name: &str, large_enough: bool) -> bool {
+        if !large_enough {
+            self.affirmative = false;
+            self.reviewed = false;
+            return false;
+        }
+        if name == "details" && self.auth_preview.is_some() {
+            self.auth_details = !self.auth_details;
+            self.affirmative = false;
+            self.review_choice = 0;
+            self.scroll = 0;
+            return true;
+        }
+        if self.preview || self.auth_preview.is_some() || self.busy() {
+            return false;
+        }
+        match name {
+            "connect" => self.activate(Action::Connect),
+            "connect-method" => self.prepare_auth(
+                crate::auth::methods(self.selected)
+                    .get(self.method)
+                    .copied(),
+            ),
+            "method-next" => {
+                let count = crate::auth::methods(self.selected).len();
+                if count > 0 {
+                    self.method = (self.method + 1) % count;
+                }
+            }
+            "status" => self.activate(Action::Status),
+            "version" => self.activate(Action::Version),
+            "diagnostics" => self.activate(Action::Diagnostics),
+            "refresh" => self.activate(Action::Refresh),
+            "provider-use" if self.profiles.get(self.selected).is_some() => {
+                self.activate(Action::UseForTask)
+            }
+            _ => return false,
+        }
+        true
+    }
+
     pub fn key(&mut self, key: KeyEvent, large_enough: bool) -> bool {
         if key.kind == KeyEventKind::Release
             || key
@@ -396,12 +525,6 @@ impl State {
                         self.affirmative = !self.affirmative;
                     }
                 }
-                KeyCode::Char('d') if self.auth_preview.is_some() => {
-                    self.auth_details = !self.auth_details;
-                    self.affirmative = false;
-                    self.review_choice = 0;
-                    self.scroll = 0;
-                }
                 KeyCode::Up
                 | KeyCode::Down
                 | KeyCode::PageUp
@@ -465,32 +588,6 @@ impl State {
             | KeyCode::PageDown
             | KeyCode::Home
             | KeyCode::End => self.scroll_key(key.code),
-            KeyCode::Char('m') if !self.busy() => {
-                let count = crate::auth::methods(self.selected).len();
-                if count > 0 {
-                    self.method = (self.method + 1) % count;
-                }
-            }
-            KeyCode::Char('l') if !self.busy() => self.prepare_auth(
-                crate::auth::methods(self.selected)
-                    .get(self.method)
-                    .copied(),
-            ),
-            KeyCode::Char('s') if !self.busy() => {
-                self.prepare_auth(crate::auth::status_method(self.selected))
-            }
-            KeyCode::Char('r') if !self.busy() => self.activate(Action::Refresh),
-            KeyCode::Char('1'..='4') => {
-                if let KeyCode::Char(digit) = key.code {
-                    let index = digit as usize - '1' as usize;
-                    if index < self.profiles.len() {
-                        self.selected = index;
-                        self.method = crate::auth::default_method(index);
-                        self.action = 0;
-                        self.scroll = 0;
-                    }
-                }
-            }
             _ => return false,
         }
         true
@@ -543,6 +640,7 @@ mod tests {
             profile(),
             profile(),
             profile(),
+            profile(),
         ]));
         // Keep navigation tests independent of the host recommendation.
         state.method = 0;
@@ -559,9 +657,11 @@ mod tests {
         assert_eq!(state.method, crate::auth::default_method(0));
         let mut state = discovered();
         state.method = 1;
-        press(&mut state, KeyCode::Char('3'));
+        press(&mut state, KeyCode::Down);
+        press(&mut state, KeyCode::Down);
         assert_eq!(state.method, 0);
-        press(&mut state, KeyCode::Char('1'));
+        press(&mut state, KeyCode::Up);
+        press(&mut state, KeyCode::Up);
         assert_eq!(state.method, crate::auth::default_method(0));
         assert!(state.pending.is_none());
         assert!(state.pending_auth.is_none());
@@ -577,7 +677,7 @@ mod tests {
         assert!(state.notice.contains("device authorization"));
         assert!(state.pending.is_none());
         assert!(state.pending_auth.is_none());
-        press(&mut state, KeyCode::Char('l'));
+        state.command("connect-method", true);
         assert!(matches!(
             state.pending,
             Some(Request::PrepareAuth {
@@ -622,7 +722,7 @@ mod tests {
     #[test]
     fn reviewed_deliberate_consent_is_generation_correlated() {
         let mut state = discovered();
-        state.activate(Action::Version);
+        state.command("version", true);
         state.reviewed = true;
         press(&mut state, KeyCode::Tab);
         press(&mut state, KeyCode::Enter);
@@ -659,7 +759,7 @@ mod tests {
     #[test]
     fn undersize_repeat_and_cancel_cannot_approve() {
         let mut state = discovered();
-        state.activate(Action::Version);
+        state.command("version", true);
         state.reviewed = true;
         press(&mut state, KeyCode::Tab);
         let mut repeated = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
@@ -678,10 +778,10 @@ mod tests {
     fn missing_profile_cannot_open_trust_and_refresh_is_passive() {
         let mut state = discovered();
         state.profiles[0].probe_allowed = false;
-        state.activate(Action::Version);
+        state.command("version", true);
         assert!(!state.preview);
         assert!(state.pending.is_none());
-        press(&mut state, KeyCode::Char('r'));
+        state.command("refresh", true);
         assert!(matches!(state.pending, Some(Request::Discover)));
         assert!(state.busy());
         state.pending.take();
@@ -700,8 +800,8 @@ mod tests {
     #[test]
     fn login_review_is_passive_and_cancel_discards_late_generation() {
         let mut state = discovered();
-        press(&mut state, KeyCode::Char('m'));
-        press(&mut state, KeyCode::Char('l'));
+        state.command("method-next", true);
+        state.command("connect-method", true);
         assert!(matches!(
             state.pending.take(),
             Some(Request::PrepareAuth {
@@ -722,7 +822,7 @@ mod tests {
         });
         assert_eq!(state.notice, notice);
         assert!(state.auth_preview.is_none());
-        press(&mut state, KeyCode::Char('l'));
+        state.command("connect-method", true);
         assert!(matches!(
             state.pending.take(),
             Some(Request::PrepareAuth { generation: 2, .. })
@@ -736,13 +836,10 @@ mod tests {
     }
 
     #[test]
-    fn repeated_or_undersized_login_keys_never_prepare_or_change_method() {
+    fn undersized_commands_and_repeated_navigation_never_prepare_or_change_method() {
         let mut state = discovered();
-        for code in [KeyCode::Char('l'), KeyCode::Char('s'), KeyCode::Char('m')] {
-            let mut key = KeyEvent::new(code, KeyModifiers::NONE);
-            key.kind = KeyEventKind::Repeat;
-            state.key(key, true);
-            state.key(KeyEvent::new(code, KeyModifiers::NONE), false);
+        for name in ["connect-method", "status", "method-next"] {
+            state.command(name, false);
         }
         assert!(state.pending.is_none());
         assert!(state.pending_auth.is_none());
@@ -761,16 +858,17 @@ mod tests {
     #[test]
     fn provider_switch_resets_method_and_claude_reviews_only_console_oauth() {
         let mut state = discovered();
-        press(&mut state, KeyCode::Char('3'));
-        press(&mut state, KeyCode::Char('m'));
+        press(&mut state, KeyCode::Down);
+        press(&mut state, KeyCode::Down);
+        state.command("method-next", true);
         assert_eq!(state.method, 0);
-        press(&mut state, KeyCode::Char('2'));
+        press(&mut state, KeyCode::Up);
         assert_eq!(state.method, crate::auth::default_method(1));
         press(&mut state, KeyCode::Enter);
         press(&mut state, KeyCode::Enter);
         assert_eq!(state.page, Page::Methods);
         assert!(state.pending.is_none());
-        press(&mut state, KeyCode::Char('l'));
+        state.command("connect-method", true);
         assert!(state.auth_busy());
         assert!(matches!(
             state.pending,

@@ -10,8 +10,8 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::provider::{
-    Agent, Event, Input, ItemKind, Operation, Outcome, PermissionOption, Preview, Prompt,
-    PromptKind, Question, QuestionOption, Request,
+    Agent, Event, Input, ItemKind, ModelCatalogue, ModelOption, ModelSelection, Operation, Outcome,
+    PermissionOption, Preview, Prompt, PromptKind, Question, QuestionOption, Request,
 };
 use parking_lot::Mutex;
 use serde_json::{Value, json};
@@ -464,6 +464,9 @@ fn worker(
                 if input.inspect_sessions {
                     preview.blockers.push("session/list inspection requires an ACP peer; no Codex turn will be dispatched".into());
                 }
+                if let Err(error) = input.validate_selection() {
+                    preview.blockers.push(safe(&error));
+                }
                 let trust = crate::agent::planning_trust(project);
                 if let Ok(trust) = &trust {
                     preview.trust = trust.lines.iter().map(|line| safe(line)).collect();
@@ -475,11 +478,23 @@ fn worker(
                         .blockers
                         .push("Codex worker refuses a different provider identity".into());
                 }
-                let baseline = capture_edit_baseline(project, &input, exclusions);
+                preview.trust.push(format!(
+                    "Model: {}; reasoning effort: {}. After approval, account/read and bounded paginated model/list query the provider catalogue; only the exact advertised selection or advertised default is accepted, with no guessed fallback.",
+                    input.selection.model.as_deref().unwrap_or("provider-advertised default"),
+                    input.selection.effort.as_deref().unwrap_or("selected model's advertised default"),
+                ));
+                if input.inspect_models {
+                    preview.trust.push("CATALOGUE ONLY: launch the qualified Codex app-server and initialize/account/read/model/list. Provider configuration/authentication and network access may be used; no login/auth refresh, thread start/resume, prompt, model turn, edit, journal or model-turn budget.".into());
+                }
+                let baseline = if input.inspect_models {
+                    Ok(Vec::new())
+                } else {
+                    capture_edit_baseline(project, &input, exclusions)
+                };
                 if let Err(error) = &baseline {
                     preview.blockers.push(safe(error));
                 }
-                if input.operation == Operation::Implement {
+                if !input.inspect_models && input.operation == Operation::Implement {
                     preview.trust.push("Controlled route: eevee_edit_file replaces only exact reviewed existing regular files after an exact before/after patch and allow-once. Protected/symlink/hardlink paths refused. No grantRoot/session grant; native file-edit and command escalation denied.".into());
                     preview.trust.push("Provider readOnly/network-disabled policy is acknowledged, not an Eevee process sandbox. Independent provider/config/MCP reads or side effects are outside this tool's coverage. No workspace-write trust configuration is changed.".into());
                     preview.trust.push("Baseline includes current working bytes (including dirty user edits). No reset/commit/merge. Each replacement is reviewed against those bytes; changed baselines require fresh consent.".into());
@@ -487,7 +502,7 @@ fn worker(
                         preview.blockers.push("Controlled implementation requires a fresh thread; planning/resumed threads do not carry the dynamic write tool".into());
                     }
                 }
-                if input.operation == Operation::Review {
+                if !input.inspect_models && input.operation == Operation::Review {
                     preview.trust.push("REVIEW: fresh requirements/patch/selected-observation context and a new provider thread. No implementation transcript, dynamic edit tool, native file-write approval or command escalation. Read-only is acknowledged provider policy, not an Eevee OS sandbox; independent provider configuration remains disclosed.".into());
                 }
                 if project.to_str() != Some(input.task.project.as_str()) {
@@ -502,7 +517,10 @@ fn worker(
                 {
                     preview.blockers.push("Resume refused: thread was not started for this task in the current Eevee session".into());
                 }
-                if threads.len() >= REQUESTS_LIMIT && input.resume.is_none() {
+                if !input.inspect_models
+                    && threads.len() >= REQUESTS_LIMIT
+                    && input.resume.is_none()
+                {
                     preview.blockers.push("Session thread bound reached; restart Eevee before creating another thread".into());
                 }
                 match payload(data_dir, &input, exclusions) {
@@ -597,6 +615,16 @@ fn worker(
     busy.store(false, Ordering::Release);
 }
 fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<String, String> {
+    input.validate_selection()?;
+    if input.inspect_models {
+        return serde_json::to_string_pretty(&json!({
+            "purpose": "Inspect the complete bounded nonhidden text-model catalogue only; no thread or model turn.",
+            "provider": "Codex",
+            "requests": ["initialize", "account/read (refreshToken=false)", "model/list (includeHidden=false, limit=100, at most 10 pages)"],
+            "selection": input.selection,
+            "effects": "Qualified app-server launch; provider configuration, account and network access. No task/source payload, thread start/resume, prompt, edit or journal.",
+        })).map_err(|_| "Could not encode catalogue inspection preview".into());
+    }
     input.validate_review()?;
     crate::store::validate_planning_input(data_dir, &input.task, &input.excerpts)?;
     if let Some(text) = input.review_payload(data_dir, exclusions)? {
@@ -622,6 +650,7 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
         "purpose": if input.operation == Operation::Plan { "Plan the user's task. Do not implement changes. Ask the user when a decision is needed; report proposals as unverified planning, never as local execution evidence." } else { "Implement the approved requirement ONLY by calling eevee_edit_file with an exact selected root-relative path and full proposed replacement UTF-8 content. Preserve every unrelated existing dirty user change visible in edit_baseline. Never use apply_patch, shell writes, MCP, delegation, commits or merge. Native filesystem writes and command escalations will be denied. Ask for user input if unclear. Every proposed replacement requires a displayed exact patch and allow-once. Report results as unverified until the user reviews the working diff and chooses a local check." },
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::handoff::without_local_provenance(&input.task.next_action) },
         "operation": input.operation,
+        "selection": input.selection,
         "edit_paths": input.edit_paths,
         "edit_baseline": baseline.iter().map(|b| json!({"path":b.path,"sha256":b.digest,"working_content":b.text})).collect::<Vec<_>>(),
         "handoff": input.handoff,
@@ -645,11 +674,148 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
     Ok(text)
 }
 
+/// A complete bounded provider snapshot, never a guessed or cached dispatch default.
+#[derive(Default)]
+struct ModelListing {
+    models: Vec<ModelOption>,
+    default: Option<String>,
+    pages: usize,
+    cursors: HashSet<String>,
+}
+impl ModelListing {
+    fn page(&mut self, result: &Value) -> Result<Option<String>, String> {
+        self.pages += 1;
+        if self.pages > 10 {
+            return Err("Model catalogue pagination bound exceeded".into());
+        }
+        let models = result
+            .get("data")
+            .and_then(Value::as_array)
+            .ok_or("Protocol model/list missing data")?;
+        if models.len() > 100 {
+            return Err("Model catalogue page exceeds requested bound".into());
+        }
+        for model in models {
+            if model.get("hidden").and_then(Value::as_bool) == Some(true) {
+                continue;
+            }
+            let modes = model
+                .get("inputModalities")
+                .and_then(Value::as_array)
+                .ok_or("Protocol model/list missing input modalities")?;
+            if !modes.iter().any(|mode| mode == "text") {
+                continue;
+            }
+            let id = identity(model, "model")?;
+            if self.models.iter().any(|option| option.id == id) {
+                return Err("Model catalogue contains duplicate request identities".into());
+            }
+            if self.models.len() >= 256 {
+                return Err("Model catalogue exceeds the complete 256-model bound; no partial catalogue accepted".into());
+            }
+            let supported = model
+                .get("supportedReasoningEfforts")
+                .and_then(Value::as_array)
+                .ok_or("Protocol model/list missing supported reasoning efforts")?;
+            if supported.is_empty() || supported.len() > 32 {
+                return Err("Model catalogue reasoning effort bound exceeded".into());
+            }
+            let mut efforts = Vec::with_capacity(supported.len());
+            for effort in supported {
+                let effort = identity(effort, "reasoningEffort")?;
+                if efforts.contains(&effort) {
+                    return Err("Model catalogue contains duplicate reasoning efforts".into());
+                }
+                efforts.push(effort);
+            }
+            let default_effort = identity(model, "defaultReasoningEffort")?;
+            if !efforts.contains(&default_effort) {
+                return Err("Model layer: advertised default effort is unsupported".into());
+            }
+            if model.get("isDefault").and_then(Value::as_bool) == Some(true) {
+                if self.default.is_some() {
+                    return Err("Model catalogue advertises conflicting defaults".into());
+                }
+                self.default = Some(id.clone());
+            }
+            let name = model
+                .get("displayName")
+                .and_then(Value::as_str)
+                .ok_or("Protocol model/list missing display name")?;
+            let description = model
+                .get("description")
+                .and_then(Value::as_str)
+                .ok_or("Protocol model/list missing description")?;
+            self.models.push(ModelOption {
+                id,
+                name: catalogue_text(name, 256),
+                description: catalogue_text(description, 4096),
+                efforts,
+                default_effort: Some(default_effort),
+            });
+        }
+        match result.get("nextCursor") {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(cursor)) => {
+                if self.pages >= 10
+                    || cursor.is_empty()
+                    || cursor.len() > 4096
+                    || cursor.chars().any(|c| c.is_control() || bidi(c))
+                    || !self.cursors.insert(cursor.clone())
+                {
+                    return Err("Model catalogue pagination bound or cursor cycle rejected".into());
+                }
+                Ok(Some(cursor.clone()))
+            }
+            _ => Err("Protocol model/list contains a malformed cursor".into()),
+        }
+    }
+    fn select(&self, selection: &ModelSelection) -> Result<(String, String), String> {
+        let requested =
+            selection.model.as_ref().or(self.default.as_ref()).ok_or(
+                "Model layer: no available advertised default; no guessed model or fallback",
+            )?;
+        let model = self.models.iter().find(|model| &model.id == requested)
+            .ok_or("Model layer: requested model is unavailable, hidden or does not support text; no fallback")?;
+        let effort = selection
+            .effort
+            .as_ref()
+            .or(model.default_effort.as_ref())
+            .ok_or("Model layer: selected model has no advertised default effort")?;
+        if !model.efforts.contains(effort) {
+            return Err("Model layer: requested reasoning effort is unsupported by the selected model; no fallback".into());
+        }
+        Ok((model.id.clone(), effort.clone()))
+    }
+    fn revalidate(
+        &self,
+        selection: &ModelSelection,
+        model: &str,
+        effort: &str,
+    ) -> Result<(), String> {
+        let selected = self.select(selection)?;
+        if selected.0 != model || selected.1 != effort {
+            return Err("Model catalogue changed since thread qualification; review a fresh preview before dispatch".into());
+        }
+        Ok(())
+    }
+    fn into_catalogue(self, selection: &ModelSelection) -> ModelCatalogue {
+        let current = selection.model.clone().or(self.default);
+        ModelCatalogue {
+            models: self.models,
+            current,
+            source: "Codex qualified app-server account/read + complete bounded model/list".into(),
+            effort_note: Some("Reasoning choices and defaults are advertised by each model; unsupported selections are rejected before dispatch.".into()),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Call {
     Initialize,
     Account,
     Models,
+    VerifyModels,
     Thread,
     Turn,
     Interrupt,
@@ -689,7 +855,7 @@ struct Engine<'a> {
     model: String,
     effort: String,
     account: String,
-    model_pages: usize,
+    catalogue: ModelListing,
     prompts: Vec<Prompt>,
     seen_requests: HashSet<String>,
     items: HashMap<String, Item>,
@@ -768,7 +934,7 @@ fn run_transport(
         model: String::new(),
         effort: String::new(),
         account: String::new(),
-        model_pages: 0,
+        catalogue: ModelListing::default(),
         prompts: Vec::new(),
         seen_requests: HashSet::new(),
         items: HashMap::new(),
@@ -920,7 +1086,11 @@ fn run_transport(
             thread::sleep(Duration::from_millis(5));
         }
     })();
-    let result = engine.journal_partial_tools().and(result);
+    let result = if run.input.inspect_models {
+        result
+    } else {
+        engine.journal_partial_tools().and(result)
+    };
     if let Some(id) = &engine.thread_id {
         engine
             .threads
@@ -967,7 +1137,10 @@ fn revalidate(
     exclusions: &[PathBuf],
     run: &Prepared,
 ) -> Result<(), String> {
-    if capture_edit_baseline(project, &run.input, exclusions)? != run.baseline {
+    run.input.validate_selection()?;
+    if !run.input.inspect_models
+        && capture_edit_baseline(project, &run.input, exclusions)? != run.baseline
+    {
         return Err("Selected edit path identity or working baseline changed; no dispatch. Review a fresh preview".into());
     }
     if payload(data_dir, &run.input, exclusions)? != run.text {
@@ -1120,33 +1293,41 @@ impl Engine<'_> {
                 };
                 self.call(Call::Models, "model/list", json!({"includeHidden":false,"limit":100}))
             }
-            Call::Models => {
-                self.model_pages += 1;
-                let models = result.get("data").and_then(Value::as_array).ok_or("Protocol model/list missing data")?;
-                if models.len() > 100 { return Err("Model catalogue page exceeds requested bound".into()); }
-                if let Some(model) = models.iter().find(|model| model.get("isDefault").and_then(Value::as_bool) == Some(true) && model.get("hidden").and_then(Value::as_bool) != Some(true)) {
-                    self.model = identity(model, "model")?;
-                    self.effort = identity(model, "defaultReasoningEffort")?;
-                    if model.get("inputModalities").and_then(Value::as_array).is_some_and(|modes| !modes.iter().any(|mode| mode == "text")) {
-                        return Err("Model layer: default model does not support text requests".into());
-                    }
-                    if !model.get("supportedReasoningEfforts").and_then(Value::as_array).is_some_and(|efforts| efforts.iter().any(|effort| effort.get("reasoningEffort").and_then(Value::as_str) == Some(self.effort.as_str()))) {
-                        return Err("Model layer: default effort is not supported by the selected model".into());
-                    }
-                    let mut params = json!({"cwd":self.project,"model":self.model,"sandbox":"read-only","approvalPolicy":"on-request","approvalsReviewer":"user","config":{"features.multi_agent":false,"web_search":"disabled","allow_login_shell":false}});
-                    if self.run.input.operation == Operation::Implement {
-                        params["dynamicTools"] = json!([{"type":"function","name":"eevee_edit_file","description":"The ONLY allowed implementation write route. Propose replacing an exact selected existing UTF-8 file with full content, preserving unrelated dirty changes. User reviews exact before/after patch and must allow once. Protected/unselected/stale/link paths denied without writing.","inputSchema":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}]);
-                    }
-                    let method = if let Some(id) = &self.run.input.resume {
-                        params["threadId"] = json!(id); params["excludeTurns"] = json!(true); "thread/resume"
-                    } else {
-                        params["experimentalRawEvents"] = json!(false); params["allowProviderModelFallback"] = json!(false); "thread/start"
-                    };
-                    self.call(Call::Thread, method, params)
-                } else if let Some(cursor) = result.get("nextCursor").and_then(Value::as_str) {
-                    if self.model_pages >= 10 || cursor.len() > 4096 { return Err("Model catalogue pagination bound exceeded; no default selected".into()); }
-                    self.call(Call::Models, "model/list", json!({"includeHidden":false,"limit":100,"cursor":cursor}))
-                } else { Err("Model layer: no available default model; no guessed model or fallback".into()) }
+            Call::Models | Call::VerifyModels => {
+                if let Some(cursor) = self.catalogue.page(result)? {
+                    return self.call(kind, "model/list", json!({"includeHidden":false,"limit":100,"cursor":cursor}));
+                }
+                if kind == Call::VerifyModels {
+                    self.catalogue.revalidate(&self.run.input.selection, &self.model, &self.effort)?;
+                    return self.dispatch_turn();
+                }
+                if self.run.input.inspect_models {
+                    let catalogue = std::mem::take(&mut self.catalogue)
+                        .into_catalogue(&self.run.input.selection);
+                    catalogue.validate()?;
+                    emit(self.events, Event::Models {
+                        generation: self.run.generation,
+                        task_id: self.run.input.task.id,
+                        catalogue,
+                    })?;
+                    self.terminal = Some((Outcome::Completed, "Model catalogue inspection completed; no thread or model turn dispatched".into()));
+                    return Ok(());
+                }
+                (self.model, self.effort) = self.catalogue.select(&self.run.input.selection)?;
+                let mut params = json!({"cwd":self.project,"model":self.model,"sandbox":"read-only","approvalPolicy":"on-request","approvalsReviewer":"user","config":{"model_reasoning_effort":self.effort,"features.multi_agent":false,"web_search":"disabled","allow_login_shell":false}});
+                if self.run.input.operation == Operation::Implement {
+                    params["dynamicTools"] = json!([{"type":"function","name":"eevee_edit_file","description":"The ONLY allowed implementation write route. Propose replacing an exact selected existing UTF-8 file with full content, preserving unrelated dirty changes. User reviews exact before/after patch and must allow once. Protected/unselected/stale/link paths denied without writing.","inputSchema":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}]);
+                }
+                let method = if let Some(id) = &self.run.input.resume {
+                    params["threadId"] = json!(id);
+                    params["excludeTurns"] = json!(true);
+                    "thread/resume"
+                } else {
+                    params["experimentalRawEvents"] = json!(false);
+                    params["allowProviderModelFallback"] = json!(false);
+                    "thread/start"
+                };
+                self.call(Call::Thread, method, params)
             }
             Call::Thread => {
                 self.validate_policy(result)?;
@@ -1158,20 +1339,9 @@ impl Engine<'_> {
                 }
                 self.thread_id = Some(id.clone());
                 emit(self.events, Event::Thread { generation: self.run.generation, task_id: self.run.input.task.id, thread_id: id.clone(), model: safe(&self.model), account: self.account.clone() })?;
-                // Last read-only validation occurs after potentially slow startup and immediately
-                // before the one model request; no outgoing bytes are silently replaced.
-                revalidate(self.project, self.data_dir, self.exclusions, self.run)?;
-                if self.stop.load(Ordering::Acquire) { return Err("Stopped before turn dispatch".into()); }
-                if self.cancelled.load(Ordering::Acquire) == self.run.generation { return self.cancel(); }
-                self.call(Call::Turn, "turn/start", json!({
-                    "threadId":id,"input":[{"type":"text","text":self.run.text,"text_elements":[]}],
-                    "cwd":self.project,"model":self.model,"approvalPolicy":"on-request","approvalsReviewer":"user",
-                    "sandboxPolicy":{"type":"readOnly","networkAccess":false},"summary":"none",
-                    "collaborationMode":{"mode":if self.run.input.operation == Operation::Plan { "plan" } else { "default" },"settings":{"model":self.model,"reasoning_effort":self.effort,"developer_instructions":null}}
-                }))?;
-                // Enqueueing is conservatively treated as dispatch: partial writes are outcome-unknown.
-                self.dispatched = true;
-                self.status("Turn dispatched once; provider readOnly acknowledged. Implementation writes only through Eevee's reviewed selected-file tool.")
+                // Refresh the complete provider snapshot after startup, before the one turn.
+                self.catalogue = ModelListing::default();
+                self.call(Call::VerifyModels, "model/list", json!({"includeHidden":false,"limit":100}))
             }
             Call::Turn => {
                 let turn = result.get("turn").ok_or("Protocol turn/start response missing turn")?;
@@ -1182,6 +1352,29 @@ impl Engine<'_> {
             Call::Interrupt => self.status("Provider acknowledged interrupt request; waiting for authoritative turn completion"),
         }
     }
+    fn dispatch_turn(&mut self) -> Result<(), String> {
+        revalidate(self.project, self.data_dir, self.exclusions, self.run)?;
+        if self.stop.load(Ordering::Acquire) {
+            return Err("Stopped before turn dispatch".into());
+        }
+        if self.cancelled.load(Ordering::Acquire) == self.run.generation {
+            return self.cancel();
+        }
+        let id = self
+            .thread_id
+            .as_ref()
+            .ok_or("No qualified thread before turn")?;
+        self.call(Call::Turn, "turn/start", json!({
+            "threadId":id,"input":[{"type":"text","text":self.run.text,"text_elements":[]}],
+            "cwd":self.project,"model":self.model,"effort":self.effort,
+            "approvalPolicy":"on-request","approvalsReviewer":"user",
+            "sandboxPolicy":{"type":"readOnly","networkAccess":false},"summary":"none",
+            "collaborationMode":{"mode":if self.run.input.operation == Operation::Plan { "plan" } else { "default" },"settings":{"model":self.model,"reasoning_effort":self.effort,"developer_instructions":null}}
+        }))?;
+        // Enqueueing is conservatively treated as dispatch: partial writes are outcome-unknown.
+        self.dispatched = true;
+        self.status(&format!("Turn dispatched once with model {} and reasoning effort {}; provider readOnly acknowledged. Implementation writes only through Eevee's reviewed selected-file tool.", self.model, self.effort))
+    }
     fn validate_policy(&self, result: &Value) -> Result<(), String> {
         if result.get("approvalPolicy").and_then(Value::as_str) != Some("on-request")
             || result.get("approvalsReviewer").and_then(Value::as_str) != Some("user")
@@ -1191,9 +1384,10 @@ impl Engine<'_> {
                 .and_then(Value::as_bool)
                 == Some(true)
             || result.get("model").and_then(Value::as_str) != Some(self.model.as_str())
+            || result.get("reasoningEffort").and_then(Value::as_str) != Some(self.effort.as_str())
             || result.get("cwd").and_then(Value::as_str) != self.project.to_str()
         {
-            return Err("Policy qualification refused: provider did not acknowledge exact model/cwd/read-only/user-approval boundaries".into());
+            return Err("Policy qualification refused: provider did not acknowledge exact model/reasoning effort/cwd/read-only/user-approval boundaries".into());
         }
         Ok(())
     }
@@ -1216,6 +1410,15 @@ impl Engine<'_> {
             && self.turn_id.is_some()
     }
     fn notification(&mut self, method: &str, params: &Value) -> Result<(), String> {
+        if self.run.input.inspect_models {
+            if matches!(
+                method,
+                "modelProvider/authRecoveryStarted" | "model/rerouted"
+            ) {
+                return Err("Catalogue inspection refused provider authentication recovery or model reroute".into());
+            }
+            return Ok(());
+        }
         if method == "turn/started" || method == "turn/completed" {
             if !self.dispatched
                 || self.thread_id.as_deref() != params.get("threadId").and_then(Value::as_str)
@@ -1271,6 +1474,7 @@ impl Engine<'_> {
                     .and_then(Value::as_bool)
                     == Some(true)
                 || settings.get("model").and_then(Value::as_str) != Some(self.model.as_str())
+                || settings.get("effort").and_then(Value::as_str) != Some(self.effort.as_str())
                 || settings.get("cwd").and_then(Value::as_str) != self.project.to_str()
                 || self.dispatched
                     && settings
@@ -1281,6 +1485,15 @@ impl Engine<'_> {
                         } else {
                             "default"
                         })
+                || self.dispatched
+                    && (settings
+                        .pointer("/collaborationMode/settings/model")
+                        .and_then(Value::as_str)
+                        != Some(self.model.as_str())
+                        || settings
+                            .pointer("/collaborationMode/settings/reasoning_effort")
+                            .and_then(Value::as_str)
+                            != Some(self.effort.as_str()))
             {
                 return Err(
                     "Provider operation/policy changed; dispatch/continuation refused".into(),
@@ -1776,6 +1989,14 @@ impl Engine<'_> {
         self.queue(json!({"id":id,"error":{"code":code,"message":message}}))
     }
     fn server_request(&mut self, id: Value, method: &str, params: &Value) -> Result<(), String> {
+        if self.run.input.inspect_models {
+            self.refuse(
+                id,
+                -32601,
+                "Catalogue inspection does not permit provider prompts or tool requests",
+            )?;
+            return Ok(());
+        }
         let key = request_key(&id)?;
         if !self.seen_requests.insert(key) {
             self.refuse(id, -32600, "Duplicate server request identity refused")?;
@@ -2304,6 +2525,24 @@ fn validate_answer(kind: &PromptKind, answer: &Value) -> Result<(), String> {
 fn bidi(c: char) -> bool {
     matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
 }
+fn catalogue_text(text: &str, limit: usize) -> String {
+    let text = crate::privacy::redact(bounded(text, limit));
+    let mut visible: String = text
+        .chars()
+        .map(|c| {
+            if c.is_control() {
+                ' '
+            } else if bidi(c) {
+                '\u{fffd}'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let end = bounded(&visible, limit).len();
+    visible.truncate(end);
+    visible
+}
 fn safe(text: &str) -> String {
     crate::privacy::redact(text)
         .chars()
@@ -2327,6 +2566,259 @@ fn bounded(text: &str, limit: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn model(id: &str, default: bool) -> Value {
+        json!({
+            "model": id, "displayName": id, "description": "Advertised model",
+            "hidden": false, "isDefault": default, "inputModalities": ["text"],
+            "defaultReasoningEffort": "medium",
+            "supportedReasoningEfforts": [{"reasoningEffort":"low"}, {"reasoningEffort":"medium"}, {"reasoningEffort":"high"}],
+        })
+    }
+
+    #[test]
+    fn complete_catalogue_pages_past_default_and_uses_exact_selected_model() {
+        let mut listing = ModelListing::default();
+        assert_eq!(
+            listing
+                .page(&json!({"data":[model("default", true)],"nextCursor":"second"}))
+                .unwrap(),
+            Some("second".into())
+        );
+        let mut hidden = model("hidden", false);
+        hidden["hidden"] = json!(true);
+        let mut image_only = model("image-only", false);
+        image_only["inputModalities"] = json!(["image"]);
+        assert!(listing.page(&json!({"data":[hidden, image_only, model("requested", false)],"nextCursor":null})).unwrap().is_none());
+        assert_eq!(
+            listing.select(&ModelSelection::default()).unwrap(),
+            ("default".into(), "medium".into())
+        );
+        let selected = ModelSelection {
+            model: Some("requested".into()),
+            effort: Some("high".into()),
+        };
+        assert_eq!(
+            listing.select(&selected).unwrap(),
+            ("requested".into(), "high".into())
+        );
+        let catalogue = listing.into_catalogue(&selected);
+        catalogue.validate().unwrap();
+        assert_eq!(
+            catalogue
+                .models
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["default", "requested"]
+        );
+        assert_eq!(catalogue.current.as_deref(), Some("requested"));
+    }
+
+    #[test]
+    fn unavailable_model_and_unsupported_effort_never_fall_back() {
+        let mut listing = ModelListing::default();
+        listing
+            .page(&json!({"data":[model("advertised", true)]}))
+            .unwrap();
+        for requested in ["missing", "Advertised", "advertised-extra"] {
+            assert!(
+                listing
+                    .select(&ModelSelection {
+                        model: Some(requested.into()),
+                        effort: None
+                    })
+                    .is_err()
+            );
+        }
+        assert!(
+            listing
+                .select(&ModelSelection {
+                    model: None,
+                    effort: Some("ultra".into())
+                })
+                .is_err()
+        );
+        let mut no_default = ModelListing::default();
+        no_default
+            .page(&json!({"data":[model("advertised", false)]}))
+            .unwrap();
+        assert!(no_default.select(&ModelSelection::default()).is_err());
+        assert!(
+            no_default
+                .select(&ModelSelection {
+                    model: Some("advertised".into()),
+                    effort: None
+                })
+                .is_ok()
+        );
+        let unavailable = ModelSelection {
+            model: Some("missing".into()),
+            effort: None,
+        };
+        assert_eq!(
+            listing.into_catalogue(&unavailable).current.as_deref(),
+            Some("missing")
+        );
+    }
+
+    #[test]
+    fn stale_catalogue_rejects_removed_model_effort_or_changed_default() {
+        let selection = ModelSelection {
+            model: Some("selected".into()),
+            effort: Some("high".into()),
+        };
+        let mut removed = ModelListing::default();
+        removed
+            .page(&json!({"data":[model("replacement", true)]}))
+            .unwrap();
+        assert!(removed.revalidate(&selection, "selected", "high").is_err());
+        let mut changed = model("selected", true);
+        changed["supportedReasoningEfforts"] = json!([{"reasoningEffort":"medium"}]);
+        let mut listing = ModelListing::default();
+        listing.page(&json!({"data":[changed]})).unwrap();
+        assert!(listing.revalidate(&selection, "selected", "high").is_err());
+        assert!(
+            removed
+                .revalidate(&ModelSelection::default(), "selected", "medium")
+                .is_err()
+        );
+        let mut new_effort = model("selected", true);
+        new_effort["defaultReasoningEffort"] = json!("low");
+        let mut listing = ModelListing::default();
+        listing.page(&json!({"data":[new_effort]})).unwrap();
+        assert!(
+            listing
+                .revalidate(
+                    &ModelSelection {
+                        model: Some("selected".into()),
+                        effort: None
+                    },
+                    "selected",
+                    "medium"
+                )
+                .is_err()
+        );
+        assert!(
+            listing
+                .revalidate(
+                    &ModelSelection {
+                        model: Some("selected".into()),
+                        effort: Some("medium".into())
+                    },
+                    "selected",
+                    "medium"
+                )
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn malformed_or_unbounded_catalogue_is_not_partially_accepted() {
+        let mut listing = ModelListing::default();
+        listing
+            .page(&json!({"data":[],"nextCursor":"cycle"}))
+            .unwrap();
+        assert!(
+            listing
+                .page(&json!({"data":[],"nextCursor":"cycle"}))
+                .is_err()
+        );
+        let mut listing = ModelListing::default();
+        for page in 0..9 {
+            listing
+                .page(&json!({"data":[],"nextCursor":format!("cursor-{page}")}))
+                .unwrap();
+        }
+        assert!(
+            listing
+                .page(&json!({"data":[],"nextCursor":"too-many"}))
+                .is_err()
+        );
+        assert!(
+            ModelListing::default()
+                .page(&json!({"data":vec![model("same", false);101]}))
+                .is_err()
+        );
+        assert!(
+            ModelListing::default()
+                .page(&json!({"data":[model("same", false),model("same", false)]}))
+                .is_err()
+        );
+        assert!(
+            ModelListing::default()
+                .page(&json!({"data":[model("a", true),model("b", true)]}))
+                .is_err()
+        );
+        let mut unsupported_default = model("bad-effort", true);
+        unsupported_default["defaultReasoningEffort"] = json!("unsupported");
+        assert!(
+            ModelListing::default()
+                .page(&json!({"data":[unsupported_default]}))
+                .is_err()
+        );
+        let mut listing = ModelListing::default();
+        for page in 0..2 {
+            let models: Vec<_> = (0..100)
+                .map(|index| model(&format!("m-{page}-{index}"), false))
+                .collect();
+            listing
+                .page(&json!({"data":models,"nextCursor":format!("page-{page}")}))
+                .unwrap();
+        }
+        let models: Vec<_> = (0..57)
+            .map(|index| model(&format!("last-{index}"), false))
+            .collect();
+        assert!(listing.page(&json!({"data":models})).is_err());
+    }
+
+    #[test]
+    fn catalogue_metadata_is_bounded_single_line_and_validated() {
+        let mut advertised = model("safe-model", true);
+        advertised["displayName"] = json!("Display\nname\t");
+        advertised["description"] = json!("é".repeat(4096));
+        let mut listing = ModelListing::default();
+        listing.page(&json!({"data":[advertised]})).unwrap();
+        let catalogue = listing.into_catalogue(&ModelSelection::default());
+        catalogue.validate().unwrap();
+        assert_eq!(catalogue.models[0].name, "Display name ");
+        assert!(catalogue.models[0].description.len() <= 4096);
+    }
+
+    #[test]
+    fn model_inspection_has_no_task_prompt_or_source_or_edit_lookup() {
+        let mut input = Input {
+            task: crate::store::Snapshot::empty("unopened-project".into()),
+            excerpts: Vec::new(),
+            report: None,
+            resume: None,
+            agent: Agent::Codex,
+            operation: Operation::Implement,
+            edit_paths: vec!["never-read.txt".into()],
+            handoff: None,
+            inspect_sessions: false,
+            inspect_models: true,
+            selection: ModelSelection {
+                model: Some("selected".into()),
+                effort: Some("high".into()),
+            },
+        };
+        input.task.goal = "private-task-goal-canary".into();
+        let text = payload(Path::new("unopened-data"), &input, &[]).unwrap();
+        assert!(!text.contains("private-task-goal-canary"));
+        assert!(!text.contains("never-read.txt"));
+        let preview: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            preview.pointer("/selection/model").and_then(Value::as_str),
+            Some("selected")
+        );
+        assert_eq!(
+            preview.pointer("/selection/effort").and_then(Value::as_str),
+            Some("high")
+        );
+        input.resume = Some("owned-thread".into());
+        assert!(payload(Path::new("unopened-data"), &input, &[]).is_err());
+    }
+
     #[test]
     fn review_has_no_edit_baseline_and_refuses_selected_write_paths() {
         let mut input = Input {
@@ -2339,6 +2831,8 @@ mod tests {
             edit_paths: Vec::new(),
             handoff: None,
             inspect_sessions: false,
+            inspect_models: false,
+            selection: ModelSelection::default(),
         };
         let root = Path::new(&input.task.project);
         assert!(capture_edit_baseline(root, &input, &[]).unwrap().is_empty());
@@ -2691,6 +3185,8 @@ mod tests {
             edit_paths: Vec::new(),
             handoff: Some(handoff),
             inspect_sessions: false,
+            inspect_models: false,
+            selection: ModelSelection::default(),
         };
         let text = payload(&data, &input, &[]).unwrap();
         let outgoing: Value = serde_json::from_str(&text).unwrap();

@@ -211,9 +211,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             frame,
             row(content, content.height.saturating_sub(2), 2),
             if state.page == Page::Diagnostics {
-                "Up/Down Scroll / Enter Back / Tab Providers / Esc Back"
+                "Up/Down Scroll · Enter Back · / choices · Esc Back"
             } else {
-                "Arrows Select / Tab Providers/Actions / Enter Open\nPgUp/Dn Details / Esc Back"
+                "Arrows Select · Tab Providers/Actions · Enter Open\n/ choices: connect, status, version, diagnostics · Esc Back"
             },
             paint.accent,
         );

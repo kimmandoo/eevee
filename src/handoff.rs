@@ -97,6 +97,8 @@ pub(crate) fn without_local_provenance(text: &str) -> Cow<'_, str> {
                     | "OpenCode ACP Implement"
                     | "Gemini ACP Plan"
                     | "Gemini ACP Implement"
+                    | "Devin ACP Plan"
+                    | "Devin ACP Implement"
             )
             && let Some((thread, rest)) = ids.split_once("; turn ")
             && let Some((turn, item)) = rest.split_once("; item ")
@@ -685,6 +687,8 @@ mod tests {
             "Claude Agent Plan",
             "OpenCode ACP Implement",
             "Gemini ACP Plan",
+            "Devin ACP Plan",
+            "Devin ACP Implement",
         ] {
             let text = format!(
                 "Approved decision\n\n[User-selected, unverified {origin}; thread opaque-old; turn old-turn; item old-item. Not local execution evidence.]"

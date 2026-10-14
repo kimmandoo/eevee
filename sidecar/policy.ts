@@ -1,12 +1,107 @@
 import { z } from 'zod';
 import { lstatSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import type { EffortLevel, ModelInfo } from '@anthropic-ai/claude-agent-sdk';
 
 export const SDK_VERSION = '0.3.296';
 export const CLI_VERSION = '2.1.296';
 export const FRAME_LIMIT = 2 * 1024 * 1024;
 export const READ_TOOLS = ['Read', 'Glob', 'Grep', 'AskUserQuestion'];
 export const DENIED_TOOLS = ['Bash', 'Agent', 'Task', 'TaskOutput', 'TaskStop', 'NotebookEdit', 'Skill', 'WebFetch', 'WebSearch', 'ToolSearch', 'EnterWorktree', 'ExitWorktree', 'EnterPlanMode', 'ExitPlanMode', 'CronCreate', 'CronDelete', 'CronList', 'mcp__*'];
+
+const boundedText = (max: number) => z.string().min(1).max(max).refine(value =>
+  !/[\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(value), 'Display controls are forbidden');
+// These are the official Options.effort wire values, not a model support catalogue.
+const EffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
+export const SelectionSchema = z.object({
+  model: boundedText(256).nullable(), effort: EffortSchema.nullable(),
+}).strict();
+export type Selection = z.infer<typeof SelectionSchema>;
+export const RunSchema = z.object({
+  protocol: z.literal(1), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().positive(),
+  prompt: z.string().max(FRAME_LIMIT / 2), cwd: z.string().min(1).max(4096), state_dir: z.string().min(1).max(4096),
+  operation: z.enum(['plan', 'implement']), edit_paths: z.array(z.string().min(1).max(4096)).max(256),
+  resume: z.string().uuid().nullish(), inspect_models: z.boolean(), selection: SelectionSchema,
+}).strict().superRefine((command, context) => {
+  if (command.inspect_models && (command.prompt !== '' || command.resume != null || command.edit_paths.length !== 0 || command.operation !== 'plan')) {
+    context.addIssue({ code: 'custom', message: 'Model inspection accepts no prompt, session or write scope' });
+  }
+});
+const ModelSchema = z.object({
+  value: boundedText(256), resolvedModel: boundedText(256).optional(),
+  displayName: boundedText(512), description: z.string().max(4096).refine(value =>
+    !/[\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(value)),
+  supportsEffort: z.boolean().optional(), supportedEffortLevels: z.array(EffortSchema).max(5).optional(),
+});
+
+export class SDKPolicyError extends Error {}
+
+export function modelCatalogue(raw: ModelInfo[], selection: Selection) {
+  const parsed = z.array(ModelSchema).max(256).safeParse(raw);
+  if (!parsed.success) throw new SDKPolicyError('Live SDK model catalogue unsupported: invalid bounds/schema/display text');
+  const models = parsed.data;
+  if (new Set(models.map(model => model.value)).size !== models.length) throw new SDKPolicyError('Duplicate SDK model identifiers');
+  const selected = selection.model === null ? undefined :
+    models.find(model => model.value === selection.model || model.resolvedModel === selection.model);
+  if (selection.model !== null && !selected) throw new SDKPolicyError('Selected model is not advertised by the live SDK backend');
+  if (selection.effort !== null &&
+    (!selected || selected.supportsEffort !== true || !selected.supportedEffortLevels?.includes(selection.effort))) {
+    throw new SDKPolicyError('Reasoning effort unsupported: select a model with live SDK-advertised supportedEffortLevels');
+  }
+  return {
+    models: models.map(model => ({
+      id: model.value, name: model.displayName, description: model.description,
+      efforts: [] as EffortLevel[],
+      default_effort: null,
+    })),
+    current: selected?.value ?? null,
+    source: `Claude Agent SDK ${SDK_VERSION} supportedModels()`,
+    effort_note: models.length === 0 ? 'Model and reasoning selection unsupported: the live SDK returned no supported models.' :
+      'Reasoning selection unsupported: supportedModels() may advertise effort capability, but this SDK has no public pre-prompt acknowledgement of applied effort after environment/session overrides, organization caps and model downgrades. Explicit effort is refused rather than silently changed.',
+  };
+}
+
+export function querySelection(selection: Selection): { model?: string; effort?: EffortLevel } {
+  return { model: selection.model ?? undefined, effort: selection.effort ?? undefined };
+}
+
+export function assertAppliedModel(expected: string | undefined, actual: unknown): void {
+  if (expected !== undefined && actual !== expected) {
+    throw new SDKPolicyError('SDK effective model differs from the reviewed selection or lacks an authoritative acknowledgement');
+  }
+}
+
+// This control call initializes the real SDK without releasing the prompt iterator.
+// The caller may release it only after backend and model policy both succeed.
+export async function prepareModels(
+  sdk: { accountInfo(): Promise<{ apiProvider?: string; tokenSource?: string; apiKeySource?: string }>;
+    initializationResult(): Promise<{ claude_code_version?: string }>; supportedModels(): Promise<ModelInfo[]>;
+    setModel(model?: string): Promise<void>; getContextUsage(options: { detail: 'summary' }): Promise<{ model: string }> },
+  selection: Selection, route: string, expectedProvider: string, inspectModels = false,
+) {
+  if (!accountMatches(route, await sdk.accountInfo(), expectedProvider)) throw new Error('Effective SDK authentication backend differs from reviewed route');
+  if ((await sdk.initializationResult()).claude_code_version !== CLI_VERSION) throw new Error('Effective SDK executable version differs from reviewed CLI');
+  const models = await sdk.supportedModels();
+  const catalogue = modelCatalogue(models, selection);
+  if (selection.effort !== null) {
+    throw new SDKPolicyError('Reasoning selection unsupported: SDK has no public pre-prompt applied-effort acknowledgement; org caps and downgrades cannot be qualified');
+  }
+  let approvedModel: string | undefined;
+  if (!inspectModels && selection.model !== null) {
+    const selected = models.find(model => model.value === selection.model || model.resolvedModel === selection.model)!;
+    approvedModel = selected.resolvedModel ?? selected.value;
+    try {
+      // Both are official streaming controls. Summary uses local estimates, not
+      // per-category token-count requests or a model turn; no prompt is released.
+      await sdk.setModel(selection.model);
+      assertAppliedModel(approvedModel, (await sdk.getContextUsage({ detail: 'summary' })).model);
+    } catch (error) {
+      if (error instanceof SDKPolicyError) throw error;
+      throw new SDKPolicyError('SDK model selection could not be acknowledged before prompt release; no prompt sent');
+    }
+  }
+  return { catalogue, approvedModel };
+}
 
 // Mandatory tool exposure and PreToolUse checks are independent of canUseTool:
 // provider-native/preapproved reads can bypass the approval callback.

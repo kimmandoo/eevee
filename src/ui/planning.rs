@@ -10,7 +10,10 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::{Paint, centered, clipped, editor_rows, panel, row, selection_details, text};
 use crate::{
-    app::{App, planning::State},
+    app::{
+        App,
+        planning::{Picker, State},
+    },
     config::Config,
     provider::{ItemKind, Operation, PromptKind},
 };
@@ -53,7 +56,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     frame.render_widget(Clear, area);
     let state = &mut app.planning;
     let title = format!(
-        " {} / {} {} ",
+        " {} / {} {} / selected model {} / selected effort {} ",
         match state.operation {
             Operation::Plan => "Espeon",
             Operation::Implement => "Flareon",
@@ -64,7 +67,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             Operation::Plan => "planning",
             Operation::Implement => "implementation",
             Operation::Review => "independent review",
-        }
+        },
+        state.selection.model.as_deref().unwrap_or("Default"),
+        state.selection.effort.as_deref().unwrap_or("Default")
     );
     let block = panel(&title, config, paint, true);
     let content = block.inner(area);
@@ -85,6 +90,10 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         paths_editor(frame, content, state, paint);
         return;
     }
+    if state.picker.is_some() {
+        picker(frame, content, state, paint);
+        return;
+    }
     let header = if state.preview.is_some() {
         "LOCAL PREVIEW / no provider connection authorized"
     } else if state.request.is_some() {
@@ -92,7 +101,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     } else if state.cancelling {
         "CANCELLING / waiting; outcome not yet known"
     } else if state.busy() {
-        if state.inspect_sessions {
+        if state.inspect_models {
+            "INSPECTING MODELS / no model turn authorized"
+        } else if state.inspect_sessions {
             "INSPECTING SESSION METADATA / no model turn authorized"
         } else {
             match state.operation {
@@ -117,13 +128,30 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         paint.accent,
     );
     let mut value = String::new();
+    let _ = writeln!(value, "{}\n", state.selection_label());
     let mut review = false;
     if let Some(preview) = &state.preview {
+        let selection = state.reviewed_selection();
+        let _ = writeln!(
+            value,
+            "IMMUTABLE REQUEST SELECTION / model {} / effort {} / role {:?}\n",
+            selection
+                .model
+                .as_deref()
+                .unwrap_or("Default (provider configuration)"),
+            selection
+                .effort
+                .as_deref()
+                .unwrap_or("Default (provider configuration)"),
+            state.operation
+        );
         let _ = writeln!(
             value,
             "Task {} / {}\n",
             preview.task_id,
-            if state.inspect_sessions {
+            if state.inspect_models {
+                "MODEL CATALOGUE ONLY / no task prompt or resumed history".into()
+            } else if state.inspect_sessions {
                 "SESSION METADATA ONLY / no thread creation or model turn".into()
             } else {
                 preview
@@ -142,7 +170,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         for line in &state.receipt {
             let _ = writeln!(value, "{line}");
         }
-        if !state.inspect_sessions {
+        if !state.inspect_sessions && !state.inspect_models {
             let _ = writeln!(
                 value,
                 "BUDGET: {} of {} provider turns journaled for this task{}",
@@ -152,7 +180,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     .unwrap_or_else(|| "loading".into()),
                 state.limits.provider_turns,
                 if state.budget_paused() {
-                    " / PAUSED: Run is held; press o to continue once or Stay to revise"
+                    " / PAUSED: /budget-continue lifts this preview only; Stay to revise"
                 } else {
                     ""
                 }
@@ -164,7 +192,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         value.push_str("\nEXACT OUTGOING PAYLOAD BEGIN\n");
         value.push_str(&preview.payload);
         value.push_str("\nEXACT OUTGOING PAYLOAD END\n\nEND OF REVIEW. ");
-        value.push_str(if state.inspect_sessions {
+        value.push_str(if state.inspect_models {
+            "Run authorizes only the disclosed executable/provider model inspection. No model turn or session resume is authorized. Stay sends nothing.\n"
+        } else if state.inspect_sessions {
             "Run authorizes executable connection and session metadata inspection only, not a model turn. Stay sends nothing.\n"
         } else {
             "Run authorizes this executable and one turn under the selected role and scope only. Stay sends nothing.\n"
@@ -281,9 +311,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         value.push_str(inspection);
     } else {
         if state.operation == Operation::Review {
-            value.push_str("New (n): independent Review in a fresh provider session, using current requirements, working patch and selected observations only. No implementation transcript or portable handoff is reused. Source-writing tools, Resume and edit grants are unavailable. ACP Review is unavailable because no-write tool policy cannot be established. Applying a fix requires a deliberate implementation handoff from the review desk.\n\n");
+            value.push_str("/new: independent Review in a fresh provider session, using current requirements, working patch and selected observations only. No implementation transcript or portable handoff is reused. Source-writing tools, Resume and edit grants are unavailable. ACP Review is unavailable because no-write tool policy cannot be established. Applying a fix requires a deliberate implementation handoff from the review desk.\n\n");
         } else {
-            value.push_str("New (n): new provider thread. Resume (r): this task's last explicitly created thread only; provider history is additional context. Both open a local preview first. No executable is launched by opening this drawer.\n\n");
+            value.push_str("/new: new provider thread. /resume: this task's last explicitly created compatible thread only; provider history is additional context. Both open a local preview first. No executable is launched by opening this drawer or a model picker.\n\n");
         }
         if let Some(id) = &state.thread_id {
             let _ = writeln!(
@@ -330,7 +360,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             if state.operation == Operation::Review {
                 value.push_str("Review compares saved acceptance criteria with the current working patch and selected evidence. Missing, stale or ambiguous evidence must be labelled inconclusive, never passed. Findings must name affected source/run references and a proposed next action; returning a response does not mark the task complete.\n\nNo review items yet. New opens a local outgoing-context preview before any provider launch.\n");
             } else {
-                value.push_str("Current saved goal, acceptance criteria and selected source basket are included in the preview. An empty basket is goal-only planning. Save the goal first (g); use the Sources drawer before starting to change the basket.\n\nNo provider items yet. Item display is bounded and source-qualified; raw private reasoning is not displayed.\n");
+                value.push_str("Current saved goal, acceptance criteria and selected source basket are included in the preview. An empty basket is goal-only planning. Save the goal first (/goal); use /sources before starting to change the basket.\n\nNo provider items yet. Item display is bounded and source-qualified; raw private reasoning is not displayed.\n");
             }
             let _ = writeln!(
                 value,
@@ -338,11 +368,10 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 state.agent.label(),
                 state.operation,
                 if state.operation == Operation::Review {
-                    "No write paths or grants. 1-4 previews agent switch. z opens portable handoff."
-                        .into()
+                    "No write paths or grants. /provider reviews provider switch; /handoff opens portable handoff.".into()
                 } else {
                     format!(
-                        "Selected edit paths: {:?}\n1-4 previews agent switch; f toggles role; x edits selected paths. z opens portable handoff.",
+                        "Selected edit paths: {:?}\n/provider reviews provider switch; /role chooses role; /paths edits selected paths; /handoff opens portable handoff.",
                         state.edit_paths
                     )
                 }
@@ -421,24 +450,108 @@ fn controls(state: &State) -> &'static str {
                 }
             }
             PromptKind::Questions(_) => {
-                "Up/Down Option / Enter Choose / a Type\nTab Question / s Review send / Esc Cancel turn"
+                "Up/Down Option / Enter Choose / /answer Type\nTab Question / /answers-review Review send / Esc Cancel turn"
             }
         };
     }
     if state.inspection.is_some() {
         return if state.busy() {
-            "PgUp/Dn Scroll session metadata\nEsc or c Cancel / q Safe exit"
+            "PgUp/Dn Scroll session metadata\nEsc Cancel / /quit Safe exit"
         } else {
-            "PgUp/Dn Scroll session metadata / Esc Messages\nn New / r Resume / 1-4 Agent / h Journal"
+            "PgUp/Dn Scroll session metadata / Esc Messages\n/new /resume /provider /history"
         };
     }
     if state.busy() {
-        "Up/Down Item / PgUp/Dn Scroll\nEsc or c Cancel / q Safe exit"
+        "Up/Down Item / PgUp/Dn Scroll\nEsc Cancel / /quit Safe exit"
     } else if state.operation == Operation::Review {
-        "g Goal / n New review / d Decision\n1-4 Agent / h Journal / z Handoff\nResume/writes unavailable / Esc Back"
+        "/goal /new /decision /provider /model /effort\n/history /handoff /commands\nResume/writes unavailable / Esc Back"
     } else {
-        "g Goal / n New / r Resume / d Decision\n1-4 Agent / f Role / x Paths / h Journal\ns ACP sessions / z Handoff / Esc Back"
+        "/goal /new /resume /decision /provider /model /effort\n/role /paths /history /sessions /handoff\n/commands Choices / Esc Back"
     }
+}
+
+fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
+    let mut value = format!("{}\n\n", state.selection_label());
+    if let Some(selection) = &state.selection_change {
+        let _ = writeln!(
+            value,
+            "MODEL CHANGE / {} → {}\n\nThe owned session belongs to the previous model selection. It cannot be silently resumed with another model. New session clears only this role's local resume selection; provider history is not erased. Keep current preserves the owned session and current selection. Back returns to the picker. No process/network is authorized.\n",
+            state.selection.model.as_deref().unwrap_or("Default"),
+            selection.model.as_deref().unwrap_or("Default")
+        );
+        value.push_str(if state.affirmative {
+            "Keep current / [New session]\nTab Choose / Enter Confirm / Esc Back"
+        } else {
+            "[Keep current] / New session\nTab Choose / Enter Keep / Esc Back"
+        });
+    } else {
+        let _ = writeln!(
+            value,
+            "{} / LOCAL ONLY / no connection on open\nDefault uses provider configuration, not a guessed value.",
+            if state.picker == Some(Picker::Model) {
+                "MODELS"
+            } else {
+                "REASONING EFFORT"
+            }
+        );
+        if let Some(catalogue) = state.catalogues.get(&state.agent) {
+            let _ = writeln!(
+                value,
+                "Catalogue source: {}\nReported current/default: {} (not a turn acknowledgment)",
+                clipped(&catalogue.source, area.width as usize),
+                catalogue.current.as_deref().unwrap_or("unobserved")
+            );
+            if let Some(note) = &catalogue.effort_note {
+                let _ = writeln!(value, "{note}\n");
+            }
+        }
+        let visible = area.height.saturating_sub(11).max(1) as usize;
+        let start = state
+            .picker_selected
+            .saturating_sub(visible.saturating_sub(1) / 2);
+        for index in start..(start + visible).min(state.picker_len()) {
+            let Some(choice) = state.picker_choice(index) else {
+                continue;
+            };
+            let _ = writeln!(
+                value,
+                "{} {}{}",
+                if index == state.picker_selected {
+                    ">"
+                } else {
+                    " "
+                },
+                clipped(&choice.label, area.width.saturating_sub(16) as usize),
+                if choice.reason.is_some() {
+                    " [unavailable]"
+                } else {
+                    ""
+                }
+            );
+        }
+        if let Some(choice) = state.picker_choice(state.picker_selected)
+            && let Some(reason) = choice.reason
+        {
+            let _ = writeln!(value, "\nUnavailable: {reason}");
+        }
+        value.push_str("\nUp/Down Choose / Enter Select / Esc Back\nRefresh prepares a separate reviewed connection; Run consent remains required.");
+    }
+    let details = row(area, 0, area.height.saturating_sub(3));
+    state.scroll_max = selection_details(
+        frame,
+        details,
+        Paragraph::new(value)
+            .style(paint.surface)
+            .wrap(Wrap { trim: false }),
+        state.scroll,
+    );
+    state.scroll = state.scroll.min(state.scroll_max);
+    text(
+        frame,
+        row(area, area.height.saturating_sub(3), 3),
+        &state.notice,
+        paint.muted,
+    );
 }
 
 fn switch(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
@@ -498,7 +611,7 @@ fn journal(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             record.text
         )
     } else {
-        "PROVIDER JOURNAL\nNo retained observations for this task. Local commands remain in j; no provider result is inferred.".into()
+        "PROVIDER JOURNAL\nNo retained observations for this task. Local commands remain in /execution-history; no provider result is inferred.".into()
     };
     let details = row(area, 0, area.height.saturating_sub(5));
     state.scroll_max = selection_details(
@@ -524,7 +637,7 @@ fn journal(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         } else if state.journal_purge {
             "[Keep] / Purge this task's local journal\nTab Choose / Enter Keep / Esc Keep"
         } else {
-            "Up/Down Record / PgUp/Dn Scroll\np Preview purge / r Retry storage only / h Back"
+            "Up/Down Record / PgUp/Dn Scroll\n/journal-purge /journal-retry /journal-close"
         },
         paint.accent,
     );

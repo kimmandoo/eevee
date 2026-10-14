@@ -82,7 +82,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let details = row(
         content,
         2 + list_rows,
-        content.height.saturating_sub(2 + list_rows),
+        content.height.saturating_sub(4 + list_rows),
     );
     let lines: Vec<_> = state
         .error
@@ -99,6 +99,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         app.scroll_for(ScrollSurface::Preview),
     );
     app.set_scroll_max(ScrollSurface::Preview, max);
+    text(
+        frame,
+        row(content, content.height.saturating_sub(2), 2),
+        "/ choices: search, range, attach, basket, assemble\nArrows select · Enter inspect · PgUp/Dn details · Esc Back",
+        paint.muted,
+    );
     if app.sources.editor.is_some() {
         editor(frame, area, app, config, paint);
     }

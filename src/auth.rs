@@ -20,6 +20,9 @@ pub enum Method {
     GeminiNative,
     ClaudeConsole,
     ClaudeConsoleCode,
+    DevinBrowser,
+    DevinManualToken,
+    DevinStatus,
     CodexStatus,
     OpenCodeStatus,
     ClaudeConsoleStatus,
@@ -33,6 +36,9 @@ impl Method {
             Self::GeminiNative => "Official Gemini CLI / Google OAuth, API key or Vertex",
             Self::ClaudeConsole => "Anthropic Console OAuth / browser (official ant CLI)",
             Self::ClaudeConsoleCode => "Anthropic Console OAuth / paste code (no browser launch)",
+            Self::DevinBrowser => "Devin / browser OAuth",
+            Self::DevinManualToken => "Devin / manual token paste (not device OAuth)",
+            Self::DevinStatus => "Official Devin auth status (not eligibility proof)",
             Self::ClaudeConsoleStatus => {
                 "Official ant auth status (profile presence, not eligibility)"
             }
@@ -45,7 +51,10 @@ impl Method {
     pub fn is_status(self) -> bool {
         matches!(
             self,
-            Self::CodexStatus | Self::OpenCodeStatus | Self::ClaudeConsoleStatus
+            Self::CodexStatus
+                | Self::OpenCodeStatus
+                | Self::ClaudeConsoleStatus
+                | Self::DevinStatus
         )
     }
     fn is_claude(self) -> bool {
@@ -64,6 +73,9 @@ impl Method {
             ),
             Self::ClaudeConsole | Self::ClaudeConsoleCode => Some(
                 "Signs in to the Claude Console (platform.claude.com) and bills Claude API usage to the chosen organization/workspace. This is NOT claude.ai Pro/Max subscription login: Anthropic does not permit third-party Agent SDK apps to use subscription OAuth. Paste-code login prints the official authorize URL and reads the returned code inside ant, without a localhost callback or browser launcher (WSL/SSH). Never share codes or URLs.",
+            ),
+            Self::DevinBrowser | Self::DevinManualToken => Some(
+                "Runs the dedicated official devin auth login, not a chat or ACP session. Browser login is owned by Devin. For remote/SSH sessions, explicitly select manual token paste to skip browser auth; this is NOT device authorization. Paste any token only into Devin's native terminal prompt, never Eevee or task context. Enterprise machine policy may pin the host/account. Eevee neither reads nor stores credentials and never infers account/model eligibility from login exit.",
             ),
             _ => None,
         }
@@ -88,6 +100,9 @@ impl Method {
             Self::OpenCode => &["auth", "login", "--pure"],
             Self::CodexStatus => &["login", "status"],
             Self::OpenCodeStatus => &["auth", "list"],
+            Self::DevinBrowser => &["auth", "login"],
+            Self::DevinManualToken => &["auth", "login", "--force-manual-token-flow"],
+            Self::DevinStatus => &["auth", "status"],
             Self::GeminiNative => &[],
             Self::ClaudeConsole | Self::ClaudeConsoleCode | Self::ClaudeConsoleStatus => {
                 unreachable!("built above")
@@ -102,6 +117,7 @@ pub fn methods(profile: usize) -> &'static [Method] {
         1 => &[Method::ClaudeConsole, Method::ClaudeConsoleCode],
         2 => &[Method::OpenCode],
         3 => &[Method::GeminiNative],
+        agent::DEVIN => &[Method::DevinBrowser, Method::DevinManualToken],
         _ => &[],
     }
 }
@@ -149,6 +165,7 @@ pub fn status_method(profile: usize) -> Option<Method> {
         0 => Some(Method::CodexStatus),
         1 => Some(Method::ClaudeConsoleStatus),
         2 => Some(Method::OpenCodeStatus),
+        agent::DEVIN => Some(Method::DevinStatus),
         _ => None,
     }
 }
@@ -269,7 +286,7 @@ impl Plan {
         let mut lines = vec![
             format!("Selected method: {}", method.label()),
             format!("Executable: {}", trust.prepared.executable.path.display()),
-            format!("Literal argv: {:?}; first runs --version and requires exact release {}.", method.args(), release(executable)),
+            format!("Literal argv: {:?}; first runs {} and requires exact release {}.", method.args(), agent::version_argument(executable), release(executable)),
             format!("Working directory: {} (private empty directory outside task project; removed only if still empty, never recursively).", trust.prepared.cwd.display()),
             trust.authentication_configuration().to_owned(),
             "Trust includes inherited environment, interpreter, dependencies, provider configuration/hooks/plugins and browser launcher. Executable and known configuration/project identities are checked immediately before launch. This is not sandboxing or atomic dependency pinning.".into(),
@@ -280,7 +297,7 @@ impl Plan {
         if method.is_status() {
             lines.push("This launches the official local status command; the provider may read its own credentials. Output is transient, not copied into task state. A credential inventory is not proof of account eligibility or a successful model request.".into());
         } else {
-            lines.push(format!("May open your browser, contact provider identity/account services, {}and write/replace provider-owned credentials and auth-method settings. Switching Gemini auth method can clear previous cached credentials. Provider-native prompts choose accounts/providers; trust their displayed scopes before consenting. Eevee never requests or persists tokens, API keys, device codes or account identifiers.", if matches!(method, Method::CodexDevice | Method::ClaudeConsoleCode) { "" } else { "bind a local OAuth callback, " }));
+            lines.push(format!("May open your browser, contact provider identity/account services, {}and write/replace provider-owned credentials and auth-method settings. Switching Gemini auth method can clear previous cached credentials. Provider-native prompts choose accounts/providers; trust their displayed scopes before consenting. Eevee never requests or persists tokens, API keys, device codes or account identifiers.", if matches!(method, Method::CodexDevice | Method::ClaudeConsoleCode | Method::DevinManualToken) { "" } else { "bind a local OAuth callback, " }));
             lines.push("Eevee sends no task context or model prompt and never replays the task. Any later model request needs a separate review and Run approval. Cancellation does not revoke already-issued credentials; use the provider's account controls to revoke them.".into());
             if matches!(method, Method::CodexBrowser | Method::CodexDevice) {
                 lines.push("After the native UI returns, literal argv [\"login\", \"status\"] refreshes Codex status if reviewed identities still match. Only an exact recognized status is kept; all raw output is discarded.".into());
@@ -304,16 +321,16 @@ impl Plan {
         let mut summary = vec![
             format!("Method: {}", method.label()),
             format!("Run: {} {:?}", trust.prepared.executable.path.display(), method.args()),
-            format!("First: --version (requires {}). Cwd: {}", release(executable), trust.prepared.cwd.display()),
+            format!("First: {} (requires {}). Cwd: {}", agent::version_argument(executable), release(executable), trust.prepared.cwd.display()),
             "Private empty cwd outside your project; removed only while empty. Inherits environment, dependencies, config/hooks and browser launcher; not sandboxed. Executable and known config identities rechecked.".into(),
         ];
         if let Some(guidance) = method.guidance() {
             summary.push(guidance.into());
         }
         if method.is_status() {
-            summary.push("Reads provider credentials; shows native status, not model/account eligibility. Eevee keeps only a recognized classification, never raw output.".into());
+            summary.push("Reads provider credentials; native status is not model/account eligibility. Eevee never retains raw output or infers authentication from process exit.".into());
         } else {
-            summary.push(format!("May open browser, contact account services, {}and replace provider credentials/settings. Choose accounts/scopes in the native UI; Eevee collects no tokens or codes.", if method == Method::CodexDevice { "" } else { "bind OAuth callback, " }));
+            summary.push(format!("May open browser, contact account services, {}and replace provider credentials/settings. Choose accounts/scopes in the native UI; Eevee collects no tokens or codes.", if matches!(method, Method::CodexDevice | Method::DevinManualToken) { "" } else { "bind OAuth callback, " }));
             if matches!(method, Method::CodexBrowser | Method::CodexDevice) {
                 summary.push("Then runs [\"login\", \"status\"] if identities still match; keeps recognized status only.".into());
             } else if method == Method::OpenCode {
@@ -379,6 +396,7 @@ fn release(profile: usize) -> &'static str {
         0 => agent::CODEX_RELEASE,
         2 => agent::OPENCODE_RELEASE,
         3 => agent::GEMINI_RELEASE,
+        agent::DEVIN => agent::DEVIN_RELEASE,
         agent::ANT => agent::ANT_RELEASE,
         _ => "unsupported",
     }
@@ -614,17 +632,23 @@ fn native_ui(prepared: &runner::Prepared, timeout: Duration) -> Outcome {
                         return Outcome::Cancelled;
                     }
                 }
-                return if status.success() {
-                    Outcome::Unknown
-                } else if matches!(status.code(), Some(130) | Some(-1073741510)) {
-                    Outcome::Cancelled
-                } else {
-                    Outcome::Failed
-                };
+                return native_exit_outcome(status);
             }
             Err(_) => return Outcome::Failed,
             Ok(None) => std::thread::sleep(Duration::from_millis(25)),
         }
+    }
+}
+
+fn native_exit_outcome(status: std::process::ExitStatus) -> Outcome {
+    if status.success() {
+        // Devin status can exit zero while logged out. Native output remains
+        // in the terminal; Eevee has no speculative account/credential parser.
+        Outcome::Unknown
+    } else if matches!(status.code(), Some(130) | Some(-1073741510)) {
+        Outcome::Cancelled
+    } else {
+        Outcome::Failed
     }
 }
 
@@ -928,6 +952,9 @@ mod tests {
         assert!(Plan::prepare(0, Method::GeminiNative, Path::new(".")).is_err());
         assert!(Plan::prepare(0, Method::ClaudeConsole, Path::new(".")).is_err());
         assert!(Plan::prepare(3, Method::ClaudeConsoleStatus, Path::new(".")).is_err());
+        assert!(Plan::prepare(0, Method::DevinBrowser, Path::new(".")).is_err());
+        assert!(Plan::prepare(agent::DEVIN, Method::CodexBrowser, Path::new(".")).is_err());
+        assert!(Plan::prepare(agent::ANT, Method::DevinBrowser, Path::new(".")).is_err());
         assert!(methods(1).iter().all(|method| method.is_claude()));
     }
 
@@ -971,6 +998,24 @@ mod tests {
         assert_eq!(
             console_outcome(Method::ClaudeConsoleStatus, &old, &fresh),
             Outcome::Unknown
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_status_success_is_not_authentication_evidence() {
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(
+            native_exit_outcome(std::process::ExitStatus::from_raw(0)),
+            Outcome::Unknown
+        );
+        assert_eq!(
+            native_exit_outcome(std::process::ExitStatus::from_raw(1 << 8)),
+            Outcome::Failed
+        );
+        assert_eq!(
+            native_exit_outcome(std::process::ExitStatus::from_raw(130 << 8)),
+            Outcome::Cancelled
         );
     }
 }

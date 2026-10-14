@@ -1,8 +1,8 @@
 //! Optional pinned Claude Agent SDK host. No Node process exists until reviewed Run.
 //! SDK tool policy/selected-path checks are external agent policy, not an OS sandbox.
 use crate::provider::{
-    Agent, Event, Input, ItemKind, Operation, Outcome, PermissionOption, Preview, Prompt,
-    PromptKind, Question, QuestionOption, Request,
+    Agent, Event, Input, ItemKind, ModelCatalogue, ModelOption, Operation, Outcome,
+    PermissionOption, Preview, Prompt, PromptKind, Question, QuestionOption, Request,
 };
 use parking_lot::Mutex;
 use serde_json::{Value, json};
@@ -639,6 +639,13 @@ fn sdk_tool_policy(operation: Operation) -> &'static str {
 }
 
 fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<String, String> {
+    input.validate_selection()?;
+    if input.inspect_models {
+        return serde_json::to_string(&json!({
+            "intent": "inspect_models", "selection": input.selection,
+            "effects": "Initialize the reviewed SDK/backend and query supportedModels(); may contact provider/auth services and create isolated SDK state. No task prompt, prior session, model turn or model journal.",
+        })).map_err(|_| "Could not encode Claude model inspection".into());
+    }
     input.validate_review()?;
     crate::store::validate_planning_input(data_dir, &input.task, &input.excerpts)?;
     if let Some(text) = input.review_payload(data_dir, exclusions)? {
@@ -820,7 +827,7 @@ fn worker(
                 {
                     preview.blockers.push("Resume refused: explicit SDK session must have been started for this task in this Eevee instance".into());
                 }
-                if sessions.len() >= 256 && input.resume.is_none() {
+                if !input.inspect_models && sessions.len() >= 256 && input.resume.is_none() {
                     preview
                         .blockers
                         .push("SDK session bound reached; restart before another session".into());
@@ -850,6 +857,15 @@ fn worker(
                 }
                 if let Err(error) = credential_route() {
                     preview.blockers.push(error);
+                }
+                preview.trust.push(format!(
+                    "Model: {}; reasoning effort: {}. Explicit choices use official SDK Options. Model support is checked live, then setModel/getContextUsage(summary) must acknowledge the advertised resolved model before prompt release; summary uses local estimates, not token-count/model requests. Explicit reasoning effort is unsupported: this SDK cannot publicly acknowledge pre-prompt applied effort after organization caps/downgrades. {}",
+                    input.selection.model.as_deref().unwrap_or("provider default (not yet observed)"),
+                    input.selection.effort.as_deref().unwrap_or("provider default (not advertised)"),
+                    if input.inspect_models { "MODEL INSPECTION ONLY: no prompt/history/model turn or journal; SDK initialization may contact provider/auth services, refresh credentials and create isolated SDK state. All tools are disabled; the SDK closes after bounded capabilities and terminal result." } else { "The selected model and effort belong to this immutable reviewed request." },
+                ));
+                if input.selection.effort.is_some() {
+                    preview.blockers.push("Claude reasoning selection unsupported: no public pre-prompt applied-effort acknowledgement; organization caps/downgrades cannot be qualified. Use provider-default effort.".into());
                 }
                 match payload(data_dir, &input, exclusions) {
                     Ok(text) => preview.payload = text,
@@ -1272,6 +1288,7 @@ fn transport(
                     if value["type"] == "capabilities"
                         && value["sdk_version"] == SDK_VERSION
                         && value["cli_version"] == CLI_VERSION
+                        && value["bridge_revision"] == 2
                         && value["query"] == true
                     {
                         let native = value["cli"]
@@ -1321,20 +1338,32 @@ fn transport(
             ));
         }
         let mut pipe = Pipe::spawn(&run.trust.launch)?;
-        let turn = format!("claude-query-{}", run.generation);
+        let turn = if run.input.inspect_models {
+            String::new()
+        } else {
+            format!("claude-query-{}", run.generation)
+        };
         let mut prompts: BTreeMap<String, Prompt> = BTreeMap::new();
         let mut thread_id = String::new();
         let mut items = SdkItems::default();
         let mut seen_prompts = HashSet::new();
-        let journal_nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
+        let journal_nonce = if run.input.inspect_models {
+            0
+        } else {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        };
         pipe.send(json!({"protocol":1,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
-            "prompt":run.text,"operation":sdk_tool_policy(run.input.operation),"edit_paths":run.input.edit_paths,"resume":run.input.resume}))?;
+            "prompt":if run.input.inspect_models { "" } else { run.text.as_str() },
+            "operation":if run.input.inspect_models { "plan" } else { sdk_tool_policy(run.input.operation) },
+            "edit_paths":if run.input.inspect_models { &[] as &[PathBuf] } else { run.input.edit_paths.as_slice() },
+            "resume":run.input.resume,"inspect_models":run.input.inspect_models,"selection":run.input.selection}))?;
         dispatched = true;
         let mut cancelling: Option<Instant> = None;
         let mut startup = Some(Instant::now() + Duration::from_secs(30));
+        let mut models_seen = false;
         let processing: Result<(Outcome, String), String> = (|| {
             loop {
                 if (stop.load(Ordering::Acquire)
@@ -1419,7 +1448,16 @@ fn transport(
                         return Err("Claude event correlation mismatch".into());
                     }
                     match value["type"].as_str().unwrap_or("") {
+                        "models" => {
+                            if !run.input.inspect_models || models_seen || !thread_id.is_empty() {
+                                return Err("Unexpected/duplicate SDK model catalogue".into());
+                            }
+                            let catalogue = decode_catalogue(&value["catalogue"])?;
+                            emit(events, Event::Models { generation: run.generation, task_id: run.input.task.id, catalogue })?;
+                            models_seen = true;
+                        }
                         "thread" => {
+                            if run.input.inspect_models { return Err("Model inspection unexpectedly started a session".into()); }
                             let id = value["session_id"].as_str().ok_or("Missing SDK session ID")?;
                             if !thread_id.is_empty() || id.is_empty() || id.len() > 128 || safe(id) != id
                                 || run.input.resume.as_ref().is_some_and(|resume| resume != id)
@@ -1448,9 +1486,21 @@ fn transport(
                             emit(events, Event::Status { generation: run.generation, task_id: run.input.task.id, message: safe(&format!("SDK usage scope: {}. Latest cumulative estimated USD: {}. Model-pipeline snapshot: {}. Main-loop per-turn tokens: {}. Replace, never sum across resume.", value["scope"].as_str().unwrap_or("unknown"), value["estimated_cost_usd"], value["model_usage"], value["main_loop_per_turn"])) })?;
                         }
                         "finished" => {
+                            if run.input.inspect_models {
+                                if !models_seen || value["session_id"].as_str() != Some("") || value["outcome"].as_str() != Some("completed") {
+                                    return Err("Unqualified SDK model inspection terminal event".into());
+                                }
+                                return Ok((Outcome::Completed, "Live SDK model capabilities inspected; no model turn or journal".into()));
+                            }
                             if thread_id.is_empty() || value["session_id"].as_str() != Some(thread_id.as_str()) { return Err("Unqualified SDK terminal event".into()); }
                             let outcome = match value["outcome"].as_str() { Some("completed") => Outcome::Completed, Some("failed") => Outcome::Failed, _ => Outcome::Unknown };
                             return Ok((outcome, safe(value["message"].as_str().unwrap_or("SDK terminal result observed"))));
+                        }
+                        "rejected" => {
+                            if !thread_id.is_empty() || models_seen || value["session_id"].as_str() != Some("") {
+                                return Err("Unqualified SDK pre-prompt selection rejection".into());
+                            }
+                            return Ok((Outcome::Failed, safe(value["message"].as_str().unwrap_or("SDK model/effort selection unsupported; no prompt sent"))));
                         }
                         "fatal" => return Err("SDK fatal transport/config/provider error; raw diagnostics withheld; outcome unknown".into()),
                         _ => return Err("Unsupported Claude sidecar event; fail closed without replay".into()),
@@ -1467,9 +1517,13 @@ fn transport(
                 thread::sleep(Duration::from_millis(10));
             }
         })();
-        let processing = items
-            .journal(events, run, &thread_id, &turn, journal_nonce)
-            .and(processing);
+        let processing = if run.input.inspect_models {
+            processing
+        } else {
+            items
+                .journal(events, run, &thread_id, &turn, journal_nonce)
+                .and(processing)
+        };
         for (id, _) in prompts {
             let _ = emit(
                 events,
@@ -1499,6 +1553,46 @@ fn transport(
             safe(&error),
         )
     })
+}
+
+fn decode_catalogue(value: &Value) -> Result<ModelCatalogue, String> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct WireModel {
+        id: String,
+        name: String,
+        description: String,
+        efforts: Vec<String>,
+        default_effort: Option<String>,
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct WireCatalogue {
+        models: Vec<WireModel>,
+        current: Option<String>,
+        source: String,
+        effort_note: Option<String>,
+    }
+    let wire: WireCatalogue = serde::Deserialize::deserialize(value)
+        .map_err(|_| "Malformed SDK model catalogue".to_string())?;
+    let catalogue = ModelCatalogue {
+        models: wire
+            .models
+            .into_iter()
+            .map(|model| ModelOption {
+                id: model.id,
+                name: model.name,
+                description: model.description,
+                efforts: model.efforts,
+                default_effort: model.default_effort,
+            })
+            .collect(),
+        current: wire.current,
+        source: wire.source,
+        effort_note: wire.effort_note,
+    };
+    catalogue.validate()?;
+    Ok(catalogue)
 }
 fn prompt_kind(value: &Value) -> Result<PromptKind, String> {
     let input = &value["input"];
@@ -1653,6 +1747,40 @@ fn provider_answer(kind: &PromptKind, answer: Value) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn model_catalogue_consumer_rejects_private_unbounded_or_ambiguous_metadata() {
+        let catalogue = json!({
+            "models": [{"id":"live-a","name":"Live A","description":"SDK capability","efforts":["high"],"default_effort":null}],
+            "current":null,"source":"SDK supportedModels()","effort_note":"Only advertised effort choices",
+        });
+        let decoded = decode_catalogue(&catalogue).unwrap();
+        assert_eq!(decoded.models[0].efforts, ["high"]);
+        assert_eq!(decoded.models[0].default_effort, None);
+        let mut empty = catalogue.clone();
+        empty["models"] = json!([]);
+        assert!(decode_catalogue(&empty).is_ok());
+        let mut duplicate = catalogue.clone();
+        duplicate["models"]
+            .as_array_mut()
+            .unwrap()
+            .push(catalogue["models"][0].clone());
+        assert!(decode_catalogue(&duplicate).is_err());
+        for text in [
+            "token=canary".to_string(),
+            "\u{202e}model".into(),
+            "x".repeat(257),
+        ] {
+            let mut invalid = catalogue.clone();
+            invalid["models"][0]["id"] = json!(text);
+            assert!(decode_catalogue(&invalid).is_err());
+        }
+        let mut invalid = catalogue.clone();
+        invalid["models"][0]["default_effort"] = json!("unadvertised");
+        assert!(decode_catalogue(&invalid).is_err());
+        invalid = catalogue.clone();
+        invalid["models"][0]["extra"] = json!(true);
+        assert!(decode_catalogue(&invalid).is_err());
+    }
     #[test]
     fn review_uses_mandatory_read_only_sdk_tools_not_implementation_policy() {
         assert_eq!(sdk_tool_policy(Operation::Review), "plan");

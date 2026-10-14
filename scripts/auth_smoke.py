@@ -152,7 +152,7 @@ def fixture_journey(binary, output):
         try:
             wait_for(session, 'Storage: saved')
             session.send('\x1b')
-            session.send('o')
+            session.command('connect')
             wait_for(session, TITLE)
             session.send('\r')
             wait_for(session, 'ACTIONS')
@@ -200,7 +200,7 @@ def fixture_journey(binary, output):
             session.send('\x1b')
             session.send('\x1b')
             session.send('\x1b')
-            session.send('q')
+            session.command('quit')
             assert session.wait_exit() == 0
             results['cases'].append('no task/model execution; final terminal modes restored')
             results['status'] = 'passed-local-fixture'
@@ -274,7 +274,7 @@ def wsl_device_journey(binary, output, codex):
         try:
             visible('Storage: saved')
             session.send('\x1b')
-            session.send('o')
+            session.command('connect')
             visible(TITLE)
             session.send('\r')
             visible('ACTIONS')
@@ -315,8 +315,7 @@ def wsl_device_journey(binary, output, codex):
             with closing(sqlite3.connect(data / 'workbench.sqlite3')) as db:
                 assert db.execute('SELECT count(*) FROM provider_journal').fetchone()[0] == 0
                 assert db.execute('SELECT count(*) FROM executions').fetchone()[0] == 0
-            for key in ('\x1b', '\x1b', '\x1b', 'q'):
-                session.send(key)
+            session.command('quit')
             assert session.wait_exit() == 0
             results.update(status='passed-official-wsl-device-initiation',
                            provider_argv=[entry['argv'] for entry in invocations()],
@@ -395,23 +394,23 @@ def main():
         try:
             wait_for(session, 'Storage: saved')
             session.send('\x1b')  # Leave the clean first-run Goal composer.
-            session.send('g')
+            session.command('goal')
             session.paste('Keep this local task through authentication cancellation.')
             session.send('\r')
             wait_for(session, 'Storage: saved')
-            session.send('o')
+            session.command('connect')
             wait_for(session, TITLE)
             # Deliberately start the browser route on every host; do not assume
             # the environment-aware default is browser on WSL or SSH.
-            session.send('l')
+            session.command('connect-method')
             wait_for(session, 'Review connection', timeout=40)
             default_is_device = 'device authorization' in session.display()
             session.send('\x1b')
             if default_is_device:
-                session.send('m')
+                session.command('method-next')
 
-            def preview(key='l'):
-                session.send(key)
+            def preview(command='connect-method'):
+                session.command(command)
                 wait_for(session, 'Review connection', timeout=40)
                 session.send(END)
                 wait_for(session, 'Tab Choose')
@@ -464,35 +463,35 @@ def main():
             wait_for(session, TITLE)
             passed('neutral Enter and undersize terminal cannot authorize login')
 
-            session.send('m')
+            session.command('method-next')
             preview()
             wait_for(session, 'device authorization')
             session.send('\x1b')
-            session.send('m')
-            preview('s')
+            session.command('method-next')
+            preview('status')
             authorize()
             wait_native(lambda: 'Provider reports not logged in' in session.display(), 'real Codex empty-home login status', 30)
             session.capture('codex-not-authenticated')
             passed('real Codex status reports absent login without reading credentials or sending a model request')
             preview()
             cancel_native('codex-browser', ('Starting local login server', 'auth.openai.com', 'Log in with your browser'))
-            session.send('m')
+            session.command('method-next')
             preview()
             cancel_native('codex-device', ('auth.openai.com', 'one-time code', 'device code'))
-            session.send('m')
+            session.command('method-next')
 
-            session.send('3')
+            session.send('\x1b[D\x1b[B\x1b[B\r')  # Visible provider list: Codex -> OpenCode.
             preview()
             cancel_native('opencode-chooser', ('Select provider', 'Select a provider', 'Add credential', 'Log in'))
 
-            session.send('4')
+            session.send('\x1b[D\x1b[B\r')  # Visible provider list: OpenCode -> Gemini.
             preview()
             cancel_native('gemini-google', ('accounts.google.com', 'Opening authentication page', 'Waiting for authentication'))
 
             if args.ant:
                 console = home / '.config/anthropic'
-                session.send('2')
-                preview('s')
+                session.send('\x1b[D\x1b[A\x1b[A\r')  # Visible provider list: Gemini -> Claude.
+                preview('status')
                 authorize()
                 wait_native(lambda: 'Provider reports not logged in' in session.display(), 'real ant empty-profile status', 30)
                 passed('claude-console status reports an absent Console profile without reading credentials or sending a model request')
@@ -500,14 +499,14 @@ def main():
                     preview()
                     cancel_native('claude-console', ('platform.claude.com/oauth/authorize', 'Paste it here', 'paste the code here'))
                     assert not (console / 'credentials').exists(), 'cancelled Console login wrote credentials'
-                    session.send('m')
+                    session.command('method-next')
 
             with closing(sqlite3.connect(data / 'workbench.sqlite3')) as db:
                 assert db.execute('SELECT goal FROM tasks').fetchone()[0] == 'Keep this local task through authentication cancellation.'
                 assert db.execute('SELECT count(*) FROM provider_journal').fetchone()[0] == 0
                 assert db.execute('SELECT count(*) FROM executions').fetchone()[0] == 0
             session.send('\x1b')
-            session.send('q')
+            session.command('quit')
             wait_for(session, 'Confirm exit')
             session.send(RIGHT + '\r')
             assert session.wait_exit() == 0

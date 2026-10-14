@@ -6,7 +6,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { Query, CanUseTool, OnElicitation, Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { SDK_VERSION, CLI_VERSION, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, selectedWrite, selectedWriteIdentity, QuestionInputSchema, credentialRoute, consoleProfile, accountMatches, sdkOutcome } from './policy.ts';
+import { SDK_VERSION, CLI_VERSION, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, selectedWrite, selectedWriteIdentity, QuestionInputSchema, RunSchema, SDKPolicyError, querySelection, prepareModels, assertAppliedModel, credentialRoute, consoleProfile, sdkOutcome } from './policy.ts';
 
 const require = createRequire(import.meta.url);
 const sdkEntry = require.resolve('@anthropic-ai/claude-agent-sdk');
@@ -28,16 +28,10 @@ type Response = z.infer<typeof ResponseSchema>;
 const QuestionAnswerSchema = z.object({
   behavior: z.literal('allow'), updatedInput: z.object({ answers: z.record(z.string(), z.string().min(1).max(8192)) }).strict(),
 }).strict();
-const RunSchema = z.object({
-  protocol: z.literal(1), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().positive(),
-  prompt: z.string().max(FRAME_LIMIT / 2), cwd: z.string().min(1).max(4096), state_dir: z.string().min(1).max(4096),
-  operation: z.enum(['plan', 'implement']), edit_paths: z.array(z.string().min(1).max(4096)).max(256),
-  resume: z.string().uuid().nullish(),
-});
 const CommandSchema = z.discriminatedUnion('type', [
   RunSchema,
-  z.object({ protocol: z.literal(1), type: z.literal('cancel'), generation: z.number().int().positive() }),
-  z.object({ protocol: z.literal(1), type: z.literal('answer'), generation: z.number().int().positive(), request_id: z.string().max(256), answer: ResponseSchema }),
+  z.object({ protocol: z.literal(1), type: z.literal('cancel'), generation: z.number().int().positive() }).strict(),
+  z.object({ protocol: z.literal(1), type: z.literal('answer'), generation: z.number().int().positive(), request_id: z.string().max(256), answer: ResponseSchema }).strict(),
 ]);
 let written = 0;
 let pendingWrites = 0;
@@ -132,7 +126,7 @@ async function run(command: z.infer<typeof RunSchema>) {
     process.env.CLAUDE_CODE_USE_VERTEX === '1' ? 'vertex' : 'firstParty';
   cleanEnvironment(command.state_dir, expectedProvider !== 'firstParty' && process.env.EEVEE_CLAUDE_CLOUD_AUTH === 'provider-chain', profile);
   controller = new AbortController();
-  const tools = command.operation === 'implement' ? [...READ_TOOLS, 'Edit', 'Write'] : READ_TOOLS;
+  const tools = command.inspect_models ? [] : command.operation === 'implement' ? [...READ_TOOLS, 'Edit', 'Write'] : READ_TOOLS;
   let activeWrite: string | undefined;
   const canUseTool: CanUseTool = async (tool, input, options) => {
     if (cancelled || options.signal.aborted || !tools.includes(tool)) return deny;
@@ -172,6 +166,7 @@ async function run(command: z.infer<typeof RunSchema>) {
     }
   };
   const onElicitation: OnElicitation = async (request, options) => {
+    if (command.inspect_models) return { action: 'cancel' };
     // MCP is mandatory-disabled. Never turn elicitation into a tool grant or open a login URL.
     const answer = await ask(options.requestId, request.serverName, { request, options: [{ label: 'Decline', answer: { action: 'decline' } },
       { label: 'Cancel', answer: { action: 'cancel' } }], reason: 'MCP disabled; acceptance/URL login unsupported' }, 'elicitation', options.signal,
@@ -180,6 +175,7 @@ async function run(command: z.infer<typeof RunSchema>) {
   };
   const options: Options = {
     cwd: command.cwd, resume: command.resume || undefined, continue: false, forkSession: false,
+    ...querySelection(command.selection),
     pathToClaudeCodeExecutable: cli, abortController: controller,
     permissionMode: 'default', permissionPrompts: 'host', allowDangerouslySkipPermissions: false,
     tools, allowedTools: [], disallowedTools: [...DENIED_TOOLS, ...(command.operation === 'plan' ? ['Edit', 'Write'] : [])],
@@ -192,7 +188,7 @@ async function run(command: z.infer<typeof RunSchema>) {
   };
   // Host-owned policy hook never executes project hooks. disableAllHooks disables filesystem hooks;
   // mandatory tools exposure blocks every mutation route in Plan independent of hook invocation.
-  if (command.operation === 'implement') {
+  if (!command.inspect_models && command.operation === 'implement') {
     options.settings = { permissions: { ask: tools }, disableAllHooks: false };
     options.hooks = { PreToolUse: [{ hooks: [async (input) => {
       if (input.hook_event_name !== 'PreToolUse') return { continue: false };
@@ -206,17 +202,26 @@ async function run(command: z.infer<typeof RunSchema>) {
   }
   const authReady = Promise.withResolvers<boolean>();
   async function* onePrompt(): AsyncGenerator<SDKUserMessage> {
-    if (await authReady.promise && !cancelled) yield { type: 'user', session_id: command.resume || '', message: { role: 'user', content: command.prompt }, parent_tool_use_id: null };
+    if (await authReady.promise && !cancelled && !command.inspect_models) yield { type: 'user', session_id: command.resume || '', message: { role: 'user', content: command.prompt }, parent_tool_use_id: null };
   }
   current = query({ prompt: onePrompt(), options });
   let resultSeen = false;
+  let promptReleased = false;
   let streamingMessage = '';
   const streaming = new Map<string, { text: string; at: number; bytes: number }>();
   const toolCalls = new Map<string, { tool: string; input: unknown }>();
   try {
-    // The pinned control initialization exposes the backend without a model turn.
-    // Never send the prompt to a subscription, fallback backend, or gateway instead.
-    if (!accountMatches(account, await current.accountInfo(), expectedProvider)) throw new Error('Effective SDK authentication backend differs from reviewed route');
+    // Backend and live model/effort validation complete before any user prompt.
+    const { catalogue, approvedModel } = await prepareModels(current, command.selection, account, expectedProvider, command.inspect_models);
+    if (command.inspect_models) {
+      if (cancelled || controller.signal.aborted) throw new Error('Model inspection interrupted');
+      await emit({ type: 'models', ...meta(), catalogue });
+      await emit({ type: 'finished', ...meta(), session_id: '', outcome: 'completed', message: 'Live SDK model capabilities inspected; no prompt or model turn sent' });
+      resultSeen = true;
+      return;
+    }
+    if (catalogue.models.length === 0) throw new SDKPolicyError('Model selection unsupported: the live SDK returned no supported models; no prompt sent');
+    promptReleased = true;
     authReady.resolve(true);
     for await (const message of current) {
       if (session && 'session_id' in message && message.session_id !== session) throw new Error('SDK message changed session identity');
@@ -225,6 +230,7 @@ async function run(command: z.infer<typeof RunSchema>) {
           message.tools.some(t => !tools.includes(t)) || message.mcp_servers.length || message.plugins.length || message.skills.length ||
           (account === 'ANTHROPIC_API_KEY' && message.apiKeySource !== 'ANTHROPIC_API_KEY') ||
           (profile !== undefined && ['ANTHROPIC_API_KEY', 'apiKeyHelper', '/login managed key'].includes(message.apiKeySource))) throw new Error('Effective SDK identity/tool/config/auth policy mismatch');
+        assertAppliedModel(approvedModel, message.model);
         if (session) throw new Error('SDK emitted a second session initialization');
         session = message.session_id;
         if (command.resume && session !== command.resume) throw new Error('SDK resumed a different session');
@@ -289,6 +295,10 @@ async function run(command: z.infer<typeof RunSchema>) {
       }
     }
     if (!resultSeen) throw new Error('SDK ended without terminal result; outcome unknown');
+  } catch (error) {
+    if (!(error instanceof SDKPolicyError) || session !== '' || promptReleased) throw error;
+    await emit({ type: 'rejected', ...meta(), session_id: '', message: error.message });
+    resultSeen = true;
   } finally {
     authReady.resolve(false);
     for (const [id, item] of streaming) {
@@ -309,7 +319,7 @@ function fatal(_error: unknown) {
   void emit({ type: 'fatal', ...meta(), message: 'Claude SDK sidecar failed; raw diagnostics withheld; outcome unknown' }).finally(() => { current?.close(); process.exitCode = 1; process.stdin.pause(); }).catch(() => process.exit(1));
 }
 if (process.argv.includes('--inspect')) {
-  await emit({ type: 'capabilities', sdk_version: SDK_VERSION, cli_version: CLI_VERSION, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
+  await emit({ type: 'capabilities', bridge_revision: 2, sdk_version: SDK_VERSION, cli_version: CLI_VERSION, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
     query: typeof query === 'function', approvals: 'canUseTool with exact once/deny answers; no persistent rules', questions: 'AskUserQuestion single-select/free text',
     elicitation: 'distinct onElicitation; MCP disabled so decline/cancel only', resume: 'explicit same-task session ID only',
     usage: 'latest cumulative query-pipeline snapshot, not additive', confinement: 'agent policy; not OS sandbox', credential_route: credentialRoute(process.env) ?? 'unavailable' });

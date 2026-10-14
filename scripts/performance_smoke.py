@@ -380,19 +380,19 @@ def quit_app(session):
 
 def prepare_command(session, fixture, mode, state):
     session.send(ESC)
-    session.send("g")
+    session.command("goal")
     session.paste(GOAL)
     session.send("\r")
     wait_for(session, "Storage: saved")
-    session.send("j")
+    session.command("run")
     wait_for(session, "local command evidence")
-    session.send("e")
+    session.command("command-edit")
     wait_for(session, "Command / explicit JSON argv or shell")
     argv = [sys.executable, "-X", "utf8", "-u", str(fixture), mode, str(state)]
     session.paste(json.dumps(argv))
     session.send("\r")
     wait_for(session, "Approval pending", timeout=35)
-    session.send("v")
+    session.command("run")
     wait_for(session, "Review one-shot execution permission")
     session.capture("neutral-approval")
     if (state / "state.json").exists():
@@ -623,7 +623,8 @@ def main():
                     values = []
                     for index in range(args.key_samples):
                         expected = "Follow paused" if index % 2 == 0 else "Follow ON"
-                        values.append(raw_latency(session, "f", lambda text, expected=expected: expected in text))
+                        direct_input(session, "/follow")
+                        values.append(raw_latency(session, "\r", lambda text, expected=expected: expected in text))
                         session.pump(0.02)  # Pacing is deliberately outside the timed sample.
                     last = json.loads((state / "state.json").read_text())
                     if last["iterations"] <= first["iterations"] or last["done"]:
@@ -632,7 +633,7 @@ def main():
                     release.touch()
                     run = await_run(session, data)
                     measurement = {**distribution(values, 50), "stream_before": first, "stream_after": last,
-                                   "input": "single f key alternates visible Follow paused / Follow ON",
+                                   "input": "Enter chooses /follow, alternating visible Follow paused / Follow ON; chooser entry is outside timed sample",
                                    "nominal_workload": "128-byte flushed line every 10 ms plus atomic heartbeat; all child cost included"}
                     name = "key_to_render"
                 else:
@@ -689,7 +690,7 @@ def main():
             ready(session)
             direct_input(session, ESC)
             visible(session, lambda text: session.screen.cursor.hidden)
-            direct_input(session, "w")
+            direct_input(session, "/diff\r")
             visible(session, lambda text: "Repository: baseline captured" in text, timeout=40)
             overview_ms = (time.monotonic_ns() - diff_started) / 1_000_000
             session.capture("repository-overview")

@@ -64,18 +64,20 @@ def main():
             sessions.append(session)
             wait_for(session, "Storage: saved")
             session.send(ESC)
-            session.send("g")
+            session.command("goal")
             session.paste("Independently review the working calculator.py patch against integer addition. Identify the concrete regression, its source location, impact and actionable recommendation. Do not edit files or run commands. Missing checks must be inconclusive, not a pass.")
-            session.send("\rce")
+            session.send("\r")
+            session.command("criteria")
+            session.command("criteria-edit")
             session.paste("add(7, 2) returns 9; unrelated user files and comments remain unchanged")
             session.send("\r")
             session.send(ESC)
-            session.send("a")
+            session.command("next")
             canary = "IMPLEMENTATION_TRANSCRIPT_MUST_NOT_ENTER_REVIEW"
             session.paste(canary)
             session.send("\r")
             wait_for(session, "Storage: saved")
-            session.send("u")
+            session.command("workflows")
             session.send(RIGHT * 2 + DOWN * 9 + "\r")
             wait_for(session, IDLE)
 
@@ -87,7 +89,7 @@ def main():
                 return records, local_runs, task
 
             def turn(number):
-                session.send("n")
+                session.command("new")
                 wait_for(session, "LOCAL PREVIEW", timeout=35)
                 pages = []
                 for _ in range(64):
@@ -127,7 +129,7 @@ def main():
             first = turn(1)
             passed("Actual independent Codex review omitted implementation-only context and preserved all project bytes")
             before_resume = journal()[0]
-            session.send("r")
+            session.command("resume")
             wait_for(session, "Review requires a fresh session")
             assert journal()[0] == before_resume, "Resume created or replayed review observations"
             second = turn(2)

@@ -31,7 +31,7 @@ def main():
         session.pump(0.5)
         return session
     def quit_app(session):
-        session.send("q")
+        session.command("quit")
         if session.alive():
             session.send("\x1b[C\r")
         assert session.wait_exit() == 0
@@ -68,11 +68,11 @@ def main():
                 session = launch("repo-" + str(width), project, root / ("data-" + str(width)), (width,36 if width == 120 else 18))
                 wait_for(session, "Storage: saved")
                 session.send("\x1b")  # Leave the clean first-run Goal composer.
-                session.send("g")
+                session.command("goal")
                 session.paste("repository task 漢字")
                 session.send("\r")
                 wait_for(session, "Storage: saved")
-                session.send("w")
+                session.command("diff")
                 wait_for(session, "Repository: baseline captured", timeout=35)
                 find_text(session, "pre-existing")
                 session.capture("dirty-baseline")
@@ -80,7 +80,7 @@ def main():
                 assert untracked.read_bytes() == b"existing_untracked_bytes\n"
                 tracked.write_bytes(b"external_edit_marker\r\n")
                 (project / "external.txt").write_bytes(b"external_new_file\n")
-                session.send("r")
+                session.command("refresh")
                 wait_for(session, "Repository: refreshed", timeout=35)
                 find_text(session, "unattributed")
                 session.capture("unattributed-changes")
@@ -100,11 +100,11 @@ def main():
             session = launch("non-git", plain, data, (60,18))
             wait_for(session, "Storage: saved")
             session.send("\x1b")  # Leave the clean first-run Goal composer.
-            session.send("g")
+            session.command("goal")
             session.paste("nonGit retained task")
             session.send("\r")
             wait_for(session, "Storage: saved")
-            session.send("w")
+            session.command("diff")
             wait_for(session, "Repository: unsupported", timeout=35)
             session.capture("unsupported-with-task-retained")
             session.send("\x1b")

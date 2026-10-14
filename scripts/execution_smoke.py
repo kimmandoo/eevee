@@ -208,7 +208,7 @@ def main():
 
             def task_menu(session, index):
                 # The palette works from both the workspace and execution overlay.
-                session.send("\x0b" + HOME + DOWN * 8 + "\r")
+                session.command("tasks")
                 wait_for(session, "Task cards / committed snapshots")
                 wait_for(session, "Storage: saved")
                 session.send(HOME + DOWN * index)
@@ -224,7 +224,7 @@ def main():
                 wait_for(session, "Storage: saved")
 
             def open_execution(session):
-                session.send("j")
+                session.command("run")
                 wait_for(session, TITLE)
 
             def command(mode, location, *arguments):
@@ -234,7 +234,7 @@ def main():
             def edit_command(session, task_id, value, draft=False):
                 previous = next((entry["text"] for entry in task(task_id)["drafts"] if entry["field"] == "Command"),
                                 task(task_id)["command"])
-                session.send("e")
+                session.command("command-edit")
                 wait_for(session, "Command / explicit JSON argv or shell")
                 session.send(HOME)
                 # Drive acknowledged editing, rather than overflowing the native
@@ -253,7 +253,7 @@ def main():
                     wait_for(session, "Approval pending", timeout=35)
 
             def approve(session):
-                session.send("v")
+                session.command("run")
                 wait_for(session, REVIEW)
                 session.send(RIGHT + "\r")
 
@@ -269,7 +269,7 @@ def main():
                 return run
 
             def quit_idle(session):
-                session.send("q")
+                session.command("quit")
                 wait_for(session, "Confirm exit")
                 session.send(RIGHT + "\r")
                 assert session.wait_exit() == 0
@@ -277,25 +277,26 @@ def main():
 
             first = launch("approval-output")
             first.send(ESC)  # Enter navigation from the clean first-run composer.
-            first.send("g")
+            first.command("goal")
             first.paste("execution task A")
             first.send("\r")
             until(first, lambda: rows()["tasks"][0]["goal"] == "execution task A", "first task save")
             task_a = rows()["active"]
-            first.send("n")
+            first.command("task-new")
             first.paste("execution task B")
             first.send("\r")
             until(first, lambda: len(rows()["tasks"]) == 2 and rows()["tasks"][1]["goal"] == "execution task B", "second task save")
             task_b = rows()["active"]
             switch(first, 0, task_a)
-            first.send("g" + END)
+            first.command("goal")
+            first.send(END)
             first.paste(" retained draft 漢字")
             first.send("\x13")
             retained_goal = "execution task A retained draft 漢字"
             until(first, lambda: any(entry["text"] == retained_goal for entry in task(task_a)["drafts"]), "goal draft save")
             open_execution(first)
-            first.send("\x0b" + HOME + "\r")
-            first.send("\x0b" + HOME + DOWN * 15 + "\r")
+            first.command("forms")
+            first.command("run")
             wait_for(first, "local command evidence")
             first.send(ESC)
             first.send(ESC)
@@ -305,17 +306,20 @@ def main():
             denied_command = command("once", denied)
             edit_command(first, task_a, denied_command, draft=True)
             assert task(task_a)["command"] == "" and not rows()["runs"] and not denied.exists()
-            first.send("e\r")
+            first.command("command-edit")
+            first.send("\r")
             wait_for(first, "Approval pending", timeout=35)
-            first.send("v")
+            first.command("run")
             wait_for(first, REVIEW)
             first.capture("neutral-approval")
             first.send("\r")
             first.pump(0.4)
             assert not denied.exists() and not rows()["runs"], "neutral Enter executed a command"
-            first.send("v" + ESC)
+            first.command("run")
+            first.send(ESC)
             assert not denied.exists() and not rows()["runs"], "Esc executed a command"
-            first.send("vx")
+            first.command("run")
+            first.command("deny")
             wait_for(first, "Request denied")
             assert not denied.exists() and not rows()["runs"]
             assert task(task_a)["command"] == denied_command
@@ -337,23 +341,24 @@ def main():
             assert not shell_marker.exists() and not denied.exists()
             first.send(HOME)
             wait_for(first, "Follow paused")
-            first.send("/needle")
+            first.command("search")
+            first.send("needle")
             search_surface = first.display()
             first.send("\x0b")
             assert first.display() == search_surface, "global palette escaped the output search field"
             first.send("\r")
             wait_for(first, "line-005 needle")
             assert "line-045 needle" not in first.display()
-            first.send("n")
+            first.command("search-next")
             wait_for(first, "line-045 needle")
-            first.send("N")
+            first.command("search-previous")
             wait_for(first, "line-005 needle")
             literal_marker.with_suffix(".release").touch()
             until(first, lambda: re.search(r"Follow paused\s*·\s*[1-9][0-9]* new lines", first.display()),
                   "paused output did not report newly arriving lines")
             assert "line-005 needle" in first.display(), "new output moved the paused search anchor"
             first.capture("paused-search-new-output")
-            first.send("f")
+            first.command("follow")
             wait_for(first, "Follow ON")
             wait_for(first, "OUTPUT-END 東京")
             literal_run = final_run(first, 1)
@@ -380,7 +385,7 @@ def main():
             assert literal_marker.read_bytes() == marker_before and len(rows()["runs"]) == 2
             open_execution(resumed)
             wait_for(resumed, IDLE)
-            resumed.send("h")
+            resumed.command("history")
             wait_for(resumed, "Succeeded")
             resumed.send("\r")
             wait_for(resumed, "Retained bytes")
@@ -392,11 +397,12 @@ def main():
             passed("restart-loads-durable-output-and-source-evidence-without-reexecution")
             own_spool = data / literal_run["output_name"]
             retained_bytes = own_spool.read_bytes()
-            resumed.send("p")
+            resumed.command("purge")
             wait_for(resumed, "Purge retained local output")
             resumed.send("\r")
             assert own_spool.read_bytes() == retained_bytes, "neutral purge removed evidence"
-            resumed.send("p" + RIGHT + "\r")
+            resumed.command("purge")
+            resumed.send(RIGHT + "\r")
             wait_for(resumed, "Output unavailable")
             until(resumed, lambda: rows()["runs"][0]["record"]["output_unavailable"], "purge metadata did not commit")
             assert not own_spool.exists() and other_spool.read_bytes() == other_bytes
@@ -405,7 +411,7 @@ def main():
             switch(resumed, 1, task_b)
             other_spool.unlink()
             open_execution(resumed)
-            resumed.send("h")
+            resumed.command("history")
             wait_for(resumed, "Output unavailable")
             resumed.send("\r")
             wait_for(resumed, "Output unavailable (purged, missing, or replaced)")
@@ -437,17 +443,18 @@ def main():
 
             owned, _ = start_tree(resumed, "cancel tree", 3)
             form_before = task(task_a)["form"]
-            resumed.send("\x0b" + HOME + "\r")
-            resumed.send("2\r")
+            resumed.command("forms")
+            resumed.command("role-vaporeon")
             wait_for(resumed, GUARD)
             resumed.send("\r")
             assert task(task_a)["form"] == form_before and all(process.alive() for process in owned)
             resumed.capture("active-form-change-neutral-stay")
-            resumed.send("c")
+            resumed.command("cancel")
             wait_for(resumed, "Cancel owned work / deny unstarted approval")
             resumed.send("\r")
             assert all(process.alive() for process in owned), "neutral cancellation terminated owned work"
-            resumed.send("c" + RIGHT + "\r")
+            resumed.command("cancel")
+            resumed.send(RIGHT + "\r")
             cancelled = final_run(resumed, 3, "Cancelled")
             exited(resumed, owned)
             assert cancelled["record"]["cancelled"] and cancelled["record"]["captured_bytes"] > 0
@@ -474,11 +481,11 @@ def main():
             switch(resumed, 0, task_a)
             open_execution(resumed)
             owned, quit_command = start_tree(resumed, "quit tree", 5)
-            resumed.send("q")
+            resumed.command("quit")
             wait_for(resumed, GUARD)
             resumed.send("\r")
             assert resumed.alive() and all(process.alive() for process in owned)
-            resumed.send("q")
+            resumed.command("quit")
             wait_for(resumed, GUARD)
             resumed.capture("neutral-cancel-and-exit")
             resumed.send(RIGHT + "\r")
@@ -491,7 +498,7 @@ def main():
             last = launch("restart-retained-drafts")
             assert rows()["active"] == task_a and task(task_a)["command"] == quit_command
             assert len(rows()["runs"]) == 5
-            last.send("g")
+            last.command("goal")
             wait_for(last, "retained draft 漢字")
             last.capture("retained-goal-draft-after-cancel-exit")
             last.send("\x13")

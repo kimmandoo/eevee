@@ -291,6 +291,45 @@ enum Action {
     Refresh,
 }
 
+impl Action {
+    fn command(self) -> &'static str {
+        match self {
+            Self::Edit(Field::Hypothesis) => "edit-hypothesis",
+            Self::Edit(Field::Contract) => "edit-contract",
+            Self::Edit(Field::Finding) => "edit-finding",
+            Self::Edit(Field::Action) => "edit-recommendation",
+            Self::Edit(Field::RecipePath) => "recipe-path",
+            Self::AddHypothesis => "add-hypothesis",
+            Self::NextHypothesis => "next-hypothesis",
+            Self::Choose(Chooser::Hypothesis) => "hypothesis-evidence",
+            Self::Choose(Chooser::Finding) => "finding-evidence",
+            Self::Choose(Chooser::Hotspot) => "refactor-hotspot",
+            Self::Choose(Chooser::Baseline) => "refactor-baseline",
+            Self::Choose(Chooser::Post) => "refactor-post",
+            Self::Choose(Chooser::Coverage) => "criterion-evidence",
+            Self::NextLink => "next-link",
+            Self::OpenLink => "open-link",
+            Self::Diagnostic => "diagnostic",
+            Self::Fix => "specialist-fix",
+            Self::SaveRefactor => "record-refactor",
+            Self::Compare => "compare-refactor",
+            Self::OpenBaseline => "open-baseline",
+            Self::OpenPost => "open-post",
+            Self::NextCriterion => "next-criterion",
+            Self::AddFinding => "record-finding",
+            Self::NextFinding => "next-finding",
+            Self::ResolveFinding => "resolve-finding",
+            Self::Review => "managed-review",
+            Self::Verdict(Verdict::Inconclusive) => "verdict-inconclusive",
+            Self::Verdict(Verdict::RequestChanges) => "verdict-changes",
+            Self::Verdict(Verdict::Accept) => "verdict-accept",
+            Self::LoadRecipe => "load-recipe",
+            Self::PreviewRecipe => "preview-recipe",
+            Self::Refresh => "refresh-evidence",
+        }
+    }
+}
+
 fn actions(tab: Tab) -> &'static [(Action, &'static str)] {
     use Action::*;
     match tab {
@@ -479,6 +518,94 @@ impl App {
         self.workflow.paste(text)
     }
 
+    pub fn workflow_command_choices(&self) -> Vec<super::commands::Choice> {
+        use super::commands::Choice;
+        if self.workflow.editor.is_some() || self.workflow.preview {
+            return Vec::new();
+        }
+        if self.workflow.chooser.is_some() {
+            return vec![
+                Choice::new("open-evidence", "Open selected evidence"),
+                Choice::new("attach-evidence", "Attach selected evidence"),
+            ];
+        }
+        let mut choices = vec![
+            Choice::new("workflow-diagnosis", "Diagnosis desk"),
+            Choice::new("workflow-refactor", "Refactor desk"),
+            Choice::new("workflow-review", "Review desk"),
+            Choice::new("workflow-recipe", "Recipe desk"),
+        ];
+        choices.extend(
+            actions(self.workflow.tab)
+                .iter()
+                .map(|(action, label)| Choice::new(action.command(), *label)),
+        );
+        choices
+    }
+
+    pub fn workflow_command(&mut self, name: &str) -> bool {
+        let available = if self.workflow.chooser.is_some() {
+            matches!(name, "open-evidence" | "attach-evidence")
+        } else {
+            matches!(
+                name,
+                "workflow-diagnosis" | "workflow-refactor" | "workflow-review" | "workflow-recipe"
+            ) || actions(self.workflow.tab)
+                .iter()
+                .any(|(action, _)| action.command() == name)
+        };
+        if self.workflow.editor.is_some() || self.workflow.preview || !available {
+            return false;
+        }
+        if self.width < 60 || self.height < 18 {
+            self.workflow.affirmative = false;
+            self.workflow.reviewed = false;
+            self.workflow.notice =
+                "Resize to at least 60 columns x 18 rows before specialist actions.".into();
+            return true;
+        }
+        if let Some(chooser) = self.workflow.chooser {
+            if name == "open-evidence" {
+                if let Some((reference, _)) =
+                    self.workflow_choices(chooser).get(self.workflow.evidence)
+                {
+                    self.workflow_open_reference(reference.clone());
+                } else {
+                    self.workflow.notice = "No evidence selected.".into();
+                }
+            } else {
+                let result = self.workflow_attach(chooser);
+                self.workflow_result(result);
+                self.workflow_refresh();
+            }
+            return true;
+        }
+        let tab = match name {
+            "workflow-diagnosis" => Some(Tab::Diagnosis),
+            "workflow-refactor" => Some(Tab::Refactor),
+            "workflow-review" => Some(Tab::Review),
+            "workflow-recipe" => Some(Tab::Recipe),
+            _ => None,
+        };
+        if let Some(tab) = tab {
+            self.workflow.tab = tab;
+            self.workflow.selected = 0;
+            self.workflow.scroll = 0;
+            self.workflow_refresh();
+            return true;
+        }
+        if let Some((action, _)) = actions(self.workflow.tab)
+            .iter()
+            .find(|(action, _)| action.command() == name)
+        {
+            let result = self.workflow_action(*action);
+            self.workflow_result(result);
+            self.workflow_refresh();
+            return true;
+        }
+        false
+    }
+
     pub fn workflow_key(&mut self, key: KeyEvent) -> bool {
         if key.kind == KeyEventKind::Release {
             return false;
@@ -550,13 +677,6 @@ impl App {
                         (self.workflow.evidence + 1).min(count.saturating_sub(1))
                 }
                 KeyCode::Left | KeyCode::Right => self.workflow.refuting = !self.workflow.refuting,
-                KeyCode::Char('o') if key.kind == KeyEventKind::Press => {
-                    if let Some((reference, _)) =
-                        self.workflow_choices(chooser).get(self.workflow.evidence)
-                    {
-                        self.workflow_open_reference(reference.clone());
-                    }
-                }
                 KeyCode::Enter if key.kind == KeyEventKind::Press => {
                     let result = self.workflow_attach(chooser);
                     self.workflow_result(result);
@@ -1123,8 +1243,7 @@ impl App {
                     self.execution.history_index = index;
                     self.execution.selected_run = Some(run_id);
                     self.execution.view = super::execution::View::History;
-                    self.execution
-                        .key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                    self.execution.command("open");
                     self.open_overlay(Overlay::Execution);
                 } else {
                     self.workflow.notice =
@@ -1390,5 +1509,32 @@ impl App {
             Tab::Recipe => self.workflow.recipe.as_ref().or_else(|| self.workflows.recipe.as_ref().map(|applied| &applied.recipe)).map(|recipe| format!("Loaded or staged recipe: {}\nSchema {} / {} steps / {} criteria\nChoose full preview before Apply. Commands and scope are proposals, never permissions.", recipe.name, recipe.schema_version, recipe.steps.len(), recipe.completion_criteria.len()))
                 .unwrap_or_else(|| "Enter a literal local TOML path. Load validates strict schema 1 without running anything. Preview exposes every step, scope, context proposal, validation command and criterion; initial choice is Stay.".into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn semantic_specialist_actions_keep_editor_text_and_context_guards() {
+        let mut app = App::new("/project".into(), 120, 36);
+        app.task_id = 7;
+        assert!(app.workflow_command("edit-hypothesis"));
+        app.workflow_paste("Literal /diagnostic, not a command.");
+        assert!(!app.workflow_command("diagnostic"));
+        assert_eq!(
+            app.workflow.value(Field::Hypothesis),
+            "Literal /diagnostic, not a command."
+        );
+        app.workflow_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.workflow_command("add-hypothesis"));
+        assert_eq!(app.workflows.hypotheses.len(), 1);
+        assert!(app.workflow_command("hypothesis-evidence"));
+        assert!(!app.workflow_command("specialist-fix"));
+        assert!(app.workflow_command("attach-evidence"));
+        assert!(app.workflows.hypotheses[0].evidence.is_empty());
+        assert!(app.workflow.chooser.is_some());
+        assert!(app.workflow.notice.contains("No evidence selected"));
     }
 }

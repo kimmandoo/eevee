@@ -365,6 +365,14 @@ class Session:
                 pending = pending[os.write(self.master, pending):]
         self.pump(settle=WINDOWS)
 
+    def command(self, name):
+        """Choose a semantic action; any subsequent consent remains separate."""
+        # Slash opens the chooser without changing Goal/Next-action drafts.
+        # Ctrl+K resets only an already visible chooser (including post-save choices).
+        self.send("\x0b" if "/ Commands" in self.display() else "/")
+        self.send(name)
+        self.send("\r")
+
     def paste(self, text):
         self.send(ESC + "[200~" + text + ESC + "[201~")
 
@@ -534,7 +542,7 @@ def exercise_ui(session, size, cwd):
     session.send(ESC)
     session.send("\x08")  # Dismissing the picker keeps its literal @; remove it.
     session.send(ESC)  # This legacy journey explicitly enters navigation first.
-    session.send("g")
+    session.command("goal")
     session.paste("🐾 smoke_goal 漢字 cafe\u0301")
     assert "smoke_goal 漢字 café" in session.display(), "CJK/combining paste not visible"
     assert "🐾" in session.display(), "astral paste lost its UTF-16 surrogate pair"
@@ -561,30 +569,30 @@ def exercise_ui(session, size, cwd):
     assert "]0;SMOKE_TITLE" in session.display(), "resize lost the draft tail"
     session.send("\r")
     await_saved(session)
+    session.send(ESC)  # Dismiss the neutral post-save next-action chooser.
     assert "smoke_goal 漢字 café" in session.display(), "local apply lost the goal"
     session.capture("applied-goal")
-    for key, name in (("?", "help"), ("i", "inspector"), ("b", "companion"),
-                      ("p", "preview"), ("\x0b", "palette")):
+    for command, name in (("help", "help"), ("inspect", "inspector"), ("companion", "companion"),
+                          ("preview", "preview"), (None, "palette")):
         before = session.display()
-        session.send(key)
+        session.command(command) if command else session.send("\x0b")
         assert session.display() != before, name + " did not open"
         session.capture(name)
         session.send(ESC)
         await_saved(session)
         session.capture(name + "-back")
         assert session.display() == before, name + " back did not restore the invoking surface"
-    session.send("f")
+    session.command("forms")
     for index, form in enumerate(FORMS):
-        session.send(str(index + 1))
+        session.send("\x1b[H" + RIGHT * index)
         assert form in session.display(), form + " is unreachable in picker"
         session.capture("form-" + str(index + 1))
     session.send(ESC)
-    session.send("f")
-    session.send("9")
-    session.send("\r")
+    session.command("forms")
+    session.command("role-sylveon")
     await_saved(session)
     assert "smoke_goal" in session.display(), "form selection lost the goal"
-    session.send("g")
+    session.command("goal")
     session.paste(" changed")
     session.send(ESC)
     session.capture("dirty-discard-neutral")
@@ -594,7 +602,7 @@ def exercise_ui(session, size, cwd):
     session.send(RIGHT)
     session.send("\r")
     assert "changed" not in session.display(), "explicit discard did not restore the goal"
-    session.send("g")
+    session.command("goal")
     session.send(ESC)  # Unchanged drafts close without a destructive confirmation.
     session.idle()
     session.send("\x03")
@@ -716,18 +724,19 @@ def main():
                     finally:
                         session.close()
                         save_json(output / "results.json", results)
-            for name, size, key in (("below-minimum-quit", (39, 10), "q"),
-                                    ("clean-quit", (60, 18), "q"),
-                                    ("clean-ctrl-c", (60, 18), "\x03")):
+            for name, size, command in (("below-minimum-quit", (39, 10), "quit"),
+                                        ("clean-quit", (60, 18), "quit"),
+                                        ("clean-ctrl-c", (60, 18), None)):
                 session = Session([str(binary), "--data-dir", str(Path(temporary) / (name + "-data")),
                                    "--images", "off", "--color", "mono", "--ascii"],
                                   cwd, terminal_environment("mono-ascii"), size, output / name)
                 try:
                     session.pump(0.8)
                     session.capture("initial")
-                    if key == "q":
-                        session.send(ESC)  # q is literal text until navigation is entered.
-                    session.send(key)
+                    if command:
+                        session.command(command)
+                    else:
+                        session.send("\x03")
                     assert session.wait_exit() == 0
                     results["cases"].append({"name": name, "status": "passed"})
                 finally:

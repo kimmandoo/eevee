@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 
 use super::{App, Overlay};
 use crate::store::EditorField;
@@ -6,7 +6,6 @@ use crate::store::EditorField;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Files,
-    Commands,
 }
 
 #[derive(Clone, Copy)]
@@ -15,80 +14,6 @@ pub struct Menu {
     pub start: usize,
     pub selected: usize,
 }
-
-pub struct Command {
-    pub name: &'static str,
-    pub description: &'static str,
-    pub destination: Overlay,
-}
-
-pub const COMMANDS: &[Command] = &[
-    Command {
-        name: "help",
-        description: "Keyboard help",
-        destination: Overlay::Help,
-    },
-    Command {
-        name: "connect",
-        description: "Connect a provider; no task sent",
-        destination: Overlay::Agents,
-    },
-    Command {
-        name: "run",
-        description: "Prepare a local command; approval required",
-        destination: Overlay::Execution,
-    },
-    Command {
-        name: "provider",
-        description: "Review and start a provider request",
-        destination: Overlay::Planning,
-    },
-    Command {
-        name: "files",
-        description: "Inspect and attach source context",
-        destination: Overlay::Sources,
-    },
-    Command {
-        name: "tasks",
-        description: "Browse saved tasks",
-        destination: Overlay::Tasks,
-    },
-    Command {
-        name: "criteria",
-        description: "Review acceptance criteria",
-        destination: Overlay::Criteria,
-    },
-    Command {
-        name: "forms",
-        description: "Choose evolution",
-        destination: Overlay::Forms,
-    },
-    Command {
-        name: "inspect",
-        description: "Task, storage and control details",
-        destination: Overlay::Inspector,
-    },
-    Command {
-        name: "diff",
-        description: "Repository baseline and changes",
-        destination: Overlay::Repository,
-    },
-    Command {
-        name: "handoff",
-        description: "Prepare a portable handoff",
-        destination: Overlay::Handoff,
-    },
-    Command {
-        name: "memory",
-        description: "Review approved memories",
-        destination: Overlay::Memory,
-    },
-    Command {
-        name: "workflows",
-        description: "Open the specialist desk",
-        destination: Overlay::Workflows,
-    },
-];
 
 impl App {
     pub fn composer_query(&self) -> &str {
@@ -103,9 +28,6 @@ impl App {
         };
         let query = self.composer_query();
         match menu.kind {
-            Kind::Commands => COMMANDS
-                .get(index)
-                .is_some_and(|command| command.name.starts_with(query)),
             Kind::Files => self.sources.files.get(index).is_some_and(|source| {
                 source
                     .path
@@ -117,7 +39,6 @@ impl App {
 
     pub fn composer_candidates(&self) -> impl Iterator<Item = usize> + '_ {
         let count = match self.composer_menu.map(|menu| menu.kind) {
-            Some(Kind::Commands) => COMMANDS.len(),
             Some(Kind::Files) => self.sources.files.len(),
             None => 0,
         };
@@ -133,7 +54,7 @@ impl App {
         self.composer_catalogue = false;
         if self.repository.is_none() && !self.repo_error.is_empty() {
             self.sources.error =
-                "Repository unavailable. Esc, then /files and u to refresh; w shows details."
+                "Repository unavailable. Esc, then /files and /refresh; /diff shows details."
                     .into();
             return;
         }
@@ -213,16 +134,6 @@ impl App {
             {
                 Kind::Files
             }
-            KeyCode::Char('/')
-                if self.input[..self.cursor]
-                    .rsplit('\n')
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .is_empty() =>
-            {
-                Kind::Commands
-            }
             _ => return None,
         };
         Some(self.start_composer_menu(kind))
@@ -230,7 +141,7 @@ impl App {
 
     pub(super) fn start_composer_menu(&mut self, kind: Kind) -> bool {
         let start = self.cursor;
-        if !self.insert_input(if kind == Kind::Files { "@" } else { "/" }) {
+        if !self.insert_input("@") {
             return false;
         }
         self.composer_menu = Some(Menu {
@@ -246,16 +157,12 @@ impl App {
         let menu = self.composer_menu.take().expect("open menu");
         self.composer_catalogue = false;
         let field = self.editor_field;
-        let replacement = if menu.kind == Kind::Files {
-            format!("@{} ", self.sources.files[index].path.to_string_lossy())
-        } else {
-            String::new()
-        };
+        let replacement = format!("@{} ", self.sources.files[index].path.to_string_lossy());
         // Keep all text outside the trigger, including text after the caret.
         self.input.replace_range(menu.start..self.cursor, "");
         self.cursor = menu.start;
         self.insert_input(&replacement);
-        self.edit_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        self.retain_editor();
         self.composer_return = Some(field);
         if menu.kind == Kind::Files {
             // Reuse the validated catalogue and the ordinary inspection/pin
@@ -270,18 +177,7 @@ impl App {
             self.sources
                 .inspect_file(self.task_id, self.repository.as_ref());
             self.notice =
-                "Inspect selected file; r chooses lines, p attaches. Esc returns to your draft."
-                    .into();
-        } else {
-            let command = &COMMANDS[index];
-            self.open_overlay(command.destination);
-            if command.name == "run" && self.overlay == Some(Overlay::Execution) {
-                self.execution_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
-            }
-            if self.overlay.is_none() && !self.editing {
-                self.composer_return = None;
-                self.begin_edit_field(field);
-            }
+                "Inspect selected file; /range chooses lines, /attach attaches. Esc returns to your draft.".into();
         }
     }
 }
@@ -290,6 +186,7 @@ impl App {
 mod tests {
     use super::*;
     use crossterm::event::Event;
+    use crossterm::event::KeyModifiers;
 
     fn key(app: &mut App, code: KeyCode) {
         app.update(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
@@ -303,7 +200,7 @@ mod tests {
         for ch in "help".chars() {
             key(&mut app, KeyCode::Char(ch));
         }
-        assert_eq!(app.composer_candidates().count(), 1);
+        assert_eq!(app.command_popup.as_ref().unwrap().candidates().count(), 1);
         key(&mut app, KeyCode::Enter);
         assert_eq!(app.overlay, Some(Overlay::Help));
         assert_eq!(app.drafts[0].text, "draft\n");
@@ -330,15 +227,15 @@ mod tests {
     }
 
     #[test]
-    fn run_command_opens_local_editor_without_execution() {
+    fn run_command_opens_local_execution_without_running() {
         let mut app = App::new("/workspace".into(), 120, 36);
         key(&mut app, KeyCode::Char('/'));
         for ch in "run".chars() {
             key(&mut app, KeyCode::Char(ch));
         }
         key(&mut app, KeyCode::Enter);
-        assert!(app.editing);
-        assert_eq!(app.editor_field, EditorField::Command);
+        assert_eq!(app.overlay, Some(Overlay::Execution));
+        assert!(!app.editing);
         assert!(app.command.is_empty());
         assert!(app.planning.pending.is_none());
     }
@@ -410,7 +307,7 @@ mod tests {
         assert_eq!(app.overlay, Some(Overlay::Help));
         assert_eq!(app.goal, "Existing task");
         key(&mut app, KeyCode::Esc);
-        assert!(app.editing);
-        assert_eq!(app.input, "Existing task");
+        assert!(!app.editing);
+        assert_eq!(app.goal, "Existing task");
     }
 }

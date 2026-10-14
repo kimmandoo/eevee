@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod commands;
 pub mod composer;
 pub mod execution;
 pub mod handoff;
@@ -18,31 +19,6 @@ use crate::store;
 pub const MAX_GOAL_BYTES: usize = 4096;
 pub const DELETE_PREVIEW_PAGE: usize = 256;
 
-pub const PALETTE: [&str; 22] = [
-    "Choose evolution",
-    "Edit task goal",
-    "Inspect task and storage",
-    "Show companion",
-    "Keyboard help",
-    "Preview local handoff",
-    "Toggle linear layout",
-    "Quit Eevee",
-    "Task cards",
-    "New task",
-    "Acceptance criteria",
-    "Next action",
-    "Complete task",
-    "Repository baseline and diff",
-    "Source map and context basket",
-    "Command execution and evidence",
-    "Connect a provider",
-    "Specialist request / planning and implementation",
-    "Portable task handoff",
-    "Set up Eevee and evolution images",
-    "Diagnosis, refactor, review and recipes",
-    "Approved memories",
-];
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pane {
     Companion,
@@ -53,7 +29,6 @@ pub enum Pane {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Overlay {
     Forms,
-    Palette,
     Help,
     Inspector,
     Companion,
@@ -138,6 +113,7 @@ pub struct App {
     pub confirmation: Option<Confirmation>,
     pub editing: bool,
     pub composer_menu: Option<composer::Menu>,
+    pub command_popup: Option<commands::Popup>,
     composer_catalogue: bool,
     composer_return: Option<store::EditorField>,
     pub images_pending: Option<crate::artwork::Request>,
@@ -203,7 +179,6 @@ pub struct App {
     pending_command: Option<String>,
     edit_original: String,
     form_selection: usize,
-    palette_selection: usize,
     overlay_history: Vec<OverlayFrame>,
     edit_return: Option<OverlayFrame>,
     preview_form: usize,
@@ -227,6 +202,7 @@ impl App {
             confirmation: None,
             editing: true,
             composer_menu: None,
+            command_popup: None,
             composer_catalogue: false,
             composer_return: None,
             images_pending: None,
@@ -292,7 +268,6 @@ impl App {
             pending_command: None,
             edit_original: String::new(),
             form_selection: 0,
-            palette_selection: 0,
             overlay_history: Vec::new(),
             edit_return: None,
             preview_form: 0,
@@ -313,7 +288,7 @@ impl App {
                 "Storage: saving before exit / Esc stay"
             }
             StorageState::Saving => "Storage: saving",
-            StorageState::Failed(_) => "Storage: save failed / r retry / i details",
+            StorageState::Failed(_) => "Storage: save failed / /storage-retry / /inspect",
         }
     }
 
@@ -392,13 +367,14 @@ impl App {
             }
             repo::Event::Unsupported { path, reason } => {
                 self.repo_status = "Repository: unsupported".into();
-                self.repo_error = format!("{path:?}: {reason}. Task data is retained; r retries.");
+                self.repo_error =
+                    format!("{path:?}: {reason}. Task data is retained; /refresh retries.");
                 self.repo_error.retain(safe_character);
             }
             repo::Event::Failed { operation, message } => {
                 self.repo_status = "Repository: inspection failed".into();
                 self.repo_error = format!(
-                    "{operation}: {message}. Previous evidence is retained; r retries the read-only inspection."
+                    "{operation}: {message}. Previous evidence is retained; /refresh retries the read-only inspection."
                 );
                 self.repo_error.retain(safe_character);
             }
@@ -585,6 +561,13 @@ impl App {
                 if revision.is_none_or(|revision| revision == self.revision) {
                     self.storage = StorageState::Failed(message);
                     self.quit_after_save = false;
+                    if self
+                        .command_popup
+                        .as_ref()
+                        .is_some_and(|popup| popup.after_goal)
+                    {
+                        self.command_popup = None;
+                    }
                 }
             }
         }
@@ -623,12 +606,10 @@ impl App {
             },
             linear: self.linear,
             form_selection: self.form_selection,
-            palette_selection: self.palette_selection,
             criterion_selection: self.criterion_selection,
             scroll: self.surface_scroll,
             overlay: match self.overlay {
                 Some(Overlay::Forms) => Some(0),
-                Some(Overlay::Palette) => Some(1),
                 Some(Overlay::Help) => Some(2),
                 Some(Overlay::Inspector) => Some(3),
                 Some(Overlay::Companion) => Some(4),
@@ -716,6 +697,7 @@ impl App {
         self.overlay_history.clear();
         self.edit_return = None;
         self.composer_menu = None;
+        self.command_popup = None;
         self.composer_catalogue = false;
         self.composer_return = None;
         self.editing = false;
@@ -728,12 +710,12 @@ impl App {
         };
         self.linear = navigation.linear;
         self.form_selection = navigation.form_selection;
-        self.palette_selection = navigation.palette_selection.min(PALETTE.len() - 1);
         self.surface_scroll = navigation.scroll;
         self.surface_scroll_max = [u16::MAX; 5];
         self.overlay = match navigation.overlay {
             Some(0) => Some(Overlay::Forms),
-            Some(1) => Some(Overlay::Palette),
+            // Legacy palette navigation is safely returned to the workspace.
+            Some(1) => None,
             Some(2) => Some(Overlay::Help),
             Some(3) => Some(Overlay::Inspector),
             Some(4) => Some(Overlay::Companion),
@@ -812,7 +794,7 @@ impl App {
             return;
         }
         if self.planning.journal_failed() {
-            self.planning.notice = "Provider observations are retained after journal failure; h then r retries storage only.".into();
+            self.planning.notice = "Provider observations are retained after journal failure; /history then /journal-retry retries storage only.".into();
             if matches!(action, execution::Action::Quit) {
                 self.finish_request_quit();
             } else {
@@ -901,10 +883,14 @@ impl App {
     }
 
     fn source_key(&mut self, key: KeyEvent) -> bool {
-        match self
+        let action = self
             .sources
-            .key(key, self.task_id, self.repository.as_ref())
-        {
+            .key(key, self.task_id, self.repository.as_ref());
+        self.apply_source_action(action)
+    }
+
+    fn apply_source_action(&mut self, action: sources::Action) -> bool {
+        match action {
             sources::Action::Close => self.close_overlay(),
             sources::Action::Quit => self.request_quit(),
             sources::Action::RefreshRepository => {
@@ -926,14 +912,6 @@ impl App {
             )
         {
             return false;
-        }
-        if key.modifiers == KeyModifiers::CONTROL
-            && key.code == KeyCode::Char('k')
-            && !self.execution.searching
-            && self.execution.confirmation.is_none()
-        {
-            self.open_overlay(Overlay::Palette);
-            return true;
         }
         if let Some(action) = self.execution.key(key) {
             self.apply_execution_action(action);
@@ -1085,6 +1063,8 @@ impl App {
     /// Returns whether visible state changed. The event loop otherwise stays asleep.
     pub fn update(&mut self, event: Event) -> bool {
         let resized = matches!(event, Event::Resize(_, _));
+        let command_action = self.command_popup.is_some()
+            && matches!(&event, Event::Key(key) if key.code == KeyCode::Enter);
         let revision = self.revision;
         let navigation = self.navigation();
         let input_state = (self.input.len(), self.cursor);
@@ -1096,12 +1076,29 @@ impl App {
                 self.width = width;
                 self.height = height;
                 self.agents.affirmative = false;
+                if let Some(popup) = &mut self.command_popup {
+                    popup.selected = None;
+                }
+                if let Some(confirmation) = &mut self.confirmation {
+                    confirmation.destructive = false;
+                }
+                self.execution.affirmative = false;
                 self.agents.reviewed = false;
                 self.images_reviewed = false;
                 self.images_selected = 0;
                 self.planning.invalidate_review();
                 self.handoff.invalidate_review();
                 true
+            }
+            Event::Paste(text)
+                if self.command_popup.is_some()
+                    && self.editing
+                    && self.confirmation.is_none()
+                    && !self.transitioning
+                    && !self.quit_after_save =>
+            {
+                self.command_popup = None;
+                self.insert_input(&text)
             }
             Event::Paste(text) if self.overlay == Some(Overlay::Workflows) => {
                 self.workflow_paste(&text)
@@ -1134,6 +1131,7 @@ impl App {
         };
         if changed
             && !resized
+            && (!command_action || !self.planning.busy())
             && !self.transitioning
             && !self.quit
             && !self.quit_after_save
@@ -1200,6 +1198,8 @@ impl App {
             && !self.planning.editing
             && !self.planning.journal_mode
             && self.planning.inspection.is_none()
+            && self.planning.picker.is_none()
+            && self.planning.selection_change.is_none()
         {
             self.close_overlay();
             return true;
@@ -1255,14 +1255,79 @@ impl App {
         changed
     }
 
+    fn planning_command(&mut self, name: &str) -> bool {
+        if self.planning.needs_saved_command(name) {
+            if let Err(error) = self.memory.selected_snapshot() {
+                self.planning.notice = format!("Review selected memories first: {error}");
+                return true;
+            }
+            if !self.planning_input_ready() {
+                self.planning.notice = "Wait for task/context/journal storage acknowledgement and local work before previewing. Nothing was sent.".into();
+                return true;
+            }
+        }
+        let empty;
+        let task = if let Some(task) = self.tasks.iter().find(|task| task.id == self.task_id) {
+            task
+        } else {
+            empty = store::Snapshot::empty(self.cwd.clone());
+            &empty
+        };
+        let operation = self.planning.operation;
+        let changed = self.planning.command(
+            name,
+            self.width >= 60 && self.height >= 18,
+            task,
+            &self.sources.basket,
+            self.repository.as_ref(),
+        );
+        if operation != self.planning.operation {
+            self.form = match self.planning.operation {
+                crate::provider::Operation::Implement => 3,
+                crate::provider::Operation::Review => 7,
+                crate::provider::Operation::Plan => 4,
+            };
+            self.changed_task();
+        }
+        changed
+    }
+
+    fn handoff_command(&mut self, name: &str) -> bool {
+        if self.handoff.command_needs_saved_input(name) && !self.authentication_ready() {
+            self.handoff.notice = "Finish or retry task/context/journal saves and active work before exporting committed facts.".into();
+            return true;
+        }
+        let empty;
+        let task = if let Some(task) = self.tasks.iter().find(|task| task.id == self.task_id) {
+            task
+        } else {
+            empty = store::Snapshot::empty(self.cwd.clone());
+            &empty
+        };
+        self.handoff.command(
+            name,
+            self.width >= 60 && self.height >= 18,
+            task,
+            &self.sources.basket,
+            &[],
+        )
+    }
+
     pub fn authentication_ready(&self) -> bool {
+        self.committed_input_ready() && !self.planning.busy()
+    }
+
+    fn planning_input_ready(&self) -> bool {
+        self.committed_input_ready() && !self.planning.busy_except_picker()
+    }
+
+    fn committed_input_ready(&self) -> bool {
         matches!(self.storage, StorageState::Saved)
             && self.saved_revision == self.revision
             && !self.save_requested
             && !self.sources.busy()
             && !self.sources.store_failed
             && !self.execution.busy()
-            && !self.planning.busy()
             && !self.planning.journal_failed()
             && !self.transitioning
             && self.management.is_none()
@@ -1323,6 +1388,16 @@ impl App {
         false
     }
 
+    fn command_surface_editing(&self) -> bool {
+        self.sources.editor.is_some()
+            || self.execution.searching
+            || self.planning.paths_editor.is_some()
+            || self.planning.editing
+            || self.workflow.editor.is_some()
+            || self.memory.editing()
+            || self.handoff.editing
+    }
+
     fn key(&mut self, key: KeyEvent) -> bool {
         if self.transitioning {
             if self.deletion_preview_pending && key.code == KeyCode::Esc {
@@ -1343,102 +1418,32 @@ impl App {
         if self.confirmation.is_some() {
             return self.confirmation_key(key);
         }
-        if self.overlay == Some(Overlay::Sources)
-            && (self.sources.editor.is_some() || self.sources.confirmation.is_some())
+        if key.code == KeyCode::Char('c')
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && key.kind == KeyEventKind::Press
         {
-            return self.source_key(key);
+            self.request_quit();
+            return true;
         }
-        if self.overlay == Some(Overlay::Workflows) {
-            return self.workflow_key(key);
+        if self.command_popup.is_some() {
+            return self.command_popup_key(key);
         }
-        if self.overlay == Some(Overlay::Memory) {
-            return self.memory_key(key);
+        if key.kind == KeyEventKind::Press
+            && !self.command_surface_editing()
+            && ((key.code == KeyCode::Char('/')
+                && key.modifiers.is_empty()
+                && (!self.editing
+                    || matches!(
+                        self.editor_field,
+                        store::EditorField::Goal | store::EditorField::NextAction
+                    )))
+                || (key.code == KeyCode::Char('k') && key.modifiers == KeyModifiers::CONTROL))
+        {
+            self.open_commands(false);
+            return true;
         }
-        if self.overlay == Some(Overlay::Handoff) {
-            return self.handoff_key(key);
-        }
-        if self.overlay == Some(Overlay::Planning) {
-            return self.planning_key(key);
-        }
-        if self.overlay == Some(Overlay::Execution) {
-            return self.execution_key(key);
-        }
-        if self.overlay == Some(Overlay::Agents) {
-            if key.kind == KeyEventKind::Release {
-                return false;
-            }
-            if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-                if key.kind == KeyEventKind::Repeat {
-                    return false;
-                }
-                self.agents.cancel_preview();
-                self.request_quit();
-                return true;
-            }
-            if key.code == KeyCode::Esc
-                && !self.agents.preview
-                && self.agents.auth_preview.is_none()
-                && !self.agents.auth_busy()
-                && self.agents.at_root()
-            {
-                self.close_overlay();
-                return true;
-            }
-            if !self.agents.preview
-                && self.agents.auth_preview.is_none()
-                && !self.agents.auth_busy()
-                && key.kind == KeyEventKind::Press
-            {
-                if key.modifiers == KeyModifiers::CONTROL
-                    && key.code == KeyCode::Char('k')
-                    && self.width >= 60
-                    && self.height >= 18
-                {
-                    self.open_overlay(Overlay::Palette);
-                    return true;
-                }
-                if key.modifiers.is_empty() {
-                    match key.code {
-                        KeyCode::Char('o') => {
-                            self.close_overlay();
-                            return true;
-                        }
-                        KeyCode::Char('q') => {
-                            self.request_quit();
-                            return true;
-                        }
-                        KeyCode::Char('?') if self.width >= 60 && self.height >= 18 => {
-                            self.open_overlay(Overlay::Help);
-                            return true;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            if self.agents.auth_preview.is_some()
-                && self.agents.affirmative
-                && key.code == KeyCode::Enter
-                && !self.authentication_ready()
-            {
-                self.agents.notice = "Finish or retry task/context/journal saves and active work before authentication. No login started.".into();
-                return true;
-            }
-            let changed = self.agents.key(key, self.width >= 60 && self.height >= 18);
-            if let Some(profile) = self.agents.use_for_task.take() {
-                self.open_overlay(Overlay::Planning);
-                if self.overlay == Some(Overlay::Planning) {
-                    self.planning_key(KeyEvent::new(
-                        KeyCode::Char(char::from(b'1' + profile as u8)),
-                        KeyModifiers::NONE,
-                    ));
-                }
-            }
-            return changed;
-        }
-        // Auto-repeat must never apply a draft or approve/open a destructive action.
         if key.kind == KeyEventKind::Repeat
             && (key.code == KeyCode::Enter
-                || (!self.editing && key.code == KeyCode::Char('q'))
                 || (key.modifiers.contains(KeyModifiers::CONTROL)
                     && key.code == KeyCode::Char('c')))
         {
@@ -1448,68 +1453,47 @@ impl App {
             self.request_quit();
             return true;
         }
-        if self.width >= 60
-            && self.height >= 18
-            && (self.overlay.is_none()
-                || matches!(self.overlay, Some(Overlay::Forms | Overlay::Companion)))
-        {
-            let destination = match key.code {
-                KeyCode::F(1) => Some(Overlay::Help),
-                KeyCode::F(2) => Some(Overlay::Agents),
-                KeyCode::F(3) => Some(Overlay::Forms),
-                KeyCode::F(4) => Some(Overlay::Images),
-                KeyCode::Char('k') if key.modifiers == KeyModifiers::CONTROL => {
-                    Some(Overlay::Palette)
+        match self.overlay {
+            Some(Overlay::Workflows) => return self.workflow_key(key),
+            Some(Overlay::Memory) => return self.memory_key(key),
+            Some(Overlay::Handoff) => return self.handoff_key(key),
+            Some(Overlay::Planning) => return self.planning_key(key),
+            Some(Overlay::Execution) => return self.execution_key(key),
+            Some(Overlay::Sources) => return self.source_key(key),
+            Some(Overlay::Agents) => {
+                if key.code == KeyCode::Esc
+                    && !self.agents.preview
+                    && self.agents.auth_preview.is_none()
+                    && !self.agents.auth_busy()
+                    && self.agents.at_root()
+                {
+                    self.close_overlay();
+                    return true;
                 }
-                _ => None,
-            };
-            if let Some(destination) = destination {
-                if self.editing {
-                    if self.draft_dirty() {
-                        self.edit_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
-                    } else {
-                        self.input.clear();
-                        self.finish_edit();
-                    }
+                if self.agents.auth_preview.is_some()
+                    && self.agents.affirmative
+                    && key.code == KeyCode::Enter
+                    && !self.authentication_ready()
+                {
+                    self.agents.notice = "Finish or retry saves and active work before authentication. No login started.".into();
+                    return true;
                 }
-                self.open_overlay(destination);
-                return true;
+                let changed = self.agents.key(key, self.width >= 60 && self.height >= 18);
+                self.use_selected_provider();
+                return changed;
             }
-        }
-        if self.overlay == Some(Overlay::Images) {
-            return self.images_key(key);
+            Some(Overlay::Images) => return self.images_key(key),
+            _ => {}
         }
         if self.editing {
             return self.edit_key(key);
         }
-        if key.code == KeyCode::Char('q')
-            && !key
-                .modifiers
-                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-        {
-            self.request_quit();
-            return true;
-        }
-        // Back and exit remain available even when the terminal cannot draw a panel.
-        if key.code == KeyCode::Esc
-            && !key
-                .modifiers
-                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-            && self.overlay.is_some()
-            && self.overlay != Some(Overlay::Sources)
-        {
+        if key.code == KeyCode::Esc && self.overlay.is_some() {
             self.close_overlay();
             return true;
         }
         if self.width < 60 || self.height < 18 {
             return false;
-        }
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('k') {
-            if self.overlay == Some(Overlay::Palette) {
-                return false;
-            }
-            self.open_overlay(Overlay::Palette);
-            return true;
         }
         if key
             .modifiers
@@ -1517,54 +1501,10 @@ impl App {
         {
             return false;
         }
-        if key.code == KeyCode::Char('l') {
-            self.linear = !self.linear;
-            return true;
-        }
-        if key.code == KeyCode::Char('r')
-            && !matches!(self.overlay, Some(Overlay::Repository | Overlay::Sources))
-            && matches!(self.storage, StorageState::Failed(_))
-        {
-            self.retry_storage = true;
-            self.storage = StorageState::Loading;
-            return true;
-        }
-        if self.overlay == Some(Overlay::Sources) {
-            return self.source_key(key);
-        }
         if let Some(overlay) = self.overlay {
             return self.overlay_key(overlay, key.code);
         }
         match key.code {
-            KeyCode::Char('f') => self.open_overlay(Overlay::Forms),
-            KeyCode::Char('g') => self.begin_edit(),
-            KeyCode::Char('/') | KeyCode::Char('@') => {
-                self.begin_edit();
-                if self.editing {
-                    self.start_composer_menu(if key.code == KeyCode::Char('@') {
-                        composer::Kind::Files
-                    } else {
-                        composer::Kind::Commands
-                    });
-                }
-            }
-            KeyCode::Char('i') => self.open_overlay(Overlay::Inspector),
-            KeyCode::Char('b') => self.open_overlay(Overlay::Companion),
-            KeyCode::Char('?') => self.open_overlay(Overlay::Help),
-            KeyCode::Char('p') => self.open_overlay(Overlay::Preview),
-            KeyCode::Char('t') => self.open_overlay(Overlay::Tasks),
-            KeyCode::Char('n') => self.new_task(),
-            KeyCode::Char('c') => self.open_overlay(Overlay::Criteria),
-            KeyCode::Char('a') => self.begin_edit_field(store::EditorField::NextAction),
-            KeyCode::Char('d') => self.request_complete(),
-            KeyCode::Char('w') => self.open_overlay(Overlay::Repository),
-            KeyCode::Char('v') => self.open_overlay(Overlay::Sources),
-            KeyCode::Char('j') => self.open_overlay(Overlay::Execution),
-            KeyCode::Char('o') => self.open_overlay(Overlay::Agents),
-            KeyCode::Char('e') => self.open_overlay(Overlay::Planning),
-            KeyCode::Char('z') => self.open_overlay(Overlay::Handoff),
-            KeyCode::Char('u') => self.open_overlay(Overlay::Workflows),
-            KeyCode::Char('m') => self.open_overlay(Overlay::Memory),
             KeyCode::Tab | KeyCode::BackTab => {
                 return self.cycle_focus(key.code == KeyCode::BackTab);
             }
@@ -1577,24 +1517,55 @@ impl App {
                 Pane::Workspace => self.begin_edit(),
                 Pane::Inspector => self.open_overlay(Overlay::Inspector),
             },
+            KeyCode::Char(character) if safe_character(character) => {
+                self.begin_edit();
+                if self.editing {
+                    let mut bytes = [0; 4];
+                    return self.insert_input(character.encode_utf8(&mut bytes));
+                }
+            }
             code => return self.scroll_key(code),
         }
         true
     }
 
+    fn use_selected_provider(&mut self) {
+        if let Some(profile) = self.agents.use_for_task.take() {
+            self.open_overlay(Overlay::Planning);
+            if self.overlay == Some(Overlay::Planning) {
+                let name = [
+                    "provider-codex",
+                    "provider-claude",
+                    "provider-opencode",
+                    "provider-gemini",
+                    "provider-devin",
+                ]
+                .get(profile)
+                .copied();
+                if let Some(name) = name {
+                    self.planning_command(name);
+                }
+            }
+        }
+    }
+
+    fn retain_editor(&mut self) {
+        self.drafts.retain(|draft| draft.field != self.editor_field);
+        if self.draft_dirty() {
+            self.drafts.push(store::Draft {
+                field: self.editor_field,
+                text: self.input.clone(),
+                cursor: self.cursor,
+            });
+        }
+        self.input.clear();
+        self.finish_edit();
+        self.changed_task();
+    }
+
     fn edit_key(&mut self, mut key: KeyEvent) -> bool {
         if key.code == KeyCode::Char('s') && key.modifiers == KeyModifiers::CONTROL {
-            self.drafts.retain(|draft| draft.field != self.editor_field);
-            if self.draft_dirty() {
-                self.drafts.push(store::Draft {
-                    field: self.editor_field,
-                    text: self.input.clone(),
-                    cursor: self.cursor,
-                });
-            }
-            self.input.clear();
-            self.finish_edit();
-            self.changed_task();
+            self.retain_editor();
             return true;
         }
         // Native VT/ConPTY terminals may encode Backspace as BS (Ctrl+H),
@@ -1724,9 +1695,9 @@ impl App {
         if self
             .confirmation
             .is_some_and(|c| c.kind == ConfirmationKind::DeleteTasks)
-            && matches!(key.code, KeyCode::Char('n' | 'p'))
+            && matches!(key.code, KeyCode::Home | KeyCode::End)
         {
-            self.delete_page = if key.code == KeyCode::Char('n') {
+            self.delete_page = if key.code == KeyCode::End {
                 (self.delete_page + 1).min(self.deletion_pages() - 1)
             } else {
                 self.delete_page.saturating_sub(1)
@@ -1985,6 +1956,11 @@ impl App {
     }
 
     fn apply_editor(&mut self) -> bool {
+        if self.width < 60 || self.height < 18 {
+            self.notice = "Enlarge the terminal before applying this draft.".into();
+            return false;
+        }
+        let goal_saved = self.editor_field == store::EditorField::Goal;
         match self.editor_field {
             store::EditorField::Goal => self.goal = std::mem::take(&mut self.input),
             store::EditorField::NextAction => self.next_action = std::mem::take(&mut self.input),
@@ -2024,6 +2000,9 @@ impl App {
         self.drafts.retain(|draft| draft.field != self.editor_field);
         self.finish_edit();
         self.changed_task();
+        if goal_saved {
+            self.open_commands(true);
+        }
         true
     }
 
@@ -2039,18 +2018,14 @@ impl App {
     }
 
     fn save_selection(&mut self) {
-        match self.overlay {
-            Some(Overlay::Forms) => self.form_selection = self.selected,
-            Some(Overlay::Palette) => self.palette_selection = self.selected,
-            _ => {}
+        if let Some(Overlay::Forms) = self.overlay {
+            self.form_selection = self.selected;
         }
     }
 
     fn restore_selection(&mut self) {
-        match self.overlay {
-            Some(Overlay::Forms) => self.selected = self.form_selection,
-            Some(Overlay::Palette) => self.selected = self.palette_selection,
-            _ => {}
+        if let Some(Overlay::Forms) = self.overlay {
+            self.selected = self.form_selection;
         }
     }
 
@@ -2199,62 +2174,29 @@ impl App {
         true
     }
 
+    fn toggle_criterion(&mut self) {
+        if self.complete {
+            self.confirmation = Some(Confirmation {
+                kind: ConfirmationKind::Reopen(store::EditorField::Criteria),
+                destructive: false,
+            });
+        } else if let Some(criterion) = self.criteria.get_mut(self.criterion_selection) {
+            criterion.met = !criterion.met;
+            self.changed_task();
+        }
+    }
+
     fn task_overlay_key(&mut self, overlay: Overlay, key: KeyCode) -> bool {
         if matches!(key, KeyCode::PageUp | KeyCode::PageDown) {
             return self.scroll_key(key);
         }
         match (overlay, key) {
-            (Overlay::Tasks, KeyCode::Char('t')) | (Overlay::Criteria, KeyCode::Char('c')) => {
-                self.close_overlay();
-                return true;
-            }
-            (Overlay::Tasks, KeyCode::Char('n')) => {
-                self.new_task();
-                return true;
-            }
-            (Overlay::Tasks, KeyCode::Char('h')) => {
-                self.show_archived = !self.show_archived;
-                self.task_selection = 0;
-                return true;
-            }
-            (Overlay::Tasks, KeyCode::Char('a')) if !self.show_archived => {
-                self.archive_selected(true);
-                return true;
-            }
-            (Overlay::Tasks, KeyCode::Char('r')) if self.show_archived => {
-                self.archive_selected(false);
-                return true;
-            }
-            (Overlay::Tasks, KeyCode::Delete) => {
-                self.preview_delete(false);
-                return true;
-            }
-            (Overlay::Tasks, KeyCode::Char('x')) => {
-                self.preview_delete(true);
-                return true;
-            }
             (Overlay::Tasks, KeyCode::Enter) => {
                 self.select_task();
                 return true;
             }
-            (Overlay::Criteria, KeyCode::Char('e')) => {
-                self.begin_edit_field(store::EditorField::Criteria);
-                return true;
-            }
-            (Overlay::Criteria, KeyCode::Char('d')) => {
-                self.request_complete();
-                return true;
-            }
-            (Overlay::Criteria, KeyCode::Char(' ')) => {
-                if self.complete {
-                    self.confirmation = Some(Confirmation {
-                        kind: ConfirmationKind::Reopen(store::EditorField::Criteria),
-                        destructive: false,
-                    });
-                } else if let Some(criterion) = self.criteria.get_mut(self.criterion_selection) {
-                    criterion.met = !criterion.met;
-                    self.changed_task();
-                }
+            (Overlay::Criteria, KeyCode::Enter) => {
+                self.toggle_criterion();
                 return true;
             }
             _ => {}
@@ -2284,53 +2226,15 @@ impl App {
     }
 
     fn overlay_key(&mut self, overlay: Overlay, key: KeyCode) -> bool {
-        if key == KeyCode::F(4) {
-            self.open_overlay(Overlay::Images);
-            return true;
-        }
         if matches!(overlay, Overlay::Tasks | Overlay::Criteria) {
             return self.task_overlay_key(overlay, key);
         }
-        match overlay {
-            Overlay::Help if key == KeyCode::Char('?') => {
-                self.close_overlay();
-                return true;
-            }
-            Overlay::Inspector if key == KeyCode::Char('i') => {
-                self.close_overlay();
-                return true;
-            }
-            Overlay::Companion => {
-                if matches!(key, KeyCode::Enter | KeyCode::Char('f')) {
-                    self.open_overlay(Overlay::Forms);
-                    return true;
-                }
-                if key == KeyCode::Char('b') {
-                    self.close_overlay();
-                    return true;
-                }
-            }
-            Overlay::Preview if key == KeyCode::Char('p') => {
-                self.close_overlay();
-                return true;
-            }
-            Overlay::Repository if key == KeyCode::Char('w') => {
-                self.close_overlay();
-                return true;
-            }
-            Overlay::Repository if key == KeyCode::Char('r') => {
-                if !self.repo_loading {
-                    self.repo_refresh = true;
-                    self.repo_loading = true;
-                    self.repo_status = "Repository: refreshing / original baseline retained".into();
-                }
-                return true;
-            }
-            _ => {}
+        if overlay == Overlay::Companion && key == KeyCode::Enter {
+            self.open_overlay(Overlay::Forms);
+            return true;
         }
         let count = match overlay {
             Overlay::Forms => FORMS.len(),
-            Overlay::Palette => PALETTE.len(),
             _ => return self.scroll_key(key),
         };
         let previous = self.selected;
@@ -2348,51 +2252,8 @@ impl App {
             }
             KeyCode::Home => self.selected = 0,
             KeyCode::End => self.selected = count - 1,
-            KeyCode::Char(character)
-                if overlay == Overlay::Forms && ('1'..='9').contains(&character) =>
-            {
-                self.selected = (character as u8 - b'1') as usize;
-            }
-            KeyCode::Char('p') if overlay == Overlay::Forms => {
-                self.open_overlay(Overlay::Preview);
-                return true;
-            }
             KeyCode::Enter => {
-                let selection = self.selected;
-                if overlay == Overlay::Palette && selection == 7 {
-                    self.request_quit();
-                    return true;
-                }
-                if overlay == Overlay::Forms {
-                    self.request_navigation(execution::Action::SelectForm(selection));
-                } else {
-                    self.close_overlay();
-                    match selection {
-                        0 => self.open_overlay(Overlay::Forms),
-                        1 => self.begin_edit(),
-                        2 => self.open_overlay(Overlay::Inspector),
-                        3 => self.open_overlay(Overlay::Companion),
-                        4 => self.open_overlay(Overlay::Help),
-                        5 => self.open_overlay(Overlay::Preview),
-                        6 => self.linear = !self.linear,
-                        7 => unreachable!("quit handled without leaving the palette"),
-                        8 => self.open_overlay(Overlay::Tasks),
-                        9 => self.new_task(),
-                        10 => self.open_overlay(Overlay::Criteria),
-                        11 => self.begin_edit_field(store::EditorField::NextAction),
-                        12 => self.request_complete(),
-                        13 => self.open_overlay(Overlay::Repository),
-                        14 => self.open_overlay(Overlay::Sources),
-                        15 => self.open_overlay(Overlay::Execution),
-                        16 => self.open_overlay(Overlay::Agents),
-                        17 => self.open_overlay(Overlay::Planning),
-                        18 => self.open_overlay(Overlay::Handoff),
-                        19 => self.open_overlay(Overlay::Images),
-                        20 => self.open_overlay(Overlay::Workflows),
-                        21 => self.open_overlay(Overlay::Memory),
-                        _ => unreachable!("palette selection is bounded"),
-                    }
-                }
+                self.request_navigation(execution::Action::SelectForm(self.selected));
                 return true;
             }
             _ => return false,
@@ -2497,7 +2358,7 @@ mod tests {
     #[test]
     fn clearing_first_draft_before_insert_ack_does_not_restore_deleted_text() {
         let mut app = app();
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         key(&mut app, KeyCode::Char('x'));
         let first = committed(&app);
         app.save_requested = false;
@@ -2538,12 +2399,11 @@ mod tests {
         assert_eq!(app.input, "quick task 한글");
         assert!(!app.quit);
         assert!(app.goal.is_empty());
-        key(&mut app, KeyCode::F(2));
+        app.command("connect");
         assert_eq!(app.overlay, Some(Overlay::Agents));
         assert_eq!(app.drafts[0].text, "quick task 한글");
         assert!(app.agents.pending_auth.is_none());
         key(&mut app, KeyCode::Esc);
-        key(&mut app, KeyCode::Enter);
         assert_eq!(app.input, "quick task 한글");
         key(&mut app, KeyCode::Enter);
         assert_eq!(app.goal, "quick task 한글");
@@ -2553,17 +2413,17 @@ mod tests {
     #[test]
     fn image_download_requires_visible_review_and_survives_resize_as_neutral() {
         let mut app = app();
-        key(&mut app, KeyCode::F(4));
+        app.command("images");
         key(&mut app, KeyCode::Enter);
         assert!(app.images_pending.is_none());
         assert!(app.overlay.is_none());
-        key(&mut app, KeyCode::F(4));
+        app.command("images");
         app.images_reviewed = true;
         key(&mut app, KeyCode::Down);
         app.update(Event::Resize(60, 18));
         key(&mut app, KeyCode::Enter);
         assert!(app.images_pending.is_none());
-        key(&mut app, KeyCode::F(4));
+        app.command("images");
         app.images_reviewed = true;
         app.images_enabled = false;
         key(&mut app, KeyCode::Down);
@@ -2588,13 +2448,13 @@ mod tests {
             app.focus = Pane::Inspector;
             for selection in 0..FORMS.len() {
                 let original = app.form;
-                key(&mut app, KeyCode::Char('f'));
-                key(&mut app, KeyCode::Char((b'1' + selection as u8) as char));
+                app.command("forms");
+                app.selected = selection;
                 assert_eq!(app.selected, selection);
                 assert_eq!(app.form, original);
                 key(&mut app, KeyCode::Esc);
                 assert_eq!(app.form, original);
-                key(&mut app, KeyCode::Char('f'));
+                app.command("forms");
                 assert_eq!(app.selected, selection);
                 key(&mut app, KeyCode::Enter);
                 assert_eq!(app.form, selection);
@@ -2607,7 +2467,7 @@ mod tests {
     #[test]
     fn grid_arrows_wrap_by_column_and_row_while_list_moves_one_item() {
         let mut app = app();
-        key(&mut app, KeyCode::Char('f'));
+        app.command("forms");
         key(&mut app, KeyCode::Up);
         assert_eq!(app.selected, 6);
         key(&mut app, KeyCode::Down);
@@ -2620,7 +2480,7 @@ mod tests {
         key(&mut app, KeyCode::Up);
         assert_eq!(app.selected, 8);
         app.update(Event::Resize(120, 36));
-        key(&mut app, KeyCode::Char('l'));
+        app.command("layout");
         key(&mut app, KeyCode::Down);
         assert_eq!(app.selected, 0);
     }
@@ -2629,7 +2489,7 @@ mod tests {
     fn editing_is_modal_and_cancel_keeps_the_committed_goal() {
         let mut app = app();
         app.goal = "original".into();
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         key(&mut app, KeyCode::Char('q'));
         assert!(!app.quit);
         assert!(!key(&mut app, KeyCode::Tab));
@@ -2657,7 +2517,7 @@ mod tests {
         key(&mut app, KeyCode::Enter);
         assert!(!app.editing);
         assert_eq!(app.input, "");
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         key(&mut app, KeyCode::Char('!'));
         key(&mut app, KeyCode::Enter);
         assert_eq!(app.goal, "original!");
@@ -2666,7 +2526,7 @@ mod tests {
     #[test]
     fn cursor_insertion_and_deletion_preserve_whole_unicode_graphemes() {
         let mut app = app();
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         app.update(Event::Paste("한e\u{301}👩‍💻界".into()));
         key(&mut app, KeyCode::Left);
         assert_eq!(&app.input[app.cursor..], "界");
@@ -2691,7 +2551,7 @@ mod tests {
     #[test]
     fn vt_backspace_deletes_a_combining_grapheme_without_leaving_its_mark() {
         let mut app = app();
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         app.update(Event::Paste("cafe\u{301}".into()));
         assert!(modified_key(
             &mut app,
@@ -2707,7 +2567,7 @@ mod tests {
     #[test]
     fn multiline_movement_retains_column_across_short_rows_and_shift_enter() {
         let mut app = app();
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         app.update(Event::Paste("한e\u{301}界\nx\n👩‍💻中文".into()));
         key(&mut app, KeyCode::Left);
         key(&mut app, KeyCode::Up);
@@ -2730,7 +2590,7 @@ mod tests {
     #[test]
     fn portable_newline_key_keeps_the_draft_local_until_explicit_apply() {
         let mut app = app();
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         app.update(Event::Paste("first".into()));
         modified_key(&mut app, KeyCode::Char('n'), KeyModifiers::CONTROL);
         app.update(Event::Paste("second".into()));
@@ -2745,7 +2605,7 @@ mod tests {
     fn pasted_newlines_and_commands_are_bounded_local_text_not_actions() {
         let mut app = app();
         assert!(!app.update(Event::Paste("q\n/run".into())));
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         app.update(Event::Paste("q\r\n/run\r한\x1b\x07\u{202e}\t".into()));
         assert_eq!(app.input, "q\n/run\n한");
         assert!(!app.quit);
@@ -2766,8 +2626,8 @@ mod tests {
         let mut app = app();
         key(&mut app, KeyCode::Tab);
         assert_eq!(app.focus, Pane::Inspector);
-        key(&mut app, KeyCode::Char('f'));
-        key(&mut app, KeyCode::Char('9'));
+        app.command("forms");
+        app.selected = 8;
         app.update(Event::Resize(70, 24));
         assert_eq!(app.focus, Pane::Inspector);
         assert_eq!(app.effective_focus(), Pane::Workspace);
@@ -2776,7 +2636,7 @@ mod tests {
         assert!(!key(&mut app, KeyCode::Tab));
         app.update(Event::Resize(120, 36));
         assert_eq!(app.effective_focus(), Pane::Inspector);
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         app.update(Event::Paste("draft\n한e\u{301}".into()));
         key(&mut app, KeyCode::Left);
         let cursor = app.cursor;
@@ -2800,17 +2660,15 @@ mod tests {
     fn overlays_restore_invoking_surface_and_keep_independent_selections() {
         let mut app = app();
         app.focus = Pane::Companion;
-        key(&mut app, KeyCode::Char('f'));
-        key(&mut app, KeyCode::Char('8'));
+        app.command("forms");
+        app.selected = 7;
         modified_key(&mut app, KeyCode::Char('k'), KeyModifiers::CONTROL);
-        assert_eq!(app.selected, 0);
+        assert!(app.command_popup.as_ref().unwrap().selected.is_none());
         key(&mut app, KeyCode::Down);
         key(&mut app, KeyCode::Esc);
         assert_eq!(app.overlay, Some(Overlay::Forms));
         assert_eq!(app.selected, 7);
-        modified_key(&mut app, KeyCode::Char('k'), KeyModifiers::CONTROL);
-        assert_eq!(app.selected, 1);
-        key(&mut app, KeyCode::Enter);
+        app.command("goal");
         assert!(app.editing);
         key(&mut app, KeyCode::Esc);
         assert_eq!(app.overlay, Some(Overlay::Forms));
@@ -2833,32 +2691,32 @@ mod tests {
         }
         key(&mut app, KeyCode::Down);
         assert_eq!(app.scroll(), 1);
-        key(&mut app, KeyCode::Char('?'));
+        app.command("help");
         key(&mut app, KeyCode::PageDown);
         let help_scroll = app.scroll();
         assert!(help_scroll > 1);
         key(&mut app, KeyCode::Esc);
         assert_eq!(app.scroll(), 1);
-        key(&mut app, KeyCode::Char('i'));
+        app.command("inspect");
         assert_eq!(app.scroll(), 0);
         key(&mut app, KeyCode::Down);
         key(&mut app, KeyCode::Down);
         key(&mut app, KeyCode::Esc);
-        key(&mut app, KeyCode::Char('?'));
+        app.command("help");
         assert_eq!(app.scroll(), help_scroll);
         key(&mut app, KeyCode::PageUp);
         assert_eq!(app.scroll(), 0);
         key(&mut app, KeyCode::Esc);
-        key(&mut app, KeyCode::Char('i'));
+        app.command("inspect");
         assert_eq!(app.scroll(), 2);
         key(&mut app, KeyCode::Home);
         assert_eq!(app.scroll(), 0);
         key(&mut app, KeyCode::Esc);
-        key(&mut app, KeyCode::Char('b'));
+        app.command("companion");
         key(&mut app, KeyCode::Down);
         assert_eq!(app.scroll(), 1);
         key(&mut app, KeyCode::Esc);
-        key(&mut app, KeyCode::Char('p'));
+        app.command("preview");
         assert_eq!(app.scroll(), 0);
     }
 
@@ -2866,9 +2724,9 @@ mod tests {
     fn preview_is_navigation_only_and_preserves_picker_preview() {
         let mut app = app();
         app.goal = "local goal".into();
-        key(&mut app, KeyCode::Char('f'));
-        key(&mut app, KeyCode::Char('9'));
-        key(&mut app, KeyCode::Char('p'));
+        app.command("forms");
+        app.selected = 8;
+        app.command("preview");
         assert_eq!(app.overlay, Some(Overlay::Preview));
         assert_eq!(app.selected, 8);
         assert_eq!(app.preview_form(), 8);
@@ -2880,42 +2738,34 @@ mod tests {
         assert_eq!(app.overlay, Some(Overlay::Forms));
         assert_eq!(app.selected, 8);
         key(&mut app, KeyCode::Esc);
-        key(&mut app, KeyCode::Char('p'));
+        app.command("preview");
         assert_eq!(app.overlay, Some(Overlay::Preview));
         assert_eq!(app.preview_form(), 0);
         key(&mut app, KeyCode::Esc);
-        modified_key(&mut app, KeyCode::Char('k'), KeyModifiers::CONTROL);
-        for _ in 0..5 {
-            key(&mut app, KeyCode::Down);
-        }
-        key(&mut app, KeyCode::Enter);
+        app.command("preview");
         assert_eq!(app.overlay, Some(Overlay::Preview));
         assert_eq!(app.preview_form(), 0);
     }
 
     #[test]
-    fn linear_toggle_and_palette_actions_remain_available() {
+    fn linear_toggle_and_semantic_actions_remain_available() {
         let mut app = app();
-        key(&mut app, KeyCode::Char('l'));
+        app.command("layout");
         assert!(app.linear);
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         app.update(Event::Paste("linear goal".into()));
         key(&mut app, KeyCode::Enter);
-        key(&mut app, KeyCode::Char('f'));
-        key(&mut app, KeyCode::Char('3'));
+        app.command("forms");
+        app.selected = 2;
         key(&mut app, KeyCode::Enter);
         assert_eq!(app.form, 2);
-        key(&mut app, KeyCode::Char('p'));
+        app.command("preview");
         key(&mut app, KeyCode::Esc);
-        modified_key(&mut app, KeyCode::Char('k'), KeyModifiers::CONTROL);
-        for _ in 0..6 {
-            key(&mut app, KeyCode::Down);
-        }
-        key(&mut app, KeyCode::Enter);
+        app.command("layout");
         assert!(!app.linear);
         assert_eq!(app.goal, "linear goal");
         app.store_event(store::Event::Saved(committed(&app)));
-        key(&mut app, KeyCode::Char('q'));
+        app.command("quit");
         assert!(!app.quit);
         assert_eq!(app.confirmation.unwrap().kind, ConfirmationKind::Quit);
         key(&mut app, KeyCode::Right);
@@ -2960,12 +2810,12 @@ mod tests {
     #[test]
     fn tiny_terminal_preserves_overlay_back_and_control_c_exit() {
         let mut app = app();
-        key(&mut app, KeyCode::Char('?'));
+        app.command("help");
         app.update(Event::Resize(10, 3));
         key(&mut app, KeyCode::Esc);
         assert_eq!(app.overlay, None);
         app.update(Event::Resize(120, 36));
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         app.update(Event::Resize(10, 3));
         modified_key(&mut app, KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert!(app.quit);
@@ -2976,11 +2826,9 @@ mod tests {
         let mut app = app();
         app.goal = "committed".into();
         app.focus = Pane::Inspector;
-        key(&mut app, KeyCode::Char('f'));
-        key(&mut app, KeyCode::Char('8'));
-        modified_key(&mut app, KeyCode::Char('k'), KeyModifiers::CONTROL);
-        key(&mut app, KeyCode::Down);
-        key(&mut app, KeyCode::Enter);
+        app.command("forms");
+        app.selected = 7;
+        app.command("goal");
         app.update(Event::Paste("\r\n한글".into()));
         key(&mut app, KeyCode::Esc);
         assert_eq!(
@@ -2996,9 +2844,7 @@ mod tests {
         assert_eq!(app.overlay, Some(Overlay::Forms));
         assert_eq!(app.selected, 7);
         assert_eq!(app.focus, Pane::Inspector);
-        modified_key(&mut app, KeyCode::Char('k'), KeyModifiers::CONTROL);
-        assert_eq!(app.selected, 1);
-        key(&mut app, KeyCode::Enter);
+        app.command("goal");
         app.update(Event::Paste("discard only this".into()));
         key(&mut app, KeyCode::Esc);
         key(&mut app, KeyCode::Tab);
@@ -3014,7 +2860,7 @@ mod tests {
     #[test]
     fn repeat_enter_cannot_approve_or_apply_a_draft() {
         let mut app = app();
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         app.update(Event::Paste("keep".into()));
         let repeat =
             KeyEvent::new_with_kind(KeyCode::Enter, KeyModifiers::NONE, KeyEventKind::Repeat);
@@ -3037,7 +2883,7 @@ mod tests {
             let mut app = app();
             app.goal = "session data".into();
             if editing {
-                key(&mut app, KeyCode::Char('g'));
+                app.command("goal");
                 app.update(Event::Paste("\n未保存".into()));
             }
             let input = app.input.clone();
@@ -3046,7 +2892,7 @@ mod tests {
             if editing {
                 modified_key(&mut app, KeyCode::Char('c'), KeyModifiers::CONTROL);
             } else {
-                key(&mut app, KeyCode::Char('q'));
+                app.command("quit");
             }
             assert!(!app.quit);
             assert_eq!(
@@ -3076,7 +2922,7 @@ mod tests {
             assert!(app.quit);
         }
         let mut app = app();
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         app.update(Event::Paste("first unsaved goal".into()));
         modified_key(&mut app, KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert_eq!(app.confirmation.unwrap().kind, ConfirmationKind::Quit);
@@ -3084,19 +2930,15 @@ mod tests {
     }
 
     #[test]
-    fn palette_quit_stay_restores_exact_nested_selection() {
+    fn popup_quit_stay_restores_exact_nested_selection() {
         let mut app = app();
         app.goal = "retained goal".into();
-        key(&mut app, KeyCode::Char('f'));
-        key(&mut app, KeyCode::Char('6'));
+        app.command("forms");
+        app.selected = 5;
         modified_key(&mut app, KeyCode::Char('k'), KeyModifiers::CONTROL);
         key(&mut app, KeyCode::End);
-        let palette_selection = app.selected;
-        modified_key(&mut app, KeyCode::Char('c'), KeyModifiers::CONTROL);
+        app.command("quit");
         assert_eq!(app.confirmation.unwrap().kind, ConfirmationKind::Quit);
-        key(&mut app, KeyCode::Esc);
-        assert_eq!(app.overlay, Some(Overlay::Palette));
-        assert_eq!(app.selected, palette_selection);
         key(&mut app, KeyCode::Esc);
         assert_eq!(app.overlay, Some(Overlay::Forms));
         assert_eq!(app.selected, 5);
@@ -3106,7 +2948,7 @@ mod tests {
     #[test]
     fn vertical_cursor_uses_terminal_cells_and_keeps_column_across_short_lines() {
         let mut app = app();
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         app.update(Event::Paste("abcd\n界界\nx\nabcd".into()));
         key(&mut app, KeyCode::Home);
         key(&mut app, KeyCode::Up);
@@ -3126,7 +2968,7 @@ mod tests {
     #[test]
     fn paste_limit_warning_is_visible_without_text_change_and_survives_reflow() {
         let mut app = app();
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         app.update(Event::Paste("a".repeat(MAX_GOAL_BYTES)));
         assert!(!app.input_truncated);
         assert!(app.update(Event::Paste("界\r\nrest".into())));
@@ -3153,7 +2995,7 @@ mod tests {
         app.set_scroll_max(ScrollSurface::Workspace, 1);
         assert_eq!(app.scroll(), 1);
         app.set_scroll_max(ScrollSurface::Help, 3);
-        key(&mut app, KeyCode::Char('?'));
+        app.command("help");
         key(&mut app, KeyCode::End);
         assert_eq!(app.scroll(), 3);
         key(&mut app, KeyCode::Esc);
@@ -3166,14 +3008,13 @@ mod tests {
     fn nested_previews_restore_role_selection_and_hidden_focus_exactly() {
         let mut app = app();
         app.focus = Pane::Inspector;
-        key(&mut app, KeyCode::Char('f'));
-        key(&mut app, KeyCode::Char('9'));
-        key(&mut app, KeyCode::Char('p'));
+        app.command("forms");
+        app.selected = 8;
+        app.command("preview");
         assert_eq!(app.preview_form(), 8);
-        modified_key(&mut app, KeyCode::Char('k'), KeyModifiers::CONTROL);
-        key(&mut app, KeyCode::Enter); // Forms over the first preview.
-        key(&mut app, KeyCode::Char('2'));
-        key(&mut app, KeyCode::Char('p'));
+        app.command("forms");
+        app.selected = 1;
+        app.command("preview");
         assert_eq!(app.preview_form(), 1);
         app.update(Event::Resize(10, 3));
         key(&mut app, KeyCode::Esc);
@@ -3195,7 +3036,7 @@ mod tests {
     #[test]
     fn repeated_printable_characters_remain_text_while_editing() {
         let mut app = app();
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         for character in ['q', 'c', '界'] {
             let repeat = KeyEvent::new_with_kind(
                 KeyCode::Char(character),
@@ -3212,7 +3053,7 @@ mod tests {
     #[test]
     fn key_release_events_never_edit_or_navigate() {
         let mut app = app();
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         let release = KeyEvent::new_with_kind(
             KeyCode::Char('x'),
             KeyModifiers::NONE,
@@ -3225,15 +3066,15 @@ mod tests {
     #[test]
     fn late_acknowledgement_cannot_save_newer_edit_or_quit_early() {
         let mut app = app();
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         app.update(Event::Paste("first".into()));
         key(&mut app, KeyCode::Enter);
         let first = app.revision;
         let first_snapshot = committed(&app);
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         app.update(Event::Paste(" newer".into()));
         key(&mut app, KeyCode::Enter);
-        key(&mut app, KeyCode::Char('q'));
+        app.command("quit");
         key(&mut app, KeyCode::Right);
         key(&mut app, KeyCode::Enter);
         assert!(app.quit_after_save);
@@ -3254,18 +3095,18 @@ mod tests {
     #[test]
     fn failed_save_retains_goal_and_requires_explicit_unsaved_exit() {
         let mut app = app();
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         app.update(Event::Paste("recover me".into()));
         key(&mut app, KeyCode::Enter);
         app.store_event(store::Event::Failed {
             revision: Some(app.revision),
             message: "disk full".into(),
         });
-        key(&mut app, KeyCode::Char('q'));
+        app.command("quit");
         key(&mut app, KeyCode::Enter);
         assert!(!app.quit);
         assert_eq!(app.goal, "recover me");
-        key(&mut app, KeyCode::Char('r'));
+        app.command("storage-retry");
         assert!(app.retry_storage);
         app.store_event(store::Event::Loaded(store::Project {
             tasks: Vec::new(),
@@ -3306,11 +3147,11 @@ mod tests {
         app.tasks.push(old);
         app.goal = "new unsaved goal".into();
         app.storage = StorageState::Failed("quota reached".into());
-        key(&mut app, KeyCode::Char('g'));
+        app.command("goal");
         app.update(Event::Paste(" retained draft".into()));
         modified_key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
-        key(&mut app, KeyCode::Char('t'));
-        key(&mut app, KeyCode::Delete);
+        app.command("tasks");
+        app.command("delete");
         assert!(matches!(
             app.management.take(),
             Some(store::Management::PreviewDelete { .. })
@@ -3328,7 +3169,7 @@ mod tests {
         key(&mut app, KeyCode::Enter);
         assert!(app.management.is_none());
         assert_eq!(app.tasks[0].id, 7);
-        key(&mut app, KeyCode::Delete);
+        app.command("delete");
         assert!(matches!(
             app.management.take(),
             Some(store::Management::PreviewDelete { .. })
@@ -3362,7 +3203,7 @@ mod tests {
         assert_eq!(app.drafts[0].text, "new unsaved goal retained draft");
         assert!(matches!(app.storage, StorageState::Failed(_)));
         assert!(app.save_requested && !app.transitioning);
-        key(&mut app, KeyCode::Char('r'));
+        app.command("storage-retry");
         assert!(app.retry_storage);
     }
 
@@ -3374,12 +3215,12 @@ mod tests {
         archived.archived = true;
         archived.archived_at = 1;
         app.tasks.push(archived);
-        key(&mut app, KeyCode::Char('t'));
+        app.command("tasks");
         assert_eq!(app.visible_tasks().count(), 0);
-        key(&mut app, KeyCode::Char('h'));
+        app.command("archived");
         key(&mut app, KeyCode::Enter);
         assert!(app.switch_task.is_none());
-        key(&mut app, KeyCode::Char('r'));
+        app.command("restore");
         assert!(matches!(
             app.management,
             Some(store::Management::Archive {

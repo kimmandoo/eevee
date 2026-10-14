@@ -349,7 +349,9 @@ fn capture_selection(
     let (start_line, end_line) = lines.unwrap_or_else(|| (1, source.lines().count().max(1)));
     let raw = line_range(source, start_line, end_line)?;
     if raw.len() > MAX_EXCERPT_BYTES {
-        return Err("Selected source exceeds 64 KiB; use r to choose a smaller line range".into());
+        return Err(
+            "Selected source exceeds 64 KiB; choose /range for a smaller line range".into(),
+        );
     }
     // Mask the full source before selecting lines, so selecting inside a private key or
     // multiline credential cannot drop the identifying prefix and expose its secret body.

@@ -80,7 +80,7 @@ def main():
             wait_for(session, IDLE, timeout=35)
 
         def prepare(value=None):
-            session.send("e")
+            session.command("command-edit")
             wait_for(session, "Command / explicit JSON argv or shell")
             if value is not None:
                 session.paste(value)
@@ -90,14 +90,14 @@ def main():
         try:
             wait_for(session, "Storage: saved")
             session.send(ESC)
-            session.send("g")
+            session.command("goal")
             session.paste("Budget smoke task")
             session.send("\r")
             wait_for(session, "Storage: saved")
-            session.send("j")
+            session.command("run")
             wait_for(session, "local command evidence")
             prepare(json.dumps([sys.executable, "-c", "print('budget-ok')"]))
-            session.send("v")
+            session.command("run")
             wait_for(session, REVIEW)
             assert PAUSE not in session.display()
             session.send(RIGHT + "\r")
@@ -105,13 +105,13 @@ def main():
             passed("first command needs only the normal one-shot approval")
 
             prepare()
-            session.send("v")
+            session.command("run")
             wait_for(session, PAUSE)
             wait_for(session, "Repeated unchanged command")
             session.send("\r")  # Stay is the default.
             session.pump(1)
             assert len(runs()) == 1, "Stay executed the paused command"
-            session.send("v")
+            session.command("run")
             wait_for(session, PAUSE)
             session.send(RIGHT + "\r")
             wait_for(session, REVIEW)
@@ -121,39 +121,39 @@ def main():
 
             source.write_text("changed source\n", encoding="utf-8")
             prepare()
-            session.send("v")
+            session.command("run")
             wait_for(session, PAUSE)
             wait_for(session, "Command budget reached: 2 recorded runs, limit 2")
             assert "Repeated unchanged command" not in session.display(), "edited source treated as a loop"
-            session.send("x")
+            session.command("deny")
             wait_for(session, "Request denied")
             assert len(runs()) == 2, "denied paused request executed"
-            passed("changed source is not a loop, but the committed per-task command budget still pauses; x denies")
+            passed("changed source is not a loop, but the committed per-task command budget still pauses; explicit deny runs nothing")
 
             session.send(ESC)
             session.send(ESC)
-            session.send("q")
+            session.command("quit")
             wait_for(session, "Confirm exit")
             session.send(RIGHT + "\r")
             assert session.wait_exit() == 0
             session.close()
             session = launch("restart")
             wait_for(session, "Storage: saved")
-            session.send("j")
+            session.command("run")
             wait_for(session, "local command evidence")
             prepare()
-            session.send("v")
+            session.command("run")
             wait_for(session, "Command budget reached: 2 recorded runs, limit 2")
-            session.send("x")
+            session.command("deny")
             wait_for(session, "Request denied")
             assert len(runs()) == 2
             passed("restart reloads committed runs; the command budget cannot be reset by quitting")
 
             session.send(ESC)
             session.send(ESC)
-            session.send("e")
-            wait_for(session, "explicit New or same-task Resume")
-            session.send("n")
+            session.command("role-plan")
+            wait_for(session, "Espeon /")
+            session.command("new")
             wait_for(session, "Local preview only", timeout=40)
             for _ in range(60):
                 if "Total sent by Eevee" in session.display() and "PAUSED" in session.display():

@@ -16,11 +16,13 @@ const REVISION: u32 = 1;
 pub(crate) const CODEX_RELEASE: &str = "0.152.1";
 pub(crate) const OPENCODE_RELEASE: &str = "1.18.0";
 pub(crate) const GEMINI_RELEASE: &str = "0.28.0";
+pub(crate) const DEVIN_RELEASE: &str = "3000.11.3";
+pub(crate) const DEVIN: usize = 4;
 /// Official Anthropic CLI used only for Claude's Console OAuth login/status handoff.
 pub(crate) const ANT_RELEASE: &str = "1.40.0";
 /// Trust index of `ant`; not a provider row in the connection drawer.
-pub(crate) const ANT: usize = 4;
-const PROVIDERS: usize = 4;
+pub(crate) const ANT: usize = 5;
+const PROVIDERS: usize = 5;
 const OUTPUT_LIMIT: usize = 16 * 1024;
 const CONFIG_LIMIT: u64 = 64 * 1024;
 const EXECUTABLE_LIMIT: u64 = 256 * 1024 * 1024;
@@ -28,14 +30,23 @@ fn probe_timeout(index: usize) -> Duration {
     // Gemini's Node dependency graph exceeded three seconds on the qualified host.
     Duration::from_secs(if index == 3 { 10 } else { 3 })
 }
-const NAMES: [&str; 5] = [
+const NAMES: [&str; 6] = [
     "Codex",
     "Claude Agent SDK",
     "OpenCode ACP",
     "Gemini ACP",
+    "Devin ACP",
     "Anthropic CLI (ant)",
 ];
-const PROGRAMS: [&str; 5] = ["codex", "claude", "opencode", "gemini", "ant"];
+const PROGRAMS: [&str; 6] = ["codex", "claude", "opencode", "gemini", "devin", "ant"];
+
+pub(crate) fn version_argument(index: usize) -> &'static str {
+    if index == DEVIN {
+        "version"
+    } else {
+        "--version"
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct Capability {
@@ -315,9 +326,9 @@ fn discover(index: usize, project: &Path) -> Snapshot {
     );
     let (authentication, billing) = auth_labels(index);
     let mut trust_preview = vec![
-        "Trust executes code, even --version. Stay does not execute anything. Consent is only for this version probe, not an agent session or login.".into(),
+        "Trust executes code, even a version command. Stay does not execute anything. Consent is only for this version probe, not an agent session or login.".into(),
         format!("Selected PATH entry: {}; canonical executable: {}", selected.as_deref().map(safe_path).unwrap_or_else(|| "missing".into()), executable.as_deref().map(safe_path).unwrap_or_else(|| "unresolved".into())),
-        format!("Literal argv: [--version]; stdin closed; stdout/stderr combined capture limited to 16 KiB; timeout {} seconds. Only a strictly recognized version is retained; raw output is discarded.", probe_timeout(index).as_secs()),
+        format!("Literal argv: [{}]; stdin closed; stdout/stderr combined capture limited to 16 KiB; timeout {} seconds. Only a strictly recognized version is retained; raw output is discarded.", version_argument(index), probe_timeout(index).as_secs()),
         format!("Probe cwd: {} (outside project); native host: {}/{}", cwd.as_deref().map(safe_path).unwrap_or_else(|| "unavailable".into()), env::consts::OS, env::consts::ARCH),
         "The executable inherits Eevee's environment, including provider-owned authentication and PATH. Wrappers, shebang interpreters, dynamic libraries, dependencies, environment preload hooks and provider configuration can execute code or persist changes. These dependencies are NOT fully pinned or sandboxed. Trust them explicitly or Stay; Eevee never loads a hook itself.".into(),
         "Executable bytes and known config-source metadata/declarations are rechecked before launch. This is not atomic execution isolation; malicious concurrent replacement or undiscovered transitive configuration is not bounded by this preview.".into(),
@@ -337,7 +348,7 @@ fn discover(index: usize, project: &Path) -> Snapshot {
         revision: REVISION,
         name: NAMES[index].into(),
         executable,
-        argv: vec!["--version".into()],
+        argv: vec![version_argument(index).into()],
         installed: match (selected.is_some(), index) {
             (false, 1) => format!("Claude CLI missing on PATH. {sdk}"),
             (true, 1) => format!("Claude CLI found (not the SDK). {sdk}"),
@@ -357,6 +368,7 @@ fn discover(index: usize, project: &Path) -> Snapshot {
             0 => format!("Codex app-server {CODEX_RELEASE}; Plan and POSIX controlled-file implementation"),
             1 => "Optional pinned Claude Agent SDK sidecar; e performs separate runtime/auth qualification".into(),
             2 => format!("OpenCode {OPENCODE_RELEASE} / negotiated ACP v1; provider-owned tools"),
+            DEVIN => format!("Devin {DEVIN_RELEASE} / negotiated ACP v1; provider-owned tools and native account login"),
             ANT => format!("Anthropic CLI {ANT_RELEASE}; Console OAuth login/status handoff for Claude only"),
             _ => format!("Gemini {GEMINI_RELEASE} / negotiated ACP v1; absent credentials remain unavailable"),
         },
@@ -495,6 +507,7 @@ fn auth_labels(index: usize) -> (String, String) {
             "ANTHROPIC_API_KEY",
             "GOOGLE_GENERATIVE_AI_API_KEY",
         ],
+        DEVIN => &["WINDSURF_API_KEY"],
         ANT => &[
             "ANTHROPIC_PROFILE",
             "ANTHROPIC_CONFIG_DIR",
@@ -601,6 +614,96 @@ fn configuration_sources(index: usize, project: &Path) -> Vec<SourceStamp> {
             }
             if let Some(path) = env::var_os("OPENCODE_CONFIG") {
                 paths.push((path.into(), false));
+            }
+        }
+        DEVIN => {
+            // Documented Devin config/import locations. Metadata only: JSONC and local
+            // overrides can carry secrets; no credentials, instructions or hook bodies read.
+            if let Some(base) = if cfg!(windows) {
+                env::var_os("APPDATA")
+                    .map(PathBuf::from)
+                    .map(|p| p.join("devin"))
+            } else {
+                home.as_ref().map(|p| p.join(".config/devin"))
+            } {
+                for name in ["config.json", "mcp_config.json", "AGENTS.md", "skills"] {
+                    paths.push((base.join(name), false));
+                }
+            }
+            #[cfg(target_os = "linux")]
+            paths.push(("/etc/devin/system.json".into(), false));
+            #[cfg(target_os = "macos")]
+            paths.push((
+                "/Library/Application Support/Devin/system.json".into(),
+                false,
+            ));
+            #[cfg(windows)]
+            paths.push((PathBuf::from(r"C:\ProgramData\Devin\system.json"), false));
+            for name in [
+                ".devin/config.json",
+                ".devin/config.local.json",
+                ".devin/mcp_config.json",
+                ".devin/mcp_config.local.json",
+                ".devin/hooks.v1.json",
+                ".devin/skills",
+                ".devin/agents",
+                "AGENTS.md",
+                "AGENTS.local.md",
+                "AGENT.md",
+                ".windsurfrules",
+                ".cursor/rules",
+                ".cursor/mcp.json",
+                ".windsurf/rules",
+                ".windsurf/global_rules.md",
+                ".windsurf/skills",
+                "CLAUDE.md",
+                ".claude/skills",
+                ".claude/commands",
+                ".claude/settings.json",
+                ".claude/settings.local.json",
+                ".mcp.json",
+                ".github/skills",
+                "opencode.json",
+                ".zed/settings.json",
+            ] {
+                paths.push((project.join(name), false));
+            }
+            // Hooks, rules, skills and repo plugin declarations can be inherited.
+            // Bounded ancestor metadata is not an effective configuration loader.
+            for parent in project.ancestors().skip(1).take(31) {
+                for name in [
+                    ".devin/config.json",
+                    ".devin/config.local.json",
+                    ".devin/hooks.v1.json",
+                    ".devin/skills",
+                    ".devin/agents",
+                    ".claude/settings.json",
+                    ".claude/settings.local.json",
+                    "AGENTS.md",
+                    "AGENTS.local.md",
+                    "AGENT.md",
+                ] {
+                    paths.push((parent.join(name), false));
+                }
+            }
+            if let Some(home) = home.as_ref() {
+                for name in [
+                    ".codeium/windsurf/skills",
+                    ".codeium/windsurf/mcp_config.json",
+                    ".claude/CLAUDE.md",
+                    ".claude.json",
+                    ".claude/settings.json",
+                    ".claude/settings.local.json",
+                    ".claude/mcp_servers.json",
+                    ".config/opencode/opencode.json",
+                    ".config/zed/settings.json",
+                ] {
+                    paths.push((home.join(name), false));
+                }
+                let copilot = env::var_os("COPILOT_HOME")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| home.join(".copilot"));
+                paths.push((copilot.join("skills"), false));
             }
         }
         _ => {
@@ -864,10 +967,11 @@ fn apply_version(index: usize, profile: &mut Profile, version: &str) {
     } else if index == 1 {
         profile.blockers.push("Claude CLI version is not SDK version or permission to reuse claude.ai login. Qualify pinned sidecar and permitted API/cloud credentials in e.".into());
     } else {
-        let expected = if index == 2 {
-            OPENCODE_RELEASE
-        } else {
-            GEMINI_RELEASE
+        let expected = match index {
+            2 => OPENCODE_RELEASE,
+            DEVIN => DEVIN_RELEASE,
+            ANT => ANT_RELEASE,
+            _ => GEMINI_RELEASE,
         };
         if version != expected {
             profile.blockers.push(format!("Version mismatch: observed {version}, required ACP peer release {expected}; review/install compatible peer before a request"));
@@ -884,6 +988,14 @@ fn parse_version(index: usize, bytes: &[u8]) -> Option<String> {
         0 => text.strip_prefix("codex-cli ")?,
         1 => text.strip_suffix(" (Claude Code)")?,
         2 | 3 => text,
+        DEVIN => {
+            let (version, build) = text.strip_prefix("devin ")?.split_once(" (")?;
+            let build = build.strip_suffix(')')?;
+            if build.len() != 12 || !build.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return None;
+            }
+            version
+        }
         ANT => text.strip_prefix("ant version ")?,
         _ => return None,
     };
@@ -925,7 +1037,7 @@ fn probe(index: usize, snapshot: &Snapshot, stopped: &AtomicBool) -> Result<Stri
                 .to_str()
                 .ok_or("Non-Unicode executable")?
                 .into(),
-            args: vec!["--version".into()],
+            args: vec![version_argument(index).into()],
         },
         cwd_identity: crate::runner::native::directory_identity(&cwd)
             .map_err(|_| "Probe working directory identity unavailable")?,
@@ -1223,8 +1335,8 @@ pub(crate) fn external_trust(
     let project_identity = crate::runner::native::directory_identity(project)
         .map_err(|_| "Provider project identity unavailable")?;
     let lines = vec![
-        format!("{}: explicit trust runs {} with --version, then literal argv {}.",
-            NAMES[index], executable.path.display(), serde_json::to_string(&launch).map_err(|error| error.to_string())?),
+        format!("{}: explicit trust runs {} with {}, then literal argv {}.",
+            NAMES[index], executable.path.display(), version_argument(index), serde_json::to_string(&launch).map_err(|error| error.to_string())?),
         format!("Owned process cwd {} outside project; requested session cwd {}.", cwd.display(), project.display()),
         snapshot.profile.configuration.clone(),
         snapshot.profile.authentication.clone(),
@@ -1327,6 +1439,18 @@ mod tests {
             Some("1.40.0".into())
         );
         assert_eq!(parse_version(ANT, b"1.40.0\n"), None);
+        assert_eq!(
+            parse_version(DEVIN, b"devin 3000.11.3 (9c803229faa4)\n"),
+            Some(DEVIN_RELEASE.into())
+        );
+        for output in [
+            b"3000.11.3".as_slice(),
+            b"devin 3000.11.3 (secret)",
+            b"devin 3000.11.3 (9c803229faa4)\nWINDSURF_API_KEY=secret",
+            b"devin \x1b[31m3000.11.3 (9c803229faa4)",
+        ] {
+            assert_eq!(parse_version(DEVIN, output), None);
+        }
     }
 
     #[test]
@@ -1395,6 +1519,54 @@ mod tests {
         assert!(initial != absent);
         fs::write(&path, "sandbox_mode='danger-full-access'\n").unwrap();
         assert!(initial != source(path, true));
+    }
+
+    #[test]
+    fn devin_config_metadata_tracks_replacement_without_reading_secrets_or_credentials() {
+        let fixture = Fixture::new();
+        fs::create_dir(fixture.0.join(".devin")).unwrap();
+        let path = fixture.0.join(".devin/config.local.json");
+        let absent = configuration_sources(DEVIN, &fixture.0);
+        fs::write(
+            &path,
+            b"{\"token\":\"private-canary\",\"hooks\":{\"command\":\"hook-canary\"}}",
+        )
+        .unwrap();
+        let initial = configuration_sources(DEVIN, &fixture.0);
+        assert!(initial != absent);
+        let config = initial.iter().find(|entry| entry.path == path).unwrap();
+        assert_eq!(
+            config.declaration,
+            "present; metadata only (no loader or plugin executed)"
+        );
+        assert!(
+            initial
+                .iter()
+                .all(|entry| !entry.declaration.contains("canary"))
+        );
+        assert!(
+            initial
+                .iter()
+                .all(|entry| !entry.path.ends_with("credentials.toml"))
+        );
+        fs::rename(&path, fixture.0.join("old-config")).unwrap();
+        fs::write(
+            &path,
+            b"{\"token\":\"private-canary\",\"hooks\":{\"command\":\"hook-canary\"}}",
+        )
+        .unwrap();
+        assert!(initial != configuration_sources(DEVIN, &fixture.0));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn devin_version_probe_rejects_extra_output_without_exposing_it() {
+        let fixture = Fixture::new();
+        let stop = AtomicBool::new(false);
+        let snapshot =
+            fixture.executable("printf 'devin 3000.11.3 (9c803229faa4)\\nprivate-canary\\n'");
+        let error = probe(DEVIN, &snapshot, &stop).unwrap_err();
+        assert!(!error.contains("canary"));
     }
 
     #[test]

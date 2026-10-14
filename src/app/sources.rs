@@ -86,7 +86,7 @@ impl State {
     pub fn catalogue(&mut self, task_id: i64, report: Option<&Arc<repo::Report>>) {
         if self.store_failed {
             self.error =
-                "Context save failed. Open /files and press s to retry the retained operation."
+                "Context save failed. Open /files and use /journal-retry for the retained operation."
                     .into();
             return;
         }
@@ -96,7 +96,7 @@ impl State {
         }
         let Some(report) = report else {
             self.await_refresh = true;
-            self.status = "Waiting for repository evidence; w shows its error layer.".into();
+            self.status = "Waiting for repository evidence; /repo shows its error layer.".into();
             return;
         };
         if self.source_busy {
@@ -146,7 +146,8 @@ impl State {
                 self.catalogue(task_id, report);
             } else {
                 self.error =
-                    "Repository inspection unavailable. w shows details; u retries.".into();
+                    "Repository inspection unavailable. /repo shows details; /refresh retries."
+                        .into();
             }
         }
     }
@@ -169,7 +170,7 @@ impl State {
                 self.detail = excerpt_detail(&excerpt);
                 self.preview = Some(excerpt);
                 self.mode = Mode::Preview;
-                self.status = "Inspected capture / p pins after persistence validation".into();
+                self.status = "Inspected capture /attach pins after persistence validation".into();
             }
             Ok(context::Response::Assembled(payload)) => {
                 self.pending_payload = Some(payload);
@@ -234,7 +235,7 @@ impl State {
                 self.error = safe_error(error);
                 self.pending_payload = None;
                 self.payload = None;
-                self.status = "Context storage/validation failed / s retries failed mutation; no automatic retry".into();
+                self.status = "Context storage/validation failed /journal-retry retries failed mutation; no automatic retry".into();
                 self.store_failed |= self.store_mutation;
             }
         }
@@ -247,7 +248,7 @@ impl State {
             return;
         }
         let Some(report) = report else {
-            self.error = "Repository evidence unavailable; u refreshes.".into();
+            self.error = "Repository evidence unavailable; /refresh obtains fresh evidence.".into();
             return;
         };
         let Some(source) = self.files.get(self.file_selection) else {
@@ -271,7 +272,7 @@ impl State {
         end: usize,
     ) {
         let Some(report) = report else {
-            self.error = "Repository evidence unavailable; u refreshes.".into();
+            self.error = "Repository evidence unavailable; /refresh obtains fresh evidence.".into();
             return;
         };
         let Some(source) = self.files.get(self.file_selection) else {
@@ -290,7 +291,7 @@ impl State {
     }
     fn assemble(&mut self, task_id: i64, report: Option<&Arc<repo::Report>>, dispatch: bool) {
         let Some(report) = report else {
-            self.error = "Repository evidence unavailable; u refreshes.".into();
+            self.error = "Repository evidence unavailable; /refresh obtains fresh evidence.".into();
             return;
         };
         self.payload = None;
@@ -338,6 +339,219 @@ impl State {
             .unwrap_or(editor.text.len());
         true
     }
+    pub fn command_choices(&self) -> Vec<super::commands::Choice> {
+        use super::commands::Choice;
+        let blocked = if self.editor.is_some() {
+            Some("Finish or cancel the literal editor first.")
+        } else if self.confirmation.is_some() {
+            Some("Finish or cancel the current removal review first.")
+        } else if self.busy() {
+            Some("A source or storage operation is pending.")
+        } else if self.store_failed {
+            Some("Retry the retained storage operation first.")
+        } else {
+            None
+        };
+        let choice = |name, label, reason: Option<&str>| match reason {
+            Some(reason) => Choice::disabled(name, label, reason),
+            None => Choice::new(name, label),
+        };
+        vec![
+            choice("search", "Edit literal filename filter", blocked),
+            choice("refresh", "Refresh repository source evidence", blocked),
+            choice("basket", "Switch between files and pinned basket", blocked),
+            choice(
+                "range",
+                "Inspect an exact source line range",
+                blocked.or_else(|| {
+                    (self.mode == Mode::Basket || self.files.get(self.file_selection).is_none())
+                        .then_some("Select an eligible file first.")
+                }),
+            ),
+            choice(
+                "inspect",
+                "Inspect selected file's first line",
+                blocked.or_else(|| {
+                    (self.mode != Mode::Files || self.files.get(self.file_selection).is_none())
+                        .then_some("Select an eligible file first.")
+                }),
+            ),
+            choice(
+                "attach",
+                "Pin inspected source excerpt to task",
+                blocked.or_else(|| {
+                    (self.mode != Mode::Preview || self.preview.is_none())
+                        .then_some("Inspect an eligible source range first.")
+                }),
+            ),
+            choice(
+                "assemble",
+                "Inspect locally assembled context payload",
+                blocked.or_else(|| {
+                    self.basket
+                        .is_empty()
+                        .then_some("Pin source excerpts first.")
+                }),
+            ),
+            choice(
+                "dispatch-preview",
+                "Validate context for provider dispatch",
+                blocked.or_else(|| {
+                    self.basket
+                        .is_empty()
+                        .then_some("Pin source excerpts first.")
+                }),
+            ),
+            choice(
+                "unpin",
+                "Review removing selected basket excerpt",
+                blocked.or_else(|| {
+                    (self.mode != Mode::Basket || self.basket.get(self.basket_selection).is_none())
+                        .then_some("Select a pinned basket excerpt first.")
+                }),
+            ),
+            choice(
+                "purge",
+                "Review purging selected captured bytes",
+                blocked.or_else(|| {
+                    (self.mode != Mode::Basket || self.basket.get(self.basket_selection).is_none())
+                        .then_some("Select a pinned basket excerpt first.")
+                }),
+            ),
+            choice(
+                "journal-retry",
+                "Retry retained context storage operation",
+                if self.editor.is_some() || self.confirmation.is_some() || self.busy() {
+                    blocked
+                } else {
+                    (!self.store_failed).then_some("No failed context storage operation to retry.")
+                },
+            ),
+            choice(
+                "page-next",
+                "Next assembled payload page",
+                blocked.or_else(|| {
+                    (self.mode != Mode::Payload).then_some("Assemble a context payload first.")
+                }),
+            ),
+            choice(
+                "page-previous",
+                "Previous assembled payload page",
+                blocked.or_else(|| {
+                    (self.mode != Mode::Payload).then_some("Assemble a context payload first.")
+                }),
+            ),
+            choice(
+                "close",
+                "Close sources, retaining captures",
+                if self.editor.is_some() || self.confirmation.is_some() {
+                    blocked
+                } else {
+                    None
+                },
+            ),
+        ]
+    }
+
+    pub fn command(
+        &mut self,
+        name: &str,
+        task_id: i64,
+        report: Option<&Arc<repo::Report>>,
+    ) -> Action {
+        if self.editor.is_some() || self.confirmation.is_some() {
+            return Action::Changed;
+        }
+        if name == "close" {
+            return Action::Close;
+        }
+        if self.busy() {
+            self.error = "A context operation is pending; PgUp/Dn and Esc remain available.".into();
+            return Action::Changed;
+        }
+        if self.store_failed {
+            if name == "journal-retry" {
+                let operation = match self.last_mutation {
+                    Some(Mutation::Pin) => self.preview.clone().map(store::ContextOperation::Pin),
+                    Some(Mutation::Remove(id)) => Some(store::ContextOperation::Remove(id)),
+                    Some(Mutation::Purge(id)) => Some(store::ContextOperation::Purge(vec![id])),
+                    None => None,
+                };
+                if let Some(operation) = operation {
+                    self.queue_store(task_id, operation);
+                }
+            } else {
+                self.error = "Resolve storage, then /journal-retry retries the retained operation. Esc keeps it; quitting requires explicit loss review.".into();
+            }
+            return Action::Changed;
+        }
+        match name {
+            "search" => {
+                self.editor = Some(Editor {
+                    kind: EditKind::Search,
+                    text: self.query.clone(),
+                    cursor: self.query.len(),
+                });
+            }
+            "refresh" => {
+                self.await_refresh = true;
+                self.payload = None;
+                return Action::RefreshRepository;
+            }
+            "basket" => {
+                self.mode = if self.mode == Mode::Basket {
+                    Mode::Files
+                } else {
+                    Mode::Basket
+                };
+                if self.mode == Mode::Files {
+                    self.file_detail();
+                } else {
+                    self.basket_detail();
+                }
+            }
+            "range" if self.mode != Mode::Basket => {
+                self.editor = Some(Editor {
+                    kind: EditKind::Range,
+                    text: "1:1".into(),
+                    cursor: 3,
+                });
+            }
+            "inspect" if self.mode == Mode::Files => self.inspect(task_id, report, 1, 1),
+            "attach" if self.mode == Mode::Preview => {
+                if let Some(excerpt) = self.preview.clone() {
+                    self.mode = Mode::Basket;
+                    self.payload = None;
+                    self.queue_store(task_id, store::ContextOperation::Pin(excerpt));
+                }
+            }
+            "assemble" => self.assemble(task_id, report, false),
+            "dispatch-preview" => self.assemble(task_id, report, true),
+            "unpin" | "purge" if self.mode == Mode::Basket => {
+                if let Some(excerpt) = self.basket.get(self.basket_selection) {
+                    self.confirmation = Some(Confirmation {
+                        id: excerpt.id,
+                        purge: name == "purge",
+                        destructive: false,
+                    });
+                }
+            }
+            "page-next" if self.mode == Mode::Payload => {
+                if let Some(payload) = &self.payload {
+                    self.payload_page =
+                        (self.payload_page + 1).min(payload.text.len().saturating_sub(1) / 8192);
+                }
+                self.payload_detail();
+            }
+            "page-previous" if self.mode == Mode::Payload => {
+                self.payload_page = self.payload_page.saturating_sub(1);
+                self.payload_detail();
+            }
+            _ => {}
+        }
+        Action::Changed
+    }
+
     pub fn key(
         &mut self,
         key: KeyEvent,
@@ -402,9 +616,6 @@ impl State {
             }
             return Action::Changed;
         }
-        if key.code == KeyCode::Char('v') {
-            return Action::Close;
-        }
         if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown) {
             return Action::Scroll(key.code);
         }
@@ -413,83 +624,10 @@ impl State {
             return Action::Changed;
         }
         if self.store_failed {
-            if key.code == KeyCode::Char('s') {
-                let operation = match self.last_mutation {
-                    Some(Mutation::Pin) => self.preview.clone().map(store::ContextOperation::Pin),
-                    Some(Mutation::Remove(id)) => Some(store::ContextOperation::Remove(id)),
-                    Some(Mutation::Purge(id)) => Some(store::ContextOperation::Purge(vec![id])),
-                    None => None,
-                };
-                if let Some(operation) = operation {
-                    self.queue_store(task_id, operation);
-                }
-            } else {
-                self.error = "Resolve the storage problem, then s retries the retained operation. Esc keeps it; quitting requires explicit loss review.".into();
-            }
             return Action::Changed;
         }
         match key.code {
-            KeyCode::Char('/') => {
-                self.editor = Some(Editor {
-                    kind: EditKind::Search,
-                    text: self.query.clone(),
-                    cursor: self.query.len(),
-                })
-            }
-            KeyCode::Char('u') => {
-                self.await_refresh = true;
-                self.payload = None;
-                return Action::RefreshRepository;
-            }
-            KeyCode::Char('b') => {
-                self.mode = if self.mode == Mode::Basket {
-                    Mode::Files
-                } else {
-                    Mode::Basket
-                };
-                if self.mode == Mode::Files {
-                    self.file_detail();
-                } else {
-                    self.basket_detail();
-                }
-            }
-            KeyCode::Char('r') if self.mode != Mode::Basket => {
-                self.editor = Some(Editor {
-                    kind: EditKind::Range,
-                    text: "1:1".into(),
-                    cursor: 3,
-                })
-            }
             KeyCode::Enter if self.mode == Mode::Files => self.inspect(task_id, report, 1, 1),
-            KeyCode::Char('p') if self.mode == Mode::Preview => {
-                if let Some(excerpt) = self.preview.clone() {
-                    self.mode = Mode::Basket;
-                    self.payload = None;
-                    self.queue_store(task_id, store::ContextOperation::Pin(excerpt));
-                }
-            }
-            KeyCode::Char('a') => self.assemble(task_id, report, false),
-            KeyCode::Char('d') => self.assemble(task_id, report, true),
-            KeyCode::Delete | KeyCode::Char('x') if self.mode == Mode::Basket => {
-                if let Some(excerpt) = self.basket.get(self.basket_selection) {
-                    self.confirmation = Some(Confirmation {
-                        id: excerpt.id,
-                        purge: key.code == KeyCode::Char('x'),
-                        destructive: false,
-                    });
-                }
-            }
-            KeyCode::Char('n') if self.mode == Mode::Payload => {
-                if let Some(payload) = &self.payload {
-                    self.payload_page =
-                        (self.payload_page + 1).min(payload.text.len().saturating_sub(1) / 8192);
-                }
-                self.payload_detail();
-            }
-            KeyCode::Char('p') if self.mode == Mode::Payload => {
-                self.payload_page = self.payload_page.saturating_sub(1);
-                self.payload_detail();
-            }
             code if matches!(self.mode, Mode::Files | Mode::Basket) => {
                 let (selected, count) = if self.mode == Mode::Files {
                     (&mut self.file_selection, self.files.len())
@@ -602,8 +740,8 @@ impl State {
     }
     fn file_detail(&mut self) {
         self.detail = self.files.get(self.file_selection).map(|source|
-            format!("Repository-relative path: {:?}\n{} bytes / SHA-256 bytes: {:02x?}\nEnter inspects line 1; r chooses a range. Binary, oversized, credential and excluded paths are not eligible.", source.path, source.bytes, source.sha256))
-            .unwrap_or_else(|| "No eligible files match this filename filter. / edits the filter; u refreshes repository evidence.".into());
+            format!("Repository-relative path: {:?}\n{} bytes / SHA-256 bytes: {:02x?}\nEnter inspects line 1; /range chooses a range. Binary, oversized, credential and excluded paths are not eligible.", source.path, source.bytes, source.sha256))
+            .unwrap_or_else(|| "No eligible files match this filename filter. /search edits the filter; /refresh refreshes repository evidence.".into());
     }
     fn basket_detail(&mut self) {
         self.detail = self
@@ -611,7 +749,7 @@ impl State {
             .get(self.basket_selection)
             .map(excerpt_detail)
             .unwrap_or_else(|| {
-                "No pinned source excerpts. Inspect a file/range, then p pins it.".into()
+                "No pinned source excerpts. Inspect a file/range, then /attach pins it.".into()
             });
     }
     fn payload_detail(&mut self) {
@@ -628,7 +766,7 @@ impl State {
         let start = boundary(self.payload_page * 8192);
         let end = boundary((self.payload_page + 1) * 8192);
         self.detail = format!(
-            "EXACT BASKET ENVELOPE / escaped display\n{} UTF-8 bytes / ~{} tokens ({})\nProvider history/config/agent-owned reads may add context; this basket does not constrain them. No provider is connected and nothing is sent.\nPage {} / bytes {}..{} / n next, p previous\n\n{:?}",
+            "EXACT BASKET ENVELOPE / escaped display\n{} UTF-8 bytes / ~{} tokens ({})\nProvider history/config/agent-owned reads may add context; this basket does not constrain them. No provider is connected and nothing is sent.\nPage {} / bytes {}..{} / /page-next, /page-previous\n\n{:?}",
             payload.bytes,
             payload.estimated_tokens,
             crate::budget::ESTIMATOR,
@@ -663,4 +801,53 @@ fn excerpt_detail(excerpt: &context::Excerpt) -> String {
 fn safe_error(mut error: String) -> String {
     error.retain(super::safe_character);
     error
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_commands_preserve_literal_search_and_cancel_without_work() {
+        let mut state = State::default();
+        state.command("search", 1, None);
+        assert!(matches!(
+            state.editor.as_ref().map(|editor| editor.kind),
+            Some(EditKind::Search)
+        ));
+        for ch in "/range 1:3".chars() {
+            state.key(
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+                1,
+                None,
+            );
+        }
+        assert_eq!(state.editor.as_ref().unwrap().text, "/range 1:3");
+        assert!(state.pending.is_none() && state.pending_store.is_none());
+        state.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), 1, None);
+        assert!(state.editor.is_none());
+        assert!(state.query.is_empty());
+    }
+
+    #[test]
+    fn source_commands_do_not_bypass_busy_or_neutral_removal_review() {
+        let mut state = State {
+            source_busy: true,
+            ..State::default()
+        };
+        state.command("refresh", 1, None);
+        assert!(!state.await_refresh);
+        assert!(state.pending.is_none() && state.pending_store.is_none());
+        state.source_busy = false;
+        state.confirmation = Some(Confirmation {
+            id: 7,
+            purge: true,
+            destructive: false,
+        });
+        state.command("purge", 1, None);
+        assert!(!state.confirmation.unwrap().destructive);
+        state.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), 1, None);
+        assert!(state.confirmation.is_none());
+        assert!(state.pending_store.is_none());
+    }
 }

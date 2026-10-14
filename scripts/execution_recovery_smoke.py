@@ -84,10 +84,10 @@ def main():
 
             def prepare(session, value):
                 session.send('\x1b')
-                session.send('j')
+                session.command('run')
                 wait_for(session, TITLE)
                 old = task()[0]
-                session.send('e')
+                session.command('command-edit')
                 wait_for(session, 'Command / explicit JSON argv or shell')
                 session.send(HOME)
                 for offset in range(0, len(old), 32):
@@ -98,7 +98,7 @@ def main():
                 session.send('\r')
                 until(session, lambda: task()[0] == value, 'command save acknowledgement')
                 wait_for(session, 'Approval pending')
-                session.send('v')
+                session.command('run')
                 wait_for(session, REVIEW)
                 session.capture('review-' + str(len(rows()) + 1))
                 if not rows():
@@ -122,7 +122,7 @@ def main():
                 return record, data / name
 
             def quit_idle(session):
-                session.send('q')
+                session.command('quit')
                 wait_for(session, 'Confirm exit')
                 session.send(RIGHT + '\r')
                 assert session.wait_exit() == 0
@@ -146,11 +146,11 @@ def main():
 
             session = launch('freshness-and-capture', (60, 18))
             session.send('\x1b')  # Leave the clean first-run Goal composer.
-            session.send('g')
+            session.command('goal')
             session.paste('recovery task')
             session.send('\r')
             until(session, lambda: task() is not None and task()[1] == 'recovery task', 'task creation')
-            session.send('j')
+            session.command('run')
             wait_for(session, TITLE)
             shell = {'shell': os.environ['COMSPEC'], 'dialect': 'cmd', 'text': 'echo shell verified & exit /b 7'} if os.name == 'nt' else {
                 'shell': '/bin/sh', 'dialect': 'posix', 'text': "printf 'shell verified\\n'; exit 7"}
@@ -158,7 +158,7 @@ def main():
             failed, spool = finished(session, 1, 'Failed')
             assert failed['exit_code'] == 7 and b'shell verified' in spool.read_bytes()
             assert failed['prepared']['spec']['Shell']['text'] == shell['text']
-            session.send('h')
+            session.command('history')
             wait_for(session, 'Failed command')
             passed('explicit-shell-dialect-and-nonzero-exit-remain-failed-evidence')
 
@@ -168,7 +168,7 @@ def main():
             release.touch()
             ambiguous, _ = finished(session, count)
             assert ambiguous['prepared']['before']['fingerprint'] != ambiguous['after']['fingerprint']
-            session.send('h')
+            session.command('history')
             wait_for(session, 'Ambiguous')
             session.capture('ambiguous-input-change')
             passed('during-run-input-change-is-ambiguous')
@@ -176,7 +176,8 @@ def main():
             stable, _ = finished(session, count + 1)
             assert stable['prepared']['before']['fingerprint'] == stable['after']['fingerprint']
             source.write_bytes(b'changed after command\r\n')
-            session.send('hr')
+            session.command('history')
+            session.command('refresh')
             wait_for(session, 'Stale')
             session.capture('stale-after-refresh')
             passed('post-run-input-change-is-stale-after-explicit-refresh')
@@ -196,25 +197,25 @@ def main():
             with closing(sqlite3.connect(database, timeout=1)) as lock:
                 lock.execute('BEGIN IMMEDIATE')
                 session.resize((39, 10))
-                session.send('c')
+                session.command('cancel')
                 wait_for(session, 'Cancel and wait')
                 session.capture('below-minimum-neutral-owned-cancel')
                 session.send(RIGHT + '\r')
                 session.resize((120, 36))
                 until(session, lambda: not process.alive(), 'owned cancellation while SQLite is locked')
-                session.send('d')
+                session.command('artifacts')
                 wait_for(session, 'ERROR LAYER: Storage')
                 assert rows()[-1][0]['state'] == 'Running' and rows()[-1][2]
                 session.capture('failed-journal-save-retains-owned-result')
                 lock.rollback()
-            session.send('s')
+            session.command('journal-retry')
             cancelled, _ = finished(session, count, 'Cancelled')
             assert cancelled['cancelled']
             passed('locked-journal-retains-cancelled-result-and-explicit-storage-retry-does-not-reexecute')
             quit_idle(session)
 
             interrupted = launch('interrupted-start')
-            interrupted.send('j')
+            interrupted.command('run')
             count, marker, release, process = waiting(interrupted, 'interrupted')
             wait_for(interrupted, 'WAITING')
             original_pid = marker.read_bytes()
@@ -226,8 +227,8 @@ def main():
                 time.sleep(.05)
             assert not process.alive()
             resumed = launch('interrupted-resume', (60, 18))
-            resumed.send('j')
-            resumed.send('h')
+            resumed.command('run')
+            resumed.command('history')
             wait_for(resumed, 'Interrupted')
             recovered = rows()[-1][0]
             assert recovered['state'] == 'Interrupted' and recovered['tree'] != 'OwnedTreeExited'

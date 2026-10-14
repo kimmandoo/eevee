@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, linkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { credentialRoute, consoleProfile, accountMatches, selectedWrite, selectedWriteIdentity, questionSchema, sdkOutcome } from './policy.ts';
+import { credentialRoute, consoleProfile, accountMatches, selectedWrite, selectedWriteIdentity, questionSchema, sdkOutcome, RunSchema, SelectionSchema, querySelection, modelCatalogue, prepareModels, assertAppliedModel, CLI_VERSION } from './policy.ts';
 
 test('missing API/cloud credentials never selects installed subscription auth', () => {
   assert.equal(credentialRoute({}), undefined);
@@ -108,4 +108,122 @@ test('write consent identity becomes stale after edits, file creation, or symlin
     assert.equal(selectedWriteIdentity(root, paths, 'selected.ts'), undefined);
     assert.equal(selectedWriteIdentity(root, paths, '../outside.ts'), undefined);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('capability metadata cannot advertise selectable effort without an applied-effort acknowledgement', () => {
+  const catalogue = modelCatalogue([
+    { value: 'alias-a', resolvedModel: 'wire-a', displayName: 'A', description: 'Advertised', supportsEffort: true, supportedEffortLevels: ['medium', 'high'] },
+    { value: 'b', displayName: 'B', description: 'No capability field', supportedEffortLevels: ['max'] },
+    { value: 'c', displayName: 'C', description: 'No levels', supportsEffort: true },
+  ], { model: 'wire-a', effort: 'medium' });
+  assert.deepEqual(catalogue.models.map(model => model.efforts), [[], [], []]);
+  assert.match(catalogue.effort_note, /no public pre-prompt acknowledgement.*organization caps/);
+  assert.equal(catalogue.current, 'alias-a');
+  assert.equal(catalogue.models[0].default_effort, null);
+  assert.deepEqual(querySelection({ model: 'wire-a', effort: 'medium' }), { model: 'wire-a', effort: 'medium' });
+  assert.deepEqual(querySelection({ model: null, effort: null }), { model: undefined, effort: undefined });
+  assert.match(modelCatalogue([], { model: null, effort: null }).effort_note, /no supported models/);
+});
+
+test('selection rejects unknown models and efforts without guessing a model default', () => {
+  const models = [{ value: 'a', displayName: 'A', description: 'Live', supportsEffort: true, supportedEffortLevels: ['high' as const] }];
+  assert.throws(() => modelCatalogue(models, { model: 'absent', effort: null }), /not advertised/);
+  assert.throws(() => modelCatalogue(models, { model: 'a', effort: 'medium' }), /unsupported/);
+  assert.throws(() => modelCatalogue(models, { model: null, effort: 'high' }), /unsupported/);
+  assert.throws(() => modelCatalogue([{ ...models[0], supportsEffort: false }], { model: 'a', effort: 'high' }), /unsupported/);
+  assert.throws(() => modelCatalogue([{ ...models[0], supportedEffortLevels: undefined }], { model: 'a', effort: 'high' }), /unsupported/);
+});
+
+test('catalogues reject duplicate identifiers, oversized fields and display controls', () => {
+  const model = { value: 'a', displayName: 'A', description: 'Live' };
+  assert.throws(() => modelCatalogue([model, model], { model: null, effort: null }), /Duplicate/);
+  assert.throws(() => modelCatalogue(Array.from({ length: 257 }, (_, index) => ({ ...model, value: `m-${index}` })), { model: null, effort: null }), /invalid bounds/);
+  for (const changed of [{ value: 'bad\u202e' }, { displayName: 'A'.repeat(513) }, { description: 'x'.repeat(4097) }, { description: 'line\nbreak' }]) {
+    assert.throws(() => modelCatalogue([{ ...model, ...changed }], { model: null, effort: null }), /invalid bounds/);
+  }
+});
+
+test('strict inspection commands cannot carry prompts, prior sessions, writes or unreviewed options', () => {
+  const command = { protocol: 1, type: 'run', generation: 1, task_id: 1, cwd: '/project', state_dir: '/state', prompt: '',
+    operation: 'plan', edit_paths: [], resume: null, inspect_models: true, selection: { model: null, effort: null } };
+  assert.equal(RunSchema.safeParse(command).success, true);
+  for (const changed of [{ prompt: 'must not send' }, { resume: '01234567-89ab-4cde-8123-456789abcdef' },
+    { edit_paths: ['file.ts'] }, { operation: 'implement' }, { tools: ['Bash'] }, { selection: { model: null, effort: null, fallback: 'a' } }]) {
+    assert.equal(RunSchema.safeParse({ ...command, ...changed }).success, false);
+  }
+  assert.equal(SelectionSchema.safeParse({ model: 'a\u001b', effort: null }).success, false);
+  assert.equal(SelectionSchema.safeParse({ model: 'a', effort: 'invented' }).success, false);
+});
+
+test('SDK controls validate backend and live selection before the consumer can release a prompt', async () => {
+  const calls: string[] = [];
+  const sdk = {
+    async accountInfo() { calls.push('account'); return { apiProvider: 'firstParty' }; },
+    async initializationResult() { calls.push('initialize'); return { claude_code_version: CLI_VERSION }; },
+    async supportedModels() { calls.push('models'); return [{ value: 'a', displayName: 'A', description: 'Live', supportsEffort: true, supportedEffortLevels: ['high' as const] }]; },
+    async setModel(model?: string) { calls.push(`set:${model}`); },
+    async getContextUsage(options: { detail: 'summary' }) { calls.push(`context:${options.detail}`); return { model: 'a' }; },
+  };
+  let released = false;
+  await assert.rejects(async () => {
+    await prepareModels(sdk, { model: 'a', effort: 'medium' }, 'ANTHROPIC_API_KEY', 'firstParty');
+    released = true;
+  }, /unsupported/);
+  assert.equal(released, false);
+  assert.deepEqual(calls, ['account', 'initialize', 'models']);
+  calls.length = 0;
+  await assert.rejects(() => prepareModels(sdk, { model: null, effort: null }, 'ANTHROPIC_API_KEY', 'bedrock'), /backend differs/);
+  assert.deepEqual(calls, ['account']);
+  calls.length = 0;
+  await assert.rejects(() => prepareModels({ ...sdk, async initializationResult() { return { claude_code_version: 'other' }; } },
+    { model: null, effort: null }, 'ANTHROPIC_API_KEY', 'firstParty'), /version differs/);
+  assert.deepEqual(calls, ['account']);
+  calls.length = 0;
+  for (const effort of [undefined, null, 'low', 'high']) {
+    await assert.rejects(() => prepareModels({
+      ...sdk,
+      async getContextUsage() { calls.push('unofficial-effort'); return { model: 'a', effort }; },
+    }, { model: 'a', effort: 'high' }, 'ANTHROPIC_API_KEY', 'firstParty'), /pre-prompt applied-effort acknowledgement/);
+  }
+  assert.equal(calls.includes('unofficial-effort'), false);
+  calls.length = 0;
+  const prepared = await prepareModels(sdk, { model: 'a', effort: null }, 'ANTHROPIC_API_KEY', 'firstParty');
+  released = true;
+  assert.equal(released, true);
+  assert.equal(prepared.approvedModel, 'a');
+  assert.deepEqual(calls, ['account', 'initialize', 'models', 'set:a', 'context:summary']);
+});
+
+test('model qualification accepts only the authoritative resolved alias and rejects unknown or mismatched acknowledgements', async () => {
+  const calls: string[] = [];
+  const sdk = {
+    async accountInfo() { return { apiProvider: 'firstParty' }; },
+    async initializationResult() { return { claude_code_version: CLI_VERSION }; },
+    async supportedModels() { return [{ value: 'alias-a', resolvedModel: 'wire-a', displayName: 'A', description: 'Live' }]; },
+    async setModel(model?: string) { calls.push(`set:${model}`); },
+    async getContextUsage(options: { detail: 'summary' }) { calls.push(options.detail); return { model: 'wire-a' }; },
+  };
+  const selected = await prepareModels(sdk, { model: 'alias-a', effort: null }, 'ANTHROPIC_API_KEY', 'firstParty');
+  assert.equal(selected.approvedModel, 'wire-a');
+  assert.deepEqual(calls, ['set:alias-a', 'summary']);
+  const canonical = await prepareModels(sdk, { model: 'wire-a', effort: null }, 'ANTHROPIC_API_KEY', 'firstParty');
+  assert.equal(canonical.approvedModel, 'wire-a');
+  for (const actual of ['', 'alias-a', 'wire-other']) {
+    let released = false;
+    await assert.rejects(async () => {
+      await prepareModels({ ...sdk, async getContextUsage() { return { model: actual }; } },
+        { model: 'alias-a', effort: null }, 'ANTHROPIC_API_KEY', 'firstParty');
+      released = true;
+    }, /effective model differs/);
+    assert.equal(released, false);
+  }
+  await assert.rejects(() => prepareModels({ ...sdk, async getContextUsage() { throw new Error('Unavailable'); } },
+    { model: 'alias-a', effort: null }, 'ANTHROPIC_API_KEY', 'firstParty'), /could not be acknowledged/);
+  calls.length = 0;
+  await prepareModels(sdk, { model: null, effort: null }, 'ANTHROPIC_API_KEY', 'firstParty', true);
+  assert.deepEqual(calls, []);
+  assert.doesNotThrow(() => assertAppliedModel('wire-a', 'wire-a'));
+  for (const actual of [undefined, null, 'alias-a', 'wire-other']) {
+    assert.throws(() => assertAppliedModel('wire-a', actual), /effective model differs/);
+  }
 });

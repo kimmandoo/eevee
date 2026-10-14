@@ -20,7 +20,7 @@ use ratatui::{
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    app::{App, ConfirmationKind, Overlay, PALETTE, Pane, ScrollSurface},
+    app::{App, ConfirmationKind, Overlay, Pane, ScrollSurface},
     artwork::Artwork,
     config::{ColorMode, Config, Theme},
     domain::{FORMS, Form},
@@ -333,6 +333,7 @@ pub fn portrait_targets(app: &App, area: Rect, targets: &mut Vec<(usize, Rect)>)
         || modal_editor
         || app.confirmation.is_some()
         || app.composer_menu.is_some()
+        || app.command_popup.is_some()
     {
         return;
     }
@@ -403,6 +404,7 @@ pub fn render(
             artwork,
             app.overlay.is_none()
                 && app.composer_menu.is_none()
+                && app.command_popup.is_none()
                 && !(app.editing
                     && matches!(
                         app.editor_field,
@@ -446,7 +448,6 @@ pub fn render(
     if let Some(overlay) = app.overlay {
         match overlay {
             Overlay::Forms => forms(frame, area, app, config, &paint, artwork),
-            Overlay::Palette => palette(frame, area, app, config, &paint),
             Overlay::Help => help(frame, area, app, config, &paint),
             Overlay::Preview => preview(frame, area, app, config, &paint),
             Overlay::Tasks => tasks(frame, area, app, config, &paint),
@@ -479,6 +480,9 @@ pub fn render(
     {
         editor(frame, area, app, config, &paint);
     }
+    if app.command_popup.is_some() {
+        composer::commands(frame, area, app, config, &paint);
+    }
     if app.confirmation.is_some() {
         confirmation(frame, area, app, config, &paint);
     }
@@ -502,20 +506,23 @@ fn header(frame: &mut Frame, area: Rect, app: &App, form: &Form, paint: &Paint) 
         Paragraph::new(Line::from(vec![
             Span::styled(" EEVEE ", paint.selected),
             Span::styled(format!("  {project}"), paint.base),
-            Span::styled(format!("  /  {}", form.name), paint.muted),
+            Span::styled(
+                format!("  /  {}  /  {}", form.name, app.planning.selection_label()),
+                paint.muted,
+            ),
         ])),
         row(area, 0, 1),
     );
     let activity = if app.planning.request.is_some() {
-        "Provider needs input / e Review"
+        "Provider needs input / /provider Review"
     } else if app.planning.cancelling {
-        "Cancelling provider / e Status"
+        "Cancelling provider / /provider Status"
     } else if app.planning.preview.is_some() {
-        "Provider preview / e Review"
+        "Provider preview / /provider Review"
     } else if app.planning.busy() {
-        "Provider active / e Status"
+        "Provider active / /provider Status"
     } else if app.planning.outcome_unknown() {
-        "Provider outcome unknown / e Inspect"
+        "Provider outcome unknown / /provider Inspect"
     } else {
         app.execution.activity_label()
     };
@@ -556,13 +563,13 @@ fn workspace(
     if app.goal.is_empty() {
         lines.push(Line::styled("Ready for a new task", paint.accent));
         lines.push(Line::from("Type a goal below; Enter saves locally."));
-        lines.push(Line::styled("F2 Connect an agent", paint.muted));
+        lines.push(Line::styled("/connect Connect a provider", paint.muted));
     } else {
         lines.push(Line::styled("SAVED TASK", paint.accent));
         lines.extend(app.goal.lines().map(Line::from));
         lines.push(Line::styled(
             format!(
-                "{} / {met}/{} criteria met  /  c Criteria",
+                "{} / {met}/{} criteria met  /  /criteria",
                 if app.complete {
                     "User-marked complete"
                 } else {
@@ -579,14 +586,16 @@ fn workspace(
         }
         lines.push(Line::from(""));
         if app.planning.items.is_empty() {
-            lines.push(Line::from("e Review a provider request"));
+            lines.push(Line::from(
+                "/provider Choose provider; /new or /resume prepares a request",
+            ));
         } else {
             lines.push(Line::styled(
                 format!("{} / PROVIDER ACTIVITY", app.planning.agent.label()),
                 paint.accent,
             ));
             lines.push(Line::styled(
-                "Unverified provider output / e Details",
+                "Unverified provider output / /provider Details",
                 paint.muted,
             ));
             // A bounded recent activity view, not a fabricated chat transcript.
@@ -611,7 +620,10 @@ fn workspace(
                 ));
                 lines.extend(item.text.lines().take(8).map(Line::from));
                 if item.text.lines().nth(8).is_some() {
-                    lines.push(Line::styled("... e Full item and provenance", paint.muted));
+                    lines.push(Line::styled(
+                        "... /provider Full item and provenance",
+                        paint.muted,
+                    ));
                 }
             }
             lines.push(Line::styled(
@@ -623,7 +635,7 @@ fn workspace(
     if !app.drafts.is_empty() {
         lines.push(Line::from(""));
         lines.push(Line::styled(
-            "Retained draft available / g Resume goal editor",
+            "Retained draft available / /goal Resume editor",
             paint.accent,
         ));
     }
@@ -631,9 +643,9 @@ fn workspace(
         lines.push(Line::from(""));
         lines.push(Line::styled(
             if app.form == 8 {
-                "Enter Handoff / m Approved memories"
+                "Enter Handoff / /memory Approved memories"
             } else {
-                "Enter Specialist desk / u Workflows"
+                "Enter Specialist desk / /workflows"
             },
             paint.accent,
         ));
@@ -704,7 +716,7 @@ fn compact_companion(
         if focused {
             "> Enter Choose form"
         } else {
-            "F3 Forms / b Details"
+            "/role / /companion"
         },
         paint.accent,
     );
@@ -735,7 +747,7 @@ fn companion(
         row(content, 0, 1),
     );
     frame.render_widget(
-        Paragraph::new("F3 Forms / F4 Images")
+        Paragraph::new("/role / /images")
             .style(paint.accent)
             .alignment(Alignment::Center),
         row(content, 1, 1),
@@ -804,7 +816,7 @@ fn inspect(
         let sampled = app.usage_bytes;
         let retention = app.policy.retention_days;
         format!(
-            "TASK\n{task} / {}\nUpdated: {updated}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete means user-reviewed criteria, not verified command evidence.\n\nPROJECT DIRECTORY\n{}\n\nSTORAGE\n{}\nRevision {} / committed {}\nDirectory: {}\n{}\nRecovery: r retries storage; --export-data FILE exports readable local records, not provider history.\nQuota: {quota} bytes. Last sample: {sampled} live SQLite, retained output and committed reservations; not physical database size.\nRetention: archived at least {retention} days; explicit purge only, no automatic eviction.\nSecret detection is best-effort. Volatile editor text may remain unmasked.\nArchive is reversible. Deletion affects selected local records and owned artifacts, not repository files, exports or provider sessions. Not forensic secure erasure.\n\nEXECUTION\nSpecialist request and provider-origin journal: e. Local command approval/evidence: j. Portable handoff: z. Cancellation does not roll back files; approval is not a sandbox.\n\nARTWORK\n{}\n{}\n{}\n\nUp/Down scroll / Esc back",
+            "TASK\n{task} / {}\nUpdated: {updated}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete means user-reviewed criteria, not verified command evidence.\n\nPROJECT DIRECTORY\n{}\n\nSTORAGE\n{}\nRevision {} / committed {}\nDirectory: {}\n{}\nRecovery: /storage-retry; --export-data FILE exports readable local records, not provider history.\nQuota: {quota} bytes. Last sample: {sampled} live SQLite, retained output and committed reservations; not physical database size.\nRetention: archived at least {retention} days; explicit purge only, no automatic eviction.\nSecret detection is best-effort. Volatile editor text may remain unmasked.\nArchive is reversible. Deletion affects selected local records and owned artifacts, not repository files, exports or provider sessions. Not forensic secure erasure.\n\nEXECUTION\n/provider opens reviewed planning. /run opens local command approval/evidence. /handoff opens portable handoff. Cancellation does not roll back files; approval is not a sandbox.\n\nARTWORK\n{}\n{}\n{}\n\nUp/Down scroll / Esc back",
             if app.complete { "Complete" } else { "Open" },
             app.criteria
                 .iter()
@@ -881,7 +893,7 @@ fn forms(
         frame,
         row(content, 1, 1),
         &format!(
-            "Enter Select / Esc Back / F4 Images ({}/9)",
+            "Enter Select / Esc Back / /images ({}/9)",
             artwork.available()
         ),
         paint.accent,
@@ -951,7 +963,7 @@ fn forms(
             content.height.saturating_sub(3 + visible as u16),
         );
         let value = format!(
-            "{} / {}\np Role details",
+            "{} / {}\n/preview Role details",
             FORMS[selected].name, FORMS[selected].role
         );
         text(frame, info, &value, paint.muted);
@@ -962,17 +974,17 @@ fn form_details(frame: &mut Frame, area: Rect, index: usize, config: &Config, ar
     let form = &FORMS[index];
     let paint = Paint::new(config, form, index);
     let value = format!(
-        "{} / {}\n{}\n\n{}\n\n{}\n{}\n\nArrows / 1-9 Preview\np Role details",
+        "{} / {}\n{}\n\n{}\n\n{}\n{}\n\nArrows Preview\n/preview Role details",
         form.name,
         form.element,
         form.role,
         form.evidence,
         match index {
             0 => "Task cards and resumption: available",
-            1 => "Source ranges/context basket: v",
-            2 => "Approved local commands/evidence: j",
-            3 => "Reviewed selected-file implementation: e / f",
-            4 => "Reviewed multi-agent planning: e",
+            1 => "Source ranges/context basket: /files",
+            2 => "Approved local commands/evidence: /run",
+            3 => "Reviewed selected-file implementation: /provider / /role",
+            4 => "Reviewed multi-agent planning: /provider",
             _ => "Provider specialist workflow: unavailable",
         },
         artwork.status(index)
@@ -1039,7 +1051,7 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
         text(
             frame,
             content,
-            "No task cards in this view.\n\nh Active/archived / n New / Esc Back\nArchive is reversible; deletion requires review.",
+            "No task cards in this view.\n\n/archived Active/archived / /task-new New / Esc Back\nArchive is reversible; deletion requires review.",
             paint.surface,
         );
         app.set_scroll_max(ScrollSurface::Preview, 0);
@@ -1079,12 +1091,12 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
         frame,
         row(content, visible as u16, 1),
         &format!(
-            "{} cards / h View / {} / Del Delete / x Retention",
+            "{} cards / /archived View / {} / /delete / /prune Retention",
             count,
             if app.show_archived {
-                "r Restore"
+                "/restore"
             } else {
-                "a Archive"
+                "/archive"
             }
         ),
         paint.muted,
@@ -1189,7 +1201,7 @@ fn criteria(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint
         text(
             frame,
             row(content, 3, content.height.saturating_sub(3)),
-            "No acceptance criteria yet.\n\ne Edit criteria, one per line.\nComplete requires a nonempty, all-met checklist.",
+            "No acceptance criteria yet.\n\n/criteria-edit Edit criteria, one per line.\nComplete requires a nonempty, all-met checklist.",
             paint.surface,
         );
         app.set_scroll_max(ScrollSurface::Preview, 0);
@@ -1235,7 +1247,7 @@ fn criteria(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint
         Line::from(if app.complete {
             "Completed task. Editing criteria requires explicit Reopen."
         } else {
-            "Space toggles your review. e edits criteria; d reviews Complete."
+            "Enter toggles your review. /criteria-edit edits; /complete reviews completion."
         }),
         Line::from("No command evidence is collected or verified here."),
     ];
@@ -1264,54 +1276,13 @@ fn selection_details(frame: &mut Frame, area: Rect, paragraph: Paragraph<'_>, of
     max
 }
 
-fn palette(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
-    let area = centered(area, 66, 19);
-    frame.render_widget(Clear, area);
-    let block = panel(" Actions ", config, paint, true);
-    let content = block.inner(area);
-    frame.render_widget(block, area);
-    let visible = content.height.saturating_sub(1) as usize;
-    let start = app.selected.saturating_sub(visible.saturating_sub(1));
-    for (index, command) in PALETTE.iter().enumerate().skip(start).take(visible) {
-        text(
-            frame,
-            row(content, (index - start) as u16, 1),
-            &format!(
-                "{} {}",
-                if index == app.selected { ">" } else { " " },
-                command
-            ),
-            if index == app.selected {
-                paint.selected
-            } else {
-                paint.surface
-            },
-        );
-    }
-    text(
-        frame,
-        row(content, content.height.saturating_sub(1), 1),
-        "Arrows Choose / Enter Open / Esc Back",
-        paint.muted,
-    );
-}
-
 fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
     let area = centered(area, 78, 24);
     frame.render_widget(Clear, area);
     let block = panel(" Help / PgUp/Dn Scroll / Esc Back ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let value = "TASKS\n g / Enter  Edit goal; Enter in workspace resumes\n t          Task cards; Enter resumes selection\n n          New task after saves and owned work settle\n c          Criteria; Space toggles, e edits lines\n a          Next action (descriptive, never execution)\n d          Review Complete; requires all criteria met\n w          Repository baseline; r refreshes current evidence\nExternal changes are unattributed, not agent-authored.\nTask cards: h active/archived; a archive; r restore.\nDelete reviews a task; x reviews eligible retention purge.\nDeletion: PgUp/Dn scroll; n/p artifact pages; neutral Stay.\nPurge leaves repository files, exports and provider sessions alone. Not forensic secure erasure.\nComplete is user review, not verified execution.\nGoal/criteria changes require explicit Reopen.\n\nSOURCES / v\n / filters filenames; r chooses inclusive start:end.\n Enter inspects line 1; p pins an inspected range.\n b toggles files/basket; Delete removes; x purges capture.\n a previews exact escaped envelope; d revalidates without sending.\n u refreshes repository; n/p pages a large envelope.\n s retries a failed retained storage operation explicitly.\nIgnore/exclusion, containment and source identity are rechecked. Provider history/config/independent reads are not constrained.\n\nCOMMANDS / j\n e edits JSON argv or explicit shell object; Apply prepares only.\n v opens neutral approval; closing it grants nothing.\n c reviews cancellation; h history; r fresh evidence.\n / searches output; n/N next/previous; f follows.\n Arrows/PgUp/Dn/Home/End scroll without following.\n [/] pages retained output; p reviews purge; d error details.\n s retries journal persistence, never command execution.\nApproval is not a sandbox. Cancellation does not roll back edits.\nTask/form changes and quit wait for owned work or explicit unknown-outcome review. Restart never replays a command.\n\nEDITOR\nEnter applies locally; Ctrl+S retains draft without applying.\nEsc reviews changed draft; unchanged drafts close directly.\nLeft/Right and deletion operate on graphemes.\nUp/Down move lines; Home/End line boundaries.\nCtrl+N newline; Shift+Enter only if terminal distinguishes it.\nPaste never applies or approves. Drafts survive restart.\nSecret masking is best-effort; volatile text may be unmasked.\n\nNAVIGATION\n f Evolution: arrows/1-9 preview, Enter activates\n p Local handoff preview; sends nothing\n i / b Inspector / companion\n r Retry failed task storage outside editor\n l Linear/sanctuary; Ctrl+K actions; Tab pane focus\n Esc closes overlay and restores focus; ? help\n q / Ctrl+C safe exit with neutral Stay\nDuring save-and-exit, Esc cancels exit.\nFailed persistence requires informed explicit exit.\nArtwork: --images cells|off. No automatic download or model request. Linear mode makes no screen-reader compatibility claim.";
-    let value = format!(
-        "QUICK KEYS\n Enter       Save goal locally; never sends or runs\n @ / /       Files / commands in the composer\n F2          Connections\n F3 / F4     Forms / images\n Ctrl+K      All actions\n Esc         Back; review a changed draft\n Ctrl+C      Safe exit\n PgUp/Dn     Scroll focused details\n\nLAYOUT\n b Companion / i Inspector / Tab Focus\n Narrow layouts keep the composer full-width.\n Global shortcuts retain unfinished drafts.\n Provider output is unverified; e opens full items.\n\nCONNECTIONS / F2\n Arrows select; Enter opens actions or a review.\n Connect requires explicit approval; Back is default.\n Native login owns browser/credentials and may open chat.\n No task is sent and no token is copied into Eevee.\n Installed, authenticated and model eligibility differ.\n Claude: API key, Console OAuth (ant) or cloud; no subscription OAuth.\n Diagnostics keeps executable, capability and blocker details.\n\nIMAGES / F4\n Download missing / Retry repairs the sprite cache.\n Reload local is offline; Cancel keeps completed images.\n Startup and form changes never download images.\n Auto uses Sixel/Kitty or falls back to text, not a mosaic.\n --images cells explicitly enables character art.\n\nMORE KEYS (Esc leaves the input first)\n{value}\n\nSPECIALIST REQUESTS / e\n n New session / r Reviewed same-task resume\n f Plan or Implement / x Select edit paths\n Review payload and effects, then authorize once.\n Permissions start at Deny; cancellation is not rollback.\n d Review selected decision as a next action / h Journal\n Provider history/configuration/billing remain external.\n No automatic replay, private reasoning or portable permissions."
-    );
-    let value = format!(
-        "{value}\n\nSPECIALIST DESK / u\n Left/Right chooses Diagnosis, Refactor, Review or Recipe.\n Up/Down chooses a field or action; Enter opens it.\n Text fields: Ctrl+S applies locally; Enter adds a line.\n Source/run evidence retains task ownership and freshness.\n Refactor and diagnosis handoffs open normal approvals.\n Managed review starts fresh and has no source-writing tools.\n Recipes preview before Apply; Apply stages only, never runs.\n\nAPPROVED MEMORIES / m\n r Remember the saved next-action note; n author a note.\n Scope and contents require explicit preview/approval.\n Space chooses memories for future provider context.\n Editing/deleting invalidates old request snapshots.\n Prior exports and provider history are outside local erasure."
-    );
-    let value = format!(
-        "{value}\n\nCOMPOSER / FILES AND COMMANDS\n @ at a word boundary filters eligible repository files.\n Arrows/Tab chooses; Enter inspects the complete bounded file.\n r chooses a smaller line range; p pins reviewed context.\n Esc returns to the original draft; the title counts attachments.\n New-task drafts save locally before gathering context.\n / at the start of a line filters real actions, e.g. /help.\n /run opens the command editor, never executes a shell string.\n Save prepares the ordinary explicit command review/approval.\n Esc dismisses suggestions and keeps literal input.\n Paste never opens a picker or invokes a command."
-    );
+    let value = "COMMANDS\n / or Ctrl+K opens the same searchable choices from every nonediting workspace and the goal composer.\n Type a semantic command or navigate with arrows/Tab; Enter opens the selected action. Esc preserves your draft.\n /provider chooses a provider; /connect opens reviewed connection actions.\n /new prepares a new provider session; /resume chooses an owned provider session.\n /task-new creates a local task; /tasks resumes saved tasks.\n /model and /effort show cached choices; explicit model inspection requires Preview and Run consent.\n /role chooses Plan / Implement / Review; /forms chooses evolution. /files reviews source context; /run opens local command execution.\n /criteria, /next, /complete, /diff, /history, /handoff, /workflows and /memory open their workspaces.\n Context choices explain unavailable actions. Nothing sends or executes merely by opening a command.\n\nCOMPOSER\n Enter applies the goal locally and offers New / Resume / provider / connection choices; no prompt is sent.\n Provider previews wait for task and context storage acknowledgement.\n @ filters eligible repository files; Enter inspects, /range chooses lines, /attach pins reviewed context.\n Literal paste never dispatches slash commands. The searchable shell does not modify the actual draft or its caret.\n Shift+Enter or Ctrl+N inserts a newline. Ctrl+H/Backspace deletes a grapheme.\n Ctrl+S retains an unfinished draft; Esc reviews discard without selecting destruction.\n\nNAVIGATION AND SAFETY\n Arrows/Tab choose, Enter confirms, Esc goes back. Ctrl+C requests safe exit.\n PgUp/PgDn scroll details. Task completion is user-reviewed criteria, not verified execution.\n Connection, provider, tool, file-write and local-command approvals remain separate and start neutral.\n Exported handoffs and provider output are unverified context, not permission.\n Archive is reversible; deletion requires reviewed confirmation and leaves repository files and provider sessions alone.";
     scroll_text(
         frame,
         content,
@@ -1336,7 +1307,7 @@ fn preview(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint:
     frame.render_widget(block, area);
     let form = &FORMS[app.preview_form()];
     let value = format!(
-        "GOAL\n{}\n\nROLE\n{} / {}\n\nEXPECTED ARTIFACT\n{}\n\nCONTEXT\n{} captured references loaded. Open v for exact envelope preview and source revalidation. Provider-added history or reads are not governed by this basket.\n\nEXECUTION / CONTROL\nThis local preview sends nothing. e opens separately reviewed provider planning. Command approval is separate in j.\nThis preview performs no operation and sends nothing.\n\nEsc returns to the invoking control.",
+        "GOAL\n{}\n\nROLE\n{} / {}\n\nEXPECTED ARTIFACT\n{}\n\nCONTEXT\n{} captured references loaded. /files opens envelope preview and source revalidation. Provider-added history or reads are not governed by this basket.\n\nEXECUTION / CONTROL\nThis local preview sends nothing. /provider opens separately reviewed planning. Command approval is separate in /run.\nThis preview performs no operation and sends nothing.\n\nEsc returns to the invoking control.",
         if app.goal.is_empty() {
             "No task goal set"
         } else {
@@ -1365,56 +1336,29 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
         "Tab/arrows Choose / Enter Confirm / Esc Stay"
     } else if app.transitioning {
         "Applying task operation / mutation paused"
+    } else if app.command_popup.is_some() {
+        "Type / arrows Choose / Enter Open / Esc Back"
     } else if app.editing && app.overlay.is_none() {
-        "F1 Help / F2 Connect / F3 Forms / F4 Images\nCtrl+K Actions / Ctrl+C Exit"
+        "Enter Save locally / Shift+Enter Newline / / Commands / @ Files\nCtrl+K Commands / Ctrl+C Exit"
     } else {
         match app.overlay {
-            Some(Overlay::Forms) => "Arrows/1-9 Preview / Enter Select / p Details / Esc Back",
-            Some(Overlay::Palette) => "Arrows Choose / Enter Open / Esc Back",
-            Some(Overlay::Repository) => "r Refresh / Up/Down Scroll / PgUp/Dn Page / Esc Back",
-            Some(Overlay::Sources) => {
-                if app.sources.editor.is_some() {
-                    "Enter Apply / Esc Back"
-                } else if app.sources.confirmation.is_some() {
-                    "Tab/arrows Choose / Enter Confirm / Esc Stay / PgUp/Dn"
-                } else {
-                    match app.sources.mode {
-                        crate::app::sources::Mode::Files => {
-                            "/ Filter / r Range / Enter Inspect / b Basket / Esc Back"
-                        }
-                        crate::app::sources::Mode::Basket => {
-                            "a Preview / d Revalidate / Del Remove / x Purge / b Files"
-                        }
-                        crate::app::sources::Mode::Preview => {
-                            "p Pin / r Range / PgUp/Dn Scroll / Esc Files"
-                        }
-                        crate::app::sources::Mode::Payload => {
-                            "n/p Pages / d Revalidate / PgUp/Dn Scroll / Esc Basket"
-                        }
-                    }
-                }
+            Some(Overlay::Forms) => "Arrows Preview / Enter Select / /preview Details / Esc Back",
+            Some(Overlay::Criteria) => {
+                "Enter Toggle / /criteria-edit / /complete / Arrows Choose / Esc Back"
             }
-            Some(Overlay::Execution) => "",
-            Some(Overlay::Agents) => "",
-            Some(Overlay::Planning) => "",
-            Some(Overlay::Handoff) => "",
-            Some(Overlay::Workflows | Overlay::Memory) => "",
-            Some(Overlay::Tasks) => "Enter Resume / h Archives / a Archive / r Restore / Del",
-            Some(Overlay::Criteria) => "Space Toggle / e Edit / Arrows Choose / PgUp/Dn / Esc Back",
-            Some(_) => "Up/Down Scroll / Esc Back / Ctrl+C Exit",
-            None => match app.effective_focus() {
-                Pane::Companion => "Enter Evolution / Tab Focus / i Inspect / ? Help / q Quit",
-                Pane::Inspector => "Enter Inspect / Tab Focus / t Tasks / ? Help / q Quit",
-                Pane::Workspace if matches!(app.form, 5..=7) => {
-                    "Enter Desk / m Memories / Ctrl+K Actions / F1 Help"
-                }
-                Pane::Workspace if app.form == 8 => {
-                    "Enter Handoff / m Memories / Ctrl+K Actions / F1 Help"
-                }
-                Pane::Workspace => {
-                    "F1 Help / F2 Connect / F3 Forms / F4 Images\nCtrl+K Actions / Ctrl+C Exit"
-                }
-            },
+            Some(Overlay::Tasks) => {
+                "Enter Resume / /archived / /archive / /restore / /delete / Esc Back"
+            }
+            Some(
+                Overlay::Execution
+                | Overlay::Agents
+                | Overlay::Planning
+                | Overlay::Handoff
+                | Overlay::Workflows
+                | Overlay::Memory,
+            ) => "/ Commands / Esc Back / Ctrl+C Exit",
+            Some(_) => "/ Commands / Up/Down Scroll / Esc Back / Ctrl+C Exit",
+            None => "Enter Open focused workspace / Tab Focus / / Commands / Ctrl+C Exit",
         }
     };
     if !app.notice.is_empty() {
@@ -1580,9 +1524,9 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
             if editing {
                 "Describe your task..."
             } else if app.goal.is_empty() {
-                "Press g to describe a task."
+                "Type to describe a task, or / for commands."
             } else {
-                "g Edit goal"
+                "/goal Edit goal"
             },
             paint.muted,
         );
@@ -1599,7 +1543,12 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
             input,
         );
     }
-    if editing && app.overlay.is_none() && input.width > 0 && input.height > 0 {
+    if editing
+        && app.overlay.is_none()
+        && app.command_popup.is_none()
+        && input.width > 0
+        && input.height > 0
+    {
         frame.set_cursor_position((
             input.x + caret_column.min(input.width.saturating_sub(1) as usize) as u16,
             input.y + (caret_row - top) as u16,
@@ -1610,13 +1559,13 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
     } else if editing {
         "Enter Save locally / Ctrl+N Newline\n@ Files / / Commands / Esc Review draft"
     } else if app.effective_focus() != Pane::Workspace {
-        "g Edit goal / Tab Focus\nEnter opens focused details"
+        "/goal Edit goal / Tab Focus\nEnter opens focused details"
     } else if matches!(app.form, 5..=7) {
-        "Enter Specialist desk / g Edit goal"
+        "Enter Specialist desk / /goal Edit goal"
     } else if app.form == 8 {
-        "Enter Prepare handoff / g Edit goal"
+        "Enter Prepare handoff / /goal Edit goal"
     } else {
-        "Enter Edit goal / e Review provider request"
+        "Enter Edit goal / /provider Choose provider"
     };
     text(
         frame,
@@ -1815,7 +1764,7 @@ fn delete_confirmation(
     let content = block.inner(area);
     frame.render_widget(block, area);
     let question = format!(
-        "Delete {} tasks/drafts and listed evidence/task memories? Shared memories, sources, exports and provider sessions stay. Not secure erasure. Page {}/{} (n/p).",
+        "Delete {} tasks/drafts and listed evidence/task memories? Shared memories, sources, exports and provider sessions stay. Not secure erasure. Page {}/{} (Home/End).",
         app.delete_targets.len(),
         app.delete_page + 1,
         app.deletion_pages()

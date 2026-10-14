@@ -394,7 +394,7 @@ def main():
                     while "Storage: saved" not in launch.display() and time.monotonic() < deadline:
                         assert launch.alive(), "installed executable exited before first launch"
                         launch.pump(0.1)
-                    launch.send("\x1bOS")  # F4: inspect locally loaded assets, no download action.
+                    launch.command("images")  # Inspect locally loaded assets; no download action.
                     deadline = time.monotonic() + 8
                     while not re.search(r"\b9/9\b", launch.display()) and time.monotonic() < deadline:
                         assert launch.alive(), "installed executable exited while inspecting sprites"

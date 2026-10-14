@@ -54,7 +54,7 @@ def main():
                 sessions.append(session)
                 wait_for(session, 'Storage: saved')
                 session.send('\x1b')  # Enter navigation from the clean composer.
-                session.send('o')
+                session.command('connect')
                 wait_for(session, 'Connections')
                 wait_for(session, 'Connect / credential setup')
                 session.send('\r')
@@ -76,26 +76,28 @@ def main():
             def quit_session(session):
                 session.send('\x1b')  # Actions -> Providers.
                 session.send('\x1b')  # Providers -> workspace.
-                session.send('q')
+                session.command('quit')
                 assert session.wait_exit() == 0
                 session.close()
 
             session = launch('missing', missing)
             session.capture('missing-codex')
-            for number in '2341':
-                session.send(number)
-                if number == '2':
+            session.send('\x1b')  # Actions -> visible provider list.
+            for provider, keys in (('claude', '\x1b[B'), ('opencode', '\x1b[B'),
+                                   ('gemini', '\x1b[B'), ('codex', '\x1b[A' * 3)):
+                session.send(keys)
+                if provider == 'claude':
                     assert 'cannot reuse claude.ai' in session.display(), session.display()
                 else:
                     assert 'Not installed' in session.display(), session.display()
-                session.capture('profile-' + number)
+                session.capture('profile-' + provider)
             session.send('\x1b')
             session.send('\x1b')
-            session.send('g')
+            session.command('goal')
             session.paste('Local-only 漢字 goal')
             session.send('\r')
             wait_for(session, 'Storage: saved')
-            session.send('q')
+            session.command('quit')
             wait_for(session, 'Confirm exit')
             session.send('\t\r')
             assert session.wait_exit() == 0

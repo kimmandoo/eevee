@@ -67,7 +67,7 @@ impl State {
             decision: None,
             candidate: None,
             notice:
-                "Local-only handoff. j JSON / m Markdown export, i import. No CLI or model starts."
+                "Local-only handoff. /export-json /export-markdown /import-handoff. No CLI or model starts."
                     .into(),
             preview: String::new(),
             scroll: 0,
@@ -93,8 +93,82 @@ impl State {
             && !key
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-            && ((self.mode == Mode::Idle && matches!(key.code, KeyCode::Char('j' | 'm')))
-                || (matches!(self.mode, Mode::Export(_)) && key.code == KeyCode::Enter))
+            && matches!(self.mode, Mode::Export(_))
+            && key.code == KeyCode::Enter
+    }
+
+    pub fn command_needs_saved_input(&self, name: &str) -> bool {
+        self.mode == Mode::Idle && matches!(name, "export-json" | "export-markdown")
+    }
+
+    pub fn command_choices(&self) -> Vec<super::commands::Choice> {
+        use super::commands::Choice;
+        if self.busy() {
+            return Vec::new();
+        }
+        let mut choices = vec![
+            Choice::new("export-json", "Review JSON handoff export"),
+            Choice::new("export-markdown", "Review Markdown handoff export"),
+            Choice::new("import-handoff", "Read and review a local handoff"),
+        ];
+        if self.selected_import_decision().is_some() {
+            choices.push(Choice::new(
+                "copy-decision",
+                "Copy selected unverified decision to editor",
+            ));
+        }
+        choices
+    }
+
+    pub fn command(
+        &mut self,
+        name: &str,
+        large_enough: bool,
+        task: &store::Snapshot,
+        _excerpts: &[context::Excerpt],
+        _selected_decisions: &[String],
+    ) -> bool {
+        if self.task_id != task.id {
+            self.reset(task.id);
+        }
+        let available = matches!(name, "export-json" | "export-markdown" | "import-handoff")
+            || (name == "copy-decision" && self.selected_import_decision().is_some());
+        if self.busy() || !available {
+            return false;
+        }
+        if !large_enough {
+            self.invalidate_review();
+            self.notice = "Resize to at least 60 columns x 18 rows before handoff actions.".into();
+            return true;
+        }
+        match name {
+            "export-json" => self.start(Mode::Export(Format::Json)),
+            "export-markdown" => self.start(Mode::Export(Format::Markdown)),
+            "import-handoff" => self.start(Mode::Import),
+            "copy-decision" => {
+                if let Some(decision) = self.selected_import_decision() {
+                    if decision.len() > crate::app::MAX_GOAL_BYTES {
+                        self.notice = "Selected decision exceeds the existing editor limit; no silent truncation or save.".into();
+                    } else {
+                        self.decision = Some(format!(
+                            "{decision}\n\n[User-supplied imported decision; unverified. Not local execution evidence.]"
+                        ));
+                        if self
+                            .decision
+                            .as_ref()
+                            .is_some_and(|text| text.len() > crate::app::MAX_GOAL_BYTES)
+                        {
+                            self.decision = None;
+                            self.notice = "Decision with required unverified label exceeds the editor limit; no copy.".into();
+                        } else {
+                            self.notice = "Selected unverified decision copied to the existing editor for separate review/save; task not completed.".into();
+                        }
+                    }
+                }
+            }
+            _ => return false,
+        }
+        true
     }
 
     pub fn selected_import_decision(&self) -> Option<&str> {
@@ -384,39 +458,12 @@ impl State {
             return true;
         }
         match key.code {
-            KeyCode::Char('j') => self.start(Mode::Export(Format::Json)),
-            KeyCode::Char('m') => self.start(Mode::Export(Format::Markdown)),
-            KeyCode::Char('i') => self.start(Mode::Import),
-            KeyCode::Char('c') if large_enough && self.accepted_import => {
-                if let Some(decision) = self.selected_import_decision() {
-                    if decision.len() > crate::app::MAX_GOAL_BYTES {
-                        self.notice = "Selected decision exceeds the existing editor limit; no silent truncation or save.".into();
-                    } else {
-                        self.decision = Some(format!(
-                            "{decision}\n\n[User-supplied imported decision; unverified. Not local execution evidence.]"
-                        ));
-                        // The parent editor limit applies to the final copied bytes too.
-                        if self
-                            .decision
-                            .as_ref()
-                            .is_some_and(|text| text.len() > crate::app::MAX_GOAL_BYTES)
-                        {
-                            self.decision = None;
-                            self.notice = "Decision with required unverified label exceeds the editor limit; no copy.".into();
-                        } else {
-                            self.notice = "Selected unverified decision copied to the existing editor for separate review/save; task not completed.".into();
-                        }
-                    }
-                } else {
-                    self.notice = "No separately accepted imported decision selected.".into();
-                }
-            }
-            KeyCode::Char('[') => {
+            KeyCode::Left => {
                 self.selected_decision = self.selected_decision.saturating_sub(1);
                 self.scroll = 0;
                 self.scroll_max = 0;
             }
-            KeyCode::Char(']') => {
+            KeyCode::Right => {
                 let max = self
                     .candidate
                     .as_ref()
@@ -456,7 +503,7 @@ mod tests {
     fn export_requires_path_preview_review_and_deliberate_selection() {
         let task = task();
         let mut state = State::new();
-        state.key(key(KeyCode::Char('j')), true, &task, &[], &[]);
+        state.command("export-json", true, &task, &[], &[]);
         state.paste("chosen-new.json");
         state.key(key(KeyCode::Enter), true, &task, &[], &[]);
         assert!(state.candidate.is_some());
@@ -510,7 +557,7 @@ mod tests {
     fn changed_task_prevents_export_and_escape_is_neutral() {
         let mut task = task();
         let mut state = State::new();
-        state.key(key(KeyCode::Char('m')), true, &task, &[], &[]);
+        state.command("export-markdown", true, &task, &[], &[]);
         state.paste("new.md");
         state.key(key(KeyCode::Enter), true, &task, &[], &[]);
         state.reviewed = true;
@@ -548,10 +595,10 @@ mod tests {
         assert_eq!(state.scroll, 0);
         assert_eq!(state.selected_import_decision(), Some("First decision"));
         state.scroll = 20;
-        state.key(key(KeyCode::Char(']')), true, &task, &[], &[]);
+        state.key(key(KeyCode::Right), true, &task, &[], &[]);
         assert_eq!(state.scroll, 0);
         assert_eq!(state.selected_import_decision(), Some("Second decision"));
-        state.key(key(KeyCode::Char('c')), true, &task, &[], &[]);
+        state.command("copy-decision", true, &task, &[], &[]);
         let decision = state.decision.take().unwrap();
         assert!(decision.starts_with("Second decision"));
         assert!(decision.contains("unverified"));
@@ -565,7 +612,7 @@ mod tests {
         );
         assert!(state.preview.is_empty());
         assert!(state.selected_import_decision().is_none());
-        state.key(key(KeyCode::Char('i')), true, &task, &[], &[]);
+        state.command("import-handoff", true, &task, &[], &[]);
         assert!(state.selected_import_decision().is_none());
     }
 
@@ -573,13 +620,13 @@ mod tests {
     fn exports_require_saved_input_but_import_review_does_not() {
         let task = task();
         let mut state = State::new();
-        assert!(state.needs_saved_input(&key(KeyCode::Char('j'))));
-        assert!(state.needs_saved_input(&key(KeyCode::Char('m'))));
-        assert!(!state.needs_saved_input(&key(KeyCode::Char('i'))));
-        state.key(key(KeyCode::Char('m')), true, &task, &[], &[]);
+        assert!(state.command_needs_saved_input("export-json"));
+        assert!(state.command_needs_saved_input("export-markdown"));
+        assert!(!state.command_needs_saved_input("import-handoff"));
+        state.command("export-markdown", true, &task, &[], &[]);
         assert!(state.needs_saved_input(&key(KeyCode::Enter)));
         state.key(key(KeyCode::Esc), true, &task, &[], &[]);
-        state.key(key(KeyCode::Char('i')), true, &task, &[], &[]);
+        state.command("import-handoff", true, &task, &[], &[]);
         assert!(!state.needs_saved_input(&key(KeyCode::Enter)));
     }
 
@@ -602,5 +649,22 @@ mod tests {
         assert!(state.output.is_none());
         assert!(state.decision.is_none());
         assert!(!state.notice.contains("Reviewed handoff written"));
+    }
+
+    #[test]
+    fn semantic_commands_cannot_replace_pending_review_or_act_when_small() {
+        let task = task();
+        let mut state = State::new();
+        assert!(state.command("export-json", false, &task, &[], &[]));
+        assert_eq!(state.mode, Mode::Idle);
+        assert!(!state.editing);
+        assert!(state.command("export-json", true, &task, &[], &[]));
+        state.paste("chosen.json");
+        state.key(key(KeyCode::Enter), true, &task, &[], &[]);
+        let preview = state.preview.clone();
+        assert!(!state.command("import-handoff", true, &task, &[], &[]));
+        assert_eq!(state.preview, preview);
+        assert!(state.pending.is_none());
+        assert!(!state.affirmative);
     }
 }

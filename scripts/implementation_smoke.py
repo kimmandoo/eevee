@@ -80,7 +80,7 @@ def main():
                     session.pump(0.1)
 
             def start_patch(session):
-                session.send('n')
+                session.command('new')
                 wait_for(session, 'LOCAL PREVIEW', timeout=30)
                 session.send(END)
                 wait_for(session, 'Enter Stay')
@@ -96,7 +96,7 @@ def main():
 
             def quit_app(session):
                 session.send('\x1b')
-                session.send('q')
+                session.command('quit')
                 wait_for(session, 'Confirm exit')
                 session.send(RIGHT + '\r')
                 assert session.wait_exit() == 0
@@ -104,16 +104,15 @@ def main():
 
             session = launch('controlled-patch')
             session.send('\x1b')  # Leave the clean first-run Goal composer.
-            session.send('g')
+            session.command('goal')
             session.paste('Fix add(a,b) in calculator.py so it returns a+b. Use ONLY eevee_edit_file with full replacement content. '
                           'Preserve the exact pre-existing user comment and all other files. Do not run commands or checks; '
                           'I will verify through the local runner afterward. Ask approval for the exact patch and stop if denied.')
             session.send('\r')
             wait_for(session, 'Storage: saved')
-            session.send('e')
-            session.send('f')
+            session.command('role-implement')
             wait_for(session, TITLE)
-            session.send('x')
+            session.command('paths')
             wait_for(session, 'SELECT EDIT PATHS')
             session.send('\x1b[H' + '\x1b[3~' * 2)
             session.paste('["calculator.py"]')
@@ -156,18 +155,18 @@ def main():
 
             session.resize((120, 36))
             session.send('\x1b')
-            session.send('w')
+            session.command('diff')
             wait_for(session, 'Repository', timeout=30)
             session.capture('working-diff-review')
             session.send('\x1b')
-            session.send('j')
-            session.send('e')
+            session.command('run')
+            session.command('command-edit')
             wait_for(session, 'Command / explicit JSON argv or shell')
             check = json.dumps([sys.executable, '-c', "import runpy; m=runpy.run_path('calculator.py'); assert m['add'](2,3)==5; print('EEVEE_LOCAL_CHECK_OK')"])
             session.paste(check)
             session.send('\r')
             wait_for(session, 'Approval pending', timeout=35)
-            session.send('v')
+            session.command('run')
             session.send(END)
             session.capture('deliberate-local-check-review')
             session.send(RIGHT + '\r')
@@ -179,14 +178,14 @@ def main():
             passed('working patch reviewed and deliberately checked through separate local runner')
 
             resumed = launch('journal-restart')
-            resumed.send('e')
+            resumed.command('role-implement')
             wait_for(resumed, TITLE)
-            resumed.send('h')
+            resumed.command('provider-journal')
             wait_for(resumed, 'PROVIDER JOURNAL')
             resumed.capture('durable-provider-origin-journal')
             assert rows() == journal_before, 'restart changed or replayed provider journal'
             assert source.read_text() == changed
-            resumed.send('h')
+            resumed.command('provider-journal')
             quit_app(resumed)
             passed('provider-origin journal survives restart without model replay or local-evidence relabelling')
         result['status'] = 'passed'

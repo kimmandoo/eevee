@@ -83,8 +83,9 @@ def main():
                 old = task(session)
                 if old is None:
                     session.send('\x1b')  # Fresh tasks start in the clean composer.
-                session.send('g')
-                wait_for(session, 'Enter Save locally')
+                session.command('goal')
+                wait_for(session, 'Task composer')
+                assert not session.screen.cursor.hidden, 'goal command did not activate editing'
                 if old:
                     session.send(HOME + DELETE * len(old[0]))
                 session.paste(text)
@@ -94,7 +95,7 @@ def main():
                     wait_for(session, 'Storage: saved')
 
             def preview(session, resume=False):
-                session.send('r' if resume else 'n')
+                session.command('resume' if resume else 'new')
                 wait_for(session, 'LOCAL PREVIEW', timeout=20)
                 session.send(END)
                 wait_for(session, 'Enter Stay', timeout=20)
@@ -107,7 +108,7 @@ def main():
 
             def quit_app(session):
                 session.send('\x1b')
-                session.send('q')
+                session.command('quit')
                 wait_for(session, 'Confirm exit')
                 session.send('\t\r')
                 assert session.wait_exit() == 0
@@ -129,20 +130,20 @@ def main():
 
             stale = launch('source-revalidation')
             goal(stale, 'Plan a two-step note workflow using only the selected source; do not run commands.')
-            stale.send('v')
+            stale.command('files')
             wait_for(stale, 'eligible files /', timeout=35)
-            stale.send('/')
+            stale.command('search')
             wait_for(stale, 'Filename filter')
             stale.paste('note.txt')
             stale.send('\r')
             wait_for(stale, '1 eligible files /')
             stale.send('\r')
             wait_for(stale, 'Inspected capture /')
-            stale.send('p')
+            stale.command('attach')
             wait_for(stale, '1 task-owned basket references / stored')
-            stale.send('v')
+            stale.command('close')
             wait_for(stale, 'Storage: saved')
-            stale.send('e')
+            stale.command('role-plan')
             wait_for(stale, TITLE)
             preview(stale)
             source.write_text('Changed after preview; must never be sent.\n')
@@ -180,7 +181,7 @@ def main():
                 executable.chmod(0o700)
                 malformed = launch('malformed-transport', path_prefix=malformed_dir)
                 goal(malformed, 'A malformed transport must not produce a completed plan.')
-                malformed.send('e')
+                malformed.command('role-plan')
                 preview(malformed)
                 run_preview(malformed)
                 wait_for(malformed, IDLE, timeout=30)
@@ -195,7 +196,7 @@ def main():
                              'to ask whether notes should be Markdown or plain text, with exactly those two options. '
                              'Do not read files or run commands. After my answer, give one brief design decision.')
             goal(session, question_goal)
-            session.send('e')
+            session.command('role-plan')
             wait_for(session, TITLE)
             preview(session)
             session.send('\r')
@@ -206,11 +207,11 @@ def main():
             wait_for(session, 'QUESTION 1/', timeout=150)
             session.capture('real-question')
             session.resize((60, 18))
-            session.send('a')
+            session.command('answer')
             wait_for(session, 'Literal answer')
             session.paste('Markdown — 한국어 메모')
             session.send('\r')
-            session.send('s')
+            session.command('answers-review')
             wait_for(session, 'REVIEW LITERAL ANSWERS')
             session.send(END)
             wait_for(session, 'Enter Edit')
@@ -220,8 +221,8 @@ def main():
             session.resize((120, 36))
             session.capture('completed-plan')
             for _ in range(128):
-                session.send('d')
-                if 'Enter Save locally' in session.display():
+                session.command('decision')
+                if 'Next action / local' in session.display() and not session.screen.cursor.hidden:
                     break
                 session.send(DOWN)
             else:
@@ -237,7 +238,7 @@ def main():
             goal(session, 'Ask a NEW clarification via request_user_input: should the note title be Date or Topic? '
                           'Offer those two options, do not infer from previous answers, and wait for my response. '
                           'Do not read files or run commands.')
-            session.send('e')
+            session.command('role-plan')
             wait_for(session, TITLE)
             preview(session, resume=True)
             run_preview(session)
@@ -246,7 +247,7 @@ def main():
             session.resize((39, 10))
             session.send('\t\r')
             session.capture('undersize-no-answer')
-            session.send('c')
+            session.command('cancel')
             session.resize((120, 36))
             wait_for(session, IDLE, timeout=30)
             session.send('\t\r')
@@ -263,7 +264,7 @@ def main():
                              'justification asking permission for this harmless print. Do not substitute a sandboxed invocation '
                              'or write any file. If denied, stop and state that it was denied.')
             goal(session, approval_goal)
-            session.send('e')
+            session.command('role-plan')
             preview(session)
             run_preview(session)
             wait_for(session, 'COMMAND APPROVAL', timeout=150)
@@ -292,7 +293,7 @@ def main():
             quit_app(session)
             reopened = launch('reopened-planning', data_name='live-planning')
             assert task(reopened)[1] == decision, 'decision changed or disappeared after restart'
-            reopened.send('e')
+            reopened.command('role-plan')
             wait_for(reopened, TITLE)
             assert 'Session-local resumable thread:' not in reopened.display(), 'provider thread automatically restored'
             quit_app(reopened)
@@ -301,7 +302,7 @@ def main():
             exiting = launch('active-safe-exit', size=(60, 18))
             goal(exiting, 'Use request_user_input to ask Date or Topic for note titles, then wait. '
                           'Do not run commands or read files.')
-            exiting.send('e')
+            exiting.command('role-plan')
             preview(exiting)
             run_preview(exiting)
             wait_for(exiting, 'QUESTION 1/', timeout=150)

@@ -51,20 +51,20 @@ def main():
             sessions.append(session)
             wait_for(session, 'Storage: saved')
             session.send('\x1b')  # Leave the clean first-run Goal composer.
-            session.send('g')
+            session.command('goal')
             session.paste('Portable local goal 漢字; password=handoff-private-canary')
             session.send('\r')
             wait_for(session, 'Storage: saved')
-            session.send('a')
+            session.command('next')
             session.paste('Choose Markdown notes.\n\n[User-selected, unverified Codex planning; thread opaque-provider-id; '
                           'turn opaque-turn-id; item opaque-item-id. Not local execution evidence.]')
             session.send('\r')
             wait_for(session, 'Storage: saved')
-            session.send('z')
+            session.command('handoff')
             wait_for(session, TITLE)
 
-            def review_export(key, destination):
-                session.send(key)
+            def review_export(command, destination):
+                session.command(command)
                 wait_for(session, 'LITERAL FILE PATH')
                 session.paste(str(destination))
                 session.send('\r')
@@ -76,7 +76,7 @@ def main():
                 session.send(RIGHT + '\r')
 
             exported = root / 'approved.json'
-            review_export('j', exported)
+            review_export('export-json', exported)
             session.send('\r')
             assert not exported.exists(), 'neutral Enter wrote an export'
             session.resize((39, 10))
@@ -99,7 +99,7 @@ def main():
             passed('provider-free JSON export preserves curated facts without secret/session provenance')
 
             markdown = root / 'approved.md'
-            review_export('m', markdown)
+            review_export('export-markdown', markdown)
             accept()
             deadline = time.monotonic() + 10
             while not markdown.exists():
@@ -115,7 +115,7 @@ def main():
                             db.execute('SELECT count(*) FROM provider_journal').fetchone()[0])
 
             before = database_state()
-            session.send('i')
+            session.command('import-handoff')
             wait_for(session, 'LITERAL FILE PATH')
             session.paste(str(markdown))
             session.send('\r')
@@ -132,7 +132,7 @@ def main():
             newer = root / 'newer.json'
             document['schema_version'] = 99
             newer.write_text(json.dumps(document))
-            session.send('i')
+            session.command('import-handoff')
             wait_for(session, 'LITERAL FILE PATH')
             session.paste(str(newer))
             session.send('\r')
@@ -144,7 +144,7 @@ def main():
             passed('unknown newer schema import is refused without task/evidence mutation')
 
             session.send('\x1b')
-            session.send('q')
+            session.command('quit')
             wait_for(session, 'Confirm exit')
             session.send(RIGHT + '\r')
             assert session.wait_exit() == 0

@@ -73,26 +73,45 @@ def main():
 
             def finish(session):
                 session.send('\x1b')
-                session.send('q')
+                session.command('quit')
                 if session.alive():
                     session.send('\x1b[C\r')
                 assert session.wait_exit() == 0
                 session.close()
+
+            def previous_action(session, label):
+                # Navigate the explicitly provided historical executable's
+                # visible palette, not a persisted/incidental numeric index.
+                session.send('\x0b\x1b[H')
+                for _ in range(32):
+                    if any(line.strip(' │|').startswith('> ' + label)
+                           for line in session.display().splitlines()):
+                        session.send('\r')
+                        return
+                    session.send('\x1b[B')
+                raise AssertionError('previous executable has no visible action: ' + label)
 
             old = launch(previous, 'previous-create')
             wait_for(old, 'Storage: saved')
             old.paste('schema continuity 漢字')
             old.send('\r')
             wait_for(old, 'Storage: saved')
-            old.send('ce')
+            previous_action(old, 'Acceptance criteria')
+            # Historical executable contract: prior criteria editing has no
+            # semantic or arrow/Enter route. This key never drives current.
+            old.send('e')
             old.paste('Preserve user goal\nRetain exact criteria')
             old.send('\r\x1b')
-            old.send('a')
+            previous_action(old, 'Next action')
             old.paste('Inspect unchanged evidence after upgrade')
             old.send('\r')
             wait_for(old, 'Storage: saved')
             old.capture('previous-task')
-            finish(old)
+            old.send('\x03')  # Structural safe exit works on prior releases.
+            wait_for(old, 'Confirm exit')
+            old.send('\x1b[C\r')
+            assert old.wait_exit() == 0
+            old.close()
             old_schema, before = snapshot(database)
             assert len(before) == 1 and before[0]['goal'] == 'schema continuity 漢字'
             assert [item['text'] for item in json.loads(before[0]['criteria'])] == [

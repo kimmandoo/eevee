@@ -25,7 +25,7 @@ pub(super) fn render_small_confirmation(
         text(
             frame,
             area,
-            "Resize to 60x18 to review approval.\nNo command can be approved here.\nEsc closes; x denies; Ctrl+C reviews exit.",
+            "Resize to 60x18 to review approval.\nNo command can be approved here.\nEsc closes; /deny denies; Ctrl+C reviews exit.",
             paint.surface,
         );
         return;
@@ -68,7 +68,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut State, config: &Config)
     );
     let banner = if let Some(error) = &state.error {
         format!(
-            "{} error · d full details · s retry journal only",
+            "{} error · /artifacts details · /journal-retry storage only",
             error.layer
         )
     } else if state.searching {
@@ -104,13 +104,13 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut State, config: &Config)
         footer_rows,
     );
     let hints = if state.confirmation.is_some() {
-        "Left Stay · Right/Tab select action · Enter confirm\nUp/Down/PgUp/PgDn inspect full details · Esc Stay\nApproval: x explicitly denies; closing never approves"
+        "Left Stay · Right/Tab select action · Enter confirm\nUp/Down/PgUp/PgDn inspect full details · Esc Stay\n/deny explicitly denies; closing never approves"
     } else if state.view == View::History {
-        "Up/Down select · Enter inspect retained output · p purge\ne edit · v review · c cancel · r refresh · d details\nEsc output · Ctrl+C/quit: Stay or Cancel-and-wait"
+        "Up/Down select · Enter inspect retained output\n/ choices: purge, command-edit, run, cancel, refresh\nEsc output · Ctrl+C/quit: Stay or Cancel-and-wait"
     } else if state.view == View::Details {
-        "Up/Down/PgUp/PgDn/Home/End inspect full details\ns retry journal only · v review · c cancel · Esc output\nNo command is retried automatically; task drafts stay"
+        "Up/Down/PgUp/PgDn/Home/End inspect full details\n/ choices: journal-retry, run, cancel · Esc output\nNo command is retried automatically; task drafts stay"
     } else {
-        "e edit · v review · c cancel · h history · d details\nArrows scroll · / search · n/N next/prev · f follow\n[ ] retained pages · r refresh · Esc close (keeps run)"
+        "/ choices: command-edit, run, cancel, history, artifacts\nArrows scroll · /search edits a literal output query\n/page-next, /page-previous · /refresh · Esc close"
     };
     text(frame, footer, hints, paint.muted);
 }
@@ -122,7 +122,7 @@ fn confirmation(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint)
     let (title, affirmative, description) = match confirm {
         Confirmation::Budget(reasons) => (
             "Budget pause before another command", "Continue once",
-            format!("{}\n\nStay keeps the prepared command unapproved; e revises it. Continue once lifts this pause for this exact request only, then the normal one-shot approval follows; x denies it. Counts come from this task's committed run journal, so cancel or restart cannot reset them. Nothing has executed.\n\n{}", execution::safe_text(reasons), state.details()),
+            format!("{}\n\nStay keeps the prepared command unapproved; /command-edit revises it. Continue once lifts this pause for this exact request only, then the normal one-shot approval follows; /deny denies it. Counts come from this task's committed run journal, so cancel or restart cannot reset them. Nothing has executed.\n\n{}", execution::safe_text(reasons), state.details()),
         ),
         Confirmation::Approval => (
             "Review one-shot execution permission", "Approve this exact command",
@@ -147,7 +147,7 @@ fn confirmation(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint)
         ),
         Confirmation::UnsavedJournalExit(action) => (
             "Process ended, but journal persistence failed", "Exit without saved final journal",
-            format!("Requested: {action:?}\nThe final execution record is retained only in memory. On restart, the last committed reservation/run will be interrupted, not magically completed. Spool bytes may remain partial; no command will be re-executed.\n\nStay and press s to retry ONLY storage. Leaving knowingly forfeits the unsaved final metadata, not the task's independent draft/save review.\n\n{}", state.details()),
+            format!("Requested: {action:?}\nThe final execution record is retained only in memory. On restart, the last committed reservation/run will be interrupted, not magically completed. Spool bytes may remain partial; no command will be re-executed.\n\nStay and use /journal-retry to retry ONLY storage. Leaving knowingly forfeits the unsaved final metadata, not the task's independent draft/save review.\n\n{}", state.details()),
         ),
     };
     text(frame, row(area, 0, 1), title, paint.accent);
@@ -195,7 +195,7 @@ fn history(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         text(
             frame,
             area,
-            "No retained executions for this task. e edits a command; v reviews a prepared request. Loading history never executes a saved command. Interrupted startup records are evidence, not live process ownership.",
+            "No retained executions for this task. /command-edit edits a command; /run reviews a prepared request. Loading history never executes a saved command. Interrupted startup records are evidence, not live process ownership.",
             paint.muted,
         );
         return;
@@ -299,7 +299,7 @@ fn output(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         text(
             frame,
             body,
-            "Output unavailable (purged, missing, or replaced). Empty display is NOT an empty successful command. d shows the retained metadata and source-identity limits.",
+            "Output unavailable (purged, missing, or replaced). Empty display is NOT an empty successful command. /artifacts shows the retained metadata and source-identity limits.",
             paint.accent,
         );
         return;
@@ -308,7 +308,7 @@ fn output(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         text(
             frame,
             body,
-            "No captured output in this window yet.\n\nDirect example: [\"cargo\",\"test\"]\nExplicit shell: {\"shell\":\"/bin/sh\",\"dialect\":\"posix\",\"text\":\"printf hello\"}\n\ne opens the task command editor. Preparing never executes; review v is initially neutral. Press h for retained evidence. There are no model calls or automatic retries.",
+            "No captured output in this window yet.\n\nDirect example: [\"cargo\",\"test\"]\nExplicit shell: {\"shell\":\"/bin/sh\",\"dialect\":\"posix\",\"text\":\"printf hello\"}\n\n/command-edit opens the task command editor. Preparing never executes; /run review is initially neutral. /history opens retained evidence. There are no model calls or automatic retries.",
             paint.muted,
         );
         return;

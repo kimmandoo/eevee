@@ -1,7 +1,7 @@
 //! Private ACP v1 transport. Client callbacks are deliberately not filesystem/terminal sandboxes.
 use crate::provider::{
-    Agent, Event, Input, ItemKind, Operation, Outcome, PermissionOption, Preview, Prompt,
-    PromptKind, Request,
+    Agent, Event, Input, ItemKind, ModelCatalogue, ModelOption, ModelSelection, Operation, Outcome,
+    PermissionOption, Preview, Prompt, PromptKind, Request,
 };
 use parking_lot::Mutex;
 use serde_json::{Value, json};
@@ -140,7 +140,12 @@ fn profile(agent: Agent) -> Result<(usize, &'static str, Vec<String>), String> {
             vec!["acp".into(), "--pure".into()],
         )),
         Agent::Gemini => Ok((3, "0.28.0", vec!["--experimental-acp".into()])),
-        _ => Err("ACP route accepts only OpenCode or Gemini".into()),
+        Agent::Devin => Ok((
+            crate::agent::DEVIN,
+            crate::agent::DEVIN_RELEASE,
+            vec!["acp".into()],
+        )),
+        _ => Err("ACP route accepts only OpenCode, Gemini or Devin".into()),
     }
 }
 fn worker(
@@ -180,16 +185,31 @@ fn worker(
                         "No authenticate/login action is invoked. Provider-owned auth/account/product eligibility must succeed at session creation; installed is not authenticated.".into(),
                         "Resume is only sent if session/load is actually negotiated; replayed history is suppressed. No standardized token usage is negotiated by these pinned interfaces.".into(),
                     ]);
-                    if input.agent == Agent::OpenCode {
-                        lines.push(format!("OpenCode {} acp --pure disables external plugins; built-in tools/config/MCP/project rules remain provider-owned.", crate::agent::OPENCODE_RELEASE));
-                    } else {
-                        lines.push("Gemini CLI 0.28.0 uses --experimental-acp (not newer releases' --acp). Its configured Google OAuth/API/Vertex route is provider-owned; no free-account eligibility claim.".into());
+                    match input.agent {
+                        Agent::OpenCode => lines.push(format!("OpenCode {} acp --pure disables external plugins; built-in tools/config/MCP/project rules remain provider-owned.", crate::agent::OPENCODE_RELEASE)),
+                        Agent::Gemini => lines.push("Gemini CLI 0.28.0 uses --experimental-acp (not newer releases' --acp). Its configured Google OAuth/API/Vertex route is provider-owned; no free-account eligibility claim.".into()),
+                        Agent::Devin => lines.push(format!("Devin CLI {} acp uses local stdio, without --cloud. Connect separately through the official native browser login; credentials, account eligibility, tools and configuration remain provider-owned.", crate::agent::DEVIN_RELEASE)),
+                        Agent::Codex | Agent::Claude => unreachable!("profile rejects non-ACP providers"),
+                    }
+                    lines.push(format!(
+                        "Reviewed selection snapshot: model = {}; reasoning = {}. Explicit values must be advertised and acknowledged before any prompt; unsupported values are refused.",
+                        input.selection.model.as_deref().unwrap_or("provider default (not yet observed)"),
+                        input.selection.effort.as_deref().unwrap_or("provider default (not yet observed)")
+                    ));
+                    if input.selection != ModelSelection::default() {
+                        lines.push("Requested model/reasoning changes use only advertised session configuration IDs. Setters affect the created or explicitly resumed provider session and can persist provider-owned configuration/session metadata; each exact value must be acknowledged before any prompt.".into());
+                    }
+                    if input.inspect_models {
+                        lines.push("MODEL INSPECTION ONLY: initialize, then one temporary session/new because ACP advertises session models/configOptions there, not in initialize. Session creation can persist provider metadata, load project/provider configuration, initialize services/MCP and contact provider/auth networks; external effects are not a read-only guarantee. Reviewed model/effort selections may change this temporary session's configuration. No session/prompt/load/list/history/authenticate, task content, turn budget, journal or retained resume grant. The process is closed afterward; provider-owned session metadata may remain.".into());
                     }
                     if input.inspect_sessions {
                         lines.push("CAPABILITY INSPECTION ONLY: initialize, then session/list only if negotiated. No session/new/load/prompt, model request, imported handoff or grant. Listed metadata does not authorize resuming foreign sessions.".into());
                     }
                     let mut blockers = Vec::new();
-                    if input.operation == Operation::Implement && !input.inspect_sessions {
+                    if input.operation == Operation::Implement
+                        && !input.inspect_sessions
+                        && !input.inspect_models
+                    {
                         blockers.push("Controlled implementation refused: this ACP peer's agent-owned tools cannot enforce Eevee's selected-file boundary. Use the explicitly external-policy manual handoff instead; no sandbox claim.".into());
                     }
                     if let Some(id) = &input.resume
@@ -197,7 +217,11 @@ fn worker(
                     {
                         blockers.push("Resume refused: invalid ACP session identity".into());
                     }
-                    if sessions.len() >= 256 && input.resume.is_none() {
+                    if sessions.len() >= 256
+                        && input.resume.is_none()
+                        && !input.inspect_models
+                        && !input.inspect_sessions
+                    {
                         blockers.push(
                             "ACP session bound reached; restart before another session".into(),
                         );
@@ -301,13 +325,31 @@ fn worker(
 fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
     input.validate_review()?;
     if std::path::Path::new(&input.task.project) != workspace.project.as_path()
-        || !matches!(input.agent, Agent::OpenCode | Agent::Gemini)
+        || !matches!(input.agent, Agent::OpenCode | Agent::Gemini | Agent::Devin)
         || (input.operation == Operation::Plan && !input.edit_paths.is_empty())
     {
         return Err("ACP task/project/profile or planning write scope mismatch".into());
     }
     crate::store::validate_planning_input(&workspace.data_dir, &input.task, &input.excerpts)?;
+    if input.inspect_models {
+        return serde_json::to_string_pretty(&json!({
+            "purpose":"Inspect provider-advertised model and reasoning selectors only",
+            "initialize":{"protocolVersion":1,"clientCapabilities":client_capabilities()},
+            "session/new":{"cwd":workspace.project,"mcpServers":[]},
+            "selection":input.selection,
+            "optional_configuration":"session/set_config_option for advertised model/thought_level selectors; legacy session/set_model only for advertised legacy models",
+            "effects":"Temporary session creation/configuration may persist provider metadata, load configuration/services and contact provider networks. Provider-owned metadata may remain after teardown.",
+            "session_prompt_load_list_history":false,
+            "model_prompts_sent":0,
+            "retain_resume_grant":false
+        })).map_err(|_| "Could not encode ACP model inspection".into());
+    }
     if input.inspect_sessions {
+        if input.selection != ModelSelection::default() {
+            return Err(
+                "Session-list inspection cannot apply model or reasoning selections".into(),
+            );
+        }
         if input.resume.is_some() {
             return Err("Session-list inspection must not resume a provider session".into());
         }
@@ -594,11 +636,395 @@ impl Permissions {
         self.pending.drain(..).map(|(id, _)| id).collect()
     }
 }
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone)]
+struct SelectOption {
+    id: String,
+    current: String,
+    values: Vec<ModelOption>,
+}
+#[derive(Default)]
+struct Models {
+    model: Option<SelectOption>,
+    thought: Option<SelectOption>,
+    legacy: Option<SelectOption>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SelectionChange {
+    Config {
+        id: String,
+        value: String,
+        thought: bool,
+    },
+    Legacy {
+        model: String,
+    },
+}
+impl SelectionChange {
+    fn request(&self, session: &str) -> (&'static str, Value) {
+        match self {
+            Self::Config { id, value, .. } => (
+                "session/set_config_option",
+                json!({"sessionId":session,"configId":id,"value":value}),
+            ),
+            Self::Legacy { model } => (
+                "session/set_model",
+                json!({"sessionId":session,"modelId":model}),
+            ),
+        }
+    }
+}
+fn config_text(value: &Value, key: &str, limit: usize, optional: bool) -> Result<String, String> {
+    let text = match value.get(key) {
+        None | Some(Value::Null) if optional => "",
+        Some(Value::String(text)) => text,
+        _ => return Err(format!("ACP configuration lacks valid {key}")),
+    };
+    if (!optional && text.is_empty())
+        || text.len() > limit
+        || safe(text) != text
+        || text.chars().any(char::is_control)
+    {
+        return Err(format!("ACP configuration has unsafe or oversized {key}"));
+    }
+    Ok(text.into())
+}
+fn select_values(values: &Value, limit: usize) -> Result<Vec<ModelOption>, String> {
+    let entries = values
+        .as_array()
+        .ok_or("ACP select options must be an array")?;
+    if entries.len() > limit {
+        return Err("ACP select options exceed the advertised-value bound".into());
+    }
+    let mut result = Vec::new();
+    let mut ids = HashSet::new();
+    let mut groups = HashSet::new();
+    let grouped = entries
+        .first()
+        .is_some_and(|entry| entry.get("group").is_some());
+    for entry in entries {
+        if entry.get("group").is_some() != grouped {
+            return Err("ACP select options mix groups and values".into());
+        }
+        let members = if grouped {
+            let group = config_text(entry, "group", 256, false)?;
+            config_text(entry, "name", 512, false)?;
+            if !groups.insert(group) {
+                return Err("ACP select options contain duplicate groups".into());
+            }
+            entry
+                .get("options")
+                .and_then(Value::as_array)
+                .ok_or("ACP option group lacks its value array")?
+                .as_slice()
+        } else {
+            std::slice::from_ref(entry)
+        };
+        if result.len() + members.len() > limit {
+            return Err("ACP grouped select options exceed the advertised-value bound".into());
+        }
+        for member in members {
+            if member.get("group").is_some() {
+                return Err(
+                    "Nested ACP option groups are not supported by the official contract".into(),
+                );
+            }
+            let id = config_text(member, "value", 256, false)?;
+            if !ids.insert(id.clone()) {
+                return Err("ACP select options contain duplicate values".into());
+            }
+            result.push(ModelOption {
+                id,
+                name: config_text(member, "name", 512, false)?,
+                description: config_text(member, "description", 4096, true)?,
+                efforts: Vec::new(),
+                default_effort: None,
+            });
+        }
+    }
+    Ok(result)
+}
+impl Models {
+    fn parse(result: &Value) -> Result<Self, String> {
+        if !result.is_object() {
+            return Err("ACP session/configuration response is not an object".into());
+        }
+        let mut state = Self::default();
+        if let Some(options) = result.get("configOptions").filter(|value| !value.is_null()) {
+            let options = options
+                .as_array()
+                .ok_or("ACP configOptions must be an array")?;
+            if options.len() > 128 {
+                return Err("ACP configOptions exceed the 128-selector bound".into());
+            }
+            let mut ids = HashSet::new();
+            for option in options {
+                let id = config_text(option, "id", 256, false)?;
+                if !ids.insert(id.clone()) {
+                    return Err("ACP configOptions contain duplicate selector IDs".into());
+                }
+                let category = option.get("category").and_then(Value::as_str);
+                // Missing/custom categories and unknown controls are not inferred from names.
+                if !matches!(category, Some("model" | "thought_level"))
+                    || option.get("type").and_then(Value::as_str) != Some("select")
+                {
+                    continue;
+                }
+                config_text(option, "name", 512, false)?;
+                config_text(option, "description", 4096, true)?;
+                let thought = category == Some("thought_level");
+                let select = SelectOption {
+                    id,
+                    current: config_text(option, "currentValue", 256, false)?,
+                    values: select_values(
+                        option.get("options").ok_or("ACP select lacks options")?,
+                        if thought { 32 } else { 256 },
+                    )?,
+                };
+                // ACP's ordered configuration list resolves category ties.
+                let target = if thought {
+                    &mut state.thought
+                } else {
+                    &mut state.model
+                };
+                if target.is_none() {
+                    *target = Some(select);
+                }
+            }
+        }
+        // A categorized model selector is authoritative even when it has no selectable values.
+        if state.model.is_none()
+            && let Some(models) = result.get("models").filter(|value| !value.is_null())
+        {
+            let available = models
+                .get("availableModels")
+                .and_then(Value::as_array)
+                .ok_or("ACP legacy models lack availableModels array")?;
+            if available.len() > 256 {
+                return Err("ACP legacy models exceed the 256-model bound".into());
+            }
+            let mut values = Vec::with_capacity(available.len());
+            let mut ids = HashSet::new();
+            for model in available {
+                let id = config_text(model, "modelId", 256, false)?;
+                if !ids.insert(id.clone()) {
+                    return Err("ACP legacy models contain duplicate modelId".into());
+                }
+                values.push(ModelOption {
+                    id,
+                    name: config_text(model, "name", 512, false)?,
+                    description: config_text(model, "description", 4096, true)?,
+                    efforts: Vec::new(),
+                    default_effort: None,
+                });
+            }
+            state.legacy = Some(SelectOption {
+                id: String::new(),
+                current: config_text(models, "currentModelId", 256, false)?,
+                values,
+            });
+        }
+        Ok(state)
+    }
+    fn updated(&self, result: &Value) -> Result<Self, String> {
+        let mut next = Self::parse(result)?;
+        // Legacy model state is separate from the complete configOptions snapshot.
+        if self.model.is_none() && next.model.is_none() && result.get("models").is_none() {
+            next.legacy = self.legacy.clone();
+        }
+        Ok(next)
+    }
+    fn active_model(&self) -> Option<&SelectOption> {
+        self.model.as_ref().or(self.legacy.as_ref())
+    }
+    fn catalogue(&self, agent: Agent) -> Result<ModelCatalogue, String> {
+        let active = self.active_model();
+        let mut models = active.map_or_else(Vec::new, |select| select.values.clone());
+        if let Some(thought) = &self.thought
+            && let Some(current) = active
+            && let Some(model) = models.iter_mut().find(|model| model.id == current.current)
+        {
+            model.efforts = thought
+                .values
+                .iter()
+                .map(|value| value.id.clone())
+                .collect();
+            model.default_effort = model
+                .efforts
+                .contains(&thought.current)
+                .then(|| thought.current.clone());
+        }
+        let catalogue = ModelCatalogue {
+            models,
+            current: active.map(|select| select.current.clone()),
+            source: format!("{} ACP1 session/new/configuration: {}. Temporary provider session; no prompt, history or retained resume grant.{}",
+                agent.label(),
+                if self.model.is_some() { "official configOptions model select" }
+                else if self.legacy.is_some() { "legacy models.availableModels/currentModelId" }
+                else { "no supported model selector advertised" },
+                if active.is_none_or(|select| select.values.is_empty()) {
+                    " No selectable models advertised; connect/configure the provider before refreshing."
+                } else { "" }),
+            effort_note: self.thought.as_ref().map(|_| "Official thought_level values apply only to the observed current model. Changing model can replace this list; requested reasoning is revalidated after model acknowledgment.".into()),
+        };
+        catalogue.validate()?;
+        Ok(catalogue)
+    }
+    fn validate_selected(
+        &self,
+        selection: &ModelSelection,
+        model_ack: bool,
+        effort_ack: bool,
+    ) -> Result<(), String> {
+        if let Some(model) = &selection.model {
+            let active = self
+                .active_model()
+                .ok_or("ACP peer does not advertise model selection")?;
+            if !active.values.iter().any(|value| &value.id == model) {
+                return Err(
+                    "Requested ACP model is not advertised; no fallback or substituted prompt"
+                        .into(),
+                );
+            }
+            if model_ack && &active.current != model {
+                return Err(
+                    "ACP model changed or was not acknowledged; reviewed selection invalidated"
+                        .into(),
+                );
+            }
+        }
+        if let Some(effort) = &selection.effort
+            && (selection.model.is_none() || model_ack)
+        {
+            let thought = self
+                .thought
+                .as_ref()
+                .ok_or("ACP peer does not advertise an official thought_level select control")?;
+            if !thought.values.iter().any(|value| &value.id == effort) {
+                return Err(
+                    "Requested ACP reasoning value is not advertised for this model".into(),
+                );
+            }
+            if effort_ack && &thought.current != effort {
+                return Err(
+                    "ACP reasoning changed or was not acknowledged; reviewed selection invalidated"
+                        .into(),
+                );
+            }
+        }
+        Ok(())
+    }
+    fn require_acknowledged(
+        &self,
+        selection: &ModelSelection,
+        model_ack: bool,
+        effort_ack: bool,
+    ) -> Result<(), String> {
+        self.validate_selected(selection, model_ack, effort_ack)?;
+        if selection.model.is_some() && !model_ack || selection.effort.is_some() && !effort_ack {
+            return Err(
+                "ACP selection requires provider setter acknowledgment before prompt dispatch"
+                    .into(),
+            );
+        }
+        Ok(())
+    }
+    fn next_change(
+        &self,
+        selection: &ModelSelection,
+        model_ack: bool,
+        effort_ack: bool,
+    ) -> Result<Option<SelectionChange>, String> {
+        self.validate_selected(selection, model_ack, effort_ack)?;
+        if let Some(model) = &selection.model
+            && !model_ack
+        {
+            return Ok(Some(if let Some(control) = &self.model {
+                SelectionChange::Config {
+                    id: control.id.clone(),
+                    value: model.clone(),
+                    thought: false,
+                }
+            } else {
+                SelectionChange::Legacy {
+                    model: model.clone(),
+                }
+            }));
+        }
+        if let Some(effort) = &selection.effort
+            && !effort_ack
+        {
+            let control = self
+                .thought
+                .as_ref()
+                .ok_or("ACP thought_level selector unavailable")?;
+            return Ok(Some(SelectionChange::Config {
+                id: control.id.clone(),
+                value: effort.clone(),
+                thought: true,
+            }));
+        }
+        Ok(None)
+    }
+    fn acknowledge(&mut self, result: &Value, change: &SelectionChange) -> Result<(), String> {
+        match change {
+            SelectionChange::Config { id, value, thought } => {
+                if result.get("configOptions").is_none() {
+                    return Err(
+                        "ACP set_config_option lacks complete configOptions acknowledgment".into(),
+                    );
+                }
+                let next = self.updated(result)?;
+                let control = if *thought { &next.thought } else { &next.model };
+                if !control.as_ref().is_some_and(|control| {
+                    &control.id == id
+                        && &control.current == value
+                        && control.values.iter().any(|option| &option.id == value)
+                }) {
+                    return Err(
+                        "ACP set_config_option did not acknowledge the exact advertised selection"
+                            .into(),
+                    );
+                }
+                *self = next;
+            }
+            SelectionChange::Legacy { model } => {
+                // Released legacy SetSessionModelResponse is an empty object; the correlated
+                // successful response acknowledges the requested model, not an inferred fallback.
+                if !result.is_object() {
+                    return Err("Malformed ACP legacy set_model acknowledgment".into());
+                }
+                if result.get("models").is_some() || result.get("configOptions").is_some() {
+                    let next = Self::parse(result)?;
+                    if !next.active_model().is_some_and(|active| {
+                        &active.current == model
+                            && active.values.iter().any(|option| &option.id == model)
+                    }) {
+                        return Err(
+                            "ACP legacy set_model returned a different or unavailable model".into(),
+                        );
+                    }
+                    *self = next;
+                } else {
+                    let active = self
+                        .legacy
+                        .as_mut()
+                        .ok_or("ACP legacy model control disappeared")?;
+                    if !active.values.iter().any(|option| &option.id == model) {
+                        return Err("ACP legacy model selection is no longer advertised".into());
+                    }
+                    active.current.clone_from(model);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+#[derive(PartialEq, Eq)]
 enum Call {
     Initialize,
     Session,
     Sessions,
+    Selection(SelectionChange),
     Prompt,
 }
 struct PendingCall {
@@ -681,7 +1107,9 @@ struct Engine<'a> {
     item_sequence: u64,
     received: usize,
     terminal: Option<(Outcome, String)>,
-    model: String,
+    models: Models,
+    model_ack: bool,
+    effort_ack: bool,
     journal_nonce: u128,
 }
 fn transport(
@@ -746,7 +1174,9 @@ fn transport(
         item_sequence: 0,
         received: 0,
         terminal: None,
-        model: "Provider default (not yet observed)".into(),
+        models: Models::default(),
+        model_ack: false,
+        effort_ack: false,
         journal_nonce: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -865,12 +1295,18 @@ fn transport(
             thread::sleep(Duration::from_millis(5));
         }
     })();
-    let result = match engine.journal_tools() {
-        Ok(()) => result,
-        Err(error) => Err(error),
+    let result = if run.input.inspect_models || run.input.inspect_sessions {
+        result
+    } else {
+        match engine.journal_tools() {
+            Ok(()) => result,
+            Err(error) => Err(error),
+        }
     };
-    let observed_session = engine.session.clone();
-    if let Some(session) = observed_session {
+    if !run.input.inspect_models
+        && !run.input.inspect_sessions
+        && let Some(session) = engine.session.clone()
+    {
         engine
             .sessions
             .entry((run.input.agent, session))
@@ -936,12 +1372,12 @@ impl Engine<'_> {
         let id = self.sequence;
         self.calls.push(PendingCall {
             id,
-            kind,
             deadline: if kind == Call::Prompt {
                 None
             } else {
                 Some(Instant::now() + Duration::from_secs(45))
             },
+            kind,
         });
         self.send(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))
     }
@@ -1032,8 +1468,14 @@ impl Engine<'_> {
         match call.kind {
             Call::Initialize => {
                 self.capabilities = negotiated(result)?;
+                // Devin's qualified release reports the agent build version, not the
+                // CLI package release. Executable release/identity is checked separately.
+                let peer_version = match self.run.input.agent {
+                    Agent::Devin => "0.0.0-dev",
+                    agent => profile(agent)?.1,
+                };
                 if let Some(version) = result.pointer("/agentInfo/version").and_then(Value::as_str)
-                    && version != profile(self.run.input.agent)?.1
+                    && version != peer_version
                 {
                     return Err(
                         "ACP peer-reported version differs from qualified executable".into(),
@@ -1140,24 +1582,20 @@ impl Engine<'_> {
                     ));
                     return Ok(());
                 }
-                if let Some(options) = result.get("configOptions").and_then(Value::as_array) {
-                    for option in options {
-                        if option.get("category").and_then(Value::as_str) == Some("model") {
-                            self.model = safe(
-                                option
-                                    .get("currentValue")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("Provider default"),
-                            );
-                        }
-                    }
+                self.models = Models::parse(result)?;
+                self.configure_or_dispatch()?;
+            }
+            Call::Selection(change) => {
+                if self.cancelling.is_some() {
+                    self.terminal = Some((Outcome::Cancelled, "Cancelled before prompt dispatch; provider session/configuration effects may remain".into()));
+                    return Ok(());
                 }
-                let session = self
-                    .session
-                    .clone()
-                    .ok_or("ACP session creation lacks identity")?;
-                emit(self.events,Event::Thread { generation:self.run.generation,task_id:self.run.input.task.id,thread_id:session.clone(),model:self.model.clone(),account:"Provider-owned authentication accepted session; billing/eligibility not independently verified".into() })?;
-                self.dispatch(&session)?;
+                self.models.acknowledge(result, &change)?;
+                match change {
+                    SelectionChange::Config { thought: true, .. } => self.effort_ack = true,
+                    _ => self.model_ack = true,
+                }
+                self.configure_or_dispatch()?;
             }
             Call::Prompt => {
                 let reason = result
@@ -1187,8 +1625,66 @@ impl Engine<'_> {
         }
         Ok(())
     }
+    fn configure_or_dispatch(&mut self) -> Result<(), String> {
+        revalidate(self.workspace, self.run)?;
+        if self.cancelled.load(Ordering::Acquire) == self.run.generation {
+            return self.cancel();
+        }
+        let session = self
+            .session
+            .clone()
+            .ok_or("ACP configuration before session identity")?;
+        if let Some(change) =
+            self.models
+                .next_change(&self.run.input.selection, self.model_ack, self.effort_ack)?
+        {
+            let (method, params) = change.request(&session);
+            self.call(Call::Selection(change), method, params)?;
+            return Ok(());
+        }
+        if self.run.input.inspect_models {
+            let catalogue = self.models.catalogue(self.run.input.agent)?;
+            let selectable = !catalogue.models.is_empty();
+            emit(
+                self.events,
+                Event::Models {
+                    generation: self.run.generation,
+                    task_id: self.run.input.task.id,
+                    catalogue,
+                },
+            )?;
+            self.terminal = Some((Outcome::Completed, if selectable {
+                "ACP model configuration observed; no prompt/history/turn budget/journal or retained resume grant. Temporary provider session metadata/configuration effects may remain."
+            } else {
+                "ACP inspection completed, but no selectable models advertised; connect/configure provider and explicitly refresh. No prompt/history/turn budget/journal or retained resume grant; temporary provider session metadata may remain."
+            }.into()));
+            return Ok(());
+        }
+        let model = self
+            .models
+            .active_model()
+            .map_or("Provider default (not observed)", |select| {
+                select.current.as_str()
+            });
+        emit(self.events, Event::Thread {
+            generation: self.run.generation,
+            task_id: self.run.input.task.id,
+            thread_id: session.clone(),
+            model: model.into(),
+            account: "Provider-owned authentication accepted session; billing/eligibility not independently verified".into(),
+        })?;
+        self.dispatch(&session)
+    }
     fn dispatch(&mut self, session: &str) -> Result<(), String> {
         revalidate(self.workspace, self.run)?;
+        if self.run.input.inspect_models || self.run.input.inspect_sessions {
+            return Err("ACP inspection cannot dispatch a model prompt".into());
+        }
+        self.models.require_acknowledged(
+            &self.run.input.selection,
+            self.model_ack,
+            self.effort_ack,
+        )?;
         if self.cancelled.load(Ordering::Acquire) == self.run.generation {
             self.cancel()?;
             return Ok(());
@@ -1335,9 +1831,16 @@ impl Engine<'_> {
         self.status("ACP cancellation invalidated pending approvals; late updates/replies cannot grant permission")
     }
     fn update(&mut self, params: &Value) -> Result<(), String> {
-        // session/load replays historical updates; never duplicate them as new-turn artifacts.
-        if self.terminal.is_some() || !self.dispatched
-        // Cancellation withdraws grants, not observations of already-started tools.
+        if self.terminal.is_some() {
+            return Ok(());
+        }
+        // session/load replays historical updates; its response is authoritative initial state.
+        // Configuration notifications after setup remain meaningful before prompt dispatch.
+        if self.session.is_none()
+            || self
+                .calls
+                .iter()
+                .any(|call| matches!(&call.kind, Call::Session))
         {
             return Ok(());
         }
@@ -1345,6 +1848,20 @@ impl Engine<'_> {
             return Err("ACP update has wrong session identity".into());
         }
         let update = params.get("update").ok_or("ACP update lacks content")?;
+        if update.get("sessionUpdate").and_then(Value::as_str) == Some("config_option_update") {
+            if !update.get("configOptions").is_some_and(Value::is_array) {
+                return Err("ACP config_option_update lacks complete configOptions".into());
+            }
+            let next = self.models.updated(update)?;
+            next.validate_selected(&self.run.input.selection, self.model_ack, self.effort_ack)?;
+            self.models = next;
+            return self.status("Provider session configuration updated; reviewed model/reasoning selection revalidated");
+        }
+        // Cancellation withdraws grants, not observations of already-started tools.
+        // Inspection and load replay never produce new-turn artifacts or journals.
+        if !self.dispatched || self.run.input.inspect_models || self.run.input.inspect_sessions {
+            return Ok(());
+        }
         match update.get("sessionUpdate").and_then(Value::as_str) {
             Some("agent_message_chunk") => {
                 if update.pointer("/content/type").and_then(Value::as_str) != Some("text") {
@@ -1589,6 +2106,406 @@ fn bounded(text: &str, limit: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn already_current_values_still_require_explicit_setter_acknowledgment() {
+        let state = Models::parse(&opencode_options()).unwrap();
+        let selection = ModelSelection {
+            model: Some("anthropic/claude/sonnet-4".into()),
+            effort: Some("default".into()),
+        };
+        assert!(
+            state
+                .require_acknowledged(&selection, false, false)
+                .is_err()
+        );
+        assert!(state.require_acknowledged(&selection, true, false).is_err());
+        state.require_acknowledged(&selection, true, true).unwrap();
+        assert!(
+            state
+                .next_change(&selection, false, false)
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            state
+                .next_change(&selection, true, false)
+                .unwrap()
+                .is_some()
+        );
+        assert!(state.next_change(&selection, true, true).unwrap().is_none());
+    }
+
+    // Exact expected output from OpenCode 1.18.0's primary config-option fixture:
+    // https://github.com/anomalyco/opencode/blob/v1.18.0/packages/opencode/test/acp/config-option.test.ts
+    fn opencode_options() -> Value {
+        json!({"configOptions":[
+            {"id":"model","name":"Model","category":"model","type":"select",
+             "currentValue":"anthropic/claude/sonnet-4","options":[
+                {"value":"anthropic/claude-haiku","name":"Anthropic/Claude Haiku"},
+                {"value":"anthropic/claude/sonnet-4","name":"Anthropic/Claude Sonnet 4"},
+                {"value":"openai/gpt-5","name":"OpenAI/GPT-5"}]},
+            {"id":"effort","name":"Effort","description":"Available effort levels for this model",
+             "category":"thought_level","type":"select","currentValue":"default","options":[
+                {"value":"low","name":"Low"},{"value":"default","name":"Default"},{"value":"high","name":"High"}]}
+        ]})
+    }
+
+    #[test]
+    fn real_opencode_selectors_preserve_exact_ids_and_current_model_reasoning_scope() {
+        let state = Models::parse(&opencode_options()).unwrap();
+        let catalogue = state.catalogue(Agent::OpenCode).unwrap();
+        assert_eq!(
+            catalogue.current.as_deref(),
+            Some("anthropic/claude/sonnet-4")
+        );
+        assert_eq!(
+            catalogue
+                .models
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "anthropic/claude-haiku",
+                "anthropic/claude/sonnet-4",
+                "openai/gpt-5"
+            ]
+        );
+        assert_eq!(catalogue.models[1].efforts, ["low", "default", "high"]);
+        assert_eq!(
+            catalogue.models[1].default_effort.as_deref(),
+            Some("default")
+        );
+        assert!(catalogue.models[0].efforts.is_empty());
+        assert!(catalogue.models[2].efforts.is_empty());
+        let selection = ModelSelection {
+            model: Some("anthropic/claude/sonnet-4".into()),
+            effort: Some("high".into()),
+        };
+        let model = state
+            .next_change(&selection, false, false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            model.request("owned-session"),
+            (
+                "session/set_config_option",
+                json!({"sessionId":"owned-session","configId":"model","value":"anthropic/claude/sonnet-4"})
+            )
+        );
+    }
+
+    #[test]
+    fn official_grouped_select_fixture_is_flattened_without_guessing_or_duplicate_values() {
+        // Verbatim group example from the ACP v1 primary contract:
+        // https://agentclientprotocol.com/protocol/v1/session-config-options#grouped-select-options
+        let group = json!({"group":"recommended","name":"Recommended","options":[
+            {"value":"model-1","name":"Model 1","description":"Fast for everyday tasks"}
+        ]});
+        let mut fixture = json!({"configOptions":[{
+            "id":"provider-selector","name":"Model","category":"model","type":"select",
+            "currentValue":"model-1","options":[group.clone()]
+        }]});
+        let catalogue = Models::parse(&fixture)
+            .unwrap()
+            .catalogue(Agent::Gemini)
+            .unwrap();
+        assert_eq!(catalogue.models.len(), 1);
+        assert_eq!(catalogue.models[0].id, "model-1");
+        assert_eq!(catalogue.models[0].description, "Fast for everyday tasks");
+        fixture["configOptions"][0]["options"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"group":"other","name":"Other","options":group["options"]}));
+        assert!(Models::parse(&fixture).is_err());
+        fixture["configOptions"][0]["options"] = json!([
+            group, {"value":"model-2","name":"Model 2"}
+        ]);
+        assert!(Models::parse(&fixture).is_err());
+        fixture["configOptions"][0]["options"] = json!([{
+            "group":"outer","name":"Outer","options":[{"group":"nested","name":"Nested","options":[]}]
+        }]);
+        assert!(Models::parse(&fixture).is_err());
+    }
+
+    #[test]
+    fn actual_unauthenticated_devin_selector_is_not_a_selectable_or_reasoning_fallback() {
+        // Verbatim sanitized selector from real isolated Devin 3000.11.3 session/new.
+        let fixture = json!({"configOptions":[{"id":"model","name":"Model","description":"AI model to use","category":"model","type":"select","currentValue":"swe-1-6-fast","options":[]}]});
+        let state = Models::parse(&fixture).unwrap();
+        let catalogue = state.catalogue(Agent::Devin).unwrap();
+        assert!(catalogue.models.is_empty());
+        assert_eq!(catalogue.current.as_deref(), Some("swe-1-6-fast"));
+        assert!(catalogue.effort_note.is_none());
+        assert!(
+            state
+                .next_change(&ModelSelection::default(), false, false)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            state
+                .next_change(
+                    &ModelSelection {
+                        model: Some("swe-1-6-fast".into()),
+                        effort: None,
+                    },
+                    false,
+                    false
+                )
+                .is_err()
+        );
+        assert!(
+            state
+                .next_change(
+                    &ModelSelection {
+                        model: None,
+                        effort: Some("high".into()),
+                    },
+                    false,
+                    false
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn requested_values_need_exact_acknowledgment_and_dependent_reasoning_revalidation() {
+        let mut state = Models::parse(&opencode_options()).unwrap();
+        let selection = ModelSelection {
+            model: Some("openai/gpt-5".into()),
+            effort: Some("minimal".into()),
+        };
+        // Reasoning for the new model is not invented from the old model's list.
+        let change = state
+            .next_change(&selection, false, false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            change,
+            SelectionChange::Config {
+                id: "model".into(),
+                value: "openai/gpt-5".into(),
+                thought: false
+            }
+        );
+        assert!(state.acknowledge(&json!({}), &change).is_err());
+        assert!(state.acknowledge(&opencode_options(), &change).is_err());
+        let mut acknowledged = opencode_options();
+        acknowledged["configOptions"][0]["currentValue"] = json!("openai/gpt-5");
+        acknowledged["configOptions"][1]["currentValue"] = json!("low");
+        acknowledged["configOptions"][1]["options"] = json!([
+            {"value":"minimal","name":"Minimal"},{"value":"low","name":"Low"}
+        ]);
+        state.acknowledge(&acknowledged, &change).unwrap();
+        let reasoning = state.next_change(&selection, true, false).unwrap().unwrap();
+        assert_eq!(
+            reasoning.request("owned-session"),
+            (
+                "session/set_config_option",
+                json!({"sessionId":"owned-session","configId":"effort","value":"minimal"})
+            )
+        );
+        assert!(state.acknowledge(&acknowledged, &reasoning).is_err());
+        acknowledged["configOptions"][1]["currentValue"] = json!("minimal");
+        state.acknowledge(&acknowledged, &reasoning).unwrap();
+        assert!(state.next_change(&selection, true, true).unwrap().is_none());
+        let mut updated = acknowledged.clone();
+        updated["configOptions"][1]["currentValue"] = json!("low");
+        assert!(
+            state
+                .updated(&updated)
+                .unwrap()
+                .validate_selected(&selection, true, true)
+                .is_err()
+        );
+        updated = acknowledged.clone();
+        updated["configOptions"][0]["options"]
+            .as_array_mut()
+            .unwrap()
+            .pop();
+        assert!(
+            state
+                .updated(&updated)
+                .unwrap()
+                .validate_selected(&selection, true, true)
+                .is_err()
+        );
+        updated = acknowledged;
+        updated["configOptions"].as_array_mut().unwrap().pop();
+        assert!(
+            state
+                .updated(&updated)
+                .unwrap()
+                .validate_selected(&selection, true, true)
+                .is_err()
+        );
+        assert!(
+            state
+                .next_change(
+                    &ModelSelection {
+                        model: Some("unadvertised".into()),
+                        effort: None
+                    },
+                    false,
+                    false
+                )
+                .is_err()
+        );
+        assert!(
+            state
+                .next_change(
+                    &ModelSelection {
+                        model: None,
+                        effort: Some("unadvertised".into())
+                    },
+                    false,
+                    false
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn legacy_model_contract_requires_success_and_never_invents_reasoning() {
+        // Released primary legacy schema: @agentclientprotocol/sdk 0.14.1
+        // https://unpkg.com/@agentclientprotocol/sdk@0.14.1/dist/schema/types.gen.d.ts
+        let fixture = json!({"models":{"currentModelId":"model-1","availableModels":[
+            {"modelId":"model-1","name":"Model 1"},{"modelId":"model-2","name":"Model 2"}
+        ]}});
+        let mut state = Models::parse(&fixture).unwrap();
+        let selection = ModelSelection {
+            model: Some("model-2".into()),
+            effort: None,
+        };
+        let change = state
+            .next_change(&selection, false, false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            change.request("owned-session"),
+            (
+                "session/set_model",
+                json!({"sessionId":"owned-session","modelId":"model-2"})
+            )
+        );
+        assert!(state.next_change(&selection, true, false).is_err());
+        assert!(state.acknowledge(&Value::Null, &change).is_err());
+        assert!(state.acknowledge(&fixture, &change).is_err());
+        state.acknowledge(&json!({}), &change).unwrap();
+        assert!(
+            state
+                .next_change(&selection, true, false)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            state.catalogue(Agent::Gemini).unwrap().current.as_deref(),
+            Some("model-2")
+        );
+        assert!(
+            state
+                .next_change(
+                    &ModelSelection {
+                        model: None,
+                        effort: Some("high".into())
+                    },
+                    false,
+                    false
+                )
+                .is_err()
+        );
+        let mut preferred = opencode_options();
+        preferred["models"] = fixture["models"].clone();
+        let state = Models::parse(&preferred).unwrap();
+        assert_eq!(state.catalogue(Agent::OpenCode).unwrap().models.len(), 3);
+        assert!(state.next_change(&selection, false, false).is_err());
+    }
+
+    #[test]
+    fn selector_names_unknown_categories_and_types_do_not_create_reasoning_capability() {
+        for category in [Value::Null, json!("_reasoning"), json!("model_config")] {
+            let mut fixture = opencode_options();
+            fixture["configOptions"][1]["category"] = category;
+            let state = Models::parse(&fixture).unwrap();
+            assert!(
+                state
+                    .catalogue(Agent::OpenCode)
+                    .unwrap()
+                    .models
+                    .iter()
+                    .all(|model| model.efforts.is_empty())
+            );
+            assert!(
+                state
+                    .next_change(
+                        &ModelSelection {
+                            model: None,
+                            effort: Some("high".into())
+                        },
+                        false,
+                        false
+                    )
+                    .is_err()
+            );
+        }
+        let mut fixture = opencode_options();
+        fixture["configOptions"][1]["type"] = json!("future-control");
+        assert!(Models::parse(&fixture).unwrap().thought.is_none());
+        fixture["configOptions"][0]["category"] = Value::Null;
+        assert!(
+            Models::parse(&fixture)
+                .unwrap()
+                .catalogue(Agent::OpenCode)
+                .unwrap()
+                .models
+                .is_empty()
+        );
+        assert!(
+            Models::parse(&json!({"configOptions":null,"models":null}))
+                .unwrap()
+                .active_model()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn official_selector_bounds_reject_malformed_duplicate_and_unsafe_metadata() {
+        let base = opencode_options();
+        let mut duplicate = base.clone();
+        duplicate["configOptions"]
+            .as_array_mut()
+            .unwrap()
+            .push(base["configOptions"][0].clone());
+        assert!(Models::parse(&duplicate).is_err());
+        for key in ["value", "name", "description"] {
+            let mut unsafe_value = base.clone();
+            unsafe_value["configOptions"][0]["options"][0][key] = json!("hidden\u{202e}text");
+            assert!(Models::parse(&unsafe_value).is_err());
+            unsafe_value["configOptions"][0]["options"][0][key] = json!("line\nbreak");
+            assert!(Models::parse(&unsafe_value).is_err());
+        }
+        let mut oversized = base.clone();
+        oversized["configOptions"][0]["options"] = json!(
+            (0..257)
+                .map(|id| json!({"value":id.to_string(),"name":format!("Model {id}")}))
+                .collect::<Vec<_>>()
+        );
+        assert!(Models::parse(&oversized).is_err());
+        oversized = base.clone();
+        oversized["configOptions"][1]["options"] = json!(
+            (0..33)
+                .map(|id| json!({"value":id.to_string(),"name":format!("Effort {id}")}))
+                .collect::<Vec<_>>()
+        );
+        assert!(Models::parse(&oversized).is_err());
+        oversized = base.clone();
+        oversized["configOptions"][0]["currentValue"] = json!("x".repeat(257));
+        assert!(Models::parse(&oversized).is_err());
+        let mut malformed = base;
+        malformed["configOptions"][0]["options"][0]["name"] = Value::Null;
+        assert!(Models::parse(&malformed).is_err());
+    }
     #[test]
     fn managed_review_is_refused_before_loading_or_dispatching_an_acp_session() {
         let workspace = Workspace {
@@ -1596,7 +2513,7 @@ mod tests {
             data_dir: PathBuf::from("unopened-storage"),
             exclusions: Vec::new(),
         };
-        for agent in [Agent::OpenCode, Agent::Gemini] {
+        for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
             let input = Input {
                 task: crate::store::Snapshot::empty("unopened-project".into()),
                 excerpts: Vec::new(),
@@ -1607,6 +2524,8 @@ mod tests {
                 edit_paths: Vec::new(),
                 handoff: None,
                 inspect_sessions: false,
+                inspect_models: false,
+                selection: ModelSelection::default(),
             };
             assert!(
                 payload(&workspace, &input)

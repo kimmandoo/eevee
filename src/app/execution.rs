@@ -511,7 +511,7 @@ impl State {
             runner::Event::Prepared(p) => {
                 if p.task_id == self.task_id && self.request_id.as_deref() == Some(&p.request_id) {
                     self.prepared = Some(p);
-                    self.notice = "Approval pending. Press v to inspect; opening/dismissing the view never approves.".into();
+                    self.notice = "Approval pending. Use /run to inspect; opening/dismissing the view never approves.".into();
                     // Do not open a view or move focus while the user is typing elsewhere.
                 }
             }
@@ -680,7 +680,7 @@ impl State {
                     if critical {
                         self.failed = Some(job);
                     }
-                    self.fail("Storage / journal", message, if critical { "Press s to retry only this journal save. No command is re-executed; cancellation remains available." } else { "Refresh/reopen the selected journal artifact after resolving local storage." });
+                    self.fail("Storage / journal", message, if critical { "Use /journal-retry to retry only this journal save. No command is re-executed; cancellation remains available." } else { "Refresh/reopen the selected journal artifact after resolving local storage." });
                 }
             }
             Ok(store::RunResponse::Reserved(permit)) => {
@@ -753,7 +753,7 @@ impl State {
                     self.upsert(record);
                     self.notice = "Only this run's owned local output was purged; metadata remains explicitly unavailable. Not secure erasure.".into();
                     if let Some(warning) = warning {
-                        self.notice = "Output reference is purged/unavailable; physical cleanup has a warning. Press d for full details.".into();
+                        self.notice = "Output reference is purged/unavailable; physical cleanup has a warning. Use /artifacts for full details.".into();
                         self.fail("Storage / purge cleanup", warning, "The unavailable metadata committed. Inspect the cleanup warning; do not treat this as a no-op or a verified result.");
                     }
                 }
@@ -911,13 +911,247 @@ impl State {
             self.invalidate();
         }
     }
+    pub fn command_choices(&self) -> Vec<super::commands::Choice> {
+        use super::commands::Choice;
+        let reviewing = self.confirmation.is_some();
+        let editing = self.searching;
+        let reason = if editing {
+            Some("Finish or cancel the literal search first.")
+        } else if reviewing {
+            Some("Finish or cancel the current review first.")
+        } else {
+            None
+        };
+        let choice = |name, label, blocked: Option<&str>| {
+            if let Some(reason) = blocked {
+                Choice::disabled(name, label, reason)
+            } else {
+                Choice::new(name, label)
+            }
+        };
+        let approval = matches!(self.confirmation, Some(Confirmation::Approval));
+        let denial = matches!(
+            self.confirmation,
+            Some(Confirmation::Approval | Confirmation::Budget(_))
+        );
+        vec![
+            choice(
+                "command-edit",
+                "Edit explicit local command",
+                if approval {
+                    None
+                } else {
+                    reason.or_else(|| {
+                        (self.active.is_some() || self.dispatching || self.final_ack.is_some())
+                            .then_some(
+                                "Cancel and wait before editing an already-dispatched command.",
+                            )
+                    })
+                },
+            ),
+            choice(
+                "run",
+                "Review prepared command for one-shot execution",
+                reason.or_else(|| {
+                    (self.prepared.is_none() || self.reserving || self.dispatching)
+                        .then_some("Prepare an explicit command first.")
+                }),
+            ),
+            choice(
+                "deny",
+                "Deny the prepared request",
+                (!denial).then_some("No approval or budget review is open."),
+            ),
+            choice(
+                "cancel",
+                "Review cancellation of owned work",
+                reason.or_else(|| (!self.busy()).then_some("No owned work is pending.")),
+            ),
+            choice("history", "Inspect retained run history", reason),
+            choice(
+                "open",
+                "Open selected retained run",
+                reason.or_else(|| {
+                    (self.view != View::History || self.history.is_empty())
+                        .then_some("Select a retained run in history first.")
+                }),
+            ),
+            choice("refresh", "Refresh repository and run history", reason),
+            choice("artifacts", "Inspect command and artifact details", reason),
+            choice(
+                "journal-retry",
+                "Retry journal persistence only",
+                editing
+                    .then_some("Finish or cancel the literal search first.")
+                    .or_else(|| {
+                        self.failed
+                            .is_none()
+                            .then_some("No failed journal operation to retry.")
+                    }),
+            ),
+            choice(
+                "purge",
+                "Review purging selected retained output",
+                reason.or_else(|| {
+                    (self.busy() || self.selected_run.is_none())
+                        .then_some("Select a retained run and wait for owned work to finish.")
+                }),
+            ),
+            choice("search", "Search output literally", reason),
+            choice(
+                "search-next",
+                "Find next output match",
+                reason.or_else(|| {
+                    self.search
+                        .is_empty()
+                        .then_some("Enter an output search first.")
+                }),
+            ),
+            choice(
+                "search-previous",
+                "Find previous output match",
+                reason.or_else(|| {
+                    self.search
+                        .is_empty()
+                        .then_some("Enter an output search first.")
+                }),
+            ),
+            choice("follow", "Toggle following live output", reason),
+            choice(
+                "page-next",
+                "Next retained output page",
+                reason
+                    .or_else(|| (!self.showing_retained).then_some("Open retained output first.")),
+            ),
+            choice(
+                "page-previous",
+                "Previous retained output page",
+                reason
+                    .or_else(|| (!self.showing_retained).then_some("Open retained output first.")),
+            ),
+            Choice::new("quit", "Review exit"),
+        ]
+    }
+
+    pub fn command(&mut self, name: &str) -> Option<Action> {
+        if name == "quit" {
+            return self.request_navigation(Action::Quit);
+        }
+        if self.searching {
+            return None;
+        }
+        if self.confirmation.is_some() && !matches!(name, "deny" | "command-edit" | "journal-retry")
+        {
+            return None;
+        }
+        match name {
+            "deny"
+                if matches!(
+                    self.confirmation,
+                    Some(Confirmation::Approval | Confirmation::Budget(_))
+                ) =>
+            {
+                self.invalidate();
+                self.notice = "Request denied. Nothing executed; command draft retained.".into();
+            }
+            "command-edit" => {
+                if matches!(self.confirmation, Some(Confirmation::Approval))
+                    || (self.confirmation.is_none()
+                        && self.active.is_none()
+                        && !self.dispatching
+                        && self.final_ack.is_none())
+                {
+                    self.invalidate();
+                    return Some(Action::EditCommand);
+                }
+                if self.confirmation.is_none() {
+                    self.fail("Command", "Cannot edit an already-dispatched command.",
+                        "Cancel and wait before editing; the existing command draft remains available.");
+                }
+            }
+            "run" => {
+                if let Some(p) = self
+                    .prepared
+                    .as_ref()
+                    .filter(|_| !self.reserving && !self.dispatching)
+                {
+                    let reasons = crate::budget::command_gate(&self.history, p, &self.limits);
+                    self.confirmation = Some(
+                        if reasons.is_empty()
+                            || self.budget_override.as_deref() == Some(p.request_id.as_str())
+                        {
+                            Confirmation::Approval
+                        } else {
+                            Confirmation::Budget(reasons.join("\n"))
+                        },
+                    );
+                    self.affirmative = false;
+                    self.detail_scroll = 0;
+                } else {
+                    self.notice = "No approvable prepared request. Use /command-edit to edit an explicit JSON command.".into();
+                }
+            }
+            "cancel" if self.busy() => {
+                self.confirmation = Some(Confirmation::Cancel);
+                self.affirmative = false;
+                self.detail_scroll = 0;
+            }
+            "history" => {
+                self.view = View::History;
+                self.optional(StoreJob::Load(self.task_id));
+            }
+            "open" if self.view == View::History => self.open_history(),
+            "refresh" => {
+                if self.pending_spec.is_none() && self.final_record.is_none() {
+                    self.request_repo(RepoPurpose::Inspect);
+                }
+                self.optional(StoreJob::Load(self.task_id));
+                self.notice =
+                    "Requested fresh source/history observation; no command is rerun.".into();
+            }
+            "artifacts" => {
+                self.view = View::Details;
+                self.detail_scroll = 0;
+            }
+            "journal-retry" => self.retry_journal(),
+            "purge" if !self.busy() => {
+                if let Some(id) = &self.selected_run {
+                    self.confirmation = Some(Confirmation::Purge(id.clone()));
+                    self.affirmative = false;
+                    self.detail_scroll = 0;
+                }
+            }
+            "search" => {
+                self.searching = true;
+                self.follow = false;
+            }
+            "search-next" => self.find(false),
+            "search-previous" => self.find(true),
+            "follow" => {
+                if self.showing_retained && self.live_run.is_some() {
+                    self.showing_retained = false;
+                    self.selected_run = self.live_run.clone();
+                }
+                self.follow = !self.follow;
+                if self.follow {
+                    self.jump_end();
+                    self.new_output = 0;
+                }
+            }
+            "page-next" if self.showing_retained => self.next_page(),
+            "page-previous" if self.showing_retained => self.previous_page(),
+            _ => {}
+        }
+        self.ready.take()
+    }
+
     pub fn key(&mut self, key: KeyEvent) -> Option<Action> {
         if key.kind == KeyEventKind::Release {
             return None;
         }
         if key.kind == KeyEventKind::Press
-            && (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)
-                || key.code == KeyCode::Char('q') && !self.searching)
+            && key.code == KeyCode::Char('c')
+            && key.modifiers.contains(KeyModifiers::CONTROL)
         {
             return self.request_navigation(Action::Quit);
         }
@@ -943,20 +1177,6 @@ impl State {
                     }
                     self.confirmation = None;
                     self.affirmative = false;
-                }
-                KeyCode::Char('x')
-                    if matches!(
-                        self.confirmation,
-                        Some(Confirmation::Approval | Confirmation::Budget(_))
-                    ) =>
-                {
-                    self.invalidate();
-                    self.notice =
-                        "Request denied. Nothing executed; command draft retained.".into();
-                }
-                KeyCode::Char('e') if matches!(self.confirmation, Some(Confirmation::Approval)) => {
-                    self.invalidate();
-                    return Some(Action::EditCommand);
                 }
                 KeyCode::Enter => {
                     let confirmation = self.confirmation.take().expect("open confirmation");
@@ -987,7 +1207,6 @@ impl State {
                     self.detail_scroll =
                         self.detail_scroll.saturating_sub(self.viewport_rows as u16)
                 }
-                KeyCode::Char('s') => self.retry_journal(),
                 _ => {}
             }
             return self.ready.take();
@@ -1024,89 +1243,6 @@ impl State {
                     self.shown = false;
                 }
             }
-            KeyCode::Char('e') if key.kind == KeyEventKind::Press => {
-                if self.active.is_none() && !self.dispatching && self.final_ack.is_none() {
-                    self.invalidate();
-                    return Some(Action::EditCommand);
-                }
-                self.fail(
-                    "Command",
-                    "Cannot edit an already-dispatched command.",
-                    "Cancel and wait before editing; the existing command draft remains available.",
-                );
-            }
-            KeyCode::Char('v') if key.kind == KeyEventKind::Press => {
-                if let Some(p) = self
-                    .prepared
-                    .as_ref()
-                    .filter(|_| !self.reserving && !self.dispatching)
-                {
-                    let reasons = crate::budget::command_gate(&self.history, p, &self.limits);
-                    self.confirmation = Some(
-                        if reasons.is_empty()
-                            || self.budget_override.as_deref() == Some(p.request_id.as_str())
-                        {
-                            Confirmation::Approval
-                        } else {
-                            Confirmation::Budget(reasons.join("\n"))
-                        },
-                    );
-                    self.affirmative = false;
-                    self.detail_scroll = 0;
-                } else {
-                    self.notice =
-                        "No approvable prepared request. Press e to edit an explicit JSON command."
-                            .into();
-                }
-            }
-            KeyCode::Char('c') if key.kind == KeyEventKind::Press && self.busy() => {
-                self.confirmation = Some(Confirmation::Cancel);
-                self.affirmative = false;
-                self.detail_scroll = 0;
-            }
-            KeyCode::Char('h') => {
-                self.view = View::History;
-                self.optional(StoreJob::Load(self.task_id));
-            }
-            KeyCode::Char('r') if key.kind == KeyEventKind::Press => {
-                if self.pending_spec.is_none() && self.final_record.is_none() {
-                    self.request_repo(RepoPurpose::Inspect);
-                }
-                self.optional(StoreJob::Load(self.task_id));
-                self.notice =
-                    "Requested fresh source/history observation; no command is rerun.".into();
-            }
-            KeyCode::Char('d') => {
-                self.view = View::Details;
-                self.detail_scroll = 0;
-            }
-            KeyCode::Char('s') if key.kind == KeyEventKind::Press => self.retry_journal(),
-            KeyCode::Char('p') if key.kind == KeyEventKind::Press && !self.busy() => {
-                if let Some(id) = &self.selected_run {
-                    self.confirmation = Some(Confirmation::Purge(id.clone()));
-                    self.affirmative = false;
-                    self.detail_scroll = 0;
-                }
-            }
-            KeyCode::Char('/') => {
-                self.searching = true;
-                self.follow = false;
-            }
-            KeyCode::Char('n') => self.find(false),
-            KeyCode::Char('N') => self.find(true),
-            KeyCode::Char('f') => {
-                if self.showing_retained && self.live_run.is_some() {
-                    self.showing_retained = false;
-                    self.selected_run = self.live_run.clone();
-                }
-                self.follow = !self.follow;
-                if self.follow {
-                    self.jump_end();
-                    self.new_output = 0;
-                }
-            }
-            KeyCode::Char(']') if self.showing_retained => self.next_page(),
-            KeyCode::Char('[') if self.showing_retained => self.previous_page(),
             KeyCode::Enter if self.view == View::History => self.open_history(),
             KeyCode::Up if self.view == View::History => {
                 self.history_index = self.history_index.saturating_sub(1);
@@ -1362,7 +1498,7 @@ impl State {
             return "Reserving capture before dispatch".into();
         }
         if self.prepared.is_some() {
-            return "Approval pending (v reviews; no automatic execution)".into();
+            return "Approval pending (/run reviews; no automatic execution)".into();
         }
         if self.request_id.is_some() || self.pending_spec.is_some() {
             return "Preparing command/source identities; not executed".into();
@@ -1393,7 +1529,7 @@ impl State {
             }
         }
         if text.is_empty() {
-            text.push_str("No execution evidence yet. e edits a JSON argv array or explicit shell object. Preparing and inspecting never execute.\n");
+            text.push_str("No execution evidence yet. /command-edit edits a JSON argv array or explicit shell object. Preparing and inspecting never execute.\n");
         }
         text.push_str("\nSource observations exclude ignored untracked files and submodule contents. Matching hashes are observations, not an atomic snapshot or a live watch. A successful command never completes the task automatically.\n");
         text
@@ -1742,35 +1878,32 @@ mod tests {
         state.runner_event(runner::Event::Prepared(p));
         assert!(!state.visible());
         assert!(state.confirmation.is_none());
-        state.key(key(KeyCode::Char('v')));
+        state.command("run");
         assert!(!state.affirmative);
         state.key(key(KeyCode::Enter));
         assert!(state.queue.is_empty());
         assert!(state.prepared.is_some());
-        state.key(key(KeyCode::Char('v')));
+        state.command("run");
         state.key(key(KeyCode::Right));
         state.key(key(KeyCode::Enter));
         assert!(matches!(state.queue.front(), Some(StoreJob::Reserve(..))));
         assert_eq!(state.queue.len(), 1);
         state.key(key(KeyCode::Enter));
-        state.key(key(KeyCode::Char('v')));
+        state.command("run");
         assert_eq!(state.queue.len(), 1);
     }
 
     #[test]
     fn edit_and_explicit_denial_invalidate_grants_but_dismissal_does_not() {
         let mut state = pending();
-        state.key(key(KeyCode::Char('v')));
+        state.command("run");
         state.key(key(KeyCode::Esc));
         assert!(state.request_id.is_some());
-        state.key(key(KeyCode::Char('v')));
-        state.key(key(KeyCode::Char('x')));
+        state.command("run");
+        state.command("deny");
         assert!(state.invalidation && state.request_id.is_none() && state.prepared.is_none());
         let mut state = pending();
-        assert_eq!(
-            state.key(key(KeyCode::Char('e'))),
-            Some(Action::EditCommand)
-        );
+        assert_eq!(state.command("command-edit"), Some(Action::EditCommand));
         assert!(state.invalidation && state.prepared.is_none());
     }
 
@@ -1834,22 +1967,22 @@ mod tests {
         );
         assert!(state.failed.is_some() && state.busy());
         assert!(state.take_store_request().is_none());
-        state.key(key(KeyCode::Char('s')));
+        state.command("journal-retry");
         let request = state.take_store_request().unwrap();
         assert!(matches!(request.operation, store::RunOperation::Update(_)));
         assert!(!state.dispatching && !state.reserving);
     }
 
     #[test]
-    fn quit_and_repeated_keys_are_neutral_and_search_accepts_literal_q() {
+    fn quit_commands_are_neutral_and_search_accepts_literal_q() {
         let mut state = pending();
-        assert_eq!(state.key(key(KeyCode::Char('q'))), None);
+        assert_eq!(state.command("quit"), None);
         assert!(matches!(
             state.confirmation,
             Some(Confirmation::Navigate(Action::Quit))
         ));
         assert!(!state.affirmative);
-        state.key(key(KeyCode::Char('q')));
+        state.command("quit");
         state.key(key(KeyCode::Enter));
         assert!(state.ready.is_none() && state.deferred.is_none());
         state.searching = true;
@@ -1924,7 +2057,7 @@ mod tests {
                 .iter()
                 .any(|line| line.id == anchor && line.text.contains("4990"))
         );
-        state.key(key(KeyCode::Char('f')));
+        state.command("follow");
         assert!(state.follow && state.new_output == 0);
     }
 

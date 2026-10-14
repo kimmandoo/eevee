@@ -127,7 +127,7 @@ pub(super) fn render(
             body.width = body.width.saturating_sub(31);
         }
         let value = match state.mode {
-            Mode::Browse if state.show_help => "MEMORY ACTIONS\n\nn  Author a user note\nr  Remember the saved next-action note\ne  Edit the selected approved memory\nd  Preview deletion of the selected memory\nSpace  Include/exclude from future request previews\nUp/Down  Inspect another approved memory\nPgUp/PgDn  Read every page of exact content\n?  Return to memory inspection\nEsc  Close the drawer without deleting memory\n\nProposals start task-local. In preview, s cycles Task / Project / Personal; changing scope resets approval. Right then Enter approves only after all pages are reviewed. r rejects without saving.\n\nEditing suppresses all action shortcuts. Ctrl+N adds a newline. Esc offers Keep/Discard for changed drafts. Save failure retains text; reopen review to retry.\n\nDeletion changes future context, not prior exports or provider history. Secret detection is best-effort; captured excluded content is never eligible.".into(),
+            Mode::Browse if state.show_help => "MEMORY COMMANDS\n\n/create-memory  Author a user note\n/remember  Remember the saved next-action note\n/edit-memory  Edit the selected approved memory\n/delete-memory  Review deletion of the selected memory\n/select-memory  Include/exclude from future request previews\n/memory-help  Return to memory inspection\nUp/Down  Inspect another approved memory\nPgUp/PgDn  Read every page of exact content\nEsc  Close the drawer without deleting memory\n\nProposals start task-local. In preview, /memory-scope cycles Task / Project / Personal; changing scope resets approval. Right then Enter approves only after all pages are reviewed. /reject-memory rejects without saving.\n\nEditing keeps literal text. Ctrl+N adds a newline. Esc offers Keep/Discard for changed drafts. Save failure retains text; reopen review to retry.\n\nDeletion changes future context, not prior exports or provider history. Secret detection is best-effort; captured excluded content is never eligible.".into(),
             Mode::Preview => state.candidate.as_ref().map_or_else(String::new, |candidate| describe(candidate, &state.project, state.task_id)),
             Mode::Discard => format!("Keep this editable draft or discard it?\n\n{}\n\nDiscard affects only this draft, not existing approved memories.", state.draft),
             Mode::Browse | Mode::Delete => {
@@ -136,7 +136,7 @@ pub(super) fn render(
                         if state.selected_ids.contains(&record.id) { "Selected for future request previews" } else { "Not selected for outgoing context" },
                         describe(&record.proposal, &record.project, record.task_id.unwrap_or(state.task_id)), memory::ERASURE_NOTICE)
                 } else {
-                    "No approved memories in this scope.\n\nn Author a note, or r Remember the task's saved next-action note. Both open a separate scope/approval preview.\n\nProject memories stay in their project; personal memories are visible in every project. Space deliberately selects approved notes for request context.\n\nNo transcript mining or automatic habit inference. Recognizable credentials and excluded captured notes are refused; detection is best-effort.".into()
+                    "No approved memories in this scope.\n\n/create-memory authors a note; /remember proposes the task's saved next-action note. Both open a separate scope/approval preview.\n\nProject memories stay in their project; personal memories are visible in every project. /select-memory deliberately selects approved notes for request context.\n\nNo transcript mining or automatic habit inference. Recognizable credentials and excluded captured notes are refused; detection is best-effort.".into()
                 }
             }
             Mode::Edit => unreachable!(),
@@ -163,16 +163,54 @@ pub(super) fn render(
         "Waiting for storage / draft retained on failure".into()
     } else {
         match state.mode {
-            Mode::Browse => "Up/Down Inspect | Space Context | ? Actions\nPgUp/PgDn Scroll | Esc Back".into(),
-            Mode::Edit => "Enter Preview | Ctrl+N Newline | Esc Keep/Discard\nLiteral text only; shortcuts do not run while editing.".into(),
-            Mode::Preview => format!("{} {} | s Scope / e Edit / r Reject\n{} | Left/Right choose / Enter / Esc Edit",
-                if state.affirmative { "Stay" } else { "[Stay]" }, if state.affirmative { "[Approve]" } else { "Approve" },
-                if state.reviewed { "Reviewed" } else { "PgDn review all pages" }),
-            Mode::Delete => format!("{} {} | Left/Right choose / Enter\n{} / Esc Stay",
-                if state.affirmative { "Stay" } else { "[Stay]" }, if state.affirmative { "[Delete]" } else { "Delete" },
-                if state.reviewed { "Reviewed" } else { "PgDn review affected scope" }),
-            Mode::Discard => format!("{} {} | Left/Right choose / Enter\nEsc Keep editing; saved memory is unchanged.",
-                if state.affirmative { "Keep editing" } else { "[Keep editing]" }, if state.affirmative { "[Discard draft]" } else { "Discard draft" }),
+            Mode::Browse => {
+                "Up/Down Inspect | / Commands\n/select-memory Context | PgUp/PgDn Scroll | Esc Back"
+                    .into()
+            }
+            Mode::Edit => {
+                "Enter Preview | Ctrl+N Newline | Esc Keep/Discard\nLiteral text only.".into()
+            }
+            Mode::Preview => format!(
+                "{} {} | /memory-scope /edit-memory /reject-memory\n{} | Left/Right choose / Enter / Esc Edit",
+                if state.affirmative { "Stay" } else { "[Stay]" },
+                if state.affirmative {
+                    "[Approve]"
+                } else {
+                    "Approve"
+                },
+                if state.reviewed {
+                    "Reviewed"
+                } else {
+                    "PgDn review all pages"
+                }
+            ),
+            Mode::Delete => format!(
+                "{} {} | Left/Right choose / Enter\n{} / Esc Stay",
+                if state.affirmative { "Stay" } else { "[Stay]" },
+                if state.affirmative {
+                    "[Delete]"
+                } else {
+                    "Delete"
+                },
+                if state.reviewed {
+                    "Reviewed"
+                } else {
+                    "PgDn review affected scope"
+                }
+            ),
+            Mode::Discard => format!(
+                "{} {} | Left/Right choose / Enter\nEsc Keep editing; saved memory is unchanged.",
+                if state.affirmative {
+                    "Keep editing"
+                } else {
+                    "[Keep editing]"
+                },
+                if state.affirmative {
+                    "[Discard draft]"
+                } else {
+                    "Discard draft"
+                }
+            ),
         }
     };
     text(

@@ -12,7 +12,8 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::{
     context,
     provider::{
-        Agent, Event, Input, ItemKind, Operation, Outcome, Preview, Prompt, PromptKind, Request,
+        Agent, Event, Input, ItemKind, ModelCatalogue, ModelSelection, Operation, Outcome, Preview,
+        Prompt, PromptKind, Request,
     },
     repo, store,
 };
@@ -35,12 +36,20 @@ struct Session {
     items: Vec<Item>,
     selected: usize,
     omitted: usize,
+    selection: ModelSelection,
+    observed_model: Option<String>,
 }
 
 #[derive(Default)]
 pub struct Answer {
     pub text: String,
     pub cursor: usize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Picker {
+    Model,
+    Effort,
 }
 
 pub struct State {
@@ -99,6 +108,16 @@ pub struct State {
     /// Journaled provider turns for this task; None until the local journal answers.
     pub budget_turns: Option<usize>,
     budget_override: bool,
+    pub selection: ModelSelection,
+    selections: HashMap<Agent, ModelSelection>,
+    pub catalogues: HashMap<Agent, ModelCatalogue>,
+    pub picker: Option<Picker>,
+    pub picker_selected: usize,
+    pub selection_change: Option<ModelSelection>,
+    pub inspect_models: bool,
+    request_selection: ModelSelection,
+    session_selection: ModelSelection,
+    pub observed_model: Option<String>,
 }
 
 impl Default for State {
@@ -112,7 +131,7 @@ impl State {
         Self {
             pending: None, decision: None, edit_goal: false, preview: None, request: None,
             items: Vec::new(), selected: 0, thread_id: None,
-            notice: "No model session yet. New and Resume prepare an outgoing-payload review; F2 manages provider login separately.".into(),
+            notice: "No model session yet. /new and /resume prepare an outgoing-payload review; /connect manages provider login separately.".into(),
             scroll: 0, scroll_max: 0, reviewed: false, affirmative: false,
             question: 0, option: 0, answers: Vec::new(), editing: false, submit_review: false,
             quit_review: false, quit_ready: false, cancelling: false, omitted: 0,
@@ -126,6 +145,11 @@ impl State {
             limits: crate::budget::Limits::default(), receipt: Vec::new(), receipt_tokens: 0,
             budget_turns: None, budget_override: false,
             inspection: None, inspect_sessions: false,
+            selection: ModelSelection::default(), selections: HashMap::new(),
+            catalogues: HashMap::new(), picker: None, picker_selected: 0,
+            selection_change: None, inspect_models: false,
+            request_selection: ModelSelection::default(), session_selection: ModelSelection::default(),
+            observed_model: None,
         }
     }
 
@@ -139,20 +163,34 @@ impl State {
             && !self.quit_review
             && !self.journal_mode
             && self.paths_editor.is_none()
-            && ((self.preview.is_some() && self.affirmative && key.code == KeyCode::Enter)
-                || (!self.busy() && matches!(key.code, KeyCode::Char('n' | 'r' | 's' | '1'..='4'))))
+            && self.preview.is_some()
+            && self.affirmative
+            && key.code == KeyCode::Enter
+    }
+
+    pub fn needs_saved_command(&self, name: &str) -> bool {
+        !self.active
+            && !self.awaiting_preview
+            && !self.journal_mode
+            && (matches!(name, "new" | "resume" | "sessions" | "models-refresh")
+                || name.starts_with("provider-") && name != "provider-journal")
     }
 
     /// Model turns only: session-metadata inspection sends no model prompt.
     pub fn budget_paused(&self) -> bool {
         self.preview.is_some()
             && !self.inspect_sessions
+            && !self.inspect_models
             && !self.budget_override
             && self.budget_turns.is_none_or(|turns| {
                 !crate::budget::provider_gate(turns, self.receipt_tokens, &self.limits).is_empty()
             })
     }
     pub fn busy(&self) -> bool {
+        self.busy_except_picker() || self.picker.is_some()
+    }
+
+    pub fn busy_except_picker(&self) -> bool {
         self.active
             || self.awaiting_preview
             || self.preview.is_some()
@@ -175,8 +213,16 @@ impl State {
     pub fn reset(&mut self, task_id: i64) {
         if !self.busy() && !self.journal_failed() {
             let limits = self.limits;
+            let selections = std::mem::take(&mut self.selections);
+            let catalogues = std::mem::take(&mut self.catalogues);
+            let selection = self.selection.clone();
+            let agent = self.agent;
             *self = Self::new();
             self.task = task_id;
+            self.agent = agent;
+            self.selection = selection;
+            self.selections = selections;
+            self.catalogues = catalogues;
             self.limits = limits;
         }
     }
@@ -186,7 +232,9 @@ impl State {
             return;
         }
         self.sessions.clear();
+        self.catalogues.clear();
         self.thread_id = None;
+        self.observed_model = None;
         self.items.clear();
         self.selected = 0;
         self.omitted = 0;
@@ -234,15 +282,20 @@ impl State {
                 items: std::mem::take(&mut self.items),
                 selected: self.selected,
                 omitted: self.omitted,
+                selection: self.session_selection.clone(),
+                observed_model: self.observed_model.take(),
             },
         );
         self.operation = operation;
         self.inspection = None;
         self.inspect_sessions = false;
+        self.inspect_models = false;
         let session = self
             .sessions
             .remove(&(self.agent, operation))
             .unwrap_or_default();
+        self.session_selection = session.selection;
+        self.observed_model = session.observed_model;
         self.thread_id = session.thread_id;
         self.items = session.items;
         self.selected = session.selected;
@@ -362,15 +415,22 @@ impl State {
                 items: std::mem::take(&mut self.items),
                 selected: self.selected,
                 omitted: self.omitted,
+                selection: self.session_selection.clone(),
+                observed_model: self.observed_model.take(),
             },
         );
+        self.selections.insert(self.agent, self.selection.clone());
         self.agent = next;
+        self.selection = self.selections.get(&next).cloned().unwrap_or_default();
         self.inspection = None;
         self.inspect_sessions = false;
+        self.inspect_models = false;
         let session = self
             .sessions
             .remove(&(next, self.operation))
             .unwrap_or_default();
+        self.session_selection = session.selection;
+        self.observed_model = session.observed_model;
         self.thread_id = session.thread_id;
         self.items = session.items;
         self.selected = session.selected;
@@ -451,6 +511,8 @@ impl State {
                 task_id,
                 record,
             } if self.matches(generation, task_id)
+                && !self.inspect_sessions
+                && !self.inspect_models
                 && record.agent == self.agent
                 && record.generation == generation =>
             {
@@ -465,7 +527,7 @@ impl State {
                 // Committed turns come from the durable journal, never an in-memory counter.
                 self.budget_turns = None;
                 self.budget_override = false;
-                if !self.inspect_sessions {
+                if !self.inspect_sessions && !self.inspect_models {
                     self.pending_journal.push_back(store::JournalRequest {
                         task_id: self.task,
                         operation: store::JournalOperation::List,
@@ -486,6 +548,22 @@ impl State {
             } if self.matches(generation, task_id) && self.active => {
                 self.notice = message;
             }
+            Event::Models {
+                generation,
+                task_id,
+                catalogue,
+            } if self.matches(generation, task_id)
+                && self.active
+                && self.inspect_models
+                && !self.cancelling =>
+            {
+                match catalogue.validate() {
+                    Ok(()) => {
+                        self.catalogues.insert(self.agent, catalogue);
+                    }
+                    Err(reason) => self.notice = format!("Model catalogue rejected: {reason}"),
+                }
+            }
             Event::Inspection {
                 generation,
                 task_id,
@@ -504,8 +582,14 @@ impl State {
                 thread_id,
                 model,
                 account,
-            } if self.matches(generation, task_id) && self.active && !self.inspect_sessions => {
+            } if self.matches(generation, task_id)
+                && self.active
+                && !self.inspect_sessions
+                && !self.inspect_models =>
+            {
                 self.thread_id = Some(thread_id);
+                self.session_selection = self.request_selection.clone();
+                self.observed_model = Some(model.clone());
                 self.notice = format!(
                     "Provider connected / model {model} / account {account}. Provider owns billing and history."
                 );
@@ -522,7 +606,8 @@ impl State {
             } if self.matches(generation, task_id)
                 && self.active
                 && !self.cancelling
-                && !self.inspect_sessions =>
+                && !self.inspect_sessions
+                && !self.inspect_models =>
             {
                 if let Some(item) = self.items.iter_mut().find(|item| {
                     item.thread_id == thread_id
@@ -555,7 +640,8 @@ impl State {
             } if self.matches(generation, task_id)
                 && self.active
                 && !self.cancelling
-                && !self.inspect_sessions =>
+                && !self.inspect_sessions
+                && !self.inspect_models =>
             {
                 self.saved_scroll = self.scroll;
                 self.answers = match &request.kind {
@@ -596,6 +682,13 @@ impl State {
                 self.close_request();
                 self.generation = None;
                 self.notice = message;
+                if self.inspect_models
+                    && matches!(outcome, Outcome::Completed)
+                    && !self.quit_after_cancel
+                {
+                    self.picker = Some(Picker::Model);
+                    self.picker_selected = 0;
+                }
                 self.cancel_when_ready = false;
                 self.unknown |= matches!(outcome, Outcome::Unknown);
                 if self.quit_after_cancel {
@@ -642,7 +735,11 @@ impl State {
 
     pub fn cancel(&mut self) -> bool {
         self.invalidate_review();
-        if self.switch_to.take().is_some() || self.paths_editor.take().is_some() {
+        if self.switch_to.take().is_some()
+            || self.paths_editor.take().is_some()
+            || self.selection_change.take().is_some()
+            || self.picker.take().is_some()
+        {
             return true;
         }
         if self.cancelling {
@@ -676,6 +773,7 @@ impl State {
         &mut self,
         resume: bool,
         inspect_sessions: bool,
+        inspect_models: bool,
         task: &store::Snapshot,
         excerpts: &[context::Excerpt],
         report: Option<&Arc<repo::Report>>,
@@ -683,7 +781,7 @@ impl State {
         if self.busy() {
             return;
         }
-        if self.operation == Operation::Review && (resume || inspect_sessions) {
+        if !inspect_models && self.operation == Operation::Review && (resume || inspect_sessions) {
             self.notice = "Review requires a fresh session and freshly constructed evidence context. Resume/session inspection is unavailable here; choose New.".into();
             return;
         }
@@ -692,8 +790,12 @@ impl State {
                 "Retry failed journal storage before preparing another provider request.".into();
             return;
         }
-        if task.id <= 0 || task.archived || task.goal.trim().is_empty() {
-            self.notice = "Save a nonempty goal in an active task before planning.".into();
+        if task.id <= 0 || task.archived || (!inspect_models && task.goal.trim().is_empty()) {
+            self.notice = if inspect_models {
+                "Save an active task before model inspection.".into()
+            } else {
+                "Save a nonempty goal in an active task before planning.".into()
+            };
             return;
         }
         if resume && (self.task != task.id || self.thread_id.is_none()) {
@@ -701,11 +803,28 @@ impl State {
                 "Resume requires an explicitly selected same-task thread from this session.".into();
             return;
         }
+        if resume && self.session_selection.model != self.selection.model {
+            self.notice = "This session belongs to a different model selection. Choose /new for a fresh session or /model to keep the session's original selection; no resume was prepared.".into();
+            return;
+        }
         if self.task != task.id {
             self.reset(task.id);
         }
         self.revision = task.revision;
         self.inspect_sessions = inspect_sessions;
+        self.inspect_models = inspect_models;
+        self.request_selection = if inspect_models {
+            ModelSelection {
+                model: if matches!(self.agent, Agent::OpenCode | Agent::Gemini | Agent::Devin) {
+                    self.selection.model.clone()
+                } else {
+                    None
+                },
+                effort: None,
+            }
+        } else {
+            self.selection.clone()
+        };
         self.inspection = None;
         self.pending = Some(Request::Preview(Box::new(Input {
             task: task.clone(),
@@ -725,6 +844,8 @@ impl State {
                 self.handoff.clone()
             },
             inspect_sessions,
+            inspect_models,
+            selection: self.request_selection.clone(),
         })));
         self.awaiting_preview = true;
         self.notice =
@@ -853,6 +974,439 @@ impl State {
         self.notice = "Explicit response queued for the current provider request.".into();
     }
 
+    pub fn selection_label(&self) -> String {
+        format!(
+            "{} / requested model {} / requested effort {} / role {:?} / observed session model: {} (catalogue availability is not entitlement)",
+            self.agent.label(),
+            self.selection
+                .model
+                .as_deref()
+                .unwrap_or("Default (provider configuration)"),
+            self.selection
+                .effort
+                .as_deref()
+                .unwrap_or("Default (provider configuration)"),
+            self.operation,
+            self.observed_model.as_deref().unwrap_or("unobserved")
+        )
+    }
+
+    pub fn reviewed_selection(&self) -> &ModelSelection {
+        &self.request_selection
+    }
+
+    fn effort_model(&self) -> Option<&crate::provider::ModelOption> {
+        let catalogue = self.catalogues.get(&self.agent)?;
+        let id = self
+            .selection
+            .model
+            .as_ref()
+            .or(catalogue.current.as_ref())?;
+        catalogue.models.iter().find(|model| &model.id == id)
+    }
+
+    pub fn picker_len(&self) -> usize {
+        match self.picker {
+            Some(Picker::Model) => {
+                2 + self
+                    .catalogues
+                    .get(&self.agent)
+                    .map(|catalogue| catalogue.models.len())
+                    .unwrap_or(0)
+                    .max(1)
+            }
+            Some(Picker::Effort) => {
+                1 + self
+                    .effort_model()
+                    .map(|model| model.efforts.len())
+                    .unwrap_or(0)
+                    .max(1)
+            }
+            None => 0,
+        }
+    }
+
+    pub fn picker_choice(&self, index: usize) -> Option<super::commands::Choice> {
+        use super::commands::Choice;
+        if index >= self.picker_len() {
+            return None;
+        }
+        if index == 0 {
+            return Some(Choice::new(
+                "selection-default",
+                "Default (provider configuration)",
+            ));
+        }
+        Some(match self.picker? {
+            Picker::Model if index + 1 == self.picker_len() => Choice::new(
+                "models-refresh",
+                "Refresh / inspect available models (review connection first)",
+            ),
+            Picker::Model => {
+                if let Some(catalogue) = self.catalogues.get(&self.agent) {
+                    if let Some(model) = catalogue.models.get(index - 1) {
+                        Choice::new("model-select", format!("{} [{}]", model.name, model.id))
+                    } else {
+                        Choice::disabled(
+                            "model-select",
+                            "Model selection unavailable",
+                            format!(
+                                "Provider advertised no selectable models. {}",
+                                catalogue.source
+                            ),
+                        )
+                    }
+                } else {
+                    Choice::disabled(
+                        "model-select",
+                        "No inspected models",
+                        "Refresh requires a reviewed provider connection; opening this picker sends nothing.",
+                    )
+                }
+            }
+            Picker::Effort => {
+                if let Some(effort) = self
+                    .effort_model()
+                    .and_then(|model| model.efforts.get(index - 1))
+                {
+                    Choice::new("effort-select", effort)
+                } else {
+                    Choice::disabled("effort-select", "Reasoning effort unavailable",
+                        self.catalogues.get(&self.agent).and_then(|catalogue| catalogue.effort_note.clone())
+                            .unwrap_or_else(|| "No supported reasoning effort values advertised for the selected/default model. Inspect models first.".into()))
+                }
+            }
+        })
+    }
+
+    fn apply_selection(&mut self, selection: ModelSelection, fresh: bool) {
+        self.picker = None;
+        self.selection_change = None;
+        if self.preview.is_some() {
+            self.cancel();
+        }
+        self.selection = selection;
+        self.selections.insert(self.agent, self.selection.clone());
+        if fresh {
+            self.thread_id = None;
+            self.items.clear();
+            self.selected = 0;
+            self.omitted = 0;
+            self.observed_model = None;
+        }
+        self.review_start();
+        self.notice = "Selection updated locally. Previous payload consent invalidated; /new or compatible /resume requires fresh review. No connection was authorized.".into();
+    }
+
+    pub fn command_choices(&self) -> Vec<super::commands::Choice> {
+        use super::commands::Choice;
+        if self.editing
+            || self.paths_editor.is_some()
+            || self.quit_review
+            || self.switch_to.is_some()
+            || self.selection_change.is_some()
+        {
+            return vec![Choice::new("cancel", "Back / keep existing choice")];
+        }
+        if self.journal_mode {
+            if self.journal_purge {
+                return vec![Choice::new(
+                    "journal-close",
+                    "Keep journal / close purge review",
+                )];
+            }
+            return vec![
+                Choice::new("journal-retry", "Retry retained journal storage"),
+                if self.busy() {
+                    Choice::disabled(
+                        "journal-purge",
+                        "Purge local provider journal",
+                        "Wait for journal storage to finish.",
+                    )
+                } else {
+                    Choice::new("journal-purge", "Review journal purge")
+                },
+                Choice::new("journal-close", "Back to provider session"),
+            ];
+        }
+        if let Some(request) = &self.request {
+            if let PromptKind::Questions(questions) = &request.kind
+                && !self.submit_review
+            {
+                let mut rows = vec![Choice::new(
+                    "answers-review",
+                    "Review answers before sending",
+                )];
+                if questions
+                    .get(self.question)
+                    .is_some_and(|question| question.other || question.options.is_empty())
+                {
+                    rows.push(Choice::new("answer", "Edit literal answer"));
+                }
+                rows.push(Choice::new("cancel", "Cancel provider turn"));
+                return rows;
+            }
+            return vec![Choice::new("cancel", "Cancel provider turn")];
+        }
+        if self.active || self.awaiting_preview {
+            return vec![
+                Choice::new("cancel", "Cancel owned request"),
+                Choice::new("quit", "Review safe exit"),
+            ];
+        }
+        if self.preview.is_some() {
+            let mut rows = vec![
+                Choice::new("model", "Choose model / invalidate payload review"),
+                Choice::new(
+                    "effort",
+                    "Choose reasoning effort / invalidate payload review",
+                ),
+                Choice::new("cancel", "Stay / cancel preview"),
+            ];
+            if self.budget_paused() {
+                rows.push(Choice::new(
+                    "budget-continue",
+                    "Continue budget pause for this preview only",
+                ));
+            }
+            return rows;
+        }
+        if self.picker.is_some() {
+            return vec![
+                Choice::new("models-refresh", "Review model catalogue refresh"),
+                Choice::new("cancel", "Close picker"),
+            ];
+        }
+        let idle = !self.busy();
+        let mut rows = Vec::new();
+        for (command, label) in [
+            ("new", "New provider session"),
+            ("resume", "Resume owned same-task session"),
+            ("goal", "Edit saved goal"),
+            ("decision", "Copy selected proposal into NextAction"),
+            ("model", "Choose model"),
+            ("effort", "Choose reasoning effort"),
+            (
+                "models-refresh",
+                "Review provider model catalogue inspection",
+            ),
+            ("sessions", "Inspect provider session metadata"),
+            ("paths", "Edit selected write paths"),
+            ("provider-journal", "Open local provider journal"),
+            ("handoff-clear", "Deselect portable handoff"),
+            ("provider-codex", "Choose Codex"),
+            ("provider-claude", "Choose Claude"),
+            ("provider-opencode", "Choose OpenCode"),
+            ("provider-gemini", "Choose Gemini"),
+            ("provider-devin", "Choose Devin"),
+            ("role-plan", "Planning role"),
+            ("role-implement", "Implementation role"),
+            ("role-review", "Independent review role"),
+        ] {
+            let reason = if !idle {
+                Some("Wait for pending local/provider work.".to_string())
+            } else if command == "resume"
+                && (self.operation == Operation::Review || self.thread_id.is_none())
+            {
+                Some("Resume requires an owned same-task session. Independent Review requires a fresh session; choose /new.".into())
+            } else if matches!(
+                command,
+                "paths" | "sessions" | "role-plan" | "role-implement"
+            ) && self.operation == Operation::Review
+            {
+                Some("Independent Review cannot authorize writes, resume history, or switch itself to an implementation role.".into())
+            } else if command == "decision"
+                && (self.inspection.is_some()
+                    || !self.items.get(self.selected).is_some_and(|item| {
+                        item.complete && matches!(item.kind, ItemKind::Message | ItemKind::Plan)
+                    }))
+            {
+                Some("Select a complete provider message or plan; metadata/tool output is not a decision.".into())
+            } else {
+                None
+            };
+            rows.push(match reason {
+                Some(reason) => Choice::disabled(command, label, reason),
+                None => Choice::new(command, label),
+            });
+        }
+        rows
+    }
+
+    pub fn command(
+        &mut self,
+        name: &str,
+        large_enough: bool,
+        task: &store::Snapshot,
+        excerpts: &[context::Excerpt],
+        report: Option<&Arc<repo::Report>>,
+    ) -> bool {
+        if name == "cancel" {
+            return self.cancel();
+        }
+        if name == "quit" {
+            self.request_quit();
+            return true;
+        }
+        if !large_enough {
+            self.invalidate_review();
+            self.notice = "Terminal too small; no command action or approval available.".into();
+            return true;
+        }
+        if self.task != task.id && !self.busy() && !self.journal_failed() {
+            self.reset(task.id);
+        }
+        let refresh = name == "models-refresh";
+        if refresh && self.picker.is_some() && !self.active && !self.awaiting_preview {
+            self.picker = None;
+        } else if let Some(choice) = self
+            .command_choices()
+            .iter()
+            .find(|choice| choice.command == name)
+        {
+            if let Some(reason) = &choice.reason {
+                self.notice = reason.clone();
+                return true;
+            }
+        } else {
+            self.notice = format!("/{name} is unavailable in the current provider context.");
+            return true;
+        }
+        match name {
+            "model" | "effort" => {
+                self.picker = Some(if name == "model" {
+                    Picker::Model
+                } else {
+                    Picker::Effort
+                });
+                self.picker_selected = 0;
+                self.scroll = 0;
+                self.notice = "Local picker only. Default means provider configuration; inspection requires separate Preview/Run consent.".into();
+            }
+            "models-refresh" => {
+                if self.preview.is_some() {
+                    self.notice = "Close the existing preview before inspecting models.".into();
+                } else {
+                    self.prepare(false, false, true, task, excerpts, report);
+                }
+            }
+            "new" => self.prepare(false, false, false, task, excerpts, report),
+            "resume" => self.prepare(true, false, false, task, excerpts, report),
+            "sessions" => self.prepare(false, true, false, task, excerpts, report),
+            "goal" => self.edit_goal = true,
+            "provider-codex" | "provider-claude" | "provider-opencode" | "provider-gemini"
+            | "provider-devin" => {
+                let next = match name {
+                    "provider-codex" => Agent::Codex,
+                    "provider-claude" => Agent::Claude,
+                    "provider-opencode" => Agent::OpenCode,
+                    "provider-gemini" => Agent::Gemini,
+                    _ => Agent::Devin,
+                };
+                if next != self.agent {
+                    if self.handoff.is_none() {
+                        match crate::handoff::from_task(task, excerpts, &[]) {
+                            Ok(document) => self.handoff = Some(document),
+                            Err(error) => {
+                                self.notice = error;
+                                return true;
+                            }
+                        }
+                    }
+                    self.switch_to = Some(next);
+                    self.review_start();
+                }
+            }
+            "role-plan" => self.set_operation(Operation::Plan),
+            "role-implement" => self.set_operation(Operation::Implement),
+            "role-review" => self.set_operation(Operation::Review),
+            "paths" => {
+                let paths: Vec<_> = if self.edit_paths.is_empty() {
+                    excerpts
+                        .iter()
+                        .map(|excerpt| excerpt.path.clone())
+                        .collect()
+                } else {
+                    self.edit_paths
+                        .iter()
+                        .map(|path| path.to_string_lossy().into_owned())
+                        .collect()
+                };
+                let text = serde_json::to_string(&paths).unwrap_or_else(|_| "[]".into());
+                self.paths_editor = Some(Answer {
+                    cursor: text.len(),
+                    text,
+                });
+            }
+            "provider-journal" => {
+                self.journal_mode = true;
+                self.journal_purge = false;
+                self.review_start();
+                self.pending_journal.push_back(store::JournalRequest {
+                    task_id: self.task,
+                    operation: store::JournalOperation::List,
+                });
+            }
+            "journal-retry" => self.retry_journal(),
+            "journal-purge" => {
+                self.journal_purge = true;
+                self.affirmative = false;
+            }
+            "journal-close" => {
+                self.journal_mode = false;
+                self.journal_purge = false;
+            }
+            "handoff-clear" => {
+                self.handoff = None;
+                self.notice = "Portable handoff deselected locally; no provider history or export was erased.".into();
+            }
+            "budget-continue" => {
+                self.budget_override = true;
+                self.notice = "Budget pause lifted for this exact preview only. Run still requires separate consent.".into();
+            }
+            "answer" => self.editing = true,
+            "answers-review" => {
+                if self
+                    .answers
+                    .iter()
+                    .all(|answer| !answer.text.trim().is_empty())
+                {
+                    self.submit_review = true;
+                    self.review_start();
+                } else {
+                    self.notice =
+                        "Answer every question before reviewing submission. Nothing was sent."
+                            .into();
+                }
+            }
+            "decision" => self.copy_decision(),
+            _ => return false,
+        }
+        true
+    }
+
+    fn copy_decision(&mut self) {
+        if let Some(item) = self
+            .items
+            .get(self.selected)
+            .filter(|item| item.complete && matches!(item.kind, ItemKind::Message | ItemKind::Plan))
+        {
+            let provenance = format!(
+                "\n\n[User-selected, unverified {} {:?}; thread {}; turn {}; item {}. Not local execution evidence.]",
+                self.agent.label(),
+                self.operation,
+                item.thread_id,
+                item.turn_id,
+                item.item_id
+            );
+            if item.text.len() + provenance.len() > 4096 {
+                self.notice = "Decision exceeds the 4096-byte NextAction limit. Nothing was copied or truncated.".into();
+            } else {
+                self.decision = Some(format!("{}{}", item.text, provenance));
+            }
+        }
+    }
+
     pub fn key(
         &mut self,
         key: KeyEvent,
@@ -944,11 +1498,108 @@ impl State {
         {
             return false;
         }
-        if key.code == KeyCode::Char('q') {
-            self.request_quit();
+        if self.picker.is_some() {
+            if key.code == KeyCode::Esc {
+                if self.selection_change.take().is_none() {
+                    self.picker = None;
+                }
+                self.affirmative = false;
+                return true;
+            }
+            if !large_enough {
+                return false;
+            }
+            if self.selection_change.is_some() {
+                match key.code {
+                    KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right => {
+                        self.affirmative = !self.affirmative
+                    }
+                    KeyCode::Enter => {
+                        let selection = self.selection_change.take().expect("selection change");
+                        if self.affirmative {
+                            self.apply_selection(selection, true);
+                        } else {
+                            self.picker = None;
+                        }
+                        self.affirmative = false;
+                    }
+                    _ => return false,
+                }
+                return true;
+            }
+            let count = self.picker_len();
+            match key.code {
+                KeyCode::Up => self.picker_selected = self.picker_selected.saturating_sub(1),
+                KeyCode::Down => {
+                    self.picker_selected = (self.picker_selected + 1).min(count.saturating_sub(1))
+                }
+                KeyCode::Home => self.picker_selected = 0,
+                KeyCode::End => self.picker_selected = count.saturating_sub(1),
+                KeyCode::PageUp => self.scroll = self.scroll.saturating_sub(5),
+                KeyCode::PageDown => {
+                    self.scroll = self.scroll.saturating_add(5).min(self.scroll_max)
+                }
+                KeyCode::Enter => {
+                    let Some(row) = self.picker_choice(self.picker_selected) else {
+                        return false;
+                    };
+                    if let Some(reason) = &row.reason {
+                        self.notice = reason.clone();
+                        return true;
+                    }
+                    if row.command == "models-refresh" {
+                        return self.command(
+                            "models-refresh",
+                            large_enough,
+                            task,
+                            excerpts,
+                            report,
+                        );
+                    }
+                    let mut selection = self.selection.clone();
+                    match self.picker {
+                        Some(Picker::Model) => {
+                            selection.model = if self.picker_selected == 0 {
+                                None
+                            } else {
+                                self.catalogues
+                                    .get(&self.agent)
+                                    .and_then(|catalogue| {
+                                        catalogue.models.get(self.picker_selected - 1)
+                                    })
+                                    .map(|model| model.id.clone())
+                            };
+                            if selection.model != self.selection.model {
+                                selection.effort = None;
+                            }
+                        }
+                        Some(Picker::Effort) => {
+                            selection.effort = if self.picker_selected == 0 {
+                                None
+                            } else {
+                                self.effort_model()
+                                    .and_then(|model| model.efforts.get(self.picker_selected - 1))
+                                    .cloned()
+                            };
+                        }
+                        None => return false,
+                    }
+                    if selection == self.selection {
+                        self.picker = None;
+                        return true;
+                    }
+                    if selection.model != self.selection.model && self.thread_id.is_some() {
+                        self.selection_change = Some(selection);
+                        self.affirmative = false;
+                    } else {
+                        self.apply_selection(selection, false);
+                    }
+                }
+                _ => return false,
+            }
             return true;
         }
-        if key.code == KeyCode::Esc || key.code == KeyCode::Char('c') {
+        if key.code == KeyCode::Esc {
             return self.cancel();
         }
         if !large_enough {
@@ -993,15 +1644,6 @@ impl State {
         }
         if self.journal_mode {
             match key.code {
-                KeyCode::Char('h') | KeyCode::Esc => {
-                    self.journal_mode = false;
-                    self.journal_purge = false;
-                }
-                KeyCode::Char('r') if !self.journal_purge => self.retry_journal(),
-                KeyCode::Char('p') if !self.busy() => {
-                    self.journal_purge = true;
-                    self.affirmative = false;
-                }
                 KeyCode::Tab | KeyCode::Left | KeyCode::Right if self.journal_purge => {
                     self.affirmative = !self.affirmative
                 }
@@ -1042,27 +1684,27 @@ impl State {
                 KeyCode::Enter if !self.affirmative => {
                     self.cancel();
                 }
-                KeyCode::Char('o') if self.budget_paused() => {
-                    self.budget_override = true;
-                    self.notice = "Budget pause lifted for this exact preview only. Run still requires its own approval.".into();
-                }
                 KeyCode::Enter
                     if self.reviewed && self.pending.is_none() && self.budget_paused() =>
                 {
                     self.notice = match self.budget_turns {
                         None => "Budget accounting is still loading from the local journal; nothing was sent.".into(),
-                        Some(turns) => format!("{} Press o to continue once, or Stay to revise; nothing was sent.", crate::budget::provider_gate(turns, self.receipt_tokens, &self.limits).join(" ")),
+                        Some(turns) => format!("{} Use /budget-continue for this preview, or Stay to revise; nothing was sent.", crate::budget::provider_gate(turns, self.receipt_tokens, &self.limits).join(" ")),
                     };
                 }
                 KeyCode::Enter if self.reviewed && self.pending.is_none() => {
                     let preview = self.preview.as_ref().expect("preview is open");
                     if preview.blockers.is_empty() {
                         let generation = preview.generation;
-                        if preview.thread_id.is_none() && !self.inspect_sessions {
+                        if preview.thread_id.is_none()
+                            && !self.inspect_sessions
+                            && !self.inspect_models
+                        {
                             self.items.clear();
                             self.selected = 0;
                             self.omitted = 0;
                             self.thread_id = None;
+                            self.observed_model = None;
                         }
                         self.pending = Some(Request::Run { generation });
                         self.preview = None;
@@ -1182,21 +1824,6 @@ impl State {
                                 self.editing = true;
                             }
                         }
-                        KeyCode::Char('a') if question.other || question.options.is_empty() => {
-                            self.editing = true
-                        }
-                        KeyCode::Char('s') => {
-                            if self
-                                .answers
-                                .iter()
-                                .all(|answer| !answer.text.trim().is_empty())
-                            {
-                                self.submit_review = true;
-                                self.review_start();
-                            } else {
-                                self.notice = "Answer every question before reviewing submission. Nothing has been sent.".into();
-                            }
-                        }
                         _ => return false,
                     }
                 }
@@ -1204,74 +1831,6 @@ impl State {
             return true;
         }
         match key.code {
-            KeyCode::Char('1'..='4') if !self.busy() => {
-                if let KeyCode::Char(digit) = key.code {
-                    let next = Agent::ALL[digit as usize - '1' as usize];
-                    if next != self.agent {
-                        if self.handoff.is_none() {
-                            match crate::handoff::from_task(task, excerpts, &[]) {
-                                Ok(document) => self.handoff = Some(document),
-                                Err(error) => {
-                                    self.notice = error;
-                                    return true;
-                                }
-                            }
-                        }
-                        self.switch_to = Some(next);
-                        self.review_start();
-                    }
-                }
-            }
-            KeyCode::Char('f') if !self.busy() => {
-                if self.operation == Operation::Review {
-                    self.notice = "Review cannot apply its own findings. Return to the review desk and deliberately hand the fix to implementation.".into();
-                    return true;
-                }
-                self.set_operation(if self.operation == Operation::Plan {
-                    Operation::Implement
-                } else {
-                    Operation::Plan
-                });
-            }
-            KeyCode::Char('x') if !self.busy() => {
-                if self.operation == Operation::Review {
-                    self.notice = "Source-writing tools and edit-path grants are unavailable in Review. Use a deliberate implementation handoff for a fix.".into();
-                    return true;
-                }
-                let paths: Vec<_> = if self.edit_paths.is_empty() {
-                    excerpts
-                        .iter()
-                        .map(|excerpt| excerpt.path.clone())
-                        .collect()
-                } else {
-                    self.edit_paths
-                        .iter()
-                        .map(|path| path.to_string_lossy().into_owned())
-                        .collect()
-                };
-                let text = serde_json::to_string(&paths).unwrap_or_else(|_| "[]".into());
-                self.paths_editor = Some(Answer {
-                    cursor: text.len(),
-                    text,
-                });
-            }
-            KeyCode::Char('h') if !self.busy() && self.task > 0 => {
-                self.journal_mode = true;
-                self.journal_purge = false;
-                self.review_start();
-                self.pending_journal.push_back(store::JournalRequest {
-                    task_id: self.task,
-                    operation: store::JournalOperation::List,
-                });
-            }
-            KeyCode::Char('b') if !self.busy() => {
-                self.handoff = None;
-                self.notice = "Portable handoff deselected locally. Current task/source basket still requires fresh review; no original export or provider history was erased.".into();
-            }
-            KeyCode::Char('n') => self.prepare(false, false, task, excerpts, report),
-            KeyCode::Char('r') => self.prepare(true, false, task, excerpts, report),
-            KeyCode::Char('s') => self.prepare(false, true, task, excerpts, report),
-            KeyCode::Char('g') if !self.busy() => self.edit_goal = true,
             KeyCode::Up if self.inspection.is_none() => {
                 self.selected = self.selected.saturating_sub(1);
                 self.scroll = 0;
@@ -1279,25 +1838,6 @@ impl State {
             KeyCode::Down if self.inspection.is_none() => {
                 self.selected = (self.selected + 1).min(self.items.len().saturating_sub(1));
                 self.scroll = 0;
-            }
-            KeyCode::Char('d') | KeyCode::Enter if !self.busy() && self.inspection.is_none() => {
-                if let Some(item) = self.items.get(self.selected).filter(|item| {
-                    item.complete && matches!(item.kind, ItemKind::Message | ItemKind::Plan)
-                }) {
-                    let provenance = format!(
-                        "\n\n[User-selected, unverified {} {:?}; thread {}; turn {}; item {}. Not local execution evidence.]",
-                        self.agent.label(),
-                        self.operation,
-                        item.thread_id,
-                        item.turn_id,
-                        item.item_id
-                    );
-                    if item.text.len() + provenance.len() > 4096 {
-                        self.notice = "Decision exceeds the 4096-byte NextAction limit. Nothing was copied or truncated; select a shorter provider message or edit NextAction manually.".into();
-                    } else {
-                        self.decision = Some(format!("{}{}", item.text, provenance));
-                    }
-                }
             }
             _ => return false,
         }
@@ -1327,9 +1867,208 @@ mod tests {
         );
     }
 
+    fn command(state: &mut State, name: &str, large: bool) {
+        state.command(name, large, &task(), &[], None);
+    }
+
+    fn catalogue() -> ModelCatalogue {
+        ModelCatalogue {
+            models: vec![crate::provider::ModelOption {
+                id: "advertised-model".into(),
+                name: "Advertised model".into(),
+                description: "From provider metadata".into(),
+                efforts: vec!["high".into()],
+                default_effort: Some("high".into()),
+            }],
+            current: Some("advertised-model".into()),
+            source: "Official metadata".into(),
+            effort_note: None,
+        }
+    }
+
+    #[test]
+    fn model_picker_is_local_and_refresh_requires_preview_run_without_budget_or_journal() {
+        let mut state = State::new();
+        command(&mut state, "model", true);
+        assert!(state.pending.is_none());
+        assert!(state.catalogues.is_empty());
+        command(&mut state, "models-refresh", true);
+        let Some(Request::Preview(input)) = state.pending.take() else {
+            panic!("inspection preview");
+        };
+        assert!(input.inspect_models && !input.inspect_sessions && input.resume.is_none());
+        assert_eq!(input.selection, ModelSelection::default());
+        state.event(Event::Preview(Preview {
+            generation: 11,
+            task_id: 7,
+            thread_id: None,
+            trust: vec!["Metadata connection".into()],
+            payload: "{}".into(),
+            blockers: vec![],
+        }));
+        assert!(!state.budget_paused());
+        assert!(state.pending_journal.is_empty());
+        state.reviewed = true;
+        press(&mut state, KeyCode::Tab, true);
+        press(&mut state, KeyCode::Enter, true);
+        assert!(matches!(
+            state.pending.take(),
+            Some(Request::Run { generation: 11 })
+        ));
+        state.event(Event::Models {
+            generation: 12,
+            task_id: 7,
+            catalogue: catalogue(),
+        });
+        state.event(Event::Models {
+            generation: 11,
+            task_id: 8,
+            catalogue: catalogue(),
+        });
+        assert!(state.catalogues.is_empty());
+        state.event(Event::Models {
+            generation: 11,
+            task_id: 7,
+            catalogue: catalogue(),
+        });
+        assert_eq!(state.catalogues[&Agent::Codex].models.len(), 1);
+        state.event(Event::Finished {
+            generation: 11,
+            task_id: 7,
+            outcome: Outcome::Completed,
+            message: "Metadata complete".into(),
+        });
+        assert!(state.picker == Some(Picker::Model));
+        assert!(state.pending_journal.is_empty());
+        assert!(state.thread_id.is_none() && state.items.is_empty());
+    }
+
+    #[test]
+    fn model_change_offers_keep_fresh_and_back_without_silent_resume() {
+        let mut state = State::new();
+        state.reset(7);
+        state.thread_id = Some("owned-session".into());
+        state.catalogues.insert(Agent::Codex, catalogue());
+        command(&mut state, "model", true);
+        press(&mut state, KeyCode::Down, true);
+        press(&mut state, KeyCode::Enter, true);
+        assert!(state.selection_change.is_some());
+        assert_eq!(state.selection, ModelSelection::default());
+        press(&mut state, KeyCode::Esc, true);
+        assert!(state.picker.is_some() && state.selection_change.is_none());
+        press(&mut state, KeyCode::Enter, true);
+        press(&mut state, KeyCode::Enter, true);
+        assert_eq!(state.thread_id.as_deref(), Some("owned-session"));
+        assert_eq!(state.selection, ModelSelection::default());
+        command(&mut state, "model", true);
+        press(&mut state, KeyCode::Down, true);
+        press(&mut state, KeyCode::Enter, true);
+        press(&mut state, KeyCode::Tab, true);
+        press(&mut state, KeyCode::Enter, true);
+        assert!(state.thread_id.is_none() && state.pending.is_none());
+        assert_eq!(state.selection.model.as_deref(), Some("advertised-model"));
+        command(&mut state, "resume", true);
+        assert!(state.pending.is_none());
+    }
+
+    #[test]
+    fn advertised_effort_and_model_are_snapshotted_and_preview_change_revokes_consent() {
+        let mut state = State::new();
+        state.reset(7);
+        state.catalogues.insert(Agent::Codex, catalogue());
+        command(&mut state, "model", true);
+        press(&mut state, KeyCode::Down, true);
+        press(&mut state, KeyCode::Enter, true);
+        command(&mut state, "effort", true);
+        press(&mut state, KeyCode::Down, true);
+        press(&mut state, KeyCode::Enter, true);
+        command(&mut state, "new", true);
+        let Some(Request::Preview(input)) = state.pending.take() else {
+            panic!("turn preview");
+        };
+        assert_eq!(input.selection.model.as_deref(), Some("advertised-model"));
+        assert_eq!(input.selection.effort.as_deref(), Some("high"));
+        state.event(Event::Preview(Preview {
+            generation: 11,
+            task_id: 7,
+            thread_id: None,
+            trust: vec![],
+            payload: "payload".into(),
+            blockers: vec![],
+        }));
+        command(&mut state, "effort", true);
+        press(&mut state, KeyCode::Enter, true);
+        assert!(state.selection.effort.is_none());
+        assert!(state.preview.is_none() && !state.affirmative);
+        assert!(matches!(
+            state.pending,
+            Some(Request::Cancel { generation: 11 })
+        ));
+        assert_eq!(input.selection.effort.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn active_model_change_is_refused_and_unsupported_effort_cannot_be_selected() {
+        let mut state = active();
+        command(&mut state, "model", true);
+        assert!(state.picker.is_none() && state.pending.is_none());
+        state.active = false;
+        state.generation = None;
+        command(&mut state, "effort", true);
+        assert!(state.picker_choice(1).unwrap().reason.is_some());
+        press(&mut state, KeyCode::Down, true);
+        press(&mut state, KeyCode::Enter, true);
+        assert!(state.selection.effort.is_none() && state.pending.is_none());
+        assert!(state.picker.is_some());
+    }
+
+    #[test]
+    fn provider_selection_is_local_to_provider_and_survives_task_reset() {
+        let mut state = State::new();
+        state.reset(7);
+        state.selection.model = Some("codex-model".into());
+        state.switch_to = Some(Agent::Claude);
+        state.complete_switch();
+        assert_eq!(state.selection, ModelSelection::default());
+        state.selection.model = Some("claude-model".into());
+        state.switch_to = Some(Agent::Codex);
+        state.complete_switch();
+        assert_eq!(state.selection.model.as_deref(), Some("codex-model"));
+        state.reset(8);
+        assert_eq!(state.selection.model.as_deref(), Some("codex-model"));
+    }
+
+    #[test]
+    fn obsolete_action_letters_and_digits_never_launch_or_change_idle_selection() {
+        let mut state = State::new();
+        state.reset(7);
+        for action in "nrsfgxdhbcq12345".chars() {
+            press(&mut state, KeyCode::Char(action), true);
+            assert!(state.pending.is_none() && state.switch_to.is_none());
+            assert!(state.paths_editor.is_none() && !state.edit_goal && !state.quit_review);
+            assert_eq!(state.agent, Agent::Codex);
+            assert_eq!(state.operation, Operation::Plan);
+        }
+    }
+
+    #[test]
+    fn unsafe_model_catalogue_is_rejected_before_caching() {
+        let mut state = active();
+        state.inspect_models = true;
+        let mut invalid = catalogue();
+        invalid.models[0].name = "unsafe\ncontrol".into();
+        state.event(Event::Models {
+            generation: 11,
+            task_id: 7,
+            catalogue: invalid,
+        });
+        assert!(state.catalogues.is_empty());
+        assert!(state.notice.starts_with("Model catalogue rejected:"));
+    }
+
     fn preview() -> State {
         let mut state = State::new();
-        press(&mut state, KeyCode::Char('n'), true);
+        command(&mut state, "new", true);
         assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
         state.event(Event::Preview(Preview {
             generation: 11,
@@ -1349,7 +2088,7 @@ mod tests {
     fn provider_budget_pauses_run_until_journal_counted_and_continue_once() {
         let mut state = State::new();
         state.limits.provider_turns = 1;
-        press(&mut state, KeyCode::Char('n'), true);
+        command(&mut state, "new", true);
         state.pending.take();
         state.event(Event::Preview(Preview {
             generation: 11,
@@ -1391,7 +2130,7 @@ mod tests {
         press(&mut state, KeyCode::Enter, true);
         assert!(state.pending.is_none(), "run sent past the turn budget");
         assert!(state.notice.contains("Provider turn budget reached"));
-        press(&mut state, KeyCode::Char('o'), true);
+        command(&mut state, "budget-continue", true);
         press(&mut state, KeyCode::Enter, true);
         assert!(matches!(
             state.pending.take(),
@@ -1422,14 +2161,14 @@ mod tests {
         state.set_operation(Operation::Review);
         assert!(state.thread_id.is_none());
         state.thread_id = Some("previous-review-session".into());
-        press(&mut state, KeyCode::Char('r'), true);
+        command(&mut state, "resume", true);
         assert!(state.pending.is_none());
         assert!(state.notice.contains("fresh session"));
-        press(&mut state, KeyCode::Char('x'), true);
+        command(&mut state, "paths", true);
         assert!(state.paths_editor.is_none());
-        press(&mut state, KeyCode::Char('f'), true);
+        command(&mut state, "role-implement", true);
         assert_eq!(state.operation, Operation::Review);
-        press(&mut state, KeyCode::Char('n'), true);
+        command(&mut state, "new", true);
         let Some(Request::Preview(input)) = state.pending.take() else {
             panic!("New review must prepare a local preview");
         };
@@ -1526,7 +2265,7 @@ mod tests {
             },
         });
         assert!(!state.paste("accept\n"));
-        press(&mut state, KeyCode::Char('a'), true);
+        command(&mut state, "answer", true);
         assert!(state.paste("計画e\u{301}"));
         press(&mut state, KeyCode::Backspace, true);
         assert_eq!(state.answers[0].text, "計画");
@@ -1535,7 +2274,7 @@ mod tests {
         assert!(state.pending.is_none());
         press(&mut state, KeyCode::Enter, true);
         assert!(state.pending.is_none());
-        press(&mut state, KeyCode::Char('s'), true);
+        command(&mut state, "answers-review", true);
         assert!(state.submit_review);
         assert!(!state.affirmative);
     }
@@ -1605,7 +2344,7 @@ mod tests {
         let mut state = State::new();
         state.reset(7);
         state.thread_id = Some("opaque-old-thread".into());
-        press(&mut state, KeyCode::Char('2'), true);
+        command(&mut state, "provider-claude", true);
         assert_eq!(state.agent, Agent::Codex);
         assert!(state.pending.is_none());
         let document = serde_json::to_string(state.handoff.as_ref().unwrap()).unwrap();
@@ -1616,11 +2355,29 @@ mod tests {
         assert_eq!(state.agent, Agent::Claude);
         assert!(state.thread_id.is_none());
         assert!(state.pending.is_none());
-        press(&mut state, KeyCode::Char('1'), true);
+        command(&mut state, "provider-codex", true);
         state.reviewed = true;
         press(&mut state, KeyCode::Tab, true);
         press(&mut state, KeyCode::Enter, true);
         assert_eq!(state.thread_id.as_deref(), Some("opaque-old-thread"));
+    }
+
+    #[test]
+    fn fifth_provider_switch_requires_review_and_does_not_transfer_session() {
+        let mut state = State::new();
+        state.reset(7);
+        state.thread_id = Some("codex-owned-thread".into());
+        assert!(state.needs_saved_command("provider-devin"));
+        command(&mut state, "provider-devin", true);
+        assert_eq!(state.agent, Agent::Codex);
+        assert_eq!(state.switch_to, Some(Agent::Devin));
+        assert!(state.pending.is_none());
+        state.reviewed = true;
+        press(&mut state, KeyCode::Tab, true);
+        press(&mut state, KeyCode::Enter, true);
+        assert_eq!(state.agent, Agent::Devin);
+        assert!(state.thread_id.is_none());
+        assert!(state.pending.is_none());
     }
 
     #[test]
@@ -1694,14 +2451,15 @@ mod tests {
         });
         assert_eq!(state.thread_id.as_deref(), Some("old-thread"));
         assert_eq!(state.items.len(), 1);
-        for code in [KeyCode::Char('d'), KeyCode::Enter, KeyCode::Down] {
+        command(&mut state, "decision", true);
+        for code in [KeyCode::Enter, KeyCode::Down] {
             press(&mut state, code, true);
             assert!(state.decision.is_none());
             assert_eq!(state.selected, 0);
         }
         press(&mut state, KeyCode::Esc, true);
         assert!(state.inspection.is_none());
-        press(&mut state, KeyCode::Char('d'), true);
+        command(&mut state, "decision", true);
         assert!(
             state
                 .decision
@@ -1790,7 +2548,7 @@ mod tests {
             outcome: Outcome::Unknown,
             message: "No authoritative completion".into(),
         });
-        press(&mut state, KeyCode::Char('s'), true);
+        command(&mut state, "sessions", true);
         state.pending.take();
         state.event(Event::Preview(Preview {
             generation: 12,
@@ -1841,11 +2599,11 @@ mod tests {
             task_id: 7,
             operation: store::JournalOperation::List,
         });
-        press(&mut state, KeyCode::Char('h'), true);
+        command(&mut state, "provider-journal", true);
         state.journal_started();
         state.journal_event(7, Ok(store::JournalResponse::Records(Vec::new())));
-        assert!(!state.needs_saved_input(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)));
-        press(&mut state, KeyCode::Char('r'), true);
+        assert!(!state.needs_saved_command("journal-retry"));
+        command(&mut state, "journal-retry", true);
         assert!(!state.journal_failed());
         assert_eq!(state.pending_journal.len(), 1);
         assert!(state.pending.is_none());

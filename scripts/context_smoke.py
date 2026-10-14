@@ -127,7 +127,7 @@ def main():
                 assert session.context_mode == "closed"
                 if first:
                     session.send(ESC)  # Leave the fresh, clean Goal composer.
-                session.send("g" if first else "n")
+                session.command("goal" if first else "task-new")
                 session.paste(goal)
                 session.send("\r")
                 rows = settled(session, lambda rows: any(text == goal for _, text in rows[0]), "task was not committed")
@@ -137,7 +137,7 @@ def main():
 
             def switch_task(session, index, task_id, goal):
                 close_sources(session)
-                session.send("t")
+                session.command("tasks")
                 wait_for(session, "Task cards / committed snapshots")
                 wait_for(session, "Storage: saved")
                 session.send(HOME + DOWN * index)
@@ -150,20 +150,20 @@ def main():
 
             def open_sources(session):
                 assert session.context_mode == "closed"
-                session.send("v")
+                session.command("files")
                 wait_for(session, SOURCE_TITLE)
                 wait_for(session, "eligible files /", timeout=35)
                 session.context_mode = "files"
 
             def close_sources(session):
                 if session.context_mode != "closed":
-                    session.send("v")
+                    session.command("close")
                     session.context_mode = "closed"
                 wait_for(session, "Storage: saved")
 
             def quit_app(session):
                 close_sources(session)
-                session.send("q")
+                session.command("quit")
                 if session.alive():
                     session.send(RIGHT + "\r")
                 assert session.wait_exit() == 0
@@ -177,13 +177,13 @@ def main():
                     session.send(ESC)
                     session.context_mode = "files"
                 if session.context_mode == "basket":
-                    session.send("b")
+                    session.command("basket")
                     session.context_mode = "files"
                 assert session.context_mode == "files"
 
             def search(session, value, count):
                 files(session)
-                session.send("/")
+                session.command("search")
                 wait_for(session, "Filename filter")
                 session.send(HOME + DELETE * len(session.context_query))
                 session.paste(value)
@@ -198,13 +198,13 @@ def main():
                 wait_for(session, "Inspected capture /")
                 session.context_mode = "preview"
                 if lines != "1:1":
-                    session.send("r")
+                    session.command("range")
                     wait_for(session, "Source range / inclusive")
                     session.send(HOME + DELETE * 3)
                     session.paste(lines)
                     session.send("\r")
                     wait_for(session, "Lines " + lines + " inclusive")
-                session.send("p")
+                session.command("attach")
                 session.context_mode = "basket"
                 settled(session, lambda rows: sum(row["task_id"] == task_id for row in rows[1]) == before + 1,
                         "pin was not committed")
@@ -213,7 +213,8 @@ def main():
 
             def show_basket(session, task_id):
                 files(session)
-                session.send("b" + HOME)
+                session.command("basket")
+                session.send(HOME)
                 session.context_mode = "basket"
                 rows = basket(task_id)
                 if rows:
@@ -242,7 +243,7 @@ def main():
                 raise AssertionError("source overlay cell boundaries are unavailable\n" + session.display())
 
             def exact_preview(session, task_id, dispatch=False):
-                session.send("d" if dispatch else "a")
+                session.command("dispatch-preview" if dispatch else "assemble")
                 wait_for(session, "Dispatch boundary revalidated / no provider send" if dispatch
                          else "Source and stored references validated / preview only", timeout=35)
                 session.context_mode = "payload"
@@ -263,14 +264,14 @@ def main():
                 return payload
 
             def fail_dispatch(session, layer="source"):
-                session.send("d")
+                session.command("dispatch-preview")
                 wait_for(session, "Context storage/validation failed" if layer == "storage"
                          else "Context unavailable or stale", timeout=35)
                 assert "Dispatch boundary revalidated" not in session.display()
                 assert "EXACT BASKET ENVELOPE" not in session.display()
 
             def refresh(session):
-                session.send("u")
+                session.command("refresh")
                 wait_for(session, "eligible files /", timeout=35)
                 session.context_mode = "files"
 
@@ -283,13 +284,13 @@ def main():
             def remove(session, task_id, excerpt_id, neutral_check=False):
                 choose_basket(session, task_id, excerpt_id)
                 before = basket(task_id)
-                session.send(DELETE)
+                session.command("unpin")
                 wait_for(session, "Review local excerpt removal")
                 if neutral_check:
                     session.capture("neutral-remove")
                     session.send("\r")
                     assert basket(task_id) == before, "neutral Enter removed an excerpt"
-                    session.send(DELETE)
+                    session.command("unpin")
                     wait_for(session, "Review local excerpt removal")
                 session.send(RIGHT + "\r")
                 settled(session, lambda rows: all(row["id"] != excerpt_id for row in rows[1]), "reference was not removed")
@@ -340,12 +341,12 @@ def main():
             open_sources(session)
             show_basket(session, first_id)
             session.resize((60, 18))
-            session.send("x")
+            session.command("purge")
             wait_for(session, "Review local excerpt removal")
             session.capture("compact-neutral-purge")
             session.send("\r")
             assert basket(first_id) == [first_capture], "neutral Enter purged source bytes"
-            session.send("x")
+            session.command("purge")
             wait_for(session, "Review local excerpt removal")
             session.send(RIGHT + "\r")
             settled(session, lambda rows: any(row["id"] == first_capture["id"] and not row["available"] for row in rows[1]), "purge did not persist unavailable metadata")
