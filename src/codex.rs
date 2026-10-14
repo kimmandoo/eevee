@@ -652,7 +652,7 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
         "operation": input.operation,
         "selection": input.selection,
         "edit_paths": input.edit_paths,
-        "edit_baseline": baseline.iter().map(|b| json!({"path":b.path,"sha256":b.digest,"working_content":b.text})).collect::<Vec<_>>(),
+        "edit_baseline": baseline.iter().map(|b| baseline_entry(b, &input.excerpts)).collect::<Vec<_>>(),
         "handoff": input.handoff,
         "approved_memories": input.task.approved_memories,
         "selected_sources": serde_json::from_str::<Value>(&sources.text).map_err(|_| "Source payload is not valid JSON")?
@@ -672,6 +672,28 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
         );
     }
     Ok(text)
+}
+
+/// One `edit_baseline` entry; byte-identical whole-file captures already in
+/// `selected_sources` are cited by id instead of duplicating their text.
+fn baseline_entry(baseline: &EditBaseline, excerpts: &[crate::context::Excerpt]) -> Value {
+    let shared = excerpts.iter().find(|excerpt| {
+        excerpt.path == baseline.path.to_string_lossy()
+            && excerpt.start_line == 1
+            && excerpt.text == baseline.text
+    });
+    match shared {
+        Some(excerpt) => json!({
+            "path": baseline.path,
+            "sha256": baseline.digest,
+            "working_content_same_as_capture": excerpt.id,
+        }),
+        None => json!({
+            "path": baseline.path,
+            "sha256": baseline.digest,
+            "working_content": baseline.text,
+        }),
+    }
 }
 
 /// A complete bounded provider snapshot, never a guessed or cached dispatch default.
@@ -3206,5 +3228,47 @@ mod tests {
             );
         }
         drop(worker);
+    }
+    #[test]
+    fn baseline_cites_identical_selected_capture_instead_of_resending_bytes() {
+        use crate::context::Excerpt;
+        let baseline = EditBaseline {
+            path: PathBuf::from("src/lib.rs"),
+            text: "fn answer() -> u8 { 42 }\n".into(),
+            digest: "ab".repeat(32),
+            identity: "identity".into(),
+        };
+        let pinned = Excerpt {
+            id: 77,
+            task_id: 1,
+            root: "/repo".into(),
+            path: "src/lib.rs".into(),
+            start_line: 1,
+            end_line: 1,
+            source_sha256: [0; 32],
+            text: "fn answer() -> u8 { 42 }\n".into(),
+            available: true,
+        };
+        // Whole-file pin with identical text -> citation, not duplication.
+        let entry = baseline_entry(&baseline, &[pinned.clone()]);
+        assert_eq!(entry["working_content_same_as_capture"], 77);
+        assert!(entry.get("working_content").is_none());
+        // A partial range never replaces the baseline's current bytes.
+        let mut partial = pinned.clone();
+        partial.start_line = 2;
+        partial.text = "fn".into();
+        let entry = baseline_entry(&baseline, &[partial]);
+        assert!(entry.get("working_content_same_as_capture").is_none());
+        assert_eq!(entry["working_content"], "fn answer() -> u8 { 42 }\n");
+        // Same path with different content stays separate (distinct evidence).
+        let mut changed = pinned.clone();
+        changed.text = "fn answer() -> u8 { 43 }\n".into();
+        let entry = baseline_entry(&baseline, &[changed]);
+        assert!(entry.get("working_content_same_as_capture").is_none());
+        // A different path with identical text also stays separate.
+        let mut other = pinned;
+        other.path = "src/other.rs".into();
+        let entry = baseline_entry(&baseline, &[other]);
+        assert!(entry.get("working_content_same_as_capture").is_none());
     }
 }

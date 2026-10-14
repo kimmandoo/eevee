@@ -68,9 +68,9 @@ pub struct State {
     pub auth_details: bool,
     pub review_choice: usize,
     outcomes: Vec<Option<crate::auth::Outcome>>,
-    /// True while a memory-only website-OAuth credential can satisfy Devin
-    /// ACP launches; synced from the planning drawer after each auth return.
-    pub session_credential: bool,
+    /// Live website-OAuth credential expiry (unix seconds) for Devin launches;
+    /// `u64::MAX` when the token has no JWT expiry, `None` when detached.
+    pub session_credential_until: Option<u64>,
 }
 
 impl Default for State {
@@ -106,8 +106,7 @@ impl State {
             auth_details: false,
             review_choice: 0,
             outcomes: Vec::new(),
-
-            session_credential: false,
+            session_credential_until: None,
         }
     }
 
@@ -188,7 +187,14 @@ impl State {
             return "Not installed";
         }
         match self.outcomes.get(index).copied().flatten() {
-            _ if index == crate::agent::DEVIN && self.session_credential => {
+            _ if index == crate::agent::DEVIN
+                && self.session_credential_until.is_some_and(|until| {
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|now| now.as_secs() < until)
+                        .unwrap_or(false)
+                }) =>
+            {
                 "Connected (session credential)"
             }
             Some(crate::auth::Outcome::Authenticated) => "Connected",

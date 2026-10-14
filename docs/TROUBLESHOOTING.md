@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-15] Source-packet dedup produced dangling citations
+
+- **Context / Symptom:** A new `same_bytes_as` dedup for overlapping basket captures passed compile and a first-run assembly, but the focused test failed: a covered capture cited another *covered* capture (`same_bytes_as` pointed at an entry with no `text` field), so the referenced bytes were absent from the packet.
+- **Root cause:** The first pass assigned each covered capture to the first enclosing capture *seen in input order*, not to a capture guaranteed to carry text. A narrow range pinned before a wider one could become the "representative" of a third range while itself being covered — a citation chain ending in a stub.
+- **Solution:** Compute the maximal set first (captures not covered by any other), then assign every covered capture to the earliest *maximal* cover. The merge key stays `(root, path, source_sha256)` plus a byte-containment check, so identical text from different files or revisions never merges and chains are structurally impossible.
+- **Prevention / Reference:** `context::tests::overlapping_captures_of_one_revision_deduplicate_but_keep_every_citation` covers the narrow-then-wide ordering, exact-duplicate pinning, and the same-text-different-path case. When adding reference-style packet fields, assert that every citation target is itself a text-bearing entry.
+
 ### [2026-10-14] Documented Windows install never started
 
 - **Observed failure:** Following the README on Windows 11 (PowerShell 5.1, every execution-policy scope `Undefined`, i.e. Restricted) failed at `.\install-ev.ps1` with "running scripts is disabled on this system". The offline example also failed: relative `-Archive`/`-Checksums` paths were rejected as non-absolute.

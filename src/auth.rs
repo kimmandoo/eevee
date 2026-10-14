@@ -1335,8 +1335,9 @@ mod devin_web {
                 response.status()
             ));
         }
-        let body: serde_json::Value = serde_json::from_reader(response.into_reader())
-            .map_err(|_| "token endpoint returned malformed JSON".to_string())?;
+        let body: serde_json::Value =
+            serde_json::from_reader(response.into_reader().take(64 * 1024))
+                .map_err(|_| "token endpoint returned malformed or oversized JSON".to_string())?;
         let token = body
             .get("token")
             .and_then(serde_json::Value::as_str)

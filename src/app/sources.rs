@@ -765,11 +765,20 @@ impl State {
         };
         let start = boundary(self.payload_page * 8192);
         let end = boundary((self.payload_page + 1) * 8192);
+        let dedup = if payload.deduplicated_bytes > 0 {
+            format!(
+                " Local deduplication saved {} B: overlapping captures cite identical bytes via same_bytes_as instead of resending them.",
+                payload.deduplicated_bytes
+            )
+        } else {
+            String::new()
+        };
         self.detail = format!(
-            "EXACT BASKET ENVELOPE / escaped display\n{} UTF-8 bytes / ~{} tokens ({})\nProvider history/config/agent-owned reads may add context; this basket does not constrain them. No provider is connected and nothing is sent.\nPage {} / bytes {}..{} / /page-next, /page-previous\n\n{:?}",
+            "EXACT BASKET ENVELOPE / escaped display\n{} UTF-8 bytes / ~{} tokens ({})\nProvider history/config/agent-owned reads may add context; this basket does not constrain them. No provider is connected and nothing is sent.{}\nPage {} / bytes {}..{} / /page-next, /page-previous\n\n{:?}",
             payload.bytes,
             payload.estimated_tokens,
             crate::receipt::ESTIMATOR,
+            dedup,
             self.payload_page + 1,
             start,
             end,

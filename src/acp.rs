@@ -235,7 +235,11 @@ fn worker(
                     {
                         blockers.push("Resume refused: session is not an observed session of this provider and task; no cross-provider session transfer.".into());
                     }
-                    if let Some(credential) = &input.credential {
+                    if input.credential.is_some() && input.agent != Agent::Devin {
+                        blockers.push(
+                            "A website-login credential is attached but this provider is not Devin; injection is refused. Clear the credential or switch back.".into(),
+                        );
+                    } else if let Some(credential) = &input.credential {
                         if credential.expired() {
                             blockers.push(
                                 "The session credential from the provider website login has expired; Connect again before launching. No launch was prepared.".into(),
@@ -1090,11 +1094,51 @@ impl Item {
                 self.fields.insert(key.into(), value.clone());
             }
         }
-        let text = safe(
+        let mut text = safe(
             &serde_json::to_string_pretty(&self.fields).map_err(|_| "ACP tool encoding failed")?,
         );
         if text.len() > 32 * 1024 {
-            return Err("ACP tool snapshot exceeds the 32 KiB journal bound; stopping with the prior bounded observation only".into());
+            // Bound oversized tool fields instead of aborting the whole run:
+            // keep a head/tail slice with the exact omitted byte count so the
+            // journal observation stays honest and bounded.
+            const FIELD_LIMIT: usize = 28 * 1024;
+            for key in ["rawOutput", "content"] {
+                let Some(value) = self.fields.get_mut(key) else {
+                    continue;
+                };
+                let rendered = match &*value {
+                    Value::String(text) => text.clone(),
+                    other => serde_json::to_string(other).unwrap_or_default(),
+                };
+                if rendered.len() <= FIELD_LIMIT {
+                    continue;
+                }
+                let total = rendered.len();
+                let head_bytes = FIELD_LIMIT / 2;
+                let tail_bytes = FIELD_LIMIT - head_bytes;
+                let mut head_end = head_bytes.min(total);
+                while !rendered.is_char_boundary(head_end) {
+                    head_end -= 1;
+                }
+                let mut tail_start = (total - tail_bytes).max(head_end);
+                while tail_start < total && !rendered.is_char_boundary(tail_start) {
+                    tail_start += 1;
+                }
+                *value = json!({
+                    "truncated_by_eevee": true,
+                    "total_bytes": total,
+                    "omitted_bytes": total.saturating_sub(head_end + total - tail_start),
+                    "head": &rendered[..head_end],
+                    "tail": &rendered[tail_start..],
+                });
+            }
+            text = safe(
+                &serde_json::to_string_pretty(&self.fields)
+                    .map_err(|_| "ACP tool encoding failed")?,
+            );
+            if text.len() > 32 * 1024 {
+                return Err("ACP tool snapshot exceeds the 32 KiB journal bound after truncation; stopping with the prior bounded observation only".into());
+            }
         }
         self.text = text;
         if let Some(status) = update.get("status").and_then(Value::as_str) {
@@ -1103,6 +1147,7 @@ impl Item {
         Ok(())
     }
 }
+
 struct Engine<'a> {
     process: crate::runner::native::Process,
     workspace: &'a Workspace,
@@ -1152,13 +1197,16 @@ fn transport(
         if stop.load(Ordering::Acquire) || cancelled.load(Ordering::Acquire) == run.generation {
             return Err("Cancelled before ACP launch".into());
         }
-        let env: Vec<(String, String)> = run
-            .input
-            .credential
-            .iter()
-            .filter(|credential| !credential.expired())
-            .map(|credential| (credential.env.to_string(), credential.token().to_string()))
-            .collect();
+        let env: Vec<(String, String)> = if run.input.agent == Agent::Devin {
+            run.input
+                .credential
+                .iter()
+                .filter(|credential| !credential.expired())
+                .map(|credential| (credential.env.to_string(), credential.token().to_string()))
+                .collect()
+        } else {
+            Vec::new()
+        };
         crate::runner::native::Process::spawn_piped_env(&prepared, &env)
             .map_err(|_| "Trusted ACP peer failed to launch; OS details withheld".to_owned())
     })();
@@ -2673,17 +2721,25 @@ mod tests {
         );
     }
     #[test]
-    fn oversized_tool_final_preserves_bounded_partial_observation() {
+    fn oversized_tool_final_is_bounded_and_labelled_not_a_run_abort() {
         let mut item = Item::new(ItemKind::Tool);
         item.tool_snapshot(&json!({"title":"Read","status":"in_progress"}))
             .unwrap();
-        let partial = item.text.clone();
-        assert!(
-            item.tool_snapshot(&json!({"status":"completed","rawOutput":"x".repeat(32 * 1024)}))
-                .is_err()
+        item.tool_snapshot(&json!({"status":"completed","rawOutput":"x".repeat(64 * 1024)}))
+            .unwrap();
+        assert!(item.complete);
+        assert!(item.text.len() <= 32 * 1024);
+        let fields: Value = serde_json::from_str(&item.text).unwrap();
+        let output = &fields["rawOutput"];
+        assert_eq!(output["truncated_by_eevee"], true);
+        assert_eq!(output["total_bytes"], 64 * 1024);
+        assert!(output["omitted_bytes"].as_u64().unwrap() > 0);
+        assert_eq!(
+            output["head"].as_str().unwrap().len()
+                + output["tail"].as_str().unwrap().len()
+                + output["omitted_bytes"].as_u64().unwrap() as usize,
+            64 * 1024
         );
-        assert_eq!(item.text, partial);
-        assert!(!item.complete);
     }
     #[test]
     fn tool_final_snapshots_do_not_duplicate_delta_or_completion() {
