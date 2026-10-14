@@ -8,6 +8,8 @@
 
 **Authentication hold selected by user:** After fresh permitted-route inspection, the user selected **wait until authentication is prepared**. A04/A07 and the conditional 0.1.1 version/tag/publication remain on hold; no unchecked provider gate is converted to completed local-core acceptance.
 
+**Updated local-core qualification:** [Native run 38504041771](https://github.com/kimmandoo/eevee/actions/runs/38504041771) passed all eleven jobs for exact source `087e81b950b8e55030797d994eb39f5511747ac2`: five native build/package rows, five installed-runtime journeys and SDK policy. This includes the updated sprites/composer/input/WSL cutover and corrected context capture helper; it does not complete the three authenticated provider tasks or clear the user's 0.1.1 hold.
+
 Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapter/evidence contract: [agent compatibility](docs/AGENT_COMPATIBILITY.md). An unchecked task may have partial implementation, but its acceptance is not complete; consult its evidence note and the checkpoint.
 
 ## Completed baseline
