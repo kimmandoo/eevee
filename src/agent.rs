@@ -738,7 +738,17 @@ fn configuration_sources(index: usize, project: &Path) -> Vec<SourceStamp> {
 
 fn source(path: PathBuf, inspect: bool) -> SourceStamp {
     let canonical = fs::canonicalize(&path).ok();
-    let metadata = fs::metadata(&path).ok().map(|m| metadata_stamp(&m));
+    #[allow(unused_mut)]
+    let metadata = fs::metadata(&path).ok().map(|m| {
+        let mut stamp = metadata_stamp(&m);
+        // NTFS tunneling restores the creation time of a same-name replacement
+        // within seconds; only the file ID reliably reveals the swap.
+        #[cfg(windows)]
+        if let Some(id) = windows_file_id(&path) {
+            stamp.2.push_str(&id);
+        }
+        stamp
+    });
     let declaration = match fs::metadata(&path) {
         Ok(m) if m.is_file() && inspect => match read_regular(&path, CONFIG_LIMIT) {
             Ok(bytes) => nonsecret_declarations(&path, &bytes),
@@ -843,6 +853,30 @@ fn resolve(program: &str, project: &Path) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Volume serial and file index without reading contents or following reparse points.
+#[cfg(windows)]
+fn windows_file_id(path: &Path) -> Option<String> {
+    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, GetFileInformationByHandle,
+    };
+    let file = OpenOptions::new()
+        .access_mode(0)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .ok()?;
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: the handle is owned by `file` for the duration of the call.
+    (unsafe { GetFileInformationByHandle(file.as_raw_handle() as _, &mut info) } != 0).then(|| {
+        format!(
+            ":{}:{}:{}",
+            info.dwVolumeSerialNumber, info.nFileIndexHigh, info.nFileIndexLow
+        )
+    })
 }
 
 fn metadata_stamp(metadata: &Metadata) -> (u64, u128, String) {
@@ -1549,12 +1583,21 @@ mod tests {
                 .iter()
                 .all(|entry| !entry.path.ends_with("credentials.toml"))
         );
+        let modified = fs::metadata(&path).unwrap().modified().unwrap();
         fs::rename(&path, fixture.0.join("old-config")).unwrap();
         fs::write(
             &path,
             b"{\"token\":\"private-canary\",\"hooks\":{\"command\":\"hook-canary\"}}",
         )
         .unwrap();
+        // Same size and modified time, as on a fast CI runner; on Windows NTFS
+        // tunneling also restores the creation time, so only identity differs.
+        File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
         assert!(initial != configuration_sources(DEVIN, &fixture.0));
     }
 
