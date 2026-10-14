@@ -18,8 +18,8 @@ Game Freak, or Creatures. The original wordmark design does not confer rights
 to the Eevee name or other third-party marks.
 
 No franchise image bytes are included in the source repository or native
-verification packages. The README's remote image reference and optional
-user-initiated runtime artwork download do not establish permission to display,
+verification packages. The README's remote image reference, online installation
+downloads, and explicit runtime sprite downloads do not establish permission to display,
 redistribute, modify, or commercially use third-party artwork. Attribution and
 upstream availability are not rights clearance; the upstream repository's CC0
 statement must not be represented as this project's grant of character rights.

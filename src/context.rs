@@ -94,6 +94,10 @@ pub enum Operation {
         start_line: usize,
         end_line: usize,
     },
+    InspectFile {
+        report: Arc<repo::Report>,
+        path: PathBuf,
+    },
     Assemble {
         report: Arc<repo::Report>,
         excerpts: Vec<Excerpt>,
@@ -294,11 +298,29 @@ fn capture(
     exclusions: &[PathBuf],
     stopped: &AtomicBool,
 ) -> Result<Excerpt, String> {
+    capture_selection(
+        task_id,
+        report,
+        path,
+        Some((start_line, end_line)),
+        exclusions,
+        stopped,
+    )
+}
+
+fn capture_selection(
+    task_id: i64,
+    report: &repo::Report,
+    path: &Path,
+    lines: Option<(usize, usize)>,
+    exclusions: &[PathBuf],
+    stopped: &AtomicBool,
+) -> Result<Excerpt, String> {
     if stopped.load(Ordering::Relaxed) {
         return Err("Source inspection cancelled".into());
     }
     let identity = allowed(report, path, exclusions)?;
-    if start_line == 0 || end_line < start_line {
+    if lines.is_some_and(|(start, end)| start == 0 || end < start) {
         return Err("Use a one-based inclusive line range".into());
     }
     let root = report
@@ -324,9 +346,10 @@ fn capture(
         return Err("Binary sources cannot be selected".into());
     }
     let source = std::str::from_utf8(&bytes).map_err(|_| "Source is not UTF-8")?;
+    let (start_line, end_line) = lines.unwrap_or_else(|| (1, source.lines().count().max(1)));
     let raw = line_range(source, start_line, end_line)?;
     if raw.len() > MAX_EXCERPT_BYTES {
-        return Err("Selected source range exceeds 64 KiB".into());
+        return Err("Selected source exceeds 64 KiB; use r to choose a smaller line range".into());
     }
     // Mask the full source before selecting lines, so selecting inside a private key or
     // multiline credential cannot drop the identifying prefix and expose its secret body.
@@ -422,6 +445,10 @@ fn execute(
             task_id, &report, &path, start_line, end_line, exclusions, stopped,
         )
         .map(Response::Inspected),
+        Operation::InspectFile { report, path } => {
+            capture_selection(task_id, &report, &path, None, exclusions, stopped)
+                .map(Response::Inspected)
+        }
         Operation::Assemble {
             report,
             excerpts,
@@ -654,6 +681,40 @@ mod tests {
         invalid = decoded;
         invalid.path = fixture.0.join("outside.rs").to_str().unwrap().into();
         assert!(invalid.validate().is_err());
+    }
+
+    #[test]
+    fn whole_file_attachment_uses_validated_bounded_source_capture() {
+        let fixture = Fixture::new();
+        let report = fixture.report(&[("attach.rs", b"first\nsecond\nthird")]);
+        let excerpt = capture_selection(
+            7,
+            &report,
+            Path::new("attach.rs"),
+            None,
+            &[],
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        assert_eq!(excerpt.start_line, 1);
+        assert_eq!(excerpt.end_line, 3);
+        assert_eq!(excerpt.text, "first\nsecond\nthird");
+        assert_eq!(excerpt.task_id, 7);
+        assert_eq!(excerpt.id, 0);
+        let large = vec![b'x'; MAX_EXCERPT_BYTES + 1];
+        let report = fixture.report(&[("large.rs", &large)]);
+        assert!(
+            capture_selection(
+                7,
+                &report,
+                Path::new("large.rs"),
+                None,
+                &[],
+                &AtomicBool::new(false),
+            )
+            .unwrap_err()
+            .contains("64 KiB")
+        );
     }
 
     #[cfg(windows)]

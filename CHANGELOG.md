@@ -2,6 +2,14 @@
 
 ## 2026-10-14
 
+- fix(sprites): replace automatic character-cell mosaics with negotiated original-pixel Sixel/Kitty rendering; preserve integer scale, omit too-small images, clear overlays correctly and show the renderer in F4. Verify the nine-form surface in actual Windows Terminal 1.24.12741.0 on WSL2.
+- fix(input): keep graphics discovery and user input under one bounded reader, preserving typing/paste across split or late replies and resize; retain cell previews only through explicit `--images cells`.
+- feat(tui): add a handheld-game-inspired sage/cream palette, square/double dialogue borders, field log, larger partner status card and evolution party styling without changing command or approval semantics.
+- test(auth): verify actual Codex device authorization initiation/cancellation on WSL with callback port 1455 deliberately occupied; document the observed Windows reserved-port collision and preserve the user's system networking configuration.
+- fix(sprites): use all nine pinned original pixel sprites with nearest-neighbor rendering and a separate cache; online installers verify/download them before publishing the executable and first launch loads them locally.
+- feat(tui): replace the dashboard-first home with a restrained task/activity workspace, compact companion and full-width bottom composer while preserving narrow layouts and approval controls.
+- feat(composer): add filtered `@` file attachment and `/` action pickers, including first-draft attachment, full-file capture review, persistent attachment counts and approval-gated `/run`.
+- fix(auth): recommend official Codex device authorization on WSL/SSH, retain explicit browser login, and explain localhost callback recovery without silent authentication retries or credential capture.
 - fix(ci): isolated ConPTY child standard handles from redirected runner pipes and moved native transport regressions before compilation.
 - fix(ci): waited for actual bounded process exit when ConPTY cleanup raced an already-terminating Windows Job, retaining real termination errors.
 - fix(ci): waited for committed task-card navigation before approving native task switches, preserving pending-save refusal and all ownership checks.

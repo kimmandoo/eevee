@@ -69,10 +69,10 @@ Binary lifecycle:
 Options:
   --theme dark|light    Terminal theme (default: dark)
   --color auto|256|mono Color mode (default: auto)
-  --ascii              Use ASCII borders and luminance artwork
-  --images auto|cells|off Artwork mode (default: auto; no automatic downloads)
-  --assets-dir PATH    Local PNG directory (default: platform cache/eevee/artwork)
-  --download-artwork   Explicitly download nine pinned PNGs and a source manifest
+  --ascii              Use ASCII borders (cell previews use luminance)
+  --images auto|cells|off Native pixels, low-res cell preview, or no image (default: auto)
+  --assets-dir PATH    Local PNG directory (default: platform cache/eevee/sprites)
+  --download-artwork   Download/resume nine pinned original sprites and manifest
   --layout sanctuary|linear Layout (default: sanctuary)
   --data-dir PATH      SQLite store directory (default: platform data/eevee)
   --export-data PATH   Export readable stored tasks to a new JSON file; no reset
@@ -89,8 +89,12 @@ TERM=dumb or an explicitly non-UTF-8 locale also selects ASCII. Windows
 defaults to UTF-8 without locale variables. Locale precedence: LC_ALL,
 LC_CTYPE, LANG (first nonempty value). Repeated options use the last value.
 
+Auto images require negotiated Kitty/Sixel support and real pixel/cell dimensions.
+Unsupported or too-small terminals show text, not a pixelated approximation.
+--images cells explicitly opts into low-resolution previews. Startup stays offline.
+
 Type in the visible Goal box; Enter saves locally. F2 connects a provider;
-F3 selects an evolution; F4 sets up optional images; Ctrl+K lists actions.
+F3 selects an evolution; F4 manages cached sprites; Ctrl+K lists actions.
 Model requests require separate approval. Storage failures retain drafts.
 Secret detection is best-effort. Purge is not forensic secure erasure.
 ";
@@ -385,14 +389,14 @@ fn default_assets_dir(environment: &impl Fn(&str) -> Option<OsString>) -> PathBu
     #[cfg(windows)]
     {
         if let Some(cache) = environment("LOCALAPPDATA").filter(|value| !value.is_empty()) {
-            return PathBuf::from(cache).join("eevee").join("artwork");
+            return PathBuf::from(cache).join("eevee").join("sprites");
         }
         if let Some(profile) = environment("USERPROFILE").filter(|value| !value.is_empty()) {
             return PathBuf::from(profile)
                 .join("AppData")
                 .join("Local")
                 .join("eevee")
-                .join("artwork");
+                .join("sprites");
         }
         if let (Some(drive), Some(path)) = (
             environment("HOMEDRIVE").filter(|value| !value.is_empty()),
@@ -404,13 +408,13 @@ fn default_assets_dir(environment: &impl Fn(&str) -> Option<OsString>) -> PathBu
                 .join("AppData")
                 .join("Local")
                 .join("eevee")
-                .join("artwork");
+                .join("sprites");
         }
     }
     #[cfg(not(windows))]
     {
         if let Some(cache) = environment("XDG_CACHE_HOME").filter(|value| !value.is_empty()) {
-            return PathBuf::from(cache).join("eevee").join("artwork");
+            return PathBuf::from(cache).join("eevee").join("sprites");
         }
         if let Some(home) = environment("HOME").filter(|value| !value.is_empty()) {
             let home = PathBuf::from(home);
@@ -419,12 +423,12 @@ fn default_assets_dir(environment: &impl Fn(&str) -> Option<OsString>) -> PathBu
                 .join("Library")
                 .join("Caches")
                 .join("eevee")
-                .join("artwork");
+                .join("sprites");
             #[cfg(not(target_os = "macos"))]
-            return home.join(".cache").join("eevee").join("artwork");
+            return home.join(".cache").join("eevee").join("sprites");
         }
     }
-    PathBuf::from("artwork")
+    PathBuf::from("sprites")
 }
 
 #[cfg(test)]
@@ -582,7 +586,7 @@ mod tests {
             config(&[], &[("LOCALAPPDATA", "C:\\Users\\Name\\AppData\\Local")]).assets_dir,
             PathBuf::from("C:\\Users\\Name\\AppData\\Local")
                 .join("eevee")
-                .join("artwork")
+                .join("sprites")
         );
         assert_eq!(
             config(&[], &[("USERPROFILE", "C:\\Users\\Name")]).assets_dir,
@@ -590,8 +594,32 @@ mod tests {
                 .join("AppData")
                 .join("Local")
                 .join("eevee")
-                .join("artwork")
+                .join("sprites")
         );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn installer_and_startup_share_the_sprite_cache() {
+        let environment = |key: &str| match key {
+            "XDG_CACHE_HOME" => Some(OsString::from("/cache")),
+            "HOME" => Some(OsString::from("/home/example")),
+            _ => None,
+        };
+        let run = parse_with([OsString::from("--data-dir=/data")], environment).unwrap();
+        let download = parse_with(
+            [
+                OsString::from("--download-artwork"),
+                OsString::from("--data-dir=/data"),
+            ],
+            environment,
+        )
+        .unwrap();
+        let (Command::Run(run), Command::Download(download)) = (run, download) else {
+            panic!("expected runtime and installer download configurations");
+        };
+        assert_eq!(run.assets_dir, PathBuf::from("/cache/eevee/sprites"));
+        assert_eq!(run.assets_dir, download.assets_dir);
     }
 
     #[cfg(unix)]

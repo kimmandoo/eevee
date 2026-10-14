@@ -2,6 +2,8 @@
 # PowerShell 5.1+; never changes the execution policy or permanent PATH.
 # Online: .\install.ps1 [-Version v0.1.0] [-InstallDir C:\Tools\ev]
 # Offline: .\install.ps1 -Archive C:\Downloads\ev-windows-x86_64.zip -Checksums C:\Downloads\SHA256SUMS
+# Online installs populate all nine pinned sprites in the user's cache before publication.
+# Offline archives make no network requests; ev --download-artwork fills the cache later.
 # Remove only hash-matching owned files: .\install.ps1 -Uninstall [-InstallDir C:\Tools\ev]
 # -OwnerProcessId is reserved for the synchronously waiting `ev update`/`ev uninstall`.
 [CmdletBinding()]
@@ -360,10 +362,10 @@ function Assert-OwnedInstall([string]$Binary, [string]$Metadata) {
     return $true
 }
 
-function Get-StagedVersion([string]$Binary) {
+function Invoke-StagedCommand([string]$Binary, [string]$Argument, [int]$TimeoutMilliseconds) {
     $info = [Diagnostics.ProcessStartInfo]::new()
     $info.FileName = $Binary
-    $info.Arguments = '--version'
+    $info.Arguments = $Argument
     $info.WorkingDirectory = [IO.Path]::GetDirectoryName($Binary)
     $info.UseShellExecute = $false
     $info.CreateNoWindow = $true
@@ -374,7 +376,7 @@ function Get-StagedVersion([string]$Binary) {
     $started = $false
     try {
         $started = $process.Start()
-        if (-not $started) { throw 'Could not start the staged ev.exe --version.' }
+        if (-not $started) { throw "Could not start the staged ev.exe $Argument." }
         $stdoutBuffer = [char[]]::new(1024)
         $stderrBuffer = [char[]]::new(1024)
         $stdout = [Text.StringBuilder]::new()
@@ -383,11 +385,11 @@ function Get-StagedVersion([string]$Binary) {
         $stderrRead = $process.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)
         $clock = [Diagnostics.Stopwatch]::StartNew()
         while (-not $process.HasExited -or $null -ne $stdoutRead -or $null -ne $stderrRead) {
-            if ($clock.ElapsedMilliseconds -gt 15000) { throw 'Staged ev.exe --version timed out.' }
+            if ($clock.ElapsedMilliseconds -gt $TimeoutMilliseconds) { throw "Staged ev.exe $Argument timed out." }
             if ($null -ne $stdoutRead -and $stdoutRead.IsCompleted) {
                 $count = $stdoutRead.GetAwaiter().GetResult()
                 if ($count -eq 0) { $stdoutRead = $null } else {
-                    if ($stdout.Length + $count -gt 4096) { throw 'Staged --version output is too large.' }
+                    if ($stdout.Length + $count -gt 4096) { throw "Staged $Argument output is too large." }
                     [void]$stdout.Append($stdoutBuffer, 0, $count)
                     $stdoutRead = $process.StandardOutput.ReadAsync($stdoutBuffer, 0, $stdoutBuffer.Length)
                 }
@@ -395,7 +397,7 @@ function Get-StagedVersion([string]$Binary) {
             if ($null -ne $stderrRead -and $stderrRead.IsCompleted) {
                 $count = $stderrRead.GetAwaiter().GetResult()
                 if ($count -eq 0) { $stderrRead = $null } else {
-                    if ($stderr.Length + $count -gt 4096) { throw 'Staged --version error output is too large.' }
+                    if ($stderr.Length + $count -gt 4096) { throw "Staged $Argument error output is too large." }
                     [void]$stderr.Append($stderrBuffer, 0, $count)
                     $stderrRead = $process.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)
                 }
@@ -406,16 +408,16 @@ function Get-StagedVersion([string]$Binary) {
             }
         }
         $process.WaitForExit()
-        $version = $stdout.ToString().TrimEnd([char[]]@([char]13, [char]10))
-        if ($process.ExitCode -ne 0 -or $version -cnotmatch '\Aev [0-9][0-9A-Za-z.+_-]*\z') {
-            throw "Staged ev.exe --version failed (exit $($process.ExitCode)); existing installation was not changed."
+        $result = $stdout.ToString().TrimEnd([char[]]@([char]13, [char]10))
+        if ($process.ExitCode -ne 0) {
+            throw "Staged ev.exe $Argument failed (exit $($process.ExitCode)); existing installation was not changed. $($stderr.ToString().Trim())"
         }
-        return $version
+        return $result
     } finally {
-        # This handle belongs only to our staged --version, never the installed ev.
+        # This handle belongs only to our staged command, never the installed ev.
         if ($started -and -not $process.HasExited) {
             try { $process.Kill(); [void]$process.WaitForExit(5000) }
-            catch { [Console]::Error.WriteLine('Could not stop the temporary staged --version process: ' + $_.Exception.Message) }
+            catch { [Console]::Error.WriteLine('Could not stop the temporary staged process: ' + $_.Exception.Message) }
         }
         $process.Dispose()
     }
@@ -603,11 +605,26 @@ try {
     $zip.Dispose(); $zip = $null
     $archiveStream.Dispose(); $archiveStream = $null
     $binaryHash = Get-BinarySha256 $stageBinary
-    $version = Get-StagedVersion $stageBinary
+    $version = Invoke-StagedCommand $stageBinary '--version' 15000
+    if ($version -cnotmatch '\Aev [0-9][0-9A-Za-z.+_-]*\z') {
+        throw 'Staged ev.exe --version must return one valid version line.'
+    }
     if (-not [string]::IsNullOrEmpty($releaseTag) -and $version -cne ('ev ' + $releaseTag.Substring(1))) {
         throw 'Staged executable version does not match the pinned release tag.'
     }
     if ((Get-BinarySha256 $stageBinary) -cne $binaryHash) { throw 'Staged executable changed during --version.' }
+    if ($offline) {
+        Write-Output 'Offline install: sprite cache unchanged. Missing images? Run ev --download-artwork when online, or provide --assets-dir.'
+    } else {
+        Write-Output 'Downloading and verifying all nine original sprites in the user cache.'
+        try {
+            # Run only the SHA256-verified release, with the same cache defaults as startup.
+            Write-Output (Invoke-StagedCommand $stageBinary '--download-artwork' 300000)
+        } catch {
+            throw "Sprite setup failed; prior installation is unchanged. Completed sprites remain cached; rerun to resume, or use -Archive and -Checksums for an explicit offline installation. $($_.Exception.Message)"
+        }
+        if ((Get-BinarySha256 $stageBinary) -cne $binaryHash) { throw 'Staged executable changed during sprite setup.' }
+    }
     $licenseHash = Get-BinarySha256 ([IO.Path]::Combine($stageMetadata, 'LICENSE'))
     $noticesHash = Get-BinarySha256 ([IO.Path]::Combine($stageMetadata, 'THIRD_PARTY_NOTICES'))
     $marker = "ev-native-install-v2`nversion=$version`nsha256=$binaryHash`nlicense-sha256=$licenseHash`nnotices-sha256=$noticesHash`n"

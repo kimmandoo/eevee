@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod composer;
 pub mod execution;
 pub mod handoff;
 pub mod memory;
@@ -136,6 +137,9 @@ pub struct App {
     pub input_truncated: bool,
     pub confirmation: Option<Confirmation>,
     pub editing: bool,
+    pub composer_menu: Option<composer::Menu>,
+    composer_catalogue: bool,
+    composer_return: Option<store::EditorField>,
     pub images_pending: Option<crate::artwork::Request>,
     pub images_busy: bool,
     pub images_cancel: bool,
@@ -222,6 +226,9 @@ impl App {
             input_truncated: false,
             confirmation: None,
             editing: true,
+            composer_menu: None,
+            composer_catalogue: false,
+            composer_return: None,
             images_pending: None,
             images_busy: false,
             images_cancel: false,
@@ -708,6 +715,9 @@ impl App {
         self.confirmation = None;
         self.overlay_history.clear();
         self.edit_return = None;
+        self.composer_menu = None;
+        self.composer_catalogue = false;
+        self.composer_return = None;
         self.editing = false;
         self.cursor = 0;
         let navigation = snapshot.navigation;
@@ -1528,6 +1538,16 @@ impl App {
         match key.code {
             KeyCode::Char('f') => self.open_overlay(Overlay::Forms),
             KeyCode::Char('g') => self.begin_edit(),
+            KeyCode::Char('/') | KeyCode::Char('@') => {
+                self.begin_edit();
+                if self.editing {
+                    self.start_composer_menu(if key.code == KeyCode::Char('@') {
+                        composer::Kind::Files
+                    } else {
+                        composer::Kind::Commands
+                    });
+                }
+            }
             KeyCode::Char('i') => self.open_overlay(Overlay::Inspector),
             KeyCode::Char('b') => self.open_overlay(Overlay::Companion),
             KeyCode::Char('?') => self.open_overlay(Overlay::Help),
@@ -1595,6 +1615,9 @@ impl App {
             return false;
         }
         self.normalize_cursor();
+        if let Some(changed) = self.composer_key(key) {
+            return changed;
+        }
         match key.code {
             KeyCode::Esc => {
                 if self.draft_dirty() {
@@ -2005,6 +2028,8 @@ impl App {
     }
 
     fn finish_edit(&mut self) {
+        self.composer_menu = None;
+        self.composer_catalogue = false;
         self.editing = false;
         self.cursor = 0;
         self.input_truncated = false;
@@ -2121,6 +2146,11 @@ impl App {
         self.restore_frame(frame);
         if self.overlay == Some(Overlay::Execution) {
             self.execution.open(self.task_id);
+        }
+        if self.overlay.is_none()
+            && let Some(field) = self.composer_return.take()
+        {
+            self.begin_edit_field(field);
         }
     }
 

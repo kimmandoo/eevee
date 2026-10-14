@@ -131,9 +131,14 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                         frame,
                         row(body, 3 + index as u16 * 2, 2),
                         &format!(
-                            "{} {}",
+                            "{} {}{}",
                             if index == state.method { ">" } else { " " },
-                            method.label()
+                            method.label(),
+                            if index == crate::auth::default_method(state.selected) {
+                                " (default)"
+                            } else {
+                                ""
+                            }
                         ),
                         if index == state.method {
                             paint.accent
@@ -166,6 +171,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 state.setup_hint()
             } else if state.auth_busy() {
                 "Preparing review… Esc cancels. No provider program launched.".into()
+            } else if methods {
+                let guidance = crate::auth::methods(state.selected)
+                    .get(state.method)
+                    .and_then(|method| method.guidance())
+                    .unwrap_or("Choose a method to review. Nothing launches before approval.");
+                format!("{}\n\n{guidance}", state.notice)
             } else {
                 state.notice.clone()
             };

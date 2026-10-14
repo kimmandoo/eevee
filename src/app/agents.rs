@@ -84,7 +84,7 @@ impl State {
             auth_preview: None,
             pending_auth: None,
             auth_preparing: None,
-            method: 0,
+            method: crate::auth::default_method(0),
             page: Page::Providers,
             action: 0,
             auth_details: false,
@@ -246,16 +246,19 @@ impl State {
         if let Some(profile) = self.profiles.get_mut(profile) {
             profile.authentication = self.notice.clone();
         }
+        if profile == 0 && outcome != crate::auth::Outcome::Authenticated {
+            self.notice.push_str(" If the browser reported localhost connection refused on WSL, Windows port reservations can block Codex ports 1455/1457 even while its Linux listener is running. Choose Connect > device authorization to log in without changing Windows networking. Enable device-code authorization in ChatGPT Settings > Security (workspace policy may require an admin). Keep the official login open while entering its code in your browser. Never share codes or callback URLs; cancelled links cannot be reused.");
+        }
         self.scroll = 0;
     }
 
     pub fn event(&mut self, event: Event) {
         match event {
             Event::Discovered(profiles) if self.discovering => {
-                self.method = 0;
                 self.profiles = profiles;
                 self.outcomes = vec![None; self.profiles.len()];
                 self.selected = self.selected.min(self.profiles.len().saturating_sub(1));
+                self.method = crate::auth::default_method(self.selected);
                 self.discovering = false;
                 self.notice = "Choose a provider to connect. No login or model request starts without your approval.".into();
             }
@@ -453,7 +456,7 @@ impl State {
                     (*selected + 1) % count
                 };
                 if self.page == Page::Providers {
-                    self.method = 0;
+                    self.method = crate::auth::default_method(self.selected);
                     self.action = 0;
                 }
                 self.scroll = 0;
@@ -484,7 +487,7 @@ impl State {
                     let index = digit as usize - '1' as usize;
                     if index < self.profiles.len() {
                         self.selected = index;
-                        self.method = 0;
+                        self.method = crate::auth::default_method(index);
                         self.action = 0;
                         self.scroll = 0;
                     }
@@ -543,11 +546,47 @@ mod tests {
             profile(),
             profile(),
         ]));
+        // Keep navigation tests independent of the host recommendation.
+        state.method = 0;
         state
     }
 
     fn press(state: &mut State, code: KeyCode) {
         state.key(KeyEvent::new(code, KeyModifiers::NONE), true);
+    }
+
+    #[test]
+    fn discovery_and_provider_return_select_recommendation_without_launching() {
+        let state = State::new();
+        assert_eq!(state.method, crate::auth::default_method(0));
+        let mut state = discovered();
+        state.method = 1;
+        press(&mut state, KeyCode::Char('2'));
+        assert_eq!(state.method, 0);
+        press(&mut state, KeyCode::Char('1'));
+        assert_eq!(state.method, crate::auth::default_method(0));
+        assert!(state.pending.is_none());
+        assert!(state.pending_auth.is_none());
+    }
+
+    #[test]
+    fn login_failure_offers_recovery_without_substituting_method_or_launching() {
+        let mut state = discovered();
+        state.method = 0; // Deliberately selected browser, even on WSL/SSH.
+        state.auth_returned(0, crate::auth::Outcome::Failed);
+        assert_eq!(state.method, 0);
+        assert!(state.notice.contains("localhost connection refused"));
+        assert!(state.notice.contains("device authorization"));
+        assert!(state.pending.is_none());
+        assert!(state.pending_auth.is_none());
+        press(&mut state, KeyCode::Char('l'));
+        assert!(matches!(
+            state.pending,
+            Some(Request::PrepareAuth {
+                method: crate::auth::Method::CodexBrowser,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -563,14 +602,15 @@ mod tests {
         assert_eq!(state.page, Page::Methods);
         assert!(state.pending.is_none());
         press(&mut state, KeyCode::Down);
+        let expected = crate::auth::methods(0)[state.method];
         press(&mut state, KeyCode::Enter);
         assert!(matches!(
             state.pending,
             Some(Request::PrepareAuth {
                 profile: 0,
-                method: crate::auth::Method::CodexDevice,
+                method,
                 ..
-            })
+            }) if method == expected
         ));
         assert!(state.pending_auth.is_none());
         press(&mut state, KeyCode::Esc);

@@ -178,6 +178,39 @@ def main():
     binary_name = "ev.exe" if os.name == "nt" else "ev"
     destination = output / "installed 空 格" / "bin"
     evidence = {"status": "failed", "cases": [], "installed_binary": str(destination / binary_name)}
+    sprite_home = Path(tempfile.mkdtemp(prefix="sprite-user-", dir=output))
+    sprite_cache = sprite_home / "cache" / "eevee" / "sprites"
+    sprite_environment = {
+        "HOME": str(sprite_home),
+        "USERPROFILE": str(sprite_home),
+        "XDG_CACHE_HOME": str(sprite_home / "cache"),
+        "XDG_DATA_HOME": str(sprite_home / "data"),
+        "LOCALAPPDATA": str(sprite_home / "cache"),
+        "APPDATA": str(sprite_home / "config"),
+    }
+    artwork_source = (root / "src/artwork.rs").read_text()
+    hashes = re.findall(r'"([0-9a-f]{64})"', artwork_source.split("const HASHES:", 1)[1].split("];", 1)[0])
+    species = (133, 134, 135, 136, 196, 197, 470, 471, 700)
+    assert len(hashes) == len(species)
+    revision = re.search(r'const REVISION: &str = "([0-9a-f]{40})"', artwork_source).group(1)
+
+    def verified_sprites():
+        manifest = json.loads((sprite_cache / "sources.json").read_text())
+        assert manifest["revision"] == revision
+        assert len(manifest["images"]) == 9
+        assert {record["id"] for record in manifest["images"]} == set(species)
+        records = {record["id"]: record for record in manifest["images"]}
+        for species_id, expected in zip(species, hashes):
+            path = sprite_cache / f"{species_id}.png"
+            data = path.read_bytes()
+            assert sha(path) == expected == records[species_id]["sha256"]
+            assert records[species_id]["url"] == (
+                f"https://raw.githubusercontent.com/PokeAPI/sprites/{revision}/sprites/pokemon/{species_id}.png"
+            )
+            assert data[:8] == b"\x89PNG\r\n\x1a\n"
+            assert (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")) == (96, 96)
+        return {path.name: (sha(path), path.stat().st_mtime_ns) for path in sprite_cache.iterdir()}
+
     def run_case(name, action):
         action()
         evidence["cases"].append(name)
@@ -280,13 +313,14 @@ def main():
                                "import subprocess,sys; sys.exit(subprocess.call(sys.argv[1:]))",
                                *command]
                 environment = terminal_smoke.terminal_environment("mono")
+                environment.update(sprite_environment)
                 environment.pop("CI", None)
                 environment.pop("EV_VERSION", None)
                 environment["NO_COLOR"] = "1"
                 release.throttle = True
                 session = terminal_smoke.Session(command, root, environment, (120, 36), output / "installer-animation")
                 try:
-                    deadline = time.monotonic() + 60
+                    deadline = time.monotonic() + 360
                     captured = False
                     while session.alive() and time.monotonic() < deadline:
                         session.pump(0.1)
@@ -301,9 +335,50 @@ def main():
                     assert re.search(r"\r {2,6}\(", plain), "ball never rolled across the terminal"
                     assert "\x1b[31m" not in session.text and "\x1b[97m" not in session.text
                     assert sha(downloaded / binary_name) == original_hash
+                    cached = verified_sprites()
+                    evidence["sprite_cache"] = str(sprite_cache)
                 finally:
                     session.close()
                     release.throttle = False
+                launch = terminal_smoke.Session(
+                    [str(downloaded / binary_name), "--images", "cells"],
+                    root, environment, (120, 36), output / "installed-sprites",
+                )
+                try:
+                    deadline = time.monotonic() + 8
+                    while "Storage: saved" not in launch.display() and time.monotonic() < deadline:
+                        assert launch.alive(), "installed executable exited before first launch"
+                        launch.pump(0.1)
+                    launch.send("\x1bOS")  # F4: inspect locally loaded assets, no download action.
+                    deadline = time.monotonic() + 8
+                    while "9/9 original sprites ready" not in launch.display() and time.monotonic() < deadline:
+                        assert launch.alive(), "installed executable exited while inspecting sprites"
+                        launch.pump(0.1)
+                    assert "9/9 original sprites ready" in launch.display(), launch.display()
+                    assert verified_sprites() == cached, "first launch modified the installed sprite cache"
+                    launch.capture("first-launch-nine-original-sprites")
+                    launch.send("\x03")
+                    assert launch.wait_exit() == 0
+                finally:
+                    launch.close()
+                evidence["cases"].append("first-launch-loads-nine-installed-sprites")
+                result = terminal_smoke.run_owned(command, timeout=360, text=True, env=environment)
+                assert result.returncode == 0, result.stdout + result.stderr
+                assert verified_sprites() == cached, "repeat installation rewrote matching cached sprites"
+                evidence["cases"].append("nine-pinned-sprites-installed-and-reused")
+                conflict = sprite_cache / "133.png"
+                original = conflict.read_bytes()
+                before = snapshot(downloaded)
+                try:
+                    conflict.write_bytes(b"preserve conflicting user image")
+                    result = terminal_smoke.run_owned(command, timeout=90, text=True, env=environment)
+                    assert result.returncode != 0, "conflicting sprite unexpectedly published an installation"
+                    assert "sprite" in (result.stdout + result.stderr).lower()
+                    assert snapshot(downloaded) == before
+                    assert conflict.read_bytes() == b"preserve conflicting user image"
+                finally:
+                    conflict.write_bytes(original)
+                evidence["cases"].append("sprite-failure-preserves-install-and-conflicting-file")
                 result = terminal_smoke.run_owned([str(downloaded / binary_name), "uninstall"], timeout=180, text=True)
                 assert result.returncode == 0, result.stdout + result.stderr
                 assert not (downloaded / binary_name).exists()
@@ -342,10 +417,11 @@ def main():
 
                 def lifecycle(arguments):
                     environment = os.environ.copy()
+                    environment.update(sprite_environment)
                     environment.pop("EV_VERSION", None)
                     result = terminal_smoke.run_owned(
                         [str(destination / binary_name), *arguments],
-                        timeout=180, text=True, env=environment,
+                        timeout=360, text=True, env=environment,
                     )
                     assert "\x1b" not in result.stdout + result.stderr, "redirected lifecycle output contains terminal escapes"
                     (output / ("-".join(arg.strip("-") for arg in arguments) + ".log")).write_text(

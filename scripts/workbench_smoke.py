@@ -95,7 +95,6 @@ def main():
                 fresh = launch("first-use-" + str(width), **first_use_args)
                 wait_for(fresh, "Storage: saved")
                 wait_for(fresh, "What would you like to work on?")
-                wait_for(fresh, "Type your task here.")
                 assert not fresh.screen.cursor.hidden, "first-run task input has no visible caret"
                 fresh.capture("visible-first-run-input")
                 typed = "qgo? direct typing "
@@ -170,9 +169,9 @@ def main():
                 fresh.send("g")
                 fresh.send("\x1bOS")  # F4 preserves the draft and only opens a review.
                 wait_for(fresh, "Images / Eevee and evolutions")
-                wait_for(fresh, "0/9 portraits ready")
+                wait_for(fresh, "0/9")
                 wait_for(fresh, "> Back")
-                wait_for(fresh, "Download all 9")
+                wait_for(fresh, "Download missing / Retry")
                 wait_for(fresh, "Reload local")
                 fresh.capture("f4-image-review-neutral")
                 fresh.send("\x1b[F")
@@ -183,7 +182,7 @@ def main():
                 fresh.send("\x1bOS")
                 wait_for(fresh, "> Back")
                 fresh.send("\x1b[F\t")
-                wait_for(fresh, "> Download all 9")
+                wait_for(fresh, "> Download missing / Retry")
                 fresh.capture("f4-download-selected-not-approved")
                 fresh.send("\x1b")  # Highlighting Download is not consent.
                 wait_for(fresh, "Storage: saved")

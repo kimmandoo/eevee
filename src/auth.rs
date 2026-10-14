@@ -37,6 +37,17 @@ impl Method {
     pub fn is_status(self) -> bool {
         matches!(self, Self::CodexStatus | Self::OpenCodeStatus)
     }
+    pub fn guidance(self) -> Option<&'static str> {
+        match self {
+            Self::CodexBrowser => Some(
+                "Browser login requires the browser to reach the CLI's localhost listener (Codex uses port 1455, or 1457). On WSL, Windows reserved TCP ranges can block both ports even when the Linux listener is healthy. Use Device authorization to avoid host forwarding and administrator/network changes. Keep browser login running until its callback (10 min limit); expired/cancelled callback URLs cannot be reused. Never share callback URLs.",
+            ),
+            Self::CodexDevice => Some(
+                "WSL/SSH: Device authorization works without a localhost listener, port forwarding, administrator privileges, or Windows network changes. Before continuing, enable device-code authorization in ChatGPT Settings > Security (workspace accounts may require an admin). Open the official link and enter the one-time code shown by Codex; keep this terminal open until it completes. Eevee never collects the code and never silently falls back to browser login.",
+            ),
+            _ => None,
+        }
+    }
     fn args(self) -> Vec<String> {
         let args: &[&str] = match self {
             Self::CodexBrowser => &["login"],
@@ -56,6 +67,40 @@ pub fn methods(profile: usize) -> &'static [Method] {
         3 => &[Method::GeminiNative],
         _ => &[],
     }
+}
+
+/// A suggestion at selection time only; an approved Plan keeps its exact method.
+pub fn default_method(profile: usize) -> usize {
+    static CALLBACK_FREE: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+        if callback_free_environment(
+            |key| std::env::var_os(key).is_some_and(|value| !value.is_empty()),
+            "",
+        ) {
+            return true;
+        }
+        #[cfg(target_os = "linux")]
+        let kernel = std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default();
+        #[cfg(not(target_os = "linux"))]
+        let kernel = String::new();
+        callback_free_environment(|_| false, &kernel)
+    });
+    if profile == 0 && *CALLBACK_FREE { 1 } else { 0 }
+}
+
+fn callback_free_environment(present: impl Fn(&str) -> bool, kernel: &str) -> bool {
+    [
+        "WSL_DISTRO_NAME",
+        "WSL_INTEROP",
+        "SSH_CONNECTION",
+        "SSH_CLIENT",
+        "SSH_TTY",
+    ]
+    .into_iter()
+    .any(present)
+        || kernel
+            .as_bytes()
+            .windows(b"microsoft".len())
+            .any(|part| part.eq_ignore_ascii_case(b"microsoft"))
 }
 pub const CLAUDE_POLICY: &str = "Claude Agent SDK uses Anthropic API credentials (ANTHROPIC_API_KEY) or configured Bedrock/Vertex cloud credentials. Set these outside Eevee and install the pinned SDK sidecar described in Setup (README). Claude CLI login is not SDK setup: claude.ai subscription OAuth tokens cannot be reused here. Eevee never collects tokens. A model request still needs separate Run approval.";
 pub fn status_method(profile: usize) -> Option<Method> {
@@ -171,10 +216,13 @@ impl Plan {
             trust.authentication_configuration().to_owned(),
             "Trust includes inherited environment, interpreter, dependencies, provider configuration/hooks/plugins and browser launcher. Executable and known configuration/project identities are checked immediately before launch. This is not sandboxing or atomic dependency pinning.".into(),
         ];
+        if let Some(guidance) = method.guidance() {
+            lines.push(guidance.into());
+        }
         if method.is_status() {
             lines.push("This launches the official local status command; the provider may read its own credentials. Output is transient, not copied into task state. A credential inventory is not proof of account eligibility or a successful model request.".into());
         } else {
-            lines.push("May open your browser, contact provider identity/account services, bind a local OAuth callback, and write/replace provider-owned credentials and auth-method settings. Switching Gemini auth method can clear previous cached credentials. Provider-native prompts choose accounts/providers; trust their displayed scopes before consenting. Eevee never requests or persists tokens, API keys, device codes or account identifiers.".into());
+            lines.push(format!("May open your browser, contact provider identity/account services, {}and write/replace provider-owned credentials and auth-method settings. Switching Gemini auth method can clear previous cached credentials. Provider-native prompts choose accounts/providers; trust their displayed scopes before consenting. Eevee never requests or persists tokens, API keys, device codes or account identifiers.", if method == Method::CodexDevice { "" } else { "bind a local OAuth callback, " }));
             lines.push("Eevee sends no task context or model prompt and never replays the task. Any later model request needs a separate review and Run approval. Cancellation does not revoke already-issued credentials; use the provider's account controls to revoke them.".into());
             if matches!(method, Method::CodexBrowser | Method::CodexDevice) {
                 lines.push("After the native UI returns, literal argv [\"login\", \"status\"] refreshes Codex status if reviewed identities still match. Only an exact recognized status is kept; all raw output is discarded.".into());
@@ -198,10 +246,13 @@ impl Plan {
             format!("First: --version (requires {}). Cwd: {}", release(profile), trust.prepared.cwd.display()),
             "Private empty cwd outside your project; removed only while empty. Inherits environment, dependencies, config/hooks and browser launcher; not sandboxed. Executable and known config identities rechecked.".into(),
         ];
+        if let Some(guidance) = method.guidance() {
+            summary.push(guidance.into());
+        }
         if method.is_status() {
             summary.push("Reads provider credentials; shows native status, not model/account eligibility. Eevee keeps only a recognized classification, never raw output.".into());
         } else {
-            summary.push("May open browser, contact account services, bind OAuth callback, and replace provider credentials/settings. Choose accounts/scopes in the native UI; Eevee collects no tokens or codes.".into());
+            summary.push(format!("May open browser, contact account services, {}and replace provider credentials/settings. Choose accounts/scopes in the native UI; Eevee collects no tokens or codes.", if method == Method::CodexDevice { "" } else { "bind OAuth callback, " }));
             if matches!(method, Method::CodexBrowser | Method::CodexDevice) {
                 summary.push("Then runs [\"login\", \"status\"] if identities still match; keeps recognized status only.".into());
             } else if method == Method::OpenCode {
@@ -696,6 +747,33 @@ impl Drop for RawInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn callback_free_default_covers_wsl_and_remote_without_changing_provider_contracts() {
+        for key in [
+            "WSL_DISTRO_NAME",
+            "WSL_INTEROP",
+            "SSH_CONNECTION",
+            "SSH_CLIENT",
+            "SSH_TTY",
+        ] {
+            assert!(callback_free_environment(|name| name == key, ""));
+        }
+        assert!(callback_free_environment(
+            |_| false,
+            "6.18.54.1-microsoft-standard-WSL2"
+        ));
+        assert!(callback_free_environment(|_| false, "4.4.0-Microsoft"));
+        assert!(!callback_free_environment(|_| false, "6.18.1-generic"));
+        assert!(!callback_free_environment(|_| false, ""));
+        for profile in 1..4 {
+            assert_eq!(default_method(profile), 0);
+        }
+        assert_eq!(methods(0), &[Method::CodexBrowser, Method::CodexDevice]);
+        assert_eq!(Method::CodexBrowser.args(), ["login"]);
+        assert_eq!(Method::CodexDevice.args(), ["login", "--device-auth"]);
+        assert_eq!(Method::CodexStatus.args(), ["login", "status"]);
+    }
+
     #[test]
     fn status_requires_exact_provider_evidence_not_success_exit() {
         assert_eq!(parse_codex_status(Some(0), b""), Outcome::Unknown);

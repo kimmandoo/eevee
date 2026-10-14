@@ -1,9 +1,24 @@
 use crossterm::event::Event;
 use std::io;
+use std::time::{Duration, Instant};
+
+/// Only positive terminal replies establish protocol support. Cell dimensions
+/// are physical pixels, (width, height), never estimates from terminal columns.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GraphicsCapabilities {
+    pub kitty: bool,
+    pub sixel: bool,
+    pub cell_size: Option<(u16, u16)>,
+}
+
+const GRAPHICS_QUERY: &[u8] = b"\x1b[c\x1b_Gi=314159,a=q,f=24,s=1,v=1;AAAA\x1b\\\x1b[16t";
+const QUERY_TIMEOUT: Duration = Duration::from_millis(500);
 
 pub struct Input {
     #[cfg(windows)]
     windows: windows::ConsoleInput,
+    #[cfg(unix)]
+    unix: unix::TerminalInput,
 }
 
 impl Input {
@@ -11,69 +26,106 @@ impl Input {
         Ok(Self {
             #[cfg(windows)]
             windows: windows::ConsoleInput::new()?,
+            #[cfg(unix)]
+            unix: unix::TerminalInput::new()?,
         })
     }
 
-    /// Forget partial native decoding and queued application keys at an explicit
-    /// terminal ownership boundary. No background reader survives this handoff.
+    fn decoder(&mut self) -> &mut decoding::Decoder {
+        #[cfg(windows)]
+        {
+            &mut self.windows.decoder
+        }
+        #[cfg(unix)]
+        {
+            &mut self.unix.decoder
+        }
+    }
+
+    /// The caller gates this on image/color policy. Queries are terminal control
+    /// traffic only: the sole input owner demultiplexes replies from user input.
+    /// No second reader, startup drain, or unbounded discovery wait is involved.
+    pub fn query_graphics(&mut self, output: &mut impl io::Write) -> io::Result<()> {
+        use io::IsTerminal;
+        if !io::stdin().is_terminal()
+            || !io::stdout().is_terminal()
+            || std::env::var("TERM").as_deref() == Ok("dumb")
+            || ["TMUX", "STY"]
+                .iter()
+                .any(|key| std::env::var_os(key).is_some_and(|value| !value.is_empty()))
+        {
+            return Ok(());
+        }
+        self.decoder().query_graphics();
+        output.write_all(GRAPHICS_QUERY)?;
+        output.flush()
+    }
+
+    pub fn graphics_pending(&mut self) -> bool {
+        self.decoder().graphics_pending()
+    }
+
+    pub fn graphics_capabilities(&mut self) -> GraphicsCapabilities {
+        self.decoder().graphics
+    }
+
+    pub fn take_graphics_update(&mut self) -> Option<GraphicsCapabilities> {
+        self.decoder().expire_graphics_query();
+        std::mem::take(&mut self.decoder().graphics_changed).then(|| self.graphics_capabilities())
+    }
+
+    /// Forget partial decoding and application keys only at an explicit auth
+    /// ownership boundary. Late reply filtering remains active after the reset.
     pub fn discard_pending(&mut self) -> io::Result<()> {
         #[cfg(windows)]
         {
             windows::flush()?;
             self.windows = windows::ConsoleInput::new()?;
+            Ok(())
         }
-        #[cfg(not(windows))]
+        #[cfg(unix)]
         {
-            for _ in 0..256 {
-                if !crossterm::event::poll(std::time::Duration::ZERO)? {
-                    return Ok(());
-                }
-                let _ = crossterm::event::read()?;
-            }
-            Err(io::Error::other(
-                "Input did not settle at authentication boundary",
-            ))
+            self.unix.discard_pending()
         }
-        #[cfg(windows)]
-        Ok(())
     }
 
-    pub fn read(&mut self) -> io::Result<Event> {
+    /// None wakes the caller for a graphics update, without inventing a UI event.
+    pub fn read(&mut self) -> io::Result<Option<Event>> {
         #[cfg(windows)]
         {
             self.windows.read()
         }
-        #[cfg(not(windows))]
+        #[cfg(unix)]
         {
-            crossterm::event::read()
+            self.unix.read()
         }
     }
 
-    pub fn read_timeout(&mut self, timeout: std::time::Duration) -> io::Result<Option<Event>> {
+    pub fn read_timeout(&mut self, timeout: Duration) -> io::Result<Option<Event>> {
         #[cfg(windows)]
         {
             self.windows.read_timeout(timeout)
         }
-        #[cfg(not(windows))]
+        #[cfg(unix)]
         {
-            if crossterm::event::poll(timeout)? {
-                crossterm::event::read().map(Some)
-            } else {
-                Ok(None)
-            }
+            self.unix.read_timeout(timeout)
         }
     }
 }
 
+#[cfg(unix)]
+#[path = "input/unix.rs"]
+mod unix;
+
 #[cfg(windows)]
 pub use windows::{capture_mode, enable_vt_input, restore_mode};
 
-// Windows' ConsoleInput record API loses paste boundaries unless VT input is
-// enabled, and Crossterm drops Alt-code key releases carrying combining marks.
-// Decode the bounded VT envelope before any key reaches application navigation.
-#[cfg(any(windows, test))]
+// Both platforms share framing and graphics reply ownership. Windows still uses
+// native console records for Alt-code releases, repeats and supplementary input.
 mod decoding {
+    use super::{GraphicsCapabilities, Instant, QUERY_TIMEOUT};
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use std::collections::VecDeque;
     const END: &str = "\x1b[201~";
     const MAX_PASTE: usize = 64 * 1024;
 
@@ -83,16 +135,101 @@ mod decoding {
         paste: Option<String>,
         tail: String,
         truncated: bool,
+        pub(super) graphics: GraphicsCapabilities,
+        pub(super) graphics_changed: bool,
+        query_deadline: Option<Instant>,
+        query_finished: bool,
+        reply_overflow: bool,
+        expired_escape: bool,
+        detached_escape: bool,
+        queued: VecDeque<Event>,
     }
 
     impl Decoder {
         pub fn has_escape(&self) -> bool {
-            self.paste.is_none() && !self.sequence.is_empty()
+            self.paste.is_none() && matches!(self.sequence.as_str(), "\x1b" | "\x1bO")
+        }
+
+        pub(super) fn query_graphics(&mut self) {
+            self.query_finished = false;
+            self.query_deadline = Some(Instant::now() + QUERY_TIMEOUT);
+            if self.graphics.cell_size.take().is_some() {
+                self.graphics_changed = true;
+            }
+        }
+
+        pub(super) fn graphics_pending(&mut self) -> bool {
+            self.expire_graphics_query();
+            self.query_deadline.is_some() && !self.query_finished
+        }
+
+        pub(super) fn graphics_wait(&self) -> Option<std::time::Duration> {
+            self.query_deadline
+                .filter(|_| !self.query_finished)
+                .map(|deadline| deadline.saturating_duration_since(Instant::now()))
+        }
+
+        pub(super) fn expire_graphics_query(&mut self) {
+            if !self.query_finished
+                && self
+                    .query_deadline
+                    .is_some_and(|deadline| Instant::now() >= deadline)
+            {
+                self.query_finished = true;
+                self.graphics_changed = true;
+            }
+        }
+
+        pub(super) fn next_event(&mut self) -> Option<Event> {
+            self.queued.pop_front()
+        }
+
+        fn graphics_reply(&mut self, sequence: &str) -> bool {
+            let before = self.graphics;
+            if let Some(body) = sequence
+                .strip_prefix("\x1b[?")
+                .and_then(|s| s.strip_suffix('c'))
+            {
+                self.graphics.sixel |= body.split(';').any(|part| part == "4");
+            } else if let Some(body) = sequence
+                .strip_prefix("\x1b[6;")
+                .and_then(|s| s.strip_suffix('t'))
+            {
+                let mut parts = body.split(';');
+                if let (Some(height), Some(width), None) =
+                    (parts.next(), parts.next(), parts.next())
+                    && let (Ok(height), Ok(width)) = (height.parse::<u16>(), width.parse::<u16>())
+                    && height > 0
+                    && width > 0
+                {
+                    self.graphics.cell_size = Some((width, height));
+                }
+            } else if let Some(body) = sequence
+                .strip_prefix("\x1b_G")
+                .and_then(|s| s.strip_suffix("\x1b\\"))
+            {
+                if let Some((parameters, "OK")) = body.split_once(';')
+                    && parameters.split(',').any(|part| part == "i=314159")
+                {
+                    self.graphics.kitty = true;
+                }
+            } else {
+                return false;
+            }
+            if self.query_deadline.is_none() {
+                self.graphics = before;
+            }
+            self.graphics_changed |= before != self.graphics;
+            true
         }
 
         pub fn escape_timeout(&mut self) -> Event {
             let sequence = std::mem::take(&mut self.sequence);
             if sequence == "\x1b" {
+                // Escape has a bounded ambiguity wait, but a very late reply
+                // can still continue with '[' or '_'. Retain that possibility
+                // so its printable suffix never becomes composer input.
+                self.expired_escape = self.query_deadline.is_some();
                 Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
             } else if sequence == "\x1bO" {
                 Event::Key(KeyEvent::new(KeyCode::Char('O'), KeyModifiers::ALT))
@@ -119,58 +256,135 @@ mod decoding {
                 }
                 return None;
             }
+            if std::mem::take(&mut self.expired_escape) && matches!(character, '[' | '_') {
+                self.sequence.push('\x1b');
+                self.detached_escape = true;
+            }
             if !self.sequence.is_empty() || character == '\x1b' {
+                // APC graphics replies are bounded in memory but drained through
+                // ST even after the query deadline. Their bytes are never text.
+                if self.sequence.starts_with("\x1b_") {
+                    if !self.reply_overflow && self.sequence == "\x1b_" && character != 'G' {
+                        self.sequence.clear();
+                        let first = key(
+                            '_',
+                            if std::mem::take(&mut self.detached_escape) {
+                                KeyModifiers::NONE
+                            } else {
+                                KeyModifiers::ALT
+                            },
+                        );
+                        self.queued.push_back(key(character, modifiers));
+                        return Some(first);
+                    }
+                    let ended = self.sequence.ends_with('\x1b') && character == '\\';
+                    if !self.reply_overflow {
+                        self.sequence.push(character);
+                        self.reply_overflow = self.sequence.len() > 512;
+                    } else {
+                        self.sequence.truncate(2);
+                        if character == '\x1b' {
+                            self.sequence.push(character);
+                        }
+                    }
+                    if ended {
+                        let sequence = std::mem::take(&mut self.sequence);
+                        if !self.reply_overflow {
+                            self.graphics_reply(&sequence);
+                        }
+                        self.reply_overflow = false;
+                        self.detached_escape = false;
+                    }
+                    return None;
+                }
                 self.sequence.push(character);
-                if matches!(self.sequence.as_str(), "\x1b" | "\x1b[" | "\x1bO") {
+                if matches!(
+                    self.sequence.as_str(),
+                    "\x1b" | "\x1b[" | "\x1b[[" | "\x1bO" | "\x1b_"
+                ) {
                     return None;
                 }
                 if self.sequence == "\x1b[200~" {
                     self.sequence.clear();
                     self.paste = Some(String::new());
                     self.truncated = false;
+                    self.detached_escape = false;
                     return None;
                 }
-                if self.sequence.starts_with("\x1b[")
-                    && (character.is_ascii_digit() || character == ';')
-                    && self.sequence.len() < 32
-                {
+                if self.sequence.starts_with("\x1b[") && (' '..='?').contains(&character) {
+                    if self.sequence.len() > 512 {
+                        self.sequence.truncate(2);
+                        self.reply_overflow = true;
+                    }
                     return None;
                 }
                 let sequence = std::mem::take(&mut self.sequence);
+                if std::mem::take(&mut self.reply_overflow) || self.graphics_reply(&sequence) {
+                    self.detached_escape = false;
+                    return None;
+                }
+                if std::mem::take(&mut self.detached_escape) {
+                    self.queued.extend(
+                        sequence
+                            .chars()
+                            .skip(1)
+                            .map(|character| key(character, KeyModifiers::NONE)),
+                    );
+                    return self.next_event();
+                }
                 if !sequence.starts_with("\x1b[") && sequence.chars().count() == 2 {
-                    return Some(Event::Key(KeyEvent::new(
-                        KeyCode::Char(character),
-                        modifiers | KeyModifiers::ALT,
-                    )));
+                    return Some(key(character, modifiers | KeyModifiers::ALT));
                 }
                 return Some(csi(&sequence).unwrap_or(Event::Paste(sequence)));
             }
-            let (code, modifiers) = match character {
-                '\r' | '\n' => (KeyCode::Enter, modifiers),
-                '\t' => (
-                    if modifiers.contains(KeyModifiers::SHIFT) {
-                        KeyCode::BackTab
-                    } else {
-                        KeyCode::Tab
-                    },
-                    modifiers,
-                ),
-                '\u{7f}' | '\u{8}' => (KeyCode::Backspace, modifiers),
-                '\u{1}'..='\u{1a}' => (
-                    KeyCode::Char(char::from(character as u8 + b'a' - 1)),
-                    modifiers | KeyModifiers::CONTROL,
-                ),
-                _ => (KeyCode::Char(character), modifiers),
-            };
-            Some(Event::Key(KeyEvent::new(code, modifiers)))
+            Some(key(character, modifiers))
         }
 
+        #[cfg(any(windows, test))]
         pub fn is_pasting(&self) -> bool {
             self.paste.is_some()
         }
     }
 
+    fn key(character: char, modifiers: KeyModifiers) -> Event {
+        let (code, modifiers) = match character {
+            '\x1b' => (KeyCode::Esc, modifiers),
+            '\r' => (KeyCode::Enter, modifiers),
+            '\n' if cfg!(windows) => (KeyCode::Enter, modifiers),
+            '\t' => (
+                if modifiers.contains(KeyModifiers::SHIFT) {
+                    KeyCode::BackTab
+                } else {
+                    KeyCode::Tab
+                },
+                modifiers,
+            ),
+            '\u{7f}' => (KeyCode::Backspace, modifiers),
+            '\u{8}' if cfg!(windows) => (KeyCode::Backspace, modifiers),
+            '\u{1}'..='\u{1a}' => (
+                KeyCode::Char(char::from(character as u8 + b'a' - 1)),
+                modifiers | KeyModifiers::CONTROL,
+            ),
+            '\u{1c}'..='\u{1f}' => (
+                KeyCode::Char(char::from(character as u8 - 0x1c + b'4')),
+                modifiers | KeyModifiers::CONTROL,
+            ),
+            '\0' => (KeyCode::Char(' '), modifiers | KeyModifiers::CONTROL),
+            _ => (KeyCode::Char(character), modifiers),
+        };
+        Event::Key(KeyEvent::new(code, modifiers))
+    }
+
     fn csi(sequence: &str) -> Option<Event> {
+        if let Some(body) = sequence.strip_prefix("\x1b[[") {
+            let bytes = body.as_bytes();
+            return (bytes.len() == 1 && (b'A'..=b'E').contains(&bytes[0])).then(|| {
+                Event::Key(KeyEvent::new(
+                    KeyCode::F(bytes[0] - b'A' + 1),
+                    KeyModifiers::NONE,
+                ))
+            });
+        }
         let body = sequence
             .strip_prefix("\x1b[")
             .or_else(|| sequence.strip_prefix("\x1bO"))?;
@@ -201,6 +415,9 @@ mod decoding {
         if flags & 4 != 0 {
             modifiers |= KeyModifiers::CONTROL;
         }
+        if final_char == 'Z' {
+            modifiers |= KeyModifiers::SHIFT;
+        }
         let code = match final_char {
             'A' => KeyCode::Up,
             'B' => KeyCode::Down,
@@ -208,18 +425,22 @@ mod decoding {
             'D' => KeyCode::Left,
             'H' => KeyCode::Home,
             'F' => KeyCode::End,
+            'I' if parameters.is_empty() => return Some(Event::FocusGained),
+            'O' if parameters.is_empty() => return Some(Event::FocusLost),
             'Z' => KeyCode::BackTab,
             'P'..='S' => KeyCode::F(final_byte - b'P' + 1),
-            '~' => match first {
-                "1" | "7" => KeyCode::Home,
-                "4" | "8" => KeyCode::End,
-                "3" => KeyCode::Delete,
-                "5" => KeyCode::PageUp,
-                "6" => KeyCode::PageDown,
-                "11" => KeyCode::F(1),
-                "12" => KeyCode::F(2),
-                "13" => KeyCode::F(3),
-                "14" => KeyCode::F(4),
+            '~' => match first.parse::<u8>().ok()? {
+                1 | 7 => KeyCode::Home,
+                2 => KeyCode::Insert,
+                4 | 8 => KeyCode::End,
+                3 => KeyCode::Delete,
+                5 => KeyCode::PageUp,
+                6 => KeyCode::PageDown,
+                value @ 11..=15 => KeyCode::F(value - 10),
+                value @ 17..=21 => KeyCode::F(value - 11),
+                value @ 23..=26 => KeyCode::F(value - 12),
+                value @ 28..=29 => KeyCode::F(value - 15),
+                value @ 31..=34 => KeyCode::F(value - 17),
                 _ => return None,
             },
             'u' => match first.parse::<u32>().ok()? {
@@ -236,10 +457,14 @@ mod decoding {
     mod tests {
         use super::*;
         fn feed(decoder: &mut Decoder, value: &str) -> Vec<Event> {
-            value
-                .chars()
-                .filter_map(|character| decoder.character(character, KeyModifiers::NONE))
-                .collect()
+            let mut events = Vec::new();
+            for character in value.chars() {
+                events.extend(decoder.character(character, KeyModifiers::NONE));
+                while let Some(event) = decoder.next_event() {
+                    events.push(event);
+                }
+            }
+            events
         }
         #[test]
         fn function_navigation_decodes_ss3_csi_and_modified_keys_without_typing_letters() {
@@ -250,6 +475,9 @@ mod decoding {
                 ("\x1bOR", 3, KeyModifiers::NONE),
                 ("\x1bOS", 4, KeyModifiers::NONE),
                 ("\x1b[12~", 2, KeyModifiers::NONE),
+                ("\x1b[24~", 12, KeyModifiers::NONE),
+                ("\x1b[34;5~", 17, KeyModifiers::CONTROL),
+                ("\x1b[[E", 5, KeyModifiers::NONE),
                 ("\x1b[1;2S", 4, KeyModifiers::SHIFT),
             ] {
                 assert_eq!(
@@ -343,6 +571,139 @@ mod decoding {
                 vec![Event::Paste("\x1b[한".into())]
             );
         }
+
+        const REPLIES: &str = "\x1b[?62;4c\x1b_Gi=314159;OK\x1b\\\x1b[6;20;10t";
+
+        #[test]
+        fn capability_replies_and_typing_have_one_owner_at_every_split() {
+            for split in 0..=REPLIES.len() {
+                let mut decoder = Decoder::default();
+                decoder.query_graphics();
+                assert_eq!(
+                    feed(&mut decoder, "a@"),
+                    feed(&mut Decoder::default(), "a@")
+                );
+                assert!(feed(&mut decoder, &REPLIES[..split]).is_empty());
+                // A deadline stops waiting, not ownership of a partially read
+                // control envelope. Even wholly late replies remain filtered.
+                decoder.query_deadline = Some(Instant::now() - QUERY_TIMEOUT);
+                assert!(!decoder.graphics_pending());
+                assert!(feed(&mut decoder, &REPLIES[split..]).is_empty());
+                assert_eq!(
+                    feed(&mut decoder, "/漢"),
+                    feed(&mut Decoder::default(), "/漢")
+                );
+                assert_eq!(
+                    decoder.graphics,
+                    GraphicsCapabilities {
+                        kitty: true,
+                        sixel: true,
+                        cell_size: Some((10, 20)),
+                    }
+                );
+                assert!(decoder.graphics_changed);
+            }
+        }
+
+        #[test]
+        fn late_reply_after_escape_ambiguity_timeout_never_types_its_suffix() {
+            for reply in ["\x1b[?62;4c", "\x1b_Gi=314159;OK\x1b\\", "\x1b[6;20;10t"] {
+                let mut decoder = Decoder::default();
+                decoder.query_graphics();
+                assert!(feed(&mut decoder, "\x1b").is_empty());
+                assert_eq!(decoder.escape_timeout(), key('\x1b', KeyModifiers::NONE));
+                decoder.query_deadline = Some(Instant::now() - QUERY_TIMEOUT);
+                assert!(feed(&mut decoder, &reply[1..]).is_empty());
+                assert_eq!(feed(&mut decoder, "z"), vec![key('z', KeyModifiers::NONE)]);
+            }
+            let mut decoder = Decoder::default();
+            decoder.query_graphics();
+            assert!(feed(&mut decoder, "\x1b").is_empty());
+            let _ = decoder.escape_timeout();
+            // If it was a real Escape followed by literal typing, replay each
+            // non-response character once, rather than inventing a key chord.
+            assert_eq!(
+                feed(&mut decoder, "[word"),
+                feed(&mut Decoder::default(), "[word")
+            );
+        }
+
+        #[test]
+        fn paste_keeps_reply_looking_bytes_literal_across_query_expiry() {
+            let mut decoder = Decoder::default();
+            decoder.query_graphics();
+            let payload = format!("q\n漢e\u{301}{REPLIES}@/");
+            assert!(feed(&mut decoder, "\x1b[200~").is_empty());
+            assert!(feed(&mut decoder, &payload).is_empty());
+            decoder.query_deadline = Some(Instant::now() - QUERY_TIMEOUT);
+            assert!(feed(&mut decoder, "\x1b[20").is_empty());
+            assert_eq!(feed(&mut decoder, "1~"), vec![Event::Paste(payload)]);
+            assert_eq!(decoder.graphics, GraphicsCapabilities::default());
+            assert!(feed(&mut decoder, REPLIES).is_empty());
+            assert!(decoder.graphics.kitty && decoder.graphics.sixel);
+        }
+
+        #[test]
+        fn unsupported_unsolicited_and_malformed_replies_do_not_claim_support() {
+            let mut decoder = Decoder::default();
+            assert!(feed(&mut decoder, REPLIES).is_empty());
+            assert_eq!(decoder.graphics, GraphicsCapabilities::default());
+            decoder.query_graphics();
+            assert!(feed(&mut decoder,
+                "\x1b[?62;1;2c\x1b_Gi=99;OK\x1b\\\x1b_Gi=314159;EINVAL\x1b\\\x1b[6;0;10t\x1b[6;20;999999t"
+            ).is_empty());
+            assert_eq!(decoder.graphics, GraphicsCapabilities::default());
+            assert!(!decoder.graphics_changed);
+            assert_eq!(
+                feed(&mut decoder, "ok"),
+                feed(&mut Decoder::default(), "ok")
+            );
+        }
+
+        #[test]
+        fn oversized_reply_is_bounded_and_drains_before_the_next_key() {
+            let mut decoder = Decoder::default();
+            decoder.query_graphics();
+            assert!(feed(&mut decoder, &format!("\x1b_G{}", "x".repeat(2048))).is_empty());
+            assert!(decoder.sequence.len() <= 513);
+            assert!(feed(&mut decoder, "\x1b\\").is_empty());
+            assert!(feed(&mut decoder, &format!("\x1b[?{}", "1;".repeat(2048))).is_empty());
+            assert!(decoder.sequence.len() <= 513);
+            assert!(feed(&mut decoder, "c").is_empty());
+            assert_eq!(feed(&mut decoder, "q"), vec![key('q', KeyModifiers::NONE)]);
+            assert_eq!(decoder.graphics, GraphicsCapabilities::default());
+        }
+
+        #[test]
+        fn resizing_invalidates_measured_cells_until_the_terminal_replies() {
+            let mut decoder = Decoder::default();
+            decoder.query_graphics();
+            assert!(feed(&mut decoder, REPLIES).is_empty());
+            decoder.graphics_changed = false;
+            decoder.query_graphics();
+            assert_eq!(decoder.graphics.cell_size, None);
+            assert!(decoder.graphics.kitty && decoder.graphics.sixel);
+            assert!(decoder.graphics_changed);
+            assert!(feed(&mut decoder, "\x1b[6;24;12t").is_empty());
+            assert_eq!(decoder.graphics.cell_size, Some((12, 24)));
+        }
+
+        #[test]
+        fn unsupported_probe_completion_notifies_once_without_releasing_reply_ownership() {
+            let mut decoder = Decoder::default();
+            decoder.query_graphics();
+            decoder.query_deadline = Some(Instant::now() - QUERY_TIMEOUT);
+            assert!(!decoder.graphics_pending());
+            assert!(decoder.graphics_changed);
+            assert_eq!(decoder.graphics, GraphicsCapabilities::default());
+            assert_eq!(decoder.graphics_wait(), None);
+            decoder.graphics_changed = false;
+            decoder.expire_graphics_query();
+            assert!(!decoder.graphics_changed);
+            assert!(feed(&mut decoder, REPLIES).is_empty());
+            assert!(decoder.graphics_changed);
+            assert!(decoder.graphics.kitty && decoder.graphics.sixel);
+        }
     }
 }
 
@@ -397,7 +758,7 @@ mod windows {
 
     pub struct ConsoleInput {
         handle: HANDLE,
-        decoder: Decoder,
+        pub(super) decoder: Decoder,
         surrogate: Option<u16>,
         pending: Option<(KEY_EVENT_RECORD, u16)>,
         queued: Option<Event>,
@@ -414,9 +775,8 @@ mod windows {
                 escape_started: None,
             })
         }
-        pub fn read(&mut self) -> io::Result<Event> {
+        pub fn read(&mut self) -> io::Result<Option<Event>> {
             self.read_inner(None)
-                .map(|event| event.expect("blocking input has no deadline"))
         }
 
         pub fn read_timeout(&mut self, timeout: Duration) -> io::Result<Option<Event>> {
@@ -431,6 +791,13 @@ mod windows {
                 return Ok(Some(event));
             }
             loop {
+                self.decoder.expire_graphics_query();
+                if let Some(event) = self.decoder.next_event() {
+                    return Ok(Some(event));
+                }
+                if self.decoder.graphics_changed {
+                    return Ok(None);
+                }
                 let (key, repeated) = if let Some((key, remaining)) = self.pending.take() {
                     first_poll = false;
                     if remaining > 1 {
@@ -461,6 +828,10 @@ mod windows {
                     }
                     first_poll = false;
                     let wait = match (remaining, escape_remaining) {
+                        (Some(left), Some(right)) => Some(left.min(right)),
+                        (left, right) => left.or(right),
+                    };
+                    let wait = match (wait, self.decoder.graphics_wait()) {
                         (Some(left), Some(right)) => Some(left.min(right)),
                         (left, right) => left.or(right),
                     };

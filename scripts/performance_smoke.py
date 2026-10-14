@@ -552,7 +552,7 @@ def main():
 
             def ready(session):
                 return visible(session, lambda text: "Storage: saved" in text and "Ctrl+K Actions" in text
-                               and "Type your task here." in text and not session.screen.cursor.hidden)
+                               and not session.screen.cursor.hidden)
 
             data = root / "startup-data"
             seed = launch("warm-seed", data)
@@ -569,9 +569,10 @@ def main():
                 after = ready(session)
                 startup.append((after - before) / 1_000_000)
                 session.capture("usable-saved-composer")
-                probes.append(raw_latency(session, "x", lambda text: "Type your task here." not in text and "x" in text))
+                empty_composer = session.display()
+                probes.append(raw_latency(session, "x", lambda text: text != empty_composer and "x" in text))
                 direct_input(session, "\x7f")
-                visible(session, lambda text: "Type your task here." in text)
+                visible(session, lambda text: text == empty_composer)
                 startup_resources.append(active.finish())
                 active = None
                 quit_app(session)

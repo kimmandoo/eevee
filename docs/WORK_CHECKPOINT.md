@@ -1,5 +1,16 @@
 # Work Checkpoint
 
+## 2026-10-14 — Original sprites, Pokémon-style coding workspace, and WSL login
+
+- **Delivered:** Original nine-form sprites, verified online-install cache preparation, bottom composer/activity workspace with game-inspired dialogue/party styling, `@` file attachment, `/` action selection and approval-gated commands. WSL/SSH Codex connections default to official device authorization rather than requiring desktop-to-guest localhost.
+- **Rendering correction:** Replacing PNG sources alone still produced coarse half-cell mosaics. Automatic mode now negotiates Sixel/Kitty with actual cell metrics and preserves original pixels at integer scale; unsupported routes display text. Cells are explicit opt-in. One bounded input owner handles graphics replies without putting them into drafts.
+- **Actual GUI evidence:** Windows Terminal 1.24.12741.0, WSL2, Sixel, 10×20 cell pixels. Dedicated-window captures cover Eevee, all nine evolutions, light/dark surfaces, overlays and portrait restoration; each final verification window closed normally. See `target/windows-terminal-sprites{,-light,-dark}`.
+- **Pixel/input proof:** All five final-release graphics scenarios passed under `target/original-pixel-release`. Decoded native output preserves the 37×47 opaque Eevee subject at 4×; Kitty RGB error is zero and Sixel's maximum channel error is one. Late/split replies preserve the exact saved draft. These payload tests do not qualify another GUI terminal.
+- **Build/terminal proof:** 315 Rust tests passed, two subprocess helpers ignored; warning-free Clippy, formatting, release build and Windows GNU cross-check passed. All 31 normal terminal interaction scenarios passed. The isolated lifecycle harness initially failed to locate the new Unix module; explicit module location and fixture copying fixed it. Its targeted rerun passed normal/error/panic exit codes 0/1/101 and restored terminal state (`target/native-input-lifecycle`).
+- **Final interaction/auth regression:** All 21 durable-workbench scenarios passed (`target/native-input-workbench`), including wide/compact drafts, overlays, persistence and quota recovery. Four account-free OAuth fixture checks passed (`target/native-input-auth`), followed by the actual official Codex device-initiation/cancellation scenario with callback port occupied (`target/native-input-wsl-device`). No credentials or model executions were created by these journeys.
+- **WSL boundary:** Actual Windows port 1455 binds failed with Winsock 10013 and reserved range 1446–1545. Per the user's choice, no firewall/reservation/WSL setting was modified. Official Codex device-prompt initiation/cancellation was observed with guest 1455 occupied; human consent and completed account authentication are not claimed.
+- **Local delivery:** Final executable is `target/release/ev`; all nine pinned sprites were also verified in the normal `~/.cache/eevee/sprites` cache. No new public release, globally installed executable replacement or fresh native Windows/macOS runtime qualification is implied.
+
 ## 2026-10-14 — Expanded request through task section G
 
 - **Active scope:** User requested autonomous CI repair and implementation through task G, emphasizing UI/UX. U01/L01/G01/S01/S02/S03 are implemented and their scoped acceptance passed; full optional-provider/integrated gates remain explicitly pending.

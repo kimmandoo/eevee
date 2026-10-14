@@ -119,6 +119,14 @@ fn run(config: Config) -> io::Result<()> {
         let mut dirty = true;
         let mut targets = Vec::with_capacity(9);
         let mut input = input::Input::new()?;
+        let graphics_queries = config.images == config::ImageMode::Auto
+            && config.color != config::ColorMode::Mono
+            && !config.ascii
+            && std::env::var_os("TMUX").is_none()
+            && std::env::var_os("STY").is_none();
+        if graphics_queries {
+            input.query_graphics(&mut io::stdout().lock())?;
+        }
         let mut pending_save: Option<store::Snapshot> = None;
         let mut outstanding_store = 1_usize; // Initial load also yields one event.
         let mut outstanding_repo = 1_usize;
@@ -156,6 +164,9 @@ fn run(config: Config) -> io::Result<()> {
                     input.discard_pending()?;
                     graphics = native::NativeGraphics::new(&config);
                     terminal::clear(terminal)?;
+                    if graphics_queries {
+                        input.query_graphics(&mut io::stdout().lock())?;
+                    }
                     let size = terminal.size()?;
                     app.update(event::Event::Resize(size.width, size.height));
                     app.agents.auth_returned(plan.profile, outcome);
@@ -176,6 +187,7 @@ fn run(config: Config) -> io::Result<()> {
                     app.planning.reset(app.task_id);
                 }
             }
+            app.prepare_composer_sources();
             if app.handoff.pending.is_some() {
                 app.handoff.process_pending();
                 dirty = true;
@@ -191,16 +203,20 @@ fn run(config: Config) -> io::Result<()> {
                     ratatui::layout::Rect::new(0, 0, app.width, app.height),
                     &mut targets,
                 );
+                artwork.set_native_active(graphics.is_native());
                 if !graphics.is_native() {
                     artwork.prepare(&targets, ui::image_background(&config));
                 }
-                graphics.prepare(&artwork, &targets)?;
+                if graphics.prepare(&artwork, &targets, ui::image_background(&config))? {
+                    terminal::clear(terminal)?;
+                }
                 terminal.draw(|frame| {
                     ui::render(frame, &mut app, &config, &mut artwork, graphics.status());
                     graphics.render(frame.buffer_mut());
                     #[cfg(windows)]
                     ui::compose_console_graphemes(frame.buffer_mut());
                 })?;
+                graphics.paint()?;
             }
             if app.execution.repo_requested() && outstanding_repo == 0 && repository.refresh() {
                 app.execution.repo_started();
@@ -299,16 +315,21 @@ fn run(config: Config) -> io::Result<()> {
                 || app.retry_storage
                 || app.switch_task.is_some()
                 || app.management.is_some()
+                || input.graphics_pending()
                 || (app.save_requested && matches!(app.storage, app::StorageState::Saving));
             let event = if pending {
                 input.read_timeout(std::time::Duration::from_millis(30))?
             } else {
-                Some(input.read()?)
+                input.read()?
             };
             dirty = false;
             let resized = matches!(event, Some(event::Event::Resize(_, _)));
-            if resized {
-                graphics.discover_cell();
+            if resized && graphics_queries {
+                input.query_graphics(&mut io::stdout().lock())?;
+            }
+            if let Some(capabilities) = input.take_graphics_update() {
+                graphics.apply_capabilities(capabilities);
+                dirty = true;
             }
             if let Some(event) = event {
                 dirty |= app.update(event);
@@ -391,7 +412,7 @@ fn run(config: Config) -> io::Result<()> {
             while let Some(event) = sources.try_event() {
                 outstanding_sources = outstanding_sources.saturating_sub(1);
                 app.sources.event(app.task_id, event);
-                dirty |= app.overlay == Some(app::Overlay::Sources);
+                dirty |= app.overlay == Some(app::Overlay::Sources) || app.composer_menu.is_some();
             }
             while let Some(event) = execution.try_event() {
                 app.execution.runner_event(event);

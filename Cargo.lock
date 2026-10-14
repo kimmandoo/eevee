@@ -334,6 +334,7 @@ dependencies = [
 name = "eevee"
 version = "0.1.0"
 dependencies = [
+ "base64-simd",
  "crossterm",
  "image",
  "libc",
@@ -344,6 +345,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "signal-hook",
  "toml",
  "unicode-normalization",
  "unicode-segmentation",

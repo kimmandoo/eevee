@@ -22,11 +22,14 @@ Usage: sh install.sh [--version vX.Y.Z] [--install-dir PATH]
 
 Download the latest release for this Mac or Linux machine, or select an exact
 release with --version / EV_VERSION. HTTPS downloads require curl.
-Offline installation requires both --archive and --checksums (SHA256SUMS).
+Online installation also downloads nine hash-pinned original sprites to the user
+cache. A failed sprite download stops publication; rerun resumes completed files.
+Offline installation requires both --archive and --checksums (SHA256SUMS);
+it makes no network requests and does not populate a missing sprite cache.
 --install-dir must be absolute; it defaults to EV_INSTALL_DIR or $HOME/.local/bin.
 Rerun to update an installer-owned executable. --uninstall removes only verified
 owned executable/metadata, keeping all task, provider, and cache data.
-No sudo, shell profile changes, or Eevee cache/data changes are performed.
+No sudo, shell profile changes, or task/provider data changes are performed.
 USAGE
 }
 
@@ -446,6 +449,24 @@ awk 'NR != 1 || $0 !~ /^ev [^[:cntrl:]]+$/ || length($0) > 256 { invalid = 1 }
 version=$(cat "$temp_dir/version")
 if [ -n "$selected_tag" ]; then
     [ "$version" = "ev ${selected_tag#v}" ] || fail "staged ev --version does not match $selected_tag; prior installation is unchanged"
+fi
+
+if [ "$archive_set" -eq 0 ]; then
+    phase 'Downloading and verifying all nine original sprites'
+    # Use the verified release's pinned downloader and platform cache defaults,
+    # exactly as normal startup does. Never run an unverified PATH executable.
+    "$stage/ev" --download-artwork &
+    download_pid=$!
+    if wait "$download_pid"; then
+        download_pid=
+    else
+        download_pid=
+        fail 'sprite setup failed; prior installation is unchanged. Completed sprites remain cached. Rerun to resume, or use --archive and --checksums for an explicit offline installation'
+    fi
+    after_sprite_hash=$(hash_file "$stage/ev") || fail 'cannot verify staged executable after sprite setup'
+    [ "$after_sprite_hash" = "$new_hash" ] || fail 'staged executable changed during sprite setup; prior installation is unchanged'
+else
+    printf 'Offline install: sprite cache unchanged. Missing images? Run ev --download-artwork when online, or provide --assets-dir.\n'
 fi
 license_hash=$(hash_file "$stage/metadata/LICENSE") || fail 'cannot hash staged LICENSE'
 notices_hash=$(hash_file "$stage/metadata/THIRD_PARTY_NOTICES") || fail 'cannot hash staged THIRD_PARTY_NOTICES'

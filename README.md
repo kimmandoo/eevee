@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/PokeAPI/sprites/0dc105d5b12416932f29b594078282ab4be045f5/sprites/pokemon/other/official-artwork/133.png" width="144" height="144" alt="Eevee artwork with a transparent background">
+<img src="https://raw.githubusercontent.com/PokeAPI/sprites/0dc105d5b12416932f29b594078282ab4be045f5/sprites/pokemon/133.png" width="192" height="192" alt="Original Eevee pixel sprite with a transparent background">
 
 <h1>
   <picture>
@@ -52,15 +52,21 @@ ev update           # Upgrade in the original install directory
 ev uninstall        # Remove the binary and licenses; keep user data
 ```
 
-Use an interactive terminal of at least **60 × 18** cells; **120 × 36** leaves room for all three panes. Authentication review requires **80 × 24**.
+Use an interactive terminal of at least **60 × 18** cells; **120 × 36** gives the task and activity more breathing room. Authentication review requires **80 × 24**.
 
-1. **Type directly into the visible Goal box.** Enter saves locally; wait for **Storage: saved**.
+1. **Type directly into the bottom Task composer.** Enter saves locally; wait for **Storage: saved**. The saved task, next action and recent provider activity appear above it.
 2. **F2 — Connect:** choose a provider with arrows, Enter opens its actions, then choose Connect and a sign-in method.
 3. **F3 — Evolution:** preview a form, then Enter selects it. This never starts work.
-4. **F4 — Images:** optionally choose **Download all 9**. Progress, cancellation, retry and local reload stay in the app.
+4. **F4 — Images:** online installation prepares all nine original sprites. Use this screen to retry missing downloads or reload local images.
 5. **Ctrl+K — Actions:** browse task cards, criteria, source context, local commands and model requests without memorizing shortcuts.
 
-F1 opens help. Global navigation retains an unfinished draft; Esc leaves a clean editor or reviews a changed one. Enter in the goal box never sends a model request.
+F1 opens help. Global navigation retains an unfinished draft; Esc leaves a clean editor or reviews a changed one. Enter in the composer never sends a model request. The compact companion appears at 90+ columns; `b` opens its details. At 120+ columns, Tab reveals the inspector only when focused. `i` opens its drawer at every supported size; linear mode keeps the task and composer full-width.
+
+The TUI keeps this coding-agent workflow inside a handheld-game-inspired skin: **FIELD LOG** for task/activity, a bottom **DIALOGUE** composer, a **PARTNER** sprite/status card, and the evolution **PARTY** picker. Dark sage and light cream themes use square/double borders; `--theme light` selects the cream palette, while `--color mono --ascii` preserves a plain-terminal fallback. Partner objectives reflect real acceptance criteria, not simulated HP or experience.
+
+**Attach files with `@`:** type `@` at a word boundary in the composer and filter repository paths. Arrows/Tab select; Enter inspects the complete eligible UTF-8 file before attachment. Press `p` to pin the reviewed capture, or `r` to select an inclusive line range (required above the 64 KiB capture limit). Esc returns to your preserved composer; its title shows the stored attachment count. A new task's draft is saved locally before context selection, without applying the goal or sending it. Ignored, excluded, binary and linked files remain unavailable; attachments are revalidated in the ordinary outgoing-context review.
+
+**Use `/` commands:** type `/` at the start of a composer line, filter the action menu, then Enter. `/help`, `/connect`, `/provider`, `/files`, `/tasks`, `/criteria`, `/forms`, `/inspect`, `/diff`, `/handoff`, `/memory` and `/workflows` open the real corresponding controls. `/run` opens the local command editor: enter JSON argv or an explicit shell object, save to prepare, then review and authorize in the command drawer. No slash action bypasses approvals or runs arbitrary pasted text. Esc dismisses a picker while retaining its literal text; pasting `@` or `/` does not invoke an action.
 
 <details>
 <summary>Build from source instead</summary>
@@ -167,6 +173,8 @@ Other provider versions fail closed. Installed, authenticated, eligible, and suc
 
 The reviewed operation temporarily hands the terminal to the official provider. It may open a browser, contact its service, and modify its own credential/configuration stores. Native auth output is not retained in Eevee's task logs, but can remain in your terminal scrollback. Approval expires after five minutes; login is bounded to ten minutes and status to fifteen seconds. Ctrl+C cancels the native flow and returns to the local task. Authentication does not replay a task: prior Run consent and cached model sessions are invalidated, and a new explicit request is required.
 
+**WSL / SSH login:** Codex defaults to **device authorization**, which does not need a localhost callback or Windows networking changes. Enable device-code authorization in **ChatGPT Settings → Security** (workspace policy may require an administrator), then use **F2 → Codex → Connect → device authorization**. Open the official link, enter the one-time code shown by Codex, and keep the terminal open until login finishes. Windows-reserved ports can block browser OAuth even with a healthy WSL listener; do not disable firewalls or change port reservations just to sign in. See [diagnosis and verification](docs/TROUBLESHOOTING.md#2026-10-14-browser-oauth-returns-to-localhost-with-connection-refused).
+
 ### Optional Claude SDK
 
 The local workbench and other adapters do not need Node. The sidecar requires **Node 24+**:
@@ -186,7 +194,9 @@ SDK inspection imports the real SDK without a model request; it is not authentic
 | Key | Action |
 | --- | --- |
 | F1 / F2 / F3 / F4 | Help / connections / evolutions / image setup |
-| Enter in the visible Goal box | Save locally; never send to a model |
+| Enter in the Task composer | Save locally; never send to a model |
+| `@` in composer | Filter eligible files; Enter inspects, `p` attaches |
+| `/` at composer line start | Filter real actions; `/run` prepares a reviewed command |
 | `g` / `a` | Edit goal / next action |
 | `c` | Open criteria; `e` edits, Space toggles |
 | `t` / `n` | Browse task cards / create a task |
@@ -196,7 +206,7 @@ SDK inspection imports the real SDK without a model request; it is not authentic
 | `o` / `e` | Agent connection / model-request drawer |
 | `z` | Reviewed portable handoff export/import |
 | `i` / `b` | Inspector / companion drawer |
-| `l` | Toggle sanctuary / linear layout |
+| `l` | Toggle companion / linear layout |
 | Ctrl+K / `?` | Command palette / keyboard help |
 | Ctrl+S in editor | Retain a draft without applying it |
 | Ctrl+N in editor | Insert a newline |
@@ -232,26 +242,37 @@ Schemas 0–5 migrate transactionally to schema 6, which adds specialist records
 </details>
 
 <details>
-<summary>Optional artwork and terminal graphics</summary>
+<summary>Original sprites and terminal graphics</summary>
 
-No images are bundled or downloaded on startup/form selection. Press **F4 → Download all 9** to explicitly fetch the pinned source set; **Reload local** rereads files without networking. Cancellation keeps completed images, and retry resumes only missing files. Existing conflicting files are never silently replaced. `--images off` skips reads and disables in-app download until restarted with `--images auto` or `--images cells`.
+Online installers download all nine original 96 × 96 PokeAPI front sprites, verify their pinned SHA-256 hashes, and cache them before publishing the executable. The first launch reads this cache automatically. No image is fetched on startup or form selection, and no image bytes are bundled in the binary. Repeat installs verify and reuse matching files; an interrupted download keeps completed sprites for the next attempt. If sprite setup fails, installation stops before replacing the executable and reports the error rather than claiming images are ready.
 
-The equivalent explicit command is:
+Press **F4** to download missing sprites or retry, or choose **Reload local** to reread files without networking. Existing conflicting files are never silently replaced. `--images off` skips reads and disables in-app download until restarted with `--images auto` or `--images cells`. The default cache is `$XDG_CACHE_HOME/eevee/sprites` when set, otherwise `~/.cache/eevee/sprites` on Linux, `~/Library/Caches/eevee/sprites` on macOS, or `%LOCALAPPDATA%\eevee\sprites` on Windows. Old `eevee/artwork` caches are left untouched, not mixed into the sprite set.
+
+Source builds, manual copies and offline archive installs can prepare the same default cache explicitly:
+
+```sh
+ev --download-artwork
+ev
+```
+
+For a separate local image directory:
 
 ```sh
 ev --download-artwork --assets-dir ./local-artwork
-ev --assets-dir ./local-artwork --images cells
+ev --assets-dir ./local-artwork --images auto
 ```
 
-You can also supply local `133.png`, `134.png`, `135.png`, `136.png`, `196.png`, `197.png`, `470.png`, `471.png`, and `700.png`. The downloaded `sources.json` records source revision, attribution, and hashes. Static PNGs are bounded to 4 MiB and 1024 × 1024; APNG is refused. Transparent padding is trimmed and images scale proportionally. Native images preserve alpha; cells blend against the actual panel surface, without gray/white background boxes. ASCII artwork retains the underlying terminal colors. Do not commit downloaded artwork.
+You can also supply local `133.png`, `134.png`, `135.png`, `136.png`, `196.png`, `197.png`, `470.png`, `471.png`, and `700.png`. The downloaded `sources.json` records source revision, attribution, and hashes. Static PNGs are bounded to 4 MiB and 1024 × 1024; APNG is refused. Only transparent borders are trimmed. Native rendering preserves source pixels at 1× or an integer enlargement; a too-small portrait is omitted rather than downsampled. Alpha is composited against the actual panel surface, without a contrasting background box. Do not commit downloaded artwork.
 
-Native Kitty graphics are qualified only on macOS arm64 / Ghostty 1.3.1 without SSH/tmux/screen, with usable pixel dimensions. Other routes use image-derived cells. Mono/ASCII/NO_COLOR never emits colored native graphics. Linear mode offers the same local actions without art; screen-reader compatibility is not claimed.
+**Default `--images auto` uses actual Sixel or Kitty pixels, not character mosaics.** The single input reader negotiates support and pixel/cell dimensions without stealing typed input. Unsupported terminals, missing metrics, tmux/screen, and mono/ASCII mode show text instead. `--images cells` explicitly opts into the old low-resolution character preview; `--images off` disables images. F4 reports the active renderer and cache state.
+
+Actual Windows Terminal **1.24.12741.0 + WSL2** verification covered negotiated Sixel, the original Eevee portrait, all nine forms, overlay removal and restoration. The PTY graphics smoke separately decodes Sixel/Kitty payloads and compares original pixels, exercises late/split replies, preserves typed drafts, and checks resize/cleanup. This does not certify every Kitty terminal or native Windows console. Linear mode keeps the same local actions without art; screen-reader compatibility is not claimed.
 
 </details>
 
 ## Installation and platform status
 
-Installers automatically choose the matching native package, resolve an exact release tag, and verify its SHA-256 before installation. Installation and updates show a **rolling Poké Ball** in an interactive terminal; redirected output, CI and dumb terminals get plain progress. `NO_COLOR` keeps the animation monochrome. Public downloads need no GitHub account.
+Installers automatically choose the matching native package, resolve an exact release tag, and verify its SHA-256 before installation. Online installation also prepares all nine pinned sprites in the current user's cache using that verified executable. Installation and updates show a **rolling Poké Ball** in an interactive terminal; redirected output, CI and dumb terminals get plain progress. `NO_COLOR` keeps the animation monochrome. Public downloads need no GitHub account.
 
 | Machine | Download |
 | --- | --- |
@@ -306,7 +327,7 @@ sh ./install.sh --archive ./ev-linux-x86_64.tar.gz --checksums ./SHA256SUMS
 .\install.ps1 -Archive (Join-Path $PWD 'ev-windows-x86_64.zip') -Checksums (Join-Path $PWD 'SHA256SUMS')
 ```
 
-Use the correct archive for your machine. Both offline modes require explicit archive and checksum paths and perform no downloads. The installers also support `--uninstall` / `-Uninstall` with an explicit installation directory.
+Use the correct archive for your machine. Both offline modes require explicit archive and checksum paths and perform no downloads, including sprites. Existing cached sprites load normally; on a fresh offline machine, copy a complete sprite cache (including `sources.json`) into the platform cache above or use `--assets-dir` with local PNGs. Otherwise run `ev --download-artwork` when connectivity returns. The installers also support `--uninstall` / `-Uninstall` with an explicit installation directory.
 
 </details>
 
@@ -371,6 +392,6 @@ Contributions should preserve the existing approval, storage, and cancellation c
 
 Original code, documentation prose, and the custom geometric wordmark are licensed under [Apache-2.0](LICENSE). See the [project NOTICE](NOTICE) and [asset licensing and attribution](docs/ASSET_LICENSES.md) for the separate third-party scope.
 
-The README's transparent Eevee illustration is third-party Pokémon artwork, referenced from a [pinned PokéAPI/sprites revision](https://github.com/PokeAPI/sprites/tree/0dc105d5b12416932f29b594078282ab4be045f5). Its [upstream notice](https://github.com/PokeAPI/sprites/blob/0dc105d5b12416932f29b594078282ab4be045f5/LICENCE.txt) explicitly attributes image copyright to **The Pokémon Company**. The project's Apache-2.0 license does not cover that artwork or grant trademark, redistribution, or commercial-use rights.
+The README's transparent Eevee sprite is third-party Pokémon pixel art, referenced from a [pinned PokéAPI/sprites revision](https://github.com/PokeAPI/sprites/tree/0dc105d5b12416932f29b594078282ab4be045f5). Its [upstream notice](https://github.com/PokeAPI/sprites/blob/0dc105d5b12416932f29b594078282ab4be045f5/LICENCE.txt) explicitly attributes image copyright to **The Pokémon Company**. The project's Apache-2.0 license does not cover that artwork or grant trademark, redistribution, or commercial-use rights.
 
-No franchise image bytes are bundled in the repository or native packages. Remote display and optional downloads do not establish rights clearance. This is an independent, unofficial project with no affiliation or endorsement; the software release grants no third-party image or trademark rights. The original wordmark has an editable [SVG source](docs/assets/wordmark.svg), not an embedded character image or third-party font.
+No franchise image bytes are bundled in the repository or native packages. Remote display, installation downloads, and explicit runtime downloads do not establish rights clearance. This is an independent, unofficial project with no affiliation or endorsement; the software release grants no third-party image or trademark rights. The original wordmark has an editable [SVG source](docs/assets/wordmark.svg), not an embedded character image or third-party font.

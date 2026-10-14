@@ -22,18 +22,18 @@ use crate::config::{ColorMode, Config, ImageMode, Theme};
 pub const SPECIES: [u16; 9] = [133, 134, 135, 136, 196, 197, 470, 471, 700];
 const SOURCE: &str = "https://github.com/PokeAPI/sprites";
 const REVISION: &str = "0dc105d5b12416932f29b594078282ab4be045f5";
-const ATTRIBUTION: &str = "Artwork distributed by PokeAPI/sprites; Pokémon artwork rights remain with The Pokémon Company, Nintendo, Game Freak, and Creatures. No affiliation or endorsement.";
-// Source records from the local design preview; downloads must match these bytes.
+const ATTRIBUTION: &str = "Sprites distributed by PokeAPI/sprites; Pokémon artwork rights remain with The Pokémon Company, Nintendo, Game Freak, and Creatures. No affiliation or endorsement.";
+// Original 96x96 front sprites at REVISION, not the detailed official artwork.
 const HASHES: [&str; 9] = [
-    "33ea993d3478ee920062b0bf27792a045b3a2f75d941bdb8cb3912ef50b1fb44",
-    "3f4a86ef2ec064c98dd8fb207046c7202c1669e5fb7fac05fc1acea364d2770f",
-    "bf525c20b899e08398d93d0436d2e592463068d85da8760424ac340c7f8f8ed8",
-    "a11d3f021baf917f9106266d5fec5b6326a2850b130e4560e333fa9f481c41ec",
-    "d0e74b02adc3df07f9bf026303b1068c58183f8703ae2ca42b8d7b58e9a0696f",
-    "8d7f18f7b323269dff84480f1ee8873a5d47a3eb3fd4b2ac1d2bbf0cf45a6ddd",
-    "3cb145cfafe87da63f75d80d2540e2f7f61c3c97275ff4231a462d949f4bd339",
-    "bc7c93a32e133f9e560b38722d0bc4992b7bb8d1cd902de984ccbd872a19f71b",
-    "193777db6d89cdace234fe3198dca4e955a7a5a18011cd0105178b436f6199a7",
+    "56ad4ec369aadb71218b080e6a67b85eea97b3cd63f9d3097d63d9b4b7483df9",
+    "709755b8676dcabf09ccad8a98b2af918869f8a092b27ee2ac7d25cafdbfee89",
+    "17a9215bd8276df8cdfc38709e956551b699188738bf628cab89a55bd384f85d",
+    "80d64fb2e7ad492e68d4a7a3e48ef430275246c6e48da4b3678eebfd903b8c44",
+    "445986a03a7fd22b72d1d675317e3ec550ae2d4b24c1394c3ef3bbac4df31056",
+    "72df4ab24222b470e2d145c0c747b704a4abca4042d739e645a0e37ef7eeaf5c",
+    "dc4699891713ce44a6dc4e433ba40075c081675947d9fdebcda37e662438c236",
+    "54d2d8cdc5f0ed5d2f5da3c4006e4defa226bdd196e30dd4f54c2dd5321de266",
+    "1ba3ba4d59fbe1e10ac86436cccf58931ec3d23646a496201738e2c6b9d76824",
 ];
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
@@ -65,9 +65,7 @@ struct SourceImage {
 }
 
 fn image_url(id: u16) -> String {
-    format!(
-        "https://raw.githubusercontent.com/PokeAPI/sprites/{REVISION}/sprites/pokemon/other/official-artwork/{id}.png"
-    )
+    format!("https://raw.githubusercontent.com/PokeAPI/sprites/{REVISION}/sprites/pokemon/{id}.png")
 }
 
 fn manifest() -> Manifest {
@@ -230,6 +228,8 @@ pub struct Artwork {
     theme: Theme,
     tick: u64,
     generation: u64,
+    cells_enabled: bool,
+    native_active: bool,
 }
 
 impl Artwork {
@@ -260,7 +260,7 @@ impl Artwork {
                 Ok(image) => Asset {
                     image: Some(image),
                     status: if matches!(&sources, Ok(Some(_))) {
-                        "Pinned PokeAPI artwork / SHA256 verified".into()
+                        "Original PokeAPI sprite / SHA256 verified".into()
                     } else {
                         "Local PNG / source unverified (no sources.json)".into()
                     },
@@ -281,6 +281,8 @@ impl Artwork {
             ascii: config.ascii,
             theme: config.theme,
             tick: 0,
+            cells_enabled: config.images == ImageMode::Cells,
+            native_active: false,
             generation: ARTWORK_GENERATION.fetch_add(1, Ordering::Relaxed),
         }
     }
@@ -309,6 +311,15 @@ impl Artwork {
             .and_then(|asset| asset.image.as_ref())
     }
 
+    pub(crate) fn background_rgb(&self, background: Color) -> [u8; 3] {
+        rgb(background, self.theme)
+    }
+
+    /// Native rendering owns loaded-image targets, including size-omission labels.
+    pub fn set_native_active(&mut self, active: bool) {
+        self.native_active = active;
+    }
+
     fn key(&self, index: usize, area: Rect, background: Color) -> CacheKey {
         CacheKey {
             species: index,
@@ -323,6 +334,9 @@ impl Artwork {
     /// Called before drawing, never by render. Bounded caches retain offline form
     /// switches and multiple thumbnail sizes without decoding or resizing frames.
     pub fn prepare(&mut self, targets: &[(usize, Rect)], background: Color) {
+        if !self.cells_enabled {
+            return;
+        }
         self.tick = self.tick.wrapping_add(1);
         for &(index, area) in targets {
             let key = self.key(index, area, background);
@@ -376,6 +390,16 @@ impl Artwork {
                 .render(area, buffer);
             return;
         }
+        if !self.cells_enabled {
+            if self.native_active {
+                return;
+            }
+            Paragraph::new("No native image")
+                .alignment(Alignment::Center)
+                .wrap(Wrap { trim: true })
+                .render(area, buffer);
+            return;
+        }
         let Some(raster) = self
             .cache
             .iter()
@@ -411,8 +435,8 @@ impl Artwork {
     }
 }
 
-// Official images use a large transparent canvas. Fit the visible subject, not
-// the empty border, so ears/tails remain visible without shrinking the portrait.
+// Fit the visible sprite without its transparent 96x96 canvas, preserving every
+// nontransparent pixel (including ears, tails, and partially transparent edges).
 fn trim_transparent_border(image: RgbaImage) -> RgbaImage {
     let mut left = image.width();
     let mut top = image.height();
@@ -432,13 +456,21 @@ fn trim_transparent_border(image: RgbaImage) -> RgbaImage {
     image::imageops::crop_imm(&image, left, top, right - left, bottom - top).to_image()
 }
 
-fn fitted_dimensions(image: &RgbaImage, width: u16, rows: u16) -> (u16, u16) {
+/// Fit the explicitly selected low-resolution cell preview; native transport
+/// uses its own integer-only geometry and never shrinks source pixels.
+fn fitted_pixels(image: &RgbaImage, width: u32, height: u32) -> (u32, u32) {
     let scale = (f64::from(width) / f64::from(image.width()))
-        .min(f64::from(rows) * 2.0 / f64::from(image.height()));
+        .min(f64::from(height) / f64::from(image.height()));
+    let scale = if scale >= 1.0 { scale.floor() } else { scale };
     (
-        (f64::from(image.width()) * scale).floor().max(1.0) as u16,
-        (f64::from(image.height()) * scale).floor().max(1.0) as u16,
+        (f64::from(image.width()) * scale).floor().max(1.0) as u32,
+        (f64::from(image.height()) * scale).floor().max(1.0) as u32,
     )
+}
+
+fn fitted_dimensions(image: &RgbaImage, width: u16, rows: u16) -> (u16, u16) {
+    let (width, height) = fitted_pixels(image, u32::from(width), u32::from(rows) * 2);
+    (width as u16, height as u16)
 }
 
 fn rasterize(image: &RgbaImage, key: CacheKey, touched: u64) -> Raster {
@@ -493,8 +525,9 @@ fn rasterize(image: &RgbaImage, key: CacheKey, touched: u64) -> Raster {
     }
 }
 
-// Interpolate composited samples rather than straight RGBA: transparent borders
-// cannot introduce black fringes. Each half-cell has a square sample (cell 1:2).
+// Nearest source pixels preserve the sprite's original palette and hard edges.
+// Composite alpha only after selecting the pixel, without filtering transparent
+// RGB into outlines. Each half-cell is a square sample (terminal cells are 1:2).
 fn sample(
     image: &RgbaImage,
     x: u16,
@@ -503,60 +536,18 @@ fn sample(
     height: u16,
     background: [u8; 3],
 ) -> [u8; 3] {
-    if image.width() > u32::from(width) || image.height() > u32::from(height) {
-        // A half-cell covers many source pixels at thumbnail sizes. Bilinear
-        // point sampling discarded outlines and fine features; integrate the
-        // complete footprint instead, compositing alpha before averaging.
-        let left = f64::from(x) * f64::from(image.width()) / f64::from(width);
-        let right = f64::from(x + 1) * f64::from(image.width()) / f64::from(width);
-        let top = f64::from(y) * f64::from(image.height()) / f64::from(height);
-        let bottom = f64::from(y + 1) * f64::from(image.height()) / f64::from(height);
-        let mut total = [0.0; 3];
-        for sy in top.floor() as u32..(bottom.ceil() as u32).min(image.height()) {
-            let vertical = (bottom.min(f64::from(sy + 1)) - top.max(f64::from(sy))).max(0.0);
-            for sx in left.floor() as u32..(right.ceil() as u32).min(image.width()) {
-                let weight =
-                    vertical * (right.min(f64::from(sx + 1)) - left.max(f64::from(sx))).max(0.0);
-                let pixel = image.get_pixel(sx, sy);
-                let alpha = f64::from(pixel[3]) / 255.0;
-                for channel in 0..3 {
-                    total[channel] += (f64::from(pixel[channel]) * alpha
-                        + f64::from(background[channel]) * (1.0 - alpha))
-                        * weight;
-                }
-            }
-        }
-        let area = (right - left) * (bottom - top);
-        return total.map(|value| (value / area).round().clamp(0.0, 255.0) as u8);
-    }
-    let source_x = ((f64::from(x) + 0.5) * f64::from(image.width()) / f64::from(width) - 0.5)
-        .clamp(0.0, f64::from(image.width() - 1));
-    let source_y = ((f64::from(y) + 0.5) * f64::from(image.height()) / f64::from(height) - 0.5)
-        .clamp(0.0, f64::from(image.height() - 1));
-    let x0 = source_x.floor() as u32;
-    let y0 = source_y.floor() as u32;
-    let x1 = (x0 + 1).min(image.width() - 1);
-    let y1 = (y0 + 1).min(image.height() - 1);
-    let dx = source_x.fract();
-    let dy = source_y.fract();
-    let samples = [
-        (x0, y0, (1.0 - dx) * (1.0 - dy)),
-        (x1, y0, dx * (1.0 - dy)),
-        (x0, y1, (1.0 - dx) * dy),
-        (x1, y1, dx * dy),
-    ];
+    let source_x =
+        ((u64::from(x) * 2 + 1) * u64::from(image.width()) / (u64::from(width) * 2)) as u32;
+    let source_y =
+        ((u64::from(y) * 2 + 1) * u64::from(image.height()) / (u64::from(height) * 2)) as u32;
+    let pixel = image.get_pixel(
+        source_x.min(image.width() - 1),
+        source_y.min(image.height() - 1),
+    );
+    let alpha = u32::from(pixel[3]);
     std::array::from_fn(|channel| {
-        samples
-            .iter()
-            .map(|&(sx, sy, weight)| {
-                let pixel = image.get_pixel(sx, sy);
-                let alpha = f64::from(pixel[3]) / 255.0;
-                (f64::from(pixel[channel]) * alpha + f64::from(background[channel]) * (1.0 - alpha))
-                    * weight
-            })
-            .sum::<f64>()
-            .round()
-            .clamp(0.0, 255.0) as u8
+        ((u32::from(pixel[channel]) * alpha + u32::from(background[channel]) * (255 - alpha) + 127)
+            / 255) as u8
     })
 }
 
@@ -1083,14 +1074,16 @@ mod tests {
     #[test]
     fn half_cells_preserve_aspect_alpha_and_original_colors() {
         let image = RgbaImage::from_pixel(8, 8, Rgba([220, 100, 40, 255]));
-        assert_eq!(fitted_dimensions(&image, 10, 10), (10, 10));
-        assert_eq!(fitted_dimensions(&image, 20, 5), (10, 10));
+        assert_eq!(fitted_dimensions(&image, 10, 10), (8, 8));
+        assert_eq!(fitted_dimensions(&image, 20, 5), (8, 8));
+        assert_eq!(fitted_dimensions(&image, 20, 10), (16, 16));
+        assert_eq!(fitted_dimensions(&image, 5, 10), (5, 5));
         let raster = rasterize(
             &image,
             key(ColorMode::TrueColor, false, 10, 10, [10, 20, 30]),
             0,
         );
-        assert_eq!((raster.width, raster.height), (10, 5));
+        assert_eq!((raster.width, raster.height), (8, 4));
         assert_eq!(raster.cells[0].foreground, Color::Rgb(220, 100, 40));
         assert_eq!(raster.cells[0].background, Color::Rgb(220, 100, 40));
         let transparent = RgbaImage::from_pixel(1, 1, Rgba([200, 30, 20, 0]));
@@ -1267,7 +1260,7 @@ mod tests {
     }
 
     #[test]
-    fn thumbnails_average_source_coverage_and_trim_only_empty_border() {
+    fn sprites_keep_exact_palette_and_trim_only_empty_border() {
         let mut image = RgbaImage::new(16, 16);
         for y in 4..12 {
             for x in 2..14 {
@@ -1277,12 +1270,20 @@ mod tests {
         let cropped = trim_transparent_border(image);
         assert_eq!(cropped.dimensions(), (12, 8));
         assert_eq!(cropped.get_pixel(0, 0), &Rgba([240, 120, 60, 255]));
-        let mut narrow_line = RgbaImage::from_pixel(8, 8, Rgba([0, 0, 0, 255]));
-        for y in 0..8 {
-            narrow_line.put_pixel(0, y, Rgba([255, 255, 255, 255]));
+        let mut pixels = RgbaImage::from_pixel(2, 2, Rgba([240, 120, 60, 255]));
+        pixels.put_pixel(0, 0, Rgba([10, 20, 30, 255]));
+        // Integer enlargement repeats pixels, never inventing interpolated colors.
+        for y in 0..6 {
+            for x in 0..6 {
+                let expected = if x < 3 && y < 3 {
+                    [10, 20, 30]
+                } else {
+                    [240, 120, 60]
+                };
+                assert_eq!(sample(&pixels, x, y, 6, 6, [0; 3]), expected);
+            }
         }
-        // Point sampling the center lost this entire one-pixel feature.
-        assert_eq!(sample(&narrow_line, 0, 0, 1, 1, [0; 3]), [32; 3]);
+        assert_eq!(sample(&pixels, 0, 0, 1, 1, [0; 3]), [240, 120, 60]);
         let transparent = RgbaImage::new(4, 4);
         assert_eq!(trim_transparent_border(transparent).dimensions(), (4, 4));
     }
@@ -1301,6 +1302,112 @@ mod tests {
             let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
             assert!(text.contains("Images: setup"));
         }
+    }
+
+    #[test]
+    fn auto_keeps_loaded_assets_but_never_creates_a_cell_mosaic() {
+        let directory = TestDirectory::new();
+        let image = RgbaImage::from_pixel(96, 96, Rgba([80, 120, 160, 255]));
+        fs::write(directory.0.join("133.png"), png(&image)).unwrap();
+        let mut settings = config(&directory.0);
+        settings.images = ImageMode::Auto;
+        let mut artwork = Artwork::load(&settings);
+        let target = Rect::new(0, 0, 20, 6);
+        artwork.prepare(&[(0, target)], Color::Black);
+        assert_eq!(artwork.available(), 1);
+        assert_eq!(artwork.original(0).unwrap().dimensions(), (96, 96));
+        assert!(artwork.cache.is_empty());
+        let mut buffer = Buffer::empty(target);
+        artwork.render(0, target, &mut buffer);
+        let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(text.contains("No native image"));
+        assert!(!text.contains('▀'));
+        artwork.set_native_active(true);
+        let mut native_buffer = Buffer::empty(target);
+        artwork.render(0, target, &mut native_buffer);
+        assert!(
+            native_buffer
+                .content
+                .iter()
+                .all(|cell| cell.symbol() == " ")
+        );
+        artwork.set_native_active(false);
+        artwork.render(0, target, &mut native_buffer);
+        let text: String = native_buffer
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(text.contains("No native image"));
+    }
+
+    #[test]
+    fn sixel_requires_full_erase_on_overlay_move_resize_and_capability_loss() {
+        use crate::{input::GraphicsCapabilities, native::NativeGraphics};
+
+        let directory = TestDirectory::new();
+        fs::write(
+            directory.0.join("133.png"),
+            png(&RgbaImage::from_pixel(96, 96, Rgba([80, 120, 160, 255]))),
+        )
+        .unwrap();
+        let mut settings = config(&directory.0);
+        settings.images = ImageMode::Auto;
+        let artwork = Artwork::load(&settings);
+        let mut graphics = NativeGraphics::new(&settings);
+        graphics.apply_capabilities(GraphicsCapabilities {
+            kitty: false,
+            sixel: true,
+            cell_size: Some((8, 16)),
+        });
+        let target = Rect::new(1, 1, 20, 8);
+        assert!(
+            !graphics
+                .prepare(&artwork, &[(0, target)], Color::Black)
+                .unwrap()
+        );
+        // Idle drawing does not clear or re-encode the cached Sixel.
+        assert!(
+            !graphics
+                .prepare(&artwork, &[(0, target)], Color::Black)
+                .unwrap()
+        );
+        assert!(graphics.prepare(&artwork, &[], Color::Black).unwrap());
+        assert!(!graphics.prepare(&artwork, &[], Color::Black).unwrap());
+        assert!(
+            !graphics
+                .prepare(&artwork, &[(0, target)], Color::Black)
+                .unwrap()
+        );
+        let moved = Rect::new(2, 1, 20, 8);
+        assert!(
+            graphics
+                .prepare(&artwork, &[(0, moved)], Color::Black)
+                .unwrap()
+        );
+        let resized = Rect::new(2, 1, 24, 12);
+        assert!(
+            graphics
+                .prepare(&artwork, &[(0, resized)], Color::Black)
+                .unwrap()
+        );
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 40, 20));
+        graphics.render(&mut buffer);
+        // Sixel raster header declares the original integer-2x pixel canvas,
+        // not a 24x12 or 24x24 terminal-cell approximation.
+        assert!(
+            buffer
+                .content
+                .iter()
+                .any(|cell| cell.symbol().contains(";192;192"))
+        );
+        graphics.apply_capabilities(GraphicsCapabilities::default());
+        assert!(
+            graphics
+                .prepare(&artwork, &[(0, resized)], Color::Black)
+                .unwrap()
+        );
+        assert!(!graphics.is_native());
     }
 
     #[test]

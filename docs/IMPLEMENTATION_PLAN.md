@@ -21,9 +21,9 @@ One native Rust binary and one Cargo package with these module boundaries; an op
 - `context`: bounded source catalogue/range capture, exclusion/containment checks, exact payload assembly and source revalidation.
 - `agent` / `provider`: profile/version admission and the minimal routed request/event contract; concrete `codex`, `claude` and shared `acp` workers own transport/policy details.
 - `handoff`: strict version-1 curated facts/source identities/decisions, create-only JSON/Markdown I/O, review and dispatch-binding validation; never session/grant portability.
-- `artwork`: bounded local PNG/source-manifest loading, explicit pinned downloads, and cached image-derived cells.
-- `native`: terminal/version-qualified Kitty encoding, physical-cell diff widths, placement/resource lifecycle, and kernel-only cell-size discovery.
-- `input`: one terminal-input owner; Crossterm on POSIX, bounded VT/Unicode console records on Windows.
+- `artwork`: bounded local PNG/source-manifest loading, install-time or explicit hash-pinned original sprite downloads, shared integer pixel fitting, and cached nearest-neighbor half cells. Online installers prepare all nine forms before publication; offline archives never download, and startup reads the same platform `eevee/sprites` cache without networking.
+- `native`: capability-negotiated Sixel/Kitty, original-pixel integer geometry, cached bounded encodings, physical-cell diff widths and owned placement/resource cleanup. Automatic mode never substitutes character mosaics.
+- `input`: one terminal-input owner and shared bounded VT/graphics decoder; blocking poll/SIGWINCH on POSIX, Unicode console records on Windows. Capability discovery expires after 500ms while late/split replies remain filtered from editing.
 - `terminal`: capture/restore terminal modes and graphics cleanup on normal/error/panic exit.
 
 The reducer owns mutable application state. Workers send typed events; render functions perform no I/O and report only derived viewport scroll bounds back to state. Store writes run on a dedicated blocking worker. Large payloads are referenced rather than repeatedly cloned into events.

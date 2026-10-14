@@ -512,7 +512,7 @@ def exercise_ui(session, size, cwd):
     while True:
         assert session.alive(), "app failed at startup"
         screen = session.display()
-        if "Storage: saved" in screen and "Ctrl+K Actions" in screen:
+        if "Storage: saved" in screen and "Task composer" in screen and "Ctrl+K Actions" in screen:
             break
         assert time.monotonic() < deadline, "saved home surface did not finish rendering"
         session.pump(0.05)
@@ -520,6 +520,20 @@ def exercise_ui(session, size, cwd):
     assert ESC + "]0;SMOKE_CWD" not in session.text, "cwd controls escaped sanitization"
     session.capture("initial")
     session.idle()
+    assert "Task and storage inspector" not in session.display(), "secondary inspector dominates initial layout"
+    session.send("/")
+    assert "/ Commands" in session.display(), "slash command picker did not open"
+    session.send("help")
+    session.send("\r")
+    assert "GETTING STARTED" in session.display(), "/help did not open real help"
+    session.capture("slash-help")
+    session.send(ESC)
+    assert "Task composer" in session.display(), "/help did not return to composer"
+    session.send("@")
+    assert "@ Attach context" in session.display(), "first composer attachment picker did not open"
+    session.capture("attachment-picker")
+    session.send(ESC)
+    session.send("\x08")  # Dismissing the picker keeps its literal @; remove it.
     session.send(ESC)  # This legacy journey explicitly enters navigation first.
     session.send("g")
     session.paste("🐾 smoke_goal 漢字 cafe\u0301")
@@ -620,6 +634,7 @@ def lifecycle_binary(root, output):
             shutil.copyfile(root / name, package / name)
         shutil.copyfile(root / "src/terminal.rs", package / "src/terminal.rs")
         shutil.copyfile(root / "src/input.rs", package / "src/input.rs")
+        shutil.copytree(root / "src/input", package / "src/input")
         (package / "examples/terminal_probe.rs").write_text('''#[path = "../src/terminal.rs"]
 mod terminal;
 #[path = "../src/input.rs"]

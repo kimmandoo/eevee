@@ -218,7 +218,8 @@ def main():
             def switch(session, index, task_id):
                 task_menu(session, index)
                 until(session, lambda: rows()["active"] == task_id, "task switch did not commit")
-                until(session, lambda: session.display().lstrip().startswith(task(task_id)["goal"]),
+                until(session, lambda: task(task_id)["goal"] in session.display()
+                      and "Task cards / committed snapshots" not in session.display(),
                       "task switch committed before its UI acknowledgement")
                 wait_for(session, "Storage: saved")
 
@@ -464,7 +465,8 @@ def main():
             final_run(resumed, 4, "Cancelled", idle=False)
             exited(resumed, owned)
             until(resumed, lambda: rows()["active"] == task_b, "cancel-and-switch did not navigate after final journal")
-            until(resumed, lambda: resumed.display().lstrip().startswith(task(task_b)["goal"]),
+            until(resumed, lambda: task(task_b)["goal"] in resumed.display()
+                  and "Task cards / committed snapshots" not in resumed.display(),
                   "cancel-and-switch UI acknowledgement")
             assert task(task_a)["command"] == switched_command
             assert any(entry["text"] == retained_goal for entry in task(task_a)["drafts"])

@@ -84,6 +84,12 @@ impl State {
         self.store_busy && self.store_mutation
     }
     pub fn catalogue(&mut self, task_id: i64, report: Option<&Arc<repo::Report>>) {
+        if self.store_failed {
+            self.error =
+                "Context save failed. Open /files and press s to retry the retained operation."
+                    .into();
+            return;
+        }
         if task_id <= 0 {
             self.error = "Create and save a task before selecting sources.".into();
             return;
@@ -233,6 +239,30 @@ impl State {
             }
         }
     }
+    pub fn inspect_file(&mut self, task_id: i64, report: Option<&Arc<repo::Report>>) {
+        if self.busy() || self.store_failed {
+            self.error =
+                "Finish or retry the pending context operation before selecting another file."
+                    .into();
+            return;
+        }
+        let Some(report) = report else {
+            self.error = "Repository evidence unavailable; u refreshes.".into();
+            return;
+        };
+        let Some(source) = self.files.get(self.file_selection) else {
+            self.error = "No eligible source selected.".into();
+            return;
+        };
+        self.queue(
+            task_id,
+            context::Operation::InspectFile {
+                report: Arc::clone(report),
+                path: source.path.clone(),
+            },
+        );
+    }
+
     fn inspect(
         &mut self,
         task_id: i64,
