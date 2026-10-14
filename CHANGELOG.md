@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-15
+
+- feat(auth): add an Eevee-owned website OAuth route for Devin (authorization code + PKCE against server.codeium.com; loopback callback on localhost, or pasted redirect/code for remote sessions). The returned Windsurf session credential lives only in process memory: it is never serialized, journaled or shown, its Debug output is redacted and its bytes are scrubbed on drop. Eevee injects it as `WINDSURF_API_KEY` into the launched `devin acp` child environment only, where it takes precedence over the CLI's stored credentials; the JWT `exp` minus a five-minute skew bounds injection, and expiry surfaces as a launch blocker on the next review. A successful native Devin CLI login clears the in-memory credential.
+- feat(runner): add `spawn_piped_env` so reviewed launches can pass child-only environment overrides that are not recorded in the command spec; on Windows the overrides merge into a fresh sorted UTF-16 environment block passed with `CREATE_UNICODE_ENVIRONMENT`, so a stale or absent parent PATH/PATHEXT never reaches the child.
+- fix(agents): keep in-session connection outcomes across `Refresh installed providers` and surface `Connected (session credential)` while a live website-OAuth credential can satisfy Devin ACP launches; `/connect` now syncs the hub's active provider like `/provider` so Model/Effort choices reflect the task provider.
+- fix(planning): close an open model/effort picker and drop pending selection changes before clearing authentication state so a stale catalogue cannot survive a credential change; when a refreshed catalogue no longer advertises the selected model, the notice now names the stale selection instead of silently keeping it.
+- fix(auth): report a misparsed authorization-code paste (`code` present without `state`, or `state` without `code`) as a Failed login instead of exchanging a malformed request, and reject non-JWT tokens or JWTs without a numeric `exp` as implausible before they reach a child environment.
+- docs: document the website-login contract and credential handling in `docs/DESIGN_RULES.md` and the Devin row/README sign-in note.
+
 ## 0.1.2
 
 - feat(providers): `/provider` and `/connect` open one hub that marks the task provider (●) with its model and effort, adds Choose model / Choose reasoning effort, and preselects the likely next step (Connect → Use for task → Choose model). Every connection, switch and request review is unchanged.

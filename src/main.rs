@@ -158,12 +158,29 @@ fn run(config: Config) -> io::Result<()> {
                     dirty = true;
                 } else {
                     input.discard_pending()?;
-                    let outcome = modes.suspend(|| auth::run(&plan, &project))?;
+                    let completion = modes.suspend(|| auth::run(&plan, &project))?;
                     // Native auth can change terminal dimensions/modes and provider
                     // credentials even on cancellation. Never reuse prior Run consent.
                     if !plan.method.is_status() {
                         app.authentication_returned();
                     }
+                    // A website-OAuth result arrives with its own session
+                    // credential; a native login clears it only when Devin
+                    // itself reports success.
+                    if let Some(credential) = completion.credential {
+                        app.planning.set_devin_credential(Some(credential));
+                    } else if matches!(
+                        plan.method,
+                        auth::Method::DevinBrowser | auth::Method::DevinManualToken
+                    ) && completion.outcome == auth::Outcome::Authenticated
+                    {
+                        app.planning.set_devin_credential(None);
+                    }
+                    app.agents.session_credential = app
+                        .planning
+                        .devin_credential
+                        .as_ref()
+                        .is_some_and(|credential| !credential.expired());
                     input = input::Input::new()?;
                     input.discard_pending()?;
                     graphics = native::NativeGraphics::new(&config);
@@ -173,7 +190,7 @@ fn run(config: Config) -> io::Result<()> {
                     }
                     let size = terminal.size()?;
                     app.update(event::Event::Resize(size.width, size.height));
-                    app.agents.auth_returned(plan.profile, outcome);
+                    app.agents.auth_returned(plan.profile, completion.outcome);
                     dirty = true;
                 }
             }

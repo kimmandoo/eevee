@@ -139,7 +139,11 @@ fn profile(agent: Agent) -> Result<(usize, &'static str, Vec<String>), String> {
             crate::agent::OPENCODE_RELEASE,
             vec!["acp".into(), "--pure".into()],
         )),
-        Agent::Gemini => Ok((3, "0.28.0", vec!["--experimental-acp".into()])),
+        Agent::Gemini => Ok((
+            3,
+            crate::agent::GEMINI_RELEASE,
+            vec!["--experimental-acp".into()],
+        )),
         Agent::Devin => Ok((
             crate::agent::DEVIN,
             crate::agent::DEVIN_RELEASE,
@@ -230,6 +234,22 @@ fn worker(
                         && sessions.get(&(input.agent, id.clone())) != Some(&task_id)
                     {
                         blockers.push("Resume refused: session is not an observed session of this provider and task; no cross-provider session transfer.".into());
+                    }
+                    if let Some(credential) = &input.credential {
+                        if credential.expired() {
+                            blockers.push(
+                                "The session credential from the provider website login has expired; Connect again before launching. No launch was prepared.".into(),
+                            );
+                        } else {
+                            lines.push(format!(
+                                "Session credential: Eevee injects {} into the launched provider process only (memory-held website credential; it takes precedence over the provider CLI's stored credentials and is never persisted or printed).{}",
+                                credential.env,
+                                credential
+                                    .expires_at
+                                    .map(|at| format!(" Token expires ~unix {at}."))
+                                    .unwrap_or_default()
+                            ));
+                        }
                     }
                     let preview = Preview {
                         generation,
@@ -1132,7 +1152,14 @@ fn transport(
         if stop.load(Ordering::Acquire) || cancelled.load(Ordering::Acquire) == run.generation {
             return Err("Cancelled before ACP launch".into());
         }
-        crate::runner::native::Process::spawn_piped(&prepared)
+        let env: Vec<(String, String)> = run
+            .input
+            .credential
+            .iter()
+            .filter(|credential| !credential.expired())
+            .map(|credential| (credential.env.to_string(), credential.token().to_string()))
+            .collect();
+        crate::runner::native::Process::spawn_piped_env(&prepared, &env)
             .map_err(|_| "Trusted ACP peer failed to launch; OS details withheld".to_owned())
     })();
     let process = match setup {
@@ -2526,6 +2553,7 @@ mod tests {
                 inspect_sessions: false,
                 inspect_models: false,
                 selection: ModelSelection::default(),
+                credential: None,
             };
             assert!(
                 payload(&workspace, &input)

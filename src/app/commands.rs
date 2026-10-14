@@ -450,7 +450,12 @@ impl App {
                 self.agents.active = self.planning.agent.index();
                 self.agents.focus_active();
             }
-            "connect" => self.open_overlay(Overlay::Agents),
+            "connect" => {
+                self.open_overlay(Overlay::Agents);
+                // Same active-provider sync as /provider so the hub's
+                // Model/Effort vs Use-for-task choice reflects the task's provider.
+                self.agents.active = self.planning.agent.index();
+            }
             "task-new" => self.new_task(),
             "tasks" => self.open_overlay(Overlay::Tasks),
             "new" | "resume" | "model" | "effort" | "history" => {

@@ -1130,13 +1130,22 @@ pub(crate) mod native {
     }
     impl Process {
         pub fn spawn(prepared: &Prepared) -> io::Result<Self> {
-            Self::spawn_inner(prepared, false)
+            Self::spawn_inner(prepared, false, &[])
         }
         /// Owned bidirectional transport; stdin writes are nonblocking, like capture reads.
         pub fn spawn_piped(prepared: &Prepared) -> io::Result<Self> {
-            Self::spawn_inner(prepared, true)
+            Self::spawn_inner(prepared, true, &[])
         }
-        fn spawn_inner(prepared: &Prepared, piped: bool) -> io::Result<Self> {
+        /// Like `spawn_piped` with extra environment variables applied to the
+        /// child only; values are not recorded in the reviewed spec.
+        pub fn spawn_piped_env(prepared: &Prepared, env: &[(String, String)]) -> io::Result<Self> {
+            Self::spawn_inner(prepared, true, env)
+        }
+        fn spawn_inner(
+            prepared: &Prepared,
+            piped: bool,
+            env: &[(String, String)],
+        ) -> io::Result<Self> {
             let (stdout, stdout_writer) = io::pipe()?;
             let (stderr, stderr_writer) = io::pipe()?;
             let (stdin_reader, stdin) = if piped {
@@ -1170,6 +1179,12 @@ pub(crate) mod native {
                 .stdout(stdout_writer)
                 .stderr(stderr_writer)
                 .process_group(0);
+            if !env.is_empty() {
+                command.envs(
+                    env.iter()
+                        .map(|(key, value)| (key.as_str(), value.as_str())),
+                );
+            }
             // std establishes setpgid(0,0) in the child before exec; spawn reports failures.
             let child = command.spawn()?;
             let group = child.id() as libc::pid_t;
@@ -1317,6 +1332,41 @@ pub(crate) mod native {
             .open(path)?;
         file_identity(&file)
     }
+
+    /// Merges overrides into the parent environment as the sorted,
+    /// NUL-delimited UTF-16 block `CreateProcessW` expects. Names are compared
+    /// case-insensitively like the Win32 resolver; embedded NULs are refused.
+    fn environment_block(overrides: &[(String, String)]) -> io::Result<Vec<u16>> {
+        let mut merged: Vec<(String, String)> = std::env::vars()
+            .filter(|(name, _)| {
+                !name.is_empty()
+                    && !name.contains('=')
+                    && !overrides
+                        .iter()
+                        .any(|(key, _)| key.eq_ignore_ascii_case(name))
+            })
+            .collect();
+        for (name, value) in overrides {
+            if name.is_empty()
+                || name.contains('=')
+                || [name, value]
+                    .iter()
+                    .any(|part| part.contains('\0') || part.contains('='))
+            {
+                return Err(io::Error::other("Invalid environment override"));
+            }
+            merged.push((name.clone(), value.clone()));
+        }
+        merged.sort_by(|a, b| a.0.to_uppercase().cmp(&b.0.to_uppercase()));
+        let mut block = Vec::new();
+        for (name, value) in merged {
+            block.extend(wide(std::ffi::OsStr::new(&format!("{name}={value}"))));
+            block.push(0);
+        }
+        block.push(0);
+        Ok(block)
+    }
+
     fn pipe() -> io::Result<(OwnedHandle, OwnedHandle)> {
         let mut read = null_mut();
         let mut write = null_mut();
@@ -1410,13 +1460,22 @@ pub(crate) mod native {
     }
     impl Process {
         pub fn spawn(prepared: &Prepared) -> io::Result<Self> {
-            Self::spawn_inner(prepared, false)
+            Self::spawn_inner(prepared, false, &[])
         }
         /// Keep the same suspended-before-Job admission as local commands.
         pub fn spawn_piped(prepared: &Prepared) -> io::Result<Self> {
-            Self::spawn_inner(prepared, true)
+            Self::spawn_inner(prepared, true, &[])
         }
-        fn spawn_inner(prepared: &Prepared, piped: bool) -> io::Result<Self> {
+        /// Like `spawn_piped` with extra environment variables applied to the
+        /// child only; values are not recorded in the reviewed spec.
+        pub fn spawn_piped_env(prepared: &Prepared, env: &[(String, String)]) -> io::Result<Self> {
+            Self::spawn_inner(prepared, true, env)
+        }
+        fn spawn_inner(
+            prepared: &Prepared,
+            piped: bool,
+            env: &[(String, String)],
+        ) -> io::Result<Self> {
             let job = handle(unsafe { CreateJobObjectW(null(), null()) })?;
             let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
             limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -1538,6 +1597,21 @@ pub(crate) mod native {
                 ));
             }
             let mut info = PROCESS_INFORMATION::default();
+            // Child-only environment block when overrides were supplied;
+            // CREATE_UNICODE_ENVIRONMENT pairs with the UTF-16 encoding.
+            let environment = if env.is_empty() {
+                None
+            } else {
+                Some(environment_block(env)?)
+            };
+            let creation = CREATE_SUSPENDED
+                | CREATE_NO_WINDOW
+                | EXTENDED_STARTUPINFO_PRESENT
+                | if environment.is_some() {
+                    CREATE_UNICODE_ENVIRONMENT
+                } else {
+                    0
+                };
             if unsafe {
                 CreateProcessW(
                     executable.as_ptr(),
@@ -1545,8 +1619,10 @@ pub(crate) mod native {
                     null(),
                     null(),
                     1,
-                    CREATE_SUSPENDED | CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
-                    null(),
+                    creation,
+                    environment
+                        .as_ref()
+                        .map_or(null(), |block| block.as_ptr().cast()),
                     cwd.as_ptr(),
                     &startup.StartupInfo,
                     &mut info,

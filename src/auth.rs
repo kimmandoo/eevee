@@ -20,6 +20,10 @@ pub enum Method {
     GeminiNative,
     ClaudeConsole,
     ClaudeConsoleCode,
+    /// Eevee-owned authorization-code + PKCE flow against the provider's
+    /// website; no provider CLI is launched. The returned session token is
+    /// process memory only.
+    DevinWeb,
     DevinBrowser,
     DevinManualToken,
     DevinStatus,
@@ -36,8 +40,11 @@ impl Method {
             Self::GeminiNative => "Official Gemini CLI / Google OAuth, API key or Vertex",
             Self::ClaudeConsole => "Anthropic Console OAuth / browser (official ant CLI)",
             Self::ClaudeConsoleCode => "Anthropic Console OAuth / paste code (no browser launch)",
-            Self::DevinBrowser => "Devin / browser OAuth",
-            Self::DevinManualToken => "Devin / manual token paste (not device OAuth)",
+            Self::DevinWeb => {
+                "Devin / website OAuth (browser callback or pasted redirect; session credential)"
+            }
+            Self::DevinBrowser => "Devin CLI / browser OAuth (stored credentials)",
+            Self::DevinManualToken => "Devin CLI / manual token paste (stored credentials)",
             Self::DevinStatus => "Official Devin auth status (not eligibility proof)",
             Self::ClaudeConsoleStatus => {
                 "Official ant auth status (profile presence, not eligibility)"
@@ -63,6 +70,10 @@ impl Method {
             Self::ClaudeConsole | Self::ClaudeConsoleCode | Self::ClaudeConsoleStatus
         )
     }
+    /// Eevee-owned website flow: no provider executable or credential store.
+    pub fn is_web(self) -> bool {
+        matches!(self, Self::DevinWeb)
+    }
     pub fn guidance(self) -> Option<&'static str> {
         match self {
             Self::CodexBrowser => Some(
@@ -73,6 +84,9 @@ impl Method {
             ),
             Self::ClaudeConsole | Self::ClaudeConsoleCode => Some(
                 "Signs in to the Claude Console (platform.claude.com) and bills Claude API usage to the chosen organization/workspace. This is NOT claude.ai Pro/Max subscription login: Anthropic does not permit third-party Agent SDK apps to use subscription OAuth. Paste-code login prints the official authorize URL and reads the returned code inside ant, without a localhost callback or browser launcher (WSL/SSH). Never share codes or URLs.",
+            ),
+            Self::DevinWeb => Some(
+                "Eevee's own authorization-code + PKCE flow against the Devin website; no Devin CLI auth subcommand runs. A browser opens (or copy the printed URL) and the site redirects to a localhost listener on 127.0.0.1:59653. Without a browser or listener (SSH/WSL/headless), paste the localhost redirect URL after sign-in — or a session token (cog_/JWT form) — and press Enter. The token stays in process memory and is injected as WINDSURF_API_KEY only into devin acp processes Eevee launches; nothing is written to Devin's credential store, so devin auth status can still report logged out and restarting Eevee requires re-login. Esc cancels; expired/cancelled URLs cannot be reused. Never share callback URLs.",
             ),
             Self::DevinBrowser | Self::DevinManualToken => Some(
                 "Runs the dedicated official devin auth login, not a chat or ACP session. Browser login is owned by Devin. For remote/SSH sessions, explicitly select manual token paste to skip browser auth; this is NOT device authorization. Paste any token only into Devin's native terminal prompt, never Eevee or task context. Enterprise machine policy may pin the host/account. Eevee neither reads nor stores credentials and never infers account/model eligibility from login exit.",
@@ -100,6 +114,7 @@ impl Method {
             Self::OpenCode => &["auth", "login", "--pure"],
             Self::CodexStatus => &["login", "status"],
             Self::OpenCodeStatus => &["auth", "list"],
+            Self::DevinWeb => &[],
             Self::DevinBrowser => &["auth", "login"],
             Self::DevinManualToken => &["auth", "login", "--force-manual-token-flow"],
             Self::DevinStatus => &["auth", "status"],
@@ -117,7 +132,11 @@ pub fn methods(profile: usize) -> &'static [Method] {
         1 => &[Method::ClaudeConsole, Method::ClaudeConsoleCode],
         2 => &[Method::OpenCode],
         3 => &[Method::GeminiNative],
-        agent::DEVIN => &[Method::DevinBrowser, Method::DevinManualToken],
+        agent::DEVIN => &[
+            Method::DevinWeb,
+            Method::DevinBrowser,
+            Method::DevinManualToken,
+        ],
         _ => &[],
     }
 }
@@ -137,13 +156,15 @@ pub fn default_method(profile: usize) -> usize {
         let kernel = String::new();
         callback_free_environment(|_| false, &kernel)
     });
-    if matches!(profile, 0 | 1) && *CALLBACK_FREE {
-        1
+    // Codex device auth and Claude paste-code sit at index 1; Devin's only
+    // callback-free method with a persisted credential store is its manual
+    // token CLI flow at index 2.
+    if *CALLBACK_FREE && matches!(profile, 0 | 1 | agent::DEVIN) {
+        if profile == agent::DEVIN { 2 } else { 1 }
     } else {
         0
     }
 }
-
 fn callback_free_environment(present: impl Fn(&str) -> bool, kernel: &str) -> bool {
     [
         "WSL_DISTRO_NAME",
@@ -170,6 +191,57 @@ pub fn status_method(profile: usize) -> Option<Method> {
     }
 }
 
+/// A provider session token issued by an Eevee-owned website flow. Lives in
+/// process memory only: never serialized, journaled or printed. Debug output
+/// is redacted; the secret bytes are zeroed on drop.
+pub struct SessionCredential {
+    /// Environment variable the token is injected under when Eevee launches
+    /// the provider's ACP server (`WINDSURF_API_KEY` for `devin acp`).
+    pub env: &'static str,
+    token: String,
+    /// Unix seconds at which the token stops being injected (JWT `exp`
+    /// minus a 5-minute skew); None when the token is not a JWT.
+    pub expires_at: Option<u64>,
+}
+impl SessionCredential {
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+    pub fn expired(&self) -> bool {
+        self.expires_at.is_some_and(|at| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|now| now.as_secs() >= at)
+                .unwrap_or(false)
+        })
+    }
+}
+impl Clone for SessionCredential {
+    fn clone(&self) -> Self {
+        Self {
+            env: self.env,
+            token: self.token.clone(),
+            expires_at: self.expires_at,
+        }
+    }
+}
+impl std::fmt::Debug for SessionCredential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionCredential")
+            .field("env", &self.env)
+            .field("token", &"<redacted>")
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+impl Drop for SessionCredential {
+    fn drop(&mut self) {
+        // Best-effort scrub of the only copy Eevee controls.
+        unsafe {
+            std::ptr::write_bytes(self.token.as_mut_ptr(), 0, self.token.len());
+        }
+    }
+}
 struct AuthDirectory {
     path: PathBuf,
     identity: String,
@@ -241,9 +313,10 @@ pub struct Plan {
     executable: usize,
     pub lines: Vec<String>,
     pub summary: Vec<String>,
-    trust: agent::ExternalTrust,
+    /// None for Eevee-owned website flows: no provider executable is launched.
+    trust: Option<agent::ExternalTrust>,
     created: Instant,
-    directory: AuthDirectory,
+    directory: Option<AuthDirectory>,
 }
 impl std::fmt::Debug for Plan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -264,6 +337,9 @@ impl Plan {
                 .any(|key| std::env::var(key).is_ok_and(|value| value == "true"))
         {
             return Err("Gemini native login is disabled by CI/GITHUB_ACTIONS=true. Launch Eevee from an interactive environment without those headless flags; no login was started.".into());
+        }
+        if method.is_web() {
+            return Self::web(profile, method);
         }
         let executable = if method.is_claude() {
             if crate::claude::console_profile_name().is_none() {
@@ -356,13 +432,55 @@ impl Plan {
             executable,
             lines,
             summary,
-            trust,
+            trust: Some(trust),
             created: Instant::now(),
-            directory,
+            directory: Some(directory),
+        })
+    }
+    /// Eevee-owned website flow: no provider executable or private cwd is
+    /// involved, so trust is the fixed endpoint contract alone.
+    fn web(profile: usize, method: Method) -> Result<Self, String> {
+        if !method.is_web() {
+            return Err("Authentication method does not belong to this provider".into());
+        }
+        let mut lines = vec![
+            format!("Selected method: {}", method.label()),
+            "No provider executable is launched. Eevee binds a loopback HTTP listener on 127.0.0.1:59653 (/callback, /launch), opens or prints the provider's official sign-in URL, verifies the returned state, and POSTs the authorization code and PKCE verifier to https://api.devin.ai/auth/cli/token. No other host or credential is contacted.".into(),
+            "The issued session token is kept in process memory only and passed to Devin solely as the WINDSURF_API_KEY environment variable of devin acp processes Eevee itself launches; it is never written to Devin's credential store, printed, journaled or replayed.".into(),
+        ];
+        if let Some(guidance) = method.guidance() {
+            lines.push(guidance.into());
+        }
+        lines.push("Eevee sends no task context or model prompt and never replays the task. Any later model request needs a separate review and Run approval. Cancellation does not revoke already-issued credentials; use the provider's account controls to revoke them.".into());
+        lines.push("Use Esc/Ctrl+C to cancel. Nothing is persisted by Eevee; a successful exchange alone is NOT proof of account or model eligibility.".into());
+        lines.push("Approval expires in five minutes; the login wait expires after ten minutes. Esc cancels without starting. Back is selected by default.".into());
+        let mut summary = vec![
+            format!("Method: {}", method.label()),
+            "Endpoints: https://app.devin.ai/auth/cli/continue (sign-in), http://127.0.0.1:59653/callback (loopback), https://api.devin.ai/auth/cli/token (code+verifier exchange).".into(),
+            "Credential stays in Eevee process memory; injected as WINDSURF_API_KEY only into devin acp launches; never persisted by Eevee.".into(),
+        ];
+        if let Some(guidance) = method.guidance() {
+            summary.push(guidance.into());
+        }
+        summary.push("No task prompt sent or replayed. Esc/Ctrl+C returns; cancellation does not revoke issued credentials. Restarting Eevee requires a fresh login.".into());
+        summary
+            .push("Approval: 5 min. Timeout: 10 min. Full flow details are under Details.".into());
+        Ok(Self {
+            profile,
+            method,
+            executable: profile,
+            lines,
+            summary,
+            trust: None,
+            created: Instant::now(),
+            directory: None,
         })
     }
     fn qualify(&self, project: &Path) -> Result<runner::Prepared, Outcome> {
-        if !self.directory.unchanged_empty() {
+        let (Some(directory), Some(trust)) = (&self.directory, &self.trust) else {
+            return Err(Outcome::Refused);
+        };
+        if !directory.unchanged_empty() {
             return Err(Outcome::Refused);
         }
         if self.created.elapsed() >= LIFETIME {
@@ -371,7 +489,7 @@ impl Plan {
         let prepared = agent::qualify_external(
             self.executable,
             project,
-            &self.trust,
+            trust,
             release(self.executable),
             &INTERRUPTED,
         )
@@ -382,7 +500,7 @@ impl Plan {
                 Outcome::Refused
             }
         })?;
-        if !self.directory.unchanged_empty() {
+        if !directory.unchanged_empty() {
             return Err(Outcome::Refused);
         }
         if self.created.elapsed() >= LIFETIME {
@@ -438,21 +556,44 @@ impl Outcome {
         }
     }
 }
+/// A completed authentication attempt; `credential` is only ever present for
+/// Eevee-owned website flows and holds the returned session token in memory.
+pub struct Completion {
+    pub outcome: Outcome,
+    pub credential: Option<SessionCredential>,
+}
+impl Completion {
+    fn bare(outcome: Outcome) -> Self {
+        Self {
+            outcome,
+            credential: None,
+        }
+    }
+}
 
 /// Called only with terminal ownership suspended and fresh App admission.
-pub fn run(plan: &Plan, project: &Path) -> Outcome {
+pub fn run(plan: &Plan, project: &Path) -> Completion {
     let Ok(_signals) = NativeSignals::new() else {
-        return Outcome::Failed;
+        return Completion::bare(Outcome::Failed);
     };
+    if plan.method.is_web() {
+        if plan.created.elapsed() >= LIFETIME {
+            return Completion::bare(Outcome::Expired);
+        }
+        if INTERRUPTED.load(Ordering::Acquire) {
+            return Completion::bare(Outcome::Cancelled);
+        }
+        return devin_web::login();
+    }
     let prepared = match plan.qualify(project) {
         Ok(value) => value,
-        Err(outcome) => return outcome,
+        Err(outcome) => return Completion::bare(outcome),
     };
     if INTERRUPTED.load(Ordering::Acquire) {
-        return Outcome::Cancelled;
+        return Completion::bare(Outcome::Cancelled);
     }
     if plan.method == Method::CodexStatus {
-        return codex_status(&prepared);
+        return Completion::bare(codex_status(&prepared));
     }
     let console_before = plan.method.is_claude().then(console_stamp);
     let result = native_ui(
@@ -467,23 +608,26 @@ pub fn run(plan: &Plan, project: &Path) -> Outcome {
         && result == Outcome::Unknown
     {
         // Login may replace known configuration; never reuse stale executable trust.
-        if !plan.directory.unchanged_empty()
-            || agent::revalidate_external_trust(plan.profile, project, &plan.trust).is_err()
+        if plan.directory.as_ref().is_none_or(|d| !d.unchanged_empty())
+            || plan
+                .trust
+                .as_ref()
+                .is_none_or(|t| agent::revalidate_external_trust(plan.profile, project, t).is_err())
         {
-            return Outcome::Unknown;
+            return Completion::bare(Outcome::Unknown);
         }
         let mut status = prepared;
         if let runner::CommandSpec::Direct { args, .. } = &mut status.spec {
             *args = Method::CodexStatus.args();
         }
-        return codex_status(&status);
+        return Completion::bare(codex_status(&status));
     }
     if let Some(before) = console_before
         && result == Outcome::Unknown
     {
-        return console_outcome(plan.method, &before, &console_stamp());
+        return Completion::bare(console_outcome(plan.method, &before, &console_stamp()));
     }
-    result
+    Completion::bare(result)
 }
 
 /// Credential-file metadata of the selected Console profile; contents are never read.
@@ -588,10 +732,12 @@ fn parse_codex_status(code: Option<i32>, bytes: &[u8]) -> Outcome {
 }
 
 fn native_ui(prepared: &runner::Prepared, timeout: Duration) -> Outcome {
-    let runner::CommandSpec::Direct { program, args } = &prepared.spec else {
+    // Spawn the reviewed executable identity itself, not the spec's program
+    // string, so PATH re-resolution cannot substitute another binary.
+    let runner::CommandSpec::Direct { args, .. } = &prepared.spec else {
         return Outcome::Refused;
     };
-    let mut command = Command::new(program);
+    let mut command = Command::new(&prepared.executable.path);
     command
         .args(args)
         .current_dir(&prepared.cwd)
@@ -859,6 +1005,515 @@ impl Drop for RawInput {
     }
 }
 
+/// Eevee-owned website authorization-code + PKCE login for Devin. No provider
+/// CLI runs: a loopback listener receives the website redirect, and the code
+/// plus verifier are exchanged for a session token that exists only in this
+/// process's memory.
+mod devin_web {
+    use super::{Completion, INTERRUPTED, LOGIN_TIMEOUT, Outcome, SessionCredential};
+    use sha2::{Digest, Sha256};
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::Ordering;
+    use std::time::{Duration, Instant};
+
+    /// Registered redirect for the provider's CLI sign-in page. Fixed: a
+    /// random port would produce a redirect URI the website refuses.
+    const CALLBACK_PORT: u16 = 59653;
+    const AUTHORIZE_URL: &str = "https://app.devin.ai/auth/cli/continue";
+    const TOKEN_URL: &str = "https://api.devin.ai/auth/cli/token";
+    const REQUEST_LIMIT: usize = 8 * 1024;
+    const PASTE_LIMIT: usize = 8 * 1024;
+    /// `exp` claim minus this skew decides when an injected credential stops
+    /// being used; the token itself is never refreshed.
+    pub(super) const EXPIRY_SKEW: u64 = 300;
+
+    fn random_bytes(buffer: &mut [u8]) -> Result<(), Outcome> {
+        getrandom::getrandom(buffer).map_err(|_| Outcome::Failed)
+    }
+
+    fn base64url_encode(bytes: &[u8]) -> String {
+        base64_simd::URL_SAFE_NO_PAD.encode_to_string(bytes)
+    }
+
+    fn uuid() -> Result<String, Outcome> {
+        let mut bytes = [0u8; 16];
+        random_bytes(&mut bytes)?;
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        let mut text = String::with_capacity(36);
+        for (index, byte) in bytes.iter().enumerate() {
+            if matches!(index, 4 | 6 | 8 | 10) {
+                text.push('-');
+            }
+            use std::fmt::Write as _;
+            let _ = write!(text, "{byte:02x}");
+        }
+        Ok(text)
+    }
+
+    fn url_encode(value: &str) -> String {
+        let mut out = String::with_capacity(value.len());
+        for byte in value.bytes() {
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+                out.push(byte as char);
+            } else {
+                use std::fmt::Write as _;
+                let _ = write!(out, "%{byte:02X}");
+            }
+        }
+        out
+    }
+
+    fn url_decode(value: &str) -> String {
+        let bytes = value.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut index = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'+' => {
+                    out.push(b' ');
+                    index += 1;
+                }
+                b'%' if index + 2 < bytes.len() => {
+                    let hi = (bytes[index + 1] as char).to_digit(16);
+                    let lo = (bytes[index + 2] as char).to_digit(16);
+                    if let (Some(hi), Some(lo)) = (hi, lo) {
+                        out.push((hi * 16 + lo) as u8);
+                        index += 3;
+                    } else {
+                        out.push(b'%');
+                        index += 1;
+                    }
+                }
+                byte => {
+                    out.push(byte);
+                    index += 1;
+                }
+            }
+        }
+        String::from_utf8_lossy(&out).into_owned()
+    }
+
+    /// Minimal `?k=v&…` reader; first occurrence wins, names are decoded.
+    fn query_param(query: &str, name: &str) -> Option<String> {
+        for pair in query.split('&') {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            if url_decode(key) == name {
+                return Some(url_decode(value));
+            }
+        }
+        None
+    }
+
+    /// Accepts the full redirect URL, a bare `?…`/`code=…` query string, or a
+    /// `code#state` fragment pair (the form the site shows for manual flow).
+    pub(super) fn parse_callback_input(input: &str) -> (Option<String>, Option<String>) {
+        let value = input.trim();
+        if value.is_empty() {
+            return (None, None);
+        }
+        if let Some(query) = value
+            .split_once("://")
+            .and_then(|(_, rest)| rest.split_once(['?', '#']))
+            .map(|(_, rest)| rest.split('#').next().unwrap_or(rest))
+        {
+            let query = query.trim_end_matches('/');
+            return (query_param(query, "code"), query_param(query, "state"));
+        }
+        if value.contains("code=") {
+            let query = value.trim_start_matches(['?', '#']);
+            return (query_param(query, "code"), query_param(query, "state"));
+        }
+        let mut parts = value.splitn(2, '#');
+        let code = parts.next().map(str::trim).filter(|s| !s.is_empty());
+        let state = parts.next().map(str::trim).filter(|s| !s.is_empty());
+        (code.map(str::to_string), state.map(str::to_string))
+    }
+
+    /// Only printable, shell/environment-safe token bytes are ever injected
+    /// into a child environment.
+    pub(super) fn plausible_token(token: &str) -> bool {
+        (16..=4096).contains(&token.len())
+            && token.bytes().all(|byte| {
+                byte.is_ascii_graphic()
+                    && !matches!(
+                        byte,
+                        b'"' | b'\''
+                            | b'`'
+                            | b'\\'
+                            | b';'
+                            | b'|'
+                            | b'&'
+                            | b'<'
+                            | b'>'
+                            | b'$'
+                            | b'!'
+                            | b'('
+                            | b')'
+                            | b'{'
+                            | b'}'
+                            | b'['
+                            | b']'
+                            | b'*'
+                            | b'?'
+                            | b'~'
+                            | b'^'
+                    )
+            })
+    }
+
+    /// JWT `exp` (seconds) minus skew; opaque tokens get no expiry.
+    pub(super) fn jwt_expiry(token: &str) -> Option<u64> {
+        let mut parts = token.split('.');
+        parts.next()?;
+        let payload = parts.next()?;
+        parts.next()?;
+        if parts.next().is_some() {
+            return None;
+        }
+        let mut padded = payload.to_string();
+        while padded.len() % 4 != 0 {
+            padded.push('=');
+        }
+        let bytes = base64_simd::URL_SAFE
+            .decode_to_vec(padded.as_bytes())
+            .ok()?;
+        let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+        let exp = value.get("exp")?.as_u64()?;
+        Some(exp.saturating_sub(EXPIRY_SKEW))
+    }
+
+    struct Callback {
+        code: Option<String>,
+        denied: Option<String>,
+    }
+
+    /// Serves `/callback` (code/state/error intake) and `/launch` (302 to the
+    /// live authorize URL for viewport-safe copying) on one loopback listener.
+    fn serve(mut stream: std::net::TcpStream, state: &str, launch: &str) -> Option<Callback> {
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+        let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+        let mut buffer = Vec::with_capacity(1024);
+        let mut chunk = [0u8; 1024];
+        while buffer.len() < REQUEST_LIMIT {
+            match stream.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    buffer.extend_from_slice(&chunk[..n]);
+                    if buffer.windows(4).any(|w| w == b"\r\n\r\n") || buffer.contains(&b'\n') {
+                        break;
+                    }
+                }
+            }
+        }
+        let head = String::from_utf8_lossy(&buffer);
+        let mut request = head.split_whitespace();
+        let target = match (request.next(), request.next()) {
+            (Some("GET"), Some(target)) => target,
+            _ => {
+                let _ = stream
+                    .write_all(b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n");
+                return None;
+            }
+        };
+        let (path, query) = target.split_once('?').unwrap_or((target, ""));
+        let respond = |stream: &mut std::net::TcpStream, status: &str, body: &str| {
+            let _ = stream.write_all(
+                format!("HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes(),
+            );
+        };
+        match path {
+            "/launch" => {
+                let _ = stream.write_all(
+                    format!(
+                        "HTTP/1.1 302 Found\r\nLocation: {launch}\r\nContent-Length: 0\r\n\r\n"
+                    )
+                    .as_bytes(),
+                );
+                None
+            }
+            "/callback" => {
+                let error = query_param(query, "error");
+                let description = query_param(query, "error_description").or(error.clone());
+                let code = query_param(query, "code");
+                let got_state = query_param(query, "state").unwrap_or_default();
+                if let Some(detail) = description {
+                    if got_state == state {
+                        respond(
+                            &mut stream,
+                            "200 OK",
+                            "<html><body>Sign-in finished; return to Eevee.</body></html>",
+                        );
+                        return Some(Callback {
+                            code: None,
+                            denied: Some(detail),
+                        });
+                    }
+                    respond(
+                        &mut stream,
+                        "400 Bad Request",
+                        "<html><body>Not recognized; return to Eevee and retry.</body></html>",
+                    );
+                    return None;
+                }
+                let Some(code) = code.filter(|code| !code.is_empty()) else {
+                    respond(
+                        &mut stream,
+                        "400 Bad Request",
+                        "<html><body>Missing authorization code.</body></html>",
+                    );
+                    return None;
+                };
+                if got_state != state {
+                    respond(
+                        &mut stream,
+                        "400 Bad Request",
+                        "<html><body>State mismatch; return to Eevee and retry.</body></html>",
+                    );
+                    return None;
+                }
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "<html><body>Sign-in finished; return to Eevee.</body></html>",
+                );
+                Some(Callback {
+                    code: Some(code),
+                    denied: None,
+                })
+            }
+            _ => {
+                respond(
+                    &mut stream,
+                    "404 Not Found",
+                    "<html><body>Not found.</body></html>",
+                );
+                None
+            }
+        }
+    }
+
+    fn open_browser(url: &str) {
+        let result = if cfg!(target_os = "macos") {
+            std::process::Command::new("open").arg(url).spawn()
+        } else if cfg!(target_os = "windows") {
+            std::process::Command::new("cmd")
+                .args(["/c", "start", "", url])
+                .spawn()
+        } else {
+            std::process::Command::new("xdg-open").arg(url).spawn()
+        };
+        if result.is_err() {
+            println!("Could not launch a browser; open the URL above manually.");
+        }
+    }
+
+    fn exchange(code: &str, verifier: &str) -> Result<SessionCredential, String> {
+        let agent = ureq::AgentBuilder::new()
+            .https_only(true)
+            .redirects(0)
+            .timeout_connect(Duration::from_secs(10))
+            .timeout_read(Duration::from_secs(15))
+            .timeout_write(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .build();
+        let body = serde_json::to_string(&serde_json::json!({
+            "code": code,
+            "code_verifier": verifier,
+        }))
+        .map_err(|_| "could not encode the token request".to_string())?;
+        let response = agent
+            .post(TOKEN_URL)
+            .set("Accept", "application/json")
+            .set("Content-Type", "application/json")
+            .send_string(&body)
+            .map_err(|_| "token exchange failed or was refused".to_string())?;
+        if !(200..300).contains(&response.status()) {
+            return Err(format!(
+                "token endpoint returned HTTP {}",
+                response.status()
+            ));
+        }
+        let body: serde_json::Value = serde_json::from_reader(response.into_reader())
+            .map_err(|_| "token endpoint returned malformed JSON".to_string())?;
+        let token = body
+            .get("token")
+            .and_then(serde_json::Value::as_str)
+            .filter(|token| plausible_token(token))
+            .ok_or_else(|| "token endpoint returned no usable token".to_string())?;
+        Ok(SessionCredential {
+            env: "WINDSURF_API_KEY",
+            token: token.to_string(),
+            expires_at: jwt_expiry(token),
+        })
+    }
+
+    pub fn login() -> Completion {
+        let state = match uuid() {
+            Ok(state) => state,
+            Err(outcome) => return Completion::bare(outcome),
+        };
+        let mut verifier_bytes = [0u8; 96];
+        if let Err(outcome) = random_bytes(&mut verifier_bytes) {
+            return Completion::bare(outcome);
+        }
+        let verifier = base64url_encode(&verifier_bytes);
+        let challenge = base64url_encode(&Sha256::digest(verifier.as_bytes()));
+        let listener = match TcpListener::bind(("127.0.0.1", CALLBACK_PORT)) {
+            Ok(listener) => {
+                let _ = listener.set_nonblocking(true);
+                Some(listener)
+            }
+            Err(_) => {
+                println!(
+                    "Port 127.0.0.1:{CALLBACK_PORT} is unavailable; continuing without a local callback listener.\r"
+                );
+                None
+            }
+        };
+        let redirect = format!("http://127.0.0.1:{CALLBACK_PORT}/callback");
+        let url = format!(
+            "{AUTHORIZE_URL}?response_type=code&redirect_uri={}&code_challenge={challenge}&code_challenge_method=S256&state={state}&prompt=select_account",
+            url_encode(&redirect)
+        );
+        let launch = format!("http://127.0.0.1:{CALLBACK_PORT}/launch");
+        println!("Devin website sign-in.\r");
+        println!("Open: {url}\r");
+        if listener.is_some() {
+            println!("Short redirect: {launch}\r");
+        }
+        println!(
+            "After sign-in, the site returns to localhost automatically. Without a browser, paste the http://127.0.0.1:{CALLBACK_PORT}/callback?code=… redirect URL, a code#state pair, or a session token, then Enter. Esc cancels.\r"
+        );
+        let Ok(_raw) = super::RawInput::new() else {
+            return Completion::bare(Outcome::Failed);
+        };
+        let Ok(mut input) = crate::input::Input::new() else {
+            return Completion::bare(Outcome::Failed);
+        };
+        open_browser(&url);
+        let started = Instant::now();
+        let mut paste = String::new();
+        loop {
+            if INTERRUPTED.load(Ordering::Acquire) {
+                return Completion::bare(Outcome::Cancelled);
+            }
+            if started.elapsed() >= LOGIN_TIMEOUT {
+                return Completion::bare(Outcome::Expired);
+            }
+            if let Some(listener) = &listener {
+                loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => {
+                            let Some(callback) = serve(stream, &state, &launch) else {
+                                continue;
+                            };
+                            if callback.denied.is_some() {
+                                println!("Devin sign-in was declined or failed.\r");
+                                return Completion::bare(Outcome::NotAuthenticated);
+                            }
+                            let Some(code) = callback.code else {
+                                continue;
+                            };
+                            println!("Exchanging the authorization code…\r");
+                            return match exchange(&code, &verifier) {
+                                Ok(credential) => Completion {
+                                    outcome: Outcome::Authenticated,
+                                    credential: Some(credential),
+                                },
+                                Err(reason) => {
+                                    println!("Devin token exchange failed: {reason}.\r");
+                                    Completion::bare(Outcome::Failed)
+                                }
+                            };
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                        Err(_) => break,
+                    }
+                }
+            }
+            match input.read_timeout(Duration::from_millis(25)) {
+                Ok(Some(crossterm::event::Event::Key(key))) => {
+                    use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
+                    if matches!(key.kind, KeyEventKind::Release) {
+                        continue;
+                    }
+                    match key.code {
+                        KeyCode::Esc => return Completion::bare(Outcome::Cancelled),
+                        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            return Completion::bare(Outcome::Cancelled);
+                        }
+                        KeyCode::Enter => {
+                            let pasted = std::mem::take(&mut paste);
+                            let trimmed = pasted.trim();
+                            if trimmed.is_empty() {
+                                continue;
+                            }
+                            if plausible_token(trimmed) {
+                                return Completion {
+                                    outcome: Outcome::Authenticated,
+                                    credential: Some(SessionCredential {
+                                        env: "WINDSURF_API_KEY",
+                                        token: trimmed.to_string(),
+                                        expires_at: jwt_expiry(trimmed),
+                                    }),
+                                };
+                            }
+                            let (code, got_state) = parse_callback_input(&pasted);
+                            match (code, got_state) {
+                                (Some(code), Some(got)) if got == state => {
+                                    println!("Exchanging the authorization code…\r");
+                                    return match exchange(&code, &verifier) {
+                                        Ok(credential) => Completion {
+                                            outcome: Outcome::Authenticated,
+                                            credential: Some(credential),
+                                        },
+                                        Err(reason) => {
+                                            println!("Devin token exchange failed: {reason}.\r");
+                                            Completion::bare(Outcome::Failed)
+                                        }
+                                    };
+                                }
+                                (Some(_), _) => println!(
+                                    "State mismatch; paste the exact redirect URL from this sign-in.\r"
+                                ),
+                                _ => println!(
+                                    "Paste the redirect URL (…/callback?code=…&state=…), a code#state pair, or a session token.\r"
+                                ),
+                            }
+                        }
+                        KeyCode::Char(ch)
+                            if !key
+                                .modifiers
+                                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                                && paste.len() + ch.len_utf8() <= PASTE_LIMIT =>
+                        {
+                            paste.push(ch);
+                        }
+                        KeyCode::Backspace => {
+                            paste.pop();
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(Some(crossterm::event::Event::Paste(text))) => {
+                    for ch in text.chars() {
+                        if paste.len() + ch.len_utf8() > PASTE_LIMIT {
+                            break;
+                        }
+                        if !ch.is_control() {
+                            paste.push(ch);
+                        }
+                    }
+                }
+                Ok(_) => {}
+                Err(_) => return Completion::bare(Outcome::Failed),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1017,5 +1672,77 @@ mod tests {
             native_exit_outcome(std::process::ExitStatus::from_raw(130 << 8)),
             Outcome::Cancelled
         );
+    }
+
+    #[test]
+    fn devin_web_callback_input_parses_redirect_query_and_fragment_forms() {
+        assert_eq!(
+            devin_web::parse_callback_input(
+                "http://127.0.0.1:8765/callback?code=abc123&state=xyz789"
+            ),
+            (Some("abc123".into()), Some("xyz789".into()))
+        );
+        assert_eq!(
+            devin_web::parse_callback_input("?code=abc%20123&state=x"),
+            (Some("abc 123".into()), Some("x".into()))
+        );
+        assert_eq!(
+            devin_web::parse_callback_input("abc123#xyz789"),
+            (Some("abc123".into()), Some("xyz789".into()))
+        );
+        assert_eq!(devin_web::parse_callback_input(""), (None, None));
+    }
+
+    #[test]
+    fn devin_web_token_plausibility_rejects_shell_and_whitespace_bytes() {
+        assert!(!devin_web::plausible_token(""));
+        assert!(!devin_web::plausible_token(&"x".repeat(15)));
+        assert!(!devin_web::plausible_token(&"a".repeat(4097)));
+        assert!(!devin_web::plausible_token(&format!(
+            "{};rm",
+            "a".repeat(16)
+        )));
+        assert!(!devin_web::plausible_token(&format!("{} ", "a".repeat(16))));
+        assert!(!devin_web::plausible_token(&format!(
+            "{}$x",
+            "a".repeat(16)
+        )));
+        assert!(devin_web::plausible_token(&"a".repeat(32)));
+        let jwt = format!("{}.{}.{}", "a".repeat(8), "b".repeat(8), "c".repeat(8));
+        assert!(devin_web::plausible_token(&jwt));
+    }
+
+    #[test]
+    fn devin_web_jwt_expiry_reads_exp_minus_skew_and_rejects_malformed() {
+        let segment = base64_simd::URL_SAFE
+            .encode_to_string(br#"{"exp":2000}"#)
+            .trim_end_matches('=')
+            .to_string();
+        let token = format!("header.{segment}.signature");
+        assert_eq!(
+            devin_web::jwt_expiry(&token),
+            Some(2000 - devin_web::EXPIRY_SKEW)
+        );
+        assert_eq!(devin_web::jwt_expiry("opaque-token-no-dots"), None);
+        assert_eq!(devin_web::jwt_expiry("a.b"), None);
+        assert_eq!(devin_web::jwt_expiry("a.b.c.d"), None);
+        assert_eq!(devin_web::jwt_expiry("a.@@@.c"), None);
+    }
+
+    #[test]
+    fn session_credential_redacts_debug_and_reports_expiry() {
+        let mut credential = crate::auth::SessionCredential {
+            env: "WINDSURF_API_KEY",
+            token: "opaque-session-secret".into(),
+            expires_at: None,
+        };
+        assert!(!format!("{credential:?}").contains("opaque-session-secret"));
+        assert!(!credential.expired());
+        credential.expires_at = Some(0);
+        assert!(credential.expired());
+        credential.expires_at = Some(u64::MAX);
+        assert!(!credential.expired());
+        assert_eq!(credential.env, "WINDSURF_API_KEY");
+        assert_eq!(credential.token(), "opaque-session-secret");
     }
 }

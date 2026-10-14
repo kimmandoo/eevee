@@ -2801,6 +2801,7 @@ mod tests {
                 model: Some("selected".into()),
                 effort: Some("high".into()),
             },
+            credential: None,
         };
         input.task.goal = "private-task-goal-canary".into();
         let text = payload(Path::new("unopened-data"), &input, &[]).unwrap();
@@ -2833,6 +2834,7 @@ mod tests {
             inspect_sessions: false,
             inspect_models: false,
             selection: ModelSelection::default(),
+            credential: None,
         };
         let root = Path::new(&input.task.project);
         assert!(capture_edit_baseline(root, &input, &[]).unwrap().is_empty());
@@ -3187,6 +3189,7 @@ mod tests {
             inspect_sessions: false,
             inspect_models: false,
             selection: ModelSelection::default(),
+            credential: None,
         };
         let text = payload(&data, &input, &[]).unwrap();
         let outgoing: Value = serde_json::from_str(&text).unwrap();
