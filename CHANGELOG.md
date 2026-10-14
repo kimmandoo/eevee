@@ -2,6 +2,7 @@
 
 ## 2026-10-14
 
+- docs(tasks): require local-only token optimization with no optimizer-initiated network/model calls or downloads; replace provider-cache-dependent T03 with local packet deduplication, remove model summarization from T04, keep TC01 discovery offline and require zero-attempt outbound verification. Reviewed user work and explicit live benchmarks remain separate.
 - docs(tasks): specify twelve unimplemented token-economy and tool-calling improvements: usage receipts, budgeted symbol context, session deltas, evidence-linked compaction, budget/loop stops, lazy tool discovery, reviewed dependency plans, paged results, validated observation caching, failed-step recovery, impact-directed checks and paired quality/cost benchmarks. Record adapter limits, priorities, acceptance and the updated 25/49 backlog without changing release gates.
 - fix(tui): shorten routine home/composer/status/help copy, reclaim a workspace row and keep action hints on deliberate lines; use compact connection pages and scrollable setup details without reducing consent or error information.
 - feat(installer): replace the one-line spinner with a four-line Poké Ball wobble/button pulse and separate phase output in POSIX and PowerShell install/update; preserve monochrome, resize, plain-output and cursor-restoration behavior.
