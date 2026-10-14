@@ -1,5 +1,14 @@
 # Work Checkpoint
 
+## 2026-10-14 — F completion request and explicit authentication hold
+
+- **User request/decision:** Complete remaining tasks through F one-by-one with commits/push, then 0.1.1. Actual unchecked items are A04/A06/A07; E/F scoped local demos are already accepted. After the missing permitted Claude route was confirmed, the user chose to wait for authentication preparation. Version/tag/publication remain held, not substituted with a core-only release.
+- **Committed cutover:** `50bf9df76d38d353a64bba49fa7d86cfee47b59c` was pushed to `main`. Fresh local checks passed 315 Rust tests, five original-pixel transport scenarios, 14 portable qualification regressions (three Windows-only skipped), and actionlint. Fresh same-commit native CI is separate from historical 0.1.0 qualification.
+- **A04 prerequisite evidence:** Actual pinned SDK inspection succeeded but reported `credential_route: unavailable`; Linux and Windows official Claude status found only subscription authentication. No permitted API/selected cloud route was present; AWS/gcloud status executables were absent. Credential stores were not read/copied and no SDK model prompt was sent. See `target/claude-acceptance-inspect.json`.
+- **A06 prerequisite evidence:** Actual native Linux and Windows Gemini ACP1 initialized, advertised Google/API/Vertex auth and loadSession, omitted session/list, then returned session/new 401. Neither probe invoked session/list or a model prompt. Windows 0.28.0 is installed package metadata; its standalone version probe timed out. See `target/gemini-acceptance-inspect.json`.
+- **Reachable A07/F proof:** Updated-binary manual handoff passed four real TUI cases; the specialist/memory/recipe journey passed all 15. JSON/Markdown remain curated unverified context, newer schemas are refused, and applying recipes neither runs commands nor calls a model. Evidence: `target/pre-011-{handoff,workflows}`. No authenticated cross-provider completion is inferred.
+- **Resume prerequisites:** Prepare a permitted Anthropic API/Bedrock/Vertex route without sharing secrets in chat; complete official Gemini authentication under the actual provider OS account. Then run A04, A06 and composed A07 acceptance, commit each completed increment, bump 0.1.1, qualify exact native artifacts and publish. Q01/Q02/P03 remain separately unchecked.
+
 ## 2026-10-14 — Original sprites, Pokémon-style coding workspace, and WSL login
 
 - **Delivered:** Original nine-form sprites, verified online-install cache preparation, bottom composer/activity workspace with game-inspired dialogue/party styling, `@` file attachment, `/` action selection and approval-gated commands. WSL/SSH Codex connections default to official device authorization rather than requiring desktop-to-guest localhost.

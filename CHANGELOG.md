@@ -2,6 +2,8 @@
 
 ## 2026-10-14
 
+- docs(auth): record fresh Claude SDK permitted-route and native Linux/Windows Gemini ACP authentication blockers, passing local handoff/section-F regressions, and the user's explicit 0.1.1 authentication-preparation hold.
+- docs(release): describe online sprite-cache preparation accurately without changing exact-commit qualification or bundling image bytes.
 - fix(sprites): replace automatic character-cell mosaics with negotiated original-pixel Sixel/Kitty rendering; preserve integer scale, omit too-small images, clear overlays correctly and show the renderer in F4. Verify the nine-form surface in actual Windows Terminal 1.24.12741.0 on WSL2.
 - fix(input): keep graphics discovery and user input under one bounded reader, preserving typing/paste across split or late replies and resize; retain cell previews only through explicit `--images cells`.
 - feat(tui): add a handheld-game-inspired sage/cream palette, square/double dialogue borders, field log, larger partner status card and evolution party styling without changing command or approval semantics.
