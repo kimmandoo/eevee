@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- feat(token-economy): show a local, offline request receipt in every provider preview. It splits the exact Eevee-sent payload into instructions, task facts, attachments, handoff and memories with exact bytes and a labelled `eevee-local-v1` CJK-aware estimate; provider-added context, usage and billing stay unknown, never zero. Source-basket envelopes use the same estimator.
+- feat(token-economy): add per-task budgets: `--max-provider-turns`, `--max-commands` and `--max-input-tokens`. Turns come from the durable provider journal and commands from the run journal, so cancel or restart cannot reset them. A local command repeated with an unchanged source fingerprint pauses before approval; edits, cancellations and unknown outcomes are not loops. Pauses offer continue-once for that exact request, Stay, revise or deny, and no budget is a monetary cap.
+- feat(claude): add the Anthropic Console OAuth route through the official `ant` CLI (browser or paste code, plus status). Claude API billing only; claude.ai subscription OAuth stays refused. The sidecar admits that profile exclusively and verifies the effective backend before releasing a prompt.
+- test(acceptance): add the offline `scripts/budget_smoke.py` real-TUI journey and an `--ant` Claude case to the live auth smoke.
+
 ## 2026-10-14
 
 - docs(tasks): require local-only token optimization with no optimizer-initiated network/model calls or downloads; replace provider-cache-dependent T03 with local packet deduplication, remove model summarization from T04, keep TC01 discovery offline and require zero-attempt outbound verification. Reviewed user work and explicit live benchmarks remain separate.

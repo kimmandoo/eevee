@@ -23,7 +23,7 @@ One persistent partner. Nine task-specific forms. Your work stays local until yo
 
 Eevee brings durable tasks, repository context, reviewed commands, and optional coding agents into a native Rust TUI. The executable is **`ev`**. You can use the local workbench without an account, API key, Node runtime, or model connection.
 
-> **0.1.0:** A standalone local-first workbench with optional provider integrations. Native installation/terminal checks and authenticated provider interoperability are separate qualifications. See the [release](https://github.com/kimmandoo/eevee/releases/tag/v0.1.0), [backlog](task.md), and [verification checkpoint](docs/WORK_CHECKPOINT.md) for exact coverage.
+> **0.1.1:** A standalone local-first workbench with optional provider integrations, now with local request receipts, per-task budgets and Claude Console OAuth. Native installation/terminal checks and authenticated provider interoperability are separate qualifications. See the [release](https://github.com/kimmandoo/eevee/releases/tag/v0.1.1), [backlog](task.md), and [verification checkpoint](docs/WORK_CHECKPOINT.md) for exact coverage.
 
 ## Why Eevee
 
@@ -235,6 +235,8 @@ Letter shortcuts apply in navigation mode—Esc leaves the input first. F1–F4 
 
 Schemas 0–5 migrate transactionally to schema 6, which adds specialist records and approved scoped memories. Older binaries refuse the newer schema without changing data. Bounds include 256 tasks/project, 64 criteria/task, 4096 UTF-8 bytes per goal/next-action/draft, and 16 source excerpts/task. Source files are bounded to 2 MiB, individual captures to 64 KiB. Credential paths, binary/ignored files, and unsafe links are excluded; `--exclude-context PATH` adds case-insensitive repository-relative exclusions.
 
+**Token economy (local, offline).** Every provider preview starts with a request receipt. It splits the exact payload Eevee sends into instructions, task facts, attachments, handoff and memories, and gives the exact bytes for each. Token counts are a labelled local estimate (`eevee-local-v1`), not a provider tokenizer. Provider-added instructions, tool schemas, history, usage and billing stay unknown unless the provider reports them. Per-task budgets pause before another action. `--max-provider-turns N` (default 20) counts turns committed to this task's provider journal. `--max-commands N` (default 40) counts recorded local command runs. `--max-input-tokens N` (default 100000) applies to one request's estimate. A local command identical to the previous run, with an unchanged source fingerprint, also pauses. Edits, cancellations and unknown outcomes are not treated as loops. A pause offers **Continue once** for that exact request (`o` in a provider preview), Stay, revision or denial. Counts come from durable journals, so cancel or restart cannot reset them. This is not a monetary cap.
+
 `--quota-kib N` controls shared storage (default 65536, minimum 64); `--spool-kib N` bounds each command's output reservation (1–8192, default 64). Quotas do not silently evict evidence. Task storage retries with `r`; context/local journal storage has a separate `s` retry, and provider journals use `r` in their history view.
 
 `ev --data-dir PATH --export-data NEW_FILE.json` exports readable known **task rows only**, without migration or overwrite. It is not an output/excerpt backup or database repair. Keep original files when recovery is refused. [Troubleshooting →](docs/TROUBLESHOOTING.md)
@@ -276,32 +278,32 @@ Installers automatically choose the matching native package, resolve an exact re
 
 | Machine | Download |
 | --- | --- |
-| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.0/ev-darwin-arm64.tar.gz) |
-| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.0/ev-darwin-x86_64.tar.gz) |
-| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.0/ev-linux-x86_64.tar.gz) |
-| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.0/ev-linux-arm64.tar.gz) |
-| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.0/ev-windows-x86_64.zip) |
+| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.1/ev-darwin-arm64.tar.gz) |
+| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.1/ev-darwin-x86_64.tar.gz) |
+| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.1/ev-linux-x86_64.tar.gz) |
+| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.1/ev-linux-arm64.tar.gz) |
+| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.1/ev-windows-x86_64.zip) |
 
 **macOS / Linux**
 
 ```sh
 # Download, inspect, then install a pinned release.
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.0/install.sh
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.1/install.sh
 less install-ev.sh
-sh ./install-ev.sh --version v0.1.0
+sh ./install-ev.sh --version v0.1.1
 export PATH="$HOME/.local/bin:$PATH"
 ev --version
 ```
 
-Omit `--version` to install the latest stable release. `EV_VERSION=v0.1.0` also pins a release; `EV_INSTALL_DIR="$HOME/tools/bin"` chooses an absolute installation directory.
+Omit `--version` to install the latest stable release. `EV_VERSION=v0.1.1` also pins a release; `EV_INSTALL_DIR="$HOME/tools/bin"` chooses an absolute installation directory.
 
 **Windows PowerShell**
 
 ```powershell
-$base = 'https://github.com/kimmandoo/eevee/releases/download/v0.1.0'
+$base = 'https://github.com/kimmandoo/eevee/releases/download/v0.1.1'
 Invoke-WebRequest "$base/install.ps1" -OutFile install-ev.ps1
 Get-Content .\install-ev.ps1
-.\install-ev.ps1 -Version v0.1.0
+.\install-ev.ps1 -Version v0.1.1
 $env:PATH = "$env:LOCALAPPDATA\ev\bin;" + $env:PATH
 ev --version
 ```
@@ -317,7 +319,7 @@ Installers verify SHA-256 before extraction and preserve an owned prior installa
 <details>
 <summary>Offline installation and manual downloads</summary>
 
-Download the matching archive above, [SHA256SUMS](https://github.com/kimmandoo/eevee/releases/download/v0.1.0/SHA256SUMS), and [install.sh](https://github.com/kimmandoo/eevee/releases/download/v0.1.0/install.sh) or [install.ps1](https://github.com/kimmandoo/eevee/releases/download/v0.1.0/install.ps1) from the same release:
+Download the matching archive above, [SHA256SUMS](https://github.com/kimmandoo/eevee/releases/download/v0.1.1/SHA256SUMS), and [install.sh](https://github.com/kimmandoo/eevee/releases/download/v0.1.1/install.sh) or [install.ps1](https://github.com/kimmandoo/eevee/releases/download/v0.1.1/install.ps1) from the same release:
 
 ```sh
 sh ./install.sh --archive ./ev-linux-x86_64.tar.gz --checksums ./SHA256SUMS

@@ -3,6 +3,7 @@ mod agent;
 mod app;
 mod artwork;
 mod auth;
+mod budget;
 mod claude;
 mod codex;
 mod config;
@@ -115,6 +116,8 @@ fn run(config: Config) -> io::Result<()> {
         app.policy = config.storage_policy;
         app.images_enabled = config.images != config::ImageMode::Off;
         app.execution.set_capture_capacity(config.capture_capacity);
+        app.execution.limits = config.budget;
+        app.planning.limits = config.budget;
         let mut graphics = native::NativeGraphics::new(&config);
         let mut dirty = true;
         let mut targets = Vec::with_capacity(9);

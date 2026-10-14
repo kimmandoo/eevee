@@ -628,9 +628,10 @@ impl State {
         let start = boundary(self.payload_page * 8192);
         let end = boundary((self.payload_page + 1) * 8192);
         self.detail = format!(
-            "EXACT BASKET ENVELOPE / escaped display\n{} UTF-8 bytes / ~{} tokens (bytes/4 estimate, not tokenizer usage)\nProvider history/config/agent-owned reads may add context; this basket does not constrain them. No provider is connected and nothing is sent.\nPage {} / bytes {}..{} / n next, p previous\n\n{:?}",
+            "EXACT BASKET ENVELOPE / escaped display\n{} UTF-8 bytes / ~{} tokens ({})\nProvider history/config/agent-owned reads may add context; this basket does not constrain them. No provider is connected and nothing is sent.\nPage {} / bytes {}..{} / n next, p previous\n\n{:?}",
             payload.bytes,
             payload.estimated_tokens,
+            crate::budget::ESTIMATOR,
             self.payload_page + 1,
             start,
             end,

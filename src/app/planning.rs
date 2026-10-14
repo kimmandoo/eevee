@@ -92,6 +92,13 @@ pub struct State {
     journal_inflight: VecDeque<store::JournalRequest>,
     failed_journal: VecDeque<store::JournalRequest>,
     pub journal_notice: String,
+    pub limits: crate::budget::Limits,
+    /// Local receipt of the open preview's exact payload.
+    pub receipt: Vec<String>,
+    receipt_tokens: usize,
+    /// Journaled provider turns for this task; None until the local journal answers.
+    pub budget_turns: Option<usize>,
+    budget_override: bool,
 }
 
 impl Default for State {
@@ -116,6 +123,8 @@ impl State {
             journal_mode: false, journal_purge: false, journal_records: Vec::new(), journal_selected: 0,
             pending_journal: VecDeque::new(), journal_inflight: VecDeque::new(),
             failed_journal: VecDeque::new(), journal_notice: String::new(),
+            limits: crate::budget::Limits::default(), receipt: Vec::new(), receipt_tokens: 0,
+            budget_turns: None, budget_override: false,
             inspection: None, inspect_sessions: false,
         }
     }
@@ -134,6 +143,15 @@ impl State {
                 || (!self.busy() && matches!(key.code, KeyCode::Char('n' | 'r' | 's' | '1'..='4'))))
     }
 
+    /// Model turns only: session-metadata inspection sends no model prompt.
+    pub fn budget_paused(&self) -> bool {
+        self.preview.is_some()
+            && !self.inspect_sessions
+            && !self.budget_override
+            && self.budget_turns.is_none_or(|turns| {
+                !crate::budget::provider_gate(turns, self.receipt_tokens, &self.limits).is_empty()
+            })
+    }
     pub fn busy(&self) -> bool {
         self.active
             || self.awaiting_preview
@@ -156,8 +174,10 @@ impl State {
 
     pub fn reset(&mut self, task_id: i64) {
         if !self.busy() && !self.journal_failed() {
+            let limits = self.limits;
             *self = Self::new();
             self.task = task_id;
+            self.limits = limits;
         }
     }
 
@@ -275,12 +295,16 @@ impl State {
                     "Provider-origin journal committed; not local execution evidence.".into();
             }
             Ok(store::JournalResponse::Records(records)) if task_id == self.task => {
+                self.budget_turns = Some(crate::budget::provider_turns(&records));
                 self.journal_records = records;
                 self.journal_selected = self
                     .journal_selected
                     .min(self.journal_records.len().saturating_sub(1));
-                self.scroll = 0;
-                self.scroll_max = 0;
+                // A budget lookup must not move an open preview's review position.
+                if self.journal_mode {
+                    self.scroll = 0;
+                    self.scroll_max = 0;
+                }
                 self.journal_notice =
                     "Retained provider observations, with actual origin and coverage.".into();
             }
@@ -435,6 +459,18 @@ impl State {
             Event::Preview(preview) if self.awaiting_preview && preview.task_id == self.task => {
                 self.awaiting_preview = false;
                 self.generation = Some(preview.generation);
+                let receipt = crate::budget::receipt(&preview.payload);
+                self.receipt_tokens = receipt.tokens;
+                self.receipt = receipt.lines(&self.limits);
+                // Committed turns come from the durable journal, never an in-memory counter.
+                self.budget_turns = None;
+                self.budget_override = false;
+                if !self.inspect_sessions {
+                    self.pending_journal.push_back(store::JournalRequest {
+                        task_id: self.task,
+                        operation: store::JournalOperation::List,
+                    });
+                }
                 self.preview = Some(preview);
                 self.notice = "Local preview only. Review every page; Stay is the default.".into();
                 self.review_start();
@@ -1006,6 +1042,18 @@ impl State {
                 KeyCode::Enter if !self.affirmative => {
                     self.cancel();
                 }
+                KeyCode::Char('o') if self.budget_paused() => {
+                    self.budget_override = true;
+                    self.notice = "Budget pause lifted for this exact preview only. Run still requires its own approval.".into();
+                }
+                KeyCode::Enter
+                    if self.reviewed && self.pending.is_none() && self.budget_paused() =>
+                {
+                    self.notice = match self.budget_turns {
+                        None => "Budget accounting is still loading from the local journal; nothing was sent.".into(),
+                        Some(turns) => format!("{} Press o to continue once, or Stay to revise; nothing was sent.", crate::budget::provider_gate(turns, self.receipt_tokens, &self.limits).join(" ")),
+                    };
+                }
                 KeyCode::Enter if self.reviewed && self.pending.is_none() => {
                     let preview = self.preview.as_ref().expect("preview is open");
                     if preview.blockers.is_empty() {
@@ -1291,7 +1339,64 @@ mod tests {
             payload: "exact goal".into(),
             blockers: Vec::new(),
         }));
+        // The store worker answers the preview's budget accounting from the journal.
+        state.journal_started();
+        state.journal_event(7, Ok(store::JournalResponse::Records(Vec::new())));
         state
+    }
+
+    #[test]
+    fn provider_budget_pauses_run_until_journal_counted_and_continue_once() {
+        let mut state = State::new();
+        state.limits.provider_turns = 1;
+        press(&mut state, KeyCode::Char('n'), true);
+        state.pending.take();
+        state.event(Event::Preview(Preview {
+            generation: 11,
+            task_id: 7,
+            thread_id: None,
+            trust: Vec::new(),
+            payload: "{\"purpose\":\"Plan\",\"task\":{\"goal\":\"한국어\"}}".into(),
+            blockers: Vec::new(),
+        }));
+        assert!(
+            state
+                .receipt
+                .iter()
+                .any(|line| line.starts_with("Instructions:"))
+        );
+        state.reviewed = true;
+        press(&mut state, KeyCode::Tab, true);
+        press(&mut state, KeyCode::Enter, true);
+        assert!(
+            state.pending.is_none(),
+            "run sent before journal accounting"
+        );
+        assert!(state.notice.contains("loading"));
+        let record = store::ProviderRecord {
+            id: "r".into(),
+            agent: Agent::Codex,
+            generation: 1,
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "item".into(),
+            origin: String::new(),
+            coverage: String::new(),
+            text: String::new(),
+            complete: true,
+        };
+        state.journal_started();
+        state.journal_event(7, Ok(store::JournalResponse::Records(vec![record])));
+        assert_eq!(state.budget_turns, Some(1));
+        press(&mut state, KeyCode::Enter, true);
+        assert!(state.pending.is_none(), "run sent past the turn budget");
+        assert!(state.notice.contains("Provider turn budget reached"));
+        press(&mut state, KeyCode::Char('o'), true);
+        press(&mut state, KeyCode::Enter, true);
+        assert!(matches!(
+            state.pending.take(),
+            Some(Request::Run { generation: 11 })
+        ));
     }
 
     fn active() -> State {

@@ -31,6 +31,8 @@ pub enum View {
 }
 #[derive(Clone, Debug)]
 pub enum Confirmation {
+    /// Budget or repeated-call pause before the one-shot approval; not consent.
+    Budget(String),
     Approval,
     Cancel,
     Purge(String),
@@ -189,6 +191,9 @@ pub struct State {
     pub error: Option<LayerError>,
     pub notice: String,
     pub capture_capacity: u64,
+    pub limits: crate::budget::Limits,
+    /// Request ID explicitly continued once past a budget/repeat pause.
+    budget_override: Option<String>,
     pub latest: runner::InputSnapshot,
     pub repo_waiting: bool,
     pub journal_saving: bool,
@@ -244,6 +249,8 @@ impl Default for State {
             error: None,
             notice: String::new(),
             capture_capacity: 64 * 1024,
+            limits: crate::budget::Limits::default(),
+            budget_override: None,
             latest: runner::InputSnapshot::default(),
             repo_waiting: false,
             journal_saving: false,
@@ -322,10 +329,12 @@ impl State {
     }
     fn attach(&mut self, task_id: i64) {
         let capacity = self.capture_capacity;
+        let limits = self.limits;
         let inflight = self.inflight.take(); // A late read/load response is still consumed, never reassigned.
         *self = Self::default();
         self.task_id = task_id;
         self.capture_capacity = capacity;
+        self.limits = limits;
         self.inflight = inflight;
         if task_id > 0 {
             self.optional(StoreJob::Load(task_id));
@@ -357,7 +366,10 @@ impl State {
             .inflight
             .as_ref()
             .is_some_and(|job| matches!(job, StoreJob::Reserve(..)));
-        if matches!(self.confirmation, Some(Confirmation::Approval)) {
+        if matches!(
+            self.confirmation,
+            Some(Confirmation::Approval | Confirmation::Budget(_))
+        ) {
             self.confirmation = None;
         }
         if matches!(self.repo_purpose, RepoPurpose::Before) {
@@ -932,7 +944,12 @@ impl State {
                     self.confirmation = None;
                     self.affirmative = false;
                 }
-                KeyCode::Char('x') if matches!(self.confirmation, Some(Confirmation::Approval)) => {
+                KeyCode::Char('x')
+                    if matches!(
+                        self.confirmation,
+                        Some(Confirmation::Approval | Confirmation::Budget(_))
+                    ) =>
+                {
                     self.invalidate();
                     self.notice =
                         "Request denied. Nothing executed; command draft retained.".into();
@@ -1019,8 +1036,21 @@ impl State {
                 );
             }
             KeyCode::Char('v') if key.kind == KeyEventKind::Press => {
-                if self.prepared.is_some() && !self.reserving && !self.dispatching {
-                    self.confirmation = Some(Confirmation::Approval);
+                if let Some(p) = self
+                    .prepared
+                    .as_ref()
+                    .filter(|_| !self.reserving && !self.dispatching)
+                {
+                    let reasons = crate::budget::command_gate(&self.history, p, &self.limits);
+                    self.confirmation = Some(
+                        if reasons.is_empty()
+                            || self.budget_override.as_deref() == Some(p.request_id.as_str())
+                        {
+                            Confirmation::Approval
+                        } else {
+                            Confirmation::Budget(reasons.join("\n"))
+                        },
+                    );
                     self.affirmative = false;
                     self.detail_scroll = 0;
                 } else {
@@ -1125,6 +1155,14 @@ impl State {
     }
     fn confirm(&mut self, confirmation: Confirmation) {
         match confirmation {
+            Confirmation::Budget(_) => {
+                // Continue once only lifts the pause for this exact request; approval follows.
+                if let Some(p) = &self.prepared {
+                    self.budget_override = Some(p.request_id.clone());
+                    self.confirmation = Some(Confirmation::Approval);
+                    self.detail_scroll = 0;
+                }
+            }
             Confirmation::Approval => {
                 if let Some(p) = &self.prepared
                     && self.request_id.as_deref() == Some(&p.request_id)

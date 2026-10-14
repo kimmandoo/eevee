@@ -73,7 +73,7 @@ pub struct Payload {
     /// Exact outgoing UTF-8 JSON envelope, not a full effective provider prompt.
     pub text: String,
     pub bytes: usize,
-    /// A byte-based estimate only; no provider tokenizer or measured usage is implied.
+    /// Local labelled estimate only; no provider tokenizer or measured usage is implied.
     pub estimated_tokens: usize,
     pub dispatch: bool,
 }
@@ -488,10 +488,11 @@ fn execute(
             }
             let text = serde_json::to_string(&excerpts).map_err(|error| error.to_string())?;
             let bytes = text.len();
+            let estimated_tokens = crate::budget::estimate_tokens(&text);
             Ok(Response::Assembled(Payload {
                 text,
                 bytes,
-                estimated_tokens: bytes.div_ceil(4),
+                estimated_tokens,
                 dispatch,
             }))
         }
