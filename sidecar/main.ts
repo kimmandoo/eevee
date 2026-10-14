@@ -6,7 +6,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { Query, CanUseTool, OnElicitation, Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { SDK_VERSION, CLI_VERSION, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, selectedWrite, selectedWriteIdentity, QuestionInputSchema, credentialRoute, sdkOutcome } from './policy.ts';
+import { SDK_VERSION, CLI_VERSION, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, selectedWrite, selectedWriteIdentity, QuestionInputSchema, credentialRoute, consoleProfile, accountMatches, sdkOutcome } from './policy.ts';
 
 const require = createRequire(import.meta.url);
 const sdkEntry = require.resolve('@anthropic-ai/claude-agent-sdk');
@@ -86,9 +86,13 @@ async function ask(id: string, tool: string, input: unknown, kind: string, signa
   return promise;
 }
 
-function cleanEnvironment(configDir: string, externalCloud: boolean) {
+function cleanEnvironment(configDir: string, externalCloud: boolean, profile: ReturnType<typeof consoleProfile>) {
   // Only explicitly approved Bedrock/Vertex chains may use the inherited home for
   // provider-owned SSO/ADC caches. Claude's own configuration remains isolated.
+  // A Console profile is pinned by explicit directory/name before HOME is replaced;
+  // other routes get an empty profile directory so no implicit profile is discovered.
+  delete process.env.ANTHROPIC_PROFILE;
+  delete process.env.ANTHROPIC_CONFIG_DIR;
   for (const name of Object.keys(process.env)) {
     if ((name.startsWith('CLAUDE_') && !['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX'].includes(name)) ||
       ['ANTHROPIC_AUTH_TOKEN', 'NODE_OPTIONS', 'NODE_PATH', 'BUN_OPTIONS'].includes(name)) delete process.env[name];
@@ -109,6 +113,8 @@ function cleanEnvironment(configDir: string, externalCloud: boolean) {
     process.env.USERPROFILE = isolatedHome;
   }
   process.env.CLAUDE_CONFIG_DIR = configDir;
+  process.env.ANTHROPIC_CONFIG_DIR = profile ? profile.dir : join(realpathSync(configDir), 'no-anthropic-profile');
+  if (profile) process.env.ANTHROPIC_PROFILE = profile.name;
   process.env.CLAUDE_AGENT_SDK_CLIENT_APP = 'eevee/1.0';
   process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
 }
@@ -119,11 +125,12 @@ async function run(command: z.infer<typeof RunSchema>) {
   generation = command.generation;
   taskId = command.task_id;
   if (Buffer.byteLength(command.prompt) > FRAME_LIMIT / 2) throw new Error('Query byte bound exceeded');
-  const account = credentialRoute(process.env);
-  if (!account) throw new Error('Permitted API key or exactly one supported cloud route required; claude.ai subscriptions are not supported');
+  const profile = consoleProfile(process.env);
+  const account = credentialRoute(process.env, profile);
+  if (!account) throw new Error('Permitted API key, Console OAuth profile or exactly one supported cloud route required; claude.ai subscriptions are not supported');
   const expectedProvider = process.env.CLAUDE_CODE_USE_BEDROCK === '1' ? 'bedrock' :
     process.env.CLAUDE_CODE_USE_VERTEX === '1' ? 'vertex' : 'firstParty';
-  cleanEnvironment(command.state_dir, expectedProvider !== 'firstParty' && process.env.EEVEE_CLAUDE_CLOUD_AUTH === 'provider-chain');
+  cleanEnvironment(command.state_dir, expectedProvider !== 'firstParty' && process.env.EEVEE_CLAUDE_CLOUD_AUTH === 'provider-chain', profile);
   controller = new AbortController();
   const tools = command.operation === 'implement' ? [...READ_TOOLS, 'Edit', 'Write'] : READ_TOOLS;
   let activeWrite: string | undefined;
@@ -209,15 +216,15 @@ async function run(command: z.infer<typeof RunSchema>) {
   try {
     // The pinned control initialization exposes the backend without a model turn.
     // Never send the prompt to a subscription, fallback backend, or gateway instead.
-    const { apiProvider } = await current.accountInfo();
-    if (apiProvider !== expectedProvider) throw new Error('Effective SDK authentication backend differs from reviewed route');
+    if (!accountMatches(account, await current.accountInfo(), expectedProvider)) throw new Error('Effective SDK authentication backend differs from reviewed route');
     authReady.resolve(true);
     for await (const message of current) {
       if (session && 'session_id' in message && message.session_id !== session) throw new Error('SDK message changed session identity');
       if (message.type === 'system' && message.subtype === 'init') {
         if (message.claude_code_version !== CLI_VERSION || message.permissionMode !== 'default' ||
           message.tools.some(t => !tools.includes(t)) || message.mcp_servers.length || message.plugins.length || message.skills.length ||
-          (account === 'ANTHROPIC_API_KEY' && message.apiKeySource !== 'ANTHROPIC_API_KEY')) throw new Error('Effective SDK identity/tool/config/auth policy mismatch');
+          (account === 'ANTHROPIC_API_KEY' && message.apiKeySource !== 'ANTHROPIC_API_KEY') ||
+          (profile !== undefined && ['ANTHROPIC_API_KEY', 'apiKeyHelper', '/login managed key'].includes(message.apiKeySource))) throw new Error('Effective SDK identity/tool/config/auth policy mismatch');
         if (session) throw new Error('SDK emitted a second session initialization');
         session = message.session_id;
         if (command.resume && session !== command.resume) throw new Error('SDK resumed a different session');

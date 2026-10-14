@@ -16,6 +16,11 @@ const REVISION: u32 = 1;
 pub(crate) const CODEX_RELEASE: &str = "0.152.1";
 pub(crate) const OPENCODE_RELEASE: &str = "1.18.0";
 pub(crate) const GEMINI_RELEASE: &str = "0.28.0";
+/// Official Anthropic CLI used only for Claude's Console OAuth login/status handoff.
+pub(crate) const ANT_RELEASE: &str = "1.40.0";
+/// Trust index of `ant`; not a provider row in the connection drawer.
+pub(crate) const ANT: usize = 4;
+const PROVIDERS: usize = 4;
 const OUTPUT_LIMIT: usize = 16 * 1024;
 const CONFIG_LIMIT: u64 = 64 * 1024;
 const EXECUTABLE_LIMIT: u64 = 256 * 1024 * 1024;
@@ -23,8 +28,14 @@ fn probe_timeout(index: usize) -> Duration {
     // Gemini's Node dependency graph exceeded three seconds on the qualified host.
     Duration::from_secs(if index == 3 { 10 } else { 3 })
 }
-const NAMES: [&str; 4] = ["Codex", "Claude Agent SDK", "OpenCode ACP", "Gemini ACP"];
-const PROGRAMS: [&str; 4] = ["codex", "claude", "opencode", "gemini"];
+const NAMES: [&str; 5] = [
+    "Codex",
+    "Claude Agent SDK",
+    "OpenCode ACP",
+    "Gemini ACP",
+    "Anthropic CLI (ant)",
+];
+const PROGRAMS: [&str; 5] = ["codex", "claude", "opencode", "gemini", "ant"];
 
 #[derive(Clone, Debug)]
 pub struct Capability {
@@ -108,7 +119,7 @@ impl Worker {
                 };
                 let event = match request {
                     Request::Discover => {
-                        snapshots = (0..NAMES.len()).map(|index| discover(index, &project)).collect();
+                        snapshots = (0..PROVIDERS).map(|index| discover(index, &project)).collect();
                         Event::Discovered(snapshots.iter().map(|s| s.profile.clone()).collect())
                     }
                     Request::PrepareAuth { profile, generation, method } => {
@@ -283,8 +294,9 @@ fn discover(index: usize, project: &Path) -> Snapshot {
         ]
         .iter()
         .any(|key| env::var_os(key).is_some())
+            && crate::claude::console_credentials().is_none()
         {
-            blockers.push("Claude Agent requires permitted API/cloud credentials. Existing claude.ai subscription login is not reused by this integration.".into());
+            blockers.push("Claude Agent requires permitted API/cloud credentials or an Anthropic Console OAuth profile (Connect > ant auth login). Existing claude.ai subscription login is not reused by this integration.".into());
         }
         blockers.push(sdk.into());
     }
@@ -345,6 +357,7 @@ fn discover(index: usize, project: &Path) -> Snapshot {
             0 => format!("Codex app-server {CODEX_RELEASE}; Plan and POSIX controlled-file implementation"),
             1 => "Optional pinned Claude Agent SDK sidecar; e performs separate runtime/auth qualification".into(),
             2 => format!("OpenCode {OPENCODE_RELEASE} / negotiated ACP v1; provider-owned tools"),
+            ANT => format!("Anthropic CLI {ANT_RELEASE}; Console OAuth login/status handoff for Claude only"),
             _ => format!("Gemini {GEMINI_RELEASE} / negotiated ACP v1; absent credentials remain unavailable"),
         },
         action: "Requires explicit e request preview, supported installed release, authentication, negotiated action and control boundary; local workbench always remains available".into(),
@@ -475,11 +488,17 @@ fn auth_labels(index: usize) -> (String, String) {
             "CLAUDE_CODE_USE_BEDROCK",
             "CLAUDE_CODE_USE_VERTEX",
             "CLAUDE_CODE_USE_FOUNDRY",
+            "ANTHROPIC_PROFILE",
         ],
         2 => &[
             "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
             "GOOGLE_GENERATIVE_AI_API_KEY",
+        ],
+        ANT => &[
+            "ANTHROPIC_PROFILE",
+            "ANTHROPIC_CONFIG_DIR",
+            "ANTHROPIC_API_KEY",
         ],
         _ => &[
             "GEMINI_API_KEY",
@@ -554,6 +573,16 @@ fn configuration_sources(index: usize, project: &Path) -> Vec<SourceStamp> {
                     project.join(name),
                     name.ends_with("settings.json") || name.ends_with("settings.local.json"),
                 ));
+            }
+        }
+        ANT => {
+            // Profile configuration metadata only; credentials/ is never read or stamped.
+            if let (Some(base), Some(name)) = (
+                crate::claude::console_config_dir(),
+                crate::claude::console_profile_name(),
+            ) {
+                paths.push((base.join("configs").join(format!("{name}.json")), false));
+                paths.push((base.join("active_config"), false));
             }
         }
         2 => {
@@ -855,6 +884,7 @@ fn parse_version(index: usize, bytes: &[u8]) -> Option<String> {
         0 => text.strip_prefix("codex-cli ")?,
         1 => text.strip_suffix(" (Claude Code)")?,
         2 | 3 => text,
+        ANT => text.strip_prefix("ant version ")?,
         _ => return None,
     };
     if version.len() > 32 {
@@ -1292,6 +1322,11 @@ mod tests {
         assert_eq!(parse_version(0, b"codex-cli \x1b[31m0.147.0"), None);
         assert_eq!(parse_version(0, b"codex-cli sk-secret"), None);
         assert_eq!(parse_version(3, b"0.1.0-beta-secret"), None);
+        assert_eq!(
+            parse_version(ANT, b"ant version 1.40.0\n"),
+            Some("1.40.0".into())
+        );
+        assert_eq!(parse_version(ANT, b"1.40.0\n"), None);
     }
 
     #[test]

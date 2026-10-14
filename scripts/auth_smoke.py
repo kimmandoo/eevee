@@ -5,7 +5,8 @@
 lifetime, explicit method selection and cancellation through the real TUI.
 --wsl-device starts the real pinned Codex device flow on WSL, keeps callback port
 1455 occupied, observes the official code prompt, then cancels without signing in.
---live starts/cancels official providers in isolated homes without human consent.
+--live starts/cancels official providers in isolated homes without human consent;
+--ant adds Claude's Anthropic Console OAuth handoff through the official ant CLI.
 No OAuth URL, device code or live native transcript is retained; BROWSER=/bin/true.
 """
 import argparse
@@ -345,6 +346,7 @@ def main():
     parser.add_argument('--binary', default='target/release/ev')
     parser.add_argument('--provider-runtime')
     parser.add_argument('--codex', help='real installed Codex executable for --wsl-device')
+    parser.add_argument('--ant', help='real installed ant executable for the --live Claude Console OAuth case')
     parser.add_argument('--output', default='target/auth-smoke')
     args = parser.parse_args()
     if os.name != 'posix':
@@ -379,7 +381,8 @@ def main():
         environment.update(HOME=str(home), CODEX_HOME=str(home / '.codex'), GEMINI_CLI_HOME=str(home),
                            XDG_CONFIG_HOME=str(home / '.config'), XDG_DATA_HOME=str(home / '.local/share'),
                            XDG_CACHE_HOME=str(home / '.cache'), BROWSER='/bin/true')
-        environment['PATH'] = os.pathsep.join([str(runtime / 'node_modules/opencode-linux-x64/bin'),
+        environment['PATH'] = os.pathsep.join(([str(Path(args.ant).resolve().parent)] if args.ant else []) +
+                                             [str(runtime / 'node_modules/opencode-linux-x64/bin'),
                                               str(runtime / 'node_modules/.bin'), environment.get('PATH', '')])
         for key in list(environment):
             if key.startswith(('OPENAI_', 'CODEX_API_', 'ANTHROPIC_', 'CLAUDE_CODE_', 'GEMINI_API_', 'GOOGLE_', 'AWS_', 'OPENCODE_')):
@@ -485,6 +488,19 @@ def main():
             session.send('4')
             preview()
             cancel_native('gemini-google', ('accounts.google.com', 'Opening authentication page', 'Waiting for authentication'))
+
+            if args.ant:
+                console = home / '.config/anthropic'
+                session.send('2')
+                preview('s')
+                authorize()
+                wait_native(lambda: 'Provider reports not logged in' in session.display(), 'real ant empty-profile status', 30)
+                passed('claude-console status reports an absent Console profile without reading credentials or sending a model request')
+                for _ in range(2):
+                    preview()
+                    cancel_native('claude-console', ('platform.claude.com/oauth/authorize', 'Paste it here', 'paste the code here'))
+                    assert not (console / 'credentials').exists(), 'cancelled Console login wrote credentials'
+                    session.send('m')
 
             with closing(sqlite3.connect(data / 'workbench.sqlite3')) as db:
                 assert db.execute('SELECT goal FROM tasks').fetchone()[0] == 'Keep this local task through authentication cancellation.'

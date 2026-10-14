@@ -18,8 +18,11 @@ pub enum Method {
     CodexDevice,
     OpenCode,
     GeminiNative,
+    ClaudeConsole,
+    ClaudeConsoleCode,
     CodexStatus,
     OpenCodeStatus,
+    ClaudeConsoleStatus,
 }
 impl Method {
     pub fn label(self) -> &'static str {
@@ -28,6 +31,11 @@ impl Method {
             Self::CodexDevice => "ChatGPT / device authorization",
             Self::OpenCode => "Official provider and auth-method chooser",
             Self::GeminiNative => "Official Gemini CLI / Google OAuth, API key or Vertex",
+            Self::ClaudeConsole => "Anthropic Console OAuth / browser (official ant CLI)",
+            Self::ClaudeConsoleCode => "Anthropic Console OAuth / paste code (no browser launch)",
+            Self::ClaudeConsoleStatus => {
+                "Official ant auth status (profile presence, not eligibility)"
+            }
             Self::CodexStatus => "Official Codex login status",
             Self::OpenCodeStatus => {
                 "Official OpenCode credential inventory (not eligibility proof)"
@@ -35,7 +43,16 @@ impl Method {
         }
     }
     pub fn is_status(self) -> bool {
-        matches!(self, Self::CodexStatus | Self::OpenCodeStatus)
+        matches!(
+            self,
+            Self::CodexStatus | Self::OpenCodeStatus | Self::ClaudeConsoleStatus
+        )
+    }
+    fn is_claude(self) -> bool {
+        matches!(
+            self,
+            Self::ClaudeConsole | Self::ClaudeConsoleCode | Self::ClaudeConsoleStatus
+        )
     }
     pub fn guidance(self) -> Option<&'static str> {
         match self {
@@ -45,10 +62,26 @@ impl Method {
             Self::CodexDevice => Some(
                 "WSL/SSH: Device authorization works without a localhost listener, port forwarding, administrator privileges, or Windows network changes. Before continuing, enable device-code authorization in ChatGPT Settings > Security (workspace accounts may require an admin). Open the official link and enter the one-time code shown by Codex; keep this terminal open until it completes. Eevee never collects the code and never silently falls back to browser login.",
             ),
+            Self::ClaudeConsole | Self::ClaudeConsoleCode => Some(
+                "Signs in to the Claude Console (platform.claude.com) and bills Claude API usage to the chosen organization/workspace. This is NOT claude.ai Pro/Max subscription login: Anthropic does not permit third-party Agent SDK apps to use subscription OAuth. Paste-code login prints the official authorize URL and reads the returned code inside ant, without a localhost callback or browser launcher (WSL/SSH). Never share codes or URLs.",
+            ),
             _ => None,
         }
     }
     fn args(self) -> Vec<String> {
+        if self.is_claude() {
+            let profile = crate::claude::console_profile_name()
+                .unwrap_or_else(|| crate::claude::CONSOLE_PROFILE.into());
+            let mut args: Vec<String> = match self {
+                Self::ClaudeConsoleStatus => vec!["auth".into(), "status".into()],
+                _ => vec!["auth".into(), "login".into()],
+            };
+            if self == Self::ClaudeConsoleCode {
+                args.push("--no-browser".into());
+            }
+            args.extend(["--profile".into(), profile]);
+            return args;
+        }
         let args: &[&str] = match self {
             Self::CodexBrowser => &["login"],
             Self::CodexDevice => &["login", "--device-auth"],
@@ -56,6 +89,9 @@ impl Method {
             Self::CodexStatus => &["login", "status"],
             Self::OpenCodeStatus => &["auth", "list"],
             Self::GeminiNative => &[],
+            Self::ClaudeConsole | Self::ClaudeConsoleCode | Self::ClaudeConsoleStatus => {
+                unreachable!("built above")
+            }
         };
         args.iter().map(|arg| (*arg).into()).collect()
     }
@@ -63,6 +99,7 @@ impl Method {
 pub fn methods(profile: usize) -> &'static [Method] {
     match profile {
         0 => &[Method::CodexBrowser, Method::CodexDevice],
+        1 => &[Method::ClaudeConsole, Method::ClaudeConsoleCode],
         2 => &[Method::OpenCode],
         3 => &[Method::GeminiNative],
         _ => &[],
@@ -84,7 +121,11 @@ pub fn default_method(profile: usize) -> usize {
         let kernel = String::new();
         callback_free_environment(|_| false, &kernel)
     });
-    if profile == 0 && *CALLBACK_FREE { 1 } else { 0 }
+    if matches!(profile, 0 | 1) && *CALLBACK_FREE {
+        1
+    } else {
+        0
+    }
 }
 
 fn callback_free_environment(present: impl Fn(&str) -> bool, kernel: &str) -> bool {
@@ -102,10 +143,11 @@ fn callback_free_environment(present: impl Fn(&str) -> bool, kernel: &str) -> bo
             .windows(b"microsoft".len())
             .any(|part| part.eq_ignore_ascii_case(b"microsoft"))
 }
-pub const CLAUDE_POLICY: &str = "Claude Agent SDK uses Anthropic API credentials (ANTHROPIC_API_KEY) or configured Bedrock/Vertex cloud credentials. Set these outside Eevee and install the pinned SDK sidecar described in Setup (README). Claude CLI login is not SDK setup: claude.ai subscription OAuth tokens cannot be reused here. Eevee never collects tokens. A model request still needs separate Run approval.";
+pub const CLAUDE_POLICY: &str = "Claude Agent SDK uses Anthropic API credentials: ANTHROPIC_API_KEY, an Anthropic Console OAuth profile (Connect runs the official ant CLI 1.40.0 from PATH), or configured Bedrock/Vertex cloud credentials. Install the pinned SDK sidecar described in Setup (README). Claude CLI login is not SDK setup: claude.ai subscription OAuth tokens cannot be reused here. Eevee never collects tokens. A model request still needs separate Run approval.";
 pub fn status_method(profile: usize) -> Option<Method> {
     match profile {
         0 => Some(Method::CodexStatus),
+        1 => Some(Method::ClaudeConsoleStatus),
         2 => Some(Method::OpenCodeStatus),
         _ => None,
     }
@@ -178,6 +220,8 @@ impl Drop for AuthDirectory {
 pub struct Plan {
     pub profile: usize,
     pub method: Method,
+    /// Trust index of the launched executable (`ant` for Claude, else the provider).
+    executable: usize,
     pub lines: Vec<String>,
     pub summary: Vec<String>,
     trust: agent::ExternalTrust,
@@ -204,14 +248,28 @@ impl Plan {
         {
             return Err("Gemini native login is disabled by CI/GITHUB_ACTIONS=true. Launch Eevee from an interactive environment without those headless flags; no login was started.".into());
         }
-        let mut trust = agent::external_trust(profile, project, method.args())?;
+        let executable = if method.is_claude() {
+            if crate::claude::console_profile_name().is_none() {
+                return Err("ANTHROPIC_PROFILE must be 1-64 letters, digits, '_' or '-'; no login was started.".into());
+            }
+            agent::ANT
+        } else {
+            profile
+        };
+        let mut trust = agent::external_trust(executable, project, method.args()).map_err(|error| {
+            if method.is_claude() {
+                format!("{error}. Install the official Anthropic CLI (ant {}) on PATH outside the repository, then Refresh. {CLAUDE_POLICY}", agent::ANT_RELEASE)
+            } else {
+                error
+            }
+        })?;
         let directory = AuthDirectory::create(&trust.prepared.cwd)?;
         trust.prepared.cwd = directory.path.clone();
         trust.prepared.cwd_identity = directory.identity.clone();
         let mut lines = vec![
             format!("Selected method: {}", method.label()),
             format!("Executable: {}", trust.prepared.executable.path.display()),
-            format!("Literal argv: {:?}; first runs --version and requires exact release {}.", method.args(), release(profile)),
+            format!("Literal argv: {:?}; first runs --version and requires exact release {}.", method.args(), release(executable)),
             format!("Working directory: {} (private empty directory outside task project; removed only if still empty, never recursively).", trust.prepared.cwd.display()),
             trust.authentication_configuration().to_owned(),
             "Trust includes inherited environment, interpreter, dependencies, provider configuration/hooks/plugins and browser launcher. Executable and known configuration/project identities are checked immediately before launch. This is not sandboxing or atomic dependency pinning.".into(),
@@ -222,10 +280,13 @@ impl Plan {
         if method.is_status() {
             lines.push("This launches the official local status command; the provider may read its own credentials. Output is transient, not copied into task state. A credential inventory is not proof of account eligibility or a successful model request.".into());
         } else {
-            lines.push(format!("May open your browser, contact provider identity/account services, {}and write/replace provider-owned credentials and auth-method settings. Switching Gemini auth method can clear previous cached credentials. Provider-native prompts choose accounts/providers; trust their displayed scopes before consenting. Eevee never requests or persists tokens, API keys, device codes or account identifiers.", if method == Method::CodexDevice { "" } else { "bind a local OAuth callback, " }));
+            lines.push(format!("May open your browser, contact provider identity/account services, {}and write/replace provider-owned credentials and auth-method settings. Switching Gemini auth method can clear previous cached credentials. Provider-native prompts choose accounts/providers; trust their displayed scopes before consenting. Eevee never requests or persists tokens, API keys, device codes or account identifiers.", if matches!(method, Method::CodexDevice | Method::ClaudeConsoleCode) { "" } else { "bind a local OAuth callback, " }));
             lines.push("Eevee sends no task context or model prompt and never replays the task. Any later model request needs a separate review and Run approval. Cancellation does not revoke already-issued credentials; use the provider's account controls to revoke them.".into());
             if matches!(method, Method::CodexBrowser | Method::CodexDevice) {
                 lines.push("After the native UI returns, literal argv [\"login\", \"status\"] refreshes Codex status if reviewed identities still match. Only an exact recognized status is kept; all raw output is discarded.".into());
+            }
+            if method.is_claude() {
+                lines.push(format!("ant writes configs/<profile>.json (first login only), credentials/<profile>.json and active_config under {} for the named profile and makes it ant's active profile. The Claude Agent SDK sidecar later reads only this explicit profile, bills API usage to its Console organization/workspace and may refresh its access token in place. Remove it with ant auth logout --profile <profile>.", crate::claude::console_config_dir().map(|p| p.display().to_string()).unwrap_or_else(|| "the ant configuration directory".into())));
             }
             if method == Method::OpenCode {
                 lines.push("OpenCode --pure uses official built-in auth routes without external auth plugins. Select an eligible supported account; Claude Pro/Max OAuth is not provided or bypassed.".into());
@@ -243,7 +304,7 @@ impl Plan {
         let mut summary = vec![
             format!("Method: {}", method.label()),
             format!("Run: {} {:?}", trust.prepared.executable.path.display(), method.args()),
-            format!("First: --version (requires {}). Cwd: {}", release(profile), trust.prepared.cwd.display()),
+            format!("First: --version (requires {}). Cwd: {}", release(executable), trust.prepared.cwd.display()),
             "Private empty cwd outside your project; removed only while empty. Inherits environment, dependencies, config/hooks and browser launcher; not sandboxed. Executable and known config identities rechecked.".into(),
         ];
         if let Some(guidance) = method.guidance() {
@@ -257,6 +318,8 @@ impl Plan {
                 summary.push("Then runs [\"login\", \"status\"] if identities still match; keeps recognized status only.".into());
             } else if method == Method::OpenCode {
                 summary.push("--pure: official built-in auth only, no external auth plugins or Claude subscription OAuth.".into());
+            } else if method.is_claude() {
+                summary.push("Console OAuth for Claude API billing, not claude.ai subscription. Writes the ant profile and makes it active; the SDK sidecar reads only that profile and may refresh its token.".into());
             } else if method == Method::GeminiNative {
                 summary.push("Gemini opens its full CLI, NOT auth-only. Use /auth for Google/API key/Vertex; switching can clear credentials. It may initialize services and enter chat: what YOU type can start model work. Exit/Ctrl+C to return; exit does not prove login.".into());
             }
@@ -273,6 +336,7 @@ impl Plan {
         Ok(Self {
             profile,
             method,
+            executable,
             lines,
             summary,
             trust,
@@ -288,10 +352,10 @@ impl Plan {
             return Err(Outcome::Expired);
         }
         let prepared = agent::qualify_external(
-            self.profile,
+            self.executable,
             project,
             &self.trust,
-            release(self.profile),
+            release(self.executable),
             &INTERRUPTED,
         )
         .map_err(|_| {
@@ -315,6 +379,7 @@ fn release(profile: usize) -> &'static str {
         0 => agent::CODEX_RELEASE,
         2 => agent::OPENCODE_RELEASE,
         3 => agent::GEMINI_RELEASE,
+        agent::ANT => agent::ANT_RELEASE,
         _ => "unsupported",
     }
 }
@@ -371,6 +436,7 @@ pub fn run(plan: &Plan, project: &Path) -> Outcome {
     if plan.method == Method::CodexStatus {
         return codex_status(&prepared);
     }
+    let console_before = plan.method.is_claude().then(console_stamp);
     let result = native_ui(
         &prepared,
         if plan.method.is_status() {
@@ -394,7 +460,32 @@ pub fn run(plan: &Plan, project: &Path) -> Outcome {
         }
         return codex_status(&status);
     }
+    if let Some(before) = console_before
+        && result == Outcome::Unknown
+    {
+        return console_outcome(plan.method, &before, &console_stamp());
+    }
     result
+}
+
+/// Credential-file metadata of the selected Console profile; contents are never read.
+type ConsoleStamp = Option<(u64, Option<std::time::SystemTime>)>;
+fn console_stamp() -> ConsoleStamp {
+    let path = crate::claude::console_credentials()?;
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    Some((metadata.len(), metadata.modified().ok()))
+}
+fn console_outcome(method: Method, before: &ConsoleStamp, after: &ConsoleStamp) -> Outcome {
+    match (method, after) {
+        // Absent profile credentials are definitive for the SDK's explicit-profile route.
+        (_, None) => Outcome::NotAuthenticated,
+        // Freshly written credentials mean ant completed a login; account/model
+        // eligibility still requires a separately consented request.
+        (Method::ClaudeConsole | Method::ClaudeConsoleCode, Some(_)) if after != before => {
+            Outcome::Authenticated
+        }
+        _ => Outcome::Unknown,
+    }
 }
 
 fn codex_status(prepared: &runner::Prepared) -> Outcome {
@@ -765,9 +856,13 @@ mod tests {
         assert!(callback_free_environment(|_| false, "4.4.0-Microsoft"));
         assert!(!callback_free_environment(|_| false, "6.18.1-generic"));
         assert!(!callback_free_environment(|_| false, ""));
-        for profile in 1..4 {
+        for profile in 2..4 {
             assert_eq!(default_method(profile), 0);
         }
+        assert_eq!(
+            methods(1),
+            &[Method::ClaudeConsole, Method::ClaudeConsoleCode]
+        );
         assert_eq!(methods(0), &[Method::CodexBrowser, Method::CodexDevice]);
         assert_eq!(Method::CodexBrowser.args(), ["login"]);
         assert_eq!(Method::CodexDevice.args(), ["login", "--device-auth"]);
@@ -829,8 +924,53 @@ mod tests {
 
     #[test]
     fn authentication_methods_cannot_cross_provider() {
-        assert!(methods(1).is_empty());
         assert!(Plan::prepare(1, Method::CodexBrowser, Path::new(".")).is_err());
         assert!(Plan::prepare(0, Method::GeminiNative, Path::new(".")).is_err());
+        assert!(Plan::prepare(0, Method::ClaudeConsole, Path::new(".")).is_err());
+        assert!(Plan::prepare(3, Method::ClaudeConsoleStatus, Path::new(".")).is_err());
+        assert!(methods(1).iter().all(|method| method.is_claude()));
+    }
+
+    #[test]
+    fn claude_uses_console_oauth_profile_never_subscription_login() {
+        let profile = crate::claude::console_profile_name().unwrap();
+        assert_eq!(
+            Method::ClaudeConsole.args(),
+            ["auth", "login", "--profile", profile.as_str()]
+        );
+        assert_eq!(
+            Method::ClaudeConsoleCode.args(),
+            [
+                "auth",
+                "login",
+                "--no-browser",
+                "--profile",
+                profile.as_str()
+            ]
+        );
+        assert_eq!(
+            Method::ClaudeConsoleStatus.args(),
+            ["auth", "status", "--profile", profile.as_str()]
+        );
+        assert_eq!(status_method(1), Some(Method::ClaudeConsoleStatus));
+        let at = Some(std::time::SystemTime::UNIX_EPOCH);
+        let old = Some((10, at));
+        let fresh = Some((12, at));
+        assert_eq!(
+            console_outcome(Method::ClaudeConsole, &None, &fresh),
+            Outcome::Authenticated
+        );
+        assert_eq!(
+            console_outcome(Method::ClaudeConsoleCode, &old, &old),
+            Outcome::Unknown
+        );
+        assert_eq!(
+            console_outcome(Method::ClaudeConsole, &old, &None),
+            Outcome::NotAuthenticated
+        );
+        assert_eq!(
+            console_outcome(Method::ClaudeConsoleStatus, &old, &fresh),
+            Outcome::Unknown
+        );
     }
 }

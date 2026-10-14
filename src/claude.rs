@@ -171,24 +171,79 @@ fn safe(text: &str) -> String {
 fn env_present(name: &str) -> bool {
     std::env::var_os(name).is_some_and(|v| !v.is_empty())
 }
+/// Profile written by `ant auth login` when ANTHROPIC_PROFILE does not select another.
+pub(crate) const CONSOLE_PROFILE: &str = "eevee";
+
+/// Selected Anthropic Console OAuth profile name (ant CLI semantics), if it is safe as argv.
+pub(crate) fn console_profile_name() -> Option<String> {
+    let name = std::env::var("ANTHROPIC_PROFILE")
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| CONSOLE_PROFILE.into());
+    (name.len() <= 64
+        && name
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-')))
+    .then_some(name)
+}
+
+/// ant CLI configuration directory: ANTHROPIC_CONFIG_DIR, APPDATA (Windows),
+/// XDG_CONFIG_HOME, then HOME/.config.
+pub(crate) fn console_config_dir() -> Option<PathBuf> {
+    let var = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
+    let dir = var("ANTHROPIC_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            cfg!(windows)
+                .then(|| var("APPDATA").map(|p| PathBuf::from(p).join("Anthropic")))
+                .flatten()
+        })
+        .or_else(|| var("XDG_CONFIG_HOME").map(|p| PathBuf::from(p).join("anthropic")))
+        .or_else(|| var("HOME").map(|p| PathBuf::from(p).join(".config/anthropic")))?;
+    dir.is_absolute().then_some(dir)
+}
+
+/// Credential file of a logged-in Console profile. Metadata only; contents are never read.
+pub(crate) fn console_credentials() -> Option<PathBuf> {
+    let name = console_profile_name()?;
+    let dir = console_config_dir()?;
+    let regular = |path: &Path| fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_file());
+    let credentials = dir.join("credentials").join(format!("{name}.json"));
+    (regular(&dir.join("configs").join(format!("{name}.json"))) && regular(&credentials))
+        .then_some(credentials)
+}
+
 fn credential_route() -> Result<String, String> {
-    credential_route_from(env_present, |name, value| {
-        std::env::var(name).ok().as_deref() == Some(value)
-    })
+    let profile = console_credentials().and(console_profile_name());
+    if profile.is_none() && env_present("ANTHROPIC_PROFILE") {
+        return Err("Selected ANTHROPIC_PROFILE has no Anthropic Console login; connect it with ant auth login or unset ANTHROPIC_PROFILE".into());
+    }
+    credential_route_from(
+        env_present,
+        |name, value| std::env::var(name).ok().as_deref() == Some(value),
+        profile.as_deref(),
+    )
 }
 fn credential_route_from(
     present: impl Fn(&str) -> bool,
     configured: impl Fn(&str, &str) -> bool,
+    profile: Option<&str>,
 ) -> Result<String, String> {
     let api = present("ANTHROPIC_API_KEY");
     let bedrock = configured("CLAUDE_CODE_USE_BEDROCK", "1");
     let vertex = configured("CLAUDE_CODE_USE_VERTEX", "1");
     let chain = configured("EEVEE_CLAUDE_CLOUD_AUTH", "provider-chain");
-    if u8::from(api) + u8::from(bedrock) + u8::from(vertex) != 1 {
-        return Err("Claude Agent requires a permitted ANTHROPIC_API_KEY or exactly one explicitly configured Bedrock/Vertex route. Installed claude.ai subscription login is intentionally unavailable.".into());
+    if u8::from(api) + u8::from(bedrock) + u8::from(vertex) + u8::from(profile.is_some()) != 1 {
+        return Err("Claude Agent requires exactly one permitted route: ANTHROPIC_API_KEY, an Anthropic Console OAuth profile (Connect > ant auth login), or an explicitly configured Bedrock/Vertex route. Installed claude.ai subscription login is intentionally unavailable.".into());
     }
-    if present("EEVEE_CLAUDE_CLOUD_AUTH") && (!chain || api) {
-        return Err("EEVEE_CLAUDE_CLOUD_AUTH=provider-chain applies only to an explicit Bedrock or Vertex route, never subscription/API-key auth".into());
+    if present("EEVEE_CLAUDE_CLOUD_AUTH") && (!chain || api || profile.is_some()) {
+        return Err("EEVEE_CLAUDE_CLOUD_AUTH=provider-chain applies only to an explicit Bedrock or Vertex route, never subscription/API-key/Console-profile auth".into());
+    }
+    if let Some(name) = profile {
+        return Ok(format!(
+            "Anthropic Console OAuth profile {name} via ant auth login (API billing; validity unknown until provider response)"
+        ));
     }
     if !chain && configured("GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES", "1") {
         return Err("Executable cloud credentials require explicit EEVEE_CLAUDE_CLOUD_AUTH=provider-chain consent".into());
@@ -528,7 +583,7 @@ fn trust(project: &Path, data_dir: &Path) -> Result<Trust, String> {
         }
     }
     let account = credential_route().unwrap_or_else(|_| {
-        "Unavailable: permitted API/cloud credentials required; subscription auth is disabled"
+        "Unavailable: permitted API key, Console OAuth profile or cloud credentials required; subscription auth is disabled"
             .into()
     });
     let launch = crate::runner::Prepared {
@@ -775,7 +830,9 @@ fn worker(
                     Ok(t) => preview.trust.extend([
                         format!("Consent executes Node {} sha256 {}, native-TypeScript sidecar {} and complete dependency tree sha256 {} ({} entries / {} bytes). SDK {} / embedded CLI {} are required; --inspect loads real SDK without a model before one query.", t.launch.executable.path.display(), t.launch.executable.sha256, t.entry.display(), t.stamp.digest, t.stamp.files, t.stamp.bytes, SDK_VERSION, CLI_VERSION),
                         format!("Authentication/billing source: {}. Credential values are never read/copied/stored by Eevee; installed claude.ai subscription auth is not used. SDK state/transcripts persist separately at {}.", t.account, t.state_dir.display()),
-                        if std::env::var("EEVEE_CLAUDE_CLOUD_AUTH").ok().as_deref() == Some("provider-chain") {
+                        if t.account.starts_with("Anthropic Console OAuth profile") {
+                            "CONSOLE OAUTH PROFILE: the SDK reads only the selected ant profile (explicit ANTHROPIC_CONFIG_DIR/ANTHROPIC_PROFILE) and bills API usage to its Console organization/workspace, not a claude.ai subscription. The embedded CLI may refresh that profile's access token in place; a profile base_url is provider configuration. HOME and Claude configuration stay isolated. The effective backend must report profile credentials (no API-key/subscription source) before prompt release.".into()
+                        } else if std::env::var("EEVEE_CLAUDE_CLOUD_AUTH").ok().as_deref() == Some("provider-chain") {
                             "EXPLICIT EXTERNAL CLOUD AUTH: inherited HOME is available only for selected Bedrock/Vertex profile/SSO/ADC/workload credentials. Provider credential libraries may read cloud stores, refresh caches, execute credential_process or configured external-account helpers, and contact identity/metadata services. Eevee does not inspect/copy those stores or qualify helper executables. Claude's CLAUDE_CONFIG_DIR stays isolated; effective SDK backend is checked before prompt release. No live account/SSO/ADC validity claim.".into()
                         } else {
                             "CLOUD AUTH: only explicitly selected environment/bearer/web-identity/credential-file routes are admitted; HOME and Claude configuration are isolated. Profile/SSO/default ADC discovery requires EEVEE_CLAUDE_CLOUD_AUTH=provider-chain and a fresh preview. Effective SDK backend is checked before prompt release.".into()
@@ -1617,6 +1674,10 @@ mod tests {
     #[test]
     fn cloud_auth_chains_require_explicit_consent_and_selected_backend() {
         let route = |pairs: &[(&str, &str)]| {
+            let profile = pairs
+                .iter()
+                .find(|(name, _)| *name == "console-profile")
+                .map(|(_, value)| *value);
             credential_route_from(
                 |key| {
                     pairs
@@ -1628,6 +1689,7 @@ mod tests {
                         .iter()
                         .any(|(name, value)| *name == key && *value == expected)
                 },
+                profile,
             )
         };
         let opt_in = ("EEVEE_CLAUDE_CLOUD_AUTH", "provider-chain");
@@ -1666,6 +1728,15 @@ mod tests {
         assert!(route(&[opt_in]).is_err());
         assert!(route(&[("ANTHROPIC_API_KEY", "unit-test"), opt_in]).is_err());
         assert!(route(&[bedrock, vertex, opt_in]).is_err());
+        let console = ("console-profile", "eevee");
+        assert!(
+            route(&[console])
+                .unwrap()
+                .contains("Console OAuth profile eevee")
+        );
+        assert!(route(&[console, ("ANTHROPIC_API_KEY", "unit-test")]).is_err());
+        assert!(route(&[console, bedrock, opt_in, ("AWS_PROFILE", "work")]).is_err());
+        assert!(route(&[console, opt_in]).is_err());
     }
     #[test]
     fn sdk_callbacks_never_offer_hidden_or_unsupported_grants() {

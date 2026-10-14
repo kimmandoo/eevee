@@ -165,7 +165,7 @@ Reviews start on **Back**. Full technical details remain available separately. M
 | Provider | Integration | Supported connection route |
 | --- | --- | --- |
 | Codex **0.152.1** | Private stdio app-server | Official browser OAuth or device authorization; official login status |
-| Claude Agent SDK **0.3.296** | Optional Node sidecar; embedded CLI **2.1.296** | Anthropic API key, Amazon Bedrock, or Google Vertex AI; **no claude.ai subscription OAuth reuse** |
+| Claude Agent SDK **0.3.296** | Optional Node sidecar; embedded CLI **2.1.296** | Anthropic API key, Anthropic Console OAuth via official `ant` **1.40.0** (browser or paste code; status), Amazon Bedrock, or Google Vertex AI; **no claude.ai subscription OAuth reuse** |
 | OpenCode **1.18.0** | ACP1 via `acp --pure` | Official `auth login --pure` provider/method chooser; available OAuth/API-key methods belong to OpenCode |
 | Gemini CLI **0.28.0** | ACP1 for model requests | Official native CLI chooser for Google OAuth (browser/manual code), API key, or Vertex |
 
@@ -185,7 +185,7 @@ export EEVEE_CLAUDE_SIDECAR="$PWD/sidecar/main.ts"
 node sidecar/main.ts --inspect
 ```
 
-Use a permitted `ANTHROPIC_API_KEY`, or explicitly select Bedrock/Vertex. For provider-managed AWS SSO/profile/workload or Google ADC/workload chains, opt in with `EEVEE_CLAUDE_CLOUD_AUTH=provider-chain` **and** the selected `CLAUDE_CODE_USE_BEDROCK`/`CLAUDE_CODE_USE_VERTEX` route. Review the [credential and cloud-policy contract](docs/AGENT_COMPATIBILITY.md#claude-agent-sdk): these chains can read/refresh caches, execute credential helpers, and contact identity or metadata endpoints. Eevee isolates Claude SDK configuration and verifies the effective backend; it never falls back to claude.ai subscription tokens.
+Use a permitted `ANTHROPIC_API_KEY`, sign in with Anthropic Console OAuth, or explicitly select Bedrock/Vertex. **F2 → Claude Agent SDK → Connect** runs the official Anthropic CLI (`ant` **1.40.0** on PATH) as `ant auth login --profile eevee` (browser) or with `--no-browser` (paste the code; default on WSL/SSH). This is Claude Console login billed as API usage to the chosen organization/workspace, not a claude.ai Pro/Max login. Set `ANTHROPIC_PROFILE` to use another `ant` profile. The sidecar passes only that profile's directory/name to the SDK, and the SDK may refresh its token in place. Exactly one route may be configured. For provider-managed AWS SSO/profile/workload or Google ADC/workload chains, opt in with `EEVEE_CLAUDE_CLOUD_AUTH=provider-chain` **and** the selected `CLAUDE_CODE_USE_BEDROCK`/`CLAUDE_CODE_USE_VERTEX` route. Review the [credential and cloud-policy contract](docs/AGENT_COMPATIBILITY.md#claude-agent-sdk): these chains can read/refresh caches, execute credential helpers, and contact identity or metadata endpoints. Eevee isolates Claude SDK configuration and verifies the effective backend; it never falls back to claude.ai subscription tokens.
 
 SDK inspection imports the real SDK without a model request; it is not authenticated-query proof. Selected-path SDK Write/Edit hooks are **agent policy, not atomic OS confinement**. ACP provider-owned tools are also external policy; controlled ACP implementation is refused. [Compatibility details →](docs/AGENT_COMPATIBILITY.md)
 

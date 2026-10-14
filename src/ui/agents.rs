@@ -181,7 +181,8 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 3 + count
             };
             let methods = state.page == Page::Methods;
-            let hint = if state.selected == 1 || profile.executable.is_none() {
+            // Claude's executable row is the Claude CLI; its connection uses ant instead.
+            let hint = if state.selected != 1 && profile.executable.is_none() {
                 state.setup_hint()
             } else if state.auth_busy() {
                 "Preparing review... Esc cancels.".into()
@@ -191,6 +192,8 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     .and_then(|method| method.guidance())
                     .unwrap_or("Enter reviews this method; nothing launches.");
                 format!("{}\n\n{guidance}", state.notice)
+            } else if state.selected == 1 {
+                format!("{}\n\n{}", state.notice, state.setup_hint())
             } else {
                 state.notice.clone()
             };

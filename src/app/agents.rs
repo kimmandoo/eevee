@@ -194,13 +194,12 @@ impl State {
     fn activate(&mut self, action: Action) {
         match action {
             Action::Connect => {
-                if self.selected == 1 {
-                    self.notice = crate::auth::CLAUDE_POLICY.into();
-                    self.page = Page::Diagnostics;
-                } else if self
-                    .profiles
-                    .get(self.selected)
-                    .is_none_or(|p| p.executable.is_none())
+                // Claude connects through the separate ant CLI, qualified during review.
+                if self.selected != 1
+                    && self
+                        .profiles
+                        .get(self.selected)
+                        .is_none_or(|p| p.executable.is_none())
                 {
                     self.notice = self.setup_hint();
                 } else if crate::auth::methods(self.selected).len() > 1 {
@@ -560,7 +559,7 @@ mod tests {
         assert_eq!(state.method, crate::auth::default_method(0));
         let mut state = discovered();
         state.method = 1;
-        press(&mut state, KeyCode::Char('2'));
+        press(&mut state, KeyCode::Char('3'));
         assert_eq!(state.method, 0);
         press(&mut state, KeyCode::Char('1'));
         assert_eq!(state.method, crate::auth::default_method(0));
@@ -760,22 +759,27 @@ mod tests {
     }
 
     #[test]
-    fn provider_switch_resets_method_and_claude_never_launches_cli_login() {
+    fn provider_switch_resets_method_and_claude_reviews_only_console_oauth() {
         let mut state = discovered();
+        press(&mut state, KeyCode::Char('3'));
         press(&mut state, KeyCode::Char('m'));
-        assert_eq!(state.method, 1);
-        press(&mut state, KeyCode::Char('2'));
         assert_eq!(state.method, 0);
+        press(&mut state, KeyCode::Char('2'));
+        assert_eq!(state.method, crate::auth::default_method(1));
+        press(&mut state, KeyCode::Enter);
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.page, Page::Methods);
+        assert!(state.pending.is_none());
         press(&mut state, KeyCode::Char('l'));
-        assert!(!state.auth_busy());
-        assert!(state.pending.is_none());
-        press(&mut state, KeyCode::Char('s'));
-        assert!(state.pending.is_none());
-        press(&mut state, KeyCode::Enter);
-        press(&mut state, KeyCode::Enter);
-        assert_eq!(state.page, Page::Diagnostics);
-        assert!(state.pending.is_none());
-        assert!(state.pending_auth.is_none());
+        assert!(state.auth_busy());
+        assert!(matches!(
+            state.pending,
+            Some(Request::PrepareAuth {
+                profile: 1,
+                method: crate::auth::Method::ClaudeConsole | crate::auth::Method::ClaudeConsoleCode,
+                ..
+            })
+        ));
     }
 
     #[test]

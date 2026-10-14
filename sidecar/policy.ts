@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { lstatSync, realpathSync } from 'node:fs';
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export const SDK_VERSION = '0.3.296';
 export const CLI_VERSION = '2.1.296';
@@ -70,13 +70,34 @@ export function questionSchema(input: Record<string, unknown>): boolean {
   return QuestionInputSchema.safeParse(input).success;
 }
 
-export function credentialRoute(env: NodeJS.ProcessEnv): string | undefined {
+export const CONSOLE_PROFILE = 'eevee';
+export type ConsoleProfile = { dir: string; name: string };
+
+// `ant auth login` (Anthropic Console OAuth, API billing) profile resolution, mirroring
+// the ant CLI. Metadata only: credential contents are never read here.
+export function consoleProfile(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): ConsoleProfile | undefined {
+  const name = env.ANTHROPIC_PROFILE?.trim() || CONSOLE_PROFILE;
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) return undefined;
+  const base = env.ANTHROPIC_CONFIG_DIR?.trim() ||
+    (platform === 'win32' && env.APPDATA ? join(env.APPDATA, 'Anthropic') : undefined) ||
+    (env.XDG_CONFIG_HOME ? join(env.XDG_CONFIG_HOME, 'anthropic') : undefined) ||
+    (env.HOME ? join(env.HOME, '.config', 'anthropic') : undefined);
+  if (!base || !isAbsolute(base)) return undefined;
+  const regular = (path: string) => { try { return lstatSync(path).isFile(); } catch { return false; } };
+  if (!regular(join(base, 'configs', `${name}.json`)) || !regular(join(base, 'credentials', `${name}.json`))) return undefined;
+  return { dir: realpathSync(base), name };
+}
+
+export function credentialRoute(env: NodeJS.ProcessEnv, profile = consoleProfile(env)): string | undefined {
   const api = Boolean(env.ANTHROPIC_API_KEY);
   const bedrock = env.CLAUDE_CODE_USE_BEDROCK === '1';
   const vertex = env.CLAUDE_CODE_USE_VERTEX === '1';
-  if (Number(api) + Number(bedrock) + Number(vertex) !== 1) return undefined;
+  // An explicitly selected profile that is not logged in never falls through to another route.
+  if (env.ANTHROPIC_PROFILE?.trim() && !profile) return undefined;
+  if (Number(api) + Number(bedrock) + Number(vertex) + Number(Boolean(profile)) !== 1) return undefined;
   const chain = env.EEVEE_CLAUDE_CLOUD_AUTH === 'provider-chain';
-  if ((env.EEVEE_CLAUDE_CLOUD_AUTH && !chain) || (chain && api)) return undefined;
+  if ((env.EEVEE_CLAUDE_CLOUD_AUTH && !chain) || (chain && (api || profile))) return undefined;
+  if (profile) return `Anthropic Console OAuth profile ${profile.name} (ant auth login)`;
   if (!chain && env.GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES === '1') return undefined;
   if (bedrock) {
     if (chain) return 'Amazon Bedrock (explicit provider credential chain)';
@@ -92,6 +113,14 @@ export function credentialRoute(env: NodeJS.ProcessEnv): string | undefined {
     return env.GOOGLE_APPLICATION_CREDENTIALS ? 'Google Vertex (provider-owned cloud credentials)' : undefined;
   }
   return 'ANTHROPIC_API_KEY';
+}
+
+// The pinned CLI reports no token/API-key source for a profile credential; an API key,
+// subscription login or missing profile reports one, so the prompt is never released to it.
+export function accountMatches(route: string, info: { apiProvider?: string; tokenSource?: string; apiKeySource?: string }, expectedProvider: string): boolean {
+  if (info.apiProvider !== expectedProvider) return false;
+  if (route.startsWith('Anthropic Console OAuth profile')) return info.tokenSource === undefined && info.apiKeySource === undefined;
+  return true;
 }
 
 // Interrupt acknowledgment is not a cancelled-result discriminator in this SDK.

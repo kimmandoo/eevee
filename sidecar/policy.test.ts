@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, symlinkSync, linkSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, linkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { credentialRoute, selectedWrite, selectedWriteIdentity, questionSchema, sdkOutcome } from './policy.ts';
+import { credentialRoute, consoleProfile, accountMatches, selectedWrite, selectedWriteIdentity, questionSchema, sdkOutcome } from './policy.ts';
 
 test('missing API/cloud credentials never selects installed subscription auth', () => {
   assert.equal(credentialRoute({}), undefined);
@@ -29,6 +29,33 @@ test('cloud chains are explicit external policy, not automatic profile or subscr
   assert.equal(credentialRoute({ ...bedrock, ...optIn, CLAUDE_CODE_USE_VERTEX: '1' }), undefined);
   assert.equal(credentialRoute({ ...bedrock, EEVEE_CLAUDE_CLOUD_AUTH: 'implicit' }), undefined);
   assert.equal(credentialRoute({ CLAUDE_CODE_USE_VERTEX: '1', ANTHROPIC_VERTEX_PROJECT_ID: 'unit-project', GOOGLE_APPLICATION_CREDENTIALS: '/selected/cloud-file', GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES: '1' }), undefined);
+});
+
+test('Console OAuth profile is an exclusive explicit route, never a subscription fallback', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'eevee-ant-profile-'));
+  try {
+    const env = { ANTHROPIC_CONFIG_DIR: dir };
+    assert.equal(consoleProfile(env), undefined);
+    mkdirSync(join(dir, 'configs')); mkdirSync(join(dir, 'credentials'));
+    writeFileSync(join(dir, 'configs', 'eevee.json'), '{}');
+    assert.equal(consoleProfile(env), undefined);
+    writeFileSync(join(dir, 'credentials', 'eevee.json'), '{}');
+    const profile = consoleProfile(env)!;
+    assert.equal(profile.name, 'eevee');
+    assert.match(credentialRoute(env)!, /Console OAuth profile eevee/);
+    assert.equal(credentialRoute({ ...env, ANTHROPIC_API_KEY: 'unit-test' }), undefined);
+    assert.equal(credentialRoute({ ...env, CLAUDE_CODE_USE_BEDROCK: '1', EEVEE_CLAUDE_CLOUD_AUTH: 'provider-chain' }), undefined);
+    assert.equal(credentialRoute({ ...env, ANTHROPIC_PROFILE: 'work', ANTHROPIC_API_KEY: 'unit-test' }), undefined);
+    assert.equal(consoleProfile({ ...env, ANTHROPIC_PROFILE: '../eevee' }), undefined);
+    assert.equal(consoleProfile({ ANTHROPIC_CONFIG_DIR: 'relative' }), undefined);
+    assert.equal(consoleProfile({ XDG_CONFIG_HOME: join(dir, 'missing') }), undefined);
+    const route = credentialRoute(env)!;
+    assert.equal(accountMatches(route, { apiProvider: 'firstParty' }, 'firstParty'), true);
+    assert.equal(accountMatches(route, { apiProvider: 'firstParty', tokenSource: 'none' }, 'firstParty'), false);
+    assert.equal(accountMatches(route, { apiProvider: 'firstParty', tokenSource: 'none', apiKeySource: 'ANTHROPIC_API_KEY' }, 'firstParty'), false);
+    assert.equal(accountMatches(route, { apiProvider: 'gateway' }, 'firstParty'), false);
+    assert.equal(accountMatches('ANTHROPIC_API_KEY', { apiProvider: 'firstParty', apiKeySource: 'ANTHROPIC_API_KEY' }, 'firstParty'), true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('selected writes reject protected/unselected/escaping/symlink routes without touching files', () => {
