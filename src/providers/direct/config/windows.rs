@@ -245,16 +245,20 @@ pub(super) fn open_user_file(
 mod tests {
     use super::*;
     use std::fs;
+    use std::io::Write;
     use std::mem::size_of_val;
+    use std::os::windows::ffi::OsStrExt;
     use std::os::windows::fs::{symlink_dir, symlink_file};
     use std::sync::atomic::{AtomicU64, Ordering};
-    use windows_sys::Win32::Security::Authorization::SetSecurityInfo;
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
     use windows_sys::Win32::Security::{
         ACL_REVISION, AddAccessAllowedAceEx, CreateWellKnownSid, InitializeAcl,
-        PROTECTED_DACL_SECURITY_INFORMATION, SECURITY_MAX_SID_SIZE, WinWorldSid,
+        InitializeSecurityDescriptor, SE_DACL_PROTECTED, SECURITY_ATTRIBUTES, SECURITY_DESCRIPTOR,
+        SECURITY_MAX_SID_SIZE, SetSecurityDescriptorControl, SetSecurityDescriptorDacl,
+        SetSecurityDescriptorOwner, WinWorldSid,
     };
     use windows_sys::Win32::Storage::FileSystem::{
-        FILE_ALL_ACCESS, FILE_GENERIC_WRITE, WRITE_DAC, WRITE_OWNER,
+        CREATE_NEW, CreateFileW, FILE_ALL_ACCESS, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE,
     };
 
     static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -273,12 +277,16 @@ mod tests {
         }
 
         fn file(&self, name: &str, world_rights: Option<u32>) -> PathBuf {
+            self.file_with_dacl(name, world_rights, false)
+        }
+
+        fn file_with_dacl(
+            &self,
+            name: &str,
+            world_rights: Option<u32>,
+            null_dacl: bool,
+        ) -> PathBuf {
             let path = self.0.join(name);
-            fs::write(&path, "configuration").unwrap();
-            let file = OpenOptions::new()
-                .access_mode(WRITE_DAC | WRITE_OWNER)
-                .open(&path)
-                .unwrap();
             let user = TokenUser::current().unwrap();
             let mut world = [0u32; (SECURITY_MAX_SID_SIZE as usize).div_ceil(4)];
             let mut world_length = size_of_val(&world) as u32;
@@ -317,22 +325,66 @@ mod tests {
                     0
                 );
             }
-            assert_eq!(
+            // Supply owner and a protected DACL atomically at creation. Rewriting
+            // an inherited owner/DACL afterward needlessly depends on fixture-handle
+            // rights and ownership-changing behavior of the host account.
+            let mut descriptor = SECURITY_DESCRIPTOR::default();
+            let descriptor_ptr = (&mut descriptor as *mut SECURITY_DESCRIPTOR).cast();
+            // SECURITY_DESCRIPTOR_REVISION is 1 (winnt.h).
+            assert_ne!(
+                unsafe { InitializeSecurityDescriptor(descriptor_ptr, 1) },
+                0
+            );
+            assert_ne!(
+                unsafe { SetSecurityDescriptorOwner(descriptor_ptr, user.sid(), 0) },
+                0
+            );
+            assert_ne!(
                 unsafe {
-                    SetSecurityInfo(
-                        file.as_raw_handle(),
-                        SE_FILE_OBJECT,
-                        OWNER_SECURITY_INFORMATION
-                            | DACL_SECURITY_INFORMATION
-                            | PROTECTED_DACL_SECURITY_INFORMATION,
-                        user.sid(),
-                        null_mut(),
-                        acl,
-                        null_mut(),
+                    SetSecurityDescriptorDacl(
+                        descriptor_ptr,
+                        1,
+                        if null_dacl { null_mut() } else { acl },
+                        0,
                     )
                 },
-                ERROR_SUCCESS
+                0
             );
+            assert_ne!(
+                unsafe {
+                    SetSecurityDescriptorControl(
+                        descriptor_ptr,
+                        SE_DACL_PROTECTED,
+                        SE_DACL_PROTECTED,
+                    )
+                },
+                0
+            );
+            let attributes = SECURITY_ATTRIBUTES {
+                nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: descriptor_ptr,
+                bInheritHandle: 0,
+            };
+            let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+            let raw = unsafe {
+                CreateFileW(
+                    wide.as_ptr(),
+                    FILE_GENERIC_WRITE,
+                    FILE_SHARE_READ,
+                    &attributes,
+                    CREATE_NEW,
+                    FILE_ATTRIBUTE_NORMAL,
+                    null_mut(),
+                )
+            };
+            assert_ne!(
+                raw,
+                INVALID_HANDLE_VALUE,
+                "fixture creation failed: {}",
+                std::io::Error::last_os_error()
+            );
+            let mut file = unsafe { File::from_raw_handle(raw) };
+            file.write_all(b"configuration").unwrap();
             path
         }
     }
@@ -386,26 +438,7 @@ mod tests {
     #[test]
     fn null_dacl_and_unknown_grants_fail_closed() {
         let temp = Temp::new();
-        let path = temp.file("null-dacl.toml", None);
-        let file = OpenOptions::new()
-            .access_mode(WRITE_DAC)
-            .open(&path)
-            .unwrap();
-        assert_eq!(
-            unsafe {
-                SetSecurityInfo(
-                    file.as_raw_handle(),
-                    SE_FILE_OBJECT,
-                    DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-                    null_mut(),
-                    null_mut(),
-                    null_mut(),
-                    null_mut(),
-                )
-            },
-            ERROR_SUCCESS
-        );
-        drop(file);
+        let path = temp.file_with_dacl("null-dacl.toml", None, true);
         assert!(open_user_file(&path, &path.canonicalize().unwrap(), false).is_err());
 
         let user = TokenUser::current().unwrap();

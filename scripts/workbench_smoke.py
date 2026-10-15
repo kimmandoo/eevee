@@ -536,8 +536,6 @@ def main():
                         assert native.alive() and time.monotonic() < deadline, "cancel did not close the local HTTP client"
                         native.pump(0.05)
                     stored_when(native_data, lambda rows: saved_request(rows) == unsent_request)
-                    wait_for(native, "Storage: saved")
-                    assert "local reader closed" in native.text
                     native.pump(0.5)
                     assert len(fixture.snapshot("POST")) == 3, "cancelled inference was automatically resent"
                     native.send("\x1b[1;3A")

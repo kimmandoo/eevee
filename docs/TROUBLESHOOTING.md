@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-16] Native platform qualification exposed HTTP and ACL fixture assumptions
+
+- **Context / Symptom:** Native macOS CI failed the loopback SSE reader fixture with `WouldBlock` / `Resource temporarily unavailable`; native Windows tests failed before production validation at fixture `SetSecurityInfo`, returning `ERROR_ACCESS_DENIED` (5). Linux rows and the local serialized Rust suite had passed.
+- **Root Cause:** Darwin accepted sockets inherited the listener's nonblocking mode, while the fixture assumed bounded blocking reads. Windows fixtures rewrote inherited ownership/DACL state after file creation; the reported API transition failed on the runner account. The exact internal Windows denial cause was not established, so it was not attributed to guessed handle rights.
+- **Solution:** Explicitly selected blocking mode on accepted fixture sockets while retaining read/write deadlines. Created Windows fixtures atomically with current-user owner and protected DACL in `SECURITY_ATTRIBUTES`; NULL-DACL cases use the same creation path. Production owner/DACL/reparse checks were not weakened, and no failing platform test was skipped.
+- **Prevention / Reference:** Run the ordinary parallel all-target suite, not only `--test-threads=1`; local parallel acceptance passed 563 tests with 2 ignored after the socket fix. Native Windows acceptance must qualify the creation-time ACL fixtures before release. Runtime cancellation checks use actual client socket closure, no-resend and preserved draft/response ownership rather than incidental transient notice wording.
+
 ### [2026-10-16] Native response was rejected despite valid streamed provider output
 
 - **Context / Symptom:** Native ChatGPT model discovery returned seven visible text models, including GPT-6.1/GPT-6, with an empty executable PATH. An explicitly reviewed GPT-6.1 request then ended with `Provider did not return an SSE stream; remote outcome unknown`.

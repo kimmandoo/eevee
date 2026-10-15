@@ -42,6 +42,7 @@
 - feat(providers): added native scoped HTTP connections with immutable request review, cancellable streaming, user-scoped endpoint configuration and no credential copying or implicit tool execution.
 - fix(models): removed stale CLI-list membership and stable-release-only admission barriers, preserved exact configured/custom IDs and optional effort defaults, and made catalogue refresh failure nondestructive.
 - feat(models): added searchable model pickers, safe custom-ID editing and scrollable native-provider selection on compact terminals.
+- fix(smoke): made loopback fixture socket mode explicit on Darwin, created Windows security fixtures with atomic owner/DACL attributes, and asserted cancellation effects instead of transient notice wording.
 
 ## 2026-10-15
 
