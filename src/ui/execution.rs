@@ -304,7 +304,7 @@ fn output(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         text(
             frame,
             body,
-            "No captured output in this window yet.\n\nDirect example: [\"cargo\",\"test\"]\nExplicit shell: {\"shell\":\"/bin/sh\",\"dialect\":\"posix\",\"text\":\"printf hello\"}\n\n/command-edit opens the task command editor. Preparing never executes; /run review is initially neutral. /history opens retained evidence. There are no model calls or automatic retries.",
+            "No output yet.\n/command-edit writes a command, e.g. [\"cargo\",\"test\"]; /run reviews it before anything runs.",
             paint.muted,
         );
         return;

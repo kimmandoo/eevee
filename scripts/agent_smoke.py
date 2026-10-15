@@ -7,7 +7,7 @@ from pathlib import Path
 import platform
 import tempfile
 
-from terminal_smoke import Session, terminal_environment
+from terminal_smoke import Session, confirm_exit, terminal_environment
 from workbench_smoke import wait_for
 
 END = '\x1b[F'
@@ -98,8 +98,7 @@ def main():
             session.send('\r')
             wait_for(session, 'Storage: saved')
             session.command('quit')
-            wait_for(session, 'Confirm exit')
-            session.send('\t\r')
+            confirm_exit(session, '\t\r')
             assert session.wait_exit() == 0
             session.close()
             passed('missing-agent profiles preserve local goal editing and terminal restoration')

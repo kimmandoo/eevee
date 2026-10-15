@@ -59,6 +59,19 @@ thread_local! {
     static VERBOSE: Cell<bool> = const { Cell::new(false) };
 }
 
+/// Coarse age of a Unix-millisecond timestamp ("just now", "5m ago", "3d ago").
+fn ago(unix_ms: i64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_millis() as i64);
+    match now.saturating_sub(unix_ms).max(0) / 1000 {
+        seconds if seconds < 60 => "just now".to_owned(),
+        seconds if seconds < 3600 => format!("{}m ago", seconds / 60),
+        seconds if seconds < 86_400 => format!("{}h ago", seconds / 3600),
+        seconds => format!("{}d ago", seconds / 86_400),
+    }
+}
+
 /// First sentence of an explanation plus any "Next:" step, marked "…" when more
 /// is hidden. `/verbose` shows everything. Never use for consent reviews, which
 /// must stay complete.
@@ -639,7 +652,6 @@ fn workspace(
     let mut lines = Vec::new();
     if app.goal.is_empty() {
         lines.push(Line::styled("Ready for a new task", paint.accent));
-        lines.push(Line::from("Type a goal below; Enter saves locally."));
         lines.push(Line::styled("/connect Connect a provider", paint.muted));
     } else {
         lines.push(Line::styled("SAVED TASK", paint.accent));
@@ -886,7 +898,7 @@ fn inspect(
         let path = config.assets_dir.to_string_lossy();
         let safe_path: String = path.chars().filter(|c| !c.is_control()).collect();
         let updated = if app.updated_at > 0 {
-            format!("{} Unix ms", app.updated_at)
+            ago(app.updated_at)
         } else {
             "Not committed yet".to_owned()
         };
@@ -918,7 +930,7 @@ fn inspect(
         )
     } else {
         format!(
-            "PROJECT\n{project}\n\nTASK\n{task} / {}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete is user review, not verified execution.\n\nSTORAGE\n{}\n{}\n\nCONTROL\nSpecialist requests/journal: e. Local checks: j. Portable handoff: z. Exact control coverage is adapter/action-specific; approval is not a sandbox.\n\ni Details: saved timestamp, revisions, paths and recovery\nUp/Down scroll",
+            "PROJECT\n{project}\n\nTASK\n{task} / {}\nCriteria: {}/{} met\nRetained drafts: {}\n\nSTORAGE\n{}\n{}\n\n/provider Requests / /run Local checks / /handoff Handoff\nUp/Down scroll",
             if app.complete { "Complete" } else { "Open" },
             app.criteria
                 .iter()
@@ -961,10 +973,7 @@ fn forms(
     text(
         frame,
         row(content, 0, 1),
-        &format!(
-            "Current: {} / selection starts no work",
-            FORMS[app.form()].name
-        ),
+        &format!("Current: {}", FORMS[app.form()].name),
         paint.muted,
     );
     text(
@@ -1198,26 +1207,33 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
             ),
             paint.accent,
         ),
-        Line::from(if task.updated_at > 0 {
-            format!("Updated: {} Unix ms", task.updated_at)
-        } else {
-            "Updated: unavailable".to_owned()
-        }),
         Line::from(format!(
-            "Criteria: {}/{} met / Retained drafts: {}",
+            "Updated {} / {}/{} criteria met{}{}{}",
+            if task.updated_at > 0 {
+                ago(task.updated_at)
+            } else {
+                "-".to_owned()
+            },
             task.criteria
                 .iter()
                 .filter(|criterion| criterion.met)
                 .count(),
             task.criteria.len(),
-            task.partner_drafts
+            match task
+                .partner_drafts
                 .values()
                 .map(|state| state.drafts.len())
-                .sum::<usize>(),
-        )),
-        Line::from(format!(
-            "Archive: {} / Masked secrets: {}",
-            task.archived, task.redacted
+                .sum::<usize>()
+            {
+                0 => String::new(),
+                count => format!(" / {count} drafts"),
+            },
+            if task.archived { " / archived" } else { "" },
+            if task.redacted {
+                " / secrets masked"
+            } else {
+                ""
+            },
         )),
         Line::styled("GOAL", paint.muted),
     ];
@@ -1244,9 +1260,6 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
             ))
         }));
     }
-    lines.push(Line::from(
-        "Complete is user-reviewed, not verified execution.",
-    ));
     let max = selection_details(
         frame,
         details,
@@ -1268,7 +1281,7 @@ fn criteria(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint
         frame,
         row(content, 0, 2),
         &format!(
-            "{} / {}/{} met. Enter does not complete or execute.",
+            "{} / {}/{} met",
             if app.complete { "Complete" } else { "Open" },
             app.criteria
                 .iter()
@@ -1282,7 +1295,7 @@ fn criteria(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint
         text(
             frame,
             row(content, 3, content.height.saturating_sub(3)),
-            "No acceptance criteria yet.\n\n/criteria-edit Edit criteria, one per line.\nComplete requires a nonempty, all-met checklist.",
+            "No criteria yet. /criteria-edit adds them, one per line.",
             paint.surface,
         );
         app.set_scroll_max(ScrollSurface::Preview, 0);
@@ -1421,7 +1434,7 @@ fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &P
     let block = panel(" Help / PgUp/Dn Scroll / Esc Back ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let value = "COMMANDS\n / or Ctrl+K opens the same searchable choices from every nonediting workspace and the goal composer.\n Type a semantic command or navigate with arrows/Tab; Enter opens the selected action. Esc preserves your draft.\n /provider chooses a provider; /connect opens reviewed connection actions.\n /new prepares a new provider session; /resume chooses an owned provider session.\n /task-new creates a local task; /tasks resumes saved tasks.\n /party lists partners; Enter there or /lead NAME fronts one.\n /model and /effort show cached choices; explicit model inspection requires Preview and Run consent.\n /role chooses Plan / Implement / Review; /forms chooses evolution. /files reviews source context; /run opens local command execution.\n /criteria, /next, /complete, /diff, /history, /handoff, /workflows and /memory open their workspaces.\n /verbose toggles brief / full explanations; brief text ends with …\n Context choices explain unavailable actions. Nothing sends or executes merely by opening a command.\n\nCOMPOSER\n Enter applies the goal locally; no prompt is sent. / or Ctrl+K opens action choices deliberately.\n Provider previews wait for task and context storage acknowledgement.\n @ filters eligible repository files; Enter inspects, /range chooses lines, /attach pins reviewed context.\n Literal paste never dispatches slash commands. The searchable shell does not modify the actual draft or its caret.\n Shift+Enter or Ctrl+N inserts a newline. Ctrl+H/Backspace deletes a grapheme.\n Ctrl+S retains an unfinished draft; Esc reviews discard without selecting destruction.\n\nNAVIGATION AND SAFETY\n Arrows/Tab choose, Enter confirms, Esc goes back. Ctrl+C requests safe exit.\n PgUp/PgDn scroll details. Task completion is user-reviewed criteria, not verified execution.\n Connection, provider, tool, file-write and local-command approvals remain separate and start neutral.\n Exported handoffs and provider output are unverified context, not permission.\n Archive is reversible; deletion requires reviewed confirmation and leaves repository files and provider sessions alone.";
+    let value = "KEYS\n / Ctrl+K   Commands (type to search)\n Enter      Save goal / open / confirm\n Esc        Back (drafts are kept)\n Tab        Switch pane\n PgUp/PgDn  Scroll\n Shift+Enter, Ctrl+N  Newline\n Ctrl+S     Keep draft\n @          Attach files\n Backspace  Previous form (outside text)\n Ctrl+C     Exit\n\nCOMMANDS\n /connect /provider  Connect and choose a provider\n /model /effort      Model and reasoning effort\n /new /resume        Provider session\n /task-new /tasks    Local tasks\n /party /lead NAME   Partners and the lead\n /forms /role        Evolution and role\n /files /run         Source context, local commands\n /criteria /complete Acceptance checklist\n /verbose            Brief / full explanations\n\nSAFETY\n Nothing is sent or run until you approve its preview.\n Pasted text never runs commands.\n Provider output and handoffs are unverified context.";
     scroll_text(
         frame,
         content,
@@ -1478,7 +1491,7 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
     } else if app.command_popup.is_some() {
         "Type / arrows Choose / Enter Open / Esc Back"
     } else if app.editing && app.overlay.is_none() {
-        "Enter Save locally / Shift+Enter Newline / / Commands / @ Files\nCtrl+K Commands / Ctrl+C Exit"
+        "Enter Save / Shift+Enter Newline / @ Files / / Commands / Esc Review draft"
     } else {
         match app.overlay {
             Some(Overlay::Forms) => "Arrows Preview / Enter Select / /preview Details / Esc Back",
@@ -1497,7 +1510,7 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
                 | Overlay::Memory,
             ) => "/ Commands / Esc Back / Ctrl+C Exit",
             Some(_) => "/ Commands / Up/Down Scroll / Esc Back / Ctrl+C Exit",
-            None => "Enter Open focused workspace / Tab Focus / / Commands / Ctrl+C Exit",
+            None => "Enter Open / Tab Focus / / Commands / Ctrl+C Exit",
         }
     };
     if !app.notice.is_empty() {
@@ -1516,7 +1529,10 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
             paint.base,
         );
     } else {
-        text(frame, area, value, paint.base);
+        // Hints sit on the bottom row so the notice row above stays free.
+        let lines = value.lines().count().max(1) as u16;
+        let top = area.height.saturating_sub(lines);
+        text(frame, row(area, top, area.height - top), value, paint.base);
     }
 }
 
@@ -1697,10 +1713,12 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
             input.y + (caret_row - top) as u16,
         ));
     }
+    // While editing, the footer carries the composer keys; only the input
+    // limit warning stays inside the panel.
     let hint = if app.input_truncated && editing {
-        "Input limit reached; draft retained.\nEnter Save locally / Esc Review"
+        "Input limit reached; draft retained."
     } else if editing {
-        "Enter Save locally / Ctrl+N Newline\n@ Files / / Commands / Esc Review draft"
+        ""
     } else if app.effective_focus() != Pane::Workspace {
         "/goal Edit goal / Tab Focus\nEnter opens focused details"
     } else if matches!(app.form(), 5..=7) {

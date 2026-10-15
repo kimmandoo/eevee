@@ -17,7 +17,7 @@ import sys
 import tempfile
 import time
 
-from terminal_smoke import Session, terminal_environment
+from terminal_smoke import Session, confirm_exit, terminal_environment
 from workbench_smoke import wait_for
 
 ESC = "\x1b"
@@ -150,8 +150,7 @@ def main():
 
             def quit_app(session):
                 session.send("\x03")
-                wait_for(session, "Confirm exit")
-                session.send(RIGHT + "\r")
+                confirm_exit(session)
                 assert session.wait_exit() == 0
                 session.close()
 

@@ -22,7 +22,7 @@ import sys
 import tempfile
 import time
 
-from terminal_smoke import Session, run_owned, terminal_environment
+from terminal_smoke import Session, confirm_exit, run_owned, terminal_environment
 from workbench_smoke import wait_for
 
 END = '\x1b[F'
@@ -507,8 +507,7 @@ def main():
                 assert db.execute('SELECT count(*) FROM executions').fetchone()[0] == 0
             session.send('\x1b')
             session.command('quit')
-            wait_for(session, 'Confirm exit')
-            session.send(RIGHT + '\r')
+            confirm_exit(session)
             assert session.wait_exit() == 0
             passed('authentication never creates task execution evidence; safe exit restores original terminal modes')
             results['status'] = 'passed-initiation-and-cancellation-only'

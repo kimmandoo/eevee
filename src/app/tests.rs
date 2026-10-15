@@ -534,10 +534,10 @@ fn linear_toggle_and_semantic_actions_remain_available() {
     assert_eq!(app.goal, "linear goal");
     app.store_event(store::Event::Saved(committed(&app)));
     app.command("quit");
-    assert!(!app.quit);
-    assert_eq!(app.confirmation.unwrap().kind, ConfirmationKind::Quit);
-    key(&mut app, KeyCode::Right);
-    key(&mut app, KeyCode::Enter);
+    assert!(
+        app.confirmation.is_none(),
+        "a committed task exits directly"
+    );
     assert!(app.quit);
 }
 
@@ -649,6 +649,7 @@ fn quit_protects_goal_and_dirty_draft_even_below_minimum_size() {
     for editing in [false, true] {
         let mut app = app();
         app.goal = "session data".into();
+        app.changed_task();
         if editing {
             app.command("goal");
             app.update(Event::Paste("\n未保存".into()));
@@ -681,11 +682,9 @@ fn quit_protects_goal_and_dirty_draft_even_below_minimum_size() {
         modified_key(&mut app, KeyCode::Char('c'), KeyModifiers::CONTROL);
         key(&mut app, KeyCode::Right);
         key(&mut app, KeyCode::Enter);
-        if editing {
-            assert!(app.quit_after_save);
-            assert!(!app.quit);
-            app.store_event(store::Event::Saved(committed(&app)));
-        }
+        assert!(app.quit_after_save);
+        assert!(!app.quit);
+        app.store_event(store::Event::Saved(committed(&app)));
         assert!(app.quit);
     }
     let mut app = app();
@@ -700,6 +699,7 @@ fn quit_protects_goal_and_dirty_draft_even_below_minimum_size() {
 fn popup_quit_stay_restores_exact_nested_selection() {
     let mut app = app();
     app.goal = "retained goal".into();
+    app.changed_task();
     app.command("forms");
     app.selected = 5;
     modified_key(&mut app, KeyCode::Char('k'), KeyModifiers::CONTROL);
