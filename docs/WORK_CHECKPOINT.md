@@ -1,5 +1,11 @@
 # Work Checkpoint
 
+## 2026-10-15 — PT03A named form commands
+
+- **Delivered:** `/eevee`…`/sylveon` and element aliases (`/normal`…`/fairy`) are registered choices in the `/` registry and dispatch through the picker's persisted `SelectForm` navigation, so a typed command switches the lead partner's form instantly and retains the composer draft/caret. Pasted `/…` text stays literal; no numeric shortcuts returned.
+- **Verification:** `cargo fmt --check` clean; `cargo clippy --locked --all-targets -- -D warnings` clean; `cargo test --locked --all-targets` 381 passed / 0 failed / 2 ignored (was 378/2); `cargo build --locked --release` clean. New tests: `typed_named_form_command_switches_and_retains_draft_and_caret`, `named_form_commands_and_element_aliases_resolve_to_the_same_form`, `command_and_alias_namespace_has_no_duplicates`, plus `/jolteon` coverage in `literal_slash_paste_and_unselected_enter_never_dispatch`. PTY demo at 120×36 and 60×18 (`target/pt03a-demo/`): typed `/jolteon` changes the header to `Eevee #1 · Jolteon` with the draft retained via `/goal`, pasted `/sylveon` stays literal text without switching, and `/water` switches to Vaporeon.
+- **Next action:** PT03B previous-form toggle.
+
 ## 2026-10-15 — PT02A partner table (Schema 7) and PT02B lead-partner accessor
 
 - **Delivered:**

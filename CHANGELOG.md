@@ -11,6 +11,7 @@
 
 ## 2026-10-15
 
+- feat(forms): named form commands — `/eevee`…`/sylveon` plus element aliases (`/normal`, `/water`, `/electric`, `/fire`, `/psychic`, `/dark`, `/grass`, `/ice`, `/fairy`) switch the lead partner's form through the same persisted `SelectForm` path as the picker; typed commands retain the composer draft and caret, pasted slash text stays literal, and a unit test pins the command+alias namespace free of duplicates.
 - feat(store): Schema 7 adds a `partners` table plus `tasks.lead_partner` and a reserved `tasks.partner_drafts` (PK01 nickname and PT05B per-partner drafts share this one bump). Migrating a Schema 6 store derives partner #1 in the oldest task's form with a derived met date; `scripts/schema_upgrade_smoke.py` proves the Schema-6 binary refuses the new store byte-for-byte.
 - refactor(app): the active form is now the task's lead partner (`store::Partner`) read through `App::form()`/`set_form()`; the header renders `Eevee #1 · <form>` via `lead_label()` (nickname-ready for PK01), and the stored form is the partner's form after restart.
 - feat(install): redrew the install/update Poké Ball as 16×16 pixel art in half blocks (red shell with highlight, thin black band, white shell, lit button) with a caught-ball shake. POSIX uses 256 colors, Windows uses console colors; NO_COLOR draws monochrome blocks; non-UTF-8 locales and console code pages without block glyphs fall back to an ASCII ball. The POSIX installer now remembers the user's locale before forcing `LC_ALL=C`.

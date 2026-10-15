@@ -65,6 +65,26 @@ impl Popup {
     }
 }
 
+/// Slash commands that switch the lead partner's form without opening the
+/// picker: the form name plus one element alias per form (`/water`…).
+const FORM_COMMANDS: [(&str, &str); 9] = [
+    ("eevee", "normal"),
+    ("vaporeon", "water"),
+    ("jolteon", "electric"),
+    ("flareon", "fire"),
+    ("espeon", "psychic"),
+    ("umbreon", "dark"),
+    ("leafeon", "grass"),
+    ("glaceon", "ice"),
+    ("sylveon", "fairy"),
+];
+
+fn form_command_index(name: &str) -> Option<usize> {
+    FORM_COMMANDS
+        .iter()
+        .position(|(form, alias)| name == *form || name == *alias)
+}
+
 impl App {
     pub fn command_choices(&self) -> Vec<Choice> {
         let mut choices = match self.overlay {
@@ -123,6 +143,23 @@ impl App {
         ] {
             if !choices.iter().any(|choice| choice.command == name) {
                 choices.push(Choice::new(name, label));
+            }
+        }
+        // Named form switches keep the picker's persisted SelectForm path.
+        // Element aliases (`/water`…) are their own commands so typed input
+        // resolves exactly like a form name.
+        for (index, (name, alias)) in FORM_COMMANDS.iter().enumerate() {
+            if !choices.iter().any(|choice| choice.command == *name) {
+                choices.push(Choice::new(
+                    name,
+                    format!("Switch to {} form", crate::domain::FORMS[index].name),
+                ));
+            }
+            if !choices.iter().any(|choice| choice.command == *alias) {
+                choices.push(Choice::new(
+                    alias,
+                    format!("{} alias for /{name}", crate::domain::FORMS[index].element),
+                ));
             }
         }
         for choice in self
@@ -416,6 +453,10 @@ impl App {
                 _ => false,
             };
         }
+        if let Some(index) = form_command_index(name) {
+            self.request_navigation(super::execution::Action::SelectForm(index));
+            return true;
+        }
         if let Some(index) = [
             "role-eevee",
             "role-vaporeon",
@@ -589,10 +630,99 @@ mod tests {
         assert!(app.execution.active.is_none());
         assert!(app.planning.pending.is_none());
         assert!(app.editing);
+        app.update(Event::Paste("\n/jolteon stays literal".into()));
+        assert_eq!(app.form(), 0);
         app.update(Event::Paste("\n/quit pasted literally".into()));
         assert!(app.command_popup.is_none());
-        assert_eq!(app.input, "/new\n/run unsafe\n/quit pasted literally");
+        assert_eq!(
+            app.input,
+            "/new\n/run unsafe\n/jolteon stays literal\n/quit pasted literally"
+        );
         assert!(!app.quit);
+        assert_eq!(app.form(), 0);
+    }
+
+    #[test]
+    fn typed_named_form_command_switches_and_retains_draft_and_caret() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.update(Event::Paste("draft stays 漢字".into()));
+        app.cursor = 6;
+        key(&mut app, KeyCode::Char('/'));
+        query(&mut app, "jolteon");
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.form(), 2);
+        assert!(app.command_popup.is_none());
+        assert_eq!(app.goal, "");
+        assert_eq!(app.drafts.len(), 1);
+        assert_eq!(app.drafts[0].text, "draft stays 漢字");
+        assert_eq!(app.drafts[0].cursor, 6);
+        assert!(app.planning.pending.is_none());
+        assert!(app.execution.active.is_none());
+    }
+
+    #[test]
+    fn named_form_commands_and_element_aliases_resolve_to_the_same_form() {
+        for (index, (name, alias)) in FORM_COMMANDS.iter().enumerate() {
+            for command in [name, alias] {
+                let mut app = App::new("/workspace".into(), 120, 36);
+                app.editing = false;
+                assert!(app.command(command));
+                assert_eq!(app.form(), index, "/{command} switched the wrong form");
+            }
+        }
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.editing = false;
+        assert!(app.command("electric"));
+        assert_eq!(app.form(), 2);
+        assert!(app.command("electric"));
+        assert_eq!(app.form(), 2);
+    }
+
+    #[test]
+    fn command_and_alias_namespace_has_no_duplicates() {
+        let mut seen = std::collections::HashSet::new();
+        for (name, alias) in FORM_COMMANDS {
+            assert!(seen.insert(name), "form command /{name} repeats");
+            assert!(seen.insert(alias), "element alias /{alias} repeats");
+        }
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.editing = false;
+        for overlay in [
+            None,
+            Some(Overlay::Forms),
+            Some(Overlay::Help),
+            Some(Overlay::Inspector),
+            Some(Overlay::Companion),
+            Some(Overlay::Preview),
+            Some(Overlay::Tasks),
+            Some(Overlay::Criteria),
+            Some(Overlay::Repository),
+            Some(Overlay::Sources),
+            Some(Overlay::Execution),
+            Some(Overlay::Agents),
+            Some(Overlay::Planning),
+            Some(Overlay::Handoff),
+            Some(Overlay::Images),
+            Some(Overlay::Workflows),
+            Some(Overlay::Memory),
+        ] {
+            app.overlay = overlay;
+            let choices = app.command_choices();
+            let mut names = std::collections::HashSet::new();
+            for choice in &choices {
+                assert!(
+                    names.insert(choice.command),
+                    "duplicate command /{} on {overlay:?}",
+                    choice.command
+                );
+            }
+            for name in &seen {
+                assert!(
+                    names.contains(name),
+                    "form command /{name} missing on {overlay:?}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -20,7 +20,7 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT03A — Named form commands
 
-- [ ] Switch form by name without opening the picker.
+- [x] Switch form by name without opening the picker.
 - **Priority:** 1. **Needs:** PT02B. **Builds on:** UX01.
 - **Change:** Register `/eevee`, `/vaporeon`, … `/sylveon` in the existing `/` registry with type aliases (`/water`, `/electric`, …). Each switches the lead partner instantly.
 - **Accept:** Each command switches the form and keeps task, draft, caret and context byte-identical. Pasted `/jolteon` text never switches.
