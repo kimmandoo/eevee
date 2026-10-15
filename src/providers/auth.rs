@@ -351,7 +351,7 @@ impl Plan {
         };
         let mut trust = agent::external_trust(executable, project, method.args()).map_err(|error| {
             if method.is_claude() {
-                format!("{error}. Install the official Anthropic CLI (ant {}) on PATH outside the repository, then Refresh. {CLAUDE_POLICY}", agent::ANT_RELEASE)
+                format!("{error}. Install/update the official Anthropic CLI on PATH outside the repository: go install github.com/anthropics/anthropic-cli/cmd/ant@latest, then Refresh. {CLAUDE_POLICY}")
             } else {
                 error
             }
@@ -362,7 +362,7 @@ impl Plan {
         let mut lines = vec![
             format!("Selected method: {}", method.label()),
             format!("Executable: {}", trust.prepared.executable.path.display()),
-            format!("Literal argv: {:?}; first runs {} and requires exact release {}.", method.args(), agent::version_argument(executable), release(executable)),
+            format!("Literal argv: {:?}; first runs {} and binds the recognized stable version to this reviewed launch; no exact release pin.", method.args(), agent::version_argument(executable)),
             format!("Working directory: {} (private empty directory outside task project; removed only if still empty, never recursively).", trust.prepared.cwd.display()),
             trust.authentication_configuration().to_owned(),
             "Trust includes inherited environment, interpreter, dependencies, provider configuration/hooks/plugins and browser launcher. Executable and known configuration/project identities are checked immediately before launch. This is not sandboxing or atomic dependency pinning.".into(),
@@ -386,7 +386,7 @@ impl Plan {
             }
         }
         if method == Method::GeminiNative {
-            lines.push("EXTERNAL NATIVE LOGIN / NOT AN AUTH-ONLY SANDBOX. Gemini 0.28.0 has no standalone login command and mixes interactive OAuth text with ACP JSON. Eevee instead opens the official CLI outside your project. Choose its supported Google OAuth (browser or manual code), API-key or Vertex route there; use /auth if already connected. The CLI may continue into chat and initialize provider services/configuration; anything you type there is handled by Gemini and can start model work. Exit/Ctrl+C to return. Eevee does not collect or forward authorization codes, select a method by injected keystrokes, or infer authentication from exit.".into());
+            lines.push("EXTERNAL NATIVE LOGIN / NOT AN AUTH-ONLY SANDBOX. Eevee opens the official Gemini CLI outside your project, not its ACP authentication channel. Choose its supported Google OAuth (browser or manual code), API-key or Vertex route there; use /auth if already connected. The CLI may continue into chat and initialize provider services/configuration; anything you type there is handled by Gemini and can start model work. Exit/Ctrl+C to return. Eevee does not collect or forward authorization codes, select a method by injected keystrokes, or infer authentication from exit.".into());
         } else {
             lines.push(
                 "Terminal is handed to the official dedicated auth UI, not a chat session.".into(),
@@ -396,30 +396,44 @@ impl Plan {
         lines.push("Approval expires in five minutes; login expires after ten minutes (status after fifteen seconds). Esc cancels without launching. Back is selected by default.".into());
         let mut summary = vec![
             format!("Method: {}", method.label()),
-            format!("Run: {} {:?}", trust.prepared.executable.path.display(), method.args()),
-            format!("First: {} (requires {}). Cwd: {}", agent::version_argument(executable), release(executable), trust.prepared.cwd.display()),
-            "Private empty cwd outside your project; removed only while empty. Inherits environment, dependencies, config/hooks and browser launcher; not sandboxed. Executable and known config identities rechecked.".into(),
+            format!(
+                "Run: {} {:?}",
+                trust.prepared.executable.path.display(),
+                method.args()
+            ),
+            "Private empty cwd; version checked before auth.".into(),
+            "Inherits environment/config/hooks; NOT sandboxed.".into(),
         ];
-        if let Some(guidance) = method.guidance() {
-            summary.push(guidance.into());
-        }
         if method.is_status() {
-            summary.push("Reads provider credentials; native status is not model/account eligibility. Eevee never retains raw output or infers authentication from process exit.".into());
+            summary.push("Reads credentials; status is not eligibility proof.".into());
         } else {
-            summary.push(format!("May open browser, contact account services, {}and replace provider credentials/settings. Choose accounts/scopes in the native UI; Eevee collects no tokens or codes.", if matches!(method, Method::CodexDevice | Method::DevinManualToken) { "" } else { "bind OAuth callback, " }));
+            summary.push("Contacts account services; may replace credentials.".into());
+            summary.push(
+                if matches!(
+                    method,
+                    Method::CodexDevice | Method::DevinManualToken | Method::ClaudeConsoleCode
+                ) {
+                    "Native code/token UI; no local OAuth callback.".into()
+                } else {
+                    "May open browser and bind a local OAuth callback.".into()
+                },
+            );
             if matches!(method, Method::CodexBrowser | Method::CodexDevice) {
-                summary.push("Then runs [\"login\", \"status\"] if identities still match; keeps recognized status only.".into());
+                summary.push("Then checks login status; no model turn.".into());
             } else if method == Method::OpenCode {
-                summary.push("--pure: official built-in auth only, no external auth plugins or Claude subscription OAuth.".into());
+                summary.push("Built-in auth only (--pure); no external plugins.".into());
             } else if method.is_claude() {
-                summary.push("Console OAuth for Claude API billing, not claude.ai subscription. Writes the ant profile and makes it active; the SDK sidecar reads only that profile and may refresh its token.".into());
+                summary.push("Claude API billing, NOT Pro/Max subscription.".into());
+                summary.push("Writes active ant profile; SDK may refresh tokens.".into());
             } else if method == Method::GeminiNative {
-                summary.push("Gemini opens its full CLI, NOT auth-only. Use /auth for Google/API key/Vertex; switching can clear credentials. It may initialize services and enter chat: what YOU type can start model work. Exit/Ctrl+C to return; exit does not prove login.".into());
+                summary.push("FULL Gemini CLI: /auth may clear credentials.".into());
+                summary.push("What YOU type can start model work; exit to return.".into());
             }
         }
-        summary.push("No task prompt sent or replayed. Native output may contain secrets in terminal scrollback. Exit/Ctrl+C returns; cancellation does not revoke issued credentials. Native exit alone is not authentication proof.".into());
+        summary.push("No task sent. Native scrollback may contain secrets.".into());
+        summary.push("Exit is not login proof; cancel won't revoke tokens.".into());
         summary.push(format!(
-            "Approval: 5 min. Timeout: {}. Full configuration/effects are under Details.",
+            "Approval 5 min · timeout {} · d exact config/effects",
             if method.is_status() {
                 "15 sec"
             } else {
@@ -456,15 +470,14 @@ impl Plan {
         lines.push("Approval expires in five minutes; the login wait expires after ten minutes. Esc cancels without starting. Back is selected by default.".into());
         let mut summary = vec![
             format!("Method: {}", method.label()),
-            "Endpoints: https://app.devin.ai/auth/cli/continue (sign-in), http://127.0.0.1:59653/callback (loopback), https://api.devin.ai/auth/cli/token (code+verifier exchange).".into(),
-            "Credential stays in Eevee process memory; injected as WINDSURF_API_KEY only into devin acp launches; never persisted by Eevee.".into(),
+            "Browser contacts app.devin.ai and api.devin.ai.".into(),
+            "Callback: 127.0.0.1:59653; paste redirect if needed.".into(),
+            "Credential in Eevee memory only; restart loses login.".into(),
+            "Injected as WINDSURF_API_KEY into Devin ACP only.".into(),
         ];
-        if let Some(guidance) = method.guidance() {
-            summary.push(guidance.into());
-        }
-        summary.push("No task prompt sent or replayed. Esc/Ctrl+C returns; cancellation does not revoke issued credentials. Restarting Eevee requires a fresh login.".into());
-        summary
-            .push("Approval: 5 min. Timeout: 10 min. Full flow details are under Details.".into());
+        summary.push("No provider executable or credential-store writes.".into());
+        summary.push("No task sent; cancel does not revoke credentials.".into());
+        summary.push("Approval 5 min · timeout 10 min · d exact flow details".into());
         Ok(Self {
             profile,
             method,
@@ -486,20 +499,14 @@ impl Plan {
         if self.created.elapsed() >= LIFETIME {
             return Err(Outcome::Expired);
         }
-        let prepared = agent::qualify_external(
-            self.executable,
-            project,
-            trust,
-            release(self.executable),
-            &INTERRUPTED,
-        )
-        .map_err(|_| {
-            if INTERRUPTED.load(Ordering::Acquire) {
-                Outcome::Cancelled
-            } else {
-                Outcome::Refused
-            }
-        })?;
+        let prepared = agent::qualify_external(self.executable, project, trust, &INTERRUPTED)
+            .map_err(|_| {
+                if INTERRUPTED.load(Ordering::Acquire) {
+                    Outcome::Cancelled
+                } else {
+                    Outcome::Refused
+                }
+            })?;
         if !directory.unchanged_empty() {
             return Err(Outcome::Refused);
         }
@@ -507,16 +514,6 @@ impl Plan {
             return Err(Outcome::Expired);
         }
         Ok(prepared)
-    }
-}
-fn release(profile: usize) -> &'static str {
-    match profile {
-        0 => agent::CODEX_RELEASE,
-        2 => agent::OPENCODE_RELEASE,
-        3 => agent::GEMINI_RELEASE,
-        agent::DEVIN => agent::DEVIN_RELEASE,
-        agent::ANT => agent::ANT_RELEASE,
-        _ => "unsupported",
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

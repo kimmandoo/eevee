@@ -24,7 +24,7 @@ fn version_evidence_is_strict_and_never_retains_arbitrary_output() {
     assert_eq!(parse_version(ANT, b"1.40.0\n"), None);
     assert_eq!(
         parse_version(DEVIN, b"devin 3000.11.3 (9c803229faa4)\n"),
-        Some(DEVIN_RELEASE.into())
+        Some("3000.11.3".into())
     );
     for output in [
         b"3000.11.3".as_slice(),
@@ -34,6 +34,58 @@ fn version_evidence_is_strict_and_never_retains_arbitrary_output() {
     ] {
         assert_eq!(parse_version(DEVIN, output), None);
     }
+}
+
+#[test]
+fn newer_stable_versions_are_evidence_not_release_admission_pins() {
+    for (index, output, version) in [
+        (0, "codex-cli 0.162.1", "0.162.1"),
+        (2, "1.19.0", "1.19.0"),
+        (3, "0.64.0", "0.64.0"),
+        (DEVIN, "devin 3000.12.0 (9c803229faa4)", "3000.12.0"),
+        (ANT, "ant version 1.41.0", "1.41.0"),
+    ] {
+        assert_eq!(
+            parse_version(index, output.as_bytes()).as_deref(),
+            Some(version)
+        );
+        let mut profile = discover(index, Path::new(".")).profile;
+        let blockers = profile.blockers.clone();
+        apply_version(index, &mut profile, version);
+        assert_eq!(profile.blockers, blockers);
+        assert!(profile.version.contains(version));
+        assert!(profile.version.contains("remain unqualified"));
+    }
+}
+
+#[test]
+fn observed_version_is_immutable_for_one_reviewed_launch() {
+    let observed = std::sync::OnceLock::new();
+    bind_version(&observed, "0.162.1".into()).unwrap();
+    bind_version(&observed, "0.162.1".into()).unwrap();
+    assert!(bind_version(&observed, "0.163.0".into()).is_err());
+    assert_eq!(observed.get().map(String::as_str), Some("0.162.1"));
+    for output in [
+        "codex-cli 0.163.0-beta.1",
+        "codex-cli 0.163",
+        "codex-cli 0.163.0\nextra",
+    ] {
+        assert!(parse_version(0, output.as_bytes()).is_none());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn consented_newer_version_probe_binds_without_a_release_pin() {
+    let fixture = Fixture::new();
+    let snapshot = fixture.executable("printf 'codex-cli 0.162.1\\n'");
+    let observed = std::sync::OnceLock::new();
+    bind_version(
+        &observed,
+        probe(0, &snapshot, &AtomicBool::new(false)).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(observed.get().map(String::as_str), Some("0.162.1"));
 }
 
 #[test]

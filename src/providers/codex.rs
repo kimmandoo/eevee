@@ -1,4 +1,4 @@
-//! Explicitly trusted Codex 0.152.1 planning and client-controlled implementation.
+//! Explicitly trusted, protocol-qualified Codex planning and client-controlled implementation.
 //! Provider sandbox policy is not an Eevee sandbox; no provider credentials/configuration are written.
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
@@ -649,6 +649,7 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
     let text = serde_json::to_string_pretty(&json!({
         "purpose": if input.operation == Operation::Plan { "Plan the user's task. Do not implement changes. Ask the user when a decision is needed; report proposals as unverified planning, never as local execution evidence." } else { "Implement the approved requirement ONLY by calling eevee_edit_file with an exact selected root-relative path and full proposed replacement UTF-8 content. Preserve every unrelated existing dirty user change visible in edit_baseline. Never use apply_patch, shell writes, MCP, delegation, commits or merge. Native filesystem writes and command escalations will be denied. Ask for user input if unclear. Every proposed replacement requires a displayed exact patch and allow-once. Report results as unverified until the user reviews the working diff and chooses a local check." },
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
+        "request": input.task.request_text(),
         "operation": input.operation,
         "selection": input.selection,
         "edit_paths": input.edit_paths,
@@ -981,7 +982,10 @@ fn run_transport(
         ),
     };
     let result: Result<(Outcome, String), String> = (|| {
-        engine.status("Trusted executable version qualified; initializing app-server (no model dispatched yet)")?;
+        engine.status(&format!(
+            "Observed Codex CLI {}; initializing app-server (policy/capabilities not yet qualified; no model dispatched)",
+            run.trust.observed_version().unwrap_or("unavailable")
+        ))?;
         engine.call(Call::Initialize, "initialize", json!({"clientInfo":{"name":"eevee","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true,"optOutNotificationMethods":["item/reasoning/textDelta","item/reasoning/summaryTextDelta","item/reasoning/summaryPartAdded"]}}))?;
         loop {
             if stop.load(Ordering::Acquire) {

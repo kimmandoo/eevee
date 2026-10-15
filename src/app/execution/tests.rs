@@ -147,6 +147,59 @@ fn approval_is_neutral_dismissible_one_shot_and_never_focus_stealing() {
 }
 
 #[test]
+fn confirmation_shortcuts_require_visible_scope_press_and_matching_request() {
+    let mut state = pending();
+    state.command("run");
+    state.key(key(KeyCode::Char('y')));
+    assert!(state.queue.is_empty());
+    state.confirmation_visible = true;
+    for event in [
+        KeyEvent::new_with_kind(KeyCode::Char('y'), KeyModifiers::NONE, KeyEventKind::Repeat),
+        KeyEvent::new_with_kind(
+            KeyCode::Char('y'),
+            KeyModifiers::NONE,
+            KeyEventKind::Release,
+        ),
+        KeyEvent::new(KeyCode::Char('y'), KeyModifiers::SHIFT),
+        KeyEvent::new(KeyCode::Char('y'), KeyModifiers::ALT),
+    ] {
+        state.key(event);
+        assert!(state.queue.is_empty());
+        assert!(!state.affirmative);
+    }
+    state.key(key(KeyCode::Char('n')));
+    assert!(state.confirmation.is_none() && state.queue.is_empty());
+    assert!(state.prepared.is_some(), "Stay does not discard command");
+    state.command("run");
+    state.confirmation_visible = true;
+    state.key(key(KeyCode::Char('y')));
+    assert!(matches!(state.queue.front(), Some(StoreJob::Reserve(..))));
+    state.key(key(KeyCode::Char('y')));
+    assert_eq!(state.queue.len(), 1);
+
+    for change_task in [false, true] {
+        let mut state = pending();
+        state.command("run");
+        state.confirmation_visible = true;
+        if change_task {
+            state.prepared.as_mut().unwrap().task_id += 1;
+        } else {
+            state
+                .prepared
+                .as_mut()
+                .unwrap()
+                .request_id
+                .push_str("-stale");
+        }
+        state.key(key(KeyCode::Char('y')));
+        assert!(
+            state.queue.is_empty(),
+            "mismatched scope cannot reserve execution"
+        );
+    }
+}
+
+#[test]
 fn edit_and_explicit_denial_invalidate_grants_but_dismissal_does_not() {
     let mut state = pending();
     state.command("run");

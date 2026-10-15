@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 import time
 
-from terminal_smoke import Session, terminal_environment
+from terminal_smoke import Session, confirm_exit, terminal_environment
 from workbench_smoke import wait_for
 
 
@@ -125,9 +125,9 @@ def main():
 
             def create_task(session, goal, first=False):
                 assert session.context_mode == "closed"
-                if first:
-                    session.send(ESC)  # Leave the fresh, clean Goal composer.
-                session.command("goal" if first else "task-new")
+                if not first:
+                    session.command("task-new")
+                session.command("goal")
                 session.paste(goal)
                 session.send("\r")
                 rows = settled(session, lambda rows: any(text == goal for _, text in rows[0]), "task was not committed")
@@ -144,8 +144,10 @@ def main():
                 wait_for(session, "Storage: saved")
                 session.send("\r")
                 settled(session, lambda rows: rows[2] == task_id, "task selection did not commit")
+                session.command("goal")
                 wait_for(session, goal)
                 wait_for(session, "Storage: saved")
+                session.send("\x13")
                 session.context_query = ""
 
             def open_sources(session):
@@ -164,8 +166,7 @@ def main():
             def quit_app(session):
                 close_sources(session)
                 session.command("quit")
-                if session.alive():
-                    session.send(RIGHT + "\r")
+                confirm_exit(session)
                 assert session.wait_exit() == 0
                 session.close()
 
@@ -249,16 +250,28 @@ def main():
                 session.context_mode = "payload"
                 session.send(HOME)
                 records = basket(task_id)
-                payload = json.dumps(records, ensure_ascii=False, separators=(",", ":"))
+                # This fixture uses distinct source paths; overlapping capture
+                # representation is covered by the context admission regressions.
+                assert len({record["path"] for record in records}) == len(records)
+                assert all(record["root"] == records[0]["root"] for record in records)
+                payload = json.dumps({
+                    "source_root": records[0]["root"] if records else "",
+                    "captures": [{
+                        **{key: record[key] for key in ("id", "path", "start_line", "end_line", "text")},
+                        "source_sha256": bytes(record["source_sha256"]).hex(),
+                    } for record in records],
+                }, ensure_ascii=False, separators=(",", ":"))
                 count = len(payload.encode("utf-8"))
                 wait_for(session, str(count) + " UTF-8 bytes /")
                 text = panel_text(session)
-                # Whitespace wraps in terminal cells; verify the entire escaped
-                # envelope plus its exact byte count. Raw CRLF/spacing is checked
-                # independently against the committed DTO below.
+                # Compare the complete visible envelope semantically, not JSON
+                # key order. Terminal wrapping loses whitespace boundaries; raw
+                # CRLF/spacing is independently checked against committed records.
                 compact = lambda value: "".join(value.split())
-                escaped = json.dumps(payload, ensure_ascii=False)
-                assert compact(escaped) in compact(text), "escaped outgoing envelope differed\n" + text
+                visible = compact(text)
+                escaped = visible[visible.index('"{'):visible.rindex('}"') + 2]
+                observed = json.loads(json.loads(escaped))
+                assert observed == json.loads(compact(payload)), "outgoing envelope differed\n" + text
                 assert secret not in payload and secret not in session.text
                 session.capture("dispatch-checked" if dispatch else "exact-outgoing-preview")
                 return payload
@@ -330,7 +343,9 @@ def main():
             assert second_capture["text"] == selected and basket(first_id) == [first_capture]
             quit_app(session)
             session = launch("independent-capture-restart")
+            session.command("goal")
             wait_for(session, "context second retained")
+            session.send("\x13")
             open_sources(session)
             show_basket(session, second_id)
             assert basket(second_id) == [second_capture]

@@ -108,6 +108,7 @@ impl App {
                 Choice::new("criterion-toggle", "Check/uncheck selected criterion"),
             ],
             Some(Overlay::Party) => self.party_command_choices(),
+            None if self.planning.busy() => self.planning.command_choices(),
             _ => Vec::new(),
         };
         for (name, label) in [
@@ -295,6 +296,9 @@ impl App {
         {
             return Some("Finish or cancel the active provider request first.".into());
         }
+        if matches!(name, "new" | "resume") && self.overlay.is_none() {
+            return None;
+        }
         if matches!(name, "new" | "resume" | "task-new" | "archive" | "restore")
             && (!matches!(self.storage, StorageState::Saved)
                 || self.save_requested
@@ -459,7 +463,23 @@ impl App {
             return true;
         }
         self.command_popup = None;
-        if self.editing && !matches!(name, "quit" | "goal") {
+        if matches!(name, "new" | "resume") && self.overlay.is_none() {
+            if !self.composer_is_request() {
+                if self.editing {
+                    self.retain_editor();
+                }
+                self.open_editor(crate::store::EditorField::Request);
+            }
+            let changed = self.submit_request();
+            if name == "new"
+                && let Some((_, resume)) = &mut self.pending_request
+            {
+                *resume = false;
+            }
+            return changed;
+        }
+        if self.editing && name != "quit" {
+            self.pending_request = None;
             // Opening an action retains the actual draft without applying it.
             let field = self.editor_field;
             self.retain_editor();
@@ -544,6 +564,10 @@ impl App {
             return false;
         }
         match name {
+            "cancel" | "deny" | "answer" | "answers-review" if self.planning.busy() => {
+                self.open_overlay(Overlay::Planning);
+                return self.planning_command(name);
+            }
             // Idle /provider opens the shared hub; an active request keeps its drawer.
             "provider" if self.planning.busy() => self.open_overlay(Overlay::Planning),
             "provider" => {
@@ -818,30 +842,33 @@ mod tests {
     }
 
     #[test]
-    fn goal_enter_saves_without_popup_and_requires_ack_before_provider_preview() {
+    fn request_enter_prepares_once_after_matching_save_without_a_chooser() {
         let mut app = App::new("/workspace".into(), 120, 36);
+        app.agents.pending = None;
+        app.agent_event(crate::providers::agent::Event::Discovered(Vec::new()));
         app.update(Event::Paste("Saved prompt".into()));
         key(&mut app, KeyCode::Enter);
-        assert_eq!(app.goal, "Saved prompt");
-        // Goal apply stays on the composer; the chooser opens only on demand.
+        let revision = app.revision;
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.revision, revision);
         assert!(app.command_popup.is_none());
         assert!(app.planning.pending.is_none());
-        key(&mut app, KeyCode::Char('/'));
-        query(&mut app, "new");
-        key(&mut app, KeyCode::Enter);
-        // The refused choice keeps the deliberate chooser open with the reason.
-        assert!(app.command_popup.is_some());
+        assert!(!app.settle_planning());
         let mut snapshot = app.snapshot("/workspace");
         snapshot.id = 7;
-        app.save_requested = false;
-        app.store_event(crate::store::Event::Saved(snapshot));
-        assert!(matches!(app.storage, StorageState::Saved));
-        assert!(app.planning.pending.is_none());
-        assert_eq!(app.goal, "Saved prompt");
-        app.command("new");
+        assert_eq!(snapshot.request_text(), "Saved prompt");
+        app.save_submitted();
+        app.store_event(crate::store::Event::Saved(snapshot.clone()));
+        assert!(app.settle_planning());
+        assert_eq!(app.overlay, Some(Overlay::Planning));
         assert!(matches!(app.planning.pending.as_ref(),
-            Some(crate::providers::Request::Preview(input)) if !input.inspect_models));
-        assert!(app.command_popup.is_none());
+            Some(crate::providers::Request::Preview(input))
+                if input.task.request_text() == "Saved prompt" && !input.inspect_models));
+        assert!(app.pending_request.is_none());
+        app.store_event(crate::store::Event::Saved(snapshot));
+        app.settle_planning();
+        assert!(app.pending_request.is_none());
+        assert!(!app.planning.affirmative);
     }
 
     #[test]
@@ -917,7 +944,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_goal_save_reveals_retained_input_without_opening_provider_work() {
+    fn failed_request_save_keeps_draft_without_opening_provider_work() {
         let mut app = App::new("/workspace".into(), 120, 36);
         app.update(Event::Paste("Uncommitted goal".into()));
         key(&mut app, KeyCode::Enter);
@@ -928,7 +955,7 @@ mod tests {
         });
         assert!(app.command_popup.is_none());
         assert!(matches!(app.storage, StorageState::Failed(_)));
-        app.command("goal");
+        assert!(!app.settle_planning());
         assert_eq!(app.input, "Uncommitted goal");
         assert!(app.planning.pending.is_none());
     }

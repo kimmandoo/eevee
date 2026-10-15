@@ -15,7 +15,7 @@ from terminal_smoke import Session, confirm_exit, terminal_environment
 from workbench_smoke import wait_for
 
 ESC, DOWN, RIGHT, PAGE = "\x1b", "\x1b[B", "\x1b[C", "\x1b[6~"
-IDLE = "IDLE / New independent Review"
+IDLE = "Ready ·"
 
 
 def main():
@@ -63,6 +63,7 @@ def main():
                               project, terminal_environment("mono"), (120, 36), output / "review")
             sessions.append(session)
             wait_for(session, "Storage: saved")
+            session.command("verbose")  # Inspect actual provider identities and complete diagnostics.
             session.send(ESC)
             session.command("goal")
             session.paste("Independently review the working calculator.py patch against integer addition. Identify the concrete regression, its source location, impact and actionable recommendation. Do not edit files or run commands. Missing checks must be inconclusive, not a pass.")
@@ -91,11 +92,13 @@ def main():
             def turn(number):
                 session.command("new")
                 wait_for(session, "LOCAL PREVIEW", timeout=35)
+                wait_for(session, "y Run")
+                session.send("d")
                 pages = []
                 for _ in range(64):
                     pages.append(session.display())
                     assert "Run blocked" not in pages[-1], pages[-1]
-                    if "Enter Stay" in pages[-1]:
+                    if "EXACT OUTGOING PAYLOAD END" in pages[-1]:
                         break
                     session.send(PAGE)
                 else:
@@ -104,13 +107,15 @@ def main():
                 assert canary not in preview, "implementation-only next action leaked into independent review"
                 assert "calculator.py" in preview and "return a - b" in preview
                 (output / ("preview-%d.txt" % number)).write_text(preview, encoding="utf-8")
+                session.send("d")
+                wait_for(session, "y Run")
                 assert journal()[1] == 0
-                session.send("\t\r")
+                session.send("y")
                 wait_for(session, IDLE, timeout=180)
-                session.send(ESC + "[H")
-                wait_for(session, "non-resumable review thread:")
-                wait_for(session, "agent message / complete")
-                thread = re.search(r"non-resumable review thread: *([0-9a-f-]{36})", session.display())
+                session.send("\x1b[1;3H")
+                wait_for(session, "Thread:")
+                assert re.search(r"Ready · (Response|Plan) \d+/\d+ complete", session.display()), session.display()
+                thread = re.search(r"Thread: *([0-9a-f-]{36})", session.display())
                 assert thread, "completed review did not expose its actual session identity"
                 observation = []
                 for _ in range(32):

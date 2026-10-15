@@ -186,6 +186,7 @@ pub struct State {
     pub searching: bool,
     pub confirmation: Option<Confirmation>,
     pub affirmative: bool,
+    pub confirmation_visible: bool,
     pub error: Option<LayerError>,
     pub notice: String,
     pub capture_capacity: u64,
@@ -241,6 +242,7 @@ impl Default for State {
             searching: false,
             confirmation: None,
             affirmative: false,
+            confirmation_visible: false,
             error: None,
             notice: String::new(),
             capture_capacity: 64 * 1024,
@@ -836,6 +838,7 @@ impl State {
         }
     }
     pub fn request_navigation(&mut self, action: Action) -> Option<Action> {
+        self.confirmation_visible = false;
         if self.confirmation.as_ref().is_some_and(|c| {
             matches!(
                 c,
@@ -879,6 +882,7 @@ impl State {
             let action = self.deferred.take().expect("deferred navigation");
             if self.final_unknown {
                 self.confirmation = Some(Confirmation::UnknownExit(action));
+                self.confirmation_visible = false;
                 self.affirmative = false;
                 self.shown = true;
             } else {
@@ -1018,6 +1022,7 @@ impl State {
     }
 
     pub fn command(&mut self, name: &str) -> Option<Action> {
+        self.confirmation_visible = false;
         if name == "quit" {
             return self.request_navigation(Action::Quit);
         }
@@ -1111,7 +1116,7 @@ impl State {
         self.ready.take()
     }
 
-    pub fn key(&mut self, key: KeyEvent) -> Option<Action> {
+    pub fn key(&mut self, mut key: KeyEvent) -> Option<Action> {
         if key.kind == KeyEventKind::Release {
             return None;
         }
@@ -1124,6 +1129,13 @@ impl State {
         if self.confirmation.is_some() {
             if key.kind != KeyEventKind::Press {
                 return None;
+            }
+            if key.modifiers.is_empty()
+                && self.confirmation_visible
+                && matches!(key.code, KeyCode::Char('y' | 'n'))
+            {
+                self.affirmative = key.code == KeyCode::Char('y');
+                key.code = KeyCode::Enter;
             }
             match key.code {
                 KeyCode::Left => self.affirmative = false,
@@ -1142,9 +1154,11 @@ impl State {
                         self.ready = None;
                     }
                     self.confirmation = None;
+                    self.confirmation_visible = false;
                     self.affirmative = false;
                 }
                 KeyCode::Enter => {
+                    self.confirmation_visible = false;
                     let confirmation = self.confirmation.take().expect("open confirmation");
                     if self.affirmative {
                         self.confirm(confirmation);
@@ -1260,6 +1274,7 @@ impl State {
             Confirmation::Approval => {
                 if let Some(p) = &self.prepared
                     && self.request_id.as_deref() == Some(&p.request_id)
+                    && p.task_id == self.task_id
                     && !self.reserving
                     && !self.dispatching
                 {

@@ -4,6 +4,7 @@ use super::*;
 impl App {
     pub fn editor_label(&self) -> &str {
         match self.editor_field {
+            store::EditorField::Request => "Request",
             store::EditorField::Goal => "Goal",
             store::EditorField::Criteria => "Acceptance criteria",
             store::EditorField::NextAction => "Next action",
@@ -13,6 +14,7 @@ impl App {
 
     pub(super) fn applied_text(&self, field: store::EditorField) -> String {
         match field {
+            store::EditorField::Request => String::new(),
             store::EditorField::Goal => self.goal.clone(),
             store::EditorField::Criteria => self
                 .criteria
@@ -108,6 +110,7 @@ impl App {
     pub(super) fn load_task(&mut self, snapshot: store::Snapshot) {
         self.task_id = snapshot.id;
         self.pending_command = None;
+        self.pending_request = None;
         self.goal = snapshot.goal;
         // The task's lead fronts this task with its full stored identity; a
         // missing row (guarded by store inspection) falls back to a bare id.
@@ -186,8 +189,12 @@ impl App {
         };
         self.restore_selection();
         self.editor_field = draft.editor_field;
-        if draft.editing {
+        if draft.editing && self.overlay.is_some() {
+            self.composer_return = Some(draft.editor_field);
+        } else if draft.editing {
             self.open_editor(draft.editor_field);
+        } else if self.overlay.is_none() {
+            self.open_editor(store::EditorField::Request);
         }
         self.storage = StorageState::Saved;
         self.show_archived = false;
@@ -223,7 +230,7 @@ impl App {
         self.load_task(task);
         self.overlay = None;
         self.notice.clear();
-        self.open_editor(store::EditorField::Goal);
+        self.open_editor(store::EditorField::Request);
     }
 
     pub(super) fn select_task(&mut self) {
@@ -350,6 +357,9 @@ impl App {
     }
 
     pub(super) fn source_key(&mut self, key: KeyEvent) -> bool {
+        if self.width < 60 || self.height < 18 {
+            self.sources.invalidate_review();
+        }
         let action = self
             .sources
             .key(key, self.task_id, self.repository.as_ref());
@@ -372,7 +382,10 @@ impl App {
 
     pub(super) fn execution_key(&mut self, key: KeyEvent) -> bool {
         if (self.width < 60 || self.height < 18)
-            && key.code == KeyCode::Enter
+            && (key.code == KeyCode::Enter
+                || (key.kind == KeyEventKind::Press
+                    && key.modifiers.is_empty()
+                    && key.code == KeyCode::Char('y')))
             && matches!(
                 self.execution.confirmation,
                 Some(execution::Confirmation::Approval)

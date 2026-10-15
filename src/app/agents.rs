@@ -205,23 +205,11 @@ impl State {
 
     pub fn setup_hint(&self) -> String {
         match self.selected {
-            0 => format!(
-                "Install the official Codex CLI on PATH: npm install -g @openai/codex@{}. Then Refresh installed providers.",
-                crate::providers::agent::CODEX_RELEASE
-            ),
+            0 => "Install/update latest stable Codex on PATH: npm install -g @openai/codex@latest. Then Refresh installed providers; the reviewed executable and protocol are checked again.".into(),
             1 => crate::providers::auth::CLAUDE_POLICY.into(),
-            2 => format!(
-                "Install the official OpenCode CLI on PATH: npm install -g opencode-ai@{}. Then Refresh installed providers.",
-                crate::providers::agent::OPENCODE_RELEASE
-            ),
-            3 => format!(
-                "Install the official Gemini CLI on PATH: npm install -g @google/gemini-cli@{}. Then Refresh installed providers.",
-                crate::providers::agent::GEMINI_RELEASE
-            ),
-            crate::providers::agent::DEVIN => format!(
-                "Install the official Devin CLI from https://docs.devin.ai/cli/ on PATH and use the supported {} release. Then Refresh installed providers. Eevee does not run an installer.",
-                crate::providers::agent::DEVIN_RELEASE
-            ),
+            2 => "Install/update latest stable OpenCode on PATH: npm install -g opencode-ai@latest. Then Refresh installed providers; ACP capabilities are negotiated before use.".into(),
+            3 => "Install/update latest stable Gemini on PATH: npm install -g @google/gemini-cli@latest. Then Refresh installed providers; current Gemini uses --acp.".into(),
+            crate::providers::agent::DEVIN => "Install latest stable Devin from https://docs.devin.ai/cli/; update an existing installation with devin update. Then Refresh installed providers. Eevee does not run an installer automatically.".into(),
             _ => "Select a supported provider before installation or connection setup.".into(),
         }
     }
@@ -468,9 +456,10 @@ impl State {
             self.reviewed = false;
             return false;
         }
-        if name == "details" && self.auth_preview.is_some() {
+        if name == "details" && (self.auth_preview.is_some() || self.preview) {
             self.auth_details = !self.auth_details;
             self.affirmative = false;
+            self.reviewed = false;
             self.review_choice = 0;
             self.scroll = 0;
             return true;
@@ -503,7 +492,7 @@ impl State {
         true
     }
 
-    pub fn key(&mut self, key: KeyEvent, large_enough: bool) -> bool {
+    pub fn key(&mut self, mut key: KeyEvent, large_enough: bool) -> bool {
         if key.kind == KeyEventKind::Release
             || key
                 .modifiers
@@ -542,12 +531,30 @@ impl State {
             return false;
         }
         if self.preview || self.auth_preview.is_some() {
+            if key.kind == KeyEventKind::Press
+                && key.modifiers.is_empty()
+                && self.reviewed
+                && !self.auth_details
+                && matches!(key.code, KeyCode::Char('y' | 'n'))
+            {
+                self.affirmative = key.code == KeyCode::Char('y');
+                self.review_choice = usize::from(self.affirmative);
+                key.code = KeyCode::Enter;
+            }
             match key.code {
+                KeyCode::Char('d') => {
+                    self.auth_details = !self.auth_details;
+                    self.affirmative = false;
+                    self.reviewed = false;
+                    self.review_choice = 0;
+                    self.scroll = 0;
+                }
                 KeyCode::Enter => {
-                    if self.auth_preview.is_some() && (self.review_choice == 2 || self.auth_details)
+                    if self.auth_details || (self.auth_preview.is_some() && self.review_choice == 2)
                     {
                         self.auth_details = !self.auth_details;
                         self.affirmative = false;
+                        self.reviewed = false;
                         self.review_choice = 0;
                         self.scroll = 0;
                     } else if !self.affirmative {

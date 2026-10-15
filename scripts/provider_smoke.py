@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import re
 import subprocess
 import tempfile
 import time
@@ -13,11 +14,10 @@ import time
 from terminal_smoke import Session, confirm_exit, terminal_environment
 from workbench_smoke import wait_for
 
-END = '\x1b[F'
 HOME = '\x1b[H'
 RIGHT = '\x1b[C'
 DELETE = '\x1b[3~'
-IDLE = 'IDLE / explicit New'
+IDLE = 'Ready ·'
 
 
 def main():
@@ -26,7 +26,7 @@ def main():
     parser.add_argument('--binary', default='target/release/ev')
     parser.add_argument('--output', default='target/provider-smoke')
     parser.add_argument('--provider-runtime', required=True, help='Isolated installed native peer npm prefix')
-    parser.add_argument('--sidecar', required=True, help='Explicit installed pinned optional SDK main.ts')
+    parser.add_argument('--sidecar', required=True, help='Explicit installed optional SDK main.ts')
     args = parser.parse_args()
     if not args.live:
         parser.error('--live required: bounded real Codex/OpenCode model requests')
@@ -59,7 +59,7 @@ def main():
                               project, environment, (120, 36), output / 'journey')
             sessions.append(session)
             wait_for(session, 'Storage: saved')
-            session.send('\x1b')  # Leave the clean first-run Goal composer.
+            session.command('verbose')  # Expose actual item/session identities for assertions.
 
             def task():
                 with closing(sqlite3.connect((data / 'workbench.sqlite3').as_uri() + '?mode=ro', uri=True)) as db:
@@ -79,7 +79,7 @@ def main():
             def goal(text):
                 old = task()
                 session.command('goal')
-                wait_for(session, 'Task composer')
+                wait_for(session, 'Task fact / local')
                 assert not session.screen.cursor.hidden, 'goal command did not activate editing'
                 if old:
                     session.send(HOME)
@@ -92,20 +92,32 @@ def main():
             def preview(resume=False):
                 session.command('resume' if resume else 'new')
                 wait_for(session, 'LOCAL PREVIEW', timeout=40)
-                session.send(END)
-                wait_for(session, 'Enter Stay', timeout=40)
+                wait_for(session, 'y Run', timeout=40)
                 session.capture('preview-' + str(len(result['cases'])))
 
             def run():
-                session.send('\t\r')
+                session.send('y')
+
+            def preview_details():
+                session.send('d')
+                pages = []
+                for _ in range(128):
+                    view = session.display()
+                    if pages and view == pages[-1]:
+                        break
+                    pages.append(view)
+                    session.send('\x1b[6~')
+                else:
+                    raise AssertionError('request details did not reach a stable end')
+                session.send('d')
+                wait_for(session, 'y Run')
+                return '\n'.join(pages)
 
             def select_agent(provider, label):
                 session.command('provider-' + provider)
-                wait_for(session, 'IDLE AGENT SWITCH')
-                session.send(END)
-                wait_for(session, 'Enter Stay')
+                wait_for(session, 'y Switch')
                 session.capture('switch-' + provider)
-                session.send('\t\r')
+                session.send('y')
                 wait_for(session, 'Espeon / ' + label + ' planning')
 
             goal('Plan a two-step local note workflow and state one concise decision. Include EEVEE_HANDOFF_CONTINUED. Do not read files or run tools.')
@@ -114,11 +126,16 @@ def main():
             preview()
             run()
             wait_for(session, IDLE, timeout=180)
+            session.send('\x1b[1;3H')
+            wait_for(session, 'Thread:')
+            codex_thread = re.search(r'Thread: *([0-9a-f-]{36})', session.display())
+            assert codex_thread, 'completed Codex plan omitted its actual session identity'
+            codex_thread = codex_thread.group(1)
             for _ in range(128):
                 session.command('decision')
                 if 'Next action / local' in session.display() and not session.screen.cursor.hidden:
                     break
-                session.send('\x1b[B')
+                session.send('\x1b[1;3B')
             else:
                 raise AssertionError('no selected Codex plan/message')
             session.send('\r')
@@ -130,27 +147,28 @@ def main():
             preview()
             session.capture('outgoing-portable-handoff')
             # Exact payload excludes provider IDs despite the locally stored decision provenance.
-            assert 'User-selected, unverified Codex Plan; thread' not in session.display()
+            assert 'User-selected, unverified Codex Plan; thread' not in preview_details()
             run()
             wait_for(session, IDLE, timeout=180)
             session.capture('real-opencode-planning')
             assert 'ACP prompt stopped: end_turn' in session.display(), session.display()
-            assert 'agent message / complete' in session.display(), session.display()
+            assert re.search(r'Ready · (Response|Plan) \d+/\d+ complete', session.display()), session.display()
             if 'EEVEE_HANDOFF_CONTINUED' not in session.display():
-                session.send(END)
+                session.send('\x1b[1;3F')
                 session.capture('real-opencode-planning-tail')
             assert 'EEVEE_HANDOFF_CONTINUED' in session.display(), session.display()
-            session.send(HOME)
+            session.send('\x1b[1;3H')
             passed('real Codex-to-OpenCode continuation uses reviewed portable facts not provider sessions/grants')
 
             select_agent('codex', 'Codex')
-            assert 'Session-local resumable thread:' in session.display(), 'old Codex session not retained under original provider'
+            preview(resume=True)
+            assert 'RESUME provider thread ' + codex_thread in preview_details(), 'old Codex session not retained under original provider'
+            session.send('n')
             select_agent('opencode', 'OpenCode ACP')
             passed('idle agent switches preserve original per-provider sessions and reset permissions')
             session.command('sessions')
             wait_for(session, 'LOCAL PREVIEW', timeout=40)
-            session.send(END)
-            wait_for(session, 'Enter Stay')
+            wait_for(session, 'y Run')
             run()
             wait_for(session, 'Displayed ', timeout=60)
             session.capture('real-opencode-session-list')
@@ -166,7 +184,7 @@ def main():
             session.command('handoff-clear')  # Deliberately deselect stale old-revision handoff before a fresh task preview.
             preview()
             run()
-            wait_for(session, 'PERMISSION / EXACT PROVIDER RESPONSE', timeout=180)
+            wait_for(session, 'a Allow once', timeout=180)
             session.capture('real-acp-permission-deny')
             session.send('\r')
             wait_for(session, IDLE, timeout=180)
@@ -174,16 +192,9 @@ def main():
 
             preview()
             run()
-            wait_for(session, 'PERMISSION / EXACT PROVIDER RESPONSE', timeout=180)
-            session.send(END)
-            for _ in range(16):
-                if any(line.strip().startswith('│ > Allow once') or '> Allow once:' in line for line in session.display().splitlines()):
-                    break
-                session.send('\t')
-            else:
-                raise AssertionError('peer did not offer once-only Allow option')
+            wait_for(session, 'a Allow once', timeout=180)
             session.capture('real-acp-permission-allow')
-            session.send('\r')
+            session.send('a')
             wait_for(session, IDLE, timeout=180)
             until(lambda: any(row['agent'] == 'OpenCode' and 'EEVEE_ACP_TOOL_OUTPUT' in row['text']
                               and 'completed' in row['text'] for row in journals()), 'ACP final native-tool journal', 20)
@@ -192,7 +203,7 @@ def main():
 
             preview(resume=True)
             run()
-            wait_for(session, 'PERMISSION / EXACT PROVIDER RESPONSE', timeout=180)
+            wait_for(session, 'a Allow once', timeout=180)
             session.command('cancel')
             wait_for(session, IDLE, timeout=30)
             session.send('\t\r')
@@ -204,6 +215,7 @@ def main():
             select_agent('claude', 'Claude Agent')
             session.command('new')
             until(lambda: 'Run blocked' in session.display() or 'requires a permitted' in session.display(), 'SDK credential blocker', 40)
+            session.send('d')
             session.send(HOME)
             session.capture('sdk-permitted-auth-blocker')
             assert 'subscription' in session.display().lower() or 'API' in session.display(), session.display()
@@ -215,8 +227,7 @@ def main():
             select_agent('gemini', 'Gemini ACP')
             session.command('sessions')
             wait_for(session, 'LOCAL PREVIEW', timeout=40)
-            session.send(END)
-            wait_for(session, 'Enter Stay')
+            wait_for(session, 'y Run')
             run()
             wait_for(session, 'Method NOT invoked', timeout=60)
             session.capture('real-gemini-unavailable-session-list')

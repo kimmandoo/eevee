@@ -11,15 +11,14 @@ import subprocess
 import tempfile
 import time
 
-from terminal_smoke import Session, terminal_environment
+from terminal_smoke import Session, confirm_exit, terminal_environment
 from workbench_smoke import wait_for
 
-END = '\x1b[F'
 HOME = '\x1b[H'
-DOWN = '\x1b[B'
+DOWN = '\x1b[1;3B'
 DELETE = '\x1b[3~'
 TITLE = 'Espeon / Codex planning'
-IDLE = 'IDLE / explicit New'
+IDLE = 'Ready ·'
 
 
 def main():
@@ -66,6 +65,7 @@ def main():
                 sessions.append(session)
                 session.workbench_data = data
                 wait_for(session, 'Storage: saved')
+                session.command('verbose')  # Retain exact provider diagnostics and item identities.
                 return session
 
             def task(session):
@@ -81,10 +81,8 @@ def main():
 
             def goal(session, text):
                 old = task(session)
-                if old is None:
-                    session.send('\x1b')  # Fresh tasks start in the clean composer.
                 session.command('goal')
-                wait_for(session, 'Task composer')
+                wait_for(session, 'Task fact / local')
                 assert not session.screen.cursor.hidden, 'goal command did not activate editing'
                 if old:
                     session.send(HOME + DELETE * len(old[0]))
@@ -97,24 +95,21 @@ def main():
             def preview(session, resume=False):
                 session.command('resume' if resume else 'new')
                 wait_for(session, 'LOCAL PREVIEW', timeout=20)
-                session.send(END)
-                wait_for(session, 'Enter Stay', timeout=20)
+                wait_for(session, 'y Run', timeout=20)
                 session.capture('resume-preview' if resume else 'new-preview')
 
             def run_preview(session):
-                session.send('\t')
-                wait_for(session, '[Trust and run once]')
-                session.send('\r')
+                session.send('y')
 
             def quit_app(session):
                 session.send('\x1b')
                 session.command('quit')
-                wait_for(session, 'Confirm exit')
-                session.send('\t\r')
+                confirm_exit(session)
                 assert session.wait_exit() == 0
                 session.close()
 
             def inspect_items(session, name):
+                session.send('\x1b[1;3A' * 128)
                 screens = []
                 for index in range(128):
                     screen = session.display()
@@ -150,8 +145,9 @@ def main():
             run_preview(stale)
             wait_for(stale, IDLE, timeout=30)
             stale.capture('changed-source-refused')
-            assert 'Session-local resumable thread:' not in stale.display(), 'stale preview created a provider thread'
             assert any(word in stale.display().lower() for word in ('changed', 'stale', 'identity', 'mismatch')), stale.display()
+            stale.command('resume')
+            wait_for(stale, 'Resume requires an explicitly selected same-task thread')
             passed('changed source after preview refuses provider dispatch')
             if os.name == 'posix':
                 original = 'Selected design source, original content.\n'
@@ -164,7 +160,8 @@ def main():
                 run_preview(stale)
                 wait_for(stale, IDLE, timeout=30)
                 stale.capture('substituted-source-link-refused')
-                assert 'Session-local resumable thread:' not in stale.display(), 'replaced link created provider thread'
+                stale.command('resume')
+                wait_for(stale, 'Resume requires an explicitly selected same-task thread')
                 assert outside.read_text() == original
                 source.unlink()
                 source.write_text(original)
@@ -186,8 +183,10 @@ def main():
                 run_preview(malformed)
                 wait_for(malformed, IDLE, timeout=30)
                 malformed.capture('fatal-transport-refusal')
-                assert 'Session-local resumable thread:' not in malformed.display()
+                assert 'Thread:' not in malformed.display()
                 assert any(word in malformed.display().lower() for word in ('malformed', 'protocol', 'transport', 'json')), malformed.display()
+                malformed.command('resume')
+                wait_for(malformed, 'Resume requires an explicitly selected same-task thread')
                 quit_app(malformed)
                 passed('malformed owned transport fails visibly without completion or automatic resend')
 
@@ -201,7 +200,8 @@ def main():
             preview(session)
             session.send('\r')
             wait_for(session, IDLE)
-            assert 'Session-local resumable thread:' not in session.display(), 'neutral preview started provider thread'
+            session.command('resume')
+            wait_for(session, 'Resume requires an explicitly selected same-task thread')
             preview(session)
             run_preview(session)
             wait_for(session, 'QUESTION 1/', timeout=150)
@@ -212,11 +212,9 @@ def main():
             session.paste('Markdown — 한국어 메모')
             session.send('\r')
             session.command('answers-review')
-            wait_for(session, 'REVIEW LITERAL ANSWERS')
-            session.send(END)
-            wait_for(session, 'Enter Edit')
+            wait_for(session, 'y Send')
             session.capture('compact-answer-review')
-            session.send('\t\r')
+            session.send('y')
             wait_for(session, IDLE, timeout=150)
             session.resize((120, 36))
             session.capture('completed-plan')
@@ -267,7 +265,7 @@ def main():
             session.command('role-plan')
             preview(session)
             run_preview(session)
-            wait_for(session, 'COMMAND APPROVAL', timeout=150)
+            wait_for(session, 'a/y Allow', timeout=150)
             session.capture('real-command-deny')
             session.send('\r')
             wait_for(session, IDLE, timeout=150)
@@ -279,12 +277,8 @@ def main():
 
             preview(session)
             run_preview(session)
-            wait_for(session, 'COMMAND APPROVAL', timeout=150)
-            session.send(END)
-            wait_for(session, 'Enter Deny')
-            session.send('\t')
-            wait_for(session, '[Allow once]')
-            session.send('\r')
+            wait_for(session, 'a/y Allow', timeout=150)
+            session.send('a')
             wait_for(session, IDLE, timeout=150)
             session.capture('allowed-command-outcome')
             allowed_items = inspect_items(session, 'allowed')
@@ -295,7 +289,8 @@ def main():
             assert task(reopened)[1] == decision, 'decision changed or disappeared after restart'
             reopened.command('role-plan')
             wait_for(reopened, TITLE)
-            assert 'Session-local resumable thread:' not in reopened.display(), 'provider thread automatically restored'
+            reopened.command('resume')
+            wait_for(reopened, 'Resume requires an explicitly selected same-task thread')
             quit_app(reopened)
             passed('restart retains user-selected decision without provider replay')
 
@@ -315,14 +310,14 @@ def main():
             wait_for(exiting, 'Exit planning?')
             exiting.send('\t\r')
             exiting.resize((120, 36))
-            until(exiting, lambda: 'Confirm exit' in exiting.display() or 'UNKNOWN OUTCOME' in exiting.display(),
-                  'owned provider cancellation before save-aware quit', 30)
-            if 'UNKNOWN OUTCOME' in exiting.display():
+            deadline = time.monotonic() + 30
+            while exiting.alive() and 'UNKNOWN OUTCOME' not in exiting.display() and 'Confirm exit' not in exiting.display():
+                assert time.monotonic() < deadline, 'owned provider cancellation did not finish'
+                exiting.pump(0.1)
+            if exiting.alive() and 'UNKNOWN OUTCOME' in exiting.display():
                 exiting.capture('informed-unknown-exit')
                 exiting.send('\t\r')
-                wait_for(exiting, 'Confirm exit')
-            exiting.capture('save-aware-exit')
-            exiting.send('\t\r')
+            confirm_exit(exiting)
             assert exiting.wait_exit() == 0
             exiting.close()
             passed('neutral undersize safe exit cancels provider before storage-aware quit and restoration')

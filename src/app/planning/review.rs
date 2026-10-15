@@ -24,6 +24,7 @@ impl State {
     }
 
     pub(super) fn review_start(&mut self) {
+        self.review_details = false;
         self.scroll = 0;
         self.scroll_max = 0;
         self.response_cache.invalidate();
@@ -368,7 +369,7 @@ impl State {
     }
     pub fn key(
         &mut self,
-        key: KeyEvent,
+        mut key: KeyEvent,
         large_enough: bool,
         task: &store::Snapshot,
         excerpts: &[context::Excerpt],
@@ -398,6 +399,15 @@ impl State {
             return false;
         }
         if self.quit_review {
+            if key.kind == KeyEventKind::Press
+                && key.modifiers.is_empty()
+                && self.reviewed
+                && large_enough
+                && matches!(key.code, KeyCode::Char('y' | 'n'))
+            {
+                self.affirmative = key.code == KeyCode::Char('y');
+                key.code = KeyCode::Enter;
+            }
             match key.code {
                 KeyCode::Esc => {
                     self.quit_review = false;
@@ -469,6 +479,14 @@ impl State {
                 return false;
             }
             if self.selection_change.is_some() {
+                if key.kind == KeyEventKind::Press
+                    && key.modifiers.is_empty()
+                    && self.reviewed
+                    && matches!(key.code, KeyCode::Char('y' | 'n'))
+                {
+                    self.affirmative = key.code == KeyCode::Char('y');
+                    key.code = KeyCode::Enter;
+                }
                 match key.code {
                     KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right => {
                         self.affirmative = !self.affirmative
@@ -550,6 +568,7 @@ impl State {
                     if selection.model != self.selection.model && self.thread_id.is_some() {
                         self.selection_change = Some(selection);
                         self.affirmative = false;
+                        self.reviewed = false;
                     } else {
                         self.apply_selection(selection, false);
                     }
@@ -563,6 +582,64 @@ impl State {
         }
         if !large_enough {
             return false;
+        }
+        if key.code == KeyCode::Char('d')
+            && (self.preview.is_some()
+                || self.switch_to.is_some()
+                || self.request.as_ref().is_some_and(|request| {
+                    !matches!(request.kind, PromptKind::Questions(_)) || self.submit_review
+                }))
+        {
+            self.review_details = !self.review_details;
+            self.scroll = 0;
+            self.invalidate_review();
+            return true;
+        }
+        // Single-key confirmation is explicit consent, never text input or a repeat.
+        if key.kind == KeyEventKind::Press
+            && key.modifiers.is_empty()
+            && self.reviewed
+            && !self.review_details
+        {
+            match key.code {
+                KeyCode::Char('y' | 'n')
+                    if self.preview.is_some()
+                        || self.switch_to.is_some()
+                        || self.request.as_ref().is_some_and(|request| {
+                            !matches!(request.kind, PromptKind::Questions(_)) || self.submit_review
+                        }) =>
+                {
+                    self.affirmative = key.code == KeyCode::Char('y');
+                    if key.code == KeyCode::Char('n') {
+                        self.option = 0;
+                    }
+                    key.code = KeyCode::Enter;
+                }
+                KeyCode::Char('a') => {
+                    if let Some(crate::providers::Prompt {
+                        kind: PromptKind::Permission { options, .. },
+                        ..
+                    }) = &self.request
+                    {
+                        if options.len() == 2 {
+                            self.option = 1;
+                        }
+                        if self.option > 0 && self.option < options.len() {
+                            key.code = KeyCode::Enter;
+                        }
+                    } else if matches!(
+                        self.request.as_ref().map(|request| &request.kind),
+                        Some(PromptKind::Approval {
+                            allow_once: true,
+                            ..
+                        })
+                    ) {
+                        self.affirmative = true;
+                        key.code = KeyCode::Enter;
+                    }
+                }
+                _ => {}
+            }
         }
         if self.response_surface() && self.response_key(key.code) {
             return true;
@@ -605,6 +682,15 @@ impl State {
             return true;
         }
         if self.journal_mode {
+            if self.journal_purge
+                && self.reviewed
+                && key.kind == KeyEventKind::Press
+                && key.modifiers.is_empty()
+                && matches!(key.code, KeyCode::Char('y' | 'n'))
+            {
+                self.affirmative = key.code == KeyCode::Char('y');
+                key.code = KeyCode::Enter;
+            }
             match key.code {
                 KeyCode::Tab | KeyCode::Left | KeyCode::Right if self.journal_purge => {
                     self.affirmative = !self.affirmative
@@ -654,9 +740,6 @@ impl State {
                             && !self.inspect_sessions
                             && !self.inspect_models
                         {
-                            self.items.clear();
-                            self.selected = 0;
-                            self.omitted = 0;
                             self.following = true;
                             self.new_output = false;
                             self.saved_scroll = 0;

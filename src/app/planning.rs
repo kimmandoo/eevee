@@ -36,6 +36,8 @@ pub struct Item {
     pub kind: ItemKind,
     pub text: String,
     pub complete: bool,
+    /// Shared immutable request ownership; streaming snapshots never copy it.
+    pub request: Arc<str>,
 }
 
 #[derive(Default)]
@@ -46,6 +48,7 @@ struct Session {
     omitted: usize,
     selection: ModelSelection,
     observed_model: Option<String>,
+    submitted_request: Arc<str>,
 }
 
 #[derive(Default)]
@@ -81,6 +84,10 @@ pub struct State {
     response_scroll: usize,
     response_max: usize,
     pub reviewed: bool,
+    /// Full technical review is optional; summary visibility still gates consent.
+    pub review_details: bool,
+    pub submitted_request: Arc<str>,
+    pub(super) failed_request: bool,
     pub affirmative: bool,
     pub question: usize,
     pub option: usize,
@@ -154,6 +161,9 @@ impl State {
             items: Vec::new(), selected: 0, thread_id: None,
             notice: "No model session yet. /new and /resume prepare an outgoing-payload review; /connect manages provider login separately.".into(),
             scroll: 0, scroll_max: 0, reviewed: false, affirmative: false,
+            review_details: false,
+            submitted_request: Arc::default(),
+            failed_request: false,
             following: true, new_output: false, response_cache: response::Layout::default(),
             activity: "Connecting",
             response_scroll: 0, response_max: 0,
@@ -189,8 +199,11 @@ impl State {
             && !self.journal_mode
             && self.paths_editor.is_none()
             && self.preview.is_some()
-            && self.affirmative
-            && key.code == KeyCode::Enter
+            && ((self.affirmative && key.code == KeyCode::Enter)
+                || (key.modifiers.is_empty()
+                    && key.code == KeyCode::Char('y')
+                    && self.reviewed
+                    && !self.review_details))
     }
 
     pub fn needs_saved_command(&self, name: &str) -> bool {
@@ -270,6 +283,7 @@ impl State {
         self.thread_id = None;
         self.observed_model = None;
         self.items.clear();
+        self.submitted_request = Arc::default();
         self.selected = 0;
         self.omitted = 0;
         self.inspection = None;
@@ -302,6 +316,7 @@ impl State {
                 omitted: self.omitted,
                 selection: self.session_selection.clone(),
                 observed_model: self.observed_model.take(),
+                submitted_request: std::mem::take(&mut self.submitted_request),
             },
         );
         self.operation = operation;
@@ -318,6 +333,7 @@ impl State {
         self.items = session.items;
         self.selected = session.selected;
         self.omitted = session.omitted;
+        self.submitted_request = session.submitted_request;
         self.notice = if operation == Operation::Review {
             "Independent Review selected locally. New always constructs fresh requirements/patch/evidence context and a separate provider session. Resume and source writes are unavailable; fixes require a deliberate implementation handoff.".into()
         } else {
@@ -338,6 +354,7 @@ impl State {
                 omitted: self.omitted,
                 selection: self.session_selection.clone(),
                 observed_model: self.observed_model.take(),
+                submitted_request: std::mem::take(&mut self.submitted_request),
             },
         );
         self.selections.insert(self.agent, self.selection.clone());
@@ -356,6 +373,7 @@ impl State {
         self.items = session.items;
         self.selected = session.selected;
         self.omitted = session.omitted;
+        self.submitted_request = session.submitted_request;
         self.generation = None;
         self.close_request();
         self.review_start();
@@ -384,7 +402,7 @@ impl State {
                 self.generation = Some(preview.generation);
                 self.receipt = crate::workspace::receipt::receipt(&preview.payload).lines();
                 self.preview = Some(preview);
-                self.notice = "Local preview only. Review every page; Stay is the default.".into();
+                self.notice = "Review request scope and effects; Stay is the default. Details remain inspectable.".into();
                 self.review_start();
                 if self.auto_run && self.inspect_models && !self.cancel_when_ready {
                     self.run_automatic_catalogue();
@@ -485,6 +503,14 @@ impl State {
                     item.kind = kind;
                     index
                 } else {
+                    // A replayed observation from an already retained turn
+                    // belongs to that turn, not the newly submitted request.
+                    let request = Arc::clone(
+                        self.items
+                            .iter()
+                            .find(|item| item.thread_id == thread_id && item.turn_id == turn_id)
+                            .map_or(&self.submitted_request, |item| &item.request),
+                    );
                     if self.items.len() == ITEM_LIMIT {
                         // Keep an explicitly inspected item even when the bounded
                         // display fills; discard the oldest other observation.
@@ -505,6 +531,7 @@ impl State {
                         kind,
                         text,
                         complete,
+                        request,
                     });
                     self.items.len() - 1
                 };
@@ -554,6 +581,14 @@ impl State {
                 outcome,
                 message,
             } if self.matches(generation, task_id) => {
+                self.failed_request = self.active
+                    && !self.inspect_models
+                    && !self.inspect_sessions
+                    && !matches!(outcome, Outcome::Completed)
+                    && !self
+                        .items
+                        .iter()
+                        .any(|item| Arc::ptr_eq(&item.request, &self.submitted_request));
                 self.active = false;
                 self.awaiting_preview = false;
                 self.cancelling = false;
@@ -888,7 +923,7 @@ impl State {
             "journal-retry" => self.retry_journal(),
             "journal-purge" => {
                 self.journal_purge = true;
-                self.affirmative = false;
+                self.invalidate_review();
             }
             "journal-close" => {
                 self.journal_mode = false;

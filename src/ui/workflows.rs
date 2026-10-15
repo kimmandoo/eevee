@@ -11,8 +11,8 @@ use ratatui::{
 };
 
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
-    frame.render_widget(Clear, area);
     if area.width < 60 || area.height < 18 {
+        frame.render_widget(Clear, area);
         app.workflow.reviewed = false;
         app.workflow.affirmative = false;
         text(
@@ -23,11 +23,14 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         );
         return;
     }
-    let area = centered(
-        area,
-        116,
-        area.height.saturating_sub(2).max(18).min(area.height),
-    );
+    let compact = app.workflow.preview && app.workflow.editor.is_none() && !super::VERBOSE.get();
+    let height = if compact {
+        18
+    } else {
+        area.height.saturating_sub(2)
+    };
+    let area = centered(area, 116, height);
+    frame.render_widget(Clear, area);
     let block = panel(" Specialist desk / local decisions ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
@@ -99,7 +102,24 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         return;
     }
     if app.workflow.preview {
-        let preview = app.workflow_recipe_preview();
+        let effect = "Stage plan, criteria and Next action only.\nNo tools, provider calls, writes or permissions.";
+        let preview = if super::VERBOSE.get() {
+            format!("{effect}\n\n{}", app.workflow_recipe_preview())
+        } else {
+            app.workflow.recipe.as_ref().map_or_else(
+                || "No recipe loaded.".into(),
+                |recipe| {
+                    format!(
+                        "{effect}\n\n{} / {} steps\n/verbose Full plan and scope",
+                        clipped(&recipe.name, 80),
+                        recipe.steps.len()
+                    )
+                },
+            )
+        };
+        if compact {
+            app.workflow.scroll = 0;
+        }
         let max = selection_details(
             frame,
             body,
@@ -110,11 +130,11 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         );
         app.workflow.scroll_max = max;
         app.workflow.scroll = app.workflow.scroll.min(max);
-        if body.height > 0 && app.workflow.scroll >= max {
-            app.workflow.reviewed = true;
+        if app.workflow.recipe.is_some() {
+            app.workflow.reviewed = body.height >= 3 && (!compact || max == 0);
         }
         let footer_text = format!(
-            "{} / {} | {}\nLeft/Right choose / Enter / PgDn / Esc",
+            "{} / {} | {}\ny Apply / n Back / Left/Right Choose / Enter",
             if app.workflow.affirmative {
                 "Stay"
             } else {
@@ -126,9 +146,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 "Apply plan only"
             },
             if app.workflow.reviewed {
-                "reviewed"
+                "/verbose Details"
             } else {
-                "read every page"
+                "Enlarge to review scope"
             }
         );
         text(frame, footer, &footer_text, paint.accent);

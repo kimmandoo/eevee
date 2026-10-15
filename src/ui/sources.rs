@@ -169,7 +169,7 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
     let Some(confirmation) = app.sources.confirmation else {
         return;
     };
-    let area = centered(area, 76, 20);
+    let area = centered(area, 76, if app.verbose { 20 } else { 14 });
     frame.render_widget(Clear, area);
     let block = panel(" Review local excerpt removal ", config, paint, true);
     let content = block.inner(area);
@@ -179,40 +179,60 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
         .basket
         .iter()
         .find(|excerpt| excerpt.id == confirmation.id);
-    let value = format!(
-        "{} excerpt #{}?\n{}\n\nSelected capture: {}\n\nSource files and other tasks' captures remain unchanged. Local purge is not forensic secure erasure and does not affect exports or provider sessions.",
-        if confirmation.purge {
-            "Purge stored bytes of"
-        } else {
-            "Remove the basket reference for"
-        },
-        confirmation.id,
-        if confirmation.purge {
-            "Keep unavailable identity metadata; future assembly must refuse it."
-        } else {
-            "Remove this task's reference and captured text only."
-        },
-        target
-            .map(|excerpt| format!(
+    let available = target.is_some();
+    let capture = target
+        .map(|excerpt| {
+            format!(
                 "{:?}:{}-{}",
                 excerpt.path, excerpt.start_line, excerpt.end_line
-            ))
-            .unwrap_or_else(|| "Unavailable; storage will refuse a stale target.".into())
-    );
+            )
+        })
+        .unwrap_or_else(|| "Unavailable; reload before confirming.".into());
     let details = row(content, 0, content.height.saturating_sub(4));
-    let max = selection_details(
-        frame,
-        details,
-        Paragraph::new(value)
-            .style(paint.surface)
-            .wrap(Wrap { trim: false }),
-        app.scroll_for(ScrollSurface::Preview),
+    let summary = format!(
+        "{} excerpt #{} from this task?\nCapture: {}\n{}\nOther files/tasks and provider data stay unchanged.\nNot secure erasure; exports remain unchanged.",
+        if confirmation.purge {
+            "Purge"
+        } else {
+            "Remove"
+        },
+        confirmation.id,
+        super::clipped(&capture, details.width.saturating_sub(9) as usize),
+        if confirmation.purge {
+            "Clear local bytes; keep unavailable identity."
+        } else {
+            "Remove local reference and captured text."
+        }
     );
+    let summary = Paragraph::new(summary)
+        .style(paint.surface)
+        .wrap(Wrap { trim: false });
+    let rows = summary.line_count(details.width);
+    if let Some(review) = &mut app.sources.confirmation {
+        review.reviewed = available
+            && frame.area().width >= 60
+            && frame.area().height >= 18
+            && rows <= usize::from(details.height);
+    }
+    frame.render_widget(summary, row(details, 0, (rows as u16).min(details.height)));
+    let remaining = details.height.saturating_sub(rows as u16);
+    let max = if app.verbose && remaining > 0 {
+        selection_details(
+            frame,
+            row(details, rows as u16, remaining),
+            Paragraph::new(format!("Exact capture: {capture}"))
+                .style(paint.muted)
+                .wrap(Wrap { trim: false }),
+            app.scroll_for(ScrollSurface::Preview),
+        )
+    } else {
+        0
+    };
     app.set_scroll_max(ScrollSurface::Preview, max);
     text(
         frame,
         row(content, content.height.saturating_sub(3), 1),
-        "Stay / keep the excerpt",
+        "n / Stay - keep the excerpt",
         if confirmation.destructive {
             paint.surface
         } else {
@@ -223,9 +243,9 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
         frame,
         row(content, content.height.saturating_sub(2), 1),
         if confirmation.purge {
-            "Purge selected local captured bytes"
+            "y / Purge selected local captured bytes"
         } else {
-            "Remove selected basket reference"
+            "y / Remove selected basket reference"
         },
         if confirmation.destructive {
             paint.selected

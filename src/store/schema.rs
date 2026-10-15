@@ -78,7 +78,7 @@ pub(super) fn migrate_partner_draft_capacity(connection: &Connection) -> Result<
            SELECT 'tasks',seq FROM sqlite_sequence WHERE name='old_tasks'
            AND NOT EXISTS(SELECT 1 FROM sqlite_sequence WHERE name='tasks');
          DROP TABLE old_tasks;
-         PRAGMA user_version=8;"
+         PRAGMA user_version=9;"
     )).map_err(|error| format!("Cannot migrate partner draft capacity: {error}"))
 }
 
@@ -230,9 +230,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=8).contains(&version) {
+    if !(0..=9).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0 through 8"
+            "Unsupported database schema version {version}; this ev supports versions 0 through 9"
         ));
     }
     let mut statement = connection
@@ -303,7 +303,7 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
         {
             Schema::Workflows
         }
-        (7 | 8, objects)
+        (7..=9, objects)
             if objects.len() == 7
                 && objects
                     .iter()
@@ -548,7 +548,17 @@ pub(super) fn initialize(connection: &mut Connection) -> Result<(), String> {
 
 pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), String> {
     if matches!(schema, Schema::Current) {
-        return Ok(());
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .map_err(|error| error.to_string())?;
+        if version == 9 {
+            return Ok(());
+        }
+        // Schema 9 adds the Request draft variant to the existing JSON contract.
+        // Bump even unchanged layouts so older binaries refuse these new values.
+        return connection
+            .execute_batch("PRAGMA user_version=9;")
+            .map_err(|error| format!("Cannot migrate request drafts: {error}"));
     }
     if matches!(schema, Schema::Partners) {
         return migrate_partner_draft_capacity(connection);

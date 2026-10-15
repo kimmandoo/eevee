@@ -10,7 +10,7 @@ import tempfile
 import time
 from contextlib import closing
 
-from terminal_smoke import Session, terminal_environment
+from terminal_smoke import Session, confirm_exit, terminal_environment
 
 
 def lead_drafts(task):
@@ -53,8 +53,7 @@ def main():
                 return session
             def quit_app(session):
                 session.command("quit")
-                if session.alive():
-                    session.send("\x1b[C\r")
+                confirm_exit(session)
                 assert session.wait_exit() == 0
                 session.close()
             export_counter = 0
@@ -74,7 +73,7 @@ def main():
                         return rows
                     assert time.monotonic() < deadline, "stored state did not settle"
                     time.sleep(0.05)
-            # First use receives literal text without opening any action chooser.
+            # Local-only fixtures explicitly choose task facts instead of submitting a request.
             empty_path = root / "no-provider-programs"
             empty_path.mkdir()
             isolated_home = root / "first-use-home"
@@ -97,6 +96,7 @@ def main():
                                       extra=("--assets-dir", str(assets), "--images", "cells"), environment=first_use_environment)
                 fresh = launch("first-use-" + str(width), **first_use_args)
                 wait_for(fresh, "Storage: saved")
+                fresh.command("goal")
                 assert not fresh.screen.cursor.hidden, "first-run task input has no visible caret"
                 fresh.capture("visible-first-run-input")
                 typed = "qgo? direct typing "
@@ -113,6 +113,7 @@ def main():
                 wait_for(fresh, "Storage: saved")
                 quit_app(fresh)
                 fresh = launch("first-use-restart-" + str(width), **first_use_args)
+                fresh.command("goal")
                 wait_for(fresh, "qgo? direct typing")
                 assert inspect_store(first_use_data)[0]["goal"] == saved_goal
                 fresh.capture("local-apply-restart")
@@ -221,6 +222,7 @@ def main():
             project_identity = stored[0]["project"]
             quit_app(first)
             second = launch("resume")
+            second.command("goal")
             wait_for(second, "durable 漢字 café")
             assert "Sylveon" in second.display()
             passed("exact-goal-form-save-exit-resume")
@@ -241,6 +243,7 @@ def main():
             wait_for(conflict, "Storage: saved")
             quit_app(conflict)
             resumed = launch("other-project", cwd=other)
+            resumed.command("goal")
             wait_for(resumed, "retained writer conflict")
             assert "durable 漢字" not in resumed.display()
             quit_app(resumed)
@@ -291,6 +294,7 @@ def main():
                 db.execute("INSERT INTO goals VALUES (?,?,?)", (project_identity,"migration retained",1))
                 db.commit()
             migrated = launch("migration", legacy)
+            migrated.command("goal")
             wait_for(migrated, "migration retained")
             wait_for(migrated, "Storage: saved")
             quit_app(migrated)
@@ -310,10 +314,11 @@ def main():
             pending.paste("save before exit")
             pending.send("\r")
             pending.command("quit")
-            pending.send("\x1b[C\r")
+            confirm_exit(pending)
             assert pending.wait_exit() == 0
             pending.close()
             reopened = launch("quit-after-apply-resume", root / "pending")
+            reopened.command("goal")
             wait_for(reopened, "save before exit")
             quit_app(reopened)
             passed("quit-after-apply-retains-committed-goal")
@@ -343,6 +348,7 @@ def main():
                 card.send("\x13")
                 wait_for(card, "Storage: saved")
                 card.command("task-new")
+                card.command("goal")
                 card.paste("card two 界")
                 card.send("\r")
                 wait_for(card, "Storage: saved")
@@ -373,6 +379,7 @@ def main():
                 assert lead_drafts(two)[0]["text"].endswith("pending two")
                 card.command("tasks")
                 card.send("\x1b[H\r")
+                card.command("goal")
                 wait_for(card, "card one 漢字")
                 wait_for(card, "Storage: saved")
                 card.command("goal")
@@ -388,6 +395,7 @@ def main():
                 card.capture("first-resumed")
                 quit_app(card)
                 card = launch("cards-restart-" + str(width), cards, size=size)
+                card.command("goal")
                 wait_for(card, "card one 漢字")
                 card.command("goal")
                 assert "pending one" in card.display()
@@ -395,6 +403,7 @@ def main():
                 wait_for(card, "Storage: saved")
                 card.command("tasks")
                 card.send("\x1b[F\r")
+                card.command("goal")
                 wait_for(card, "card two 界")
                 wait_for(card, "Storage: saved")
                 card.command("goal")
@@ -444,6 +453,7 @@ def main():
             assert secret not in json.dumps(first_rows) and first_rows[0]["redacted"]
             assert secret.encode() not in (lifecycle / "workbench.sqlite3").read_bytes()
             life.command("task-new")
+            life.command("goal")
             life.paste("retained second task")
             life.send("\r")
             wait_for(life, "Storage: saved")
@@ -515,7 +525,9 @@ def main():
             quota.send("\x1b")
             failed_goal = None
             for index in range(16):
-                quota.command("goal" if index == 0 else "task-new")
+                if index:
+                    quota.command("task-new")
+                quota.command("goal")
                 goal = "quota card " + str(index) + " 漢字 " + "x" * 3960
                 quota.paste(goal)
                 quota.send("\r")

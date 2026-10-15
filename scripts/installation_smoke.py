@@ -116,8 +116,12 @@ class ReleaseFixture:
                 if self.path == prefix + "SHA256SUMS":
                     content = (f"{'0' * 64}  {archive.name}\n" if fixture.corrupt_checksum
                                else checksums.read_text()).encode("ascii")
-                    # Public releases also contain checksum entries for both installers.
-                    content += f"{'1' * 64}  install.sh\n{'2' * 64}  install.ps1\n".encode("ascii")
+                    # Build artifacts omit installer entries; public manifests
+                    # already include them and must remain duplicate-free.
+                    names = {line.split()[-1] for line in content.splitlines()}
+                    for name, digest in ((b"install.sh", b"1" * 64), (b"install.ps1", b"2" * 64)):
+                        if name not in names:
+                            content += digest + b"  " + name + b"\n"
                     self.send_response(200)
                     self.send_header("Content-Length", str(len(content)))
                     self.end_headers()
@@ -300,13 +304,14 @@ def main():
             fixture_manifest = fixture_manifest.replace('name = "ev"', 'name = "ev-lifecycle-fixture"', 1)
             (package / "Cargo.toml").write_text(fixture_manifest)
             release.configure_source(package)
+            cargo_target = Path(os.environ.get("CARGO_TARGET_DIR", root / "target")).resolve()
             result = terminal_smoke.run_owned(["cargo","build","--release","--manifest-path",str(package / "Cargo.toml"),
-                                               "--target-dir",str(root / "target")],timeout=900,text=True)
+                                               "--target-dir",str(cargo_target)],timeout=900,text=True)
             (output / "upgrade-build.log").write_text(result.stdout + result.stderr)
             assert result.returncode == 0, "real upgrade source build failed; see upgrade-build.log"
-            upgrade_binary = root / "target/release" / ("ev-lifecycle-fixture.exe" if os.name == "nt" else "ev-lifecycle-fixture")
+            upgrade_binary = cargo_target / "release" / ("ev-lifecycle-fixture.exe" if os.name == "nt" else "ev-lifecycle-fixture")
 
-            def animated_install(command, environment, capture_name):
+            def animated_install(command, environment, capture_name, retired_directory=None):
                 release.throttle = True
                 release.animation_observed.clear()
                 session = terminal_smoke.Session(command, root, environment, (120, 36), output / capture_name)
@@ -359,6 +364,13 @@ def main():
                         assert not any(30 <= int(code) <= 49 or 90 <= int(code) <= 107
                                        for code in re.split("[;:]", parameters) if code), \
                             "NO_COLOR animation emitted a color attribute"
+                    if retired_directory is not None:
+                        # Keep the owned Job alive until the post-exit cleanup
+                        # helper finishes; closing Session would kill it first.
+                        cleanup_deadline = time.monotonic() + 10
+                        while list(retired_directory.glob(".ev-stage*")):
+                            assert time.monotonic() < cleanup_deadline, "retired self-update files were not cleaned"
+                            session.pump(0.05)
                 finally:
                     release.animation_observed.set()
                     session.close()
@@ -503,7 +515,8 @@ def main():
                     environment.pop("EV_VERSION", None)
                     environment["NO_COLOR"] = "1"
                     animated_install([str(destination / binary_name), "update"],
-                                     environment, "self-update-animation")
+                                     environment, "self-update-animation",
+                                     retired_directory=destination if os.name == "nt" else None)
                     assert subprocess.check_output([str(destination / binary_name), "--version"], text=True).strip() == version
                     assert sha(destination / binary_name) == original_hash
                     assert not list(destination.glob(".ev-stage*")), "retired self-update files were not cleaned"

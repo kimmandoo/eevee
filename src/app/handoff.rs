@@ -94,7 +94,8 @@ impl State {
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
             && matches!(self.mode, Mode::Export(_))
-            && key.code == KeyCode::Enter
+            && (key.code == KeyCode::Enter
+                || (!self.editing && key.modifiers.is_empty() && key.code == KeyCode::Char('y')))
     }
 
     pub fn command_needs_saved_input(&self, name: &str) -> bool {
@@ -310,7 +311,7 @@ impl State {
                 .and_then(|document| self.review(document, Format::Json))
             {
                 Ok(()) => {
-                    self.notice = "Import read only. All claims are user-supplied/unverified. Review every page, then choose Accept separately. No task fields, criteria, or evidence changed.".into();
+                    self.notice = "Unverified import; no task fields, criteria, or evidence changed. y Accept / n Back; /verbose shows exact content.".into();
                 }
                 Err(error) => {
                     self.mode = Mode::Idle;
@@ -325,7 +326,7 @@ impl State {
 
     pub fn key(
         &mut self,
-        key: KeyEvent,
+        mut key: KeyEvent,
         large_enough: bool,
         task: &store::Snapshot,
         excerpts: &[context::Excerpt],
@@ -362,6 +363,16 @@ impl State {
         if self.pending.is_some() {
             return true;
         }
+        if !self.editing && self.mode != Mode::Idle && key.modifiers.is_empty() {
+            match key.code {
+                KeyCode::Char('y') if self.reviewed && large_enough => {
+                    self.affirmative = true;
+                    key.code = KeyCode::Enter;
+                }
+                KeyCode::Char('n') => key.code = KeyCode::Esc,
+                _ => {}
+            }
+        }
         if key.code == KeyCode::Esc && (self.busy() || self.candidate.is_some()) {
             self.mode = Mode::Idle;
             self.editing = false;
@@ -395,7 +406,7 @@ impl State {
                     {
                         Ok(()) => {
                             self.editing = false;
-                            self.notice = "Review the sanitized exact export bytes and chosen path. Stay is neutral; Right selects Write only after full review. No write yet.".into();
+                            self.notice = "Write a new file at the chosen path. No provider request; /verbose shows exact export bytes. Secret detection is best-effort.".into();
                         }
                         Err(error) => {
                             self.notice = handoff::sanitize(&error);

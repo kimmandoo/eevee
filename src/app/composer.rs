@@ -16,6 +16,94 @@ pub struct Menu {
 }
 
 impl App {
+    pub fn composer_is_request(&self) -> bool {
+        self.editing && self.editor_field == EditorField::Request
+    }
+
+    pub fn response_on_home(&self) -> bool {
+        self.planning.response_visible()
+    }
+
+    /// Enter requests review only; the main loop waits for the exact saved draft.
+    pub(super) fn submit_request(&mut self) -> bool {
+        if self.width < 60 || self.height < 18 || self.input.trim().is_empty() {
+            self.notice = "Type a request and enlarge the terminal before reviewing.".into();
+            return true;
+        }
+        if self.pending_request.is_some() || self.planning.busy() || self.execution.busy() {
+            self.notice = "Finish or cancel the current request before reviewing another.".into();
+            return true;
+        }
+        if self.archived {
+            self.notice = "Restore this task before preparing a request.".into();
+            return true;
+        }
+        if self.goal.trim().is_empty() {
+            self.goal.clone_from(&self.input);
+        }
+        self.changed_task();
+        self.pending_request = Some((
+            self.revision,
+            self.planning.thread_id.is_some()
+                && self.planning.operation != crate::providers::Operation::Review,
+        ));
+        self.flush_save();
+        self.notice = "Saving request before review; nothing has been sent.".into();
+        true
+    }
+
+    pub(super) fn drive_request(&mut self) -> bool {
+        let Some((revision, resume)) = self.pending_request else {
+            return false;
+        };
+        if revision != self.revision {
+            self.pending_request = None;
+            self.notice =
+                "Draft changed while saving. Press Enter to review the current request.".into();
+            return true;
+        }
+        if !self.planning_input_ready() || self.agents.busy() {
+            return false;
+        }
+        self.pending_request = None;
+        let status = self.agents.connection_status(self.planning.agent.index());
+        if matches!(status, "Not installed" | "Not connected") {
+            self.agents.selected = self.planning.agent.index();
+            self.agents.page = super::agents::Page::Actions;
+            self.agents.action = 0;
+            self.agents.notice = format!(
+                "{status}. Connect or install this provider, then return to your retained request and press Enter."
+            );
+            self.composer_return = Some(EditorField::Request);
+            self.editing = false;
+            self.input.clear();
+            self.open_overlay(Overlay::Agents);
+            return true;
+        }
+        // Only the committed snapshot supplies provider input, including redaction.
+        self.editing = false;
+        self.input.clear();
+        self.composer_return = Some(EditorField::Request);
+        self.open_overlay(Overlay::Planning);
+        self.planning_command(if resume { "resume" } else { "new" });
+        true
+    }
+
+    pub(super) fn request_home(&mut self, consumed: bool) {
+        if consumed {
+            self.drafts
+                .retain(|draft| draft.field != EditorField::Request);
+        }
+        self.overlay = None;
+        self.overlay_history.clear();
+        self.composer_return = None;
+        self.edit_return = None;
+        self.open_editor(EditorField::Request);
+        if consumed {
+            self.changed_task();
+        }
+    }
+
     pub fn composer_query(&self) -> &str {
         self.composer_menu
             .and_then(|menu| self.input.get(menu.start + 1..self.cursor))
@@ -66,7 +154,7 @@ impl App {
     pub(super) fn composer_key(&mut self, key: KeyEvent) -> Option<bool> {
         if !matches!(
             self.editor_field,
-            EditorField::Goal | EditorField::NextAction
+            EditorField::Request | EditorField::Goal | EditorField::NextAction
         ) {
             return None;
         }
@@ -299,6 +387,7 @@ mod tests {
         let mut app = App::new("/workspace".into(), 120, 36);
         app.goal = "Existing task".into();
         app.editing = false;
+        let focus = app.focus;
         key(&mut app, KeyCode::Char('/'));
         for ch in "help".chars() {
             key(&mut app, KeyCode::Char(ch));
@@ -308,6 +397,8 @@ mod tests {
         assert_eq!(app.goal, "Existing task");
         key(&mut app, KeyCode::Esc);
         assert!(!app.editing);
+        assert_eq!(app.focus, focus);
+        assert!(app.input.is_empty());
         assert_eq!(app.goal, "Existing task");
     }
 }

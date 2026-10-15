@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5
+
+- feat(ux): replaced Goal-first setup with durable request input and streamed responses directly into the home workspace.
+- feat(review): centered compact approval summaries with fixed actions, retained larger scrollable details, and guarded y/n and allow-once a shortcuts on visible scope without end-scroll gates.
+- feat(store): migrated to Schema 9 for independent per-partner request drafts while preserving task facts and refusing older writers.
+- feat(providers): replaced exact CLI/SDK release lockouts with reviewed installed identity and protocol/policy checks, and added explicit latest-stable setup/update paths.
+- fix(requests): preserved committed input throughout active admission and permission checks, retained follow-up drafts, and kept previous response provenance distinct.
+
 ## 0.1.4
 
 - feat(ux): shortened navigation, added fluent response streaming and activity indicators, and preserved draft/follow state across inspection.
@@ -18,6 +26,17 @@
 
 ## 2026-10-15
 
+- fix(runtime): completed deferred cancel-and-exit immediately after owned-process and journal acknowledgment instead of blocking for another key on an idle screen.
+- fix(smoke): checked compact outgoing context against committed capture facts without pinning JSON key order, removed an obsolete navigation-cycle expectation, and kept native helper builds on the configured local target.
+- feat(providers): accepted newer stable provider releases through observed identity and capability validation, switched Gemini to current `--acp`, and refreshed the optional Claude SDK through explicit latest setup while retaining its policy controls.
+- fix(requests): deferred follow-up persistence until active-request acknowledgment, recovered pre-output failures without discarding typed follow-ups, and preserved per-response request ownership across retained turns.
+- fix(review): rejected hidden source-purge shortcuts after resize and required the current target/effect summary to render before approval.
+- fix(ux): retained saved task context before the first response, restored invoking focus when closing popups, and preserved specialist overlays and their underlying editor across restart.
+- feat(ux): made the first screen accept requests directly, prepared reviews only after durable saves, preserved task facts across follow-ups, and returned approved responses to the full-width home workspace.
+- feat(review): centered command and attachment choices, exposed concise effect summaries and fixed approval controls, removed mandatory end-scroll gates, and restricted y/n/a shortcuts to visible, current, non-editing confirmation scopes.
+- feat(store): added durable per-partner Request drafts and Schema 9 migration with byte-preserving old-binary refusal.
+- chore(release): published v0.1.4 from `6489264` after exact-commit Check and all five native build/test/install rows passed; verified all eight public assets and checksum-covered files.
+- fix(smoke): preserved existing installer checksum entries when exercising published manifests, instead of introducing duplicates in the local release fixture.
 - fix(store): coalesced implicit draft, caret and navigation saves after 500ms of quiet with a 2s deferral bound, preserved immediate explicit saves and transition/exit flushes, and separated pending edits from in-flight storage and stale acknowledgments.
 - fix(terminal): synchronized screen clears, text and native-image updates, released frames on errors and terminal lifecycle transitions, removed per-input Windows full-screen clears in favor of cell differences, and avoided unchanged image placement on spinner-only frames.
 - perf(runtime): bounded worker-event batches to preserve input responsiveness, slept until deferred-save deadlines instead of polling idle storage, and retained cached response layout across activity ticks.

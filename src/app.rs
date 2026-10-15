@@ -130,6 +130,7 @@ pub struct App {
     pub cursor: usize,
     pub input_truncated: bool,
     pub confirmation: Option<Confirmation>,
+    pub confirmation_reviewed: bool,
     pub editing: bool,
     pub composer_menu: Option<composer::Menu>,
     /// Full explanations instead of first-sentence summaries (`/verbose`).
@@ -203,6 +204,8 @@ pub struct App {
     pub delete_page: usize,
     deletion_preview_pending: bool,
     pending_command: Option<String>,
+    /// Enter's save barrier. Never restored from disk or triggered by autosave.
+    pending_request: Option<(u64, bool)>,
     edit_original: String,
     form_selection: usize,
     overlay_history: Vec<OverlayFrame>,
@@ -231,6 +234,7 @@ impl App {
             cursor: 0,
             input_truncated: false,
             confirmation: None,
+            confirmation_reviewed: false,
             editing: true,
             composer_menu: None,
             verbose: false,
@@ -264,7 +268,7 @@ impl App {
             next_action: String::new(),
             complete: false,
             updated_at: 0,
-            editor_field: store::EditorField::Goal,
+            editor_field: store::EditorField::Request,
             drafts: Vec::new(),
             task_selection: 0,
             criterion_selection: 0,
@@ -301,6 +305,7 @@ impl App {
             delete_page: 0,
             deletion_preview_pending: false,
             pending_command: None,
+            pending_request: None,
             edit_original: String::new(),
             form_selection: 0,
             overlay_history: Vec::new(),
@@ -321,6 +326,9 @@ impl App {
                 "Storage: saved / retained draft"
             }
             StorageState::Saved => "Storage: saved",
+            StorageState::Pending if self.planning.holds_committed_input() => {
+                "Storage: draft pending / request active"
+            }
             StorageState::Pending => "Storage: autosave pending",
             StorageState::Saving if self.quit_after_save => {
                 "Storage: saving before exit / Esc stay"

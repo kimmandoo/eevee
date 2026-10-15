@@ -34,7 +34,13 @@ pub(super) fn render(
         render_small(frame, area, state, paint);
         return;
     }
-    let area = centered(area, 110, area.height.saturating_sub(2));
+    let compact = matches!(state.mode, Mode::Preview | Mode::Delete) && !super::VERBOSE.get();
+    let height = if compact {
+        18
+    } else {
+        area.height.saturating_sub(2)
+    };
+    let area = centered(area, 110, height);
     frame.render_widget(Clear, area);
     let block = panel(
         " Approved memories / explicit local curation ",
@@ -132,20 +138,33 @@ pub(super) fn render(
             body.width = body.width.saturating_sub(31);
         }
         let value = match state.mode {
-            Mode::Browse if state.show_help => "MEMORY COMMANDS\n\n/create-memory  Author a user note\n/remember  Remember the saved next-action note\n/edit-memory  Edit the selected approved memory\n/delete-memory  Review deletion of the selected memory\n/select-memory  Include/exclude from future request previews\n/memory-help  Return to memory inspection\nUp/Down  Inspect another approved memory\nPgUp/PgDn  Read every page of exact content\nEsc  Close the drawer without deleting memory\n\nProposals start task-local. In preview, /memory-scope cycles Task / Project / Personal; changing scope resets approval. Right then Enter approves only after all pages are reviewed. /reject-memory rejects without saving.\n\nEditing keeps literal text. Ctrl+N adds a newline. Esc offers Keep/Discard for changed drafts. Save failure retains text; reopen review to retry.\n\nDeletion changes future context, not prior exports or provider history. Secret detection is best-effort; captured excluded content is never eligible.".into(),
-            Mode::Preview => state.candidate.as_ref().map_or_else(String::new, |candidate| describe(candidate, &state.project, state.task_id)),
+            Mode::Browse if state.show_help => "/create-memory New note / /remember Next-action note\n/edit-memory Edit / /delete-memory Delete\n/select-memory Include in future requests\n/memory-scope Task / Project / Personal\n/verbose Full content and provenance\n\nRight then Enter confirms the displayed scope; changing scope resets consent. No tools run and context selection stays separate. Esc keeps the draft; failed saves retain it. Deletion does not erase exports or provider history.".into(),
+            Mode::Preview => state.candidate.as_ref().map_or_else(String::new, |candidate| {
+                if super::VERBOSE.get() {
+                    describe(candidate, &state.project, state.task_id)
+                } else {
+                    summary(candidate, false)
+                }
+            }),
             Mode::Discard => format!("Keep this editable draft or discard it?\n\n{}\n\nDiscard affects only this draft, not existing approved memories.", state.draft),
             Mode::Browse | Mode::Delete => {
                 if let Some(record) = state.selected_record() {
+                    if state.mode == Mode::Delete && !super::VERBOSE.get() {
+                        format!("Memory #{} / revision {}\n{}", record.id, record.revision, summary(&record.proposal, true))
+                    } else {
                     format!("Approved memory #{} / revision {}\n{}\n\n{}\n\n{}", record.id, record.revision,
                         if state.selected_ids.contains(&record.id) { "Selected for future request previews" } else { "Not selected for outgoing context" },
                         describe(&record.proposal, &record.project, record.task_id.unwrap_or(state.task_id)), memory::ERASURE_NOTICE)
+                    }
                 } else {
                     "No approved memories in this scope.\n\n/create-memory authors a note; /remember proposes the task's saved next-action note. Both open a separate scope/approval preview.\n\nProject memories stay in their project; personal memories are visible in every project. /select-memory deliberately selects approved notes for request context.\n\nNo transcript mining or automatic habit inference. Recognizable credentials and excluded captured notes are refused; detection is best-effort.".into()
                 }
             }
             Mode::Edit => unreachable!(),
         };
+        if compact {
+            state.scroll = 0;
+        }
         let max = selection_details(
             frame,
             body,
@@ -156,12 +175,8 @@ pub(super) fn render(
         );
         state.scroll_max = max;
         state.scroll = state.scroll.min(max);
-        if matches!(state.mode, Mode::Preview | Mode::Delete)
-            && body.height > 0
-            && state.scroll >= max
-            && !state.saving
-        {
-            state.reviewed = true;
+        if matches!(state.mode, Mode::Preview | Mode::Delete) {
+            state.reviewed = body.height >= 4 && !state.saving && (!compact || max == 0);
         }
     }
     let footer = if state.saving {
@@ -176,7 +191,7 @@ pub(super) fn render(
                 "Enter Preview | Ctrl+N Newline | Esc Keep/Discard\nLiteral text only.".into()
             }
             Mode::Preview => format!(
-                "{} {} | /memory-scope /edit-memory /reject-memory\n{} | Left/Right choose / Enter / Esc Edit",
+                "{} {} | y Approve / n Back\n{} / /memory-scope / /edit-memory",
                 if state.affirmative { "Stay" } else { "[Stay]" },
                 if state.affirmative {
                     "[Approve]"
@@ -184,13 +199,13 @@ pub(super) fn render(
                     "Approve"
                 },
                 if state.reviewed {
-                    "Reviewed"
+                    "/verbose Full details"
                 } else {
-                    "PgDn review all pages"
+                    "Enlarge to review scope"
                 }
             ),
             Mode::Delete => format!(
-                "{} {} | Left/Right choose / Enter\n{} / Esc Stay",
+                "{} {} | y Delete / n Back\n{} / Left/Right Choose / Enter",
                 if state.affirmative { "Stay" } else { "[Stay]" },
                 if state.affirmative {
                     "[Delete]"
@@ -198,13 +213,13 @@ pub(super) fn render(
                     "Delete"
                 },
                 if state.reviewed {
-                    "Reviewed"
+                    "/verbose Full details"
                 } else {
-                    "PgDn review affected scope"
+                    "Enlarge to review scope"
                 }
             ),
             Mode::Discard => format!(
-                "{} {} | Left/Right choose / Enter\nEsc Keep editing; saved memory is unchanged.",
+                "{} {}\ny Discard draft / n Keep editing",
                 if state.affirmative {
                     "Keep editing"
                 } else {
@@ -226,6 +241,24 @@ pub(super) fn render(
     );
 }
 
+fn summary(proposal: &Proposal, deleting: bool) -> String {
+    let scope = match proposal.scope {
+        memory::Scope::Task => "This task",
+        memory::Scope::Project => "This project",
+        memory::Scope::Personal => "All projects",
+    };
+    format!(
+        "{scope}\n{}\n\n{}\n{} bytes / /verbose Full note and source",
+        if deleting {
+            "Delete locally; prior exports remain."
+        } else {
+            "Save note only; context selection is separate."
+        },
+        clipped(proposal.content.lines().next().unwrap_or(""), 100),
+        proposal.content.len()
+    )
+}
+
 fn describe(proposal: &Proposal, project: &str, task_id: i64) -> String {
     let owner = match proposal.scope {
         memory::Scope::Task => format!("Task {task_id} in {project}"),
@@ -233,7 +266,7 @@ fn describe(proposal: &Proposal, project: &str, task_id: i64) -> String {
         memory::Scope::Personal => "Personal: every project using this data store".into(),
     };
     format!(
-        "SCOPE: {}\nEXACT CONTENT ({} UTF-8 bytes):\n{}\n\nOWNER: {owner}\nPROVENANCE: {}\nSOURCE: {} (task {})\n\nApproval stores only this note; it grants no command, write or provider permission. Selecting it for a request is separate.",
+        "SCOPE: {}\nLocal memory only; no tools or grants.\nEXACT CONTENT ({} UTF-8 bytes):\n{}\n\nOWNER: {owner}\nPROVENANCE: {}\nSOURCE: {} (task {})\n\nContext selection is separate. Deletion does not erase prior exports or provider history.",
         proposal.scope.label(),
         proposal.content.len(),
         proposal.content,

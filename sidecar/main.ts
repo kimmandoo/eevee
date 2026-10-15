@@ -6,12 +6,13 @@ import { isDeepStrictEqual } from 'node:util';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { Query, CanUseTool, OnElicitation, Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { SDK_VERSION, CLI_VERSION, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, selectedWrite, selectedWriteIdentity, QuestionInputSchema, RunSchema, SDKPolicyError, querySelection, prepareModels, assertAppliedModel, credentialRoute, consoleProfile, sdkOutcome } from './policy.ts';
+import { SDKPackageSchema, BRIDGE_POLICY, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, selectedWrite, selectedWriteIdentity, QuestionInputSchema, RunSchema, SDKPolicyError, querySelection, prepareModels, assertAppliedModel, assertSessionPolicy, credentialRoute, consoleProfile, sdkOutcome } from './policy.ts';
 
 const require = createRequire(import.meta.url);
-const sdkEntry = require.resolve('@anthropic-ai/claude-agent-sdk');
-const sdkPackage = z.object({ version: z.literal(SDK_VERSION), claudeCodeVersion: z.literal(CLI_VERSION) }).parse(JSON.parse(readFileSync(join(dirname(sdkEntry), 'package.json'), 'utf8')));
-if (sdkPackage.version !== SDK_VERSION || sdkPackage.claudeCodeVersion !== CLI_VERSION) throw new Error('Unsupported SDK/CLI version');
+const sdkEntry = realpathSync(require.resolve('@anthropic-ai/claude-agent-sdk'));
+const sdkPackage = SDKPackageSchema.parse(JSON.parse(readFileSync(join(dirname(sdkEntry), 'package.json'), 'utf8')));
+const { version: sdkVersion, claudeCodeVersion: cliVersion } = sdkPackage;
+if (typeof query !== 'function') throw new Error('SDK query export unavailable');
 if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('Native TypeScript sidecar requires Node 24 or later');
 const report = z.object({ header: z.object({ glibcVersionRuntime: z.string().optional() }) }).parse(process.report.getReport());
 const platform = `${process.platform}-${process.arch}${process.platform === 'linux' && report.header.glibcVersionRuntime === undefined ? '-musl' : ''}`;
@@ -212,7 +213,8 @@ async function run(command: z.infer<typeof RunSchema>) {
   const toolCalls = new Map<string, { tool: string; input: unknown }>();
   try {
     // Backend and live model/effort validation complete before any user prompt.
-    const { catalogue, approvedModel } = await prepareModels(current, command.selection, account, expectedProvider, command.inspect_models);
+    const { catalogue, approvedModel } = await prepareModels(current, command.selection, account, expectedProvider,
+      { sdkVersion, cliVersion, requireHooks: options.hooks !== undefined }, command.inspect_models);
     if (command.inspect_models) {
       if (cancelled || controller.signal.aborted) throw new Error('Model inspection interrupted');
       await emit({ type: 'models', ...meta(), catalogue });
@@ -226,10 +228,9 @@ async function run(command: z.infer<typeof RunSchema>) {
     for await (const message of current) {
       if (session && 'session_id' in message && message.session_id !== session) throw new Error('SDK message changed session identity');
       if (message.type === 'system' && message.subtype === 'init') {
-        if (message.claude_code_version !== CLI_VERSION || message.permissionMode !== 'default' ||
-          message.tools.some(t => !tools.includes(t)) || message.mcp_servers.length || message.plugins.length || message.skills.length ||
-          (account === 'ANTHROPIC_API_KEY' && message.apiKeySource !== 'ANTHROPIC_API_KEY') ||
-          (profile !== undefined && ['ANTHROPIC_API_KEY', 'apiKeyHelper', '/login managed key'].includes(message.apiKeySource))) throw new Error('Effective SDK identity/tool/config/auth policy mismatch');
+        assertSessionPolicy(message, cliVersion, tools);
+        if ((account === 'ANTHROPIC_API_KEY' && message.apiKeySource !== 'ANTHROPIC_API_KEY') ||
+          (profile !== undefined && ['ANTHROPIC_API_KEY', 'apiKeyHelper', '/login managed key'].includes(message.apiKeySource))) throw new Error('Effective SDK authentication policy mismatch');
         assertAppliedModel(approvedModel, message.model);
         if (session) throw new Error('SDK emitted a second session initialization');
         session = message.session_id;
@@ -264,7 +265,7 @@ async function run(command: z.infer<typeof RunSchema>) {
           if (block.type === 'tool_use') {
             if (toolCalls.size >= 128 || Buffer.byteLength(JSON.stringify(block.input)) > 32 * 1024) throw new Error('SDK tool input retention bound');
             toolCalls.set(block.id, { tool: block.name, input: block.input });
-            await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: block.id, kind: 'tool', text: JSON.stringify({ provider: 'Claude Agent SDK', sdk_version: SDK_VERSION, tool: block.name, input: block.input, status: 'requested' }), complete: false });
+            await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: block.id, kind: 'tool', text: JSON.stringify({ provider: 'Claude Agent SDK', sdk_version: sdkVersion, tool: block.name, input: block.input, status: 'requested' }), complete: false });
           }
         }
       } else if (message.type === 'user' && Array.isArray(message.message.content)) {
@@ -274,7 +275,7 @@ async function run(command: z.infer<typeof RunSchema>) {
           toolCalls.delete(block.tool_use_id);
           if (activeWrite === block.tool_use_id) activeWrite = undefined;
           await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: block.tool_use_id, kind: 'tool', text: JSON.stringify({
-            provider: 'Claude Agent SDK', sdk_version: SDK_VERSION, cli_version: CLI_VERSION, coverage: 'provider-native tool result; not an Eevee local command/check or proof of confinement',
+            provider: 'Claude Agent SDK', sdk_version: sdkVersion, cli_version: cliVersion, coverage: 'provider-native tool result; not an Eevee local command/check or proof of confinement',
             ...call, result: block.content, is_error: block.is_error, status: block.is_error ? 'failed' : 'completed',
           }), complete: true });
         }
@@ -319,7 +320,7 @@ function fatal(_error: unknown) {
   void emit({ type: 'fatal', ...meta(), message: 'Claude SDK sidecar failed; raw diagnostics withheld; outcome unknown' }).finally(() => { current?.close(); process.exitCode = 1; process.stdin.pause(); }).catch(() => process.exit(1));
 }
 if (process.argv.includes('--inspect')) {
-  await emit({ type: 'capabilities', bridge_revision: 2, sdk_version: SDK_VERSION, cli_version: CLI_VERSION, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
+  await emit({ type: 'capabilities', bridge_revision: 2, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
     query: typeof query === 'function', approvals: 'canUseTool with exact once/deny answers; no persistent rules', questions: 'AskUserQuestion single-select/free text',
     elicitation: 'distinct onElicitation; MCP disabled so decline/cancel only', resume: 'explicit same-task session ID only',
     usage: 'latest cumulative query-pipeline snapshot, not additive', confinement: 'agent policy; not OS sandbox', credential_route: credentialRoute(process.env) ?? 'unavailable' });

@@ -3,8 +3,16 @@ import { lstatSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { EffortLevel, ModelInfo } from '@anthropic-ai/claude-agent-sdk';
 
-export const SDK_VERSION = '0.3.296';
-export const CLI_VERSION = '2.1.296';
+// Versions are observed identity, never a release allowlist.
+const VersionSchema = z.string().max(128).regex(/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/).refine(value => value.trim() === value);
+export const SDKPackageSchema = z.object({
+  name: z.literal('@anthropic-ai/claude-agent-sdk'),
+  version: VersionSchema, claudeCodeVersion: VersionSchema,
+});
+export const BRIDGE_POLICY = {
+  tools: 'closed-allowlist', permissions: 'default-host-once', mcp: 'disabled',
+  configuration: 'isolated', authentication: 'api-console-cloud-only',
+};
 export const FRAME_LIMIT = 2 * 1024 * 1024;
 export const READ_TOOLS = ['Read', 'Glob', 'Grep', 'AskUserQuestion'];
 export const DENIED_TOOLS = ['Bash', 'Agent', 'Task', 'TaskOutput', 'TaskStop', 'NotebookEdit', 'Skill', 'WebFetch', 'WebSearch', 'ToolSearch', 'EnterWorktree', 'ExitWorktree', 'EnterPlanMode', 'ExitPlanMode', 'CronCreate', 'CronDelete', 'CronList', 'mcp__*'];
@@ -55,7 +63,7 @@ export function modelCatalogue(raw: ModelInfo[], selection: Selection) {
       default_effort: null,
     })),
     current: selected?.value ?? null,
-    source: `Claude Agent SDK ${SDK_VERSION} supportedModels()`,
+    source: 'Claude Agent SDK supportedModels()',
     effort_note: models.length === 0 ? 'Model and reasoning selection unsupported: the live SDK returned no supported models.' :
       'Reasoning selection unsupported: supportedModels() may advertise effort capability, but this SDK has no public pre-prompt acknowledgement of applied effort after environment/session overrides, organization caps and model downgrades. Explicit effort is refused rather than silently changed.',
   };
@@ -71,18 +79,46 @@ export function assertAppliedModel(expected: string | undefined, actual: unknown
   }
 }
 
+export type SDKCompatibility = { sdkVersion: string; cliVersion: string; requireHooks: boolean };
+
+export function assertInitialization(raw: unknown, compatibility: SDKCompatibility): void {
+  const parsed = z.object({ claude_code_version: VersionSchema, hooks_applied: z.boolean().optional() }).safeParse(raw);
+  if (!parsed.success || parsed.data.claude_code_version !== compatibility.cliVersion) {
+    throw new Error('Effective SDK executable version differs from reviewed CLI or lacks identity acknowledgement');
+  }
+  if (compatibility.requireHooks && parsed.data.hooks_applied !== true) {
+    throw new Error('SDK did not acknowledge mandatory tool policy hooks; no prompt sent');
+  }
+}
+
+export function assertSessionPolicy(raw: unknown, cliVersion: string, tools: readonly string[]): void {
+  const parsed = z.object({
+    claude_code_version: VersionSchema, permissionMode: z.literal('default'),
+    tools: z.array(z.string()).max(256), mcp_servers: z.array(z.unknown()).max(0),
+    plugins: z.array(z.unknown()).max(0), skills: z.array(z.unknown()).max(0),
+  }).safeParse(raw);
+  if (!parsed.success || parsed.data.claude_code_version !== cliVersion ||
+    parsed.data.tools.some(tool => !tools.includes(tool))) {
+    throw new Error('Effective SDK identity/tool/config policy mismatch');
+  }
+}
+
 // This control call initializes the real SDK without releasing the prompt iterator.
 // The caller may release it only after backend and model policy both succeed.
 export async function prepareModels(
   sdk: { accountInfo(): Promise<{ apiProvider?: string; tokenSource?: string; apiKeySource?: string }>;
-    initializationResult(): Promise<{ claude_code_version?: string }>; supportedModels(): Promise<ModelInfo[]>;
+    initializationResult(): Promise<{ claude_code_version?: string; hooks_applied?: boolean }>; supportedModels(): Promise<ModelInfo[]>;
     setModel(model?: string): Promise<void>; getContextUsage(options: { detail: 'summary' }): Promise<{ model: string }> },
-  selection: Selection, route: string, expectedProvider: string, inspectModels = false,
+  selection: Selection, route: string, expectedProvider: string, compatibility: SDKCompatibility, inspectModels = false,
 ) {
+  for (const name of ['accountInfo', 'initializationResult', 'supportedModels', ...(!inspectModels && selection.model !== null ? ['setModel', 'getContextUsage'] : [])] as const) {
+    if (typeof sdk[name as keyof typeof sdk] !== 'function') throw new Error(`SDK required control unavailable: ${name}; no prompt sent`);
+  }
   if (!accountMatches(route, await sdk.accountInfo(), expectedProvider)) throw new Error('Effective SDK authentication backend differs from reviewed route');
-  if ((await sdk.initializationResult()).claude_code_version !== CLI_VERSION) throw new Error('Effective SDK executable version differs from reviewed CLI');
+  assertInitialization(await sdk.initializationResult(), compatibility);
   const models = await sdk.supportedModels();
   const catalogue = modelCatalogue(models, selection);
+  catalogue.source = `Claude Agent SDK ${compatibility.sdkVersion} supportedModels()`;
   if (selection.effort !== null) {
     throw new SDKPolicyError('Reasoning selection unsupported: SDK has no public pre-prompt applied-effort acknowledgement; org caps and downgrades cannot be qualified');
   }
@@ -210,7 +246,7 @@ export function credentialRoute(env: NodeJS.ProcessEnv, profile = consoleProfile
   return 'ANTHROPIC_API_KEY';
 }
 
-// The pinned CLI reports no token/API-key source for a profile credential; an API key,
+// The supported profile route reports no token/API-key source; an API key,
 // subscription login or missing profile reports one, so the prompt is never released to it.
 export function accountMatches(route: string, info: { apiProvider?: string; tokenSource?: string; apiKeySource?: string }, expectedProvider: string): boolean {
   if (info.apiProvider !== expectedProvider) return false;

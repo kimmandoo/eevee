@@ -30,7 +30,16 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         render_small(frame, area, &mut app.handoff, paint);
         return;
     }
-    let area = centered(area, 110, area.height.saturating_sub(2));
+    let compact = app.handoff.mode != Mode::Idle
+        && app.handoff.candidate.is_some()
+        && !app.handoff.editing
+        && !super::VERBOSE.get();
+    let height = if compact {
+        18
+    } else {
+        area.height.saturating_sub(2)
+    };
+    let area = centered(area, 110, height);
     frame.render_widget(Clear, area);
     let block = panel(" Portable task handoff / local-only ", config, paint, true);
     let content = block.inner(area);
@@ -99,7 +108,27 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let body = row(content, 6, content.height.saturating_sub(10));
     let empty = "/export-json /export-markdown /import-handoff\n\nOnly committed task facts, criteria, approved source references/excerpt bytes, selected decisions, and unresolved work are portable. No provider session IDs, permissions, credentials, or private reasoning. Imported claims are user-supplied/unverified and never become execution evidence.\n\nReview recognizable-secret redaction before sharing; detection is best-effort, not proof of secret absence. Deleting local data cannot erase prior exports, copies, provider-owned history, or backups. JSON and Markdown require the version-1 strict schema. No automatic task completion or provider request.";
     let empty = super::brief(empty);
-    let value = if let Some(decision) = state.selected_import_decision() {
+    let value = if state.mode != Mode::Idle && state.candidate.is_some() {
+        let effect = match state.mode {
+            Mode::Export(_) => {
+                "Write a new file only; no overwrite or provider call.\nSecret redaction is best-effort."
+            }
+            _ => {
+                "Accept unverified context only.\nNo task facts, evidence or permissions are applied."
+            }
+        };
+        if super::VERBOSE.get() {
+            format!("{effect}\nPath: {}\n\n{}", state.path, state.preview)
+        } else {
+            let document = state.candidate.as_ref().expect("handoff preview");
+            format!(
+                "{effect}\n{} sources / {} decisions\n/verbose Exact payload ({} bytes)",
+                document.sources.len(),
+                document.decisions.len(),
+                state.preview.len()
+            )
+        }
+    } else if let Some(decision) = state.selected_import_decision() {
         format!(
             "SELECTED IMPORTED DECISION / {} / user-supplied, unverified\n\n{decision}\n\nCopy opens the existing editor for separate review/save. It creates no execution evidence.",
             state.selected_decision + 1
@@ -109,6 +138,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     } else {
         format!("Chosen literal path: {}\n\n{}", state.path, state.preview)
     };
+    if compact {
+        state.scroll = 0;
+    }
     let max = selection_details(
         frame,
         body,
@@ -122,10 +154,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     if state.mode != Mode::Idle
         && state.candidate.is_some()
         && state.pending.is_none()
-        && body.height > 0
-        && state.scroll >= max
+        && body.height >= 3
     {
-        state.reviewed = true;
+        state.reviewed = !compact || max == 0;
     }
     let footer = if state.mode != Mode::Idle {
         let action = match state.mode {
@@ -133,15 +164,15 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             _ => "Accept unverified context",
         };
         format!(
-            "{} / {}{}{} | {} | Left/Right choose / Enter / Esc Stay",
+            "{} / {}{}{}\ny Confirm / n Back / {}",
             if state.affirmative { "Stay" } else { "[Stay]" },
             if state.affirmative { "[" } else { "" },
             action,
             if state.affirmative { "]" } else { "" },
             if state.reviewed {
-                "review complete"
+                "/verbose Details"
             } else {
-                "PgDn review all pages"
+                "Enlarge to review scope"
             }
         )
     } else if state.selected_import_decision().is_some() {

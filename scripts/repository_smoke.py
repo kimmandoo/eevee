@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-from terminal_smoke import Session, terminal_environment
+from terminal_smoke import Session, confirm_exit, terminal_environment
 from workbench_smoke import wait_for
 
 
@@ -32,8 +32,7 @@ def main():
         return session
     def quit_app(session):
         session.command("quit")
-        if session.alive():
-            session.send("\x1b[C\r")
+        confirm_exit(session)
         assert session.wait_exit() == 0
         session.close()
     def find_text(session, value):
@@ -67,7 +66,6 @@ def main():
                 index_before = hashlib.sha256((project / ".git" / "index").read_bytes()).hexdigest()
                 session = launch("repo-" + str(width), project, root / ("data-" + str(width)), (width,36 if width == 120 else 18))
                 wait_for(session, "Storage: saved")
-                session.send("\x1b")  # Leave the clean first-run Goal composer.
                 session.command("goal")
                 session.paste("repository task 漢字")
                 session.send("\r")
@@ -90,6 +88,7 @@ def main():
                 assert untracked.read_bytes() == b"existing_untracked_bytes\n"
                 assert hashlib.sha256((project / ".git" / "index").read_bytes()).hexdigest() == index_before
                 session.send("\x1b")
+                session.command("goal")
                 assert "repository task 漢字" in session.display()
                 wait_for(session, "Storage: saved")
                 quit_app(session)
@@ -99,7 +98,6 @@ def main():
             data = root / "plain-data"
             session = launch("non-git", plain, data, (60,18))
             wait_for(session, "Storage: saved")
-            session.send("\x1b")  # Leave the clean first-run Goal composer.
             session.command("goal")
             session.paste("nonGit retained task")
             session.send("\r")
@@ -111,6 +109,7 @@ def main():
             wait_for(session, "Storage: saved")
             quit_app(session)
             session = launch("non-git-resume", plain, data, (60,18))
+            session.command("goal")
             wait_for(session, "nonGit retained task")
             quit_app(session)
             passed("non-git-unsupported-retains-durable-task")

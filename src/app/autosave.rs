@@ -24,6 +24,7 @@ impl App {
         if !self.save_requested
             || self.transitioning
             || self.save_inflight.is_some()
+            || self.planning.holds_committed_input()
             || matches!(
                 self.storage,
                 StorageState::Failed(_) | StorageState::Loading
@@ -82,7 +83,7 @@ impl App {
         self.storage = if self.save_inflight.is_some() {
             StorageState::Saving
         } else if self.save_requested {
-            if self.autosave.is_some() {
+            if self.autosave.is_some() || self.planning.holds_committed_input() {
                 StorageState::Pending
             } else {
                 StorageState::Saving
@@ -116,6 +117,9 @@ mod tests {
     }
 
     fn key(app: &mut App, code: KeyCode, now: Instant) {
+        if code == KeyCode::Enter && app.confirmation.is_some() {
+            app.confirmation_reviewed = true;
+        }
         app.update_at(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)), now);
     }
 
@@ -223,8 +227,8 @@ mod tests {
                 assert_eq!(app.goal, "draft");
             } else {
                 control(&mut app, 's', now);
-                assert_eq!(app.drafts[0].text, "draft");
-                assert_eq!(app.drafts[0].cursor, 4);
+                assert_eq!(app.snapshot("/workspace").request_text(), "draft");
+                assert_eq!(app.cursor, 4);
             }
             assert!(app.save_due(now));
             key(&mut app, KeyCode::Tab, now + Duration::from_millis(1));

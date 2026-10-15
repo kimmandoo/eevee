@@ -520,7 +520,7 @@ fn migrates_documented_schema_zero_and_one_atomically() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            8
+            9
         );
         assert!(connection.prepare("SELECT * FROM goals").is_err());
         assert!(connection.prepare("SELECT * FROM projects").is_err());
@@ -537,7 +537,7 @@ fn newer_foreign_and_corrupt_databases_are_untouched() {
         } else {
             let connection = Connection::open(&path).unwrap();
             connection.execute_batch(if fixture == 0 {
-                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=9;"
+                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=10;"
                 } else {
                     "CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('keep');"
                 }).unwrap();
@@ -1029,7 +1029,7 @@ fn crash_during_migration(directory: &Directory, kind: &str) {
         )
         .unwrap();
     match kind {
-            "newer" => connection.execute_batch("PRAGMA user_version=9;").unwrap(),
+            "newer" => connection.execute_batch("PRAGMA user_version=10;").unwrap(),
             "foreign" => connection.execute_batch("CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('preserve');").unwrap(),
             "one" => connection.execute_batch(
                 "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL);
@@ -1092,7 +1092,7 @@ fn process_interruption_recovers_legacy_and_current_committed_tasks() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            8
+            9
         );
     }
 }
@@ -3236,21 +3236,28 @@ fn schema_six_store_migrates_partner_one_and_resumes_tasks_unchanged() {
 }
 
 #[test]
-fn schema_nine_store_is_refused_without_rewriting() {
+fn future_schema_store_is_refused_without_rewriting() {
     let directory = Directory::new();
     let store = worker(&directory, "project");
     loaded(&store);
     drop(store);
     let path = directory.0.join(DATABASE);
-    {
+    let unsupported_version = {
         let connection = Connection::open(&path).unwrap();
-        connection.execute_batch("PRAGMA user_version=9;").unwrap();
-    }
+        let version = connection
+            .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
+            .unwrap()
+            + 1;
+        connection
+            .pragma_update(None, "user_version", version)
+            .unwrap();
+        version
+    };
     let before = fs::read(&path).unwrap();
     let refused = worker(&directory, "project");
     assert!(matches!(
         event(&refused),
-        Event::Failed { revision: None, message } if message.contains("schema version 9")
+        Event::Failed { revision: None, message } if message.contains(&format!("schema version {unsupported_version}"))
     ));
     drop(refused);
     assert_eq!(fs::read(&path).unwrap(), before);
@@ -3662,4 +3669,31 @@ fn added_partner_ids_are_never_reused_after_a_release() {
         }
         other => panic!("expected added roster: {other:?}"),
     }
+}
+
+#[test]
+fn schema_eight_migrates_request_drafts_without_changing_task_facts() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    initialize(&mut connection).unwrap();
+    connection.execute_batch("PRAGMA user_version=8;").unwrap();
+    initialize(&mut connection).unwrap();
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        9
+    );
+    let mut task = Snapshot::empty("/workspace".into());
+    task.goal = "Stable task identity".into();
+    task.next_action = "Existing task fact".into();
+    task.partner_drafts = partner_drafts(vec![Draft {
+        field: EditorField::Request,
+        text: "Follow-up question".into(),
+        cursor: 18,
+    }]);
+    validate(&task).unwrap();
+    let restored: Snapshot = serde_json::from_str(&serde_json::to_string(&task).unwrap()).unwrap();
+    assert_eq!(restored.request_text(), "Follow-up question");
+    assert_eq!(restored.goal, "Stable task identity");
+    assert_eq!(restored.next_action, "Existing task fact");
 }
