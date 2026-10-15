@@ -113,6 +113,10 @@ pub struct App {
     /// The committed party roster; `lead` is the live copy of the task's
     /// lead partner, so `App::partners()` overlays it onto these rows.
     party: Vec<store::Partner>,
+    /// Queued party mutation for the store worker (`/party` Add).
+    pub party_request: Option<store::PartyRequest>,
+    /// A party mutation was handed to the store and awaits its committed roster.
+    pub party_inflight: bool,
     pub selected: usize,
     /// Preferred focus, retained even when its pane is temporarily hidden.
     pub focus: Pane,
@@ -210,6 +214,8 @@ impl App {
         Self {
             lead: store::Partner::default(),
             party: Vec::new(),
+            party_request: None,
+            party_inflight: false,
             selected: 0,
             focus: Pane::Workspace,
             overlay: None,

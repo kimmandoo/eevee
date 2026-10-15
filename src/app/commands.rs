@@ -106,6 +106,7 @@ impl App {
                 Choice::new("criteria-edit", "Edit acceptance criteria"),
                 Choice::new("criterion-toggle", "Check/uncheck selected criterion"),
             ],
+            Some(Overlay::Party) => self.party_command_choices(),
             _ => Vec::new(),
         };
         for (name, label) in [
@@ -417,6 +418,7 @@ impl App {
             Some(Overlay::Handoff) => self.handoff.command_choices(),
             Some(Overlay::Workflows) => self.workflow_command_choices(),
             Some(Overlay::Memory) => self.memory_command_choices(),
+            Some(Overlay::Party) => self.party_command_choices(),
             _ => Vec::new(),
         };
         if let Some(choice) = contextual.iter().find(|choice| choice.command == name) {
@@ -452,6 +454,7 @@ impl App {
                 Some(Overlay::Handoff) => self.handoff_command(name),
                 Some(Overlay::Workflows) => self.workflow_command(name),
                 Some(Overlay::Memory) => self.memory_command(name),
+                Some(Overlay::Party) => self.party_command(name),
                 _ => false,
             };
         }

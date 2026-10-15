@@ -377,6 +377,12 @@ pub struct MemoryRequest {
     pub task_id: i64,
     pub mutation: Option<crate::workspace::memory::Mutation>,
 }
+
+/// Party roster mutations (PT04B). Results report the committed roster.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PartyRequest {
+    Add,
+}
 #[derive(Debug)]
 pub enum Event {
     Loaded(Project),
@@ -396,6 +402,8 @@ pub enum Event {
         revision: Option<u64>,
         message: String,
     },
+    /// Committed party roster after a `PartyRequest`, or the refusal reason.
+    Party(Result<Vec<Partner>, String>),
     Context {
         task_id: i64,
         result: Result<Vec<crate::workspace::context::Excerpt>, String>,
@@ -430,6 +438,7 @@ enum Command {
     Run(Box<RunRequest>),
     Journal(JournalRequest),
     Memory(MemoryRequest),
+    Party(PartyRequest),
     Retry,
 }
 
@@ -570,6 +579,25 @@ impl Worker {
         }
     }
 
+    /// Queues a party roster mutation; full/disconnected queues retain it.
+    pub fn try_party(&self, pending: &mut Option<PartyRequest>) -> bool {
+        let Some(commands) = &self.commands else {
+            return false;
+        };
+        let Some(request) = pending.take() else {
+            return false;
+        };
+        match commands.try_send(Command::Party(request)) {
+            Ok(()) => true,
+            Err(TrySendError::Full(Command::Party(request)))
+            | Err(TrySendError::Disconnected(Command::Party(request))) => {
+                *pending = Some(request);
+                false
+            }
+            Err(_) => unreachable!("try_send returns the submitted command"),
+        }
+    }
+
     pub fn try_select(&self, id: i64) -> bool {
         self.commands
             .as_ref()
@@ -630,6 +658,9 @@ fn run(
                 task_id: request.task_id,
                 result: state.memory_request(request).map_err(actionable),
             },
+            Command::Party(request) => Event::Party(match request {
+                PartyRequest::Add => state.add_partner().map_err(actionable),
+            }),
             Command::Run(request) => {
                 let task_id = request.task_id;
                 let (request_id, run_id) = request.correlation();

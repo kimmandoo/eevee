@@ -11,8 +11,10 @@ const PARTNER_COLUMNS: &[ColumnSpec] = &[
 ];
 
 pub(super) fn validate_partner(partner: &Partner) -> Result<(), String> {
-    if !(1..=MAX_PARTNERS as i64).contains(&partner.id) {
-        return Err("Partner ID must stay within the party capacity 1..=6".into());
+    // Ids are AUTOINCREMENT and never reused, so they grow past the six-seat
+    // capacity after releases; the roster cap applies to the row count.
+    if partner.id < 1 {
+        return Err("A partner id must be a positive AUTOINCREMENT value".into());
     }
     if partner.form >= 9 {
         return Err("A stored partner form is outside 0..=8".into());
@@ -31,6 +33,43 @@ pub(super) fn validate_partner(partner: &Partner) -> Result<(), String> {
         return Err("A partner origin project exceeds the 4096-byte limit".into());
     }
     Ok(())
+}
+
+impl State {
+    /// Welcome a new partner: starts in Eevee form with today's met date on the
+    /// current project. The six-seat party capacity is enforced inside the
+    /// transaction, and AUTOINCREMENT never reuses a released partner's id.
+    pub(super) fn add_partner(&mut self) -> Result<Vec<Partner>, String> {
+        let met_at = timestamp()?;
+        let connection = self
+            .connection
+            .as_mut()
+            .ok_or("Storage is unavailable; retry opening it")?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("Cannot begin partner addition: {error}"))?;
+        let seated: i64 = transaction
+            .query_row("SELECT count(*) FROM partners", [], |row| row.get(0))
+            .map_err(|error| error.to_string())?;
+        if seated >= MAX_PARTNERS as i64 {
+            return Err(
+                "The party is full: a partner can hold at most 6 members; release one first".into(),
+            );
+        }
+        transaction
+            .execute(
+                "INSERT INTO partners(nickname,form,met_at,met_derived,created_project)
+                 VALUES (NULL,0,?1,0,?2)",
+                params![met_at, self.project],
+            )
+            .map_err(|error| format!("Cannot add the partner: {error}"))?;
+        enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
+        let roster = partners(&transaction)?;
+        transaction
+            .commit()
+            .map_err(|error| format!("Cannot commit the new partner: {error}"))?;
+        Ok(roster)
+    }
 }
 
 fn partner_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Partner> {

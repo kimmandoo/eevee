@@ -281,6 +281,10 @@ fn run(config: Config) -> io::Result<()> {
             if store.try_manage(&mut app.management) {
                 outstanding_store += 1;
             }
+            if store.try_party(&mut app.party_request) {
+                app.party_inflight = true;
+                outstanding_store += 1;
+            }
             if let Some(id) = app.switch_task
                 && store.try_select(id)
             {
@@ -327,6 +331,8 @@ fn run(config: Config) -> io::Result<()> {
                 || app.retry_storage
                 || app.switch_task.is_some()
                 || app.management.is_some()
+                || app.party_request.is_some()
+                || app.party_inflight
                 || input.graphics_pending()
                 || (app.save_requested && matches!(app.storage, app::StorageState::Saving));
             let event = if pending {

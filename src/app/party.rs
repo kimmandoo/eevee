@@ -36,6 +36,49 @@ impl App {
         partners
     }
 
+    /// Roster `Add` action. The store layer re-checks the six-seat cap inside
+    /// its transaction; here a full or already-queued request only explains why.
+    pub(super) fn request_add_partner(&mut self) {
+        if self.party_request.is_some() || self.party_inflight {
+            self.notice = "A partner is already joining; wait for storage.".into();
+        } else if self.party.len() >= store::MAX_PARTNERS {
+            self.notice = format!(
+                "The party is full: a partner can hold at most {} members; release one first.",
+                store::MAX_PARTNERS
+            );
+        } else {
+            self.party_request = Some(store::PartyRequest::Add);
+            self.notice = "Adding a new partner in Eevee form.".into();
+        }
+    }
+
+    /// Roster-scoped command dispatch (`/add` inside the party overlay).
+    pub(super) fn party_command(&mut self, name: &str) -> bool {
+        match name {
+            "add" => {
+                self.request_add_partner();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Contextual `/` choices inside the roster: Add with its disabled reason.
+    pub(super) fn party_command_choices(&self) -> Vec<commands::Choice> {
+        if self.party.len() >= store::MAX_PARTNERS {
+            vec![commands::Choice::disabled(
+                "add",
+                "Add partner",
+                format!(
+                    "The party is full: a partner can hold at most {} members; release one first.",
+                    store::MAX_PARTNERS
+                ),
+            )]
+        } else {
+            vec![commands::Choice::new("add", "Add partner")]
+        }
+    }
+
     /// Derived, never stored: a partner is waiting while an owned approval or
     /// provider prompt is open, working while it owns a live provider request
     /// or local run, and idle otherwise.

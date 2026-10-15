@@ -1,6 +1,13 @@
 # Work Checkpoint
 
 
+## 2026-10-15 — PT04B add a partner
+
+- **Delivered:** the roster's `a` key and contextual `/add` (a `Choice` that is disabled with the capacity reason at six members) call `App::request_add_partner`, which queues `store::PartyRequest::Add`; `party_request`/`party_inflight` keep a second add from doubling up while the write is in flight. `Command::Party` → `State::add_partner` inserts `(NULL nickname, form 0, met_at = real clock, met_derived = 0, created_project = current project)` inside an `Immediate` transaction that re-counts seats and refuses at `MAX_PARTNERS` with "at most 6 members" before any commit; `Event::Party` returns the committed roster (or the refusal) and the app swaps `party` wholesale. AUTOINCREMENT means a released id is never reused, so `validate_partner` and `Snapshot.lead_partner` bounds relaxed to positive ids (the corrupt-id `id=77` test still fails on the missing task→partner reference).
+- **Verification:** `cargo fmt --check` clean; `cargo clippy --locked --all-targets -- -D warnings` clean; `cargo test --locked --all-targets` 391 passed / 0 failed / 2 ignored (was 387/2); `cargo build --locked --release` clean. New tests: `add_partner_seats_eevee_with_today_and_refuses_the_seventh`, `added_partner_ids_are_never_reused_after_a_release`, `roster_add_queues_one_request_and_applies_the_committed_roster`, `roster_add_is_disabled_with_the_capacity_reason_at_six`. PTY demo (`target/pt04b-demo/`): two `a` presses show `Eevee #2/#3` rows and `3/6 partners` at 120×36 and 60×18; at six the footer shows "The party is full: a partner can hold at most 6 members…" and the seventh press adds nothing; after restart the roster still shows six rows and SQLite confirms `form=0, met_derived=0`.
+- **Next action:** PT04C release a partner, or PT05A lead partner choice (order per wave 1 is PT05A next).
+
+
 ## 2026-10-15 — PT04A party roster view
 
 - **Delivered:** `/party` opens a read-only centered roster ("Party roster / read-only") listing each partner as `name · form · status · task`: `Eevee #n` or nickname via `App::partner_label` (shared with `lead_label`), the live form, and a derived `idle / working / waiting for approval` status with the engaged task's goal first line. `Overlay::Party` is a new variant; `App::party` caches `Project.partners` on `Loaded`/`Managed` and `set_form` keeps the lead row current before saves land. `partner_status()` is pure derivation from the one planning/execution slot (preview or provider prompt → waiting; busy → working; else idle), ready for PT06/PT07's per-partner slots. Companion drawer gained a `/party` hint; help lists the command; the namespace-duplicate test covers the new overlay.

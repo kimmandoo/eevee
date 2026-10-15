@@ -619,8 +619,10 @@ pub(super) fn validate(snapshot: &Snapshot) -> Result<(), String> {
     if snapshot.form >= 9 {
         return Err("A stored form is outside 0..=8".into());
     }
-    if !(1..=MAX_PARTNERS as i64).contains(&snapshot.lead_partner) {
-        return Err("A lead partner must stay within the party capacity 1..=6".into());
+    // AUTOINCREMENT ids are monotonic, so a party that released members can
+    // hold ids above the six-seat capacity; only positivity is structural.
+    if snapshot.lead_partner < 1 {
+        return Err("A lead partner must be a positive AUTOINCREMENT id".into());
     }
     if snapshot.revision > i64::MAX as u64 {
         return Err("A revision exceeds SQLite's signed integer range".into());

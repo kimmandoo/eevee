@@ -218,6 +218,10 @@ impl App {
             self.open_overlay(Overlay::Forms);
             return true;
         }
+        if overlay == Overlay::Party && key == KeyCode::Char('a') {
+            self.request_add_partner();
+            return true;
+        }
         let count = match overlay {
             Overlay::Forms => FORMS.len(),
             _ => return self.scroll_key(key),
