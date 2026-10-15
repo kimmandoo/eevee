@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.6
+
+- fix(providers): exposed Codex executable/catalogue provenance, preserved configured defaults and showed complete newer-model choices without hardcoded names or silent fallback.
+- feat(commands): added reviewed `/reset` with durable draft retention and `/init` for editable, separately approved project-guide proposals.
+- fix(ux): restored the home partner, repaired fresh-home model loading and flattened local selection navigation.
+- fix(responses): removed duplicate loading indicators and kept previous output distinct from current request state.
+
 ## 0.1.5
 
 - feat(ux): replaced Goal-first setup with durable request input and streamed responses directly into the home workspace.
@@ -26,6 +33,8 @@
 
 ## 2026-10-15
 
+- fix(codex): read effective nonsecret model configuration, preserved configured defaults through catalogue revalidation, exposed installed CLI provenance and update guidance, and kept full native model/effort choices inspectable on compact screens.
+- feat(commands): added neutral `/reset` with a durable-save barrier and recoverable old tasks, plus `/init` proposal drafts with explicit replacement review and no implicit execution or file writes.
 - fix(ux): restored the persistent home partner card, returned model/provider selections directly to their invoking surface, and removed intermediate role/form navigation steps while preserving drafts.
 - fix(providers): loaded model catalogues before task creation, retained visible loading/error pickers and retry paths, isolated metadata from task content, and accepted omitted optional Codex input modalities using the protocol default.
 - fix(responses): consolidated live progress in the header, gave compact responses more usable rows, and kept previous partial output distinct from current streaming/model state.

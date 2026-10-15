@@ -2,6 +2,79 @@
 use super::*;
 
 impl App {
+    pub(super) fn prepare_init(&mut self) {
+        let request = if self.composer_is_request() {
+            Some(self.input.as_str())
+        } else {
+            self.drafts
+                .iter()
+                .find(|draft| draft.field == store::EditorField::Request)
+                .map(|draft| draft.text.as_str())
+        };
+        if request.is_some_and(|text| !text.is_empty()) {
+            self.confirmation_reviewed = false;
+            self.confirmation = Some(Confirmation {
+                kind: ConfirmationKind::ReplaceWithInit,
+                destructive: false,
+            });
+        } else {
+            self.apply_init();
+        }
+    }
+
+    pub(super) fn apply_init(&mut self) {
+        if self.planning.busy() || self.execution.busy() {
+            self.notice = "Finish or cancel active work before preparing /init.".into();
+            return;
+        }
+        if self.memory.saving
+            || self.memory.pending.is_some()
+            || self
+                .memory_request
+                .as_ref()
+                .is_some_and(|request| request.mutation.is_some())
+            || self.planning.journal_failed()
+            || self.planning.outcome_unknown()
+        {
+            self.notice = "Resolve retained operations or provider outcome before preparing /init; drafts kept.".into();
+            return;
+        }
+        let project = self
+            .repository
+            .as_ref()
+            .map(|report| report.repository.root.to_string_lossy())
+            .unwrap_or_else(|| std::borrow::Cow::Borrowed(self.cwd.as_str()));
+        let request = format!(
+            "Prepare a project-initialization proposal for the current project at {project:?}.\n\n\
+             Inspect the repository before making claims: identify its structure, languages, existing project guidance (including any AGENTS.md), coding conventions, and documented build, test, lint and formatting commands. Cite the files supporting your findings; label unknowns and do not invent commands or results. Do not run build/test commands just to prepare this guide.\n\n\
+             Propose a concise AGENTS.md project guide with repository-specific navigation, conventions, and verified-from-documentation commands. If AGENTS.md already exists, preserve it and propose a reviewed change rather than replacing it. Show the proposed content or diff and any open questions.\n\n\
+             This is a Plan/read-only proposal request, not permission to initialize or modify files. Do not create, overwrite or change AGENTS.md or other files. File creation or changes require a later, separate explicit approval. Do not claim initialization is complete."
+        );
+        if request.len() > MAX_GOAL_BYTES {
+            self.notice = "Initialization request exceeds the draft limit for this project path. Write a shorter initialization request manually; existing draft and role kept.".into();
+            return;
+        }
+        self.pending_request = None;
+        if self.editing {
+            self.retain_editor();
+        }
+        // Use the persisted form/role transition so opening the later review
+        // cannot restore an old Implement role or selected write scope.
+        self.request_navigation(execution::Action::SelectForm(4));
+        if self.execution.confirmation.is_some() {
+            return;
+        }
+        self.planning
+            .set_operation(crate::providers::Operation::Plan);
+        self.planning.edit_paths.clear();
+        self.request_home(false);
+        self.input.clear();
+        self.cursor = 0;
+        self.insert_input(&request);
+        self.changed_task();
+        self.notice = "/init prepared an editable request; selected Espeon / Plan and cleared write paths. Enter reviews; Run sends separately. No files changed or request sent.".into();
+    }
+
     pub(super) fn insert_input(&mut self, text: &str) -> bool {
         self.normalize_cursor();
         let capacity = MAX_GOAL_BYTES.saturating_sub(self.input.len());

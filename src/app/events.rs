@@ -332,5 +332,6 @@ impl App {
             }
         }
         self.settle_exit();
+        self.settle_reset();
     }
 }

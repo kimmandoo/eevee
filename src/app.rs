@@ -62,6 +62,8 @@ pub enum ConfirmationKind {
     Complete,
     Reopen(store::EditorField),
     DeleteTasks,
+    ResetTask,
+    ReplaceWithInit,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -160,6 +162,7 @@ pub struct App {
     save_inflight: Option<u64>,
     pub retry_storage: bool,
     pub quit_after_save: bool,
+    pub reset_after_save: bool,
     pub task_id: i64,
     pub tasks: Vec<store::Snapshot>,
     pub criteria: Vec<store::Criterion>,
@@ -262,6 +265,7 @@ impl App {
             save_inflight: None,
             retry_storage: false,
             quit_after_save: false,
+            reset_after_save: false,
             task_id: 0,
             tasks: Vec::new(),
             criteria: Vec::new(),

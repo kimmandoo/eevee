@@ -40,6 +40,7 @@ impl App {
                 self.sources.invalidate_review();
                 true
             }
+            Event::Paste(_) if self.reset_after_save || self.confirmation.is_some() => false,
             Event::Paste(text)
                 if self.command_popup.is_some()
                     && self.editing
@@ -481,6 +482,17 @@ impl App {
             }
             return false;
         }
+        if self.reset_after_save {
+            if key.code == KeyCode::Esc && key.kind == KeyEventKind::Press {
+                self.reset_after_save = false;
+                if self.overlay.is_none() && self.composer_return.is_some() {
+                    self.close_overlay();
+                }
+                self.notice = "Reset cancelled; current task and drafts retained.".into();
+                return true;
+            }
+            return false;
+        }
         if self.quit_after_save {
             if key.code == KeyCode::Esc {
                 self.quit_after_save = false;
@@ -882,6 +894,15 @@ impl App {
                 self.confirmation_reviewed = false;
                 if confirmation.destructive {
                     match confirmation.kind {
+                        ConfirmationKind::ResetTask => {
+                            if self.editing {
+                                let field = self.editor_field;
+                                self.retain_editor();
+                                self.composer_return = Some(field);
+                            }
+                            self.request_navigation(execution::Action::ResetTask);
+                        }
+                        ConfirmationKind::ReplaceWithInit => self.apply_init(),
                         ConfirmationKind::DiscardDraft => {
                             self.drafts.retain(|draft| draft.field != self.editor_field);
                             self.input.clear();

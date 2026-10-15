@@ -1365,7 +1365,7 @@ fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &P
     let block = panel(" Help / PgUp/Dn Scroll / Esc Back ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let value = "KEYS\n / Ctrl+K   Commands (type to search)\n Enter      Review request / select / confirm\n Esc        Back (drafts are kept)\n Tab        Switch pane\n PgUp/PgDn  Scroll response or details\n Shift+Enter, Ctrl+N  Newline\n Ctrl+S     Keep draft locally\n @          Attach files\n Backspace  Previous form (outside text)\n Ctrl+C     Exit\n\nCOMMANDS\n /connect /provider  Provider setup or pending review\n /model /effort      Model and reasoning effort\n /new /resume        Provider session\n /task-new /tasks    Local tasks\n /goal /criteria     Optional task facts\n /party /lead NAME   Partners and the lead\n /forms /role        Evolution and role\n /files /run         Source context, local commands\n /complete           Mark acceptance checklist complete\n /verbose            Brief / full explanations\n\nSAFETY\n Enter prepares a review; it does not approve sending.\n Choose Run or Allow deliberately after reading scope.\n Full technical details remain inspectable.\n Pasted text never runs commands.\n Provider output and handoffs are unverified context.";
+    let value = "KEYS\n / Ctrl+K   Commands (type to search)\n Enter      Review request / select / confirm\n Esc        Back (drafts are kept)\n Tab        Switch pane\n PgUp/PgDn  Scroll response or details\n Shift+Enter, Ctrl+N  Newline\n Ctrl+S     Keep draft locally\n @          Attach files\n Backspace  Previous form (outside text)\n Ctrl+C     Exit\n\nCOMMANDS\n /connect /provider  Provider setup or pending review\n /model /effort      Model and reasoning effort\n /new /resume        Provider session\n /task-new /tasks    Local tasks\n /reset              Fresh task; old task/draft in /tasks\n /init               Draft project guide request; not sent\n /goal /criteria     Optional task facts\n /party /lead NAME   Partners and the lead\n /forms /role        Evolution and role\n /files /run         Source context, local commands\n /complete           Mark acceptance checklist complete\n /verbose            Brief / full explanations\n\nSAFETY\n Enter prepares a review; it does not approve sending.\n Choose Run or Allow deliberately after reading scope.\n Full technical details remain inspectable.\n Pasted text never runs commands.\n Provider output and handoffs are unverified context.";
     scroll_text(
         frame,
         content,
@@ -1417,6 +1417,8 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
         "Saving task and drafts before exit / Esc Cancel exit"
     } else if app.confirmation.is_some() {
         "y Confirm / n Stay / Tab Choose / Enter Select"
+    } else if app.reset_after_save {
+        "Saving old task and drafts before reset / Esc Stay"
     } else if app.transitioning {
         "Applying task operation / mutation paused"
     } else if app.command_popup.is_some() {
@@ -1803,6 +1805,8 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
             ConfirmationKind::Reopen(_) => " Reopen completed task ",
             ConfirmationKind::DiscardDraft => " Review draft discard ",
             ConfirmationKind::Quit => " Confirm exit ",
+            ConfirmationKind::ResetTask => " Reset local task ",
+            ConfirmationKind::ReplaceWithInit => " Prepare /init request ",
             ConfirmationKind::DeleteTasks => unreachable!("separate deletion preview"),
         },
         config,
@@ -1845,6 +1849,16 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
             "Exit? Save the applied task and retained drafts before closing.",
             "Stay",
             "Save task/drafts and quit",
+        ),
+        ConfirmationKind::ResetTask => (
+            "Fresh local task? Save old task + draft in /tasks. No files, history or credentials erased. Active work must finish/cancel first.",
+            "Stay",
+            "Save and reset",
+        ),
+        ConfirmationKind::ReplaceWithInit => (
+            "Replace Request draft with /init proposal? Other drafts stay. Select Espeon / Plan, clear write paths. No send/write; review then Run.",
+            "Keep draft",
+            "Replace with /init",
         ),
         ConfirmationKind::DeleteTasks => unreachable!("separate deletion preview"),
     };

@@ -253,6 +253,58 @@ fn screen_text(terminal: &ratatui::Terminal<ratatui::backend::TestBackend>) -> S
 }
 
 #[test]
+fn model_picker_keeps_complete_source_and_update_remedy_inspectable_without_verbose() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = App::new("/workspace".into(), width, height);
+        app.planning.catalogues.insert(crate::providers::Agent::Codex, crate::providers::ModelCatalogue {
+            models: vec![crate::providers::ModelOption {
+                id: "native-new-model".into(), name: "Native model".into(),
+                description: String::new(), efforts: vec!["max".into()],
+                default_effort: Some("max".into()),
+            }],
+            current: Some("native-new-model".into()),
+            source: "CLI 0.162.1 at /official/bin/codex. Configured provider: native. Catalogue freshness unknown. Update Codex explicitly in Connect, then Refresh.".into(),
+            effort_note: None,
+        });
+        app.command("model");
+        VERBOSE.set(false);
+        let paint = Paint::new(&config, &FORMS[0], 0);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                planning::render(frame, area, &mut app, &config, &paint);
+            })
+            .unwrap();
+        let max = app.planning.scroll_max;
+        let mut screens = screen_text(&terminal);
+        for scroll in 1..=max {
+            app.planning.scroll = scroll;
+            terminal
+                .draw(|frame| {
+                    let area = frame.area();
+                    planning::render(frame, area, &mut app, &config, &paint);
+                })
+                .unwrap();
+            screens.push_str(&screen_text(&terminal));
+        }
+        for text in [
+            "native-new-model",
+            "0.162.1",
+            "/official/bin/codex",
+            "Configured",
+            "explicitly",
+            "Refresh",
+        ] {
+            assert!(screens.contains(text), "{width}x{height}: {text}");
+        }
+        assert!(app.planning.pending.is_none());
+    }
+}
+
+#[test]
 fn centered_attachment_picker_keeps_scrolled_selection_and_help_visible() {
     use ratatui::{Terminal, backend::TestBackend};
     let config = home_config();
@@ -579,4 +631,47 @@ fn source_purge_requires_a_current_visible_scope_after_resize() {
             task_id: 7,
             operation: crate::store::ContextOperation::Purge(ids),
         }) if ids == &[91]));
+}
+
+#[test]
+fn reset_and_init_reviews_keep_scope_and_neutral_actions_visible() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height) in [(120, 36), (60, 18)] {
+        for (kind, title, keep, affirmative) in [
+            (
+                ConfirmationKind::ResetTask,
+                "Reset local task",
+                "[n] Stay",
+                "[y] Save and reset",
+            ),
+            (
+                ConfirmationKind::ReplaceWithInit,
+                "Prepare /init request",
+                "[n] Keep draft",
+                "[y] Replace with /init",
+            ),
+        ] {
+            let mut app = App::new("/workspace".into(), width, height);
+            app.confirmation = Some(crate::app::Confirmation {
+                kind,
+                destructive: false,
+            });
+            let mut artwork = Artwork::load(&config);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            let rendered = screen_text(&terminal);
+            for expected in [title, keep, affirmative, "Enter Select"] {
+                assert!(rendered.contains(expected), "{width}x{height}: {expected}");
+            }
+            assert!(app.confirmation_reviewed, "{width}x{height}: {kind:?}");
+            assert!(!app.confirmation.unwrap().destructive);
+            let mut tiny = Terminal::new(TestBackend::new(20, 6)).unwrap();
+            tiny.draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            assert!(!app.confirmation_reviewed);
+        }
+    }
 }

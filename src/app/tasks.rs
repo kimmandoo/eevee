@@ -292,6 +292,28 @@ impl App {
     pub fn apply_execution_action(&mut self, action: execution::Action) {
         match action {
             execution::Action::NewTask => self.finish_new_task(),
+            execution::Action::ResetTask => {
+                self.pending_request = None;
+                self.pending_command = None;
+                self.flush_save();
+                if matches!(self.storage, StorageState::Pending | StorageState::Saving)
+                    || self.save_requested
+                    || self.sources.persistence_pending()
+                {
+                    if matches!(
+                        self.storage,
+                        StorageState::Failed(_) | StorageState::Loading
+                    ) || self.sources.store_failed
+                    {
+                        self.notice = "Retry storage, then /reset again; the current task and drafts are retained.".into();
+                    } else {
+                        self.reset_after_save = true;
+                        self.notice = "Saving old task and drafts before reset / Esc Stay".into();
+                    }
+                } else {
+                    self.finish_new_task();
+                }
+            }
             execution::Action::Quit => self.finish_request_quit(),
             execution::Action::SelectForm(index) => {
                 if self.form() != index {
@@ -337,6 +359,25 @@ impl App {
         }
     }
 
+    pub(super) fn settle_reset(&mut self) {
+        if !self.reset_after_save {
+            return;
+        }
+        if matches!(self.storage, StorageState::Failed(_)) || self.sources.store_failed {
+            self.reset_after_save = false;
+            self.notice =
+                "Reset stopped: retry storage, then /reset again. Old task and drafts retained."
+                    .into();
+        } else if matches!(self.storage, StorageState::Saved)
+            && self.saved_revision == self.revision
+            && !self.save_requested
+            && self.save_inflight.is_none()
+            && !self.sources.persistence_pending()
+        {
+            self.reset_after_save = false;
+            self.request_navigation(execution::Action::ResetTask);
+        }
+    }
     pub fn settle_exit(&mut self) {
         if self.quit_after_save
             && matches!(self.storage, StorageState::Saved)

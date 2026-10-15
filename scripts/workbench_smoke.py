@@ -198,6 +198,41 @@ def main():
                 wait_for(fresh, "Storage: saved")
                 assert lead_drafts(inspect_store(first_use_data)[0]) == lead_drafts(retained)
                 passed("command-image-review-neutral-enter-and-escape-no-download-" + str(width))
+
+                old_task = inspect_store(first_use_data)[0]
+                fresh.command("reset")
+                wait_for(fresh, "Reset local task")
+                fresh.send("n")
+                fresh.command("goal")
+                assert "retained shortcut draft" in fresh.display(), "/reset cancellation lost the editor"
+                fresh.command("reset")
+                wait_for(fresh, "Reset local task")
+                fresh.capture("reset-neutral")
+                fresh.send("y")
+                wait_for(fresh, "Ask a question or describe")
+                assert not fresh.screen.cursor.hidden, "/reset did not return to an editable request"
+                preserved = inspect_store(first_use_data)[0]
+                assert preserved["id"] == old_task["id"]
+                assert preserved["goal"] == old_task["goal"]
+                assert lead_drafts(preserved) == lead_drafts(old_task), "/reset discarded saved drafts"
+                fresh.command("init")
+                wait_for(fresh, "Espeon")
+                assert "LOCAL PREVIEW" not in fresh.display(), "/init submitted without Enter"
+                fresh.send("\x13")
+                rows = stored_when(first_use_data, lambda rows: len(rows) == 2)
+                initialized = next(task for task in rows if task["id"] != old_task["id"])
+                initial_draft = lead_drafts(initialized)
+                assert any("AGENTS.md" in draft["text"] for draft in initial_draft)
+                fresh.command("init")
+                wait_for(fresh, "Prepare /init request")
+                fresh.send("n")
+                fresh.send("\x13")
+                wait_for(fresh, "Storage: saved")
+                restored = next(task for task in inspect_store(first_use_data) if task["id"] == initialized["id"])
+                assert lead_drafts(restored) == initial_draft, "/init cancellation replaced the draft"
+                assert not (project / "AGENTS.md").exists(), "/init wrote a guide without approval"
+                fresh.capture("init-editable-no-dispatch")
+                passed("reset-retains-old-task-and-init-prepares-only-" + str(width))
                 with closing(sqlite3.connect((first_use_data / "workbench.sqlite3").as_uri() + "?mode=ro", uri=True)) as db:
                     assert db.execute("SELECT count(*) FROM provider_journal").fetchone()[0] == 0
                     assert db.execute("SELECT count(*) FROM executions").fetchone()[0] == 0

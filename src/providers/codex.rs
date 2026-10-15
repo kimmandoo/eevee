@@ -479,12 +479,12 @@ fn worker(
                         .push("Codex worker refuses a different provider identity".into());
                 }
                 preview.trust.push(format!(
-                    "Model: {}; reasoning effort: {}. After approval, account/read and bounded paginated model/list query the provider catalogue; only the exact advertised selection or advertised default is accepted, with no guessed fallback.",
-                    input.selection.model.as_deref().unwrap_or("provider-advertised default"),
-                    input.selection.effort.as_deref().unwrap_or("selected model's advertised default"),
+                    "Model: {}; reasoning effort: {}. After approval, account/read, config/read and bounded paginated model/list preserve the exact selected/configured model and supported effort. No guessed fallback; missing models require an explicit CLI update/account check and refresh.",
+                    input.selection.model.as_deref().unwrap_or("provider configuration, otherwise advertised default"),
+                    input.selection.effort.as_deref().unwrap_or("configured effort for configured model, otherwise advertised default"),
                 ));
                 if input.inspect_models {
-                    preview.trust.push("CATALOGUE ONLY: launch the qualified Codex app-server and initialize/account/read/model/list. Provider configuration/authentication and network access may be used; no login/auth refresh, thread start/resume, prompt, model turn, edit or journal.".into());
+                    preview.trust.push("CATALOGUE ONLY: launch the qualified Codex app-server and initialize/account/read/config/read/model/list. Retain only nonsecret configured model/provider/effort. Provider configuration/authentication and network access may be used; no login/auth refresh, thread start/resume, prompt, model turn, edit or journal.".into());
                 }
                 let baseline = if input.inspect_models {
                     Ok(Vec::new())
@@ -620,7 +620,7 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
         return serde_json::to_string_pretty(&json!({
             "purpose": "Inspect the complete bounded nonhidden text-model catalogue only; no thread or model turn.",
             "provider": "Codex",
-            "requests": ["initialize", "account/read (refreshToken=false)", "model/list (includeHidden=false, limit=100, at most 10 pages)"],
+            "requests": ["initialize", "account/read (refreshToken=false)", "config/read (includeLayers=false; retain model/provider/effort only)", "model/list (includeHidden=false, limit=100, at most 10 pages)"],
             "selection": input.selection,
             "effects": "Qualified app-server launch; provider configuration, account and network access. No task/source payload, thread start/resume, prompt, edit or journal.",
         })).map_err(|_| "Could not encode catalogue inspection preview".into());
@@ -707,8 +707,37 @@ struct ModelListing {
     default: Option<String>,
     pages: usize,
     cursors: HashSet<String>,
+    configured_model: Option<String>,
+    configured_effort: Option<String>,
+    provider: Option<String>,
 }
 impl ModelListing {
+    fn configuration(&mut self, result: &Value) -> Result<(), String> {
+        let config = result
+            .get("config")
+            .filter(|value| value.is_object())
+            .ok_or("Protocol config/read missing config object")?;
+        // Retain only these nonsecret selection fields, never configuration layers,
+        // endpoints, headers, environment values or credentials.
+        for (key, target) in [
+            ("model", &mut self.configured_model),
+            ("model_reasoning_effort", &mut self.configured_effort),
+            ("model_provider", &mut self.provider),
+        ] {
+            *target = match config.get(key) {
+                None | Some(Value::Null) => None,
+                Some(_) => Some(identity(config, key)?),
+            };
+        }
+        Ok(())
+    }
+
+    fn refresh(&mut self) {
+        self.models.clear();
+        self.default = None;
+        self.pages = 0;
+        self.cursors.clear();
+    }
     fn page(&mut self, result: &Value) -> Result<Option<String>, String> {
         self.pages += 1;
         if self.pages > 10 {
@@ -802,15 +831,25 @@ impl ModelListing {
         }
     }
     fn select(&self, selection: &ModelSelection) -> Result<(String, String), String> {
-        let requested =
-            selection.model.as_ref().or(self.default.as_ref()).ok_or(
-                "Model layer: no available advertised default; no guessed model or fallback",
+        let requested = selection
+            .model
+            .as_ref()
+            .or(self.configured_model.as_ref())
+            .or(self.default.as_ref())
+            .ok_or(
+                "Model layer: no configured or advertised default; no guessed model or fallback",
             )?;
         let model = self.models.iter().find(|model| &model.id == requested)
             .ok_or("Model layer: requested model is unavailable, hidden or does not support text; no fallback")?;
         let effort = selection
             .effort
             .as_ref()
+            .or_else(|| {
+                (selection.model.as_ref().or(self.configured_model.as_ref())
+                    == self.configured_model.as_ref())
+                .then_some(self.configured_effort.as_ref())
+                .flatten()
+            })
             .or(model.default_effort.as_ref())
             .ok_or("Model layer: selected model has no advertised default effort")?;
         if !model.efforts.contains(effort) {
@@ -831,12 +870,16 @@ impl ModelListing {
         Ok(())
     }
     fn into_catalogue(self, selection: &ModelSelection) -> ModelCatalogue {
-        let current = selection.model.clone().or(self.default);
+        let current = selection
+            .model
+            .clone()
+            .or(self.configured_model.clone())
+            .or(self.default.clone());
         ModelCatalogue {
             models: self.models,
             current,
-            source: "Codex qualified app-server account/read + complete bounded model/list".into(),
-            effort_note: Some("Reasoning choices and defaults are advertised by each model; unsupported selections are rejected before dispatch.".into()),
+            source: format!("Codex config/read + complete bounded model/list; provider: {}; configured model: {}; catalogue default: {}. Native catalogue may be bundled/cached; freshness is not reported. Missing models? Connect > Advanced diagnostics shows CLI update instructions. Update the same executable on PATH, check account/provider, then Refresh. No automatic upgrade.", self.provider.as_deref().unwrap_or("native default"), self.configured_model.as_deref().unwrap_or("unset"), self.default.as_deref().unwrap_or("unreported")),
+            effort_note: Some("Reasoning choices come from each model. Default preserves configured effort for the configured model; another model uses its advertised default. Missing/unsupported selections fail before dispatch, never fall back.".into()),
         }
     }
 }
@@ -845,6 +888,7 @@ impl ModelListing {
 enum Call {
     Initialize,
     Account,
+    Config,
     Models,
     VerifyModels,
     Thread,
@@ -1325,6 +1369,10 @@ impl Engine<'_> {
                     None if result.get("requiresOpenaiAuth").and_then(Value::as_bool) == Some(false) => "Provider does not require OpenAI auth; external credentials/billing unverified".into(),
                     _ => return Err("Authentication layer: no usable provider account; authenticate outside Eevee and review a fresh preview".into()),
                 };
+                self.call(Call::Config, "config/read", json!({"includeLayers":false,"cwd":self.project}))
+            }
+            Call::Config => {
+                self.catalogue.configuration(result)?;
                 self.call(Call::Models, "model/list", json!({"includeHidden":false,"limit":100}))
             }
             Call::Models | Call::VerifyModels => {
@@ -1336,8 +1384,9 @@ impl Engine<'_> {
                     return self.dispatch_turn();
                 }
                 if self.run.input.inspect_models {
-                    let catalogue = std::mem::take(&mut self.catalogue)
+                    let mut catalogue = std::mem::take(&mut self.catalogue)
                         .into_catalogue(&self.run.input.selection);
+                    catalogue.source = catalogue_text(&format!("{}; {}. {}", self.run.trust.catalogue_source(), self.account, catalogue.source), 2048);
                     catalogue.validate()?;
                     emit(self.events, Event::Models {
                         generation: self.run.generation,
@@ -1374,7 +1423,7 @@ impl Engine<'_> {
                 self.thread_id = Some(id.clone());
                 emit(self.events, Event::Thread { generation: self.run.generation, task_id: self.run.input.task.id, thread_id: id.clone(), model: safe(&self.model), account: self.account.clone() })?;
                 // Refresh the complete provider snapshot after startup, before the one turn.
-                self.catalogue = ModelListing::default();
+                self.catalogue.refresh();
                 self.call(Call::VerifyModels, "model/list", json!({"includeHidden":false,"limit":100}))
             }
             Call::Turn => {

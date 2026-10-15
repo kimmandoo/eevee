@@ -1134,6 +1134,19 @@ impl PlanningTrust {
     pub(crate) fn observed_version(&self) -> Option<&str> {
         self.observed_version.get().map(String::as_str)
     }
+
+    pub(crate) fn catalogue_source(&self) -> String {
+        format!(
+            "CLI {} at {}",
+            self.observed_version().unwrap_or("unobserved"),
+            self.snapshot
+                .profile
+                .executable
+                .as_deref()
+                .map(safe_path)
+                .unwrap_or_else(|| "unresolved".into())
+        )
+    }
 }
 
 pub(crate) fn planning_trust(project: &Path) -> Result<PlanningTrust, String> {
@@ -1173,7 +1186,7 @@ pub(crate) fn planning_trust(project: &Path) -> Result<PlanningTrust, String> {
         snapshot.profile.configuration.clone(),
         snapshot.profile.authentication.clone(),
         snapshot.profile.billing.clone(),
-        "After trust: initialize experimental app-server API, account/read without refresh, model/list; use the available default text model and its default effort. No login, credential-store read, credential/config mutation or startup model request is performed by Eevee.".into(),
+        "After trust: initialize experimental app-server API, account/read without refresh, config/read (retain only model/provider/effort), model/list; preserve configured/default or explicit advertised model and supported effort exactly, with no fallback. No login, credential-store read, credential/config mutation or startup model request is performed by Eevee.".into(),
         "Only Run sends the displayed immutable payload. Codex may additionally load project instructions, skills, provider configuration, MCP context and prior provider history. This is NOT a preview of the full effective model prompt. Provider account/plan owns billing and eligibility; a present account does not guarantee quota.".into(),
         "Provider persists thread history and thread IDs; Eevee keeps IDs/outputs only for this session. Resume is explicit and restricted to a previously started same-task thread; no automatic replay/restart. New thread does not mean provider forgets prior data.".into(),
         "Thread/turn request read-only, restricted network, approvalsReviewer=user and on-request approval policy; disable multi-agent delegation, web search and login shells by session config overrides (not global writes). These are AGENT-POLICY-CONTROLLED boundaries, not Eevee OS isolation. Provider config, MCP startup/tool actions and hook coverage is unknown. Process groups/Jobs own cancellation only. Commands the provider deems safe can run without callbacks.".into(),
