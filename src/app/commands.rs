@@ -122,6 +122,10 @@ impl App {
             ("files", "Source context"),
             ("tasks", "Saved tasks"),
             ("party", "Party roster"),
+            (
+                "lead",
+                "Front a partner: /lead <name> or pick in the roster",
+            ),
             ("run", "Local command execution"),
             ("history", "Provider history"),
             ("handoff", "Portable task handoff"),
@@ -367,7 +371,8 @@ impl App {
                     .and_then(|index| popup.candidates().nth(index))
                     .cloned();
                 let Some(choice) = choice else {
-                    return false;
+                    let query = popup.query.clone();
+                    return self.command_with_argument(&query);
                 };
                 if let Some(reason) = choice
                     .reason
@@ -383,6 +388,21 @@ impl App {
             _ => return false,
         }
         true
+    }
+
+    /// Commands that take a typed argument when no catalogue choice is
+    /// selected. Only `lead` accepts one today: `/lead <partner>`.
+    pub(super) fn command_with_argument(&mut self, query: &str) -> bool {
+        let query = query.trim();
+        let (name, argument) = match query.split_once(char::is_whitespace) {
+            Some((name, argument)) => (name, argument.trim()),
+            None => (query, ""),
+        };
+        if name == "lead" {
+            self.command_popup = None;
+            return self.lead_command(argument);
+        }
+        false
     }
 
     pub fn command(&mut self, name: &str) -> bool {
@@ -492,6 +512,9 @@ impl App {
             "task-new" => self.new_task(),
             "tasks" => self.open_overlay(Overlay::Tasks),
             "party" => self.open_overlay(Overlay::Party),
+            "lead" => {
+                self.lead_command("");
+            }
             "new" | "resume" | "model" | "effort" | "history" => {
                 self.open_overlay(Overlay::Planning);
                 if self.overlay == Some(Overlay::Planning) {

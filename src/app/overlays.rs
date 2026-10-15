@@ -89,6 +89,13 @@ impl App {
         }
         self.overlay = Some(overlay);
         self.restore_selection();
+        if overlay == Overlay::Party {
+            self.selected = self
+                .party
+                .iter()
+                .position(|partner| partner.id == self.lead.id)
+                .unwrap_or(0);
+        }
         if overlay == Overlay::Sources {
             self.sources
                 .catalogue(self.task_id, self.repository.as_ref());
@@ -213,6 +220,9 @@ impl App {
     pub(super) fn overlay_key(&mut self, overlay: Overlay, key: KeyCode) -> bool {
         if matches!(overlay, Overlay::Tasks | Overlay::Criteria) {
             return self.task_overlay_key(overlay, key);
+        }
+        if overlay == Overlay::Party {
+            return self.party_overlay_key(key);
         }
         if overlay == Overlay::Companion && key == KeyCode::Enter {
             self.open_overlay(Overlay::Forms);

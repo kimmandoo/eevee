@@ -98,9 +98,18 @@ impl App {
         self.task_id = snapshot.id;
         self.pending_command = None;
         self.goal = snapshot.goal;
-        self.lead.id = snapshot.lead_partner;
+        // The task's lead fronts this task with its full stored identity; a
+        // missing row (guarded by store inspection) falls back to a bare id.
+        self.lead = self
+            .party
+            .iter()
+            .find(|partner| partner.id == snapshot.lead_partner)
+            .cloned()
+            .unwrap_or_else(|| store::Partner {
+                id: snapshot.lead_partner,
+                ..store::Partner::default()
+            });
         self.set_form(snapshot.form);
-        self.preview_form = self.form();
         self.revision = snapshot.revision;
         self.saved_revision = snapshot.revision;
         self.criteria = snapshot.criteria;

@@ -365,10 +365,12 @@ impl App {
 
     /// The only writer of the active form. Callers invoke `changed_task()`
     /// when the switch should persist. Every change records the prior form so
-    /// Backspace / `/back-form` can return to it (PT03B).
+    /// Backspace / `/back-form` can return to it (PT03B), and the picker's
+    /// selection follows so it opens on the form that is actually active.
     pub(super) fn set_form(&mut self, form: usize) {
         if self.lead.form != form {
             self.previous_form = Some(self.lead.form);
+            self.form_selection = form;
         }
         self.lead.form = form;
         if let Some(partner) = self

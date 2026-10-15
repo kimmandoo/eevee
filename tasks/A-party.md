@@ -58,7 +58,7 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT05A — Choose the lead partner
 
-- [ ] Bring a different partner to the front of a task.
+- [x] Bring a different partner to the front of a task.
 - **Priority:** 1. **Needs:** PT04B. **Builds on:** E02.
 - **Change:** `/lead <name>` and a roster action set the task's lead partner. The header and picker follow the lead.
 - **Accept:** Switch the lead between two partners in different forms; the header and picker follow, and the choice survives a restart.
