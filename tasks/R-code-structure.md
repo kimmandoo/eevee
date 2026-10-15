@@ -32,7 +32,7 @@ Rules for every RF task:
 
 ### RF05 — Split `app/planning.rs` (1,866 lines)
 
-- [ ] Separate the planning picker, review and journal state.
+- [x] Separate the planning picker, review and journal state.
 - **Priority:** 2. **Needs:** —. **Builds on:** —.
 - **Change:** Split along the existing picker / review / journal sections.
 - **Accept:** Planning tests pass unchanged.

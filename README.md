@@ -217,7 +217,7 @@ Source layout, by role:
 | Path | Role |
 | --- | --- |
 | `src/main.rs`, `config.rs`, `domain.rs` | Entry point, CLI/config parsing, form identities |
-| `src/app.rs`, `src/app/` | Interaction state and key handling per surface |
+| `src/app.rs`, `src/app/` | Interaction state and key handling per surface; `app/planning/{picker,review,journal}.rs` separate planning responsibilities |
 | `src/ui.rs`, `src/ui/` | Rendering per surface; `ui/artwork.rs` sprites and native graphics |
 | `src/store/` | SQLite store: `tasks`, `memories`, `journal`, `runs`, `spool`, `schema`, `admission`, `recovery` |
 | `src/workspace/` | Local work: `repo`, `context`, `runner`, `receipt`, `privacy`, `handoff`, `memory`, `workflows` |
