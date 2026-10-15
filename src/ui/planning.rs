@@ -111,6 +111,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         && !state.quit_review
         && !state.journal_mode
         && state.paths_editor.is_none()
+        && state.custom_model.is_none()
         && !state.editing
         && (state.switch_to.is_some()
             || state.selection_change.is_some()
@@ -152,7 +153,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         journal(frame, content, state, paint);
         return;
     }
-    if state.paths_editor.is_some() {
+    if state.paths_editor.is_some() || state.custom_model.is_some() {
         paths_editor(frame, content, state, paint);
         return;
     }
@@ -234,7 +235,11 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         for line in &preview.trust {
             let _ = writeln!(value, "{line}");
         }
-        value.push_str("\nEevee sends the exact payload below. It is NOT the complete effective provider prompt: provider configuration, instructions, tools/MCP, hooks and resumed history may add context or effects. Provider owns authentication, usage charges and retained thread history. Read-only policy is agent-controlled, not proof of OS isolation. No always-allow grant or automatic replay.\n");
+        value.push_str(if state.agent.is_direct() {
+            "\nEevee sends the exact HTTP payload below with scoped credential headers. No agent executable, local tools, project hooks/MCP, implicit source reads or automatic edits are exposed. The service owns authentication, usage charges, retention and internal behavior. Cancellation closes the client operation, not a guaranteed remote stop. No automatic retry.\n"
+        } else {
+            "\nEevee sends the exact payload below. It is NOT the complete effective provider prompt: provider configuration, instructions, tools/MCP, hooks and resumed history may add context or effects. Provider owns authentication, usage charges and retained thread history. Read-only policy is agent-controlled, not proof of OS isolation. No always-allow grant or automatic replay.\n"
+        });
         value.push('\n');
         for line in &state.receipt {
             let _ = writeln!(value, "{line}");
@@ -245,7 +250,13 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         value.push_str("\nEXACT OUTGOING PAYLOAD BEGIN\n");
         value.push_str(&preview.payload);
         value.push_str("\nEXACT OUTGOING PAYLOAD END\n\nEND OF REVIEW. ");
-        value.push_str(if state.inspect_models {
+        value.push_str(if state.agent.is_direct() {
+            if state.inspect_models {
+                "Run authorizes scoped HTTP model metadata inspection only; no inference. Stay sends nothing.\n"
+            } else {
+                "Run authorizes this exact HTTP request and scoped credential use once. Stay sends nothing.\n"
+            }
+        } else if state.inspect_models {
             "Run authorizes only the disclosed executable/provider model inspection. No model turn or session resume is authorized. Stay sends nothing.\n"
         } else if state.inspect_sessions {
             "Run authorizes executable connection and session metadata inspection only, not a model turn. Stay sends nothing.\n"
@@ -411,6 +422,43 @@ pub(super) fn render_summary(
 
 fn review_summary(state: &State) -> Vec<String> {
     if let Some(preview) = &state.preview {
+        if state.agent.is_direct() {
+            return vec![
+                format!(
+                    "{} · {:?} · {}",
+                    state.agent.label(),
+                    state.operation,
+                    state.reviewed_selection().summary()
+                ),
+                if state.inspect_models {
+                    "Scope: model metadata only; no task prompt.".into()
+                } else {
+                    format!(
+                        "Send {} payload bytes · fresh HTTP request.",
+                        preview.payload.len()
+                    )
+                },
+                format!(
+                    "To: {}",
+                    preview
+                        .destination
+                        .as_deref()
+                        .unwrap_or("unavailable; inspect blocker")
+                ),
+                if state.operation == Operation::Implement {
+                    "Proposal only; no tools, commands or file writes.".into()
+                } else {
+                    "Text response only; no tools or local writes.".into()
+                },
+                "Scoped credential headers; provider network/billing.".into(),
+                "No retries; local cancel cannot prove remote stop.".into(),
+                if preview.blockers.is_empty() {
+                    "d Details: exact payload, endpoint and credentials source.".into()
+                } else {
+                    format!("BLOCKED: {} (d for full remedy)", preview.blockers[0])
+                },
+            ];
+        }
         return vec![
             format!(
                 "{} · {:?} · {}",
@@ -688,7 +736,7 @@ fn controls(state: &State) -> &'static str {
 }
 
 fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
-    let mut value = format!("{}\n\n", super::selection_text(state));
+    let mut value = String::new();
     if let Some(selection) = &state.selection_change {
         let summary = vec![
             format!(
@@ -723,28 +771,48 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                 .catalogues
                 .get(&state.agent)
                 .map_or(0, |catalogue| catalogue.models.len());
-            let _ = writeln!(value, "MODELS · {count} advertised · local selection");
+            let _ = writeln!(
+                value,
+                "MODELS · {} / {count} listed · local only",
+                state.picker_matches()
+            );
+            let _ = writeln!(
+                value,
+                "Search: {}",
+                clipped(
+                    &state.picker_query.text,
+                    area.width.saturating_sub(9) as usize
+                )
+            );
         } else {
             let _ = writeln!(value, "REASONING EFFORT · local selection");
         }
-        if let Some(catalogue) = state.catalogues.get(&state.agent) {
+        let _ = writeln!(
+            value,
+            "Requested: {}",
+            clipped(
+                state
+                    .selection
+                    .model
+                    .as_deref()
+                    .unwrap_or("Default (provider configuration)"),
+                area.width.saturating_sub(12) as usize,
+            )
+        );
+        if state.catalogue_loading() {
+            let _ = writeln!(value, "Loading metadata only; no request text or tools.");
+        } else if state.catalogue_error().is_some() {
             let _ = writeln!(
                 value,
-                "Provider default model: {} (not an active-turn acknowledgment).",
-                catalogue.current.as_deref().unwrap_or("unobserved"),
+                "{}",
+                if state.catalogues.contains_key(&state.agent) {
+                    "STALE / fetch failed · cached rows retained · Refresh retries"
+                } else {
+                    "FETCH FAILED · Refresh retries / Custom ID is local"
+                }
             );
-            if catalogue
-                .current
-                .as_ref()
-                .is_some_and(|id| !catalogue.models.iter().any(|model| &model.id == id))
-            {
-                let _ = writeln!(
-                    value,
-                    "Retained model is not advertised; refresh or select another explicitly. No fallback."
-                );
-            }
         }
-        let visible = area.height.saturating_sub(11).max(1) as usize;
+        let visible = area.height.saturating_sub(9).max(1) as usize;
         let start = state
             .picker_selected
             .saturating_sub(visible.saturating_sub(1) / 2);
@@ -780,11 +848,21 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             // Provenance and remedies must remain inspectable, not sentence-
             // shortened or permanently clipped to the terminal width.
             let _ = writeln!(value, "\nCatalogue source: {}", catalogue.source);
+            let _ = writeln!(
+                value,
+                "Provider default: {}",
+                catalogue.current.as_deref().unwrap_or("unobserved")
+            );
             if let Some(note) = &catalogue.effort_note {
                 let _ = writeln!(value, "{note}");
             }
         }
-        value.push_str("\nRefresh reviews the connection; selecting a model never sends content.");
+        if let Some(reason) = state.catalogue_error() {
+            let _ = writeln!(value, "\nFetch error: {reason}");
+        }
+        value.push_str(
+            "\nCustom IDs are local choices, not access grants. Refresh reviews the connection.",
+        );
     }
     let details = row(area, 0, area.height.saturating_sub(4));
     state.scroll_max = selection_details(
@@ -805,7 +883,11 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     text(
         frame,
         row(area, area.height.saturating_sub(1), 1),
-        "Arrows Choose / Enter / PgUp/Dn Details / Esc Back",
+        if state.picker == Some(Picker::Model) {
+            "Type Search / Ctrl+U Clear / ↑↓ Enter / End Actions"
+        } else {
+            "Arrows Choose / Enter / Esc Keep / PgUp/Dn Details"
+        },
         paint.accent,
     );
 }
@@ -944,11 +1026,20 @@ fn journal(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
 }
 
 fn paths_editor(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) {
-    let answer = state.paths_editor.as_ref().expect("path editor");
+    let custom = state.custom_model.is_some();
+    let answer = state
+        .custom_model
+        .as_ref()
+        .or(state.paths_editor.as_ref())
+        .expect("local editor");
     text(
         frame,
         row(area, 0, 3),
-        "SELECT EDIT PATHS / LOCAL ONLY\nJSON array of existing root-relative files\nEnter Apply selection / Esc Cancel / 4096 bytes",
+        if custom {
+            "CUSTOM MODEL ID / LOCAL ONLY\nExact ID, 1–256 bytes; availability is not entitlement\nEnter Apply / Esc Back / Ctrl+U Clear"
+        } else {
+            "SELECT EDIT PATHS / LOCAL ONLY\nJSON array of existing root-relative files\nEnter Apply selection / Esc Cancel / 4096 bytes"
+        },
         paint.accent,
     );
     let input = row(area, 3, area.height.saturating_sub(5));
@@ -1127,6 +1218,7 @@ mod tests {
             Some(Request::Preview(_))
         ));
         app.planning.event(Event::Preview(Preview {
+            destination: None,
             generation: 11,
             task_id: 7,
             thread_id: None,
@@ -1177,6 +1269,109 @@ mod tests {
             .map(|y| rendered_row(buffer, buffer.area, y))
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    #[test]
+    fn model_search_and_custom_entry_remain_visible_in_compact_picker() {
+        for (width, height) in [(60, 18), (120, 36)] {
+            let (mut app, task) = preview(width, height);
+            app.planning.catalogues.insert(
+                app.planning.agent,
+                crate::providers::ModelCatalogue {
+                    models: vec![crate::providers::ModelOption {
+                        id: "vendor/exact".into(),
+                        name: "Searchable display".into(),
+                        description: String::new(),
+                        efforts: vec![],
+                        default_effort: None,
+                    }],
+                    current: Some("vendor/exact".into()),
+                    source: "Metadata provenance ".repeat(80),
+                    effort_note: None,
+                },
+            );
+            app.planning.command("model", true, &task, &[], None);
+            app.planning.paste("searchable");
+            let buffer = draw(&mut app);
+            let visible = (0..height)
+                .map(|y| rendered_row(&buffer, buffer.area, y))
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(visible.contains("Search: searchable"), "{visible}");
+            assert!(visible.contains("Searchable display"), "{visible}");
+            assert!(visible.contains("Ctrl+U Clear"), "{visible}");
+            key(&mut app, &task, KeyCode::End);
+            key(&mut app, &task, KeyCode::Up);
+            let buffer = draw(&mut app);
+            let visible = (0..height)
+                .map(|y| rendered_row(&buffer, buffer.area, y))
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(visible.contains("Enter custom model ID"), "{visible}");
+            key(&mut app, &task, KeyCode::Enter);
+            app.planning.paste("vendor/Exact:2026");
+            let buffer = draw(&mut app);
+            let visible = (0..height)
+                .map(|y| rendered_row(&buffer, buffer.area, y))
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(
+                visible.contains("CUSTOM MODEL ID / LOCAL ONLY"),
+                "{visible}"
+            );
+            assert!(visible.contains("vendor/Exact:2026"), "{visible}");
+            assert!(app.planning.pending.is_none(), "typing never dispatches");
+        }
+    }
+
+    #[test]
+    fn compact_metadata_loading_and_stale_notice_do_not_hide_cached_rows() {
+        let (mut app, task) = preview(60, 18);
+        app.planning.cancel();
+        app.planning.pending.take();
+        app.planning.event(Event::Finished {
+            generation: 11,
+            task_id: 7,
+            outcome: crate::providers::Outcome::Cancelled,
+            message: "Cancelled".into(),
+        });
+        app.planning.catalogues.insert(
+            app.planning.agent,
+            crate::providers::ModelCatalogue {
+                models: vec![crate::providers::ModelOption {
+                    id: "cached-id".into(),
+                    name: "Cached model".into(),
+                    description: String::new(),
+                    efforts: vec![],
+                    default_effort: None,
+                }],
+                current: None,
+                source: "Prior successful fetch".into(),
+                effort_note: None,
+            },
+        );
+        app.planning.command("model", true, &task, &[], None);
+        app.planning.want_catalogue();
+        app.planning.start_automatic_catalogue(&task, &[], None);
+        let buffer = draw(&mut app);
+        let visible = (0..app.height)
+            .map(|y| rendered_row(&buffer, buffer.area, y))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(visible.contains("Loading metadata only"), "{visible}");
+        assert!(visible.contains("Cached model"), "{visible}");
+        app.planning.pending.take();
+        app.planning.event(Event::Error {
+            generation: None,
+            message: "Offline".into(),
+        });
+        let buffer = draw(&mut app);
+        let visible = (0..app.height)
+            .map(|y| rendered_row(&buffer, buffer.area, y))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(visible.contains("STALE / fetch failed"), "{visible}");
+        assert!(visible.contains("Cached model"), "{visible}");
     }
 
     #[test]

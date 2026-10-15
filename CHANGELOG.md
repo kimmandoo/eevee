@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.7
+
+- feat(providers): added native ChatGPT, OpenAI, Anthropic, Gemini and compatible-service discovery and streamed responses without installed agent runtimes.
+- fix(models): separated discovery from exact configured/custom selection, made reasoning metadata optional, and retained previous catalogues on failed refreshes.
+- feat(models): added local model search and exact-ID entry, and kept native service credentials and endpoints separate from external-agent controls.
+
 ## 0.1.6
 
 - fix(providers): exposed Codex executable/catalogue provenance, preserved configured defaults and showed complete newer-model choices without hardcoded names or silent fallback.
@@ -30,6 +36,12 @@
 - fix(ci): clippy `-D warnings` passes on the pinned 1.90.0 toolchain.
 - refactor(src): modules grouped by role (`store/`, `workspace/`, `providers/`, `platform/`), `store.rs` and `app.rs` split by responsibility, unit tests moved into sibling `tests.rs`. No behavior change.
 - docs: party contract in DESIGN_RULES; backlog reorganized into `tasks/` with 105 small tasks.
+
+## 2026-10-16
+
+- feat(providers): added native scoped HTTP connections with immutable request review, cancellable streaming, user-scoped endpoint configuration and no credential copying or implicit tool execution.
+- fix(models): removed stale CLI-list membership and stable-release-only admission barriers, preserved exact configured/custom IDs and optional effort defaults, and made catalogue refresh failure nondestructive.
+- feat(models): added searchable model pickers, safe custom-ID editing and scrollable native-provider selection on compact terminals.
 
 ## 2026-10-15
 

@@ -4,6 +4,7 @@ pub mod agent;
 pub mod auth;
 pub mod claude;
 pub mod codex;
+pub mod direct;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -17,14 +18,24 @@ pub enum Agent {
     OpenCode,
     Gemini,
     Devin,
+    ChatGPT,
+    OpenAI,
+    Anthropic,
+    Google,
+    Compatible,
 }
 impl Agent {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 10] = [
         Self::Codex,
         Self::Claude,
         Self::OpenCode,
         Self::Gemini,
         Self::Devin,
+        Self::ChatGPT,
+        Self::OpenAI,
+        Self::Anthropic,
+        Self::Google,
+        Self::Compatible,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -33,6 +44,11 @@ impl Agent {
             Self::OpenCode => "OpenCode ACP",
             Self::Gemini => "Gemini ACP",
             Self::Devin => "Devin ACP",
+            Self::ChatGPT => "ChatGPT / direct",
+            Self::OpenAI => "OpenAI API",
+            Self::Anthropic => "Anthropic API",
+            Self::Google => "Google Gemini API",
+            Self::Compatible => "Custom / local API",
         }
     }
     /// Connection profiles are discovered in `ALL` order.
@@ -52,10 +68,21 @@ impl Agent {
             Self::OpenCode => "provider-opencode",
             Self::Gemini => "provider-gemini",
             Self::Devin => "provider-devin",
+            Self::ChatGPT => "provider-chatgpt",
+            Self::OpenAI => "provider-openai",
+            Self::Anthropic => "provider-anthropic",
+            Self::Google => "provider-google",
+            Self::Compatible => "provider-compatible",
         }
     }
     pub fn from_command(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|agent| agent.command() == name)
+    }
+    pub fn is_direct(self) -> bool {
+        matches!(
+            self,
+            Self::ChatGPT | Self::OpenAI | Self::Anthropic | Self::Google | Self::Compatible
+        )
     }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -111,7 +138,7 @@ impl ModelCatalogue {
                 && !value.chars().any(|c| c.is_control()
                     || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
         }
-        if self.models.len() > 256
+        if self.models.len() > 4096
             || !text(&self.source, 2048, false)
             || self.current.as_ref().is_some_and(|v| !text(v, 256, false))
             || self
@@ -251,6 +278,8 @@ pub struct Preview {
     pub generation: u64,
     pub task_id: i64,
     pub thread_id: Option<String>,
+    /// Immutable HTTP destination; external agents retain their launch trust.
+    pub destination: Option<String>,
     pub trust: Vec<String>,
     pub payload: String,
     pub blockers: Vec<String>,
@@ -337,6 +366,11 @@ pub enum Event {
         model: String,
         account: String,
     },
+    ModelObserved {
+        generation: u64,
+        task_id: i64,
+        model: String,
+    },
     Item {
         generation: u64,
         task_id: i64,
@@ -378,6 +412,7 @@ pub struct Worker {
     codex: crate::providers::codex::Worker,
     claude: crate::providers::claude::Worker,
     acp: crate::providers::acp::Worker,
+    direct: crate::providers::direct::Worker,
     selected: std::sync::atomic::AtomicUsize,
 }
 impl Worker {
@@ -397,7 +432,12 @@ impl Worker {
                 data_dir.clone(),
                 exclusions.clone(),
             )?,
-            acp: crate::providers::acp::Worker::start(project, data_dir, exclusions)?,
+            acp: crate::providers::acp::Worker::start(
+                project.clone(),
+                data_dir.clone(),
+                exclusions.clone(),
+            )?,
+            direct: crate::providers::direct::Worker::start(project, data_dir, exclusions)?,
             selected: std::sync::atomic::AtomicUsize::new(0),
         })
     }
@@ -416,6 +456,11 @@ impl Worker {
             Agent::Codex => self.codex.try_request(pending),
             Agent::Claude => self.claude.try_request(pending),
             Agent::OpenCode | Agent::Gemini | Agent::Devin => self.acp.try_request(pending),
+            Agent::ChatGPT
+            | Agent::OpenAI
+            | Agent::Anthropic
+            | Agent::Google
+            | Agent::Compatible => self.direct.try_request(pending),
         };
         if sent {
             self.selected
@@ -428,10 +473,15 @@ impl Worker {
             Agent::Codex => self.codex.try_event(),
             Agent::Claude => self.claude.try_event(),
             Agent::OpenCode | Agent::Gemini | Agent::Devin => self.acp.try_event(),
+            Agent::ChatGPT
+            | Agent::OpenAI
+            | Agent::Anthropic
+            | Agent::Google
+            | Agent::Compatible => self.direct.try_event(),
         }
     }
     pub fn busy(&self) -> bool {
-        self.codex.busy() || self.claude.busy() || self.acp.busy()
+        self.codex.busy() || self.claude.busy() || self.acp.busy() || self.direct.busy()
     }
 }
 

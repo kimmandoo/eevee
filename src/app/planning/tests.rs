@@ -22,6 +22,34 @@ fn command(state: &mut State, name: &str, large: bool) {
     state.command(name, large, &task(), &[], None);
 }
 
+#[test]
+fn native_model_acknowledgment_does_not_create_a_resumable_session() {
+    let mut state = State::new();
+    state.reset(7);
+    state.agent = Agent::Compatible;
+    state.active = true;
+    state.generation = Some(11);
+    state.event(Event::ModelObserved {
+        generation: 11,
+        task_id: 7,
+        model: "confirmed-native".into(),
+    });
+    assert_eq!(state.observed_model.as_deref(), Some("confirmed-native"));
+    assert!(state.thread_id.is_none());
+    state.event(Event::Finished {
+        generation: 11,
+        task_id: 7,
+        outcome: Outcome::Completed,
+        message: "done".into(),
+    });
+    command(&mut state, "new", true);
+    let Some(Request::Preview(input)) = state.pending.take() else {
+        panic!("fresh follow-up must remain available");
+    };
+    assert!(input.resume.is_none());
+    assert_eq!(input.agent, Agent::Compatible);
+}
+
 fn catalogue() -> ModelCatalogue {
     ModelCatalogue {
         models: vec![crate::providers::ModelOption {
@@ -34,6 +62,434 @@ fn catalogue() -> ModelCatalogue {
         current: Some("advertised-model".into()),
         source: "Official metadata".into(),
         effort_note: None,
+    }
+}
+
+fn custom_entry(state: &mut State) {
+    state.picker_selected = state.picker_len() - 2;
+    press(state, KeyCode::Enter, true);
+    assert!(state.custom_model.is_some());
+}
+
+#[test]
+fn unicode_display_search_is_case_insensitive_without_changing_exact_id() {
+    let mut state = State::new();
+    state.reset(7);
+    let mut models = catalogue();
+    models.models[0].name = "ÉCLAIR 模型".into();
+    state.catalogues.insert(Agent::Codex, models);
+    command(&mut state, "model", true);
+    state.paste("éclair");
+    assert_eq!(state.picker_matches(), 1);
+    press(&mut state, KeyCode::Enter, true);
+    assert_eq!(state.selection.model.as_deref(), Some("advertised-model"));
+}
+
+#[test]
+fn authentication_change_clears_cache_and_blocks_late_old_account_metadata() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    state.active = true;
+    state.inspect_models = true;
+    state.generation = Some(11);
+    state.invalidate_authentication();
+    assert!(state.catalogues.is_empty());
+    state.event(Event::Models {
+        generation: 11,
+        task_id: 7,
+        catalogue: catalogue(),
+    });
+    state.event(Event::Finished {
+        generation: 11,
+        task_id: 7,
+        outcome: Outcome::Completed,
+        message: "Old account complete".into(),
+    });
+    assert!(state.catalogues.is_empty());
+    assert!(state.catalogue_error().is_some());
+}
+
+#[test]
+fn typed_slash_is_search_text_and_never_a_command() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    command(&mut state, "model", true);
+    for ch in "/new".chars() {
+        press(&mut state, KeyCode::Char(ch), true);
+    }
+    assert_eq!(state.picker_query.text, "/new");
+    assert!(state.pending.is_none());
+    custom_entry(&mut state);
+    state.paste("/new");
+    assert_eq!(state.custom_model.as_ref().unwrap().text, "/new");
+    assert!(state.pending.is_none() && state.selection.model.is_none());
+}
+
+#[test]
+fn late_refresh_failure_discards_staged_rows_not_the_successful_snapshot() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    state.inspect_models = true;
+    state.active = true;
+    state.generation = Some(11);
+    let mut updated = catalogue();
+    updated.models[0].name = "Uncommitted metadata".into();
+    state.event(Event::Models {
+        generation: 11,
+        task_id: 7,
+        catalogue: updated,
+    });
+    assert_eq!(
+        state.catalogues[&Agent::Codex].models[0].name,
+        "Advertised model"
+    );
+    state.event(Event::Finished {
+        generation: 11,
+        task_id: 7,
+        outcome: Outcome::Failed,
+        message: "Late failure".into(),
+    });
+    assert_eq!(
+        state.catalogues[&Agent::Codex].models[0].name,
+        "Advertised model"
+    );
+    assert!(state.catalogue_error().is_some());
+}
+
+#[test]
+fn unknown_effort_can_keep_default_and_metadata_picker_does_not_swallow_cancel() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    state.selection.model = Some("custom-model".into());
+    command(&mut state, "effort", true);
+    assert_eq!(state.picker_current(), Some(0));
+    assert!(state.picker_choice(1).unwrap().reason.is_some());
+    press(&mut state, KeyCode::Enter, true);
+    assert!(state.picker.is_none() && state.selection.effort.is_none());
+    state.active = true;
+    state.inspect_models = true;
+    state.generation = Some(11);
+    state.open_picker(Picker::Model);
+    assert!(state.cancel());
+    assert!(matches!(
+        state.pending,
+        Some(Request::Cancel { generation: 11 })
+    ));
+}
+
+#[test]
+fn direct_routes_offer_fresh_requests_not_resume_or_session_metadata() {
+    let mut state = State::new();
+    state.reset(7);
+    for agent in [
+        Agent::ChatGPT,
+        Agent::OpenAI,
+        Agent::Anthropic,
+        Agent::Google,
+        Agent::Compatible,
+    ] {
+        state.agent = agent;
+        state.thread_id = Some("not-a-direct-session".into());
+        for name in ["resume", "sessions"] {
+            assert!(
+                state
+                    .command_choices()
+                    .iter()
+                    .find(|row| row.command == name)
+                    .unwrap()
+                    .reason
+                    .is_some()
+            );
+            command(&mut state, name, true);
+            assert!(state.pending.is_none());
+        }
+        assert!(
+            state
+                .command_choices()
+                .iter()
+                .any(|row| row.command == "new" && row.reason.is_none())
+        );
+    }
+}
+
+#[test]
+fn search_matches_name_and_exact_id_without_losing_filtered_row_identity() {
+    let mut state = State::new();
+    state.reset(7);
+    let mut models = catalogue();
+    models.models.push(crate::providers::ModelOption {
+        id: "vendor/EXACT-2026".into(),
+        name: "Different display".into(),
+        description: String::new(),
+        efforts: vec![],
+        default_effort: None,
+    });
+    state.catalogues.insert(Agent::Codex, models);
+    state.selection.model = Some("advertised-model".into());
+    command(&mut state, "model", true);
+    assert!(state.paste("different"));
+    assert_eq!(state.picker_matches(), 1);
+    assert_eq!(state.picker_current(), None);
+    assert!(
+        state
+            .picker_choice(1)
+            .unwrap()
+            .label
+            .contains("vendor/EXACT-2026")
+    );
+    press(&mut state, KeyCode::Enter, true);
+    assert_eq!(state.selection.model.as_deref(), Some("vendor/EXACT-2026"));
+    assert!(state.selection.effort.is_none() && state.pending.is_none());
+    command(&mut state, "model", true);
+    state.paste("exact-2026");
+    assert_eq!(state.picker_current(), Some(1));
+    state.key(
+        KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+        true,
+        &task(),
+        &[],
+        None,
+    );
+    assert!(state.picker_query.text.is_empty());
+    assert_eq!(state.picker_matches(), 2);
+    assert_eq!(state.picker_current(), Some(2));
+}
+
+#[test]
+fn no_match_and_bounded_paste_keep_default_custom_and_refresh_reachable() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    command(&mut state, "model", true);
+    state.paste(&"z".repeat(1024));
+    assert_eq!(state.picker_query.text.len(), 256);
+    assert_eq!(state.picker_matches(), 0);
+    assert_eq!(state.picker_len(), 4);
+    assert!(state.picker_choice(1).unwrap().reason.is_some());
+    assert_eq!(state.picker_choice(2).unwrap().command, "model-custom");
+    assert_eq!(state.picker_choice(3).unwrap().command, "models-refresh");
+    assert_eq!(state.picker_current(), Some(0));
+    assert!(state.pending.is_none());
+}
+
+#[test]
+fn custom_id_is_exact_local_and_invalidates_previous_review_and_effort() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    state.selection.effort = Some("high".into());
+    command(&mut state, "new", true);
+    state.pending.take();
+    state.event(Event::Preview(Preview {
+        destination: None,
+        generation: 11,
+        task_id: 7,
+        thread_id: None,
+        trust: vec![],
+        payload: "{}".into(),
+        blockers: vec![],
+    }));
+    state.reviewed = true;
+    state.affirmative = true;
+    command(&mut state, "model", true);
+    custom_entry(&mut state);
+    state.paste("vendor/Exact.Model:2026-10");
+    assert!(state.custom_model.is_some());
+    assert!(state.pending.is_none(), "paste never applies or dispatches");
+    press(&mut state, KeyCode::Enter, true);
+    assert_eq!(
+        state.selection.model.as_deref(),
+        Some("vendor/Exact.Model:2026-10")
+    );
+    assert!(state.selection.effort.is_none());
+    assert!(!state.reviewed && !state.affirmative && state.preview.is_none());
+    assert!(matches!(
+        state.pending,
+        Some(Request::Cancel { generation: 11 })
+    ));
+}
+
+#[test]
+fn custom_id_uses_existing_owned_session_confirmation() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    state.thread_id = Some("owned".into());
+    command(&mut state, "model", true);
+    custom_entry(&mut state);
+    state.paste("org/exact");
+    press(&mut state, KeyCode::Enter, true);
+    assert!(state.selection.model.is_none());
+    assert_eq!(
+        state.selection_change.as_ref().unwrap().model.as_deref(),
+        Some("org/exact")
+    );
+    press(&mut state, KeyCode::Esc, true);
+    assert_eq!(state.thread_id.as_deref(), Some("owned"));
+    custom_entry(&mut state);
+    state.paste("org/exact");
+    press(&mut state, KeyCode::Enter, true);
+    state.reviewed = true;
+    press(&mut state, KeyCode::Tab, true);
+    press(&mut state, KeyCode::Enter, true);
+    assert_eq!(state.selection.model.as_deref(), Some("org/exact"));
+    assert!(state.thread_id.is_none() && state.pending.is_none());
+}
+
+#[test]
+fn custom_editor_rejects_control_paste_and_invalid_ids_without_normalizing() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    command(&mut state, "model", true);
+    custom_entry(&mut state);
+    for value in ["model\n/new", &"x".repeat(257)] {
+        state.paste(value);
+        assert!(state.custom_model.as_ref().unwrap().text.is_empty());
+    }
+    for value in ["", " model ", "org/\u{202e}model"] {
+        state.custom_model = Some(Answer {
+            text: value.into(),
+            cursor: value.len(),
+        });
+        press(&mut state, KeyCode::Enter, true);
+        assert!(state.custom_model.is_some() && state.selection.model.is_none());
+    }
+    state.custom_model = Some(Answer::default());
+    state.paste("vendor/模型");
+    press(&mut state, KeyCode::Left, true);
+    press(&mut state, KeyCode::Backspace, true);
+    assert_eq!(state.custom_model.as_ref().unwrap().text, "vendor/型");
+    press(&mut state, KeyCode::Esc, true);
+    assert!(state.custom_model.is_none() && state.picker.is_some() && state.pending.is_none());
+}
+
+#[test]
+fn refresh_failure_retains_last_successful_rows_and_retry_replaces_them() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    command(&mut state, "models-refresh", true);
+    assert!(
+        state.catalogues.contains_key(&Agent::Codex),
+        "keep rows during refresh"
+    );
+    state.pending.take();
+    state.event(Event::Error {
+        generation: None,
+        message: "Offline".into(),
+    });
+    assert_eq!(
+        state.catalogues[&Agent::Codex].models[0].id,
+        "advertised-model"
+    );
+    assert_eq!(state.catalogue_error(), Some("Offline"));
+    assert!(state.picker_choice(1).unwrap().reason.is_none());
+    command(&mut state, "model", true);
+    assert!(state.catalogue_due());
+    state.start_automatic_catalogue(&task(), &[], None);
+    assert!(state.picker.is_some() && state.catalogue_loading());
+    assert!(state.catalogues.contains_key(&Agent::Codex));
+    state.pending.take();
+    state.event(Event::Preview(Preview {
+        destination: None,
+        generation: 12,
+        task_id: 7,
+        thread_id: None,
+        trust: vec![],
+        payload: "{}".into(),
+        blockers: vec![],
+    }));
+    state.pending.take();
+    let mut replacement = catalogue();
+    replacement.models[0].name = "Fresh metadata".into();
+    state.event(Event::Models {
+        generation: 12,
+        task_id: 7,
+        catalogue: replacement,
+    });
+    state.event(Event::Finished {
+        generation: 12,
+        task_id: 7,
+        outcome: Outcome::Completed,
+        message: "Loaded".into(),
+    });
+    assert!(state.catalogue_error().is_none());
+    assert_eq!(
+        state.catalogues[&Agent::Codex].models[0].name,
+        "Fresh metadata"
+    );
+}
+
+#[test]
+fn first_fetch_failure_remains_retryable_and_empty_success_is_not_fake_failure() {
+    let mut state = State::new();
+    state.reset(7);
+    command(&mut state, "model", true);
+    state.start_automatic_catalogue(&task(), &[], None);
+    state.pending.take();
+    state.event(Event::Error {
+        generation: None,
+        message: "Unavailable".into(),
+    });
+    assert!(state.picker.is_some() && state.catalogues.is_empty());
+    assert_eq!(
+        state.picker_choice(state.picker_len() - 1).unwrap().command,
+        "models-refresh"
+    );
+    command(&mut state, "model", true);
+    assert!(state.catalogue_due());
+    state.start_automatic_catalogue(&task(), &[], None);
+    state.pending.take();
+    state.event(Event::Preview(Preview {
+        destination: None,
+        generation: 13,
+        task_id: 7,
+        thread_id: None,
+        trust: vec![],
+        payload: "{}".into(),
+        blockers: vec![],
+    }));
+    state.pending.take();
+    let mut empty = catalogue();
+    empty.models.clear();
+    state.event(Event::Models {
+        generation: 13,
+        task_id: 7,
+        catalogue: empty,
+    });
+    state.event(Event::Finished {
+        generation: 13,
+        task_id: 7,
+        outcome: Outcome::Completed,
+        message: "Metadata only".into(),
+    });
+    assert!(state.catalogue_error().is_none() && state.picker.is_some());
+    custom_entry(&mut state);
+    assert!(state.pending.is_none());
+}
+
+#[test]
+fn failed_or_missing_refresh_result_keeps_cache_stale() {
+    for outcome in [Outcome::Completed, Outcome::Failed] {
+        let mut state = State::new();
+        state.reset(7);
+        state.catalogues.insert(Agent::Codex, catalogue());
+        state.inspect_models = true;
+        state.active = true;
+        state.generation = Some(11);
+        state.event(Event::Finished {
+            generation: 11,
+            task_id: 7,
+            outcome,
+            message: "Refresh ended".into(),
+        });
+        assert!(state.catalogues.contains_key(&Agent::Codex));
+        assert!(state.catalogue_error().is_some() && state.picker.is_some());
     }
 }
 
@@ -50,6 +506,7 @@ fn model_picker_is_local_and_refresh_requires_preview_run_without_journal() {
     assert!(input.inspect_models && !input.inspect_sessions && input.resume.is_none());
     assert_eq!(input.selection, ModelSelection::default());
     state.event(Event::Preview(Preview {
+        destination: None,
         generation: 11,
         task_id: 7,
         thread_id: None,
@@ -81,7 +538,10 @@ fn model_picker_is_local_and_refresh_requires_preview_run_without_journal() {
         task_id: 7,
         catalogue: catalogue(),
     });
-    assert_eq!(state.catalogues[&Agent::Codex].models.len(), 1);
+    assert!(
+        state.catalogues.is_empty(),
+        "publish only after successful completion"
+    );
     state.event(Event::Finished {
         generation: 11,
         task_id: 7,
@@ -141,6 +601,7 @@ fn advertised_effort_and_model_are_snapshotted_and_preview_change_revokes_consen
     assert_eq!(input.selection.model.as_deref(), Some("advertised-model"));
     assert_eq!(input.selection.effort.as_deref(), Some("high"));
     state.event(Event::Preview(Preview {
+        destination: None,
         generation: 11,
         task_id: 7,
         thread_id: None,
@@ -279,6 +740,7 @@ fn start_catalogue(state: &mut State, task: &store::Snapshot, generation: u64) {
     state.start_automatic_catalogue(task, &[], None);
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
+        destination: None,
         generation,
         task_id: task.id,
         thread_id: None,
@@ -403,6 +865,7 @@ fn blocked_preview_and_preview_error_retain_reason_without_automatic_manual_run(
             });
         } else {
             state.event(Event::Preview(Preview {
+                destination: None,
                 generation: 11,
                 task_id: task.id,
                 thread_id: None,
@@ -435,6 +898,7 @@ fn blocked_preview_and_preview_error_retain_reason_without_automatic_manual_run(
         assert!(!state.auto_run && !state.auto_models);
         assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
         state.event(Event::Preview(Preview {
+            destination: None,
             generation: 12,
             task_id: task.id,
             thread_id: None,
@@ -450,13 +914,13 @@ fn blocked_preview_and_preview_error_retain_reason_without_automatic_manual_run(
 }
 
 #[test]
-fn refresh_drops_stale_cache_and_completed_without_valid_metadata_is_a_failure() {
+fn refresh_retains_cache_and_completed_without_valid_metadata_marks_it_stale() {
     for invalid in [false, true] {
         let mut state = State::new();
         state.reset(7);
         state.catalogues.insert(Agent::Codex, catalogue());
         state.command("models-refresh", true, &task(), &[], None);
-        assert!(state.catalogues.is_empty());
+        assert!(state.catalogues.contains_key(&Agent::Codex));
         state.pending.take();
         state.awaiting_preview = false;
         state.generation = Some(11);
@@ -476,19 +940,13 @@ fn refresh_drops_stale_cache_and_completed_without_valid_metadata_is_a_failure()
             outcome: Outcome::Completed,
             message: "Complete".into(),
         });
-        assert!(state.catalogues.is_empty());
-        assert!(
-            state
-                .picker_choice(1)
-                .unwrap()
-                .reason
-                .unwrap()
-                .contains(if invalid {
-                    "rejected"
-                } else {
-                    "without a usable model catalogue"
-                })
-        );
+        assert!(state.catalogues.contains_key(&Agent::Codex));
+        assert!(state.picker_choice(1).unwrap().reason.is_none());
+        assert!(state.catalogue_error().unwrap().contains(if invalid {
+            "rejected"
+        } else {
+            "without a usable model catalogue"
+        }));
         assert!(!state.notice.contains("Models loaded."));
     }
 }
@@ -562,6 +1020,7 @@ fn preview() -> State {
     command(&mut state, "new", true);
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
+        destination: None,
         generation: 11,
         task_id: 7,
         thread_id: None,
@@ -578,6 +1037,7 @@ fn preview_shows_local_receipt() {
     command(&mut state, "new", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        destination: None,
         generation: 11,
         task_id: 7,
         thread_id: None,
@@ -1008,6 +1468,7 @@ fn prior_unknown_outcome_survives_later_completion_and_authentication_reset() {
     command(&mut state, "sessions", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        destination: None,
         generation: 12,
         task_id: 7,
         thread_id: None,
@@ -1114,6 +1575,7 @@ fn run_request(state: &mut State, generation: u64, request: &str) {
     command(state, "new", true);
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
+        destination: None,
         generation,
         task_id: 7,
         thread_id: None,

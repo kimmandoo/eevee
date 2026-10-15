@@ -101,6 +101,9 @@ fn run(config: Config) -> io::Result<()> {
             size.width,
             size.height,
         );
+        app.planning.agent = providers::direct::config::preferred_agent();
+        app.agents.active = app.planning.agent.index();
+        app.agents.selected = app.agents.active;
         app.linear = config.layout == config::LayoutMode::Linear;
         app.policy = config.storage_policy;
         app.images_enabled = config.images != config::ImageMode::Off;

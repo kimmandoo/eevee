@@ -58,7 +58,7 @@ ev uninstall        # remove the binary; keep user data
 Use a terminal of at least **60 × 18** (120 × 36 recommended).
 
 1. Type the request in the bottom composer. **Enter** saves it and opens a short review; **Ctrl+S** only saves locally. No separate Goal setup.
-2. If a provider is not ready, `/connect` opens its official sign-in flow. `/provider`, `/model` and `/effort` change the selection without sending a prompt; model loading works before you create a task.
+2. `/provider` selects a native model service or installed agent. `/connect` shows its credential setup and connection boundary. `/model` works before task creation; search names/IDs or enter an exact custom ID without sending a prompt.
 3. Check the centered summary, then **y** to Run or **n** to go back. Exact payload and technical details remain available without a mandatory scroll-to-bottom.
 4. Read the streaming response directly on the main screen, then type the next request in the same composer. Existing task facts stay intact.
 5. Use `/run` → `/command-edit` for a separately reviewed local command such as `["cargo","test"]`.
@@ -98,15 +98,45 @@ No command bypasses approval or executes pasted text. Model catalogues come from
 
 `/reset` defaults to Stay and waits for old task/context saves before switching. A save failure keeps the current work; finish or explicitly cancel an active provider request first. `/init` selects Espeon / Plan, clears write paths and prepares a request to inspect repository conventions and propose a project guide. Replacing a nonempty Request requires confirmation; other drafts stay retained. **Enter** prepares the ordinary review, and **Run** remains separate. Existing `AGENTS.md` files are not overwritten; `/init` prepares a proposal, not a completed initialization.
 
-**Missing newer Codex models?** Eevee uses the installed Codex CLI's official app-server catalogue, not its own hardcoded model list. The picker shows the executable/version, configured model, catalogue default and advertised model count; PgUp/PgDn exposes complete source details on small screens. An older CLI can return a bundled/cached older catalogue. Update the same installation shown there (`brew upgrade --cask codex` for Homebrew, or `npm install -g @openai/codex@latest` for npm), then `/models-refresh`. `Default` preserves your configured model/effort; choose a newer model deliberately. Refreshing Eevee does not install or upgrade Codex, and unavailable selections never silently fall back.
+**Missing newer Codex models?** Choose **ChatGPT / direct** (`/provider-chatgpt`) for live account discovery and native streaming without an installed CLI. It can use the existing Codex session read-only or an environment token, only against the official backend. The separate **Codex** agent route still uses app-server and shows its executable/catalogue provenance. Neither route silently switches your chosen model; exact configured/custom IDs are not rejected merely because a CLI list is stale. Model search is local, Ctrl+U clears it, and failed refreshes retain the previous list with an error.
 
 **Home and responses.** At 90 columns or wider, the partner card stays visible beside the response; smaller and linear layouts keep full-width output with `/companion` for the partner. Replies stream inline without an extra output window or artificial typing delay. The header shows the single live progress indicator; the response labels its own complete/streaming/partial state. Earlier output stays attributed to its earlier request. Completed words can appear before a newline; unfinished tokens and ambiguous credential prefixes remain withheld for best-effort redaction. PgUp/PgDn pause follow and Alt+End returns to the newest output without stealing ordinary draft input. Exact provenance and technical details remain optional. The spinner represents actual preparation/connection/response activity, not estimated progress; permission reviews and idle screens do not animate. `--no-animation` keeps the indicator static without slowing streamed text.
 
 **Request receipt.** Every provider preview breaks the exact payload Eevee sends into instructions, task facts, attachments, handoff and memories, with exact bytes and a labelled local token estimate (`eevee-local-v1`, CJK-aware). It runs offline. Provider-added context, usage and billing stay **unknown**, not zero.
 
-## Connect an agent
+## Connect a provider or agent
 
-Authentication is only needed for provider requests. Login runs in the provider's official CLI after its own review, and Eevee never collects those tokens; the Devin website OAuth route is the exception — Eevee drives that flow itself and keeps the returned session credential in memory only (injected as `WINDSURF_API_KEY` into `devin acp`, never persisted).
+Native services do not require a provider CLI, Node or an SDK sidecar. Keys are resolved in memory from environment variables; user-scoped configuration contains endpoint/model settings and **environment-variable names**, never literal credentials or shell commands. ChatGPT can read an existing provider-owned session file at the disclosed connection boundary; it does not copy, refresh or rewrite that file. No credentials enter task storage.
+
+| Native service | Selection | Credential |
+| --- | --- | --- |
+| ChatGPT / Codex backend | `/provider-chatgpt` | Existing `$CODEX_HOME/auth.json` (default `~/.codex/auth.json`), or `CODEX_ACCESS_TOKEN` / `CODEX_ACCOUNT_ID` |
+| OpenAI Responses | `/provider-openai` | `OPENAI_API_KEY`; optional `OPENAI_BASE_URL`, `OPENAI_MODEL` |
+| Anthropic Messages | `/provider-anthropic` | `ANTHROPIC_API_KEY`; optional `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`. No subscription OAuth reuse. |
+| Google Gemini | `/provider-google` | `GEMINI_API_KEY` or `GOOGLE_API_KEY`; optional `GEMINI_BASE_URL`, `GEMINI_MODEL` |
+| Compatible / local service | `/provider-compatible` | `EV_API_BASE_URL`, `EV_API_MODEL`; `EV_API_KEY`, or explicit `EV_API_KEYLESS=1` for a keyless service |
+
+Native routes stream model text without tools, hooks, implicit project reads or local file writes. Implement replies are proposals; use the existing controlled-agent route when you need reviewed tool-driven edits. Native calls are fresh requests, not resumable agent sessions. Explicit Run still gates inference; cancellation closes the client operation but cannot prove remote billing/work stopped. Custom endpoints require HTTPS except explicit loopback HTTP, and redirects are refused.
+
+Set `EV_PROVIDER` to choose the startup route (`chatgpt`, `openai`, `anthropic`, `google`, `compatible`, or an existing agent name). Otherwise a passively configured native route is preferred, then Codex. Configured credentials are not proof of authentication, quota or model eligibility.
+
+For persistent **nonsecret** settings, use `$XDG_CONFIG_HOME/eevee/providers.toml` (Linux; default `~/.config/eevee/providers.toml`), `~/Library/Application Support/eevee/providers.toml` (macOS), or `%APPDATA%\eevee\providers.toml` (Windows). `EV_PROVIDERS_CONFIG` selects an absolute user-owned file outside the project. Environment settings override the file:
+
+```toml
+[openai]
+model = "your-model-id"
+api_key_env = "MY_OPENAI_KEY"
+
+[compatible]
+base_url = "http://127.0.0.1:11434/v1"
+model = "your-local-model"
+keyless = true
+protocol = "chat_completions" # or "responses"
+```
+
+ChatGPT keeps its existing nonsecret `CODEX_HOME/config.toml` model/effort defaults; `CODEX_MODEL` and `CODEX_REASONING_EFFORT` override them. Selecting a different model does not carry the old model's configured effort into it. A missing/expired/keychain-only session is reported explicitly; the native connection never silently runs a login or upgrades Codex.
+
+Existing external-agent connections remain available:
 
 | Provider | Integration | Sign-in |
 | --- | --- | --- |
@@ -116,7 +146,7 @@ Authentication is only needed for provider requests. Login runs in the provider'
 | Gemini CLI latest stable | ACP (`--acp`) | Gemini's native CLI (OAuth, API key or Vertex) |
 | Devin CLI latest stable | ACP (local agent) | Website OAuth (in-memory session credential) or the CLI's browser OAuth / manual token |
 
-Provider admission is no longer tied to an exact release number. Eevee observes the installed version, binds executable/configuration identity to the review, and validates the actual protocol and permission capabilities before use. Unsupported protocol behavior still fails closed; a new release is not automatically a conformance claim. On WSL/SSH, use Codex **device authorization** instead of a localhost callback.
+Installed-agent admission binds executable/configuration identity to the review and validates actual protocol and permission capabilities. Release numbers, including prerelease labels, are evidence rather than exact-version allowlists. Native services do not use these executable probes. On WSL/SSH, the optional Codex CLI login supports device authorization instead of a localhost callback.
 
 Explicitly install or update the latest stable CLI, then **Refresh installed providers** in `/connect`:
 
@@ -153,11 +183,11 @@ Sprites are nine original PokeAPI images that installers download and hash-verif
 
 | Machine | Package |
 | --- | --- |
-| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.6/ev-darwin-arm64.tar.gz) |
-| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.6/ev-darwin-x86_64.tar.gz) |
-| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.6/ev-linux-x86_64.tar.gz) |
-| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.6/ev-linux-arm64.tar.gz) |
-| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.6/ev-windows-x86_64.zip) |
+| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.7/ev-darwin-arm64.tar.gz) |
+| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.7/ev-darwin-x86_64.tar.gz) |
+| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.7/ev-linux-x86_64.tar.gz) |
+| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.7/ev-linux-arm64.tar.gz) |
+| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.7/ev-windows-x86_64.zip) |
 
 Installers verify SHA-256, refuse to overwrite commands they don't own, and never edit your shell profile or persistent PATH — the last step on each platform is yours.
 

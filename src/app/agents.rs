@@ -132,13 +132,19 @@ impl State {
         } else {
             actions.push(Action::UseForTask);
         }
-        actions.extend([Action::Version, Action::Diagnostics, Action::Refresh]);
+        if !Agent::from_index(self.selected).is_some_and(Agent::is_direct) {
+            actions.push(Action::Version);
+        }
+        actions.extend([Action::Diagnostics, Action::Refresh]);
         actions
     }
 
     /// Most likely next step: connect, then use for task, then choose a model.
     fn default_action(&self) -> usize {
-        let next = if self.connection_status(self.selected) != "Connected" {
+        let next = if !matches!(
+            self.connection_status(self.selected),
+            "Connected" | "Configured (unchecked)"
+        ) {
             Action::Connect
         } else if self.selected == self.active {
             Action::Model
@@ -153,7 +159,8 @@ impl State {
 
     /// Claude connects through the separate ant CLI, so its executable row is not required.
     fn connectable(&self, index: usize) -> bool {
-        index == Agent::Claude.index()
+        Agent::from_index(index).is_some_and(Agent::is_direct)
+            || index == Agent::Claude.index()
             || self
                 .profiles
                 .get(index)
@@ -183,6 +190,13 @@ impl State {
         {
             return "Checking";
         }
+        if let Some(agent) = Agent::from_index(index).filter(|agent| agent.is_direct()) {
+            return if crate::providers::direct::config::configured(agent) {
+                "Configured (unchecked)"
+            } else {
+                "Not configured"
+            };
+        }
         if self.profiles.get(index).is_some() && !self.connectable(index) {
             return "Not installed";
         }
@@ -204,6 +218,9 @@ impl State {
     }
 
     pub fn setup_hint(&self) -> String {
+        if let Some(agent) = Agent::from_index(self.selected).filter(|agent| agent.is_direct()) {
+            return crate::providers::direct::config::guidance(agent);
+        }
         match self.selected {
             0 => "Update the same Codex installation shown under Executable, not a second copy elsewhere on PATH. Homebrew: brew upgrade --cask codex. npm: npm install -g @openai/codex@latest. Then Refresh installed providers, check the observed path/version, and refresh /model. Eevee never upgrades it automatically.".into(),
             1 => crate::providers::auth::CLAUDE_POLICY.into(),
@@ -236,6 +253,14 @@ impl State {
     fn activate(&mut self, action: Action) {
         match action {
             Action::Connect => {
+                if let Some(agent) =
+                    Agent::from_index(self.selected).filter(|agent| agent.is_direct())
+                {
+                    self.notice = crate::providers::direct::config::guidance(agent);
+                    self.page = Page::Diagnostics;
+                    self.scroll = 0;
+                    return;
+                }
                 if !self.connectable(self.selected) {
                     self.notice = self.setup_hint();
                 } else if crate::providers::auth::methods(self.selected).len() > 1 {
@@ -273,7 +298,9 @@ impl State {
             Action::Refresh => {
                 self.discovering = true;
                 self.pending = Some(Request::Discover);
-                self.notice = "Refreshing installed providers; no program launched.".into();
+                self.notice =
+                    "Refreshing provider configuration; no program or network request launched."
+                        .into();
             }
             Action::UseForTask => self.use_for_task = Some(self.selected),
             Action::Model => self.pick = Some("model"),

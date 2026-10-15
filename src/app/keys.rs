@@ -466,6 +466,8 @@ impl App {
         self.sources.editor.is_some()
             || self.execution.searching
             || self.planning.paths_editor.is_some()
+            || self.planning.picker.is_some()
+            || self.planning.custom_model.is_some()
             || self.planning.editing
             || self.workflow.editor.is_some()
             || self.memory.editing()

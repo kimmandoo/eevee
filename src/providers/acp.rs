@@ -182,7 +182,7 @@ fn worker(
                         Agent::OpenCode => lines.push("OpenCode acp --pure disables external plugins; built-in tools/config/MCP/project rules remain provider-owned.".into()),
                         Agent::Gemini => lines.push("Gemini CLI uses current stable --acp. Older --experimental-acp-only releases must be updated explicitly; no fallback or automatic download. Its configured Google OAuth/API/Vertex route is provider-owned; no free-account eligibility claim.".into()),
                         Agent::Devin => lines.push("Devin CLI acp uses local stdio, without --cloud. Connect separately through the official native browser login; credentials, account eligibility, tools and configuration remain provider-owned.".into()),
-                        Agent::Codex | Agent::Claude => unreachable!("profile rejects non-ACP providers"),
+                        _ => unreachable!("profile rejects non-ACP providers"),
                     }
                     lines.push(format!(
                         "Reviewed selection snapshot: model = {}; reasoning = {}. Explicit values must be advertised and acknowledged before any prompt; unsupported values are refused.",
@@ -245,6 +245,7 @@ fn worker(
                         }
                     }
                     let preview = Preview {
+                        destination: None,
                         generation,
                         task_id,
                         thread_id: input.resume.clone(),

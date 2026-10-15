@@ -17,7 +17,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 ## Status
 
 - **Released:** 0.1.6 (tags v0.1.0–v0.1.6). Schema 9 store.
-- **Latest user request completed:** v0.1.6 shipped Codex catalogue provenance/configured defaults, safe `/reset`, proposal-only `/init`, and the home/response UX fixes. Exact-commit Check and five native rows passed; all eight public assets and seven checksums were verified. Published macOS acceptance passed 23 installation checks, 34 installed terminal scenarios and 23 workbench journeys. Real GPT-6.1/default-model turns passed with isolated updated Codex; the host provider installation was not changed. PT06A remains unstarted.
+- **Active user request:** v0.1.7 native model-provider connectivity and model discovery overhaul is implemented; final live-response, hardened trust/provenance, terminal/workbench and release acceptance remain active. Latest released version stays 0.1.6 until publication verification. PT06A remains unstarted.
 - **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B, PT05A/PT05B, RF05 and the first code-structure pass (index below). **Open:** 96 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.

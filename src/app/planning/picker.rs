@@ -32,9 +32,12 @@ impl State {
         catalogue.models.iter().find(|model| &model.id == id)
     }
 
-    /// Opens a local picker on the current value, or on Refresh when nothing is inspected yet.
+    /// Opens a local picker on the exact current value, without granting a connection.
     pub(super) fn open_picker(&mut self, picker: Picker) {
         self.picker = Some(picker);
+        self.picker_query = super::Answer::default();
+        self.custom_model = None;
+        self.filter_picker();
         self.scroll = 0;
         self.picker_selected = match self.picker_current() {
             Some(index) => index,
@@ -43,20 +46,78 @@ impl State {
         };
     }
 
+    /// Filtering is computed only when input or catalogue changes, not for each rendered row.
+    pub(super) fn filter_picker(&mut self) {
+        self.picker_models.clear();
+        if let Some(catalogue) = self.catalogues.get(&self.agent) {
+            let query = self.picker_query.text.to_lowercase();
+            let matches = |text: &str| {
+                if query.is_empty() {
+                    true
+                } else if text.is_ascii() {
+                    text.as_bytes()
+                        .windows(query.len())
+                        .any(|part| part.eq_ignore_ascii_case(query.as_bytes()))
+                } else {
+                    // No per-model lowercase allocation; names and query are bounded.
+                    text.char_indices().any(|(start, _)| {
+                        let mut chars = text[start..].chars().flat_map(char::to_lowercase);
+                        query.chars().all(|ch| chars.next() == Some(ch))
+                    })
+                }
+            };
+            self.picker_models.extend(
+                catalogue
+                    .models
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, model)| matches(&model.name) || matches(&model.id))
+                    .map(|(index, _)| index),
+            );
+        }
+        self.picker_selected = if self.picker_models.is_empty() { 0 } else { 1 };
+        self.scroll = 0;
+    }
+
+    pub fn picker_matches(&self) -> usize {
+        self.picker_models.len()
+    }
+
+    pub fn catalogue_error(&self) -> Option<&str> {
+        self.catalogue_errors.get(&self.agent).map(String::as_str)
+    }
+
+    pub fn catalogue_loading(&self) -> bool {
+        self.inspect_models && (self.active || self.awaiting_preview || self.preview.is_some())
+    }
+
+    pub(super) fn picker_model(&self, index: usize) -> Option<&crate::providers::ModelOption> {
+        let model = *self.picker_models.get(index.checked_sub(1)?)?;
+        self.catalogues.get(&self.agent)?.models.get(model)
+    }
+
+    pub(super) fn choose_selection(&mut self, selection: ModelSelection) {
+        if selection == self.selection {
+            self.picker = None;
+        } else if selection.model != self.selection.model && self.thread_id.is_some() {
+            self.selection_change = Some(selection);
+            self.review_start();
+        } else {
+            self.apply_selection(selection, false);
+        }
+    }
+
     /// Exact current row; never mark Default when a retained selection is missing.
     pub fn picker_current(&self) -> Option<usize> {
         match self.picker? {
-            Picker::Model => {
-                let catalogue = self.catalogues.get(&self.agent)?;
-                match self.selection.model.as_ref() {
-                    None => Some(0),
-                    Some(id) => catalogue
-                        .models
-                        .iter()
-                        .position(|model| &model.id == id)
-                        .map(|index| index + 1),
-                }
-            }
+            Picker::Model => match self.selection.model.as_ref() {
+                None => Some(0),
+                Some(id) => self
+                    .picker_models
+                    .iter()
+                    .position(|index| self.catalogues[&self.agent].models[*index].id == *id)
+                    .map(|index| index + 1),
+            },
             Picker::Effort => match self.selection.effort.as_ref() {
                 None => Some(0),
                 Some(effort) => self
@@ -69,14 +130,7 @@ impl State {
 
     pub fn picker_len(&self) -> usize {
         match self.picker {
-            Some(Picker::Model) => {
-                2 + self
-                    .catalogues
-                    .get(&self.agent)
-                    .map(|catalogue| catalogue.models.len())
-                    .unwrap_or(0)
-                    .max(1)
-            }
+            Some(Picker::Model) => 3 + self.picker_models.len().max(1),
             Some(Picker::Effort) => {
                 1 + self
                     .effort_model()
@@ -104,18 +158,26 @@ impl State {
                 "models-refresh",
                 "Refresh / inspect available models (review connection first)",
             ),
+            Picker::Model if index + 2 == self.picker_len() => {
+                Choice::new("model-custom", "Enter custom model ID (local only)")
+            }
             Picker::Model => {
                 if let Some(catalogue) = self.catalogues.get(&self.agent) {
-                    if let Some(model) = catalogue.models.get(index - 1) {
+                    if let Some(model) = self.picker_model(index) {
                         Choice::new("model-select", format!("{} [{}]", model.name, model.id))
                     } else {
                         Choice::disabled(
                             "model-select",
-                            "Model selection unavailable",
-                            format!(
-                                "Provider advertised no selectable models. {}",
-                                catalogue.source
-                            ),
+                            "No matching models",
+                            if self.picker_query.text.is_empty() {
+                                format!(
+                                    "Provider advertised no selectable models. {}",
+                                    catalogue.source
+                                )
+                            } else {
+                                "Clear search with Ctrl+U, or enter an exact custom model ID."
+                                    .into()
+                            },
                         )
                     }
                 } else {
@@ -148,6 +210,7 @@ impl State {
         let model_changed = selection.model != self.selection.model;
         self.picker = None;
         self.selection_change = None;
+        self.custom_model = None;
         if self.preview.is_some() {
             self.cancel();
         }

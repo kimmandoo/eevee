@@ -63,10 +63,19 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         if show_providers {
             let providers = if narrow { body_area } else { columns[0] };
             text(frame, row(providers, 0, 1), "PROVIDERS", paint.accent);
-            for (index, provider) in state.profiles.iter().enumerate() {
+            let capacity = usize::from(providers.height.saturating_sub(1) / 2).max(1);
+            let first = state.selected.saturating_sub(capacity.saturating_sub(1));
+            for (offset, (index, provider)) in state
+                .profiles
+                .iter()
+                .enumerate()
+                .skip(first)
+                .take(capacity)
+                .enumerate()
+            {
                 text(
                     frame,
-                    row(providers, 1 + index as u16 * 2, 2),
+                    row(providers, 1 + offset as u16 * 2, 2),
                     &format!(
                         "{} {}{}\n  {}",
                         if index == state.selected { ">" } else { " " },
@@ -141,7 +150,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             state.scroll = state.scroll.min(state.scroll_max);
         } else {
             let start = if provider_list {
-                1 + state.profiles.len() as u16 * 2
+                body.height
             } else {
                 let methods = state.page == Page::Methods;
                 text(
@@ -203,7 +212,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             };
             let methods = state.page == Page::Methods;
             // Claude's executable row is the Claude CLI; its connection uses ant instead.
-            let hint = if state.selected != crate::providers::Agent::Claude.index()
+            let hint = if !crate::providers::Agent::from_index(state.selected)
+                .is_some_and(crate::providers::Agent::is_direct)
+                && state.selected != crate::providers::Agent::Claude.index()
                 && profile.executable.is_none()
             {
                 super::brief(&state.setup_hint()).into_owned()
