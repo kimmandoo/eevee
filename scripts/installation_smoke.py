@@ -314,6 +314,13 @@ def main():
             def animated_install(command, environment, capture_name, retired_directory=None):
                 release.throttle = True
                 release.animation_observed.clear()
+                if os.name != "nt":
+                    # Both bootstrap and self-update execute a shell. Keep it
+                    # below the session leader, as in an ordinary user shell,
+                    # so macOS cannot revoke the PTY before restoration checks.
+                    command = [sys.executable, "-c",
+                               "import subprocess,sys; sys.exit(subprocess.call(sys.argv[1:]))",
+                               *command]
                 session = terminal_smoke.Session(command, root, environment, (120, 36), output / capture_name)
                 try:
                     deadline = time.monotonic() + 360
@@ -381,13 +388,6 @@ def main():
                 command = (["powershell.exe", "-NoLogo", "-NoProfile", "-File", str(package / "install.ps1"),
                             "-InstallDir", str(downloaded)] if os.name == "nt" else
                            ["sh", str(package / "install.sh"), "--install-dir", str(downloaded)])
-                if os.name != "nt":
-                    # A session-leading shell can acquire and revoke the PTY
-                    # on macOS. Keep it a child, as in an ordinary user shell,
-                    # so post-exit termios checks inspect a live terminal.
-                    command = [sys.executable, "-c",
-                               "import subprocess,sys; sys.exit(subprocess.call(sys.argv[1:]))",
-                               *command]
                 environment = terminal_smoke.terminal_environment("mono")
                 environment.update(sprite_environment)
                 environment.pop("CI", None)

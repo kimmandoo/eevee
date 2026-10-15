@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-15] macOS self-update smoke lost its PTY before restoration inspection
+
+- **Context / Symptom:** Published v0.1.6 installation acceptance passed the first 15 checks, then `live-owned-binary-self-update` failed at `termios.tcgetattr(self.slave)` with `(25, 'Inappropriate ioctl for device')`.
+- **Root Cause:** The harness launched the update executable as a session leader. Unix self-update intentionally execs `/bin/sh`; that session-leading shell could acquire and revoke the macOS PTY on exit. The existing bootstrap-only wrapper prevented this for direct installation but not the same shell reached through update.
+- **Solution:** Moved the existing POSIX parent-process wrapper into shared `animated_install`, covering bootstrap and self-update without changing product binaries or weakening termios/animation assertions. The actual installer remains a child, like a command launched from a normal user shell.
+- **Prevention / Reference:** Re-ran complete acceptance against the downloaded v0.1.6 package: all 23 lifecycle checks and 34 installed terminal scenarios passed (`target/release-016-installed-verified`). Python release-script tests ran 17 with 3 platform skips. Keep both shell-entry paths under the same ownership guard.
+
 ### [2026-10-15] Codex showed only GPT-5.6 instead of GPT-6 and GPT-6.1
 
 - **Context / Symptom:** `/model` showed only `gpt-5.6-sol`, `gpt-5.6-terra` and `gpt-5.6-luna`. Native inspection returned those exact three entries with no next page, so this was not an Eevee pagination or generation-name filter.
