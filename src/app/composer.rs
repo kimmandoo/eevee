@@ -270,12 +270,12 @@ mod tests {
             key(&mut app, KeyCode::Char(ch));
         }
         app.sources.files = vec![
-            crate::context::Source {
+            crate::workspace::context::Source {
                 path: "src/main.rs".into(),
                 bytes: 12,
                 sha256: [0; 32],
             },
-            crate::context::Source {
+            crate::workspace::context::Source {
                 path: "README.md".into(),
                 bytes: 20,
                 sha256: [0; 32],

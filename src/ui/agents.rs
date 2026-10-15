@@ -126,7 +126,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             state.scroll_max = selection_details(
                 frame,
                 row(body, 1, body.height.saturating_sub(1)),
-                Paragraph::new(crate::privacy::redact(&value))
+                Paragraph::new(crate::workspace::privacy::redact(&value))
                     .style(paint.surface)
                     .wrap(Wrap { trim: false }),
                 state.scroll,
@@ -148,7 +148,10 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     paint.accent,
                 );
                 let count = if methods {
-                    for (index, method) in crate::auth::methods(state.selected).iter().enumerate() {
+                    for (index, method) in crate::providers::auth::methods(state.selected)
+                        .iter()
+                        .enumerate()
+                    {
                         text(
                             frame,
                             row(body, 2 + index as u16, 1),
@@ -156,7 +159,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                                 "{} {}{}",
                                 if index == state.method { ">" } else { " " },
                                 method.label(),
-                                if index == crate::auth::default_method(state.selected) {
+                                if index == crate::providers::auth::default_method(state.selected) {
                                     " (default)"
                                 } else {
                                     ""
@@ -169,7 +172,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                             },
                         );
                     }
-                    crate::auth::methods(state.selected).len() as u16
+                    crate::providers::auth::methods(state.selected).len() as u16
                 } else {
                     for (index, action) in state.actions().iter().enumerate() {
                         text(
@@ -193,14 +196,14 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             };
             let methods = state.page == Page::Methods;
             // Claude's executable row is the Claude CLI; its connection uses ant instead.
-            let hint = if state.selected != crate::provider::Agent::Claude.index()
+            let hint = if state.selected != crate::providers::Agent::Claude.index()
                 && profile.executable.is_none()
             {
                 super::brief(&state.setup_hint()).into_owned()
             } else if state.auth_busy() {
                 "Preparing review... Esc cancels.".into()
             } else if methods {
-                let guidance = crate::auth::methods(state.selected)
+                let guidance = crate::providers::auth::methods(state.selected)
                     .get(state.method)
                     .and_then(|method| method.guidance())
                     .unwrap_or("Enter reviews this method; nothing launches.");
@@ -209,7 +212,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     super::brief(&state.notice),
                     super::brief(guidance)
                 )
-            } else if state.selected == crate::provider::Agent::Claude.index() {
+            } else if state.selected == crate::providers::Agent::Claude.index() {
                 format!(
                     "{}\n\n{}",
                     super::brief(&state.notice),
@@ -221,7 +224,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             state.scroll_max = selection_details(
                 frame,
                 row(body, start, body.height.saturating_sub(start)),
-                Paragraph::new(crate::privacy::redact(&hint))
+                Paragraph::new(crate::workspace::privacy::redact(&hint))
                     .style(paint.surface)
                     .wrap(Wrap { trim: false }),
                 state.scroll,
@@ -253,7 +256,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     state.scroll_max = selection_details(
         frame,
         details,
-        Paragraph::new(crate::privacy::redact(&value))
+        Paragraph::new(crate::workspace::privacy::redact(&value))
             .style(paint.surface)
             .wrap(Wrap { trim: false }),
         state.scroll,

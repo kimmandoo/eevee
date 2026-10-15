@@ -1,0 +1,175 @@
+use super::*;
+#[test]
+fn model_catalogue_consumer_rejects_private_unbounded_or_ambiguous_metadata() {
+    let catalogue = json!({
+        "models": [{"id":"live-a","name":"Live A","description":"SDK capability","efforts":["high"],"default_effort":null}],
+        "current":null,"source":"SDK supportedModels()","effort_note":"Only advertised effort choices",
+    });
+    let decoded = decode_catalogue(&catalogue).unwrap();
+    assert_eq!(decoded.models[0].efforts, ["high"]);
+    assert_eq!(decoded.models[0].default_effort, None);
+    let mut empty = catalogue.clone();
+    empty["models"] = json!([]);
+    assert!(decode_catalogue(&empty).is_ok());
+    let mut duplicate = catalogue.clone();
+    duplicate["models"]
+        .as_array_mut()
+        .unwrap()
+        .push(catalogue["models"][0].clone());
+    assert!(decode_catalogue(&duplicate).is_err());
+    for text in [
+        "token=canary".to_string(),
+        "\u{202e}model".into(),
+        "x".repeat(257),
+    ] {
+        let mut invalid = catalogue.clone();
+        invalid["models"][0]["id"] = json!(text);
+        assert!(decode_catalogue(&invalid).is_err());
+    }
+    let mut invalid = catalogue.clone();
+    invalid["models"][0]["default_effort"] = json!("unadvertised");
+    assert!(decode_catalogue(&invalid).is_err());
+    invalid = catalogue.clone();
+    invalid["models"][0]["extra"] = json!(true);
+    assert!(decode_catalogue(&invalid).is_err());
+}
+#[test]
+fn review_uses_mandatory_read_only_sdk_tools_not_implementation_policy() {
+    assert_eq!(sdk_tool_policy(Operation::Review), "plan");
+    assert_eq!(sdk_tool_policy(Operation::Plan), "plan");
+    assert_eq!(sdk_tool_policy(Operation::Implement), "implement");
+}
+
+#[test]
+fn malformed_trailing_frames_do_not_discard_prior_observations() {
+    let observation = json!({"protocol":1,"type":"item","kind":"tool","text":"partial"});
+    let mut fault = None;
+    assert_eq!(
+        preserve_observations(vec![observation.clone()], &mut fault, "malformed").unwrap(),
+        vec![observation]
+    );
+    assert_eq!(fault.take().as_deref(), Some("malformed"));
+    assert!(preserve_observations(Vec::new(), &mut fault, "malformed").is_err());
+}
+#[test]
+fn cloud_auth_chains_require_explicit_consent_and_selected_backend() {
+    let route = |pairs: &[(&str, &str)]| {
+        let profile = pairs
+            .iter()
+            .find(|(name, _)| *name == "console-profile")
+            .map(|(_, value)| *value);
+        credential_route_from(
+            |key| {
+                pairs
+                    .iter()
+                    .any(|(name, value)| *name == key && !value.is_empty())
+            },
+            |key, expected| {
+                pairs
+                    .iter()
+                    .any(|(name, value)| *name == key && *value == expected)
+            },
+            profile,
+        )
+    };
+    let opt_in = ("EEVEE_CLAUDE_CLOUD_AUTH", "provider-chain");
+    let bedrock = ("CLAUDE_CODE_USE_BEDROCK", "1");
+    let vertex = ("CLAUDE_CODE_USE_VERTEX", "1");
+    assert!(route(&[bedrock, ("AWS_PROFILE", "work")]).is_err());
+    assert!(
+        route(&[bedrock, opt_in, ("AWS_PROFILE", "work")])
+            .unwrap()
+            .contains("provider credential chain")
+    );
+    assert!(
+        route(&[bedrock, ("AWS_BEARER_TOKEN_BEDROCK", "unit-test")])
+            .unwrap()
+            .contains("bearer")
+    );
+    assert!(
+        route(&[
+            bedrock,
+            ("AWS_WEB_IDENTITY_TOKEN_FILE", "/selected/cloud-file"),
+            ("AWS_ROLE_ARN", "unit-role")
+        ])
+        .unwrap()
+        .contains("web identity")
+    );
+    assert!(
+        route(&[
+            vertex,
+            opt_in,
+            ("ANTHROPIC_VERTEX_PROJECT_ID", "unit-project")
+        ])
+        .unwrap()
+        .contains("ADC")
+    );
+    assert!(route(&[vertex, opt_in]).is_err());
+    assert!(route(&[opt_in]).is_err());
+    assert!(route(&[("ANTHROPIC_API_KEY", "unit-test"), opt_in]).is_err());
+    assert!(route(&[bedrock, vertex, opt_in]).is_err());
+    let console = ("console-profile", "eevee");
+    assert!(
+        route(&[console])
+            .unwrap()
+            .contains("Console OAuth profile eevee")
+    );
+    assert!(route(&[console, ("ANTHROPIC_API_KEY", "unit-test")]).is_err());
+    assert!(route(&[console, bedrock, opt_in, ("AWS_PROFILE", "work")]).is_err());
+    assert!(route(&[console, opt_in]).is_err());
+}
+#[test]
+fn sdk_callbacks_never_offer_hidden_or_unsupported_grants() {
+    let deny = json!({"label":"Deny","answer":{"behavior":"deny","message":"No"}});
+    let oversized = json!({"kind":"approval","input":{"options":[deny.clone(), {"label":"Allow","answer":{"behavior":"allow","updatedInput":{"content":"x".repeat(ITEM_LIMIT)}}}]}});
+    assert!(prompt_kind(&oversized).is_err());
+    let elicitation = json!({"kind":"elicitation","input":{"options":[{"label":"Decline","answer":{"action":"decline"}},{"label":"Accept","answer":{"action":"accept"}}]}});
+    assert!(prompt_kind(&elicitation).is_err());
+    let escalation = json!({"kind":"approval","input":{"options":[deny, {"label":"Allow","answer":{"behavior":"allow","updatedInput":{},"updatedPermissions":[]}}]}});
+    assert!(prompt_kind(&escalation).is_err());
+}
+#[test]
+fn sdk_tool_snapshots_retain_partial_and_preserve_terminal_identity() {
+    let mut items = SdkItems::default();
+    let pending =
+        json!({"item_id":"tool-1","kind":"tool","text":"requested edit","complete":false});
+    assert!(!items.observe(&pending).unwrap().complete);
+    assert_eq!(items.items["tool-1"].text, "requested edit");
+    let finished =
+        json!({"item_id":"tool-1","kind":"tool","text":"provider result","complete":true});
+    assert!(items.observe(&finished).unwrap().complete);
+    assert_eq!(items.items.len(), 1);
+    assert!(items.observe(&pending).is_err());
+    assert!(items.observe(&json!({"item_id":"tool-1","kind":"message","text":"provider result","complete":true})).is_err());
+    assert!(items.observe(&finished).is_ok());
+}
+#[test]
+fn provider_permission_options_preserve_exact_answers_without_persistent_grants() {
+    let value = json!({"kind":"approval","input":{"options":[{"label":"Deny","answer":{"behavior":"deny","message":"No"}},{"label":"Allow once","answer":{"behavior":"allow","updatedInput":{"file_path":"a.rs"}}}]}});
+    let kind = prompt_kind(&value).unwrap();
+    assert!(provider_answer(&kind, json!({"behavior":"allow"})).is_err());
+    assert!(
+        provider_answer(
+            &kind,
+            json!({"behavior":"allow","updatedInput":{"file_path":"a.rs"},"updatedPermissions":[]})
+        )
+        .is_err()
+    );
+    assert!(provider_answer(&kind, value["input"]["options"][1]["answer"].clone()).is_ok());
+}
+#[test]
+fn questions_are_distinct_from_tool_and_elicitation_answers() {
+    let value = json!({"kind":"questions","input":{"questions":[{"question":"Which database?","header":"Database","multiSelect":false,"options":[{"label":"SQLite","description":"Local"}]}]}});
+    let kind = prompt_kind(&value).unwrap();
+    assert_eq!(
+        provider_answer(&kind, json!({"answers":{"0":{"answers":["SQLite"]}}})).unwrap(),
+        json!({"behavior":"allow","updatedInput":{"answers":{"Which database?":"SQLite"}}})
+    );
+    assert!(provider_answer(&kind, json!({"action":"accept"})).is_err());
+    assert!(provider_answer(&kind, json!({"answers":{"stale":{"answers":["SQLite"]}}})).is_err());
+}
+#[test]
+fn terminal_controls_and_recognizable_credentials_are_never_rendered() {
+    assert!(!safe("\u{1b}[31msecret token=canary\u{202e}").contains("\u{1b}"));
+    assert!(!safe("token=canary").contains("canary"));
+}

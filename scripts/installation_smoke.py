@@ -157,7 +157,7 @@ class ReleaseFixture:
         self.thread.join(timeout=5)
 
     def configure_source(self, package):
-        for relative in ("src/distribution.rs", "install.sh", "install.ps1"):
+        for relative in ("src/platform/distribution.rs", "install.sh", "install.ps1"):
             path = package / relative
             source = path.read_text()
             source = source.replace("https://github.com/kimmandoo/eevee/releases", self.base)
@@ -194,7 +194,7 @@ def main():
         "LOCALAPPDATA": str(sprite_home / "cache"),
         "APPDATA": str(sprite_home / "config"),
     }
-    artwork_source = (root / "src/artwork.rs").read_text()
+    artwork_source = (root / "src/ui/artwork.rs").read_text()
     hashes = re.findall(r'"([0-9a-f]{64})"', artwork_source.split("const HASHES:", 1)[1].split("];", 1)[0])
     species = (133, 134, 135, 136, 196, 197, 470, 471, 700)
     assert len(hashes) == len(species)

@@ -351,12 +351,12 @@ mod tests {
             selected: Style::default().add_modifier(Modifier::REVERSED),
         }
     }
-    fn prepared() -> crate::runner::Prepared {
-        crate::runner::Prepared {
+    fn prepared() -> crate::workspace::runner::Prepared {
+        crate::workspace::runner::Prepared {
             request_id: "r-review".into(),
             run_id: "r-review-run".into(),
             task_id: 1,
-            spec: crate::runner::CommandSpec::Direct {
+            spec: crate::workspace::runner::CommandSpec::Direct {
                 program: "tool".into(),
                 args: vec![
                     "中文 long exact argument ".repeat(120),
@@ -365,7 +365,7 @@ mod tests {
             },
             cwd: "/project 中文".into(),
             cwd_identity: "directory-id".into(),
-            executable: crate::runner::ExecutableIdentity {
+            executable: crate::workspace::runner::ExecutableIdentity {
                 path: "/tool path".into(),
                 sha256: "hash".into(),
                 bytes: 1,
@@ -374,7 +374,7 @@ mod tests {
             },
             prepared_at_ms: 1,
             expires_at_ms: 100,
-            before: crate::runner::InputSnapshot::default(),
+            before: crate::workspace::runner::InputSnapshot::default(),
         }
     }
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::{context, repo, store};
+use crate::{store, workspace::context, workspace::repo};
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum Mode {
@@ -777,7 +777,7 @@ impl State {
             "EXACT BASKET ENVELOPE / escaped display\n{} UTF-8 bytes / ~{} tokens ({})\nProvider history/config/agent-owned reads may add context; this basket does not constrain them. No provider is connected and nothing is sent.{}\nPage {} / bytes {}..{} / /page-next, /page-previous\n\n{:?}",
             payload.bytes,
             payload.estimated_tokens,
-            crate::receipt::ESTIMATOR,
+            crate::workspace::receipt::ESTIMATOR,
             dedup,
             self.payload_page + 1,
             start,

@@ -1,0 +1,9 @@
+//! Local task work: repository state, context capture, owned execution, evidence and handoff.
+pub mod context;
+pub mod handoff;
+pub mod memory;
+pub mod privacy;
+pub mod receipt;
+pub mod repo;
+pub mod runner;
+pub mod workflows;

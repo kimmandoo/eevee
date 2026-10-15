@@ -247,7 +247,7 @@ impl App {
             return Some("Finish or cancel the active local command first.".into());
         }
         if name == "resume"
-            && (self.planning.operation == crate::provider::Operation::Review
+            && (self.planning.operation == crate::providers::Operation::Review
                 || self.planning.thread_id.is_none())
         {
             return Some("This provider/role has no owned resumable session; choose /new.".into());
@@ -636,7 +636,7 @@ mod tests {
         assert_eq!(app.goal, "Saved prompt");
         key(&mut app, KeyCode::Enter);
         assert!(matches!(app.planning.pending.as_ref(),
-            Some(crate::provider::Request::Preview(input)) if !input.inspect_models));
+            Some(crate::providers::Request::Preview(input)) if !input.inspect_models));
         assert!(app.command_popup.is_none());
     }
 
@@ -707,7 +707,7 @@ mod tests {
         assert!(!app.authentication_ready());
         app.command("models-refresh");
         assert!(matches!(app.planning.pending.as_ref(),
-            Some(crate::provider::Request::Preview(input)) if input.inspect_models && input.resume.is_none()));
+            Some(crate::providers::Request::Preview(input)) if input.inspect_models && input.resume.is_none()));
         app.command("models-refresh");
         assert!(app.notice.contains("active provider"));
     }
