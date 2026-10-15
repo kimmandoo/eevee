@@ -2,11 +2,11 @@
 
 ## Active work
 
-**Existing A–G scope: 25 of 31 tasks passed scoped acceptance**, including P02 and U01/L01/G01/S01/S02/S03. **Future sections H–J contain 27 planned items (0/27 complete); total backlog: 25/58 complete.** Schema-6 specialist workflows, approved scoped memory and plan-only recipes passed all five native build/installed-runtime rows at `d198fa5`; SDK policy also passed. All specified local performance workloads and real Codex/OpenCode scenarios completed. The user-authorized **0.1.0 core release** promotes those exact qualified artifacts. **A04/A06/full A07 remain unchecked pending permitted Claude credentials and completed eligible Gemini authentication/model conformance; full Q01/Q02/P03 retain those dependencies.** Core acceptance is not advertised as complete provider interoperability.
+**Existing A–G scope: 25 of 31 tasks passed scoped acceptance**, including P02 and U01/L01/G01/S01/S02/S03. **Future sections H–J contain 35 planned items (0/35 complete); total backlog: 25/66 complete.** Schema-6 specialist workflows, approved scoped memory and plan-only recipes passed all five native build/installed-runtime rows at `d198fa5`; SDK policy also passed. All specified local performance workloads and real Codex/OpenCode scenarios completed. The user-authorized **0.1.0 core release** promotes those exact qualified artifacts. **A04/A06/full A07 remain unchecked pending permitted Claude credentials and completed eligible Gemini authentication/model conformance; full Q01/Q02/P03 retain those dependencies.** Core acceptance is not advertised as complete provider interoperability.
 
 **0.1.1 release request (2026-10-14):** The user asked to implement the token-economy work, commit/push it and release **0.1.1**. Delivered: T01's local request receipt (partial; see its note), the Claude Console OAuth route, and the version bump. Publication still requires the exact-commit five-row native qualification. This explicit request lifts only the release hold; A04/A06/A07 and the other section I tasks remain unchecked. T05 budgets/repeat detection were later dropped at the user's request, and CI was reduced to one check job plus five build/install rows.
 
-**Eevee identity request (2026-10-15):** Add small tasks that make Eevee's adaptability concrete. Section J defines nine future tasks (EV01–EV09): evidence-based form suggestion, carry-over card, capability chip, empty states, evidence-backed party status, route history, return to Eevee, event dialogue and bond proposals. Backlog design only; no runtime change.
+**Eevee identity request (2026-10-15):** Add small tasks that make Eevee's adaptability concrete. Section J defines seventeen future tasks: EV01–EV09 (form suggestion, carry-over card, capability chip, empty states, evidence-backed party status, route history, return to Eevee, event dialogue, bond proposals) and EV10–EV17 form relays that hand one form's actual output to the next as reviewed input. Backlog design only; no runtime change.
 
 **Current differentiation request (2026-10-14):** Add substantive token-saving and tool-calling features, not just more commands or cosmetic changes. Section I defines twelve future tasks with measurable acceptance, explicit control boundaries and no promised savings before measurement. This is backlog design, not implementation or permission for paid model runs.
 
@@ -488,10 +488,10 @@ These twelve items are **planned, not implemented**. The product distinction is 
 
 ## J — Eevee as an adaptable partner
 
-These nine items are **planned, not implemented**. Eevee's distinguishing trait is adaptability: one partner keeps the same task while changing form to fit the problem. Each item makes that trait concrete in a small, independently demoable slice: the right form is easy to reach, a switch shows exactly what carries over, and each form leaves a distinct, evidence-backed trace.
+These seventeen items are **planned, not implemented**. Eevee's distinguishing trait is adaptability: one partner keeps the same task while changing form to fit the problem. Each item makes that trait concrete in a small, independently demoable slice: the right form is easy to reach, a switch shows exactly what carries over, and each form leaves a distinct, evidence-backed trace.
 
 - **Boundaries:** All items are local UI/state work with zero provider or network invocations. Suggestions are labelled, deterministic and never self-activate; a form switch grants nothing and sends nothing. Respect the bond rule: no affection score, XP, streaks, random unlocks, invented praise or fabricated stats. Form selection alone remains non-evidence.
-- **Order:** Priority 1 (EV01–EV04) makes switching informed; priority 2 (EV05–EV09) adds history, dialogue and habit reuse. Each item needs its own actual-TUI demo at 120×36 and 60×18 and its own commit.
+- **Order:** Priority 1 makes switching informed (EV01–EV04) and connects the most frequent relays (EV10, EV12–EV14); priority 2 adds history, dialogue, habit reuse and the remaining relays. Each item needs its own actual-TUI demo at 120×36 and 60×18 and its own commit.
 
 ### EV01 — Evidence-based form suggestion
 
@@ -565,6 +565,74 @@ These nine items are **planned, not implemented**. Eevee's distinguishing trait 
 - **Change:** Locally detect identical normalized instruction text sent in three or more requests within a project and let Sylveon propose it as a project or personal memory, showing where it was repeated. Proposals require the existing explicit S02 approval; dismissal is remembered per text hash. Never save, scope or infer preferences automatically.
 - **Accept:** Send the same instruction in three planning requests (recorded fixture events); a proposal appears with its three sources. Approve once and the next receipt shows the memory instead of repeated text; dismiss another and it does not return. Secrets-filtered or excluded text never becomes a proposal.
 
+### Form relays — one partner, connected evidence
+
+EV10–EV17 connect forms so one form's actual output becomes the next form's reviewed input, without retyping or copying text into a chat. A relay pre-fills a draft or scope from stored evidence identities; it never approves, runs or sends anything, and the receiving form shows where each pre-filled item came from.
+
+### EV10 — Pin a failure location from Jolteon output
+
+- [ ] Turn a `file:line` in a failed run into pinned Vaporeon context in one action.
+- **Priority:** 1.
+- **Depends on:** R02, C02.
+- **Change:** Locally parse `path:line[:col]` locations in retained run output (Rust, Python, Node/TypeScript and generic forms). Selecting one offers `Pin range` with a bounded surrounding window, reusing the existing capture identity and exclusion checks. The capture records the originating run as provenance.
+- **Accept:** From a real failing `cargo test` and a Python traceback, pin the reported locations; the basket shows the run reference. Out-of-root, excluded and nonexistent paths are refused with a reason. Unparseable output offers nothing rather than a guess.
+
+### EV11 — Rank `@` candidates by the active form
+
+- [ ] Show the most relevant files first when attaching, based on what the current form is doing.
+- **Priority:** 2.
+- **Depends on:** C02, EV10.
+- **Change:** Keep the same `@` picker and search, but order results locally by form: Umbreon prefers files in the latest failure locations, Flareon/Leafeon prefer files in the working diff, Glaceon prefers changed files and their tests. Show a short reason per boosted entry; search text still overrides ranking.
+- **Accept:** With a failing run and a diff in a fixture repository, the top entries differ between Umbreon and Flareon and show their reasons. Typed queries return the same match set in every form. Excluded files never appear.
+
+### EV12 — Carry a supported hypothesis into Flareon scope
+
+- [ ] Start a fix from Umbreon's conclusion instead of restating it.
+- **Priority:** 1.
+- **Depends on:** U01, A03, EV02.
+- **Change:** On a hypothesis marked supported, offer `Fix with Flareon`. It opens EV02 and pre-fills Flareon's requirement with the hypothesis text and its evidence references, and its editable-path proposal with the linked source ranges. Unresolved or refuted hypotheses cannot relay.
+- **Accept:** Relay a supported hypothesis; the Flareon draft cites it and its evidence, and editable paths still need the normal approval. Cancelling leaves Umbreon state unchanged. A refuted hypothesis shows a disabled reason.
+
+### EV13 — Fix Glaceon findings with Flareon and re-review
+
+- [ ] Close the review loop finding by finding.
+- **Priority:** 1.
+- **Depends on:** G01, A03, EV02.
+- **Change:** From a selected request-changes finding, offer `Fix with Flareon`, pre-filling the requirement and scope from the finding and its evidence. After a new diff touches the finding's ranges, mark the finding `addressed, needs re-review` (never resolved) and offer returning to Glaceon with a fresh review context.
+- **Accept:** Relay two findings, change one; only that finding becomes `addressed, needs re-review`, and Glaceon's verdict becomes stale. The re-review context stays independent of the implementation conversation. No finding is closed without a new Glaceon verdict.
+
+### EV14 — Rerun a stale check at the current revision
+
+- [ ] Refresh outdated verification with one reviewed action.
+- **Priority:** 1.
+- **Depends on:** R01, R02.
+- **Change:** Where a run is marked stale (task card, EV05 status, Glaceon criterion), offer `Rerun with Jolteon`, opening the normal command review pre-filled with the same argv and cwd at the current code-state identity. The new result is a new run linked to the old one, never an update of it.
+- **Accept:** Edit a source after a passing run, rerun from the stale marker, and approve; both runs remain in the journal with distinct revisions. Denying the review starts nothing. A changed argv after editing in review is shown before approval.
+
+### EV15 — Turn an Espeon decision into acceptance criteria
+
+- [ ] Make a chosen design immediately checkable.
+- **Priority:** 2.
+- **Depends on:** A02, E01.
+- **Change:** From an Espeon decision card, offer `Add as criteria`, listing its acceptance items as editable task criteria with a link back to the decision. Duplicates of existing criteria are flagged rather than added twice. Nothing changes until the user confirms.
+- **Accept:** Add three criteria from a decision, edit one, restart; criteria persist with their decision link and the met/total count in the partner card updates. Cancelling adds nothing.
+
+### EV16 — Leafeon measurement baseline from Jolteon runs
+
+- [ ] Reuse an existing run as the "before" side of a refactor comparison.
+- **Priority:** 2.
+- **Depends on:** L01, R02.
+- **Change:** When starting a Leafeon comparison, offer recent passing runs at the pre-refactor revision as the baseline instead of requiring a fresh baseline run. Show the run's age and revision; a run from another revision or with different argv is not offered.
+- **Accept:** Pick an existing run as baseline, refactor, and compare with a new run of the same argv; the comparison names both runs. Mismatched runs are excluded with a reason. Choosing none falls back to the existing fresh-baseline flow.
+
+### EV17 — Per-form provider pairing
+
+- [ ] Remember which agent and model the user explicitly chose for a form in this project.
+- **Priority:** 2.
+- **Depends on:** A01, A02, V03.
+- **Change:** When the user selects an agent/model while in a form, offer `Use for <form> in this project`. Later switches to that form preselect the pairing and label it remembered. Selection never submits a request, connects, or changes billing/authentication; an unavailable pairing shows its blocker and falls back to the task's current selection.
+- **Accept:** Pair Glaceon with one agent and Flareon with another; switching forms preselects each and the request review shows the selection. Remove the remembered pairing and the default returns. A disconnected agent is labelled unavailable, never silently replaced.
+
 ## Phase status
 
-Existing A–G scope: **25/31 complete, 6 unchecked**. Requested future section H: **0/6 complete**; section I: **0/12 complete**; section J: **0/9 complete**; T01 is partially implemented in 0.1.1 and T05 is dropped, with remaining acceptance recorded. Total: **25/58 complete, 33 unchecked**. A04/A06/full A07 still lack permitted Claude/Gemini authentication; full Q01/Q02/P03 therefore remain pending rather than inheriting local-core acceptance. Sections H–J do not retroactively widen existing acceptance or authorize implementation, paid experiments or provider access. The separately authorized 0.1.0 core release used successful exact-commit native artifacts. On 2026-10-14 the user explicitly requested 0.1.1 with the token-economy slice. That release lifts only the release hold; A04/A06/A07 remain unchecked and no provider gate is inherited.
+Existing A–G scope: **25/31 complete, 6 unchecked**. Requested future section H: **0/6 complete**; section I: **0/12 complete**; section J: **0/17 complete**; T01 is partially implemented in 0.1.1 and T05 is dropped, with remaining acceptance recorded. Total: **25/66 complete, 41 unchecked**. A04/A06/full A07 still lack permitted Claude/Gemini authentication; full Q01/Q02/P03 therefore remain pending rather than inheriting local-core acceptance. Sections H–J do not retroactively widen existing acceptance or authorize implementation, paid experiments or provider access. The separately authorized 0.1.0 core release used successful exact-commit native artifacts. On 2026-10-14 the user explicitly requested 0.1.1 with the token-economy slice. That release lifts only the release hold; A04/A06/A07 remain unchecked and no provider gate is inherited.
