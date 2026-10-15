@@ -114,6 +114,7 @@ impl App {
                 let local_changes = self.revision != self.saved_revision;
                 self.usage_bytes = project.usage_bytes;
                 self.tasks = project.tasks;
+                self.party = project.partners.clone();
                 let target = if self.task_id > 0 {
                     Some(self.task_id)
                 } else {
@@ -201,6 +202,7 @@ impl App {
                         .tasks
                         .iter()
                         .any(|task| task.id == self.task_id && !task.archived);
+                self.party = project.partners;
                 self.tasks = project.tasks;
                 if current_removed {
                     let next = self

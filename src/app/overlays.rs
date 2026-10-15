@@ -258,7 +258,8 @@ impl App {
                 | Overlay::Criteria
                 | Overlay::Repository
                 | Overlay::Sources
-                | Overlay::Images,
+                | Overlay::Images
+                | Overlay::Party,
             ) => ScrollSurface::Preview,
             _ => match self.effective_focus() {
                 Pane::Companion => ScrollSurface::Companion,
