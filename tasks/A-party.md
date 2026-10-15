@@ -65,11 +65,11 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT05B — Per-partner drafts
 
-- [ ] Give each partner its own draft on the same task.
+- [x] Give each partner its own draft on the same task.
 - **Priority:** 1. **Needs:** PT05A. **Builds on:** E01, UX01.
 - **Change:** Drafts are keyed by (task, partner), and existing drafts migrate to the lead partner. The composer title shows whose draft it is.
 - **Accept:** Write different CJK drafts for two partners, switch leads and restart; each draft and caret returns exactly. A dirty-draft warning applies per draft.
-- **Watch out:** Use the column reserved in PT02A. Paste safety (never execute) is unchanged.
+- **Watch out:** Use the column reserved in PT02A. Its original 64-KiB bound was enlarged in Schema 8 to preserve six complete sets of valid escaped drafts. Paste safety (never execute) is unchanged.
 
 ### PT06A — Partner attribution on journal entries
 

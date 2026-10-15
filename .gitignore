@@ -1,2 +1,3 @@
 /target/
 /sidecar/node_modules/
+__pycache__/

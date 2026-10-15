@@ -52,11 +52,11 @@ impl App {
         }
     }
 
-    pub fn snapshot(&self, project: &str) -> store::Snapshot {
+    pub(super) fn partner_draft(&self) -> store::PartnerDrafts {
         let mut drafts = self.drafts.clone();
         if self.editing {
             drafts.retain(|draft| draft.field != self.editor_field);
-            if self.draft_dirty() {
+            if self.draft_dirty() || self.cursor != self.input.len() {
                 drafts.push(store::Draft {
                     field: self.editor_field,
                     text: self.input.clone(),
@@ -64,6 +64,17 @@ impl App {
                 });
             }
         }
+        store::PartnerDrafts {
+            drafts,
+            editor_field: self.editor_field,
+            editing: self.editing || self.composer_return.is_some(),
+            previous_form: self.previous_form,
+        }
+    }
+
+    pub fn snapshot(&self, project: &str) -> store::Snapshot {
+        let mut partner_drafts = self.partner_drafts.clone();
+        partner_drafts.insert(self.lead.id, self.partner_draft());
         store::Snapshot {
             project: project.to_owned(),
             goal: self.goal.clone(),
@@ -85,7 +96,7 @@ impl App {
                     .unwrap_or_default()
             }),
             complete: self.complete,
-            drafts,
+            partner_drafts,
             navigation: self.navigation(),
             updated_at: self.updated_at,
             archived: self.archived,
@@ -130,7 +141,13 @@ impl App {
         self.archived = snapshot.archived;
         self.archived_at = snapshot.archived_at;
         self.redacted = snapshot.redacted;
-        self.drafts = snapshot.drafts;
+        self.partner_drafts = snapshot.partner_drafts;
+        let draft = self
+            .partner_drafts
+            .get(&self.lead.id)
+            .cloned()
+            .unwrap_or_default();
+        self.drafts = draft.drafts;
         self.input.clear();
         self.edit_original.clear();
         self.confirmation = None;
@@ -152,7 +169,7 @@ impl App {
         self.form_selection = navigation.form_selection;
         // Restored after set_form above so the stored value wins over the
         // in-memory tracking the load path just recorded.
-        self.previous_form = navigation.previous_form;
+        self.previous_form = draft.previous_form;
         self.surface_scroll = navigation.scroll;
         self.surface_scroll_max = [u16::MAX; 5];
         self.overlay = match navigation.overlay {
@@ -168,9 +185,9 @@ impl App {
             _ => None,
         };
         self.restore_selection();
-        self.editor_field = navigation.editor_field;
-        if navigation.editing {
-            self.open_editor(navigation.editor_field);
+        self.editor_field = draft.editor_field;
+        if draft.editing {
+            self.open_editor(draft.editor_field);
         }
         self.storage = StorageState::Saved;
         self.show_archived = false;

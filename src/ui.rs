@@ -1210,7 +1210,10 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
                 .filter(|criterion| criterion.met)
                 .count(),
             task.criteria.len(),
-            task.drafts.len(),
+            task.partner_drafts
+                .values()
+                .map(|state| state.drafts.len())
+                .sum::<usize>(),
         )),
         Line::from(format!(
             "Archive: {} / Masked secrets: {}",
@@ -1643,7 +1646,11 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
     } else {
         " Task composer / local "
     };
-    let title = format!("{title}/ {} attached ", app.sources.basket.len());
+    let title = format!(
+        "{title}/ {} / {} attached ",
+        App::partner_label(app.lead()),
+        app.sources.basket.len()
+    );
     let block = panel(&title, config, paint, editing && app.overlay.is_none());
     let content = block.inner(area);
     frame.render_widget(block, area);
@@ -1714,7 +1721,11 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
 fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
     let area = centered(area, 86, 16);
     frame.render_widget(Clear, area);
-    let title = format!(" Edit {} ", app.editor_label());
+    let title = format!(
+        " Edit {} / {} ",
+        app.editor_label(),
+        App::partner_label(app.lead())
+    );
     let block = panel(&title, config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);

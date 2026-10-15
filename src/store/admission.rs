@@ -49,7 +49,8 @@ pub(super) fn validate_committed_task(
         || current.form != expected.form
         || current.complete != expected.complete
         || current.archived != expected.archived
-        || current.drafts != expected.drafts
+        || current.lead_partner != expected.lead_partner
+        || current.partner_drafts != expected.partner_drafts
         || current.workflows != expected.workflows
         || current.approved_memories != expected.approved_memories
         || current.memory_draft != expected.memory_draft

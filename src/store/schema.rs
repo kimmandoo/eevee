@@ -21,7 +21,7 @@ pub(super) fn migrate_workflows(connection: &Connection) -> Result<(), String> {
 
 /// Schema 7: the party. Creates `partners` with partner #1 derived from task
 /// history, and reserves `tasks.lead_partner` plus the per-partner draft
-/// column PT05B needs so no later wave bumps the schema.
+/// column used by per-partner editing.
 pub(super) fn migrate_partners(connection: &Connection) -> Result<(), String> {
     connection
         .execute_batch(&format!(
@@ -39,10 +39,47 @@ pub(super) fn migrate_partners(connection: &Connection) -> Result<(), String> {
                   1,
                   coalesce((SELECT project FROM tasks ORDER BY updated_at,id LIMIT 1),'');
          ALTER TABLE tasks ADD COLUMN lead_partner INTEGER NOT NULL DEFAULT 1 CHECK(lead_partner>=1);
-         ALTER TABLE tasks ADD COLUMN partner_drafts TEXT NOT NULL DEFAULT '{{}}' CHECK(length(CAST(partner_drafts AS BLOB))<={MAX_PARTNER_DRAFTS_BYTES});
+         ALTER TABLE tasks ADD COLUMN partner_drafts TEXT NOT NULL DEFAULT '{{}}' CHECK(length(CAST(partner_drafts AS BLOB))<=65536);
          PRAGMA user_version=7;"
         ))
         .map_err(|error| format!("Cannot migrate partner storage: {error}"))
+}
+
+/// Schema 8 preserves the full six-partner draft capacity, including JSON escaping.
+pub(super) fn migrate_partner_draft_capacity(connection: &Connection) -> Result<(), String> {
+    connection.execute_batch(&format!(
+        "ALTER TABLE tasks RENAME TO old_tasks;
+         CREATE TABLE tasks (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           project TEXT NOT NULL,
+           goal TEXT NOT NULL CHECK(length(CAST(goal AS BLOB))<=4096),
+           form INTEGER NOT NULL CHECK(form>=0 AND form<9),
+           revision INTEGER NOT NULL CHECK(revision>=0),
+           criteria TEXT NOT NULL CHECK(length(CAST(criteria AS BLOB))<=110000),
+           next_action TEXT NOT NULL CHECK(length(CAST(next_action AS BLOB))<=4096),
+           complete INTEGER NOT NULL CHECK(complete IN (0,1)),
+           drafts TEXT NOT NULL CHECK(length(CAST(drafts AS BLOB))<=110000),
+           navigation TEXT NOT NULL CHECK(length(CAST(navigation AS BLOB))<=1024),
+           updated_at INTEGER NOT NULL CHECK(updated_at>=0),
+           archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
+           archived_at INTEGER NOT NULL DEFAULT 0 CHECK(archived_at>=0),
+           redacted INTEGER NOT NULL DEFAULT 0 CHECK(redacted IN (0,1)),
+           command TEXT NOT NULL DEFAULT '' CHECK(length(CAST(command AS BLOB))<=4096),
+           workflows TEXT NOT NULL DEFAULT '{{}}' CHECK(length(CAST(workflows AS BLOB))<=524288),
+           memory_draft TEXT NOT NULL DEFAULT 'null' CHECK(length(CAST(memory_draft AS BLOB))<=65536),
+           approved_memories TEXT NOT NULL DEFAULT '[]' CHECK(length(CAST(approved_memories AS BLOB))<=524288),
+           workflow_draft TEXT NOT NULL DEFAULT 'null' CHECK(length(CAST(workflow_draft AS BLOB))<=524288),
+           lead_partner INTEGER NOT NULL DEFAULT 1 CHECK(lead_partner>=1),
+           partner_drafts TEXT NOT NULL DEFAULT '{{}}' CHECK(length(CAST(partner_drafts AS BLOB))<={MAX_PARTNER_DRAFTS_BYTES}));
+         INSERT INTO tasks({TASK_COLUMNS}) SELECT {TASK_COLUMNS} FROM old_tasks;
+         UPDATE sqlite_sequence SET seq=max(seq,coalesce(
+           (SELECT seq FROM sqlite_sequence WHERE name='old_tasks'),seq)) WHERE name='tasks';
+         INSERT INTO sqlite_sequence(name,seq)
+           SELECT 'tasks',seq FROM sqlite_sequence WHERE name='old_tasks'
+           AND NOT EXISTS(SELECT 1 FROM sqlite_sequence WHERE name='tasks');
+         DROP TABLE old_tasks;
+         PRAGMA user_version=8;"
+    )).map_err(|error| format!("Cannot migrate partner draft capacity: {error}"))
 }
 
 pub(super) fn create_evidence_schema(connection: &Connection) -> Result<(), String> {
@@ -171,6 +208,7 @@ pub(super) enum Schema {
     Evidence,
     ProviderJournal,
     Workflows,
+    Partners,
     Current,
 }
 
@@ -192,9 +230,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=7).contains(&version) {
+    if !(0..=8).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0 through 7"
+            "Unsupported database schema version {version}; this ev supports versions 0 through 8"
         ));
     }
     let mut statement = connection
@@ -265,7 +303,7 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
         {
             Schema::Workflows
         }
-        (7, objects)
+        (7 | 8, objects)
             if objects.len() == 7
                 && objects
                     .iter()
@@ -280,7 +318,11 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
                     ])
                     .all(|((kind, name), expected)| kind == "table" && name == expected) =>
         {
-            Schema::Current
+            if version == 7 {
+                Schema::Partners
+            } else {
+                Schema::Current
+            }
         }
         _ => return Err("Unrecognized or nonempty foreign database schema".into()),
     };
@@ -310,6 +352,7 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
         | Schema::Evidence
         | Schema::ProviderJournal
         | Schema::Workflows
+        | Schema::Partners
         | Schema::Current => {
             inspect_columns(
                 connection,
@@ -507,17 +550,23 @@ pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), Str
     if matches!(schema, Schema::Current) {
         return Ok(());
     }
+    if matches!(schema, Schema::Partners) {
+        return migrate_partner_draft_capacity(connection);
+    }
     if matches!(schema, Schema::Workflows) {
-        return migrate_partners(connection);
+        migrate_partners(connection)?;
+        return migrate_partner_draft_capacity(connection);
     }
     if matches!(schema, Schema::Evidence) {
         connection.execute_batch("CREATE TABLE provider_journal(id TEXT PRIMARY KEY,task_id INTEGER NOT NULL,record TEXT NOT NULL CHECK(length(CAST(record AS BLOB)) <= 65536)); PRAGMA user_version=5;").map_err(|error| format!("Cannot migrate provider journal: {error}"))?;
         migrate_workflows(connection)?;
-        return migrate_partners(connection);
+        migrate_partners(connection)?;
+        return migrate_partner_draft_capacity(connection);
     }
     if matches!(schema, Schema::ProviderJournal) {
         migrate_workflows(connection)?;
-        return migrate_partners(connection);
+        migrate_partners(connection)?;
+        return migrate_partner_draft_capacity(connection);
     }
     if matches!(schema, Schema::Tasks | Schema::Lifecycle) {
         connection
@@ -598,7 +647,7 @@ pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), Str
                      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
                     params![if task.id == 0 { None } else { Some(task.id) }, task.project, task.goal, task.form as i64, task.revision as i64,
                         serde_json::to_string(&task.criteria).map_err(|error| error.to_string())?, task.next_action, task.complete,
-                        serde_json::to_string(&task.drafts).map_err(|error| error.to_string())?,
+                        serde_json::to_string(&task.partner_drafts.get(&task.lead_partner).map(|state| state.drafts.as_slice()).unwrap_or_default()).map_err(|error| error.to_string())?,
                         serde_json::to_string(&task.navigation).map_err(|error| error.to_string())?, task.updated_at, task.redacted, task.archived, task.archived_at],
                 ).map_err(|error| format!("Cannot migrate task: {error}"))?;
             }
@@ -629,5 +678,6 @@ pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), Str
     }
     create_evidence_schema(connection)?;
     migrate_workflows(connection)?;
-    migrate_partners(connection)
+    migrate_partners(connection)?;
+    migrate_partner_draft_capacity(connection)
 }

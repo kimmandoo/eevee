@@ -4,7 +4,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 
 | File | Section | Open |
 |---|---|---|
-| [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 14 |
+| [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 13 |
 | [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 9 |
 | [C-relays.md](tasks/C-relays.md) | Form relays | 8 |
 | [D-moves.md](tasks/D-moves.md) | Moves: teaching and learning skills | 14 |
@@ -12,12 +12,12 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 | [F-context-tools.md](tasks/F-context-tools.md) | Context, token economy and tool calling | 19 |
 | [G-ux-platform.md](tasks/G-ux-platform.md) | UX, platform and release | 7 |
 | [H-provider-acceptance.md](tasks/H-provider-acceptance.md) | Provider acceptance (blocked) | 6 |
-| [R-code-structure.md](tasks/R-code-structure.md) | Code structure | 8 |
+| [R-code-structure.md](tasks/R-code-structure.md) | Code structure | 7 |
 
 ## Status
 
-- **Released:** 0.1.3 (tags v0.1.0–v0.1.3). Schema 7 store.
-- **Done:** the 25 original tasks plus PT01 (party contract), PT02A (partner table / Schema 7), PT02B (lead-partner accessor), PT03A (named form commands), PT03B (previous-form toggle), PT04A/PT04B (party roster, add partner) and the first code-structure pass (index below). **Open:** 98 small tasks. **Dropped:** T05.
+- **Released:** 0.1.3 (tags v0.1.0–v0.1.3). Schema 8 store.
+- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B, PT05A/PT05B, RF05 and the first code-structure pass (index below). **Open:** 96 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.
 
@@ -35,7 +35,7 @@ V01 sanctuary layout · P01 native terminal lifecycle · V02A/V02B species art a
 
 ### Cross-cutting watch-outs
 
-- **Schema:** The store is Schema 7 (partners). PT02A reserved `partners.nickname` and `tasks.partner_drafts` so waves 1–2 share that one bump. Every later persisted addition needs a migration plus the byte-preserving old-binary refusal test; never rewrite data so an older binary can start.
+- **Schema:** The store is Schema 8. PT02A reserved `partners.nickname` and `tasks.partner_drafts`; PT05B enlarged the draft bound transactionally because six complete escaped draft sets exceed the original reservation. Every later persisted addition needs a migration plus byte-preserving old-binary refusal; never rewrite data so an older binary can start.
 - **Packets:** Partner flavor (nicknames, partner names, move names, dialogue, ribbons, routes) never enters provider packets or handoffs. The receipt must show zero flavor bytes.
 - **Facts first:** Pokémon-style copy wraps a factual line (command, exit code, permission scope), never replaces it. Monochrome, ASCII and linear layouts keep the same information.
 - **No fake progression:** No XP, levels, affection, streaks, hunger or random unlocks. Raising partners means learned moves, nicknames and real records. Add each new concept (Moves, Dex) to DESIGN_RULES when it ships.
@@ -47,7 +47,7 @@ V01 sanctuary layout · P01 native terminal lifecycle · V02A/V02B species art a
 
 | Wave | Tasks (in order) | Why this order |
 |---|---|---|
-| 1. Party foundation | PT02A → PT02B → PT03A → PT03B → PT04A → PT04B → PT05A → PT05B → RF05 → PT06A → PT06B → PT06C | Model and Schema 7, then switching, roster, drafts, and finally request routing (still one working partner). |
+| 1. Party foundation | PT02A → PT02B → PT03A → PT03B → PT04A → PT04B → PT05A → PT05B → RF05 → PT06A → PT06B → PT06C | Partner model and bounded storage, then switching, roster, drafts, and request routing (still one working partner). |
 | 2. Partner basics | EV04 → EV03A → EV03B → EV07 → PK01 → EV01A → EV01B → EV02 | Small UI slices reused later. |
 | 3. Form relays | EV10A → EV10B → EV14 → EV12 → EV13A → EV13B → EV15 → EV16 → PT10 → EV01C | Highest daily value; PT10 lets relays target a party member. |
 | 4. Cooperation | PT08A → PT08B → PT07A → PT07B → PT07C → PT09 → PT04C | Write lease before concurrency; queue and cancel-all before the board. |

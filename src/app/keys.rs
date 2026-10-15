@@ -502,7 +502,7 @@ impl App {
 
     pub(super) fn retain_editor(&mut self) {
         self.drafts.retain(|draft| draft.field != self.editor_field);
-        if self.draft_dirty() {
+        if self.draft_dirty() || self.cursor != self.input.len() {
             self.drafts.push(store::Draft {
                 field: self.editor_field,
                 text: self.input.clone(),

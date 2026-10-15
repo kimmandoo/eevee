@@ -142,7 +142,7 @@ impl State {
         }
         let criteria =
             serde_json::to_string(&snapshot.criteria).map_err(|error| error.to_string())?;
-        let drafts = serde_json::to_string(&snapshot.drafts).map_err(|error| error.to_string())?;
+        let partner_drafts = bounded_json(&snapshot.partner_drafts, MAX_PARTNER_DRAFTS_BYTES)?;
         let navigation =
             serde_json::to_string(&snapshot.navigation).map_err(|error| error.to_string())?;
         let workflows = bounded_json(&snapshot.workflows, MAX_WORKFLOW_BYTES)?;
@@ -157,11 +157,11 @@ impl State {
             .map_err(|_| "Save timestamp exceeds SQLite's integer range")?;
         let id = if snapshot.id == 0 {
             transaction.execute(
-                "INSERT INTO tasks(project,goal,form,revision,criteria,next_action,complete,drafts,navigation,updated_at,redacted,command,workflows,memory_draft,approved_memories,workflow_draft,lead_partner)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+                "INSERT INTO tasks(project,goal,form,revision,criteria,next_action,complete,drafts,navigation,updated_at,redacted,command,workflows,memory_draft,approved_memories,workflow_draft,lead_partner,partner_drafts)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,'[]',?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
                 params![snapshot.project, snapshot.goal, snapshot.form as i64, snapshot.revision as i64,
-                    criteria, snapshot.next_action, snapshot.complete, drafts, navigation, updated_at, snapshot.redacted, snapshot.command,
-                    workflows, memory_draft, approved_memories, workflow_draft, snapshot.lead_partner],
+                    criteria, snapshot.next_action, snapshot.complete, navigation, updated_at, snapshot.redacted, snapshot.command,
+                    workflows, memory_draft, approved_memories, workflow_draft, snapshot.lead_partner, partner_drafts],
             ).map_err(|error| format!("Cannot insert the task: {error}"))?;
             let id = transaction.last_insert_rowid();
             select_task(&transaction, &self.project, id)?;
@@ -169,12 +169,12 @@ impl State {
         } else {
             transaction.execute(
                 "UPDATE tasks SET goal=?1,form=?2,revision=?3,criteria=?4,next_action=?5,complete=?6,
-                 drafts=?7,navigation=?8,updated_at=?9,redacted=?12,command=?13,
-                 workflows=?14,memory_draft=?15,approved_memories=?16,workflow_draft=?17,lead_partner=?18 WHERE id=?10 AND project=?11",
+                 drafts='[]',navigation=?7,updated_at=?8,redacted=?11,command=?12,
+                 workflows=?13,memory_draft=?14,approved_memories=?15,workflow_draft=?16,lead_partner=?17,partner_drafts=?18 WHERE id=?9 AND project=?10",
                 params![snapshot.goal, snapshot.form as i64, snapshot.revision as i64, criteria,
-                    snapshot.next_action, snapshot.complete, drafts, navigation, updated_at,
+                    snapshot.next_action, snapshot.complete, navigation, updated_at,
                     snapshot.id, snapshot.project, snapshot.redacted, snapshot.command,
-                    workflows, memory_draft, approved_memories, workflow_draft, snapshot.lead_partner],
+                    workflows, memory_draft, approved_memories, workflow_draft, snapshot.lead_partner, partner_drafts],
             ).map_err(|error| format!("Cannot write the task: {error}"))?;
             snapshot.id
         };
@@ -570,12 +570,14 @@ pub(super) fn redact_snapshot(snapshot: &mut Snapshot) {
     for criterion in &mut snapshot.criteria {
         snapshot.redacted |= redact_field(&mut criterion.text);
     }
-    for draft in &mut snapshot.drafts {
-        if redact_field(&mut draft.text) {
-            snapshot.redacted = true;
-            draft.cursor = draft.cursor.min(draft.text.len());
-            while !draft.text.is_char_boundary(draft.cursor) {
-                draft.cursor -= 1;
+    for state in snapshot.partner_drafts.values_mut() {
+        for draft in &mut state.drafts {
+            if redact_field(&mut draft.text) {
+                snapshot.redacted = true;
+                draft.cursor = draft.cursor.min(draft.text.len());
+                while !draft.text.is_char_boundary(draft.cursor) {
+                    draft.cursor -= 1;
+                }
             }
         }
     }
@@ -664,20 +666,29 @@ pub(super) fn validate(snapshot: &Snapshot) -> Result<(), String> {
     {
         return Err("Completing a task requires nonempty, all-met acceptance criteria".into());
     }
-    if snapshot.drafts.len() > 4 {
-        return Err("A task may retain at most four drafts".into());
+    check_json_size(&snapshot.partner_drafts, MAX_PARTNER_DRAFTS_BYTES)?;
+    if snapshot.partner_drafts.len() > MAX_PARTNERS {
+        return Err("A task may retain drafts for at most six partners".into());
     }
-    for (index, draft) in snapshot.drafts.iter().enumerate() {
-        if draft.text.len() > MAX_GOAL_BYTES || !draft.text.is_char_boundary(draft.cursor) {
-            return Err(
-                "A draft exceeds 4096 bytes or has an invalid UTF-8 cursor boundary".into(),
-            );
+    for (partner, state) in &snapshot.partner_drafts {
+        if *partner < 1 || state.previous_form.is_some_and(|form| form >= 9) {
+            return Err("Invalid partner draft ownership or previous form".into());
         }
-        if snapshot.drafts[..index]
-            .iter()
-            .any(|other| other.field == draft.field)
-        {
-            return Err("A task may retain only one draft per editor field".into());
+        if state.drafts.len() > 4 {
+            return Err("A partner may retain at most four drafts per task".into());
+        }
+        for (index, draft) in state.drafts.iter().enumerate() {
+            if draft.text.len() > MAX_GOAL_BYTES || !draft.text.is_char_boundary(draft.cursor) {
+                return Err(
+                    "A draft exceeds 4096 bytes or has an invalid UTF-8 cursor boundary".into(),
+                );
+            }
+            if state.drafts[..index]
+                .iter()
+                .any(|other| other.field == draft.field)
+            {
+                return Err("A partner may retain only one draft per editor field".into());
+            }
         }
     }
     let nav = &snapshot.navigation;
@@ -778,18 +789,39 @@ pub(super) fn snapshot_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Snapshot
     if !(0..=1).contains(&complete) {
         return Err(rusqlite::Error::IntegralValueOutOfRange(7, complete));
     }
+    let lead_partner = row.get(19)?;
+    let navigation: Navigation = json_column(row, 9, 1024)?;
+    let legacy_drafts: Vec<Draft> = json_column(row, 8, 110_000)?;
+    let mut partner_drafts: std::collections::BTreeMap<i64, PartnerDrafts> =
+        if row.as_ref().column_count() > 20 {
+            json_column(row, 20, MAX_PARTNER_DRAFTS_BYTES)?
+        } else {
+            std::collections::BTreeMap::new()
+        };
+    // Schema 7 reserved this column before partner drafts shipped. Transfer
+    // the legacy task draft only when its lead has no partner-owned state.
+    if !legacy_drafts.is_empty() || navigation.editing || navigation.previous_form.is_some() {
+        partner_drafts
+            .entry(lead_partner)
+            .or_insert_with(|| PartnerDrafts {
+                drafts: legacy_drafts,
+                editor_field: navigation.editor_field,
+                editing: navigation.editing,
+                previous_form: navigation.previous_form,
+            });
+    }
     Ok(Snapshot {
         project: row.get(0)?,
         goal: row.get(1)?,
         form: row.get(2)?,
-        lead_partner: row.get(19)?,
+        lead_partner,
         revision: row.get(3)?,
         id: row.get(4)?,
         criteria: json_column(row, 5, 110_000)?,
         next_action: row.get(6)?,
         complete: complete != 0,
-        drafts: json_column(row, 8, 110_000)?,
-        navigation: json_column(row, 9, 1024)?,
+        partner_drafts,
+        navigation,
         updated_at: row.get(10)?,
         archived: row.get(11)?,
         archived_at: row.get(12)?,

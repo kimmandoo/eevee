@@ -22,6 +22,10 @@ from terminal_smoke import Session, terminal_environment
 from workbench_smoke import wait_for
 
 
+def lead_drafts(task):
+    return task["partner_drafts"].get(str(task["lead_partner"]), {}).get("drafts", [])
+
+
 ESC = "\x1b"
 HOME = ESC + "[H"
 END = ESC + "[F"
@@ -187,11 +191,11 @@ def main():
             def rows():
                 with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
                     db.row_factory = sqlite3.Row
-                    tasks = [dict(row) for row in db.execute("SELECT id,goal,command,drafts,complete,form FROM tasks ORDER BY id")]
+                    tasks = [dict(row) for row in db.execute("SELECT id,goal,command,lead_partner,partner_drafts,complete,form FROM tasks ORDER BY id")]
                     runs = [dict(row) for row in db.execute("SELECT record,output_name,reserved FROM executions ORDER BY rowid")]
                     active = db.execute("SELECT active_id FROM selections").fetchone()[0]
                 for task in tasks:
-                    task["drafts"] = json.loads(task["drafts"])
+                    task["partner_drafts"] = json.loads(task["partner_drafts"])
                 for run in runs:
                     run["record"] = json.loads(run["record"])
                 return {"tasks": tasks, "runs": runs, "active": active}
@@ -232,7 +236,7 @@ def main():
                 return json.dumps([str(python), "-X", "utf8", "-u", str(fixture), mode, str(location), *arguments])
 
             def edit_command(session, task_id, value, draft=False):
-                previous = next((entry["text"] for entry in task(task_id)["drafts"] if entry["field"] == "Command"),
+                previous = next((entry["text"] for entry in lead_drafts(task(task_id)) if entry["field"] == "Command"),
                                 task(task_id)["command"])
                 session.command("command-edit")
                 wait_for(session, "Command / explicit JSON argv or shell")
@@ -247,7 +251,7 @@ def main():
                 session.send("\x13" if draft else "\r")
                 if draft:
                     until(session, lambda: any(entry["field"] == "Command" and entry["text"] == value
-                                              for entry in task(task_id)["drafts"]), "command draft was not saved")
+                                              for entry in lead_drafts(task(task_id))), "command draft was not saved")
                 else:
                     until(session, lambda: task(task_id)["command"] == value, "command was not saved before approval")
                     wait_for(session, "Approval pending", timeout=35)
@@ -293,7 +297,7 @@ def main():
             first.paste(" retained draft 漢字")
             first.send("\x13")
             retained_goal = "execution task A retained draft 漢字"
-            until(first, lambda: any(entry["text"] == retained_goal for entry in task(task_a)["drafts"]), "goal draft save")
+            until(first, lambda: any(entry["text"] == retained_goal for entry in lead_drafts(task(task_a))), "goal draft save")
             open_execution(first)
             first.command("forms")
             first.command("run")
@@ -476,7 +480,7 @@ def main():
                   and "Task cards / committed snapshots" not in resumed.display(),
                   "cancel-and-switch UI acknowledgement")
             assert task(task_a)["command"] == switched_command
-            assert any(entry["text"] == retained_goal for entry in task(task_a)["drafts"])
+            assert any(entry["text"] == retained_goal for entry in lead_drafts(task(task_a)))
             passed("task-switch-neutral-stay-then-cancel-wait-retains-owning-task-drafts")
             switch(resumed, 0, task_a)
             open_execution(resumed)
@@ -504,7 +508,7 @@ def main():
             last.send("\x13")
             wait_for(last, "Storage: saved")
             assert task(task_a)["goal"] == "execution task A" and not task(task_a)["complete"]
-            assert any(entry["text"] == retained_goal for entry in task(task_a)["drafts"])
+            assert any(entry["text"] == retained_goal for entry in lead_drafts(task(task_a)))
             quit_idle(last)
             passed("quit-neutral-stay-cancel-and-wait-normal-save-review-and-draft-restart")
             assert source.read_text(encoding="utf-8") == "stable source identity\n"

@@ -199,7 +199,10 @@ impl App {
                         if snapshot.redacted {
                             self.notice = "Identifiable secrets were masked in local storage. Detection is incomplete; review exports before sharing.".into();
                         }
-                        self.drafts.clone_from(&snapshot.drafts);
+                        self.partner_drafts.clone_from(&snapshot.partner_drafts);
+                        if let Some(draft) = snapshot.partner_drafts.get(&self.lead.id) {
+                            self.drafts.clone_from(&draft.drafts);
+                        }
                         self.storage = StorageState::Saved;
                         if let Some(command) = self.pending_command.take() {
                             self.execution.prepare_command(self.task_id, &command);
