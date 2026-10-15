@@ -1,5 +1,12 @@
 # Work Checkpoint
 
+## 2026-10-15 — Backlog reorganization and partner-raising tasks
+
+- **Requested:** More Pokémon-feel tasks (raising your own partner, named moves, learning repeated work as skills) and a cleanup: drop finished tasks, make open ones concrete with ordering and cautions.
+- **Delivered (docs only):** `task.md` rewritten to 54 open tasks in sections A–F with a recommended wave order. Completed specs are reduced to a one-line index (full text: `git show fadc6f4:task.md`). New: MV01–MV08 (moves, four per form, learned from ≥3 identical approved actions, forget/reminder, type-themed names, observed records, TM files) and PK01–PK06 (nickname, summary, Bug Dex, transition, held items, ribbons). Every task has Needs / Builds on / Watch out; blocked A04/A06/A07/Q01/Q02/P03 keep condensed status and evidence paths.
+- **Verification:** Parsed 54 unique open IDs; every Needs/Builds-on ID resolves to an open or completed task, Needs never cites a completed task, and every open task appears in the order table. No code changed; no tests or backtests run.
+- **Next action:** Wave 1, EV04 (form empty states). DESIGN_RULES gains the Moves/nickname/Dex concepts when MV01/PK01/PK05 are implemented, not before.
+
 ## 2026-10-15 — Eevee form relays (section J, EV10–EV17)
 
 - **Requested / specified:** More small Eevee-specific tasks in a stronger direction. Added eight unchecked relay tasks where one form's stored output pre-fills the next form's reviewed input: EV10 pin from run output, EV11 form-ranked `@`, EV12 hypothesis → fix, EV13 finding → fix → re-review, EV14 stale rerun, EV15 decision → criteria, EV16 run as refactor baseline, EV17 per-form provider pairing. Relays never approve, run or send.

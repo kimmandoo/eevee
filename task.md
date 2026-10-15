@@ -1,638 +1,502 @@
 # Tasks
 
-## Active work
+Open work only. Completed task specs and their evidence were removed on 2026-10-15; they live in git history (`git show fadc6f4:task.md`), `docs/WORK_CHECKPOINT.md` and `CHANGELOG.md`. Contract: [design rules](docs/DESIGN_RULES.md). Architecture: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapters: [agent compatibility](docs/AGENT_COMPATIBILITY.md).
 
-**Existing A–G scope: 25 of 31 tasks passed scoped acceptance**, including P02 and U01/L01/G01/S01/S02/S03. **Future sections H–J contain 35 planned items (0/35 complete); total backlog: 25/66 complete.** Schema-6 specialist workflows, approved scoped memory and plan-only recipes passed all five native build/installed-runtime rows at `d198fa5`; SDK policy also passed. All specified local performance workloads and real Codex/OpenCode scenarios completed. The user-authorized **0.1.0 core release** promotes those exact qualified artifacts. **A04/A06/full A07 remain unchecked pending permitted Claude credentials and completed eligible Gemini authentication/model conformance; full Q01/Q02/P03 retain those dependencies.** Core acceptance is not advertised as complete provider interoperability.
+## Status
 
-**0.1.1 release request (2026-10-14):** The user asked to implement the token-economy work, commit/push it and release **0.1.1**. Delivered: T01's local request receipt (partial; see its note), the Claude Console OAuth route, and the version bump. Publication still requires the exact-commit five-row native qualification. This explicit request lifts only the release hold; A04/A06/A07 and the other section I tasks remain unchecked. T05 budgets/repeat detection were later dropped at the user's request, and CI was reduced to one check job plus five build/install rows.
+- **Released:** 0.1.2 (tags v0.1.0–v0.1.2). Local core, Codex, OpenCode ACP and Devin routes ship; Schema 6 store.
+- **Done:** 25 original tasks (index below). **Open:** 54 tasks in sections A–F. **Dropped:** T05 (per-task budgets/repeat stop, removed at the user's request on 2026-10-14).
+- **Blocked:** A04/A06 need permitted Claude API/cloud credentials and completed Gemini authentication; A07 → Q01 → Q02 → P03 inherit that block. Never substitute subscription tokens or fake provider evidence.
+- **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters. Their unchecked acceptance is recorded under each task.
 
-**Eevee identity request (2026-10-15):** Add small tasks that make Eevee's adaptability concrete. Section J defines seventeen future tasks: EV01–EV09 (form suggestion, carry-over card, capability chip, empty states, evidence-backed party status, route history, return to Eevee, event dialogue, bond proposals) and EV10–EV17 form relays that hand one form's actual output to the next as reviewed input. Backlog design only; no runtime change.
+### Completed index (referenced by "Builds on")
 
-**Current differentiation request (2026-10-14):** Add substantive token-saving and tool-calling features, not just more commands or cosmetic changes. Section I defines twelve future tasks with measurable acceptance, explicit control boundaries and no promised savings before measurement. This is backlog design, not implementation or permission for paid model runs.
+V01 sanctuary layout · P01 native terminal lifecycle · V02A/V02B species art and native graphics · V03 evolution picker · UX01 focus/editing · E01 durable goal · E02 task cards/resume · E03 task lifecycle/privacy/quota · C01 repository baseline/diff · C02 Vaporeon source map/basket · R01 Jolteon approve/run/cancel · R02 execution journal/freshness · UX02 interruption/recovery · P02 filesystem/process parity · A01 agent preflight · A02 Espeon planning request · A03 Flareon implementation · A05 OpenCode ACP · U01 Umbreon hypotheses · L01 Leafeon refactor comparison · G01 Glaceon review desk · S01 Sylveon handoff · S02 curated memory (Bond) · S03 Evolution Stone recipes.
 
-**Previous UX request (2026-10-14), delivered:** Concise TUI guidance, compact connection navigation, recognizable Poké Ball installation/update animation and section H's six future tasks were committed/pushed as `1fbc3fe`. Mandatory execution/permission/deletion facts remain visible; the authentication/release hold is unchanged.
+## How to pick work
 
-**Prior release request (2026-10-14), held:** Finish unchecked tasks through section F in backlog order, commit/push each accepted increment, then publish **0.1.1** from freshly qualified same-commit native packages. The unchecked items in that scope are **A04, A06 and A07**; sections E/F already passed their stated scoped demos. Permitted Claude SDK credentials and authenticated eligible Gemini ACP remain prerequisites until real probes establish otherwise. Do not reuse Claude subscription tokens, fake provider evidence, or release before the requested F completion.
+- Take the first ready task in **Recommended order**. A task is ready when every ID in **Needs** is done; **Builds on** lists completed tasks to reuse.
+- One task = one actual-TUI demo at 120×36 and 60×18, its tests, changelog/checkpoint update and one commit. A mock, build-only change or inactive control is not completion.
+- Reuse existing modules (`workflows.rs`, `memory.rs`, `runner.rs`, `context.rs`, `receipt.rs`, `store.rs`); no parallel dispatcher, executor, recipe parser or agent runtime.
+- Keep keyboard-only operation, draft/focus preservation, cancel/quit, terminal restoration and honest evidence. Navigation, paste, suggestions and form switches never execute, approve or send anything.
+- When strategy-like defaults change (suggestion rules, ranking, learning thresholds), report the observed behavior on fixtures.
 
-**Authentication hold selected by user:** After fresh permitted-route inspection, the user selected **wait until authentication is prepared**. A04/A07 and the conditional 0.1.1 version/tag/publication remain on hold; no unchecked provider gate is converted to completed local-core acceptance.
+### Cross-cutting watch-outs
 
-**Updated local-core qualification:** [Native run 38504041771](https://github.com/kimmandoo/eevee/actions/runs/38504041771) passed all eleven jobs for exact source `087e81b950b8e55030797d994eb39f5511747ac2`: five native build/package rows, five installed-runtime journeys and SDK policy. This includes the updated sprites/composer/input/WSL cutover and corrected context capture helper; it does not complete the three authenticated provider tasks or clear the user's 0.1.1 hold.
+- **Schema:** The store is Schema 6. Every persisted addition (route events, pairings, dismissals, nickname, moves, dex, receipt identity) needs a migration plus the existing byte-preserving old-binary refusal test. Batch additions that ship together into one schema bump; never rewrite data to let an older binary start.
+- **Packets:** Partner flavor (nickname, move names, dialogue, ribbons, route) never enters provider packets or handoffs. Check the receipt: flavor bytes must be zero.
+- **Facts first:** Pokémon-style copy wraps a factual line (command, exit code, permission scope), never replaces it. Monochrome, ASCII and linear layouts keep the same information.
+- **No fake progression:** DESIGN_RULES forbids XP, levels, affection scores, streaks, hunger and random unlocks. Raising the partner means learned moves, a nickname and real records only. Update DESIGN_RULES' concept list when a new concept (Moves, nickname, Dex) ships.
+- **Rights:** Canonical move names are used as labels. Q01's naming/art-rights review must cover them before the next distribution.
+- **Local only:** Detection, ranking and learning use local journal/store data. No optimizer or flavor feature makes a network or model call.
 
-Contract: [design rules](docs/DESIGN_RULES.md). Architecture and phase gates: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapter/evidence contract: [agent compatibility](docs/AGENT_COMPATIBILITY.md). An unchecked task may have partial implementation, but its acceptance is not complete; consult its evidence note and the checkpoint.
+## Recommended order
 
-## Completed baseline
+| Wave | Tasks (in order) | Why this order |
+|---|---|---|
+| 1. Partner basics | EV04 → EV03 → EV07 → PK01 → EV01 → EV02 | No open dependencies; small UI slices that every later wave reuses (owning-form redirect, suggestion, carry-over card, nickname in copy). |
+| 2. Form relays | EV10 → EV14 → EV12 → EV13 → EV15 → EV16 | Highest daily value; EV12/EV13 open EV02, EV10's location parser is reused by PK05. |
+| 3. Moves | MV01 → MV02 → MV03 → MV04 → MV05 → MV06 → MV07 | MV01 defines the model/schema; learning (MV03) needs the menu (MV02) to be useful; forgetting (MV04) needs learning. |
+| 4. Partner record | EV05 → EV06 → PK02 → EV08 → PK05 → EV09 → EV17 → EV11 | Uses evidence identities, moves and relays from waves 1–3. |
+| 5. Optional flavor | PK03 (after UX04) → PK04 (after C03) → PK06 | Pure polish; drop any item that starts to feel like gamification. |
+| Context/token track | C03 → T01 → T02 → T03 → T04 · TC01 → TC03 → TC04 · TC02 → TC05 · D01 · Q03 last | Independent of waves 1–5; can interleave. |
+| UX/platform track | UX03, A08 (priority 1) → UX04 → S04 → MV08 → P04 | UX04 unblocks PK03; S04 and MV08 share one export path. |
+| Blocked | A04, A06 → A07 → Q01 → Q02 → P03 | Resume only after the user prepares permitted authentication. |
 
-- [x] English product plan covering Eevee and its eight canonical evolutions.
-- [x] Phase 1 native Rust shell: terminal lifecycle, nine form identities, responsive navigation, themes, and session-local goal editing.
-- [x] Phase 1 verification: 12 tests, warning-free Clippy, release build, real PTY interaction, and normal/error/panic restoration.
-- [x] Refine the companion experience, visual contract, conceptual mockup, and dependency-ordered backlog. Documentation only; no new runtime features were delivered in this refinement.
+## A — Partner basics and form suggestion
 
-## Delivery rules
-
-- One task is complete only after its user-visible demo works in the real TUI. Build-only work, a mock response, or an attractive inactive control is not completion.
-- Read existing patterns and touch the smallest relevant modules. Add runtime/store/repo/agent modules only when their task needs them; do not pre-create empty abstractions.
-- Preserve keyboard operation, cancel/quit, terminal restoration, user changes, and honest evidence. New capability must not be inferred from a form or recipe.
-- Exercise changed behavior, then run relevant tests/checks once after integration. UI verification uses actual terminal captures, not wording snapshots. Keep regression tests for real boundaries and failures.
-- Update the changelog/checkpoint and commit each completed query increment. Record unfinished acceptance explicitly; never mark an entire later phase complete because one task passed.
-- Never require every form in a user task. Shared task facts and selected context avoid repeated prompts and unnecessary model calls.
-- A form, execution agent, model, and control boundary are separate choices. Never promise sandboxing, portable provider sessions, complete prompt visibility, or exact usage when the integration cannot establish them.
-- Core baselines are qualified for the observed macOS arm64/x86_64, Linux x86_64/arm64, and Windows x86_64 OS/terminal tuples in README. Older OS versions, other GUI terminals, filesystem/process parity, and packages are not inferred supported. Windows acceptance uses native ConPTY, not WSL; Windows ARM64 remains unclaimed.
-- Pick the first dependency-ready, unblocked task in backlog order. Record blocked acceptance explicitly and continue independent ready tasks; never skip a dependency or mark a blocked gate complete. Native graphics is not a prerequisite for keyboard navigation, durable storage, or the cell-rendered picker.
-
-## A — Make Eevee feel like a companion
-
-### V01 — Sanctuary layout and visual hierarchy
-
-- [x] Delivered the sanctuary visual increment.
-- **Depends on:** Phase 1.
-- **Change:** Refine `src/ui.rs` with centralized theme tokens, spacious wide-screen gutters/padding, compact layouts, a single task/action card, and a contextual footer. Keep current backend/persistence limitations truthful. Put state in the header, identity in the rail, artifact in the center, and permissions/provenance in the inspector; remove duplicated paragraphs. Do not add persistence or new provider calls.
-- **Accept:** Launch the real binary at 120x36, 100x30, 70x24, and 60x18; create/edit a session goal, open drawers, and quit. The primary action and selected text remain readable in dark/light/indexed/mono/ASCII modes; measure the app's own true-color contrast. Task/form/agent readiness and local-vs-provider action are identifiable without opening help. Capture layouts; no overlapping controls, duplicate state paragraphs, or idle redraws.
-- **Evidence:** Real PTY size/theme/input/overlay/exit scenarios and actual Ghostty captures; measured nonblank true-color text contrast minima 7.14:1 dark and 5.19:1 light. Primary action stays pinned above scrollable artifacts; modal footer and inactive title readability were corrected.
-
-### P01 — Native platform baseline and terminal lifecycle
-
-- [x] Established the verified native core baseline on the target OS/architecture matrix.
-- **Depends on:** V01.
-- **Change:** Add native build/test/lint CI and target-qualified terminal smoke coverage for macOS arm64/x86_64, Linux x86_64/arm64, and Windows x86_64. Record actual minimum supported OS/toolchain and terminal versions. Isolate platform differences only where needed; preserve one Rust UI and local use without Node, account, or artwork. Keep build, interactive runtime, graphics protocol, and agent availability as distinct evidence columns.
-- **Accept:** On every target, build the release binary and exercise real input, resize, CJK/paste, Ctrl+C, non-TTY help/errors, and normal/error/panic restoration using the existing text/mono/ASCII modes; image-specific checks belong to V02A/V02B. Include native Windows Terminal/ConPTY; WSL and cross-compilation do not prove Windows runtime support. Record artifacts and host/terminal versions. Missing native hardware/runner or terminal access leaves the affected row and P01 pending, never “supported” from compilation alone.
-- **Evidence:** Native run [38274013013](https://github.com/kimmandoo/eevee/actions/runs/38274013013), revision `9d49447`, passed formatting, locked tests, warning-free Clippy, release builds, and 34 real PTY/ConPTY scenarios per row. README records observed OS/kernel/terminal baselines and Rust 1.90.0. Windows verified literal Unicode paste in all seven modes and native primary-buffer/console-mode restoration on normal/error/panic exits; no WSL, GUI-terminal, package, or provider claim follows.
-
-### V02A — Actual nine-species assets and cell rendering
-
-- [x] Showed real Eevee/evolution artwork from a local, source-tracked cache.
-- **Depends on:** V01.
-- **Change:** Map the nine species IDs in the design contract to one consistent transparent official-artwork PNG set. Support a local asset directory and an explicit user-initiated source download; record source/revision/hash/attribution without bundling franchise bytes by default. Bound PNG decode/allocation and render the same image as cached half-block cells or luminance ASCII/mono. Remove the hand-drawn `motif` path when cutting over; missing/corrupt art gets a truthful asset state, not a substitute mascot. Images never enter LLM context.
-- **Accept:** Load all nine real images, switch forms offline, and capture actual cell-rendered portraits at wide/compact sizes. Verify aspect/alpha, NO_COLOR/ASCII, missing/corrupt/oversized files, and no network/model call on selection. Native pixel fidelity is not claimed by this task.
-- **Evidence:** Downloaded and SHA256-verified all nine pinned sources, then reused the cache without downloading. Exercised 63 offline switches across seven terminal modes, missing/corrupt/oversized PNG states, alpha/aspect/mono boundaries, and a FIFO startup regression. No artwork bytes are bundled.
-
-### V02B — Native terminal artwork and graphics lifecycle
-
-- [x] Displayed the same source images at pixel fidelity on the qualified native terminal.
-- **Depends on:** V02A.
-- **Change:** Pinned PNG-only image rendering, bounded source/cache loading, integer native-pixel fitting and owned graphics cleanup. The current cutover negotiates Sixel/Kitty and cell-pixel metrics through the sole bounded input owner, retaining late/split response ownership. Auto never substitutes half-cell mosaics; explicit cells/off remain available.
-- **Accept:** Show Eevee and all eight forms in an actual graphics-capable terminal, not only TestBackend or a text PTY. Exercise image-bearing overlays, repeated form switches, resize, dark/light surfaces, and quit without stale images. Validate each native protocol before advertising it. Exercise absent/invalid cell metrics and unsupported/multiplexed paths without a blocked first frame, stolen keys, response text in drafts or colored native graphics under NO_COLOR.
-- **Evidence:** Historical macOS arm64/Ghostty 1.3.1 nine-image/portrait, overlay, resize and exit captures qualified the previous Kitty route. Current Windows Terminal 1.24.12741.0/WSL2 Sixel captures show Eevee/all nine forms, both palettes, image-free overlays and restored portraits. The five-mode final-release PTY smoke decodes original native pixels and proves exact draft retention through late/split replies, resize and cleanup; basic Kitty payload proof is not qualification of another GUI terminal.
-
-### V03 — Evolution picker and deliberate handoff preview
-
-- [x] Made choosing a form an understandable local interaction.
-- **Depends on:** V02A.
-- **Change:** At >=90x30, show a 3x3 grid of actual species thumbnails with a selected detail area; otherwise use a compact list and selected portrait. Show the role, expected artifact, current form, and prerequisite status. Arrows/1-9 preview; Enter selects; Esc restores the previous form. Keep task text intact. Previewing or selecting grants nothing and starts no work; unavailable provider actions are labelled unavailable rather than simulated.
-- **Accept:** Select/cancel each form using only the keyboard at wide and narrow sizes. Confirm the goal and focus survive; selection and activation are distinct; all nine forms are reachable. Capture color/mono/cells and missing-art states without requiring V02B. After V02B ships, also verify native images are removed behind overlays instead of bleeding through; Q01 owns this composed check.
-- **Evidence:** Grid/list selection, cancel, nested local preview, unchanged goal/focus, and absent-art states were exercised in the real PTY; native overlays and compact selection were inspected in Ghostty.
-
-### UX01 — Predictable focus, editing, and accessible local navigation
-
-- [x] Made the local shell usable without relying on artwork or memorized shortcuts.
-- **Depends on:** V01.
-- **Change:** Implement focus restoration, per-surface selection/scroll state, grapheme-aware cursor editing, and explicit local-apply versus request-preview actions. Suppress global shortcuts in text/search/answer fields. Add a linear text layout with the same local actions, optional portraits, and readable monochrome selection; do not claim assistive-tool support before testing it. Use the existing text picker without requiring artwork. Distinguish Esc=discard an editor draft from Esc=close a pending-request view; keep a visible hint. Below minimum size, retain draft/run state and expose safe quit/cancel rather than an inescapable resize screen.
-- **Accept:** Complete create/edit/select/back/resize/quit using only keyboard navigation with CJK/combining text and multiline paste, including absent artwork. Pasted commands/newlines never execute or approve anything. Closing a drawer restores focus, resize below/above minimum preserves drafts/selection, and linear layout exposes the same actions. A dirty editor warns before destructive discard without requiring confirmation for an unchanged draft. Exercise a real assistive terminal setup before labelling that combination screen-reader compatible.
-- **Evidence:** Real keyboard/CJK/combining/multiline paste, safe keep/discard/quit, local apply, bounded scrolling, linear layout, and below-minimum resize scenarios passed. Ctrl+N provides portable newline input; Shift+Enter is conditional on terminal reporting. No screen-reader compatibility is claimed.
-
-**Gate A:** completed for the recorded visual/input/artwork surfaces; P01 separately passed all five native core rows. Current native-pixel rendering requires negotiated Sixel/Kitty and cell metrics; unsupported routes show text, with low-resolution cells only by explicit opt-in. No persistence, repository inspection, agent execution, or distribution acceptance is inferred from this visual gate.
-
-## B — A useful local workbench before connecting a model
-
-### E01 — Durable goal and save acknowledgement
-
-- [x] Made one project goal and selected form survive application exit.
-- **Depends on:** UX01.
-- **Change:** Add a SQLite store worker and bounded worker/input events without blocking rendering. Use a documented platform user-data directory with `--data-dir PATH` for explicit isolation. Store the current task goal, project directory, and selected form transactionally. Version the schema and use transactional migrations; refuse destructive open of corrupt/newer schemas. Enforce one writer per data store with an explicit busy/retry state, not silent takeover. Match saving/saved/save-failed to committed edit revisions; a late acknowledgement cannot label a newer draft saved. Quitting during a pending or failed save must not silently discard edits. No source indexing yet.
-- **Accept:** In a temporary data directory, edit a goal, wait for the save acknowledgement, quit, and reopen in the same project. Recover exact text and form. Exercise read-only/disk-full/locked storage, two app instances, rapid edits with delayed acknowledgements, and quit-before-ack. Migrate an older fixture and interrupt a migration; keep the last valid committed database. Corrupt/newer schemas remain untouched with a recovery/export path for readable data, never an automatic reset.
-- **Platform sequencing:** Apply the P01 path/terminal contract from the start, but do not block local storage implementation on access to every native runner. P02 depends on completed P01 and verifies this storage path across the entire target matrix before any multiplatform claim.
-- **Evidence:** Rust 1.90 passed 68 tests, warning-free Clippy and release build. Seven real PTY scenarios passed exact multiline/CJK/combining goal/form save-exit-resume, writer conflict/retry and project isolation, locked SQLite failure/retry, unchanged corrupt/newer databases, migration/read-only export, and quit immediately after apply. Tests exercised revision-late success/failure, real SQLITE_FULL save/migration rollback, read-only/alias exclusion, and subprocess-exit hot-journal recovery before migrating 101 committed legacy rows. P02 still owns full native parity.
-
-### E02 — Eevee task cards and resumption
-
-- [x] Turned the home screen into durable project-scoped task cards.
-- **Depends on:** E01, UX01.
-- **Change:** Create/select/resume multiple project-scoped tasks, edit acceptance criteria, and record an explicit next action. Keep task outcome, request lifecycle, save acknowledgement, and evidence freshness separate. Persist per-task drafts/navigation without cross-task leakage. Replace the session-only CTA with Create/Resume only now. Use actual saved timestamps/status; no fictional activity or completion from a form switch/process result. While a run is active, offer Stay or Cancel-and-wait before switching task/project; never silently reassign run ownership. Editing a completed task's goal/criteria requires an explicit reopen transition.
-- **Accept:** Create two tasks with different goals/criteria/forms/drafts, switch, restart, and resume each without cross-contamination. A new project starts empty. Pending edits are resolved before switching; unmet criteria prevent completion and changed criteria reopen a completed task explicitly. Once R01/A02 ship, exercise switching with an active run/pending approval: remain on the original task until cancellation settles, invalidate old grants, and retain its partial journal. Q01 verifies the composed path.
-- **Evidence:** Rust 1.90 passed 77 tests, warning-free Clippy and release build. Nine real PTY scenarios included two distinct tasks at 120x36 and 60x18, exact goals/criteria/next actions/forms, retained per-field drafts, saved focus/layout, switching/restart, unmet-criteria refusal, neutral completion, and explicit reopen before goal changes. Schema 0/1→2 migrations and task/selection transaction boundaries passed; R01's active-run switching composition remains assigned below.
-
-### E03 — Task lifecycle, privacy, and bounded local storage
-
-- [x] Added reversible archive/restore, explicit scoped deletion, privacy and bounded task storage.
-- **Depends on:** E02.
-- **Change:** Separate reversible archive/restore from delete/purge. Preview affected task records and currently owned artifacts; use neutral initial focus and explicit confirmation. Redact identifiable secrets before persistence and disclose limits; implement configurable local quotas/retention for existing task data without silently evicting active evidence. As those features ship, C02 applies the policy to excerpts, R01 reserves bounded spool capacity before execution and rejects deletion during active work, R02 represents purged/truncated output explicitly, and S02 preserves approved shared memories. Do not pre-create unused spool or memory modules in E03.
-- **Accept:** Archive, restore, cancel deletion, confirm deletion, and restart; only the selected task's eligible local data disappears. Exercise disk-full/quota behavior against real stored task data, preserving drafts and responsive navigation; test identifiable-secret redaction before storage. C02/R01/R02/S02 verify their own retention integration when implemented, with Q01 covering the composition. Explain that local purge neither guarantees forensic secure erasure of SQLite/WAL/backups nor deletes provider sessions, exported files, or repository changes.
-- **Evidence:** Rust 1.90 passed 90 tests, warning-free Clippy and release build; eleven real PTY scenarios passed, including compact neutral deletion preview, archive/restore/restart, explicit retention purge, before-storage credential masking, preserved repository/export bytes, and a real 64-KiB database quota failure with retained draft and explicit reclamation/retry. Inspected the actual 60x18 deletion surface. Later context/spool integrations remain assigned to their owning tasks.
-
-### C01 — Repository baseline and working diff
-
-- [x] Added an immutable session baseline and read-only raw working diff with unattributed external changes.
-- **Depends on:** E02.
-- **Change:** Add repository discovery, initial tracked/untracked file identities, and a read-only working diff in a repo worker. Preserve dirty user files. Label external or ambiguous edits as unattributed; handle a non-Git directory as an explicit unsupported repository state without losing its task.
-- **Accept:** Open a disposable dirty Git repository containing tracked/untracked edits; take the baseline, edit externally, and inspect the result. Existing user changes remain unchanged, new modifications are visible without false authorship, and the UI stays responsive while loading.
-- **Evidence:** Rust 1.90 passed 103 tests, warning-free Clippy and release build. Three real PTY scenarios passed: dirty tracked/untracked baselines and external edits at 120x36/60x18 with byte-exact file/index preservation, plus non-Git unsupported inspection with durable task restart. Inspected the compact CJK raw diff. Native installed-binary CI now includes the scenario, but execution remains billing-blocked.
-
-### C02 — Vaporeon source map and context basket
-
-- [x] Assembled persisted, inspectable source context with source and stored-reference revalidation.
-- **Depends on:** C01, E03.
-- **Change:** Browse/search real files, inspect ranges, and pin/remove source excerpts with path/range/source identity. Respect ignore rules, explicit exclusions, binary/oversized-file limits, and symlink boundaries. Preview Eevee-sent content/bytes; label token estimates and provider-added context separately. Do not claim this basket is the full effective provider prompt or that agent-owned reads are constrained by an excerpt selection.
-- **Accept:** Build a context basket in a fixture repository with CJK paths, a binary file, excluded credentials, and an out-of-root symlink. Inspect exact ranges, remove one, and modify another; show the stale reference. Excluded/out-of-scope content is absent from Eevee's stored basket/outgoing payload; disclose agent-added history/config/reads rather than asserting unverified global isolation.
-- **Dispatch boundary:** Revalidate selected source identities and resolved containment after preview, including symlink/junction replacement. Changed content/scope invalidates the preview and requires review again; never silently send substituted bytes. A02 consumes this contract. Do not claim this controls independent agent-owned reads.
-- **Retention integration:** Store excerpts under E03's quota/redaction/purge policy. Purge one task's excerpt without deleting the source file or another task's reference; inspect explicit unavailable evidence and refuse assembly from a missing artifact.
-- **Evidence:** Ten real PTY scenarios passed with CJK/CRLF, credential/binary/ignore/link exclusions, exact serialized payload bytes, restart, independent task references, purge, changed/missing sources, and a deleted stored reference. No provider dispatch was implemented or claimed.
-
-**Gate B:** create -> exit -> resume -> inspect sources works without a model, with explicit archive/purge and storage limits. This completes Phase 2 only when E01, E02, E03, C01, and C02 pass; later run/memory integration checks remain assigned to R02/S02/Q01.
-
-## C — Real execution with visible evidence
-
-### R01 — Jolteon approve, run, and cancel
-
-- [x] Executed explicitly approved local commands with owned-tree cancellation and bounded capture.
-- **Depends on:** C01, E03, UX01.
-- **Change:** Add exact argv or explicit shell executable/dialect/text, cwd, scope, duration, and enforcement-source details. Direct argv must not silently invoke a shell; `.cmd`/`.bat` and shell metacharacters need an explicitly previewed shell route. Queue approvals with neutral initial focus and correlated IDs; enforce approval at dispatch and reject stale/double answers. Stream sanitized output through bounded buffers/quota-controlled spools under E03; record start/end, exit/signal, and before/after source identities. Own the process tree before exposing execution: POSIX process groups or Windows Job Objects/equivalent verified containment. Refuse a safe-cancel execution route when ownership cannot be established. Keep provider-observed runs distinct from Eevee-launched commands; never duplicate execution to manufacture evidence.
-- **Accept:** Approve successful/failing commands, deny and prove no side effect, cancel a child-spawning command, and emit escape sequences/large output. Verify argv with spaces/CJK/metacharacters is delivered literally and explicit shell text uses the displayed dialect. Open an approval while typing, dismiss/reopen it, change its inputs, and attempt a stale/double answer; no focus theft or accidental execution. No surviving owned child, uncontrolled terminal operation, unbounded transcript, or invented success. Test quota exhaustion and retained partial output. Navigation cannot abandon active work; P02 repeats native lifecycle acceptance across all targets.
-- **Retention integration:** Reserve bounded spool capacity before dispatch. At quota exhaustion, continue draining into a bounded discard path with a visible truncation boundary, or explicitly cancel under the owned-tree contract; never deadlock a child on undrained output or claim complete evidence. Refuse deleting/purging a task while it owns active work, and prove this refusal has no side effect.
-- **Evidence:** Rust 1.90 passed 155 tests, warning-free Clippy and a release build. Eight execution PTY scenarios and six recovery PTY scenarios exercised neutral approval/denial, literal CJK/metacharacter argv, explicit shell failure, child/grandchild cancellation, 10 MiB output with a 1 KiB spool, and save-aware task/form/quit guards. Windows APIs typechecked; native runtime acceptance remains P02.
-
-### R02 — Execution journal and evidence freshness
-
-- [x] Persisted execution metadata/output and exposed stale, ambiguous, interrupted, partial, and unavailable evidence.
-- **Depends on:** R01, E02.
-- **Change:** Persist executions and output references under E03's retention/quota policy; add Jolteon history and a reusable evidence inspector. Distinguish current, stale, ambiguous, failed, interrupted, truncated, and unavailable evidence. Missing/purged output cannot substantiate a verified result. On restart do not claim a previously running process is still owned/running; reconcile it as interrupted unless ownership is actually re-established.
-- **Accept:** Run a check, restart and inspect its captured output, then change an input file and see stale status. Change a file during a run and see ambiguous status. Terminate the app during work and reopen without a false success or stuck running indicator. Purge retained output and exercise quota truncation: keep honest metadata, expose unavailable/partial evidence, and preserve artifacts still referenced by another task.
-- **Evidence:** Actual restart never replayed a command; missing/purged output remained unavailable, another task retained its evidence, source changes during/after execution produced ambiguous/stale states, and abrupt application death resumed as interrupted without restored ownership.
-
-### UX02 — Activity, interruption, and recovery without lost context
-
-- [x] Preserved drafts, output anchors, search/follow state, and explicit recovery across execution interruptions.
-- **Depends on:** R02, UX01.
-- **Change:** Add stable scroll anchors, search, explicit follow-output mode, a new-output indicator, and layer-specific error details. Retain drafts and selected artifacts during pending input, cancellation, connection loss, and save failure. Show cancelling/outcome-unknown states without automatically retrying a potentially mutating action.
-- **Accept:** Scroll/search while a real command streams, open/close its pending request view, cancel it, and revisit partial output without jumping to the bottom or losing the draft. Exercise interrupted startup/resume and a failed save; the correct layer/remedy is visible, quit does not silently discard data, and no old command re-executes.
-- **Exit contract:** Quit/Ctrl+C during work opens Stay or Cancel-and-exit with neutral focus; another keypress cannot silently force termination. Wait for owned-tree exit or authoritative provider cancellation, with bounded escalation and visible partial results. If external outcome cannot be established, record outcome unknown and require an explicit informed exit. Never imply cancellation rolled back edits. Exercise this together with unsaved/failed-save drafts, nested children, a hung cancellation, and terminal restoration.
-- **Evidence:** Real streaming/search/follow, neutral navigation/quit, locked SQLite cancellation with journal-only retry, compact sticky truncation warnings, and 39x10 cancellation/approval refusal passed. Nested command-overlay restoration and search ownership were reproduced and corrected. The core terminal suite also passed all 34 scenarios.
-
-### P02 — Native filesystem and process parity
-
-- [x] Prove local workbench behavior on every target platform, not just compilation.
-- **Depends on:** P01, C02, R02, UX02.
-- **Change:** Exercise platform user-data paths, repository identity/containment, executable discovery, shell selection, and owned-process-tree cancellation on the P01 matrix. Respect actual filesystem case sensitivity, symlinks/junctions, Windows file locking, and atomic storage semantics without lossy path normalization. Reject unsupported path encodings explicitly rather than merging distinct project identities. Qualify each agent and graphics capability separately by OS/version/terminal.
-- **Accept:** On native target hosts, create/save/reopen tasks under space/CJK paths; inspect CRLF sources, distinct/case-aliased project paths, and links escaping the root. Test Windows locked files and POSIX permissions without loss of drafts. Verify executable paths with spaces, literal argv, explicit shell dialect, deny/no side effect, child/grandchild cancellation, quit under streaming, and normal/error restoration. Record host versions and results; do not replace native Windows execution with WSL or assume a provider supported on macOS exists elsewhere.
-- **Current native evidence:** [Run 38435667550](https://github.com/kimmandoo/eevee/actions/runs/38435667550), source `d198fa5f691689ffb58991e0b7b0a28124c32a13`, passed all eleven jobs: five native builds, five complete installed-package journeys and SDK policy. Actual Windows ConPTY regressions, space/CJK installation and task persistence, source/path revalidation, literal argv/shell boundaries, denial/cancellation/quit, interrupted/stale/failed-save recovery, handoff and specialist/memory/recipe consent all passed. Host/version/capture evidence is attached as `native-*`; no WSL substitute or provider/graphics parity is claimed.
-
-## D — Connect a real specialist, not nine chat sessions
-
-### A01 — Agent preflight and truthful connection state
-
-- [x] Showed observed prerequisites, explicit executable trust, and unavailable/unknown agent capabilities without a model request.
-- **Depends on:** UX02, C02.
-- **Change:** Introduce a small versioned agent-profile/capability contract and connection drawer for Codex, Claude Agent SDK, and ACP profiles. Inspect executable/protocol versions, effective configuration/trust scope, authentication/billing source labels, and adapter availability without a model request. Establish executable/config trust before probing: even `--version` executes code, so a repository-supplied binary/hook requires deliberate consent. Qualify readiness per OS, executable version, and action; installed is not authenticated or supported. Missing/unknown is not supported. Show per-action Eevee-mediated/agent-policy/observed boundaries; never mutate global agent configs or silently load an untrusted project hook/plugin.
-- **Accept:** Probe the installed Codex interface and missing executables/SDKs; preserve local-only use. A version mismatch, absent auth, or unknown enforcement capability disables the affected run with an actionable reason. No repository-supplied command or auth flow starts without trust/action; no credentials appear in profile snapshots or logs. Record observed versus merely documented capabilities.
-- **Evidence:** Rust checks passed 168 tests (two subprocess helpers ignored), warning-free Clippy, and release build. Five real Linux/WSL PTY scenarios exercised missing profiles/local-only editing, repository-executable neutral/cancel/undersize refusal and deliberate consent, executable replacement invalidation, withheld credential-like stdout, and the installed Codex `0.152.1` version probe. Inspected 120x36/60x18 captures; eleven existing workbench scenarios also passed. Known configuration declarations are non-authoritative; no provider auth/status, protocol handshake, model request, SDK runtime, or native Windows acceptance is claimed. Codex `0.147.0` remains a documented reference only; the observed mismatch and all absent adapters keep model actions disabled.
-- **D continuation:** Profiles now disclose implemented Codex Plan/controlled Implement, optional pinned SDK and shared ACP1 rather than claiming absent adapters. Runtime/policy/auth gates remain separate. Existing five-case preflight smoke passed again; Gemini's observed Node startup exceeded three seconds, so only that profile now has a disclosed ten-second bounded probe.
-- **Authentication continuation:** **F2** exposes provider, action and method lists; compact review starts on Back, with full Details available. Codex browser/device OAuth, OpenCode native chooser and Gemini's official Google/API/Vertex native chooser retain neutral 80×24 review, bounded terminal handoff, no token-store copying/automatic task replay, and fresh Run consent after return. “Use for task” opens the separate provider-switch review. Gemini's pinned ACP auth emitted raw OAuth prompts on JSON stdout; its replacement is explicitly external native CLI handoff, which can continue into chat and does not claim an auth-only sandbox. Runtime initiation/cancellation evidence and remaining human-auth limits are in the checkpoint.
-
-### A02 — Espeon scoped planning request
-
-- [x] Completed real scoped Codex app-server planning with reviewed context, questions/approvals, cancellation/resume, and explicitly saved decisions.
-- **Depends on:** A01, E02, C02.
-- **Change:** Use the pinned installed-version app-server contract, not ANSI screen scraping, for normalized structured events, approval/questions, cancellation, and explicit thread lifecycle. Let Espeon submit a previewed context manifest and save a user-selected decision. Correlate task/run/generation/tool/request IDs, preserve provider-origin metadata, and do not count delta plus final snapshots twice. Keep one active request; a draft is not a queued submission.
-- **Accept:** With real credentials, run a bounded design request, answer a real supported input request, deny/allow a supported operation, cancel a turn, and resume the explicit thread when supported. Reject a stale approval after cancellation, and surface malformed/fatal transport outcomes without fake completion or automatic resend. Inspect outgoing context plus provider-added-context disclosure. Auth/schema availability is a real blocker; mocks do not satisfy this gate.
-- **Preview integrity:** Immediately before dispatch revalidate the C02 context manifest, task revision, profile/config, and grants. A changed file or replaced symlink/junction requires a new preview, not an unnoticed payload update. Test a source change between Preview and Run and prove no stale or substituted request is sent.
-- **Evidence:** Rust 1.92.0 passed 183 tests (two subprocess helpers ignored), warning-free Clippy, and release build. `scripts/planning_smoke.py --live` passed nine actual-TUI scenarios on Linux/WSL x86_64 using installed Codex `0.152.1`, its generated experimental schemas, ChatGPT account authentication and advertised `gpt-5.6-sol`/low default. Exercised changed source and same-content escaping symlink refusal before dispatch, fatal malformed transport without success/retry, actual blocking question and literal CJK answer, reviewed decision save/restart, explicit same-thread resume and cancellation at 39x10, stale response rejection, command denial and allow-once with observed tool status/output, no automatic reconnect/replay, and neutral undersize safe exit with provider cancellation before storage-aware quit/terminal restoration. Inspected 120x36/60x18/39x10 surfaces; fixed the reproduced stale last-page consent footer. Five preflight and eleven workbench regressions passed. Selected decisions use existing Next action storage with unverified provider provenance; no schema migration. Native Windows/macOS provider acceptance, A03 patches, and other adapters remain unclaimed.
-- **D preservation:** The nine-case live planning smoke passed again after common provider routing, role/switch/journal/handoff integration. A02 Plan behavior is preserved; Implement is a distinct reviewed operation, never a silent widening.
-
-### A03 — Flareon bounded implementation
-
-- [x] Produced a reviewed real bounded patch while preserving dirty user work and separating provider/local evidence.
-- **Depends on:** A02, R02.
-- **Change:** Request a change within the profile's verified edit boundary. Show exact enforcement provenance rather than assuming callback approval implies path/network isolation. Keep baseline/user changes visible, inspect the working diff, and offer deliberate Jolteon verification. Provider-native tool results are journaled with origin/coverage, not mislabelled as local execution. Never auto-commit/merge or silently widen scope.
-- **Accept:** Make a real change in a disposable dirty repository, preserve user edits, review against the requirement, and run a chosen check. Deny a protected write and verify no side effect through the advertised route. If the profile cannot enforce a required boundary, refuse that controlled action or require an explicitly labelled external-policy workflow; no reassuring but false read-only label.
-- **Evidence:** `scripts/implementation_smoke.py --live` passed five real Codex 0.152.1 TUI scenarios: deny preserved tracked/untracked/index bytes; a substituted symlink toward a protected external file was refused unchanged; an approved selected-file replacement preserved the user's dirty comment and retained native provenance; `w` reviewed the patch and separately approved `j` produced `EEVEE_LOCAL_CHECK_OK`; restart retained provider journals without replay or local-evidence relabelling. POSIX route admits 1–8 existing regular UTF-8 files ≤12 KiB each, with exact before/after consent, protected/excluded/unselected/link/stale rejection. Other platforms refuse controlled writes. Schema 5 adds append-only quota-backed complete/partial provider records, deletion/purge preview and storage-only retry.
-
-### A04 — Claude Agent SDK interoperability
-
-- [ ] Run the same task UX through a supported Claude SDK adapter.
-- **Depends on:** A03.
-- **Change:** Add an optional, pinned TypeScript Agent SDK sidecar behind the Rust adapter contract. Use documented query/callback APIs rather than recreating its full private transport. Separate canUseTool approval, AskUserQuestion, and MCP elicitation; apply mandatory policy through actual tool/config controls, not only a callback bypassed by preapproved tools. Use the SDK's permitted auth/branding; no bundled claude.ai subscription login or undocumented credential reuse.
-- **Accept:** In a disposable workspace with permitted credentials, preview/run, answer a question, deny/allow once, interrupt, and resume by explicit provider session ID. No queued follow-up starts after cancellation; no persistent rule is silently saved; cumulative usage is not double-counted. Verify project-hook/MCP configuration boundaries and show unsupported confinement honestly. The Rust UI/local-only path works without Node/SDK installed.
-- **Implemented / blocker:** Optional official SDK 0.3.296 / embedded CLI 2.1.296 / Node ≥24 bridge, strict tool/config policy, correlated questions/permissions, decline/cancel-only MCP elicitation, one query/no follow-up queue, explicit resume and non-summed cumulative usage are implemented. Six policy TAP tests and real `--inspect` passed. Explicit cloud credentials now include Bedrock bearer/web-identity and opted-in AWS SSO/profile/workload or Vertex ADC/workload (`EEVEE_CLAUDE_CLOUD_AUTH=provider-chain`); provider effects are disclosed and the effective SDK backend is checked before prompt release. SDK configuration remains isolated and claude.ai subscription OAuth is not reused. Missing permitted credentials still block live question/deny/allow/interrupt/resume acceptance; module/policy checks do not complete it.
-- **Fresh prerequisite check (2026-10-14):** Real SDK `--inspect` on Node 24.18.0 reports SDK 0.3.296 / embedded CLI 2.1.296 with `credential_route: unavailable`. Supported Linux/Windows Claude status reports subscription authentication, not an authorized SDK API/cloud route; no credential stores were read/copied. No API/selected cloud environment route was available. Evidence: `target/claude-acceptance-inspect.json`. The user chose authentication-preparation hold; no model conformance is claimed.
-- **Console OAuth route (2026-10-14):** A permitted OAuth route now exists: Anthropic Console login through the official `ant` 1.40.0 CLI. It is API-billed and documented as honoured by the Agent SDK; it is not claude.ai subscription OAuth. F2 → Claude → Connect offers reviewed `ant auth login --profile eevee` (browser) or `--no-browser` (paste code; WSL/SSH default), plus `ant auth status`. The sidecar admits that profile as an exclusive route and pins `ANTHROPIC_CONFIG_DIR`/`ANTHROPIC_PROFILE` before HOME isolation. Before prompt release it requires real SDK `accountInfo()` to report first-party with no API-key/token source; a fake profile, missing profile and API key were each distinguished. Real `--live` auth smoke with `--ant` passed: absent-profile status, and both login methods started and cancelled without writing credentials (`target/auth-smoke-claude-console`). No human Console sign-in or model request was performed, so live question/deny/allow/interrupt/resume acceptance remains unchecked.
-
-### A05 — ACP client with OpenCode as the first concrete peer
-
-- [x] Exercised the shared negotiated ACP1 client against real OpenCode without claiming a standard sandbox.
-- **Depends on:** A03.
-- **Change:** Implement negotiated ACP v1 stdio JSON-RPC against OpenCode's documented `opencode acp` entrypoint. Advertise only implemented client callbacks; normalize prompt/update/permission/question/cancel/load semantics. Treat absent capabilities as unsupported, preserve provider option IDs, and gate every client filesystem/terminal request. Keep agent-owned tools/config effects separate from client mediation; ACP transport alone is not confinement.
-- **Accept:** With a real compatible OpenCode installation, connect, run, answer supported permission/question requests, cancel with pending requests, and reload the correct cwd/session. Test unknown optional fields, unsupported version/capability, a late response, and a provider-owned tool path. No shared/global server assumptions, duplicate replayed artifacts, silent always-allow mapping, or stdout log contamination.
-- **Evidence:** OpenCode 1.17.12's real prompt was rejected by its free service's newer-release requirement, so qualification moved to isolated native **1.18.0 `acp --pure`**, not an auth/model fallback. Real TUI completed a Codex-handoff-derived planning message with `end_turn`, denied an exact permission response, allowed once and observed `EEVEE_ACP_TOOL_OUTPUT` in a completed provider-native journal, explicitly loaded the same cwd/session, cancelled a pending permission and rejected a stale answer. Negotiated metadata-only `session/list` also worked without creating/prompting a session. ACP frame/capability/optional-field/late-response/final-snapshot boundaries passed Rust regressions. Unsupported questions/fs/terminal requests are refused; native provider tools/config/MCP remain external policy; controlled ACP implementation is disabled.
-
-### A06 — Gemini ACP conformance and capability differences
-
-- [ ] Prove the ACP implementation is not an OpenCode-specific adapter in disguise.
-- **Depends on:** A05.
-- **Change:** Add a version-qualified Gemini CLI profile using its documented ACP launch mode after checking the installed release. Reuse the ACP adapter; keep model/auth/session/question differences in capability/profile data, not UI-specific forks. Account for current account/product eligibility rather than promising a free subscription route.
-- **Accept:** Run the same prompt/cancel/permission/context scenarios against real Gemini ACP. Exercise a capability present in one peer but absent in the other: the UI gives a correct reason and does not invoke the missing method. Record peer version, negotiated protocol, auth route, and actual restrictions. Missing executable/credentials block this task, not the local shell.
-- **Implemented / blocker:** Gemini **0.28.0 `--experimental-acp`** shares the model adapter and negotiates ACP1/loadSession. Real no-model comparison showed OpenCode's `session/list` succeeds while Gemini omits it and the method is not sent. Missing configured auth produced an actual `session/new` **401**, not proof that an API key is the only route. Login now uses the reviewed official native CLI for Google OAuth/browser/manual-code, API key or Vertex, because this release's ACP authentication mixes native text/code prompts into JSON stdout. Its external native/chat boundary is disclosed and Eevee sends no task automatically. Authenticated model/permission/cancel/context scenarios still need completed human authentication and current eligibility.
-- **Actual TUI difference:** The final composed nine-case live smoke visibly showed Gemini's absent `sessionCapabilities.list` and **Method NOT invoked**, then the genuine API-key 401 without model dispatch. A separate three-case Gemini TUI run also verified local navigation, safe quit and exact terminal restoration after both outcomes.
-- **Fresh native prerequisite checks (2026-10-14):** Linux Gemini 0.28.0 and the native Windows installed 0.28.0 package both negotiated ACP1/loadSession and returned actual `session/new` 401. Both omitted session-list support, and no list method or model prompt was sent. Windows version is package metadata because its separate `--version` timed out. Supported auth IDs remain Google OAuth, Gemini API key and Vertex; neither 401 makes API keys mandatory. Evidence: `target/gemini-acceptance-inspect.json`. Human authentication/eligibility is still required.
-
-### A07 — Cross-agent handoff and honest external fallback
-
-- [ ] Continue one Eevee task across agents without claiming portable sessions.
-- **Depends on:** A04, A05, A06.
-- **Change:** Preview switching agent/role policy at an idle boundary. Export/import a versioned task handoff containing approved facts, source references/excerpts, criteria, decisions, and unresolved work; never carry opaque provider session IDs, permissions, hidden reasoning, or credentials across agents. Keep imported results unattributed/unverified until checked. Provide a manual JSON/Markdown handoff for other CLIs instead of scraping or automating their TUI.
-- **Accept:** Continue a Codex task with Claude Agent and an ACP peer using an explicitly accepted handoff; the old session remains available, grants reset, and the new request includes only reviewed context. Reject stale pending approvals and unknown/newer handoff schema. Manual export/import works without launching a CLI and cannot create verified execution evidence from user-supplied claims.
-- **Implemented / partial acceptance:** Strict schema-1 curated JSON/Markdown, create-only reviewed export/import, explicit idle provider/role switch, original per-provider sessions, grant reset, unverified claims and exact current-task/source dispatch binding are implemented. Four real manual TUI cases passed with no providers on PATH, including session/secret exclusion, equivalent JSON/Markdown, import without execution/evidence/completion mutation and newer-schema refusal. Real Codex→OpenCode continuation completed with reviewed portable facts; a regression found and removed generated session provenance from all adapters' outer task metadata, not merely the handoff. Full Codex→Claude→ACP acceptance remains blocked by A04/A06 credentials and is intentionally unchecked.
-- **Current reachable regression (2026-10-14):** Four provider-free manual JSON/Markdown TUI cases passed against the updated composer/rendering binary (`target/pre-011-handoff`); all 15 specialist/memory/recipe cases also passed (`target/pre-011-workflows`). Full provider-chain acceptance remains blocked, not inherited from these local cases.
-
-## E — Distinct diagnosis, refinement, and review
-
-### U01 — Umbreon hypotheses and diagnosis
-
-- [x] Track explanations against real observations.
-- **Depends on:** A02, R02.
-- **Change:** Add a hypothesis board with supporting/refuting evidence links and explicit unresolved states. User-requested diagnostic commands use Jolteon's local approval/runner; provider-native diagnostics retain their actual origin and control coverage in the journal. A diagnosis alone does not edit source. Security findings use the same evidence discipline, not severity by guesswork.
-- **Accept:** Investigate a seeded failure, reject one hypothesis using an actual run, and support a root cause with source/output references. Missing proof stays unresolved. Handoff to Flareon carries the diagnosis without re-sending the whole transcript.
-- **Observed acceptance (2026-10-14):** Native `workflow_smoke.py` rejected overflow using an actual failed check, linked the subtraction defect to captured source/output, retained missing evidence as unresolved, and previewed only the selected diagnosis for Flareon without writing or sending.
-
-### L01 — Leafeon bounded refactor and comparison
-
-- [x] Make improvement measurable and behavior-preserving.
-- **Depends on:** A03, R02.
-- **Change:** Select a hotspot, record the behavior contract and baseline, request a bounded refactor, and compare relevant validation/measurements. Reuse Flareon's patch and Jolteon's execution machinery, not a second editor or executor.
-- **Accept:** Refactor a disposable example with a fixed behavioral contract; compare baseline/post-change output and relevant measurements. A failing check blocks a success claim. Do not claim a speedup from noise, missing baselines, or unrelated checks.
-- **Observed acceptance (2026-10-14):** A disposable addition example retained its contract across a bounded refactor. A failed post-change check blocked comparison; distinct ordered baseline/post-change runs used the same executable, argv and cwd. Actual outputs/elapsed times were shown without a speedup claim.
-
-### G01 — Glaceon independent review desk
-
-- [x] Judge the patch against current evidence without editing it.
-- **Depends on:** A03, R02.
-- **Change:** Build a separate review context from requirements, patch, and selected observations. Add evidence-linked findings and accept/request-changes/inconclusive verdicts; show stale verification next to the affected criterion. Source-writing tools are unavailable to managed review requests.
-- **Accept:** Review a seeded defect and an unverified change. Capture an actionable finding/inconclusive verdict, not a generic pass. Edit after a successful check and confirm the review shows stale evidence. Applying a fix requires a deliberate handoff, not Glaceon editing its own finding.
-- **Observed acceptance (2026-10-14):** Native evidence-linked findings, coverage-gated acceptance and stale-source invalidation passed. Two explicitly approved real Codex 0.152.1 reviews used distinct non-resumable sessions, excluded the implementation-only next action, identified the seeded subtraction defect and preserved all project/Git bytes. SDK live review remains unclaimed; managed ACP review is refused.
-
-## F — Handoff, approved habits, and recipes
-
-### S01 — Sylveon evidence-linked handoff
-
-- [x] Leave the next session a usable journal, not a vague summary.
-- **Depends on:** G01, E02, A07.
-- **Change:** Reuse A07's portable handoff schema to preview the goal, observed changes/results, decisions, unresolved risks, and exact next action; do not create a second export format. Include source/run references, distinguish model inferences, and preview any documentation write separately. No automatic declaration of completion.
-- **Accept:** Close/reopen a task with one unresolved finding and resume from the recorded next action. Follow each result link to real evidence. Reject a proposed documentation edit and confirm the file is unchanged.
-- **Observed acceptance (2026-10-14):** Reopened the unresolved finding and exact next action; followed its stored source and actual run output. Rejecting the separate documentation preview preserved existing bytes. Explicit schema-1 export retained labeled inference/unverified evidence references, not grants or completion. A07's separately blocked full provider chain is not claimed.
-
-### S02 — Explicitly curated project and personal habits
-
-- [x] Let the companion learn only what the user approves.
-- **Depends on:** S01, C02.
-- **Change:** Offer Remember on a selected verified/user-authored note; preview task/project/personal scope, then approve or reject. Support inspection/edit/delete and honor exclusions. Do not silently infer a permanent habit from one action or add a numerical bond score.
-- **Accept:** Approve one project memory and reject another; restart and inspect exact contents. Open a different project and confirm scope isolation, then delete the memory and verify it no longer enters context. Excluded secrets are never proposed from captured content.
-- **Retention integration:** Use E03's ownership/purge rules; deleting one task must not remove approved shared memory, and deleting a memory must remove it from future request assembly while explaining that prior exports/provider history are outside local erasure.
-- **Observed acceptance (2026-10-14):** Actual approval/rejection, exact-content inspection after restart, separate context selection, deletion removing future context, cross-task/project scope isolation and task purge preserving shared project/personal notes passed. Exclusion, update/revision and dispatch-revalidation regressions passed.
-
-### S03 — Evolution Stone recipe preview
-
-- [x] Reuse workflows without creating a permission bypass.
-- **Depends on:** V03, R02, S01.
-- **Change:** Load versioned TOML recipes describing form steps, context/scope, validation commands, and completion criteria. Show the recipe before applying it to a task. No install hooks, marketplace, automatic execution, or authority to expand existing grants.
-- **Accept:** Preview a local bug-fix recipe, apply its plan without executing commands, and require normal approvals during use. Reject an invalid schema. A recipe requesting an ungranted write/run capability cannot perform that action.
-- **Observed acceptance (2026-10-14):** The native all-page preview defaulted to staying; explicit approval persisted only the plan/criteria/next action. Proposed commands did not run, no model was called, and unknown capability/schema fields were rejected.
-
-## G — Integrated acceptance
-
-### Q01 — Complete journey and visual state matrix
-
-- [ ] Prove all nine workflows and their composed user experience.
-- **Depends on:** V01, V02A, V02B, V03, UX01, UX02, E02, E03, C02, R02, P02, A03, A04, A05, A06, A07, U01, L01, G01, S01, S02, S03.
-- **Change:** Exercise real nine-form artifacts plus the shared UX across Codex, Claude Agent SDK, and the two ACP profiles. Run the compatibility conformance scenarios, not a mandatory all-agent tour for normal users. Maintain separate native-local, graphics-terminal, and provider OS/version evidence matrices; an unavailable optional provider blocks its interoperability gate, not use or independent verification of the local core. Q01 remains pending until every required gate passes. Fix actual integration/visual defects; no fake backend or single-agent-only test qualifies as interoperability.
-- **Accept:** Cover empty/missing dependency, ready/running, permission/question, cancellation/unknown outcome, save failure, stale evidence, and cross-agent handoff across supported sizes/themes and long CJK content. Verify keyboard focus, no accidental execution, bounded streams/storage, task switch and quit with pending work/drafts, resumed usage accounting, purge/missing artifacts, image cleanup, and terminal restoration. Exercise E02/R02/S02's deferred integration checks. Every claimed controlled action names and proves its enforcement boundary. Review naming/art rights and provider terms before distribution; unsupported OS/provider combinations remain explicitly unavailable rather than implied portable.
-- **Observed / remaining (2026-10-14):** Five complete native rows passed at `d198fa5`, including 15 specialist cases per host and composed task/context/execution/recovery/purge checks. The local specialist journey also passed dark/light/indexed/mono/ASCII/linear modes with compact/undersized and Unicode states. Actual Codex implementation/review and Codex→OpenCode continuation passed. Required live Claude/Gemini rows remain unavailable; full Q01 is not checked.
-
-### Q02 — Measured native and token efficiency
-
-- [ ] Measure the performance contract rather than advertise unverified speed.
-- **Depends on:** Q01.
-- **Change:** Benchmark the release binary on recorded hardware/workload: 60s local-shell idle CPU/RSS, 30 warm local startups, key-to-render latency under streaming, 10 MiB output, and a 10,000-line diff. Report core, optional SDK sidecar, and external-agent resource use separately and in aggregate. Inspect per-provider usage/cost scope and outgoing context; optimize measured bottlenecks.
-- **Accept:** Report observations against the design targets with method/sample size and remaining misses, without hiding helper/agent costs inside a core-only claim. Queues stay bounded; no model request on form selection, no unsubmitted draft leaks, and no unrelated/full history in Eevee-sent context. Show unknown provider-added context/usage honestly; no savings percentage or merged cost total without compatible measured scopes.
-- **Measured local slice (2026-10-14):** All specified release workloads completed on M1 Pro/macOS arm64. Warm-start p95 89.55 ms; 60-second idle 0.826% of one core / 7.44 MiB core RSS; streaming input p95 12.61 ms. A 10 MiB stream retained exactly 1 MiB and visibly discarded 9 MiB; a 10,000-line diff opened in 137.66 ms without changing repository bytes. See the implementation plan for scope/method. Full Q02 remains pending on Q01 and unavailable provider-resource/conformance rows.
-- **Additional provider measurement:** Two real independent Codex reviews reported native core, app-owned preflight helpers, app-server descendants, measurement harness and simultaneous aggregate CPU/RSS separately. The implementation plan records the exact windows and sample counts. SDK resources and compatible provider-added context/token/cost totals remain unavailable, not zero or invented savings.
-
-### P03 — Native distribution, upgrade, and support evidence
-
-- [ ] Make installation and upgrades reproducible on the supported platform matrix.
-- **Depends on:** P02, Q01, Q02.
-- **Change:** Produce versioned native archives and checksums for the P01 targets, with install/run/uninstall instructions and recorded OS/toolchain/terminal baselines. Separate verified core support from graphics and optional provider compatibility. Include no mandatory Node runtime, credentials, or franchise artwork in the core package. Keep user-data paths stable across upgrades and refuse incompatible schema downgrade without changing data. Do not advertise unverified packages or bypass rights/provider-term review.
-- **Accept:** Download/unpack and run each package on a clean native target without Rust installed; verify checksums, help/version, the interactive local flow, and absence of account/art/network prerequisites. Upgrade from the previous supported data schema (fixture for the first release), resume a task, and attempt an incompatible downgrade without data loss. Uninstall leaves data intact unless the user deliberately invokes documented purge. Publish per-target build/runtime/install evidence plus graphics/provider limitations; unsigned/unnotarized artifacts and any OS trust prompt must be disclosed, never bypassed through a blanket security-disable instruction.
-- **User-authorized 0.1.0 slice:** The latest request explicitly authorizes public release and commit/push, superseding the earlier offline-preview-only decision. Five native packages carry dependency notices and no franchise image bytes. Bootstrap, read-only update check, embedded-installer update, owned uninstall, rolling-ball progress and offline inputs are implemented; the release workflow requires all current native and SDK-policy jobs to pass. This bounded core release does not silently complete P03's remaining integrated/schema/performance/provider acceptance or signing/notarization.
-- **Published / verified (2026-10-14):** [v0.1.0](https://github.com/kimmandoo/eevee/releases/tag/v0.1.0) promoted `d198fa5`'s successful five-target packages without rebuild or repeated release smoke. All eight public assets downloaded anonymously and all seven checksum entries matched. Public macOS installation without compiler/provider runtime, version/update check, 15 specialist cases and three actual schema migration/refusal/resume cases passed. Signing/notarization and the full dependent provider/integrated gates remain unclaimed.
-
-## H — Planned product improvements
-
-These six items are a requested future backlog, **not implemented features** and not additional prerequisites retroactively attached to the existing A–G acceptance. Preserve the authentication hold above. Pick priority 1 before priority 2 when dependencies and real runtime access permit; each completed item needs its own actual-TUI demo and commit.
-
-### UX03 — Contextual, searchable actions
-
-- [ ] Make the next useful action discoverable without reading a manual.
-- **Priority:** 1.
-- **Depends on:** UX01, UX02.
-- **Change:** Reuse the existing `/` and Ctrl+K action registry with searchable aliases, current-surface actions and visible disabled reasons. Keep one concise primary hint; put the complete key map behind help. No second command dispatcher or execution-on-search.
-- **Accept:** At 120×36 and 60×18, locate attachment, provider, cancellation and evidence actions using a partial query; empty/disabled results explain the next step. Escape restores the exact draft and prior focus. Selecting a mutating action opens its normal review, never executes it.
-
-### C03 — Inspectable attachment chips and context budget
-
-- [ ] Show exactly which files/ranges will accompany a request.
-- **Priority:** 1.
-- **Depends on:** C02, A02.
-- **Change:** Extend `@` attachment with compact removable file/range chips, a selected-content preview, stale/unavailable markers and exact Eevee-sent bytes plus a labelled token estimate. Reuse stored excerpt identities and dispatch revalidation; do not imply control over provider-added reads/history.
-- **Accept:** Attach a full bounded file and a range, inspect/remove each by keyboard, restart and recover the same selection. Source changes become stale before sending; a missing capture blocks assembly. Displayed bytes equal the serialized request; excluded secrets and out-of-root links never become attachments. Long Unicode names fit without hiding remove/inspect actions.
-
-### A08 — Actionable connection diagnostics
-
-- [ ] Turn provider setup failures into one clear next step with details on demand.
-- **Priority:** 1.
-- **Depends on:** A01.
-- **Change:** Separate executable/version, permitted authentication, account eligibility and observed transport failures. Offer a supported native setup action and a redacted diagnostic view. Explain callback-free WSL login and disabled device authorization without silently switching methods/billing.
-- **Accept:** Exercise missing executable, incompatible version, actual authentication-required response and cancelled native login. Ordinary view shows the current blocker and next action; technical details remain reachable. No credential stores are read/copied, diagnostics contain no tokens/callback codes, and successful installation is never labelled successful authentication.
-
-### UX04 — Readability and reduced-motion preferences
-
-- [ ] Let users tune text density and motion without losing safety information.
-- **Priority:** 2.
-- **Depends on:** UX01, V01.
-- **Change:** Add documented compact/comfortable text density, a persistent reduced-motion preference and an explicit installer animation opt-out. Keep permission/error facts intact in both densities; honor accessibility settings without equating NO_COLOR with a request to remove all motion.
-- **Accept:** Change preferences, restart, and verify keyboard focus, CJK editing and all actions at 60×18 and 120×36. Reduced motion produces no animated frames during install/update but retains truthful phase output; redirected output remains escape-free. Test a real assistive setup before claiming screen-reader compatibility.
-
-### S04 — Create reusable recipes from reviewed work
-
-- [ ] Save a useful verified workflow without saving its authority or secrets.
-- **Priority:** 2.
-- **Depends on:** S03, R02, C02.
-- **Change:** Preview a recipe assembled from selected user-authored steps and actual validation commands; edit its name, scope and completion criteria before create-only TOML export. Reuse S03's schema and preview. Exclude transient grants, sessions, credentials and machine-specific absolute paths unless explicitly reviewed.
-- **Accept:** Export, reopen and apply a bug-fix recipe in another disposable project. Exact argv stays distinct from shell text; the new project still requires fresh context review and per-action approval. Cancelled export leaves no file, existing files are not overwritten, and imported steps never execute automatically.
-
-### P04 — Reviewed updates and safe rollback eligibility
-
-- [ ] Explain an update before replacement and refuse unsafe rollback.
-- **Priority:** 2.
-- **Depends on:** P02, E01.
-- **Change:** Add a compact TUI entry to the existing checksum-verified updater: current/target version, source, sprite-cache effects and retained-data policy. Offer rollback only when the retained package and data-schema compatibility can be established; never rewrite user data to make an older binary start.
-- **Accept:** In isolated installed layouts, review/cancel an update without changing files, approve a verified update and resume the task, then exercise both a compatible rollback and a newer-schema refusal with byte-identical data. Checksum failure/interruption preserves the last usable owned installation; no elevation, global profile edits or silent task/provider-data deletion.
-
-## I — Token economy and evidence-driven tool calling
-
-These twelve items are **planned, not implemented**. The product distinction is an inspectable context-and-tool pipeline: select less input, retrieve only needed output, reuse only valid observations, and stop waste before starting another action. Reuse the existing adapters, context basket, execution journal and approval flow; do not build a parallel agent runtime.
-
-- **Required local-only optimizer:** Token estimation, context ranking/compaction/deduplication, tool-catalog search, result slicing, cache validation and budget/loop decisions run on the user's machine. No optimizer-initiated network requests, hosted LLM summaries, embedding/reranking APIs, telemetry, remote cache service or background model/tokenizer downloads. Use local deterministic processing and already-installed assets; missing tokenizer data yields a labelled local estimate, not an online fallback. No local model runtime is required.
-- **Outbound boundary:** Only separately reviewed user work may invoke a provider or an external tool. The optimizer may consume usage events already returned by that work and locally stored tool schemas; it must not make extra requests to obtain prices, usage, schemas or optimization advice. Explicit connection/catalog setup and expressly approved Q03 live benchmarks remain separate user actions, never automatic optimization. Local processing does not make the subsequent approved provider request offline or free.
-- **Offline acceptance gate:** With provider credentials absent and all network access denied, exercise T01–T05 and the local discovery/paging/cache/planning paths against local files, stored metadata and recorded events. Verify zero attempted outbound connections and zero provider invocations, not merely successful fallback after failed calls. Missing assets and stale catalogs remain explicit; source bytes and drafts stay local until a separately reviewed dispatch.
-
-- **Measurement boundary:** Distinguish exact Eevee-sent bytes, tokenizer/version-labelled estimates, provider-reported usage and actual billing. Unknown provider history, hidden tool schemas, cache hits or pricing stay unknown, never zero. A smaller transcript is not automatically a cheaper or equally correct run.
-- **Control boundary:** Tool discovery, injection, paging, caching and scheduling apply only to documented adapter capabilities and Eevee-owned execution. Qualify each supported provider/version; unavailable interception of provider-native tools is a visible limitation, not prompt-based enforcement or a silent fallback.
-- **Order:** Priority 1 establishes usage receipts, context selection, budgets, lazy tool discovery and paged results. Priority 2 adds local packet deduplication, compaction, scheduling, caching, recovery and impact-directed checks. Q03 measures the composed result incrementally; no Q01/Q02 completion or authentication hold is inherited or cleared.
-- **UX:** Ordinary views show input budget, next action and blocker briefly. Exact payloads, tool arguments, omissions, cache provenance and cost breakdown stay inspectable in drawers at 120×36 and 60×18. Optimization never hides permission scope or turns retrieved text into instructions.
-
-### T01 — Per-turn context and usage receipts
-
-- [ ] Explain what each turn sends and where its tokens or cost went.
-- **Priority:** 1.
-- **Depends on:** C03, A02, R02.
-- **Change:** Add a request receipt separating instructions, task facts, attachments, history, tool schemas and tool results. Record available input/output/cache/reasoning usage without double-counting overlapping provider categories or cumulative events. Identify model, tokenizer and price-table version; unsupported counts/pricing stay unknown. Reuse manifests and journal identities without storing credentials or retaining purged source bytes.
-- **Accept:** Reconcile two real turns and an explicit resume against supported provider usage events. Delta/final/repeated events count once; CJK estimates are labelled, and opaque provider-added input is not attributed to selected files. Inspect exact outbound bytes and a before/after context selection; unavailable prices produce no invented cost. Restart preserves receipt identity and purge respects E03.
-- **Implemented / remaining (0.1.1):** Every provider preview now shows a local, offline receipt of the exact Eevee-sent payload. It splits instructions, task facts, attachments, handoff and memories, each with exact compact bytes, plus JSON key/indentation bytes. Each has a labelled `eevee-local-v1` CJK-aware estimate. Provider-added context, usage and billing are shown as unknown, not zero. Still missing: reconciliation against real provider usage events, before/after selection comparison and durable receipt identity. Unchecked.
-
-### T02 — Budgeted, symbol-aware context compiler
-
-- [ ] Assemble the smallest reviewable source packet useful for the selected task.
-- **Priority:** 1.
-- **Depends on:** T01, C02.
-- **Change:** Start from the user's goal, selected symbols, working diff and pinned context. Prefer local definitions, signatures, direct references and relevant test/config excerpts over whole-file dumps; reuse available language tooling with an explicit text-only fallback. Deduplicate overlapping ranges, rank candidate evidence and show reasons/omissions under a user-set budget. Never drop mandatory instructions or pinned evidence silently; overflow requires a new decision.
-- **Accept:** In a fixed multi-file bug fixture, include the defect, caller and relevant check with fewer serialized input tokens than the same reviewed full-file baseline, using one named tokenizer. A seeded cross-file requirement remains discoverable; excluded files and links remain excluded. Unsupported syntax is labelled, not fabricated symbol knowledge. Edit a selected source after preview and dispatch must stop for review. Report live outcome quality separately through Q03.
-
-### T03 — Local request deduplication and revision cache
-
-- [ ] Avoid sending the same source or evidence repeatedly within an outgoing request.
-- **Priority:** 2.
-- **Depends on:** T01, T02.
-- **Change:** Build a local identity/revision index across attachments, selected memory, handoff facts and tool-result references. Emit repeated identical evidence once with its original citations and replace redundant copies with references inside that same self-contained packet. Preserve distinct provenance, conflicting revisions, mandatory instructions and explicitly pinned content. Cache local assembly/tokenization work by content and configuration identity; do not depend on provider memory, prompt caching or remote storage.
-- **Accept:** Assemble a request containing the same capture through three entry points and show reduced serialized tokens against the unoptimized packet, with every citation still resolvable inside the request. Identical text from distinct sources is not silently conflated. Changed/deleted source, policy or tokenizer invalidates affected local cache entries. A fresh provider session receives a self-contained packet; local cache hits never imply remotely retained context, a billing discount or a fresh verification result. All assembly and invalidation run with zero attempted network access.
-- **Implemented / remaining (2026-10-15):** Basket assembly now emits `{"source_root", "captures":[…]}`: the shared repository root is hoisted once, `source_sha256` is hex, and any capture byte-covered by a wider capture of the *same* file revision carries `same_bytes_as` instead of re-sent text — citations resolve to an entry that always carries its bytes. Codex `edit_baseline` entries cite a byte-identical whole-file capture (`working_content_same_as_capture`) instead of duplicating the file. The request receipt and basket drawer disclose deduplicated bytes/citations. Still missing: cross-entry-point cache, revision-index persistence and the three-entry-point acceptance harness. Unchecked.
-
-### T04 — Evidence-linked compaction and rehydration
-
-- [ ] Continue long work with a compact ledger without losing decisions or unresolved failures.
-- **Priority:** 2.
-- **Depends on:** T01, C02, E02, R02.
-- **Change:** Locally extract a compact packet of user requirements, approved decisions, source/output references, unresolved hypotheses and next action using deterministic rules and explicit user selection. No model call or cloud summarization is used. Keep inferences distinct from observations and retain links to available originals. Preserve current permission facts but never convert an old approval into a new grant. Preview the resulting packet before any separately approved provider request; local compaction cannot erase a provider's existing history.
-- **Accept:** Offline, resume a long task with conflicting old/new decisions, a failed check and a changed source. The accepted latest decision and unresolved failure survive; inspecting references retrieves the correct local original or an explicit unavailable state. Cancel leaves active context unchanged; compaction does not silently delete history. Verify zero provider/network invocations and measure local processing cost plus packet size. Include any later approved rehydration payloads in Q03's usage comparison.
-
-### T05 — Token budget and repeated-call circuit breaker
-
-- [ ] Stop avoidable next actions before an agent consumes an unbounded budget.
-- **Priority:** 1.
-- **Depends on:** T01, A02, R02.
-- **Change:** Add per-task limits for model requests, visible tool calls, input estimates and provider-reported spend where available. Reserve known in-flight exposure before scheduling another owned action. Detect repeated normalized calls with unchanged inputs/results and no new evidence; pause with continue-once, revise or stop choices. Do not equate a timeout or identical command text after an edit with a loop.
-- **Accept:** At an exact call limit, another controlled invocation is not sent; a repeated unchanged read pauses, while changed input can proceed under the remaining budget. Cancellation and restart cannot reset committed usage or auto-resume work. Delayed/unknown provider usage exposes possible in-flight overshoot; no hard monetary-cap claim is made without a documented enforceable limit. No automatic switch of model, account or billing route.
-- **Dropped (2026-10-14):** The user judged per-task limits and repeated-command detection unnecessary. The 0.1.1 implementation (`--max-provider-turns`, `--max-commands`, `--max-input-tokens`, repeat pause) was removed before release. Not planned.
-
-### TC01 — On-demand tool catalog and scoped MCP discovery
-
-- [ ] Expose the few relevant tool definitions instead of flooding every request with every schema.
-- **Priority:** 1.
-- **Depends on:** A01, A02, C02.
-- **Change:** Search and rank locally stored metadata for explicitly trusted local/MCP tools without invoking tools or contacting servers. Select relevant names/descriptions and load exact versioned schemas from the local catalog for supported adapter APIs. Catalog population/refresh is a separate reviewed setup action, not an optimizer side effect. Namespaced identity, trust origin, input limits and declared effects remain visible; relevance is not authorization, and a server's read-only hint is not a sandbox. Missing/stale schemas require setup rather than a hidden network fetch.
-- **Accept:** Against a controlled catalog of 100 tools, discover and invoke the intended tool with fewer serialized schema tokens than the full catalog. Handle name collisions, changed schemas, malicious descriptions and a disconnected server without executing during search. An unsupported provider reports that lazy exposure is unavailable instead of claiming its hidden native catalog shrank. Complete one real compatible-provider round trip; no credential scraping or automatic server installation.
-
-### TC02 — Reviewed tool plans and dependency-aware execution
-
-- [ ] Execute a visible typed plan with fewer model round trips and no hidden effect expansion.
-- **Priority:** 2.
-- **Depends on:** TC01, R02, A03.
-- **Change:** Represent proposed calls as a bounded dependency graph with schema-validated arguments, result bindings and effects. Parallelize only independent calls whose read-only boundary Eevee can enforce; serialize conflicting writes and unknown effects. Reuse existing command/provider approvals, showing exact changed arguments before each effectful call. A batch is not blanket consent, and unresolved placeholders cannot be approved as executable commands.
-- **Accept:** Two independent contained reads overlap, a dependent step waits for both, and conflicting writes never overlap. A failed prerequisite blocks descendants while retaining successful observations; malformed bindings and changed reviewed inputs cause no side effect. Cancellation stops owned work and starts no queued node. Show actual tool-call/model-turn counts and elapsed time against serial execution rather than claiming every graph saves tokens.
-
-### TC03 — Searchable, paged tool-result artifacts
-
-- [ ] Let the model ask for the relevant output slice rather than ingest an entire log.
-- **Priority:** 1.
-- **Depends on:** TC01, E03, R02.
-- **Change:** Capture bounded tool output once under immutable artifact identities. Return an exit/status summary, explicit total/captured/omitted sizes and a preview; expose exact range/search retrieval for retained bytes through supported tools. Include parseable failure locations where available without replacing original evidence. References, pages and retained output inherit task isolation, redaction, quota and purge rules.
-- **Accept:** A real command produces a 10 MiB log with useful errors outside its initial preview. Configure sufficient explicit retention for this case; retrieve exact errors through search/pages with materially less model input than sending the entire retained log. A separate quota-limited run reports discarded bytes as unavailable. Wrong-task, purged and stale handles are refused; output that resembles instructions cannot approve another tool call. No unbounded in-memory transcript.
-
-### TC04 — Dependency-validated observation cache
-
-- [ ] Reuse unchanged read observations without pretending an old check just ran again.
-- **Priority:** 2.
-- **Depends on:** TC01, TC03, C02.
-- **Change:** Cache only allowlisted local observations whose complete input boundary can be recorded, such as bounded file reads and deterministic repository searches. Keys include operation/schema version, normalized arguments, project identity and relevant content/config fingerprints. Label hits with original time and provenance; invalidate on changed dependencies, exclusions or purge. Arbitrary shell, tests, builds, network reads and unknown-effect tools are non-cacheable by default.
-- **Accept:** Repeat an eligible query without spawning its worker, then change content, ignore rules, tool version and a path-to-link boundary separately and observe rejection/invalidation. Same path in another project never shares a result. Cached observations never become a fresh successful test or authorization. Compare actual executions avoided and hashing/index cost against uncached reads; bypass the cache when validation costs more than the read.
-
-### TC05 — Failed-step recovery and explicit tool replay
-
-- [ ] Recover a failed tool plan without repeating successful mutations or paying for the entire reasoning loop again.
-- **Priority:** 2.
-- **Depends on:** TC02, TC03, R02.
-- **Change:** Preserve node arguments, dependency fingerprints, results and completion certainty. Preview resuming only eligible failed/unstarted nodes after revalidation. A recorded response can be inspected without re-execution; a real retry needs current approval for its actual effects. Use documented idempotency/reconciliation where available, and keep ambiguous mutations blocked until their outcome is resolved; never promise exactly-once execution across crashes.
-- **Accept:** Interrupt after a confirmed write and before a dependent check; recovery does not repeat the write. Change an upstream input and require a revised plan. Simulate a lost mutation response: no automatic replay occurs, and supported reconciliation or an explicit user decision is required. Stale approval IDs and late responses cannot start work; recovered results retain original provenance rather than becoming new evidence.
-
-### D01 — Impact-directed verification plan
-
-- [ ] Recommend the checks most likely to catch a change's defects, with an honest coverage boundary.
-- **Priority:** 2.
-- **Depends on:** T02, TC02, C01.
-- **Change:** Use changed symbols, local dependency information, declared test mappings and prior observed failures to propose a minimal check set with reasons. Reuse Jolteon's exact-argv review and execution journal. Offer broader verification when mappings are incomplete or shared configuration/dependencies change; test selection is a recommendation, not proof of completeness or permission to execute.
-- **Accept:** In a seeded project, select the check that catches a changed callee's regression through its caller. A shared config change or dynamic/unmapped dependency triggers an explicit broader plan rather than a falsely complete narrow pass. Preserve unrelated dirty files and cancellation semantics. Compare actual commands/time with the full suite, and label a targeted pass as targeted rather than full verification.
-
-### Q03 — Token-saving and tool-efficiency quality benchmark
-
-- [ ] Prove the optimizations reduce measured work without hiding wrong answers or weaker checks.
-- **Priority:** 2.
-- **Depends on:** T01, T02, T03, T04, T05, TC01, TC02, TC03, TC04, TC05, D01.
-- **Change:** Maintain paired baseline/optimized journeys for bug fixing, code explanation, noisy-log diagnosis and resume, including Unicode, cross-file and stale-input cases. Hold model/version/settings, initial repository and success criteria constant; separate cold/warm caches and include discovery, indexing, summarization, rehydration and retries in the cost. This is targeted optimization acceptance, not a replacement for Q02's complete resource/platform gate.
-- **Accept:** Run at least three paired trials per journey on an actually qualified provider and report raw samples, task correctness, missed seeded defects, wall time, model turns, executed tools and available usage/cost. Baseline and optimized runs pass the same functional/permission checks. Show a measured reduction for context selection and tool-result paging; publish regressions and unknown billing separately, with no universal percentage claim. Missing credentials block live results, not offline byte/selection checks.
-
-## J — Eevee as an adaptable partner
-
-These seventeen items are **planned, not implemented**. Eevee's distinguishing trait is adaptability: one partner keeps the same task while changing form to fit the problem. Each item makes that trait concrete in a small, independently demoable slice: the right form is easy to reach, a switch shows exactly what carries over, and each form leaves a distinct, evidence-backed trace.
-
-- **Boundaries:** All items are local UI/state work with zero provider or network invocations. Suggestions are labelled, deterministic and never self-activate; a form switch grants nothing and sends nothing. Respect the bond rule: no affection score, XP, streaks, random unlocks, invented praise or fabricated stats. Form selection alone remains non-evidence.
-- **Order:** Priority 1 makes switching informed (EV01–EV04) and connects the most frequent relays (EV10, EV12–EV14); priority 2 adds history, dialogue, habit reuse and the remaining relays. Each item needs its own actual-TUI demo at 120×36 and 60×18 and its own commit.
-
-### EV01 — Evidence-based form suggestion
-
-- [ ] Suggest the form that fits the task's current evidence, with the fact that triggered it.
-- **Priority:** 1.
-- **Depends on:** V03, E02, R02.
-- **Change:** Map task state to at most one suggested form with deterministic local rules: goal without criteria → Espeon; criteria without pinned context → Vaporeon; latest owned run failed → Umbreon; working diff with no run at its revision → Jolteon; passing run not yet reviewed → Glaceon; accepted review → Sylveon. Show it in the task card and picker as `Suggested: Umbreon — cargo test exited 101`. No rule match shows no suggestion.
-- **Accept:** Seed each state in a fixture task and observe the expected suggestion and reason. Editing a source after a passing run makes the run stale and changes the suggestion. Dismissing hides it until the triggering evidence identity changes. Enter in the picker only previews; no form, permission or request changes without confirmation.
-
-### EV02 — Evolution carry-over card
-
-- [ ] Show what stays and what changes before a form switch is confirmed.
-- **Priority:** 1.
-- **Depends on:** V03, C02, UX01.
-- **Change:** Confirming a different form opens a one-screen card listing what carries over (goal, criteria met/total, pinned captures, open hypotheses/findings, draft) and the capability difference between the two forms from the DESIGN_RULES role table (read / edit / run). State `No permission granted. Nothing sent.` once. Reuse the existing task envelope fields; no new state copy.
-- **Accept:** Switch Vaporeon→Flareon, Flareon→Jolteon and Glaceon→Flareon; displayed counts equal stored state and the capability difference matches the role table. Esc cancels with form, focus and draft unchanged. Fits 60×18 without hiding Confirm/Cancel; monochrome/ASCII keep the added/removed capabilities distinguishable.
-
-### EV03 — Form capability chip and owning-form redirect
-
-- [ ] Make it obvious which form owns an action instead of failing silently.
-- **Priority:** 1.
-- **Depends on:** UX01, R01, A03.
-- **Change:** Add a short header chip with the active form's default capabilities (`read · run` for Jolteon, `read` for Glaceon). An action outside the active form's responsibility shows a disabled reason naming its owning form and offers `Switch to <form>`, which opens EV02. The chip is descriptive; enforcement remains the existing approval flow.
-- **Accept:** From Glaceon request an edit and from Espeon request a command; each shows the owning form and a working switch path without starting the action. Existing approvals are neither widened nor bypassed. Chip text fits the header at 60×18 without truncating project/form names.
+One partner keeps the task while changing form to fit the problem. These tasks make switching informed and cheap. All are local UI/state work.
 
 ### EV04 — Form-specific empty states
 
-- [ ] Give each form one obvious first action when it has nothing to show.
-- **Priority:** 1.
-- **Depends on:** V01, UX01.
-- **Change:** When a form's main surface is empty, show its `object → action` line from the DESIGN_RULES interaction table and one primary action that opens the existing flow (Vaporeon `@` attach, Jolteon `/run` review, Umbreon add hypothesis, Glaceon open review desk, Sylveon preview handoff). One line plus one action; keep concise-copy rules.
-- **Accept:** Open all nine forms on an empty task at 120×36 and 60×18; each primary action opens the existing review/flow and never executes. No placeholder counts or fake results; non-empty surfaces are unchanged.
+- [ ] Give each form one obvious first action when its surface is empty.
+- **Priority:** 1. **Needs:** —. **Builds on:** V01, UX01.
+- **Change:** Show the form's `object → action` line from the DESIGN_RULES interaction table plus one primary action that opens the existing flow (Vaporeon `@` attach, Jolteon `/run` review, Umbreon add hypothesis, Glaceon review desk, Sylveon handoff preview, Eevee edit criteria).
+- **Accept:** Open all nine forms on an empty task at both sizes; each primary action opens its review/flow and executes nothing. Non-empty surfaces are unchanged.
+- **Watch out:** Concise-copy rule: one line, one action. No placeholder counts or sample results.
 
-### EV05 — Party status from real exit evidence
+### EV03 — Form capability chip and owning-form redirect
 
-- [ ] Turn the evolution picker into a status board of what each form has actually produced for this task.
-- **Priority:** 2.
-- **Depends on:** V03, R02, G01, S01.
-- **Change:** In picker detail and grid, mark each form's exit artifact for the current task as `produced`, `stale` or `none` with one fact (Vaporeon `4 captures`, Jolteon `exit 0 at a1b2c3, stale`, Glaceon `changes requested`). Derive only from stored evidence identities; never show HP, levels or completion percentages.
-- **Accept:** Produce, then invalidate (source edit, new diff) artifacts for Vaporeon, Jolteon and Glaceon; markers change accordingly after restart. An unused form shows `none`, not a failure. Markers stay readable in monochrome/ASCII and the compact list.
-
-### EV06 — Form route in the field journal
-
-- [ ] Record how the task moved between forms without treating the moves as evidence.
-- **Priority:** 2.
-- **Depends on:** E02, R02, EV05.
-- **Change:** Store form switches as route events (from, to, time, accepted EV01 suggestion if any, optional user reason) distinct from evidence. The task card shows a compact route such as `Vaporeon → Flareon → Jolteon → Glaceon`, dimming visits that produced no exit artifact. Resume restores the last active form. Route events are excluded from provider packets and handoff evidence.
-- **Accept:** Switch through four forms, restart and resume in the last form with the same route. Inspect the journal: route events are labelled non-evidence. An assembled provider packet and Sylveon handoff contain no route events. Purge removes them with the task.
+- [ ] Show what the active form may do and route out-of-role actions to their owner.
+- **Priority:** 1. **Needs:** —. **Builds on:** UX01, R01, A03.
+- **Change:** Header chip with the active form's default capabilities from the role table (`read · run` for Jolteon, `read` for Glaceon). An out-of-role action shows a disabled reason naming the owning form and offers `Switch to <form>` (plain switch until EV02 lands, then the carry-over card).
+- **Accept:** From Glaceon request an edit and from Espeon request a command: each names the owner and offers a working switch path without starting the action.
+- **Watch out:** The chip is descriptive. Enforcement stays in the existing approval flow; never widen or bypass a grant because a form is active. Header must still fit project/form names at 60×18.
 
 ### EV07 — Return to Eevee
 
 - [ ] Step back to intake from any form in one action.
-- **Priority:** 2.
-- **Depends on:** V03, EV01.
-- **Change:** Add a `/eevee` action and a top picker entry that returns an idle form to Eevee, preserving task, draft, focus and context, and shows the current EV01 suggestion. While a request is running, offer Stay or explicit cancel-and-wait per the running-ownership rule.
-- **Accept:** Return from Flareon, Umbreon and Sylveon; state is byte-identical before/after. During a running request, the action never cancels implicitly or transfers ownership.
+- **Priority:** 1. **Needs:** —. **Builds on:** V03.
+- **Change:** `/eevee` and a top picker entry return an idle form to Eevee with task, draft, focus and context unchanged. Show EV01's suggestion once EV01 exists.
+- **Accept:** Return from Flareon, Umbreon and Sylveon; stored state is byte-identical before/after.
+- **Watch out:** During a running request, offer Stay or explicit cancel-and-wait (running-ownership rule). Never cancel implicitly or transfer the request.
 
-### EV08 — Partner lines for real events
+### PK01 — Partner nickname
 
-- [ ] Let Eevee react in its dialogue box to actual events, naming the fact and next form.
-- **Priority:** 2.
-- **Depends on:** V01, R02, EV01.
-- **Change:** On a small fixed set of events (owned run failed/passed, review verdict, handoff ready, source changed after verification), show one deterministic dialogue line naming the fact and the EV01 suggestion, e.g. `Eevee: the test failed (exit 101). Umbreon can investigate.` No randomness, emotion score or praise; at most one line per event identity; a persistent preference turns lines off.
-- **Accept:** Trigger each event and see exactly one matching line; replaying the journal or restarting does not repeat it. With lines off, nothing else changes. Lines never hide permission/error facts and stay within the composer area at 60×18.
+- [ ] Let the user name their own Eevee.
+- **Priority:** 1. **Needs:** —. **Builds on:** UX01, E02.
+- **Change:** Personal-scope nickname (≤12 graphemes, Unicode) set from the partner card or `/nickname`; header and dialogue show `Nickname (Species)`, e.g. `Bolt (Jolteon)`. Clearing restores the species name. Record the date the partner was first created (`met on`) for PK02.
+- **Accept:** Set a CJK nickname, restart, see it in header/dialogue in every form at both sizes; species name and type stay visible. The receipt shows zero nickname bytes in an assembled provider packet.
+- **Watch out:** First Schema 7 field; plan the migration together with other wave-1/2 persistence. Width must use grapheme/cell width, not byte length.
 
-### EV09 — Bond proposal from repeated instructions
+### EV01 — Evidence-based form suggestion
 
-- [ ] Notice repeated instructions and offer to save them as an approved habit.
-- **Priority:** 2.
-- **Depends on:** S02, T01.
-- **Change:** Locally detect identical normalized instruction text sent in three or more requests within a project and let Sylveon propose it as a project or personal memory, showing where it was repeated. Proposals require the existing explicit S02 approval; dismissal is remembered per text hash. Never save, scope or infer preferences automatically.
-- **Accept:** Send the same instruction in three planning requests (recorded fixture events); a proposal appears with its three sources. Approve once and the next receipt shows the memory instead of repeated text; dismiss another and it does not return. Secrets-filtered or excluded text never becomes a proposal.
+- [ ] Suggest the form that fits the task's current evidence, with the fact that triggered it.
+- **Priority:** 1. **Needs:** —. **Builds on:** V03, E02, R02, U01, G01.
+- **Change:** Deterministic rules, first match wins: goal without criteria → Espeon; criteria without pinned context → Vaporeon; latest owned run failed → Umbreon; working diff without a run at its revision → Jolteon; passing current run without review → Glaceon; accepted review → Sylveon. Show in the task card and picker: `Suggested: Umbreon — cargo test exited 101`.
+- **Accept:** Seed each state in a fixture task and observe the expected suggestion and reason; no match shows nothing. Editing a source after a passing run changes the suggestion. Dismiss hides it until the triggering evidence identity changes.
+- **Watch out:** Report the fixture results when rules change. A suggestion never self-activates (Enter in the picker previews only). Keep rules in one table so EV08/EV07 reuse them.
 
-### Form relays — one partner, connected evidence
+### EV02 — Evolution carry-over card
 
-EV10–EV17 connect forms so one form's actual output becomes the next form's reviewed input, without retyping or copying text into a chat. A relay pre-fills a draft or scope from stored evidence identities; it never approves, runs or sends anything, and the receiving form shows where each pre-filled item came from.
+- [ ] Show what stays and what changes before a form switch is confirmed.
+- **Priority:** 1. **Needs:** —. **Builds on:** V03, C02, UX01.
+- **Change:** Confirming a different form opens one screen listing carried state (goal, criteria met/total, pinned captures, open hypotheses/findings, draft) and the capability difference (read/edit/run added/removed). State `No permission granted. Nothing sent.` once. Read existing task envelope fields; no state copy.
+- **Accept:** Vaporeon→Flareon, Flareon→Jolteon, Glaceon→Flareon show counts equal to stored state and the correct capability diff. Esc leaves form, focus and draft unchanged. Confirm/Cancel stay visible at 60×18; added/removed capabilities are distinguishable in monochrome/ASCII.
+- **Watch out:** Relays (EV12/EV13), held items (PK04) and the transition (PK03) all extend this card; keep its sections data-driven.
+
+## B — Form relays
+
+One form's stored output pre-fills the next form's reviewed input. A relay only pre-fills: approval, execution and sending still go through the normal review, and every pre-filled item shows its source.
 
 ### EV10 — Pin a failure location from Jolteon output
 
-- [ ] Turn a `file:line` in a failed run into pinned Vaporeon context in one action.
-- **Priority:** 1.
-- **Depends on:** R02, C02.
-- **Change:** Locally parse `path:line[:col]` locations in retained run output (Rust, Python, Node/TypeScript and generic forms). Selecting one offers `Pin range` with a bounded surrounding window, reusing the existing capture identity and exclusion checks. The capture records the originating run as provenance.
-- **Accept:** From a real failing `cargo test` and a Python traceback, pin the reported locations; the basket shows the run reference. Out-of-root, excluded and nonexistent paths are refused with a reason. Unparseable output offers nothing rather than a guess.
-
-### EV11 — Rank `@` candidates by the active form
-
-- [ ] Show the most relevant files first when attaching, based on what the current form is doing.
-- **Priority:** 2.
-- **Depends on:** C02, EV10.
-- **Change:** Keep the same `@` picker and search, but order results locally by form: Umbreon prefers files in the latest failure locations, Flareon/Leafeon prefer files in the working diff, Glaceon prefers changed files and their tests. Show a short reason per boosted entry; search text still overrides ranking.
-- **Accept:** With a failing run and a diff in a fixture repository, the top entries differ between Umbreon and Flareon and show their reasons. Typed queries return the same match set in every form. Excluded files never appear.
-
-### EV12 — Carry a supported hypothesis into Flareon scope
-
-- [ ] Start a fix from Umbreon's conclusion instead of restating it.
-- **Priority:** 1.
-- **Depends on:** U01, A03, EV02.
-- **Change:** On a hypothesis marked supported, offer `Fix with Flareon`. It opens EV02 and pre-fills Flareon's requirement with the hypothesis text and its evidence references, and its editable-path proposal with the linked source ranges. Unresolved or refuted hypotheses cannot relay.
-- **Accept:** Relay a supported hypothesis; the Flareon draft cites it and its evidence, and editable paths still need the normal approval. Cancelling leaves Umbreon state unchanged. A refuted hypothesis shows a disabled reason.
-
-### EV13 — Fix Glaceon findings with Flareon and re-review
-
-- [ ] Close the review loop finding by finding.
-- **Priority:** 1.
-- **Depends on:** G01, A03, EV02.
-- **Change:** From a selected request-changes finding, offer `Fix with Flareon`, pre-filling the requirement and scope from the finding and its evidence. After a new diff touches the finding's ranges, mark the finding `addressed, needs re-review` (never resolved) and offer returning to Glaceon with a fresh review context.
-- **Accept:** Relay two findings, change one; only that finding becomes `addressed, needs re-review`, and Glaceon's verdict becomes stale. The re-review context stays independent of the implementation conversation. No finding is closed without a new Glaceon verdict.
+- [ ] Turn a `file:line` in a failed run into pinned context in one action.
+- **Priority:** 1. **Needs:** —. **Builds on:** R02, C02.
+- **Change:** Locally parse `path:line[:col]` from retained run output (rustc/cargo, Python traceback, Node/TypeScript, generic). Selecting one offers `Pin range` with a bounded window, reusing capture identity and exclusion checks; the capture records the run as provenance.
+- **Accept:** From a real failing `cargo test` and a Python traceback, pin the reported locations; the basket shows the run reference. Out-of-root, excluded and missing paths are refused with a reason; unparseable output offers nothing.
+- **Watch out:** Put the parser in its own small function with fixture tests; PK05 reuses it. Retained output may be truncated (only 1 MiB kept); parse only what is retained and say so.
 
 ### EV14 — Rerun a stale check at the current revision
 
 - [ ] Refresh outdated verification with one reviewed action.
-- **Priority:** 1.
-- **Depends on:** R01, R02.
-- **Change:** Where a run is marked stale (task card, EV05 status, Glaceon criterion), offer `Rerun with Jolteon`, opening the normal command review pre-filled with the same argv and cwd at the current code-state identity. The new result is a new run linked to the old one, never an update of it.
-- **Accept:** Edit a source after a passing run, rerun from the stale marker, and approve; both runs remain in the journal with distinct revisions. Denying the review starts nothing. A changed argv after editing in review is shown before approval.
+- **Priority:** 1. **Needs:** —. **Builds on:** R01, R02.
+- **Change:** Wherever a run is marked stale (task card, Glaceon criterion, later EV05), offer `Rerun with Jolteon`, opening the normal command review pre-filled with the same argv/cwd at the current code-state identity. The result is a new run linked to the old one.
+- **Accept:** Edit a source after a passing run, rerun from the marker and approve; both runs remain with distinct revisions. Denying starts nothing; an argv edited in review is shown before approval.
+- **Watch out:** Never update or relabel the old run. A previous approval is not reused.
+
+### EV12 — Carry a supported hypothesis into a Flareon fix
+
+- [ ] Start a fix from Umbreon's conclusion instead of restating it.
+- **Priority:** 1. **Needs:** EV02. **Builds on:** U01, A03.
+- **Change:** On a supported hypothesis, `Fix with Flareon` opens EV02 and pre-fills the requirement with the hypothesis and evidence references and proposes editable paths from linked ranges.
+- **Accept:** The Flareon draft cites the hypothesis and evidence; editable paths still need normal approval; cancel leaves Umbreon state unchanged; unresolved/refuted hypotheses show a disabled reason.
+- **Watch out:** Proposed paths go through A03's limits (1–8 files ≤12 KiB, POSIX only for controlled writes). Show the limit instead of trimming silently.
+
+### EV13 — Fix Glaceon findings and re-review
+
+- [ ] Close the review loop finding by finding.
+- **Priority:** 1. **Needs:** EV02. **Builds on:** G01, A03.
+- **Change:** From a request-changes finding, `Fix with Flareon` pre-fills requirement/scope. A later diff touching the finding's ranges marks it `addressed, needs re-review`, makes the verdict stale and offers returning to Glaceon with a fresh review context.
+- **Accept:** Relay two findings and change one; only that one becomes `addressed, needs re-review`. No finding closes without a new Glaceon verdict.
+- **Watch out:** The re-review context must stay independent of the implementation conversation (G01 contract).
 
 ### EV15 — Turn an Espeon decision into acceptance criteria
 
 - [ ] Make a chosen design immediately checkable.
-- **Priority:** 2.
-- **Depends on:** A02, E01.
-- **Change:** From an Espeon decision card, offer `Add as criteria`, listing its acceptance items as editable task criteria with a link back to the decision. Duplicates of existing criteria are flagged rather than added twice. Nothing changes until the user confirms.
-- **Accept:** Add three criteria from a decision, edit one, restart; criteria persist with their decision link and the met/total count in the partner card updates. Cancelling adds nothing.
+- **Priority:** 2. **Needs:** —. **Builds on:** A02, E01.
+- **Change:** `Add as criteria` on a decision card lists its acceptance items as editable criteria linked to the decision; duplicates are flagged, not added twice; nothing changes until confirmed.
+- **Accept:** Add three, edit one, restart; criteria persist with the decision link and the partner card's met/total updates. Cancel adds nothing.
+- **Watch out:** Provider-proposed text stays labelled unverified until the user confirms it as a criterion.
 
-### EV16 — Leafeon measurement baseline from Jolteon runs
+### EV16 — Leafeon baseline from an existing run
 
-- [ ] Reuse an existing run as the "before" side of a refactor comparison.
-- **Priority:** 2.
-- **Depends on:** L01, R02.
-- **Change:** When starting a Leafeon comparison, offer recent passing runs at the pre-refactor revision as the baseline instead of requiring a fresh baseline run. Show the run's age and revision; a run from another revision or with different argv is not offered.
-- **Accept:** Pick an existing run as baseline, refactor, and compare with a new run of the same argv; the comparison names both runs. Mismatched runs are excluded with a reason. Choosing none falls back to the existing fresh-baseline flow.
+- [ ] Reuse a run as the "before" side of a refactor comparison.
+- **Priority:** 2. **Needs:** —. **Builds on:** L01, R02.
+- **Change:** When starting a comparison, offer recent passing runs at the pre-refactor revision with matching argv, showing age and revision. Choosing none falls back to the fresh-baseline flow.
+- **Accept:** Pick an existing run, refactor, compare with a new run of the same argv; the comparison names both runs. Mismatched revision/argv is excluded with a reason.
+- **Watch out:** Timing from different machine load is noisy; show both durations and never a single speedup claim from one sample.
+
+## C — Moves: teaching and learning skills
+
+Raising your own partner means it learns your repeated work as named **moves**. A move is a single-form reusable action; an Evolution Stone (S03 recipe) remains a whole-task workflow. Moves reuse the S03 recipe step types and validation, carry no grants, and every use goes through the normal review.
+
+| Form | Move kind | Example default name |
+|---|---|---|
+| Eevee | task template (goal + criteria) | Helping Hand |
+| Vaporeon | pin set (paths/ranges/globs resolved at use) | Surf |
+| Jolteon | run (exact argv + project-relative cwd) | Thunderbolt |
+| Umbreon, Leafeon | run through Jolteon's review (diagnostic/measurement) | Foul Play, Leaf Blade |
+| Espeon, Flareon, Glaceon, Sylveon | request template (instruction text + context selectors) | Future Sight, Flamethrower, Ice Beam, Moonblast |
+
+### MV01 — Move model and teaching a move
+
+- [ ] Let the user teach the current form a named move from a reviewed action.
+- **Priority:** 1. **Needs:** —. **Builds on:** S03, R02, C02, S02.
+- **Change:** Store moves (name, form, kind, steps, scope project/personal, provenance, created date) with at most **four per form** in the visible scope. After a reviewed action (approved run, pin set, sent request), offer `Teach as move`, preview the exact steps and save. Picker detail lists the form's moves. Add Moves to DESIGN_RULES' concept list.
+- **Accept:** Teach a Jolteon run and a Vaporeon pin set, restart, see both in picker detail. A fifth move is refused with a reason until MV04 exists. Project moves are invisible in another project.
+- **Watch out:** Schema 7 migration. Reuse the `Recipe`/`RecipeStep` parser and validation; no second format. Steps must be exact argv (never shell text) and project-relative paths; refuse secrets (reuse `privacy.rs`) and out-of-root paths.
+
+### MV02 — Move menu
+
+- [ ] Use a learned move from a battle-style menu.
+- **Priority:** 1. **Needs:** MV01. **Builds on:** UX01, R01.
+- **Change:** `/move` and a form-surface key open a 2×2 menu (list below 90 columns) showing name, type accent, kind and last outcome. Choosing opens the normal review pre-filled (command review, pin preview, request preview).
+- **Accept:** Use a Jolteon and a Vaporeon move; the review shows exact argv/paths and nothing runs until approved. Escape restores the draft and focus. Pin moves whose files vanished show them as unavailable in the preview.
+- **Watch out:** A move is never pre-approved, even when used repeatedly. Request moves still show the full receipt.
+
+### MV03 — Learn a move from repetition
+
+- [ ] Notice repeated work and offer to learn it.
+- **Priority:** 1. **Needs:** MV01, MV02. **Builds on:** R02.
+- **Change:** Locally detect the same normalized argv+cwd approved ≥3 times in a project, or the same pin set used ≥3 times. Show `Jolteon wants to learn a move!` with the exact steps and the three sources: Learn (opens naming), Not now, Never for this.
+- **Accept:** Run `cargo test --workspace` three times in a fixture project; the prompt appears once with sources. Different arguments do not merge. `Never` survives restart; `Not now` returns after three more uses.
+- **Watch out:** Report the threshold behavior on fixtures. Never auto-learn. Exclude argv with secrets, env assignments or absolute paths outside the project. Prompt only at idle boundaries, never during a review or running request.
+
+### MV04 — Forget a move when slots are full
+
+- [ ] Choose which move to forget when learning a fifth.
+- **Priority:** 2. **Needs:** MV03. **Builds on:** —.
+- **Change:** Learning into a full form shows the four moves and the new one: forget one, or `Give up learning`. Forgotten moves go to the reminder list (MV05).
+- **Accept:** Fill four slots, learn a fifth, forget one; the forgotten move leaves the menu and appears in the reminder list after restart. Giving up changes nothing.
+- **Watch out:** Personal and project moves share the visible four; say which scope a forgotten move came from.
+
+### MV05 — Move Reminder
+
+- [ ] Relearn a forgotten or postponed move.
+- **Priority:** 2. **Needs:** MV04. **Builds on:** E03.
+- **Change:** A reminder list per form with forgotten and `Not now` moves; relearning needs a free slot (or MV04's forget flow). Purge removes reminder entries with their project.
+- **Accept:** Relearn a forgotten move with identical steps; purge a project and its reminders disappear while personal ones stay.
+- **Watch out:** Revalidate steps on relearn (paths may no longer exist).
+
+### MV06 — Type-themed move names
+
+- [ ] Suggest a fitting Pokémon move name and allow renaming.
+- **Priority:** 2. **Needs:** MV01. **Builds on:** —.
+- **Change:** A fixed local list of canonical moves per type (Electric: Thunderbolt, Thunder Shock, Discharge, Spark; Water: Surf, Hydro Pump, Aqua Ring; Psychic: Future Sight, Calm Mind, Psychic; and so on). Suggest by meaning where a mapping exists (test run → Thunderbolt, planning → Future Sight, review → Ice Beam), otherwise the first unused. Users rename freely; names are unique per form.
+- **Accept:** Teach three moves on Jolteon and get three distinct suggestions; rename one to a CJK name; a duplicate name is refused.
+- **Watch out:** Names are labels only; they never change behavior and never enter provider packets. Include the list in Q01's naming-rights review.
+
+### MV07 — Move record
+
+- [ ] Show how a move has actually performed.
+- **Priority:** 2. **Needs:** MV02. **Builds on:** R02.
+- **Change:** Move detail shows uses, last result and revision, and observed outcomes as a count (`7/9 exited 0`). No power, accuracy percentage or level.
+- **Accept:** Use a run move with passing and failing outcomes; counts match the journal and survive restart. A request move shows uses and last sent date only.
+- **Watch out:** Exit 0 is not correctness. Label counts as observed; denied/cancelled uses are listed separately, not as failures.
+
+### MV08 — TM export and import
+
+- [ ] Share moves between projects and people as reviewed files.
+- **Priority:** 2. **Needs:** MV01, S04. **Builds on:** S03.
+- **Change:** Export a move as a create-only TOML "TM" through S04's export path; import previews steps, target form and slot, then teaches it.
+- **Accept:** Export from one project, import into another; using it still requires review. Newer schema, out-of-root paths and secrets are refused; an existing file is never overwritten.
+- **Watch out:** Imported moves carry no approvals and never execute on import.
+
+## D — Partner record and flavor
+
+### EV05 — Party status from real exit evidence
+
+- [ ] Show in the picker what each form has actually produced for this task.
+- **Priority:** 2. **Needs:** —. **Builds on:** V03, R02, G01, S01.
+- **Change:** Mark each form's exit artifact as `produced`, `stale` or `none` with one fact (Vaporeon `4 captures`, Jolteon `exit 0 at a1b2c3, stale`, Glaceon `changes requested`). Derived from stored evidence identities only.
+- **Accept:** Produce then invalidate artifacts for Vaporeon, Jolteon and Glaceon; markers follow after restart. Unused forms show `none`, not failure. Readable in monochrome/ASCII and the compact list.
+- **Watch out:** No HP, levels or completion percentages.
+
+### EV06 — Form route in the field journal
+
+- [ ] Record how the task moved between forms without treating moves as evidence.
+- **Priority:** 2. **Needs:** EV05. **Builds on:** E02, R02.
+- **Change:** Store switches as route events (from, to, time, accepted suggestion, optional reason). Task card shows `Vaporeon → Flareon → Jolteon → Glaceon`, dimming visits without an exit artifact. Resume restores the last form.
+- **Accept:** Switch four times, restart, resume in the last form with the same route. Journal labels route events as non-evidence; provider packets and Sylveon handoffs contain none. Purge removes them.
+- **Watch out:** Schema change; batch with other wave-4 persistence.
+
+### PK02 — Partner summary screen
+
+- [ ] A Pokémon-style summary page built from real records.
+- **Priority:** 2. **Needs:** PK01, MV01, EV05. **Builds on:** S02.
+- **Change:** From the partner card: nickname, species/type, `Met on <date> in <project>`, the form's moves, approved Bond memories count, and per-form task counts with produced exit artifacts.
+- **Accept:** Numbers equal store queries; a fresh install shows the met date and `No moves yet`. Fits 60×18 via paging.
+- **Watch out:** No level, XP or invented stats. `Met` is the first partner creation date, not install-time guesses.
+
+### EV08 — Partner lines for real events
+
+- [ ] Eevee reacts in the dialogue box to actual events.
+- **Priority:** 2. **Needs:** EV01. **Builds on:** V01, R02.
+- **Change:** For a fixed set (owned run passed/failed, review verdict, handoff ready, source changed after verification, move used) show one deterministic line in game style with the fact and suggestion: `Bolt used Thunderbolt! cargo test failed (exit 101). Umbreon can investigate.` A persistent preference turns lines off.
+- **Accept:** Each event shows exactly one line; journal replay or restart never repeats it. Lines off changes nothing else. Permission/error facts are never hidden; lines stay in the composer area at 60×18.
+- **Watch out:** No randomness, praise or emotion. Uses the nickname when set and the move name when a move was used.
+
+### PK05 — Bug Dex
+
+- [ ] Remember failures you have met before and how they were resolved.
+- **Priority:** 2. **Needs:** EV10. **Builds on:** R02, U01, A03.
+- **Change:** Locally derive signatures from owned failing runs (rustc error code + location, test name, panic location) and keep per-project entries: first seen, seen count, linked hypothesis/fix/run that resolved it. When a known signature reappears, show `Seen before: resolved in task #12 (hypothesis …)`.
+- **Accept:** Fail, fix and fail the same test again in a fixture; the second failure links the first resolution. Another project never sees the entry. Purge removes it.
+- **Watch out:** A past resolution is a lead, not a current fix or verification. Signatures go through redaction; never store full output twice. Schema change.
+
+### EV09 — Learn a habit from repeated instructions
+
+- [ ] Offer to save an instruction repeated across requests as an approved Bond memory.
+- **Priority:** 2. **Needs:** T01. **Builds on:** S02.
+- **Change:** Detect identical normalized instruction text in ≥3 requests in a project; Sylveon proposes it as project or personal memory with its sources, through the existing S02 approval. Dismissal is remembered per text hash.
+- **Accept:** Three recorded planning requests with the same instruction produce one proposal; approving it makes the next receipt show the memory instead of repeated text; a dismissed proposal does not return.
+- **Watch out:** Never infer or save preferences automatically. Secret-filtered or excluded text never becomes a proposal. Moves (MV03) cover actions; this covers instructions.
 
 ### EV17 — Per-form provider pairing
 
-- [ ] Remember which agent and model the user explicitly chose for a form in this project.
-- **Priority:** 2.
-- **Depends on:** A01, A02, V03.
-- **Change:** When the user selects an agent/model while in a form, offer `Use for <form> in this project`. Later switches to that form preselect the pairing and label it remembered. Selection never submits a request, connects, or changes billing/authentication; an unavailable pairing shows its blocker and falls back to the task's current selection.
-- **Accept:** Pair Glaceon with one agent and Flareon with another; switching forms preselects each and the request review shows the selection. Remove the remembered pairing and the default returns. A disconnected agent is labelled unavailable, never silently replaced.
+- [ ] Remember which agent/model the user chose for a form in this project.
+- **Priority:** 2. **Needs:** —. **Builds on:** A01, A02, V03.
+- **Change:** After choosing an agent/model in a form, offer `Use for <form> in this project`; later switches preselect it labelled remembered. Unavailable pairings show the blocker and fall back to the task selection.
+- **Accept:** Pair Glaceon and Flareon with different agents; switching preselects each and the review shows it. Removing the pairing restores the default; a disconnected agent is labelled unavailable, never replaced.
+- **Watch out:** Selection never connects, sends, or changes billing/authentication.
 
-## Phase status
+### EV11 — Rank `@` candidates by the active form
 
-Existing A–G scope: **25/31 complete, 6 unchecked**. Requested future section H: **0/6 complete**; section I: **0/12 complete**; section J: **0/17 complete**; T01 is partially implemented in 0.1.1 and T05 is dropped, with remaining acceptance recorded. Total: **25/66 complete, 41 unchecked**. A04/A06/full A07 still lack permitted Claude/Gemini authentication; full Q01/Q02/P03 therefore remain pending rather than inheriting local-core acceptance. Sections H–J do not retroactively widen existing acceptance or authorize implementation, paid experiments or provider access. The separately authorized 0.1.0 core release used successful exact-commit native artifacts. On 2026-10-14 the user explicitly requested 0.1.1 with the token-economy slice. That release lifts only the release hold; A04/A06/A07 remain unchecked and no provider gate is inherited.
+- [ ] Show the most relevant files first when attaching.
+- **Priority:** 2. **Needs:** EV10. **Builds on:** C02.
+- **Change:** Same picker; order by form (Umbreon: latest failure locations; Flareon/Leafeon: working diff; Glaceon: changed files and their tests) with a short reason. Typed queries return the same match set in every form.
+- **Accept:** With a failing run and a diff, top entries differ between Umbreon and Flareon and show reasons. Excluded files never appear.
+- **Watch out:** Report ranking on the fixture when the rule changes. Ranking is local; no index rebuild on every keystroke.
+
+### PK03 — Evolution transition
+
+- [ ] A short evolution moment when a form switch is confirmed.
+- **Priority:** 3. **Needs:** EV02, UX04. **Builds on:** V02B.
+- **Change:** After EV02 confirm, a ≤600 ms silhouette flash from old to new sprite with `What? Bolt is evolving!` → `Bolt became Jolteon!`; text-only routes show the final line only.
+- **Accept:** Any key skips it; typed input during it lands in the draft unchanged. Reduced motion shows no frames. No idle redraw after it ends.
+- **Watch out:** Forms are reversible (DESIGN_RULES); returning to Eevee uses neutral copy, not "de-evolution". Clear native images behind overlays.
+
+### PK04 — Held items
+
+- [ ] Let a form always bring a chosen file or memory.
+- **Priority:** 3. **Needs:** C03, EV02. **Builds on:** S02.
+- **Change:** Assign one held item per form per project (e.g. Glaceon holds `CONTRIBUTING.md`). Entering the form proposes it as an attachment chip, shown in the carry-over card and receipt.
+- **Accept:** Glaceon's held file appears as a removable chip after switching and is revalidated before send; an excluded file cannot be held.
+- **Watch out:** Proposed, never silently included; its bytes count in the receipt.
+
+### PK06 — Ribbons
+
+- [ ] Commemorate real first milestones.
+- **Priority:** 3. **Needs:** PK02. **Builds on:** G01, S01.
+- **Change:** One-time, evidence-linked ribbons per project shown on the summary (first accepted review, first verified handoff, first learned move). Hideable.
+- **Accept:** Each ribbon links its evidence; deleting the evidence by purge removes it.
+- **Watch out:** Drop this task if it reads as gamification: no counts, no streaks, nothing gated behind a ribbon.
+
+## E — Context, token economy and tool calling
+
+Local deterministic optimizer only: no optimizer-initiated network, hosted summarization, embeddings, telemetry or tokenizer downloads. Distinguish exact Eevee-sent bytes, labelled estimates, provider-reported usage and billing; unknown stays unknown. Tool discovery/paging/caching applies only to documented adapter capabilities and Eevee-owned execution.
+
+### C03 — Inspectable attachment chips and context budget
+
+- [ ] Show exactly which files/ranges accompany a request.
+- **Priority:** 1. **Needs:** —. **Builds on:** C02, A02.
+- **Change:** Removable file/range chips on `@` attachments, selected-content preview, stale/unavailable markers, exact bytes plus labelled token estimate. Reuse excerpt identities and dispatch revalidation.
+- **Accept:** Attach a file and a range, inspect/remove by keyboard, restart and recover. Source changes go stale before send; missing captures block assembly; displayed bytes equal the serialized request. Long Unicode names keep remove/inspect visible.
+- **Watch out:** Never imply control over provider-added reads/history. Excluded secrets and out-of-root links never become chips.
+
+### T01 — Per-turn context and usage receipts
+
+- [ ] Explain what each turn sends and where its tokens/cost went.
+- **Priority:** 1. **Needs:** C03. **Builds on:** A02, R02.
+- **Change:** Receipt split by instructions, task facts, attachments, history, tool schemas, tool results; record provider usage (input/output/cache/reasoning) without double-counting deltas/cumulatives; name model, tokenizer and price-table version.
+- **Accept:** Reconcile two real turns and a resume against provider usage events; repeated events count once; before/after selection comparison; receipt identity survives restart; purge respects E03.
+- **Status:** Done in 0.1.1: local offline receipt per preview with exact bytes per section and `eevee-local-v1` estimate. Missing: real usage reconciliation, before/after comparison, durable identity.
+- **Watch out:** Unavailable prices produce no invented cost; opaque provider input is not attributed to selected files.
+
+### T02 — Budgeted, symbol-aware context compiler
+
+- [ ] Assemble the smallest useful reviewable source packet.
+- **Priority:** 1. **Needs:** T01. **Builds on:** C02.
+- **Change:** From goal, selected symbols, working diff and pins, prefer definitions, signatures, direct references and relevant tests over whole files; text-only fallback is labelled. Rank, dedup and show reasons/omissions under a user budget; overflow needs a decision.
+- **Accept:** In a multi-file bug fixture, include defect, caller and check with fewer tokens than the full-file baseline (one named tokenizer); a seeded cross-file requirement stays discoverable; editing a source after preview stops dispatch for review.
+- **Watch out:** Never drop mandatory instructions or pins silently; never fabricate symbol knowledge for unsupported syntax. Quality is measured in Q03, not assumed.
+
+### T03 — Local request deduplication and revision cache
+
+- [ ] Avoid sending the same evidence twice.
+- **Priority:** 2. **Needs:** T01, T02. **Builds on:** C02.
+- **Change:** Identity/revision index across attachments, memory, handoff facts and tool-result references; emit once with citations; cache assembly/tokenization by content+config identity.
+- **Accept:** One capture via three entry points: fewer serialized tokens, every citation resolvable; distinct sources with identical text not conflated; changed source/policy/tokenizer invalidates; zero network access.
+- **Status:** Done 2026-10-15: in-packet `same_bytes_as` dedup, hoisted `source_root`, Codex baseline citation, receipt disclosure. Missing: cross-entry-point cache, persisted revision index, three-entry-point harness.
+- **Watch out:** A local cache hit never implies provider retention or a billing discount.
+
+### T04 — Evidence-linked compaction and rehydration
+
+- [ ] Continue long work with a compact ledger.
+- **Priority:** 2. **Needs:** T01. **Builds on:** C02, E02, R02.
+- **Change:** Deterministic local packet of requirements, approved decisions, references, unresolved hypotheses and next action; inferences separate from observations; preview before any approved request.
+- **Accept:** Offline resume with conflicting decisions, a failed check and a changed source keeps the latest decision and the failure; references resolve or say unavailable; cancel changes nothing; zero network; measure processing cost and packet size.
+- **Watch out:** No model summarization. An old approval is never a new grant. Local compaction cannot erase provider history.
+
+### TC01 — On-demand tool catalog and scoped MCP discovery
+
+- [ ] Expose only relevant tool definitions.
+- **Priority:** 1. **Needs:** —. **Builds on:** A01, A02, C02.
+- **Change:** Search locally stored metadata of explicitly trusted tools; load exact versioned schemas for supported adapters; catalog refresh is a separate reviewed action.
+- **Accept:** 100-tool controlled catalog: intended tool found with fewer schema tokens; collisions, changed schemas, malicious descriptions and a disconnected server handled without execution; unsupported providers say lazy exposure is unavailable; one real compatible round trip.
+- **Watch out:** Relevance is not authorization; a read-only hint is not a sandbox; no hidden fetch for missing schemas.
+
+### TC03 — Searchable, paged tool-result artifacts
+
+- [ ] Let the model request the relevant slice of output.
+- **Priority:** 1. **Needs:** TC01. **Builds on:** E03, R02.
+- **Change:** Immutable artifact identities, exit summary, total/captured/omitted sizes, preview, exact range/search retrieval; inherits isolation/redaction/quota/purge.
+- **Accept:** 10 MiB real log with errors outside the preview retrieved by search with much less input; quota-limited run reports discarded bytes; wrong-task/purged/stale handles refused; instruction-like output cannot approve calls.
+- **Watch out:** No unbounded in-memory transcript. Shares the location parser with EV10.
+
+### TC04 — Dependency-validated observation cache
+
+- [ ] Reuse unchanged read observations honestly.
+- **Priority:** 2. **Needs:** TC03. **Builds on:** C02.
+- **Change:** Cache allowlisted reads/searches keyed by operation version, args, project and content/config fingerprints; label hits with original time.
+- **Accept:** Repeat a query without a worker; changing content, ignore rules, tool version or a link boundary invalidates; other projects never share; compare executions avoided vs hashing cost.
+- **Watch out:** Shell, tests, builds and network reads are non-cacheable. A cache hit is never a fresh test result.
+
+### TC02 — Reviewed tool plans and dependency-aware execution
+
+- [ ] Execute a visible typed plan with fewer round trips.
+- **Priority:** 2. **Needs:** TC01. **Builds on:** R02, A03.
+- **Change:** Bounded dependency graph with validated args, bindings and effects; parallelize only enforceably read-only independent calls; serialize writes and unknown effects; per-call review for effects.
+- **Accept:** Independent reads overlap, dependents wait, writes never overlap; failed prerequisite blocks descendants; malformed bindings cause no effect; cancellation starts no queued node; report counts/time vs serial.
+- **Watch out:** A batch is not blanket consent; unresolved placeholders cannot be approved.
+
+### TC05 — Failed-step recovery and explicit tool replay
+
+- [ ] Recover a failed plan without repeating successful mutations.
+- **Priority:** 2. **Needs:** TC02, TC03. **Builds on:** R02.
+- **Change:** Persist node args, fingerprints, results and certainty; preview resuming only failed/unstarted nodes; recorded responses inspectable without re-execution.
+- **Accept:** Interrupt after a confirmed write: recovery does not repeat it; upstream change requires a new plan; a lost mutation response blocks until reconciled; stale approvals and late responses start nothing.
+- **Watch out:** Never promise exactly-once across crashes.
+
+### D01 — Impact-directed verification plan
+
+- [ ] Recommend the checks most likely to catch a change's defects.
+- **Priority:** 2. **Needs:** T02, TC02. **Builds on:** C01, R01.
+- **Change:** Use changed symbols, local dependencies, declared test mappings and prior failures (PK05 when available) to propose a minimal check set with reasons via Jolteon's review.
+- **Accept:** Seeded project: the caller's test catches a changed callee; shared config or unmapped dependency triggers a broader plan; compare commands/time with the full suite; targeted passes are labelled targeted.
+- **Watch out:** A recommendation is not proof of completeness or permission to run.
+
+### Q03 — Token-saving and tool-efficiency quality benchmark
+
+- [ ] Prove optimizations reduce measured work without weaker answers.
+- **Priority:** 2. **Needs:** T01, T02, T03, T04, TC01, TC02, TC03, TC04, TC05, D01.
+- **Change:** Paired baseline/optimized journeys (bug fix, explanation, noisy log, resume) with fixed model/settings/repo; cold/warm cache separated; all optimizer costs included.
+- **Accept:** ≥3 paired trials per journey on a qualified provider with raw samples, correctness, missed defects, time, turns, tools, available usage/cost; same functional/permission checks; publish regressions; no universal percentage.
+- **Watch out:** Live runs are paid and need explicit user approval; missing credentials block live results only.
+
+## F — UX, platform and release
+
+### UX03 — Contextual, searchable actions
+
+- [ ] Make the next useful action discoverable.
+- **Priority:** 1. **Needs:** —. **Builds on:** UX01, UX02.
+- **Change:** Reuse the `/` and Ctrl+K registry with aliases, current-surface actions and visible disabled reasons (EV03's owning-form reasons plug in here).
+- **Accept:** At both sizes find attachment, provider, cancellation and evidence actions by partial query; empty/disabled results explain the next step; Escape restores draft and focus; mutating actions open review only.
+- **Watch out:** No second dispatcher; no execution on search.
+
+### A08 — Actionable connection diagnostics
+
+- [ ] Turn provider setup failures into one next step.
+- **Priority:** 1. **Needs:** —. **Builds on:** A01.
+- **Change:** Separate executable/version, permitted authentication, eligibility and transport failures; native setup action; redacted diagnostics; explain callback-free WSL login.
+- **Accept:** Missing executable, incompatible version, real auth-required response and cancelled login each show the blocker and next action; details reachable; no tokens/codes in diagnostics; install ≠ authenticated.
+- **Watch out:** Never read/copy credential stores or silently switch method/billing.
+
+### UX04 — Readability and reduced-motion preferences
+
+- [ ] Tune text density and motion without losing safety information.
+- **Priority:** 2. **Needs:** —. **Builds on:** UX01, V01.
+- **Change:** Compact/comfortable density, persistent reduced motion, installer animation opt-out.
+- **Accept:** Preferences survive restart; focus, CJK editing and actions work at both sizes; reduced motion yields no animated frames in install/update and the TUI (PK03) with truthful phase output; redirected output stays escape-free.
+- **Watch out:** NO_COLOR is not a reduced-motion request. Test a real assistive setup before claiming screen-reader support.
+
+### S04 — Create reusable recipes from reviewed work
+
+- [ ] Save a verified workflow without its authority or secrets.
+- **Priority:** 2. **Needs:** —. **Builds on:** S03, R02, C02.
+- **Change:** Preview a recipe from selected user-authored steps and real validation commands; edit name/scope/criteria; create-only TOML export via S03's schema. MV08 reuses this export path.
+- **Accept:** Export, reopen and apply in another project; argv stays distinct from shell text; fresh review/approval required; cancel leaves no file; no overwrite; nothing auto-executes.
+- **Watch out:** Exclude grants, sessions, credentials and absolute paths unless explicitly reviewed.
+
+### P04 — Reviewed updates and safe rollback eligibility
+
+- [ ] Explain an update before replacement and refuse unsafe rollback.
+- **Priority:** 2. **Needs:** —. **Builds on:** P02, E01.
+- **Change:** TUI entry to the checksum-verified updater with versions, source, sprite-cache effects and retained-data policy; rollback only when the package and schema compatibility are established.
+- **Accept:** In isolated layouts: cancel changes nothing; approved update resumes the task; compatible rollback works; newer-schema rollback refused with byte-identical data; checksum failure keeps the last usable install.
+- **Watch out:** Schema 7 from waves 1–4 makes rollback to ≤0.1.2 ineligible; test that refusal explicitly. No elevation or profile edits.
+
+### A04 — Claude Agent SDK interoperability (blocked)
+
+- [ ] Run the same task UX through the Claude SDK adapter.
+- **Needs:** permitted Claude API/cloud or Console credentials. **Builds on:** A03.
+- **Accept:** In a disposable workspace: preview/run, answer a question, deny/allow once, interrupt, resume by explicit session ID; no queued follow-up after cancel; no silently saved rule; cumulative usage not double-counted; hook/MCP boundaries verified; the Rust local path works without Node.
+- **Status:** Sidecar implemented (SDK 0.3.296 / CLI 2.1.296 / Node ≥24, strict policy, questions/permissions, explicit resume, Bedrock/Vertex/Console `ant` routes). `--inspect` reports `credential_route: unavailable`; Console login start/cancel smoke passed without sign-in. Evidence: `target/claude-acceptance-inspect.json`, `target/auth-smoke-claude-console`.
+- **Watch out:** Never reuse claude.ai subscription OAuth or read credential stores.
+
+### A06 — Gemini ACP conformance (blocked)
+
+- [ ] Prove the ACP client is not OpenCode-specific.
+- **Needs:** completed Gemini authentication and current eligibility. **Builds on:** A05.
+- **Accept:** Same prompt/cancel/permission/context scenarios on real Gemini ACP; a capability present in one peer and absent in the other gets a correct reason and is never invoked; record version, protocol, auth route and restrictions.
+- **Status:** Gemini 0.28.0 `--experimental-acp` negotiates ACP1/loadSession, omits `session/list` (not invoked), returns real `session/new` 401 on Linux and Windows. Login uses the official native CLI. Evidence: `target/gemini-acceptance-inspect.json`.
+- **Watch out:** A 401 does not mean API keys are the only route.
+
+### A07 — Cross-agent handoff (blocked by A04, A06)
+
+- [ ] Continue one task across agents without portable sessions.
+- **Needs:** A04, A06. **Builds on:** A05, S01.
+- **Accept:** Codex → Claude → ACP peer via accepted handoff; old session stays available; grants reset; only reviewed context sent; stale approvals and newer schema rejected; manual export/import creates no verified evidence.
+- **Status:** Schema-1 JSON/Markdown handoff, idle switching, grant reset and Codex→OpenCode continuation passed; four provider-free manual cases pass on the current binary.
+
+### Q01 — Complete journey and visual state matrix (blocked by A07)
+
+- [ ] Prove all nine workflows and the composed UX.
+- **Needs:** A04, A06, A07.
+- **Accept:** Empty/missing, ready/running, permission/question, cancellation/unknown, save failure, stale evidence and handoff states across sizes/themes/CJK; keyboard focus, no accidental execution, bounded streams, purge, image cleanup, restoration; every controlled action names its enforcement boundary; naming/art-rights review (including MV06 move names) before distribution.
+- **Status:** Five native rows passed at `d198fa5`; specialist journeys pass in all themes/layouts; Codex and Codex→OpenCode live rows pass. Claude/Gemini rows missing.
+
+### Q02 — Measured native and token efficiency (blocked by Q01)
+
+- [ ] Measure the performance contract.
+- **Needs:** Q01.
+- **Accept:** Observations against targets with method/sample size, core vs sidecar vs agent resources separate and aggregate; bounded queues; no model call on form selection; unknown provider usage shown as unknown.
+- **Status:** Local slice measured on M1 Pro (warm start p95 89.55 ms, idle 0.826% CPU / 7.44 MiB, streaming input p95 12.61 ms, 10 MiB stream bounded to 1 MiB, 10k-line diff 137.66 ms). Codex review resources measured; SDK and provider token totals unavailable.
+
+### P03 — Native distribution, upgrade and support evidence (blocked by Q02)
+
+- [ ] Reproducible install/upgrade on the supported matrix.
+- **Needs:** Q01, Q02. **Builds on:** P02.
+- **Accept:** Clean-target install without Rust; checksums, help/version, local flow, no account/art/network prerequisites; schema upgrade with resume; incompatible downgrade refused without data loss; uninstall keeps data; per-target evidence and unsigned-artifact disclosure.
+- **Status:** 0.1.0–0.1.2 ship five native packages with notices, bootstrap/update/uninstall and release gating. Remaining: integrated/schema/provider acceptance and signing/notarization.
