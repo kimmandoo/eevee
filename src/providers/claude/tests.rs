@@ -1,4 +1,72 @@
 use super::*;
+
+#[test]
+fn sdk_releases_are_observed_identity_not_an_admission_allowlist() {
+    for (sdk, cli) in [
+        ("0.3.296", "2.1.296"),
+        ("0.3.999", "2.1.999"),
+        ("1.5.0", "4.0.0"),
+    ] {
+        let metadata =
+            json!({"name":"@anthropic-ai/claude-agent-sdk","version":sdk,"claudeCodeVersion":cli});
+        let versions = sdk_versions(&metadata).unwrap();
+        assert_eq!(versions.sdk, sdk);
+        assert_eq!(versions.cli, cli);
+    }
+    let metadata = json!({"name":"@anthropic-ai/claude-agent-sdk","version":"0.3.999","claudeCodeVersion":"2.1.999"});
+    for (field, value) in [
+        ("name", json!("unrelated-sdk")),
+        ("version", json!("latest")),
+        ("version", json!("")),
+        ("claudeCodeVersion", Value::Null),
+        ("claudeCodeVersion", json!("2.1.999\n")),
+        ("version", json!("1".repeat(129))),
+    ] {
+        let mut changed = metadata.clone();
+        changed[field] = value;
+        assert!(sdk_versions(&changed).is_err());
+    }
+}
+
+#[test]
+fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() {
+    let versions = SdkVersions {
+        sdk: "1.5.0".into(),
+        cli: "4.0.0".into(),
+    };
+    let inspection = json!({
+        "type":"capabilities", "sdk_version":"1.5.0", "cli_version":"4.0.0",
+        "bridge_revision":2, "query":true,
+        "policy":{"tools":"closed-allowlist","permissions":"default-host-once","mcp":"disabled",
+            "configuration":"isolated","authentication":"api-console-cloud-only"},
+    });
+    assert!(inspection_matches(&inspection, &versions));
+    for (field, value) in [
+        ("sdk_version", json!("1.5.1")),
+        ("cli_version", json!("4.0.1")),
+        ("bridge_revision", json!(3)),
+        ("query", json!(false)),
+        ("policy", Value::Null),
+    ] {
+        let mut changed = inspection.clone();
+        changed[field] = value;
+        assert!(!inspection_matches(&changed, &versions));
+    }
+    for field in [
+        "tools",
+        "permissions",
+        "mcp",
+        "configuration",
+        "authentication",
+    ] {
+        let mut changed = inspection.clone();
+        changed["policy"][field] = json!("unknown");
+        assert!(!inspection_matches(&changed, &versions));
+        changed["policy"].as_object_mut().unwrap().remove(field);
+        assert!(!inspection_matches(&changed, &versions));
+    }
+}
+
 #[test]
 fn model_catalogue_consumer_rejects_private_unbounded_or_ambiguous_metadata() {
     let catalogue = json!({

@@ -140,7 +140,7 @@ impl State {
         self.mode = Mode::Preview;
         self.scroll = 0;
         self.invalidate_review();
-        self.notice = "Remember this selected note? s changes scope; e edits. Review all pages, then choose Approve separately. r rejects.".into();
+        self.notice = "Review this local note and its scope. y Approve / n Back; /memory-scope changes scope; /verbose shows details.".into();
         Ok(())
     }
 
@@ -368,7 +368,7 @@ impl State {
         self.mode = Mode::Preview;
         self.scroll = 0;
         self.invalidate_review();
-        self.notice = "Not saved. Review exact content, provenance and scope. Right selects Approve only after all pages are visible.".into();
+        self.notice = "Not saved. Review the displayed scope; y Approve / n Edit. /verbose shows exact content and provenance.".into();
     }
 
     fn editor_key(&mut self, key: KeyEvent) -> bool {
@@ -561,7 +561,7 @@ impl State {
         true
     }
 
-    pub fn key(&mut self, key: KeyEvent, large_enough: bool) -> bool {
+    pub fn key(&mut self, mut key: KeyEvent, large_enough: bool) -> bool {
         if key.kind == KeyEventKind::Release {
             return true;
         }
@@ -603,6 +603,22 @@ impl State {
             .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
         {
             return false;
+        }
+        if key.modifiers.is_empty() {
+            match (self.mode, key.code) {
+                (Mode::Preview | Mode::Delete, KeyCode::Char('y')) if self.reviewed => {
+                    self.affirmative = true;
+                    key.code = KeyCode::Enter;
+                }
+                (Mode::Discard, KeyCode::Char('y')) => {
+                    self.affirmative = true;
+                    key.code = KeyCode::Enter;
+                }
+                (Mode::Preview | Mode::Delete | Mode::Discard, KeyCode::Char('n')) => {
+                    key.code = KeyCode::Esc;
+                }
+                _ => {}
+            }
         }
         if key.code == KeyCode::PageUp {
             self.scroll = self.scroll.saturating_sub(6);

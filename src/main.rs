@@ -192,6 +192,11 @@ fn run(config: Config) -> io::Result<()> {
                 app.apply_execution_action(action);
                 dirty = true;
             }
+            // A deferred cancel-and-exit can become ready here, before input
+            // polling. Do not wait for another key after ownership is settled.
+            if app.quit {
+                return Ok(());
+            }
             dirty |= activity != app.execution.activity_label();
             if context_task != Some(app.task_id) {
                 context_task = Some(app.task_id);
@@ -484,6 +489,7 @@ fn run(config: Config) -> io::Result<()> {
                 app.execution.runner_event(event);
                 dirty = true;
             }
+            dirty |= app.settle_planning();
             app.settle_exit();
             // Only genuine, visible provider work animates. Local reviews,
             // permission prompts and idle screens keep their blocking/no-redraw

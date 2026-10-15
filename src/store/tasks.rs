@@ -674,8 +674,8 @@ pub(super) fn validate(snapshot: &Snapshot) -> Result<(), String> {
         if *partner < 1 || state.previous_form.is_some_and(|form| form >= 9) {
             return Err("Invalid partner draft ownership or previous form".into());
         }
-        if state.drafts.len() > 4 {
-            return Err("A partner may retain at most four drafts per task".into());
+        if state.drafts.len() > 5 {
+            return Err("A partner may retain at most five drafts per task".into());
         }
         for (index, draft) in state.drafts.iter().enumerate() {
             if draft.text.len() > MAX_GOAL_BYTES || !draft.text.is_char_boundary(draft.cursor) {

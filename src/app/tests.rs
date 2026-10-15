@@ -24,6 +24,10 @@ fn key(app: &mut App, code: KeyCode) -> bool {
 }
 
 fn modified_key(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> bool {
+    // These key-only tests model a rendered full-size confirmation between keys.
+    if code == KeyCode::Enter && app.confirmation.is_some() && app.width >= 60 && app.height >= 18 {
+        app.confirmation_reviewed = true;
+    }
     app.update(Event::Key(KeyEvent::new(code, modifiers)))
 }
 
@@ -345,7 +349,8 @@ fn first_run_typing_is_input_and_global_navigation_retains_the_draft() {
     assert_eq!(app.input, "quick task 한글");
     key(&mut app, KeyCode::Enter);
     assert_eq!(app.goal, "quick task 한글");
-    assert!(app.drafts.is_empty());
+    assert_eq!(app.snapshot("/workspace").request_text(), "quick task 한글");
+    assert!(app.pending_request.is_some());
 }
 
 #[test]
@@ -486,9 +491,9 @@ fn previous_form_survives_a_restart() {
         usage_bytes: 0,
     }));
     assert_eq!(resumed.form(), 3);
-    key(&mut resumed, KeyCode::Backspace);
+    resumed.command("back-form");
     assert_eq!(resumed.form(), 1);
-    key(&mut resumed, KeyCode::Backspace);
+    resumed.command("back-form");
     assert_eq!(resumed.form(), 3);
 }
 
@@ -1772,4 +1777,350 @@ fn empty_model_picker_fetches_then_reopens_and_blockers_are_reported() {
         "Models not loaded: provider executable missing"
     );
     assert!(app.planning.catalogues.is_empty() && !app.planning.busy());
+}
+
+fn request_app() -> App {
+    let mut app = App::new("/workspace".into(), 120, 36);
+    app.storage = StorageState::Saved;
+    app.agents.pending = None;
+    app.agent_event(crate::providers::agent::Event::Discovered(Vec::new()));
+    app
+}
+
+fn save_request(app: &mut App) -> store::Snapshot {
+    let snapshot = committed(app);
+    app.save_submitted();
+    app.store_event(store::Event::Saved(snapshot.clone()));
+    snapshot
+}
+
+fn request_preview(app: &mut App) {
+    key(app, KeyCode::Enter);
+    save_request(app);
+    assert!(app.settle_planning());
+    assert!(matches!(
+        app.planning.pending.take(),
+        Some(crate::providers::Request::Preview(_))
+    ));
+    app.planning.event(crate::providers::Event::Preview(
+        crate::providers::Preview {
+            generation: 12,
+            task_id: app.task_id,
+            thread_id: None,
+            trust: vec!["Reviewed connection".into()],
+            payload: "{}".into(),
+            blockers: vec![],
+        },
+    ));
+}
+
+#[test]
+fn running_request_preserves_real_store_admission_until_terminal_acknowledgement() {
+    struct Directory(std::path::PathBuf);
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    fn next_event(worker: &store::Worker) -> store::Event {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if let Some(event) = worker.try_event() {
+                return event;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "store worker timed out"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = Directory(std::env::temp_dir().join(format!(
+        "eevee-request-admission-{}-{stamp}",
+        std::process::id()
+    )));
+    let worker = store::Worker::start(
+        directory.0.clone(),
+        "/workspace".into(),
+        store::Policy::default(),
+    )
+    .unwrap();
+    let mut app = request_app();
+    app.store_event(next_event(&worker));
+    app.update(Event::Paste("Exact reviewed request".into()));
+    key(&mut app, KeyCode::Enter);
+    assert!(app.save_due(std::time::Instant::now()));
+    let mut pending = Some(app.snapshot("/workspace"));
+    assert!(worker.try_save(&mut pending));
+    app.save_submitted();
+    let saved = match next_event(&worker) {
+        store::Event::Saved(snapshot) => snapshot,
+        _ => panic!("expected committed request"),
+    };
+    app.store_event(store::Event::Saved(saved.clone()));
+    assert!(app.settle_planning());
+    let Some(crate::providers::Request::Preview(input)) = app.planning.pending.take() else {
+        panic!("expected saved request preview");
+    };
+    assert_eq!(input.task, saved);
+    store::validate_planning_input(&directory.0, &input.task, &[]).unwrap();
+    app.planning.event(crate::providers::Event::Preview(
+        crate::providers::Preview {
+            generation: 12,
+            task_id: app.task_id,
+            thread_id: None,
+            trust: vec!["Reviewed connection".into()],
+            payload: "{}".into(),
+            blockers: vec![],
+        },
+    ));
+    app.planning.reviewed = true;
+    key(&mut app, KeyCode::Char('y'));
+    assert!(matches!(
+        app.planning.pending.take(),
+        Some(crate::providers::Request::Run { generation: 12 })
+    ));
+    assert!(app.input.is_empty());
+    let later = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    assert!(
+        !app.save_due(later),
+        "consumption cannot race Run admission"
+    );
+    app.update(Event::Paste("Retained follow-up".into()));
+    key(&mut app, KeyCode::Left);
+    modified_key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+    assert_eq!(app.storage, StorageState::Pending);
+    assert!(app.save_wait(later).is_none());
+    store::validate_planning_input(&directory.0, &input.task, &[]).unwrap();
+
+    // Thread establishment is earlier than the final dispatch/permission
+    // revalidation and must not release the reviewed committed snapshot.
+    app.planning.event(crate::providers::Event::Thread {
+        generation: 12,
+        task_id: app.task_id,
+        thread_id: "owned".into(),
+        model: "model".into(),
+        account: "account".into(),
+    });
+    assert!(!app.save_due(later));
+    app.planning.cancel();
+    assert!(
+        !app.save_due(later),
+        "cancellation still awaits provider ownership"
+    );
+    store::validate_planning_input(&directory.0, &input.task, &[]).unwrap();
+    app.planning.event(crate::providers::Event::Finished {
+        generation: 12,
+        task_id: app.task_id,
+        outcome: crate::providers::Outcome::Cancelled,
+        message: "Stopped before output".into(),
+    });
+    app.settle_planning();
+    assert_eq!(app.input, "Retained follow-up");
+    assert_eq!(
+        app.planning.submitted_request.as_ref(),
+        "Exact reviewed request"
+    );
+    assert!(app.save_due(later));
+    let mut pending = Some(app.snapshot("/workspace"));
+    assert!(worker.try_save(&mut pending));
+    app.save_submitted();
+    let saved_followup = match next_event(&worker) {
+        store::Event::Saved(snapshot) => snapshot,
+        _ => panic!("expected committed follow-up"),
+    };
+    assert_eq!(saved_followup.request_text(), "Retained follow-up");
+    app.store_event(store::Event::Saved(saved_followup));
+    assert_eq!(app.storage, StorageState::Saved);
+    assert!(store::validate_planning_input(&directory.0, &input.task, &[]).is_err());
+}
+
+#[test]
+fn failure_without_output_recovers_original_request_when_followup_is_empty() {
+    let mut app = request_app();
+    app.update(Event::Paste("Recover this request".into()));
+    request_preview(&mut app);
+    app.planning.reviewed = true;
+    key(&mut app, KeyCode::Char('y'));
+    assert!(app.input.is_empty());
+    assert!(app.planning.holds_committed_input());
+    app.planning.event(crate::providers::Event::Finished {
+        generation: 12,
+        task_id: app.task_id,
+        outcome: crate::providers::Outcome::Failed,
+        message: "Launch refused".into(),
+    });
+    assert!(app.settle_planning());
+    assert_eq!(app.input, "Recover this request");
+    assert_eq!(app.cursor, app.input.len());
+    assert!(app.composer_is_request());
+    assert!(!app.planning.holds_committed_input());
+    assert!(app.save_due(std::time::Instant::now()));
+}
+
+#[test]
+fn explicit_run_returns_home_with_empty_followup_and_preserves_task_facts_and_output() {
+    let mut app = request_app();
+    app.goal = "Stable task".into();
+    app.next_action = "Keep this task fact".into();
+    app.update(Event::Paste("First request".into()));
+    request_preview(&mut app);
+    assert!(!app.planning.affirmative);
+    app.planning.reviewed = true;
+    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Enter);
+    assert!(matches!(
+        app.planning.pending.take(),
+        Some(crate::providers::Request::Run { generation: 12 })
+    ));
+    assert!(app.overlay.is_none());
+    assert!(app.composer_is_request());
+    assert!(app.input.is_empty());
+    app.update(Event::Paste("Follow-up".into()));
+    key(&mut app, KeyCode::Enter);
+    assert!(
+        app.pending_request.is_none(),
+        "busy request retains sole ownership"
+    );
+    app.planning.event(crate::providers::Event::Item {
+        generation: 12,
+        task_id: app.task_id,
+        thread_id: "owned".into(),
+        turn_id: "turn".into(),
+        item_id: "answer".into(),
+        kind: crate::providers::ItemKind::Message,
+        text: "Partial answer".into(),
+        complete: false,
+    });
+    app.settle_planning();
+    assert!(app.overlay.is_none());
+    assert!(app.response_on_home());
+    assert_eq!(app.input, "Follow-up");
+    app.planning.event(crate::providers::Event::Finished {
+        generation: 12,
+        task_id: app.task_id,
+        outcome: crate::providers::Outcome::Completed,
+        message: "Complete".into(),
+    });
+    app.settle_planning();
+    assert!(app.overlay.is_none());
+    key(&mut app, KeyCode::Enter);
+    let snapshot = save_request(&mut app);
+    assert_eq!(snapshot.request_text(), "Follow-up");
+    assert_eq!(snapshot.goal, "Stable task");
+    assert_eq!(snapshot.next_action, "Keep this task fact");
+    assert!(app.settle_planning());
+    assert!(
+        matches!(app.planning.pending.as_ref(), Some(crate::providers::Request::Preview(input))
+        if input.task.request_text() == "Follow-up")
+    );
+    assert_eq!(app.planning.items[0].text, "Partial answer");
+}
+
+#[test]
+fn cancel_review_and_restart_restore_request_not_previous_prompt_or_task_goal() {
+    let mut app = request_app();
+    app.goal = "Saved task identity".into();
+    app.update(Event::Paste("Keep my question".into()));
+    request_preview(&mut app);
+    key(&mut app, KeyCode::Esc);
+    assert!(app.overlay.is_none());
+    assert!(app.composer_is_request());
+    assert_eq!(app.input, "Keep my question");
+    let snapshot = app.snapshot("/workspace");
+    let mut restored = request_app();
+    restored.load_task(snapshot);
+    assert!(restored.composer_is_request());
+    assert_eq!(restored.input, "Keep my question");
+    assert_eq!(restored.goal, "Saved task identity");
+    assert!(restored.pending_request.is_none());
+    assert!(restored.planning.pending.is_none());
+}
+
+#[test]
+fn local_save_paste_and_changed_draft_do_not_prepare_provider_work() {
+    let mut app = request_app();
+    app.update(Event::Paste("y/n/a\n/new".into()));
+    modified_key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+    save_request(&mut app);
+    assert!(app.composer_is_request());
+    assert!(!app.settle_planning());
+    assert!(app.planning.pending.is_none());
+    key(&mut app, KeyCode::Enter);
+    let saved = committed(&app);
+    key(&mut app, KeyCode::Char('!'));
+    app.store_event(store::Event::Saved(saved));
+    app.settle_planning();
+    assert!(app.pending_request.is_none());
+    assert!(app.planning.pending.is_none());
+    assert!(app.input.ends_with('!'));
+}
+
+#[test]
+fn global_confirmation_shortcuts_need_visible_summary_and_unmodified_press() {
+    let mut app = request_app();
+    app.update(Event::Paste("Keep draft".into()));
+    key(&mut app, KeyCode::Esc);
+    key(&mut app, KeyCode::Char('y'));
+    assert!(app.confirmation.is_some());
+    app.confirmation_reviewed = true;
+    for kind in [KeyEventKind::Repeat, KeyEventKind::Release] {
+        app.update(Event::Key(KeyEvent {
+            code: KeyCode::Char('y'),
+            modifiers: KeyModifiers::NONE,
+            kind,
+            state: crossterm::event::KeyEventState::NONE,
+        }));
+        assert!(app.confirmation.is_some());
+    }
+    modified_key(&mut app, KeyCode::Char('y'), KeyModifiers::ALT);
+    app.update(Event::Paste("yna".into()));
+    assert!(app.confirmation.is_some());
+    key(&mut app, KeyCode::Char('n'));
+    assert!(app.confirmation.is_none());
+    assert_eq!(app.input, "Keep draft");
+    key(&mut app, KeyCode::Esc);
+    app.confirmation_reviewed = true;
+    key(&mut app, KeyCode::Char('y'));
+    assert!(app.confirmation.is_none());
+    assert!(app.input.is_empty());
+}
+
+#[test]
+fn restart_restores_overlay_before_its_underlying_request_and_fact_edits_replace_return_owner() {
+    let mut original = app();
+    original.open_editor(store::EditorField::Request);
+    original.update(Event::Paste("Retained request 漢字".into()));
+    original.command("help");
+    let snapshot = committed(&original);
+    let task_id = snapshot.id;
+    let mut restored = App::new("/workspace".into(), 120, 36);
+    restored.store_event(store::Event::Loaded(store::Project {
+        tasks: vec![snapshot],
+        partners: vec![store::Partner::default()],
+        active_id: Some(task_id),
+        usage_bytes: 0,
+    }));
+    assert_eq!(restored.overlay, Some(Overlay::Help));
+    assert!(!restored.editing);
+    key(&mut restored, KeyCode::Esc);
+    assert!(restored.composer_is_request());
+    assert_eq!(restored.input, "Retained request 漢字");
+    restored.command("goal");
+    restored.update(Event::Paste("Local task identity".into()));
+    key(&mut restored, KeyCode::Enter);
+    assert_eq!(restored.goal, "Local task identity");
+    assert!(!restored.editing);
+    restored.command("help");
+    key(&mut restored, KeyCode::Esc);
+    assert!(
+        !restored.editing,
+        "closed details must not resurrect the completed Goal editor"
+    );
+    restored.open_editor(store::EditorField::Request);
+    assert_eq!(restored.input, "Retained request 漢字");
 }

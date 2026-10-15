@@ -69,7 +69,7 @@ fn caret_tracks_wide_wrapped_and_combining_graphemes() {
 }
 
 #[test]
-fn task_layout_keeps_composer_full_width_and_details_progressive() {
+fn home_keeps_request_and_response_full_width_with_optional_details() {
     for (width, height) in [(120, 36), (100, 30), (80, 24), (70, 24), (60, 18)] {
         let area = Rect::new(0, 0, width, height);
         let layout = shell(area, false, Pane::Workspace);
@@ -83,14 +83,9 @@ fn task_layout_keeps_composer_full_width_and_details_progressive() {
         assert_eq!(layout.workspace.bottom(), layout.composer.y);
         assert_eq!(layout.composer.bottom(), layout.footer.y);
         assert!(layout.inspector.is_none());
-        assert_eq!(layout.rail.is_some(), width >= 90);
-        if let Some(rail) = layout.rail {
-            assert!(rail.bottom() <= layout.composer.y);
-            assert!(layout.workspace.right() < rail.x);
-            let image = companion_portrait(rail);
-            assert!(image.right() <= rail.right());
-            assert!(image.bottom() < rail.bottom());
-        }
+        assert!(layout.rail.is_none());
+        assert_eq!(layout.workspace.width, layout.composer.width);
+        assert!(inner(layout.workspace).height >= 7);
         let linear = shell(area, true, Pane::Inspector);
         assert!(linear.rail.is_none());
         assert!(linear.inspector.is_none());
@@ -102,47 +97,31 @@ fn task_layout_keeps_composer_full_width_and_details_progressive() {
 }
 
 #[test]
-fn command_palette_keeps_the_companion_portrait_visible() {
-    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-    for (width, height) in [(120, 36), (90, 24)] {
+fn choices_are_centered_without_covering_header_or_footer() {
+    for (width, height) in [(120, 36), (90, 24), (60, 18)] {
         let mut app = App::new("/workspace".into(), width, height);
         let area = Rect::new(0, 0, width, height);
-        let mut targets = Vec::new();
-        portrait_targets(&app, area, &mut targets);
-        assert_eq!(targets.len(), 1);
-        let before = targets.clone();
-        app.update(Event::Key(KeyEvent::new(
-            KeyCode::Char('k'),
-            KeyModifiers::CONTROL,
-        )));
-        assert!(app.command_popup.is_some());
-        portrait_targets(&app, area, &mut targets);
-        assert_eq!(targets, before, "opening / must not erase the portrait");
-        assert!(!command_popup_area(area, &app).intersects(before[0].1));
-    }
-}
-
-#[test]
-fn command_palette_preserves_root_draft_and_status_at_compact_sizes() {
-    for (width, height) in [(120, 36), (90, 24), (60, 18)] {
-        let app = App::new("/workspace".into(), width, height);
-        let area = Rect::new(0, 0, width, height);
         let layout = shell(area, false, Pane::Workspace);
-        let popup = command_popup_area(area, &app);
-        assert!(popup.y >= layout.header.bottom());
-        assert_eq!(popup.bottom(), layout.composer.y);
-        assert!(!popup.intersects(layout.composer));
-        assert!(!popup.intersects(layout.footer));
-        assert!(
-            inner(popup).height >= 7,
-            "query, choices, reason and keys fit"
-        );
-        assert!(inner(layout.workspace).height >= 7);
+        app.composer_menu = Some(crate::app::composer::Menu {
+            kind: crate::app::composer::Kind::Files,
+            start: 0,
+            selected: 0,
+        });
+        for popup in [
+            command_popup_area(area, &app),
+            composer_menu_area(area, &app).unwrap(),
+        ] {
+            assert!((popup.x * 2 + popup.width).abs_diff(width) <= 1);
+            assert!((popup.y * 2 + popup.height).abs_diff(height) <= 1);
+            assert!(!popup.intersects(layout.header));
+            assert!(!popup.intersects(layout.footer));
+            assert!(inner(popup).height >= 7, "choices and help remain usable");
+        }
     }
 }
 
 #[test]
-fn compact_palette_shows_blocker_keys_and_uncovered_draft() {
+fn compact_palette_shows_blocker_and_keys_without_mutating_draft() {
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend};
 
@@ -190,8 +169,6 @@ fn compact_palette_shows_blocker_keys_and_uncovered_draft() {
             .map(|cell| cell.symbol())
             .collect();
         for expected in [
-            "local draft",
-            "Ctrl+N Newline",
             "/storage-retry",
             "Unavailable:",
             "No failed task save to retry.",
@@ -202,6 +179,220 @@ fn compact_palette_shows_blocker_keys_and_uncovered_draft() {
         }
         assert_eq!(app.input, "남겨 둔 초안\nlocal draft");
         assert_eq!(app.cursor, app.input.len());
+    }
+}
+
+fn home_config() -> Config {
+    Config {
+        ascii: true,
+        no_animation: true,
+        theme: Theme::Dark,
+        color: ColorMode::Mono,
+        images: ImageMode::Off,
+        assets_dir: "unused".into(),
+        layout: LayoutMode::Sanctuary,
+        layout_explicit: false,
+        data_dir: "unused-data".into(),
+        storage_policy: crate::store::Policy::default(),
+        context_exclusions: Vec::new(),
+        capture_capacity: 64 * 1024,
+    }
+}
+
+fn screen_text(terminal: &ratatui::Terminal<ratatui::backend::TestBackend>) -> String {
+    terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect()
+}
+
+#[test]
+fn centered_attachment_picker_keeps_scrolled_selection_and_help_visible() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = App::new("/workspace".into(), width, height);
+        app.task_id = 1;
+        app.editing = true;
+        app.editor_field = EditorField::Request;
+        app.input = "@".into();
+        app.cursor = 1;
+        app.sources.files = (0..30)
+            .map(|index| crate::workspace::context::Source {
+                path: format!("context-{index:02}.rs").into(),
+                bytes: 1,
+                sha256: [0; 32],
+            })
+            .collect();
+        app.composer_menu = Some(crate::app::composer::Menu {
+            kind: crate::app::composer::Kind::Files,
+            start: 0,
+            selected: 22,
+        });
+        let paint = Paint::new(&config, &FORMS[0], 0);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = composer_menu_area(frame.area(), &app).unwrap();
+                composer::render(frame, area, &app, &config, &paint);
+            })
+            .unwrap();
+        let rendered = screen_text(&terminal);
+        for expected in [
+            "> \"context-22.rs\"",
+            "/30 files",
+            "Enter Inspect",
+            "Esc Keep text",
+        ] {
+            assert!(rendered.contains(expected), "{width}x{height}: {expected}");
+        }
+        assert_eq!(app.input, "@");
+        assert_eq!(app.composer_menu.unwrap().selected, 22);
+    }
+}
+
+#[test]
+fn global_confirmation_exposes_shortcuts_only_with_visible_scope() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = App::new("/workspace".into(), width, height);
+        app.confirmation = Some(crate::app::Confirmation {
+            kind: ConfirmationKind::DiscardDraft,
+            destructive: false,
+        });
+        let mut artwork = Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        let rendered = screen_text(&terminal);
+        for expected in [
+            "Applied task data is kept.",
+            "[n] Keep editing",
+            "[y] Discard draft",
+            "Enter Select",
+        ] {
+            assert!(rendered.contains(expected), "{width}x{height}: {expected}");
+        }
+        assert!(app.confirmation_reviewed);
+        assert!(
+            !app.confirmation.unwrap().destructive,
+            "render never selects consent"
+        );
+        let mut tiny = Terminal::new(TestBackend::new(20, 6)).unwrap();
+        tiny.draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        assert!(
+            !app.confirmation_reviewed,
+            "clipped scope invalidates consent"
+        );
+    }
+}
+
+#[test]
+fn first_use_invites_request_without_a_goal_prerequisite() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = App::new("/workspace".into(), width, height);
+        app.editing = true;
+        app.editor_field = EditorField::Request;
+        let mut artwork = Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        let rendered = screen_text(&terminal);
+        for expected in [
+            "Request",
+            "What would you like to do?",
+            "Enter Review",
+            "Responses appear here",
+        ] {
+            assert!(rendered.contains(expected), "{width}x{height}: {expected}");
+        }
+        assert!(!rendered.contains("Enter Save"));
+        assert!(app.goal.is_empty());
+    }
+}
+
+#[test]
+fn provider_response_and_request_share_home_at_supported_sizes() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = App::new("/workspace".into(), width, height);
+        app.editing = true;
+        app.editor_field = EditorField::Request;
+        app.input = "Follow-up request remains editable".into();
+        app.cursor = app.input.len();
+        app.planning.items.push(crate::app::planning::Item {
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "item".into(),
+            kind: crate::providers::ItemKind::Message,
+            text: "The actual provider response is here.".into(),
+            complete: true,
+            request: "Original request".into(),
+        });
+        app.planning.following = false;
+        app.planning.new_output = true;
+        let mut artwork = Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        let rendered = screen_text(&terminal);
+        for expected in [
+            "The actual provider response is here.",
+            "Follow-up request remains editable",
+            "Enter Review",
+        ] {
+            assert!(rendered.contains(expected), "{width}x{height}: {expected}");
+        }
+        assert!(app.overlay.is_none());
+        assert!(
+            !app.planning.following,
+            "render must not resume paused following"
+        );
+        assert!(app.planning.new_output, "render must retain unread output");
+    }
+}
+
+#[test]
+fn image_review_has_immediate_neutral_actions_and_visible_effects() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = App::new("/workspace".into(), width, height);
+        app.overlay = Some(Overlay::Images);
+        app.images_notice = "Long inspectable technical detail. ".repeat(100);
+        let mut artwork = Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        let rendered = screen_text(&terminal);
+        for expected in [
+            "raw.githubusercontent.com",
+            "Writes image cache only",
+            "> Back",
+            "Download missing",
+            "Enter Select",
+            "PgUp/Dn Details",
+        ] {
+            assert!(rendered.contains(expected), "{width}x{height}: {expected}");
+        }
+        assert!(
+            app.images_reviewed,
+            "visible scope, not end scrolling, gates consent"
+        );
+        assert_eq!(app.images_selected, 0);
+        assert_eq!(app.scroll_for(ScrollSurface::Preview), 0);
     }
 }
 
@@ -222,4 +413,127 @@ fn brief_keeps_the_first_sentence_unless_verbose() {
         "Saved. Nothing was sent."
     );
     VERBOSE.set(false);
+}
+
+#[test]
+fn long_memory_review_uses_explicit_shortcuts_without_a_scroll_gate() {
+    use crate::workspace::memory::{Mutation, Scope};
+    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let config = home_config();
+    let paint = Paint::new(&config, &FORMS[0], 0);
+    for (width, height) in [(60, 18), (120, 36)] {
+        let mut state = crate::app::memory::State::new();
+        state.reset(7, "/project");
+        state.command("create-memory", true);
+        state.paste(&"Keep changes scoped.\n".repeat(100));
+        state.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE), true);
+        assert!(state.draft.ends_with('y'));
+        assert!(state.pending.is_none());
+        state.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), true);
+        state.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE), true);
+        assert!(
+            state.pending.is_none(),
+            "unrendered scope cannot be approved"
+        );
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        VERBOSE.set(true);
+        terminal
+            .draw(|frame| {
+                memory::render(frame, frame.area(), &mut state, &config, &paint);
+            })
+            .unwrap();
+        assert!(state.reviewed && state.scroll == 0 && state.scroll_max > 0);
+        for event in [
+            KeyEvent::new_with_kind(KeyCode::Char('y'), KeyModifiers::NONE, KeyEventKind::Repeat),
+            KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL),
+        ] {
+            state.key(event, true);
+            assert!(state.pending.is_none());
+        }
+        assert!(!state.paste("y"));
+        state.command("memory-scope", true);
+        state.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE), true);
+        assert!(
+            state.pending.is_none(),
+            "changed scope needs a fresh visible review"
+        );
+        terminal
+            .draw(|frame| {
+                memory::render(frame, frame.area(), &mut state, &config, &paint);
+            })
+            .unwrap();
+        state.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE), true);
+        assert!(matches!(&state.pending, Some(Mutation::Approve(proposal))
+            if proposal.scope == Scope::Project && proposal.content.ends_with('y')));
+        VERBOSE.set(false);
+    }
+}
+
+#[test]
+fn source_purge_requires_a_current_visible_scope_after_resize() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let config = home_config();
+    let mut artwork = Artwork::load(&config);
+    let mut app = App::new("/workspace".into(), 120, 36);
+    app.task_id = 7;
+    app.overlay = Some(Overlay::Sources);
+    app.sources.mode = crate::app::sources::Mode::Basket;
+    app.sources.basket.push(crate::workspace::context::Excerpt {
+        id: 91,
+        task_id: 7,
+        root: "/workspace".into(),
+        path: format!("src/{}/note.txt", "한".repeat(100)),
+        start_line: 1,
+        end_line: 1,
+        source_sha256: [9; 32],
+        text: "retained source".into(),
+        available: true,
+    });
+    app.sources.command("purge", 7, None);
+    let approve = Event::Key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+    app.update(approve.clone());
+    assert!(app.sources.pending_store.is_none());
+    let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    terminal
+        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+        .unwrap();
+    assert!(app.sources.confirmation.unwrap().reviewed);
+    app.update(Event::Resize(39, 10));
+    app.update(approve.clone());
+    assert!(
+        app.sources.pending_store.is_none(),
+        "hidden scope must not authorize deletion"
+    );
+    app.update(Event::Resize(60, 18));
+    app.update(approve.clone());
+    assert!(
+        app.sources.pending_store.is_none(),
+        "resizing back is not a fresh review"
+    );
+    let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
+    terminal
+        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+        .unwrap();
+    assert!(app.sources.confirmation.unwrap().reviewed);
+    app.update(Event::Paste("y".into()));
+    app.update(Event::Key(KeyEvent::new_with_kind(
+        KeyCode::Char('y'),
+        KeyModifiers::NONE,
+        KeyEventKind::Repeat,
+    )));
+    app.update(Event::Key(KeyEvent::new(
+        KeyCode::Char('y'),
+        KeyModifiers::CONTROL,
+    )));
+    assert!(app.sources.pending_store.is_none());
+    app.update(approve);
+    assert!(matches!(&app.sources.pending_store,
+        Some(crate::store::ContextRequest {
+            task_id: 7,
+            operation: crate::store::ContextOperation::Purge(ids),
+        }) if ids == &[91]));
 }

@@ -19,13 +19,13 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
     let block = panel(" @ Files / inspect before attaching ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let rows = content.height.saturating_sub(1) as usize;
-    let start = menu.selected.saturating_sub(rows.saturating_sub(1));
-    if app.composer_candidates().count() == 0
-        || app.sources.busy()
-        || app.task_id <= 0
-        || !app.sources.error.is_empty()
-    {
+    let rows = content.height.saturating_sub(2) as usize;
+    let count = app.composer_candidates().count();
+    let start = menu
+        .selected
+        .saturating_sub(rows / 2)
+        .min(count.saturating_sub(rows));
+    if count == 0 || app.sources.busy() || app.task_id <= 0 || !app.sources.error.is_empty() {
         let status = if app.task_id <= 0 {
             "Saving local draft before selecting context..."
         } else if app.sources.busy() {
@@ -57,6 +57,16 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
             );
         }
     }
+    text(
+        frame,
+        row(content, content.height.saturating_sub(2), 1),
+        &if count == 0 {
+            "0 matches".to_owned()
+        } else {
+            format!("{}-{}/{count} files", start + 1, (start + rows).min(count))
+        },
+        paint.muted,
+    );
     text(
         frame,
         row(content, content.height.saturating_sub(1), 1),

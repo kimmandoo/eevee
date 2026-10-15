@@ -19,6 +19,7 @@ pub(super) fn render_small_confirmation(
     state: &mut State,
     config: &Config,
 ) {
+    state.confirmation_visible = false;
     let paint = Paint::new(config, &FORMS[2], 2);
     frame.render_widget(Clear, area);
     if matches!(state.confirmation, Some(Confirmation::Approval)) {
@@ -45,11 +46,20 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut State, config: &Config)
     if !state.visible() {
         return;
     }
+    let area = if state.confirmation.is_some() {
+        super::centered(area, 104, area.height.saturating_sub(2))
+    } else {
+        area
+    };
     let paint = Paint::new(config, &FORMS[2], 2);
     frame.render_widget(Clear, area);
     let block = panel(" Jolteon · local command evidence ", config, &paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
+    if state.confirmation.is_some() {
+        confirmation(frame, content, state, &paint);
+        return;
+    }
     if content.height < 4 || content.width < 12 {
         text(
             frame,
@@ -89,23 +99,17 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut State, config: &Config)
     let body_height = content.height.saturating_sub(3 + footer_rows);
     let body = row(content, 3, body_height);
     state.set_viewport(body.height as usize);
-    if state.confirmation.is_some() {
-        confirmation(frame, body, state, &paint);
-    } else {
-        match state.view {
-            View::History => history(frame, body, state, &paint),
-            View::Details => details(frame, body, state, &paint),
-            View::Output => output(frame, body, state, &paint),
-        }
+    match state.view {
+        View::History => history(frame, body, state, &paint),
+        View::Details => details(frame, body, state, &paint),
+        View::Output => output(frame, body, state, &paint),
     }
     let footer = row(
         content,
         content.height.saturating_sub(footer_rows),
         footer_rows,
     );
-    let hints = if state.confirmation.is_some() {
-        "Left Stay · Right/Tab select action · Enter confirm\nUp/Down/PgUp/PgDn inspect full details · Esc Stay\n/deny explicitly denies; closing never approves"
-    } else if state.view == View::History {
+    let hints = if state.view == View::History {
         "Up/Down select · Enter inspect retained output\n/ choices: purge, command-edit, run, cancel, refresh\nEsc output · Ctrl+C/quit: Stay or Cancel-and-wait"
     } else if state.view == View::Details {
         "Up/Down/PgUp/PgDn/Home/End inspect full details\n/ choices: journal-retry, run, cancel · Esc output\nNo command is retried automatically; task drafts stay"
@@ -170,12 +174,69 @@ fn confirmation(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint)
         Paragraph::new(choices).wrap(Wrap { trim: false }),
         row(area, 1, 2),
     );
-    let body = row(area, 3, area.height.saturating_sub(3));
+    let summary = match confirm {
+        Confirmation::Approval => state.prepared.as_ref().map_or_else(
+            || vec!["BLOCKED: prepared command no longer exists.".into()],
+            |prepared| {
+                vec![
+                    format!("Command: {:?}", prepared.spec),
+                    format!("Directory: {}", prepared.cwd.display()),
+                    format!("Executable: {}", prepared.executable.path.display()),
+                    "One local command; may write files and use network.".into(),
+                    "Not sandboxed; effects are not rolled back.".into(),
+                    "Exact command/config and output limits below (PgDn).".into(),
+                ]
+            },
+        ),
+        Confirmation::Cancel | Confirmation::Navigate(_) => vec![
+            "Deny unstarted work or cancel the owned process tree.".into(),
+            "Wait for bounded teardown and journal acknowledgement.".into(),
+            "Cancellation is NOT rollback; edits/network may remain.".into(),
+            "Partial output and task drafts are retained.".into(),
+            "Unknown outcome needs a separate explicit exit choice.".into(),
+        ],
+        Confirmation::Purge(run) => vec![
+            format!("Run: {}", execution::safe_text(run)),
+            "Deletes only this run's retained local output.".into(),
+            "Metadata stays; deleted evidence cannot verify results.".into(),
+            "Not secure erasure; repository/provider data unchanged.".into(),
+        ],
+        Confirmation::UnknownExit(_) => vec![
+            "UNKNOWN: process-tree/output closure not established.".into(),
+            "Effects may remain; cancellation was not rollback.".into(),
+            "Quit acknowledges unknown effects, not success.".into(),
+            "Task switching cannot establish termination.".into(),
+        ],
+        Confirmation::UnsavedJournalExit(_) => vec![
+            "Final execution journal is only in memory.".into(),
+            "Exit loses unsaved final metadata; drafts stay separate.".into(),
+            "Restart sees interruption; no command is replayed.".into(),
+            "Stay and /journal-retry retries storage only.".into(),
+        ],
+    };
+    let summary_height = summary.len() as u16;
+    state.confirmation_visible = super::planning::render_summary(
+        frame,
+        row(area, 3, summary_height.min(area.height.saturating_sub(5))),
+        &summary,
+        paint,
+    );
+    let body = row(
+        area,
+        3 + summary_height,
+        area.height.saturating_sub(5 + summary_height),
+    );
     let paragraph = Paragraph::new(description)
         .style(paint.surface)
         .wrap(Wrap { trim: false });
     state.detail_max = selection_details(frame, body, paragraph, state.detail_scroll);
     state.detail_scroll = state.detail_scroll.min(state.detail_max);
+    text(
+        frame,
+        row(area, area.height.saturating_sub(2), 2),
+        "y Confirm / n Stay / Tab Choose / Enter / Esc Stay\nPgUp/Dn inspect exact details; no scroll gate",
+        paint.accent,
+    );
 }
 
 fn details(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
@@ -391,6 +452,10 @@ mod tests {
             })
             .unwrap();
         assert!(!state.affirmative);
+        assert!(
+            state.confirmation_visible,
+            "scope is visible without End or PgDown"
+        );
         assert!(state.detail_max > 0);
         assert!(
             terminal.backend().buffer()[(0, 1)]

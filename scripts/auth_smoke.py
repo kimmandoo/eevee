@@ -3,7 +3,7 @@
 
 --fixture is credential-free: a local listener checks terminal ownership, callback
 lifetime, explicit method selection and cancellation through the real TUI.
---wsl-device starts the real pinned Codex device flow on WSL, keeps callback port
+--wsl-device starts the real installed stable Codex device flow on WSL, keeps callback port
 1455 occupied, observes the official code prompt, then cancels without signing in.
 --live starts/cancels official providers in isolated homes without human consent;
 --ant adds Claude's Anthropic Console OAuth handoff through the official ant CLI.
@@ -14,6 +14,7 @@ from contextlib import closing
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import socket
@@ -25,7 +26,6 @@ import time
 from terminal_smoke import Session, confirm_exit, run_owned, terminal_environment
 from workbench_smoke import wait_for
 
-END = '\x1b[F'
 RIGHT = '\x1b[C'
 TITLE = 'Connections'
 
@@ -118,8 +118,7 @@ def fixture_journey(binary, output):
             session.send('\r')
             wait_for(session, 'Review connection')
             wait_for(session, label)
-            session.send(END)
-            wait_for(session, 'Tab Choose')
+            wait_for(session, 'y Confirm')
 
         def authorize():
             session.send('\t\r')
@@ -221,8 +220,8 @@ def wsl_device_journey(binary, output, codex):
         raise RuntimeError('--wsl-device requires real WSL, not simulated environment flags')
     executable = Path(codex or shutil.which('codex') or '').resolve()
     version = run_owned([str(executable), '--version'], timeout=15, text=True)
-    if version.returncode or version.stdout.strip() != 'codex-cli 0.152.1':
-        raise RuntimeError('--wsl-device requires the real pinned Codex 0.152.1 executable')
+    if version.returncode or not re.fullmatch(r'codex-cli \d+\.\d+\.\d+', version.stdout.strip()):
+        raise RuntimeError('--wsl-device requires a real installed stable Codex executable')
     output.mkdir(parents=True, exist_ok=True)
     results = {'status': 'failed', 'provider': version.stdout.strip(),
                'wsl_kernel': os.uname().release, 'limits': [
@@ -283,9 +282,10 @@ def wsl_device_journey(binary, output, codex):
             visible('> ChatGPT / device authorization (default)')
             session.send('\r')
             visible('Review connection')
+            session.send('d')
             visible('["login", "--device-auth"]')
-            session.send(END)
-            visible('Tab Choose')
+            session.send('d')
+            visible('y Confirm')
             start = len(session.text)
             session.send('\t\r')
             wait_private(lambda: '/codex/device' in session.text[start:],
@@ -393,7 +393,6 @@ def main():
                           project, environment, (120, 36), output / 'journey')
         try:
             wait_for(session, 'Storage: saved')
-            session.send('\x1b')  # Leave the clean first-run Goal composer.
             session.command('goal')
             session.paste('Keep this local task through authentication cancellation.')
             session.send('\r')
@@ -412,8 +411,7 @@ def main():
             def preview(command='connect-method'):
                 session.command(command)
                 wait_for(session, 'Review connection', timeout=40)
-                session.send(END)
-                wait_for(session, 'Tab Choose')
+                wait_for(session, 'y Confirm')
 
             def authorize():
                 session.send('\t\r')
@@ -454,8 +452,8 @@ def main():
             session.send('\r')
             wait_for(session, TITLE)
             preview()
-            session.resize((60, 18))
-            session.send(END + '\t\r')
+            session.resize((39, 10))
+            session.send('\t\r')
             assert 'Review connection' in session.display() or TITLE in session.display()
             session.resize((120, 36))
             if 'Review connection' in session.display():

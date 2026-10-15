@@ -538,7 +538,7 @@ def exercise_ui(session, size, cwd):
     while True:
         assert session.alive(), "app failed at startup"
         screen = session.display()
-        if ("Storage: saved" in screen and "Task composer" in screen
+        if ("Storage: saved" in screen
                 and not session.screen.cursor.hidden and session.screen.display[-1].strip()):
             break
         assert time.monotonic() < deadline, "saved home surface did not finish rendering"
@@ -554,7 +554,7 @@ def exercise_ui(session, size, cwd):
     session.send("\r")
     session.capture("slash-help")
     session.send(ESC)
-    assert "Task composer" in session.display(), "/help did not return to composer"
+    assert not session.screen.cursor.hidden, "/help did not restore editable input"
     session.send("@")
     session.capture("attachment-picker")
     session.send(ESC)
@@ -681,7 +681,7 @@ fn main() -> std::io::Result<()> {
 ''', encoding="utf-8")
         # Keep source/package isolation, but reuse already-built dependency
         # artifacts. A separate target needlessly recompiles the same graph.
-        target = root / "target"
+        target = Path(os.environ.get("CARGO_TARGET_DIR", root / "target")).resolve()
         result = run_owned(["cargo", "build", "--locked", "--example", "terminal_probe",
                             "--manifest-path", str(package / "Cargo.toml"),
                             "--target-dir", str(target)], timeout=900)

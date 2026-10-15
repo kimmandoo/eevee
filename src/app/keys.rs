@@ -21,6 +21,7 @@ impl App {
                     return false;
                 }
                 self.width = width;
+                self.confirmation_reviewed = false;
                 self.height = height;
                 self.agents.affirmative = false;
                 if let Some(popup) = &mut self.command_popup {
@@ -30,11 +31,13 @@ impl App {
                     confirmation.destructive = false;
                 }
                 self.execution.affirmative = false;
+                self.execution.confirmation_visible = false;
                 self.agents.reviewed = false;
                 self.images_reviewed = false;
                 self.images_selected = 0;
                 self.planning.invalidate_review();
                 self.handoff.invalidate_review();
+                self.sources.invalidate_review();
                 true
             }
             Event::Paste(text)
@@ -79,6 +82,9 @@ impl App {
                 // A notice answers the previous action only; the next key
                 // starts from a clean footer.
                 self.notice.clear();
+                if self.confirmation.is_none() {
+                    self.confirmation_reviewed = false;
+                }
                 self.key(key, now)
             }
             _ => false,
@@ -198,6 +204,27 @@ impl App {
             &self.sources.basket,
             self.repository.as_ref(),
         );
+        if matches!(
+            self.planning.pending,
+            Some(crate::providers::Request::Run { .. })
+        ) && !self.planning.inspect_models
+            && !self.planning.inspect_sessions
+        {
+            self.planning.submitted_request = task.request_text().into();
+            self.planning.failed_request = false;
+            self.request_home(true);
+        } else if self.planning.preview.is_none()
+            && self.planning.request.is_none()
+            && self.planning.picker.is_none()
+            && self.planning.paths_editor.is_none()
+            && self.planning.switch_to.is_none()
+            && !self.planning.quit_review
+            && !self.planning.journal_mode
+            && self.planning.inspection.is_none()
+            && key.code == KeyCode::Esc
+        {
+            self.request_home(false);
+        }
         if operation != self.planning.operation {
             self.set_form(match self.planning.operation {
                 crate::providers::Operation::Implement => 3,
@@ -286,7 +313,7 @@ impl App {
             && !self.transitioning
             && self.management.is_none()
             && self.switch_task.is_none()
-            && !self.editing
+            && (!self.editing || self.composer_is_request())
     }
 
     /// A provider login/status check finished: a connected task provider
@@ -338,6 +365,47 @@ impl App {
     }
 
     pub fn settle_planning(&mut self) -> bool {
+        if std::mem::take(&mut self.planning.failed_request) {
+            if self.composer_is_request() && self.input.is_empty() {
+                self.input = self.planning.submitted_request.to_string();
+                self.cursor = self.input.len();
+                self.changed_task();
+                self.notice = "Request stopped before output; the original request is restored for editing and review.".into();
+            } else {
+                self.notice = "Request stopped before output; your follow-up is retained and the submitted request remains above.".into();
+            }
+            return true;
+        }
+        if self.drive_request() {
+            return true;
+        }
+        // Only an actual consent/input surface opens a modal. Stream events
+        // and provider completion never move the response away from home.
+        if self.overlay.is_none()
+            && (self.planning.preview.is_some() || self.planning.request.is_some())
+        {
+            if self.composer_is_request() {
+                self.retain_editor();
+                self.composer_return = Some(store::EditorField::Request);
+            }
+            self.open_overlay(Overlay::Planning);
+            return true;
+        }
+        if self.overlay == Some(Overlay::Planning)
+            && self.planning.preview.is_none()
+            && self.planning.request.is_none()
+            && self.planning.picker.is_none()
+            && self.planning.paths_editor.is_none()
+            && self.planning.switch_to.is_none()
+            && self.planning.inspection.is_none()
+            && !self.planning.quit_review
+            && !self.planning.journal_mode
+            && self.composer_return == Some(store::EditorField::Request)
+        {
+            self.request_home(false);
+            self.notice.clone_from(&self.planning.notice);
+            return true;
+        }
         if let Some(document) = self.handoff.output.take() {
             self.planning.handoff = Some(document);
             self.planning.notice = "Portable handoff accepted as unverified context. It grants no tool permission; review a fresh provider request.".into();
@@ -445,7 +513,9 @@ impl App {
                 && (!self.editing
                     || matches!(
                         self.editor_field,
-                        store::EditorField::Goal | store::EditorField::NextAction
+                        store::EditorField::Request
+                            | store::EditorField::Goal
+                            | store::EditorField::NextAction
                     )))
                 || (key.code == KeyCode::Char('k') && key.modifiers == KeyModifiers::CONTROL))
         {
@@ -481,8 +551,10 @@ impl App {
                     return true;
                 }
                 if self.agents.auth_preview.is_some()
-                    && self.agents.affirmative
-                    && key.code == KeyCode::Enter
+                    && ((self.agents.affirmative && key.code == KeyCode::Enter)
+                        || (key.kind == KeyEventKind::Press
+                            && key.modifiers.is_empty()
+                            && key.code == KeyCode::Char('y')))
                     && !self.authentication_ready()
                 {
                     self.agents.notice = "Finish or retry saves and active work before authentication. No login started.".into();
@@ -495,6 +567,17 @@ impl App {
             }
             Some(Overlay::Images) => return self.images_key(key),
             _ => {}
+        }
+        if self.overlay.is_none()
+            && self.response_on_home()
+            && (matches!(key.code, KeyCode::PageUp | KeyCode::PageDown)
+                || key.modifiers == KeyModifiers::ALT
+                    && matches!(
+                        key.code,
+                        KeyCode::Up | KeyCode::Down | KeyCode::End | KeyCode::Home
+                    ))
+        {
+            return self.planning.home_response_key(key.code);
         }
         if self.editing {
             return self.edit_key(key);
@@ -525,15 +608,11 @@ impl App {
             }
             KeyCode::Enter => match self.effective_focus() {
                 Pane::Companion => self.open_overlay(Overlay::Forms),
-                Pane::Workspace if matches!(self.form(), 5..=7) => {
-                    self.open_overlay(Overlay::Workflows)
-                }
-                Pane::Workspace if self.form() == 8 => self.open_overlay(Overlay::Handoff),
-                Pane::Workspace => self.begin_edit(),
+                Pane::Workspace => self.open_editor(store::EditorField::Request),
                 Pane::Inspector => self.open_overlay(Overlay::Inspector),
             },
             KeyCode::Char(character) if safe_character(character) => {
-                self.begin_edit();
+                self.open_editor(store::EditorField::Request);
                 if self.editing {
                     let mut bytes = [0; 4];
                     return self.insert_input(character.encode_utf8(&mut bytes));
@@ -560,6 +639,10 @@ impl App {
     }
 
     pub(super) fn retain_editor(&mut self) {
+        let saved_request = self.composer_is_request()
+            && matches!(self.storage, StorageState::Saved)
+            && self.revision == self.saved_revision
+            && !self.save_requested;
         self.drafts.retain(|draft| draft.field != self.editor_field);
         if self.draft_dirty() || self.cursor != self.input.len() {
             self.drafts.push(store::Draft {
@@ -570,11 +653,25 @@ impl App {
         }
         self.input.clear();
         self.finish_edit();
-        self.changed_task();
+        if !saved_request {
+            self.changed_task();
+        }
     }
 
     pub(super) fn edit_key(&mut self, mut key: KeyEvent) -> bool {
         if key.code == KeyCode::Char('s') && key.modifiers == KeyModifiers::CONTROL {
+            if self.composer_is_request() {
+                self.pending_request = None;
+                self.changed_task();
+                self.flush_save();
+                self.notice = if self.planning.holds_committed_input() {
+                    "Draft pending until the current request ends; not yet saved."
+                } else {
+                    "Local save requested; Enter reviews before sending."
+                }
+                .into();
+                return true;
+            }
             self.retain_editor();
             return true;
         }
@@ -688,13 +785,41 @@ impl App {
             .max(1)
     }
 
-    pub(super) fn confirmation_key(&mut self, key: KeyEvent) -> bool {
+    pub(super) fn confirmation_key(&mut self, mut key: KeyEvent) -> bool {
         if key
             .modifiers
             .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
             || key.kind != KeyEventKind::Press
         {
             return false;
+        }
+        if key.modifiers.is_empty() {
+            match key.code {
+                KeyCode::Char('n') => {
+                    self.confirmation = None;
+                    self.confirmation_reviewed = false;
+                    return true;
+                }
+                KeyCode::Char('y')
+                    if self.confirmation_reviewed && self.width >= 60 && self.height >= 18 =>
+                {
+                    self.confirmation
+                        .as_mut()
+                        .expect("active confirmation")
+                        .destructive = true;
+                    key.code = KeyCode::Enter;
+                }
+                _ => {}
+            }
+        }
+        if key.code == KeyCode::Enter
+            && self
+                .confirmation
+                .is_some_and(|confirmation| confirmation.destructive)
+            && (!self.confirmation_reviewed || self.width < 60 || self.height < 18)
+        {
+            self.notice = "Review the visible confirmation before approving.".into();
+            return true;
         }
         if self
             .confirmation
@@ -742,6 +867,7 @@ impl App {
             }
             KeyCode::Enter => {
                 let confirmation = self.confirmation.take().expect("active confirmation");
+                self.confirmation_reviewed = false;
                 if confirmation.destructive {
                     match confirmation.kind {
                         ConfirmationKind::DiscardDraft => {

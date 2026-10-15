@@ -18,7 +18,7 @@ import sys
 import tempfile
 import time
 
-from terminal_smoke import Session, terminal_environment
+from terminal_smoke import Session, confirm_exit, terminal_environment
 from workbench_smoke import wait_for
 
 
@@ -204,7 +204,12 @@ def main():
                 deadline = time.monotonic() + timeout
                 while not predicate():
                     assert session.alive(), "application exited: " + explanation
-                    assert time.monotonic() < deadline, explanation + "\n" + session.display()
+                    if time.monotonic() >= deadline:
+                        states = [{
+                            "state": run["record"]["state"], "tree": run["record"]["tree"],
+                            "cancelled": run["record"]["cancelled"], "reserved": run["reserved"],
+                        } for run in rows()["runs"]]
+                        raise AssertionError(explanation + "\n" + json.dumps(states) + "\n" + session.display())
                     session.pump(0.05)
 
             def task(task_id):
@@ -222,9 +227,11 @@ def main():
             def switch(session, index, task_id):
                 task_menu(session, index)
                 until(session, lambda: rows()["active"] == task_id, "task switch did not commit")
-                until(session, lambda: task(task_id)["goal"] in session.display()
-                      and "Task cards / committed snapshots" not in session.display(),
+                until(session, lambda: "Task cards / committed snapshots" not in session.display(),
                       "task switch committed before its UI acknowledgement")
+                session.command("goal")
+                wait_for(session, task(task_id)["goal"])
+                session.send("\x13")
                 wait_for(session, "Storage: saved")
 
             def open_execution(session):
@@ -274,8 +281,7 @@ def main():
 
             def quit_idle(session):
                 session.command("quit")
-                wait_for(session, "Confirm exit")
-                session.send(RIGHT + "\r")
+                confirm_exit(session)
                 assert session.wait_exit() == 0
                 session.close()
 
@@ -287,6 +293,7 @@ def main():
             until(first, lambda: rows()["tasks"][0]["goal"] == "execution task A", "first task save")
             task_a = rows()["active"]
             first.command("task-new")
+            first.command("goal")
             first.paste("execution task B")
             first.send("\r")
             until(first, lambda: len(rows()["tasks"]) == 2 and rows()["tasks"][1]["goal"] == "execution task B", "second task save")
@@ -299,13 +306,6 @@ def main():
             retained_goal = "execution task A retained draft 漢字"
             until(first, lambda: any(entry["text"] == retained_goal for entry in lead_drafts(task(task_a))), "goal draft save")
             open_execution(first)
-            first.command("forms")
-            first.command("run")
-            wait_for(first, "local command evidence")
-            first.send(ESC)
-            first.send(ESC)
-            wait_for(first, "local command evidence")
-            first.capture("nested-execution-focus-restored")
             denied = root / "denied.json"
             denied_command = command("once", denied)
             edit_command(first, task_a, denied_command, draft=True)
@@ -476,9 +476,9 @@ def main():
             final_run(resumed, 4, "Cancelled", idle=False)
             exited(resumed, owned)
             until(resumed, lambda: rows()["active"] == task_b, "cancel-and-switch did not navigate after final journal")
-            until(resumed, lambda: task(task_b)["goal"] in resumed.display()
-                  and "Task cards / committed snapshots" not in resumed.display(),
-                  "cancel-and-switch UI acknowledgement")
+            # The cancellation guard already hid task cards. Wait for the new
+            # task's actual home content, not merely an absent old overlay.
+            wait_for(resumed, task(task_b)["goal"])
             assert task(task_a)["command"] == switched_command
             assert any(entry["text"] == retained_goal for entry in lead_drafts(task(task_a)))
             passed("task-switch-neutral-stay-then-cancel-wait-retains-owning-task-drafts")
@@ -495,10 +495,9 @@ def main():
             resumed.send(RIGHT + "\r")
             final_run(resumed, 5, "Cancelled", idle=False)
             exited(resumed, owned)
-            wait_for(resumed, "Confirm exit")
-            resumed.send("\r")
-            assert resumed.alive(), "normal draft-save exit review was not neutral"
-            quit_idle(resumed)
+            confirm_exit(resumed)
+            assert resumed.wait_exit() == 0
+            resumed.close()
             last = launch("restart-retained-drafts")
             assert rows()["active"] == task_a and task(task_a)["command"] == quit_command
             assert len(rows()["runs"]) == 5
@@ -510,7 +509,7 @@ def main():
             assert task(task_a)["goal"] == "execution task A" and not task(task_a)["complete"]
             assert any(entry["text"] == retained_goal for entry in lead_drafts(task(task_a)))
             quit_idle(last)
-            passed("quit-neutral-stay-cancel-and-wait-normal-save-review-and-draft-restart")
+            passed("quit-neutral-stay-cancel-and-wait-clean-exit-and-draft-restart")
             assert source.read_text(encoding="utf-8") == "stable source identity\n"
             assert not denied.exists() and not shell_marker.exists()
             assert literal_marker.read_bytes() == marker_before

@@ -13,13 +13,7 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 use sha2::{Digest, Sha256};
 
 const REVISION: u32 = 1;
-pub(crate) const CODEX_RELEASE: &str = "0.152.1";
-pub(crate) const OPENCODE_RELEASE: &str = "1.18.0";
-pub(crate) const GEMINI_RELEASE: &str = "0.28.0";
-pub(crate) const DEVIN_RELEASE: &str = "3000.11.3";
 pub(crate) const DEVIN: usize = 4;
-/// Official Anthropic CLI used only for Claude's Console OAuth login/status handoff.
-pub(crate) const ANT_RELEASE: &str = "1.40.0";
 /// Trust index of `ant`; not a provider row in the connection drawer.
 pub(crate) const ANT: usize = 5;
 const PROVIDERS: usize = 5;
@@ -257,7 +251,7 @@ fn discover(index: usize, project: &Path) -> Snapshot {
         let present = path.is_file();
         sources.push(source(path, false));
         if present {
-            "Project SDK manifest present; sidecar installation and pinned SDK/native runtime still require explicit qualification"
+            "Project SDK manifest present; sidecar installation and SDK/native runtime still require explicit qualification"
         } else {
             "Project SDK manifest absent; optional user-installed SDK sidecar is inspected separately, not established by Claude CLI"
         }
@@ -341,7 +335,7 @@ fn discover(index: usize, project: &Path) -> Snapshot {
         trust_preview.insert(1, "REPOSITORY-SUPPLIED executable/wrapper: explicit trust required; never automatically executed.".into());
     }
     if index == 0 {
-        trust_preview.push(format!("Codex {CODEX_RELEASE} is the exact planning adapter release. This version probe does not start a planning session or establish authentication. Workspace-write startup can persist project trust; Eevee planning requests read-only instead."));
+        trust_preview.push("Codex compatibility is qualified by the app-server protocol and acknowledged policy, not an exact CLI release. This version probe does not start a planning session or establish authentication. Workspace-write startup can persist project trust; Eevee planning requests read-only instead.".into());
     }
     let capabilities = capabilities(index);
     let profile = Profile {
@@ -355,22 +349,18 @@ fn discover(index: usize, project: &Path) -> Snapshot {
             (false, _) => "Missing on PATH; no executable invoked".into(),
             (true, _) => "PATH candidate found; installed is not authenticated or supported".into(),
         },
-        version: if index == 0 {
-            format!("Unknown (not probed); required planning release {CODEX_RELEASE}")
-        } else {
-            "Unknown (not probed); protocol/SDK version not observed".into()
-        },
+        version: "Unknown (not probed); protocol/SDK version not observed".into(),
         authentication,
         configuration,
         os: env::consts::OS.into(),
         architecture: env::consts::ARCH.into(),
         adapter: match index {
-            0 => format!("Codex app-server {CODEX_RELEASE}; Plan and POSIX controlled-file implementation"),
-            1 => "Optional pinned Claude Agent SDK sidecar; e performs separate runtime/auth qualification".into(),
-            2 => format!("OpenCode {OPENCODE_RELEASE} / negotiated ACP v1; provider-owned tools"),
-            DEVIN => format!("Devin {DEVIN_RELEASE} / negotiated ACP v1; provider-owned tools and native account login"),
-            ANT => format!("Anthropic CLI {ANT_RELEASE}; Console OAuth login/status handoff for Claude only"),
-            _ => format!("Gemini {GEMINI_RELEASE} / negotiated ACP v1; absent credentials remain unavailable"),
+            0 => "Codex app-server; Plan and POSIX controlled-file implementation".into(),
+            1 => "Optional Claude Agent SDK sidecar; e performs separate runtime/auth qualification".into(),
+            2 => "OpenCode / negotiated ACP v1; provider-owned tools".into(),
+            DEVIN => "Devin / negotiated ACP v1; provider-owned tools and native account login".into(),
+            ANT => "Anthropic CLI; Console OAuth login/status handoff for Claude only".into(),
+            _ => "Gemini / negotiated ACP v1; absent credentials remain unavailable".into(),
         },
         action: "Requires explicit e request preview, supported installed release, authentication, negotiated action and control boundary; local workbench always remains available".into(),
         billing,
@@ -406,7 +396,7 @@ fn capabilities(index: usize) -> Vec<Capability> {
             (
                 "Text/excerpt planning",
                 "Eevee-mediated",
-                "Exact 0.152.1 JSONL adapter; immutable full outgoing payload review and dispatch revalidation",
+                "Policy-acknowledged JSONL adapter; immutable full outgoing payload review and dispatch revalidation",
                 "Requires separate trust, account/model read and protocol qualification; images unsupported",
             ),
             (
@@ -462,7 +452,7 @@ fn capabilities(index: usize) -> Vec<Capability> {
         if index >= 2 && action == "Human questions" {
             result.push(Capability {
                 action: action.into(), boundary: "Unsupported client callback".into(),
-                evidence: "These pinned ACP peers do not negotiate an implemented structured question/elicitation extension".into(),
+                evidence: "These ACP adapters do not implement a negotiated structured question/elicitation extension".into(),
                 blocker: "Unknown question requests are refused. Explicit reviewed follow-up turns remain separate; no missing method is invoked".into(),
             });
             continue;
@@ -470,7 +460,7 @@ fn capabilities(index: usize) -> Vec<Capability> {
         if index >= 2 && action == "Usage and billing" {
             result.push(Capability {
                 action: action.into(), boundary: "Provider-owned / unavailable".into(),
-                evidence: "No standardized usage accounting is negotiated by these pinned ACP adapters".into(),
+                evidence: "No standardized usage accounting is negotiated by these ACP adapters".into(),
                 blocker: "Usage/cost remain unknown; no token total or cross-provider cost sum is inferred".into(),
             });
             continue;
@@ -478,7 +468,7 @@ fn capabilities(index: usize) -> Vec<Capability> {
         result.push(Capability {
             action: action.into(),
             boundary: if action == "Filesystem/network restrictions" { "Observed/external — no Eevee confinement" } else { "Eevee-mediated protocol callbacks / provider-owned tools" }.into(),
-            evidence: if index == 1 { "Pinned optional official SDK sidecar; tool/config policy separate from callbacks" }
+            evidence: if index == 1 { "Optional official SDK sidecar; tool/config policy separate from callbacks" }
                 else { "Negotiated ACP v1; exact once-only permission IDs; fs/terminal callbacks disabled" }.into(),
             blocker: "Requires supported runtime/auth/capability qualification after explicit consent; installation alone is not support".into(),
         });
@@ -984,34 +974,12 @@ fn apply_version(index: usize, profile: &mut Profile, version: &str) {
         "Observed CLI version {version} on {}/{}; protocol/SDK version unknown",
         profile.os, profile.architecture
     );
-    if index == 0 {
-        if version == CODEX_RELEASE {
-            profile
-                .version
-                .push_str("; matches exact planning adapter release; session/authentication not yet qualified");
-        } else {
-            let blocker = format!(
-                "Version mismatch: observed {version}, required Codex release {CODEX_RELEASE}; install the reviewed release before planning"
-            );
-            profile
-                .version
-                .push_str("; DOES NOT MATCH qualified planning release");
-            profile.blockers.push(blocker);
-        }
-    } else if index == 1 {
-        profile.blockers.push("Claude CLI version is not SDK version or permission to reuse claude.ai login. Qualify pinned sidecar and permitted API/cloud credentials in e.".into());
+    if index == 1 {
+        profile.blockers.push("Claude CLI version is not SDK version or permission to reuse claude.ai login. Qualify the sidecar and permitted API/cloud credentials in e.".into());
     } else {
-        let expected = match index {
-            2 => OPENCODE_RELEASE,
-            DEVIN => DEVIN_RELEASE,
-            ANT => ANT_RELEASE,
-            _ => GEMINI_RELEASE,
-        };
-        if version != expected {
-            profile.blockers.push(format!("Version mismatch: observed {version}, required ACP peer release {expected}; review/install compatible peer before a request"));
-        } else {
-            profile.version.push_str("; release matches pinned ACP profile, handshake/auth/capabilities remain unqualified");
-        }
+        profile.version.push_str(
+            "; stable version recognized, handshake/auth/capabilities remain unqualified",
+        );
     }
 }
 
@@ -1157,8 +1125,15 @@ fn probe(index: usize, snapshot: &Snapshot, stopped: &AtomicBool) -> Result<Stri
 /// Retains only existing nonsecret discovery identities; never auth store contents.
 pub(crate) struct PlanningTrust {
     snapshot: Snapshot,
+    observed_version: std::sync::OnceLock<String>,
     project_identity: String,
     pub lines: Vec<String>,
+}
+
+impl PlanningTrust {
+    pub(crate) fn observed_version(&self) -> Option<&str> {
+        self.observed_version.get().map(String::as_str)
+    }
 }
 
 pub(crate) fn planning_trust(project: &Path) -> Result<PlanningTrust, String> {
@@ -1192,7 +1167,7 @@ pub(crate) fn planning_trust(project: &Path) -> Result<PlanningTrust, String> {
         }
     }
     let mut lines = vec![
-        format!("Trust executes {} twice: literal argv [--version], then {}. Required release {CODEX_RELEASE}. Stay launches nothing.", executable.path.display(), serde_json::to_string(&planning_argv()).unwrap_or_default()),
+        format!("Trust executes {} twice: literal argv [--version], then {}. A stable version must be recognized; live protocol and policy acknowledgment determine compatibility. Stay launches nothing.", executable.path.display(), serde_json::to_string(&planning_argv()).unwrap_or_default()),
         format!("Selected PATH candidate: {}. Process cwd: {} (outside the project). Thread/turn cwd: {}.", selected.display(), cwd.display(), project.display()),
         "The executable inherits provider authentication and the current environment. Wrappers, interpreters, libraries, configuration, MCP servers and hooks may execute or persist side effects. Eevee does not sandbox this trusted provider process or pin transitive dependencies.".into(),
         snapshot.profile.configuration.clone(),
@@ -1221,6 +1196,7 @@ pub(crate) fn planning_trust(project: &Path) -> Result<PlanningTrust, String> {
     }
     Ok(PlanningTrust {
         snapshot,
+        observed_version: std::sync::OnceLock::new(),
         project_identity,
         lines,
     })
@@ -1274,11 +1250,7 @@ pub(crate) fn qualify_planning(
 ) -> Result<crate::workspace::runner::Prepared, String> {
     revalidate_planning_trust(project, trust)?;
     let version = probe(0, &trust.snapshot, stopped)?;
-    if version != CODEX_RELEASE {
-        return Err(format!(
-            "Protocol qualification refused: installed {version}, required {CODEX_RELEASE}"
-        ));
-    }
+    bind_version(&trust.observed_version, version)?;
     revalidate_planning_trust(project, trust)?;
     let executable = trust
         .snapshot
@@ -1316,12 +1288,17 @@ pub(crate) fn qualify_planning(
 pub(crate) struct ExternalTrust {
     snapshot: Snapshot,
     project_identity: String,
+    observed_version: std::sync::OnceLock<String>,
     index: usize,
     pub lines: Vec<String>,
     pub prepared: crate::workspace::runner::Prepared,
 }
 
 impl ExternalTrust {
+    pub(crate) fn observed_version(&self) -> Option<&str> {
+        self.observed_version.get().map(String::as_str)
+    }
+
     pub(crate) fn authentication_configuration(&self) -> &str {
         &self.snapshot.profile.configuration
     }
@@ -1402,6 +1379,7 @@ pub(crate) fn external_trust(
     Ok(ExternalTrust {
         snapshot,
         project_identity,
+        observed_version: std::sync::OnceLock::new(),
         index,
         lines,
         prepared,
@@ -1433,18 +1411,24 @@ pub(crate) fn qualify_external(
     index: usize,
     project: &Path,
     trust: &ExternalTrust,
-    expected: &str,
     stopped: &AtomicBool,
 ) -> Result<crate::workspace::runner::Prepared, String> {
     revalidate_external_trust(index, project, trust)?;
     let version = probe(index, &trust.snapshot, stopped)?;
-    if version != expected {
-        return Err(format!(
-            "Provider version mismatch: observed {version}, required {expected}"
-        ));
-    }
+    bind_version(&trust.observed_version, version)?;
     revalidate_external_trust(index, project, trust)?;
     Ok(trust.prepared.clone())
+}
+
+/// Bind the first consented observation for this immutable reviewed launch.
+/// A package update requires a fresh preview, even if both releases are compatible.
+fn bind_version(observed: &std::sync::OnceLock<String>, version: String) -> Result<(), String> {
+    if let Err(version) = observed.set(version)
+        && observed.get() != Some(&version)
+    {
+        return Err("Observed provider version changed; review a fresh trust preview".into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -125,6 +125,19 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// The lead partner's durable outgoing message, separate from task facts.
+    pub fn request_text(&self) -> &str {
+        self.partner_drafts
+            .get(&self.lead_partner)
+            .and_then(|state| {
+                state
+                    .drafts
+                    .iter()
+                    .find(|draft| draft.field == EditorField::Request)
+            })
+            .map_or("", |draft| draft.text.as_str())
+    }
+
     pub fn empty(project: String) -> Self {
         Self {
             project,
@@ -164,6 +177,7 @@ pub enum EditorField {
     Criteria,
     NextAction,
     Command,
+    Request,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

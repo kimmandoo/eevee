@@ -161,6 +161,7 @@ impl App {
             self.pending_command = None;
         }
         self.save_selection();
+        self.composer_return = None;
         self.edit_return = self.overlay_frame();
         self.overlay = None;
         self.editor_field = field;
@@ -185,6 +186,7 @@ impl App {
             return false;
         }
         match self.editor_field {
+            store::EditorField::Request => return self.submit_request(),
             store::EditorField::Goal => self.goal = std::mem::take(&mut self.input),
             store::EditorField::NextAction => self.next_action = std::mem::take(&mut self.input),
             store::EditorField::Command => {

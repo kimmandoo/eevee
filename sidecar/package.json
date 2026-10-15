@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "engines": { "node": ">=24.0.0" },
-  "scripts": { "inspect": "node main.ts --inspect", "test": "node --test policy.test.ts" },
-  "dependencies": { "@anthropic-ai/claude-agent-sdk": "0.3.296", "zod": "4.6.7" }
+  "scripts": { "setup": "npm update --ignore-scripts --include=optional @anthropic-ai/claude-agent-sdk", "inspect": "node main.ts --inspect", "test": "node --test policy.test.ts" },
+  "dependencies": { "@anthropic-ai/claude-agent-sdk": "latest", "zod": "4.6.7" }
 }

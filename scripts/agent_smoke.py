@@ -53,7 +53,6 @@ def main():
                                   environment, size, output / name)
                 sessions.append(session)
                 wait_for(session, 'Storage: saved')
-                session.send('\x1b')  # Enter navigation from the clean composer.
                 session.command('connect')
                 wait_for(session, 'Connections')
                 wait_for(session, 'Connect / credential setup')
@@ -61,12 +60,10 @@ def main():
                 return session
 
             def preview(session):
-                session.send('\x1b')  # Actions -> Providers; reopening resets selection.
-                session.send('\r\x1b[B\x1b[B\r')
+                session.command('version')
                 wait_for(session, 'Review version check')
 
             def approve(session):
-                session.send(END)
                 wait_for(session, 'Tab Choose')
                 session.send('\t')
                 wait_for(session, '[Check version]')
@@ -111,7 +108,6 @@ def main():
             session.send('\r')
             assert not marker.exists(), 'neutral Enter executed repository code'
             preview(session)
-            session.send(END)
             wait_for(session, 'Tab Choose')
             session.resize((39, 10))
             session.send('\t\r')
@@ -155,7 +151,7 @@ def main():
             approve(session)
             wait_for(session, args.installed_version, timeout=15)
             session.capture('installed-codex-version')
-            session.send('\x1b\r\x1b[B\x1b[B\x1b[B\r')
+            session.command('diagnostics')
             wait_for(session, 'Installed:')
             session.send(END)
             session.capture('installed-capabilities')

@@ -86,6 +86,36 @@ impl Layout {
 }
 
 impl State {
+    /// The selected observation owns its original request even while a newer
+    /// request is connecting or has failed without producing any output.
+    pub fn response_request(&self) -> (&str, bool) {
+        self.items
+            .get(self.selected)
+            .map_or((self.submitted_request.as_ref(), false), |item| {
+                (
+                    item.request.as_ref(),
+                    !std::sync::Arc::ptr_eq(&item.request, &self.submitted_request),
+                )
+            })
+    }
+
+    /// Provider dispatch and subsequent permission checks revalidate the exact
+    /// committed input. Live follow-up drafts must not replace it mid-request.
+    pub fn holds_committed_input(&self) -> bool {
+        self.active && !self.inspect_models && !self.inspect_sessions
+    }
+
+    pub fn response_visible(&self) -> bool {
+        !self.items.is_empty()
+            || !self.submitted_request.is_empty()
+            || self.activity_label().is_some()
+            || self.request.is_some()
+    }
+
+    pub fn home_response_key(&mut self, code: super::KeyCode) -> bool {
+        self.response_key(code)
+    }
+
     /// Genuine in-flight work, excluding every local decision/input surface.
     pub fn activity_label(&self) -> Option<&'static str> {
         if self.request.is_some()

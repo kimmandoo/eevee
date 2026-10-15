@@ -14,10 +14,9 @@ import time
 from terminal_smoke import Session, confirm_exit, terminal_environment
 from workbench_smoke import wait_for
 
-END = '\x1b[F'
 RIGHT = '\x1b[C'
 TITLE = 'Flareon / Codex implementation'
-IDLE = 'IDLE / explicit New'
+IDLE = 'Ready ·'
 
 
 def main():
@@ -82,16 +81,16 @@ def main():
             def start_patch(session):
                 session.command('new')
                 wait_for(session, 'LOCAL PREVIEW', timeout=30)
-                session.send(END)
-                wait_for(session, 'Enter Stay')
+                wait_for(session, 'y Run')
                 session.capture('exact-edit-baseline-preview')
-                session.send('\t\r')
-                wait_for(session, 'PERMISSION / EXACT PROVIDER RESPONSE', timeout=180)
-                session.send(END)
+                session.send('y')
+                wait_for(session, 'a Allow once', timeout=180)
+                session.send('d')
                 session.capture('exact-before-after-patch')
+                session.send('d')
 
             def allow(session):
-                session.send('\t\r')
+                session.send('a')
                 wait_for(session, IDLE, timeout=180)
 
             def quit_app(session):
@@ -102,7 +101,6 @@ def main():
                 session.close()
 
             session = launch('controlled-patch')
-            session.send('\x1b')  # Leave the clean first-run Goal composer.
             session.command('goal')
             session.paste('Fix add(a,b) in calculator.py so it returns a+b. Use ONLY eevee_edit_file with full replacement content. '
                           'Preserve the exact pre-existing user comment and all other files. Do not run commands or checks; '
@@ -137,7 +135,6 @@ def main():
 
             start_patch(session)
             session.resize((60, 18))
-            session.send(END)
             session.capture('compact-patch-review')
             allow(session)
             changed = source.read_text()
@@ -166,7 +163,6 @@ def main():
             session.send('\r')
             wait_for(session, 'Approval pending', timeout=35)
             session.command('run')
-            session.send(END)
             session.capture('deliberate-local-check-review')
             session.send(RIGHT + '\r')
             wait_for(session, 'EEVEE_LOCAL_CHECK_OK', timeout=35)

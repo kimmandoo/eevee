@@ -1,4 +1,4 @@
-//! Optional pinned Claude Agent SDK host. No Node process exists until reviewed Run.
+//! Optional Claude Agent SDK host. No Node process exists until reviewed Run.
 //! SDK tool policy/selected-path checks are external agent policy, not an OS sandbox.
 use crate::providers::{
     Agent, Event, Input, ItemKind, ModelCatalogue, ModelOption, Operation, Outcome,
@@ -21,8 +21,6 @@ const FRAME_LIMIT: usize = 2 * 1024 * 1024;
 const EVENTS_LIMIT: usize = 256;
 const OUTPUT_LIMIT: usize = 512 * 1024;
 const ITEM_LIMIT: usize = 32 * 1024;
-const SDK_VERSION: &str = "0.3.296";
-const CLI_VERSION: &str = "2.1.296";
 type Events = Arc<Mutex<VecDeque<Event>>>;
 struct Workspace {
     project: PathBuf,
@@ -445,7 +443,7 @@ fn package_stamp(root: &Path) -> Result<Stamp, String> {
         files: &mut usize,
         total: &mut u64,
     ) -> Result<(), String> {
-        let mut entries = fs::read_dir(dir).map_err(|_| "Optional sidecar package absent; explicitly install pinned package with npm ci --ignore-scripts")?.collect::<Result<Vec<_>, _>>().map_err(|_| "Cannot inspect sidecar package")?;
+        let mut entries = fs::read_dir(dir).map_err(|_| "Optional sidecar package absent; explicitly run npm install --ignore-scripts --include=optional @anthropic-ai/claude-agent-sdk@latest in sidecar/")?.collect::<Result<Vec<_>, _>>().map_err(|_| "Cannot inspect sidecar package")?;
         entries.sort_by_key(|e| e.file_name());
         for entry in entries {
             *files += 1;
@@ -496,11 +494,57 @@ fn package_stamp(root: &Path) -> Result<Stamp, String> {
         bytes,
     })
 }
+#[derive(Debug, PartialEq, Eq)]
+struct SdkVersions {
+    sdk: String,
+    cli: String,
+}
+fn sdk_versions(package: &Value) -> Result<SdkVersions, String> {
+    if package["name"] != "@anthropic-ai/claude-agent-sdk" {
+        return Err("SDK package identity mismatch".into());
+    }
+    let version = |field: &str| -> Result<String, String> {
+        let text = package[field]
+            .as_str()
+            .ok_or("SDK version metadata missing")?;
+        let core = text.split(['-', '+']).next().unwrap_or("");
+        if text.len() > 128
+            || !text
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b".-+".contains(&c))
+            || core.split('.').count() != 3
+            || !core
+                .split('.')
+                .all(|part| !part.is_empty() && part.bytes().all(|c| c.is_ascii_digit()))
+        {
+            return Err("SDK version metadata invalid".into());
+        }
+        Ok(text.into())
+    };
+    Ok(SdkVersions {
+        sdk: version("version")?,
+        cli: version("claudeCodeVersion")?,
+    })
+}
+fn inspection_matches(value: &Value, versions: &SdkVersions) -> bool {
+    value["type"] == "capabilities"
+        && value["sdk_version"].as_str() == Some(versions.sdk.as_str())
+        && value["cli_version"].as_str() == Some(versions.cli.as_str())
+        && value["bridge_revision"] == 2
+        && value["query"] == true
+        && value["policy"]
+            == json!({
+                "tools": "closed-allowlist", "permissions": "default-host-once", "mcp": "disabled",
+                "configuration": "isolated", "authentication": "api-console-cloud-only",
+            })
+}
+
 struct Trust {
     launch: crate::workspace::runner::Prepared,
     root: PathBuf,
     entry: PathBuf,
     stamp: Stamp,
+    versions: SdkVersions,
     project_id: String,
     account: String,
     state_dir: PathBuf,
@@ -508,7 +552,7 @@ struct Trust {
 fn trust(project: &Path, data_dir: &Path) -> Result<Trust, String> {
     environment_gate()?;
     let entry_requested = sidecar_path()?;
-    let entry = fs::canonicalize(&entry_requested).map_err(|_| "Optional Claude sidecar is not installed. Explicitly install sidecar/ with npm ci --ignore-scripts; set EEVEE_CLAUDE_SIDECAR. Core needs no Node/SDK.".to_string())?;
+    let entry = fs::canonicalize(&entry_requested).map_err(|_| "Optional Claude sidecar is not installed. Explicitly run npm install --ignore-scripts --include=optional @anthropic-ai/claude-agent-sdk@latest in sidecar/; set EEVEE_CLAUDE_SIDECAR. Core needs no Node/SDK.".to_string())?;
     let root = entry
         .parent()
         .ok_or("Sidecar package root unavailable")?
@@ -521,7 +565,7 @@ fn trust(project: &Path, data_dir: &Path) -> Result<Trust, String> {
     for name in ["main.ts", "policy.ts", "package.json", "package-lock.json"] {
         if !root.join(name).is_file() {
             return Err(format!(
-                "Sidecar installation missing {name}; install the complete pinned package"
+                "Sidecar installation missing {name}; install the complete sidecar package"
             ));
         }
     }
@@ -529,7 +573,7 @@ fn trust(project: &Path, data_dir: &Path) -> Result<Trust, String> {
         return Err("Sidecar entry must be the installed main.ts".into());
     }
     let sdk = root.join("node_modules/@anthropic-ai/claude-agent-sdk/package.json");
-    let mut sdk_file = File::open(&sdk).map_err(|_| "Pinned optional SDK dependency absent; explicitly run npm ci --ignore-scripts in the sidecar installation")?;
+    let mut sdk_file = File::open(&sdk).map_err(|_| "Optional SDK dependency absent; explicitly run npm install --ignore-scripts --include=optional @anthropic-ai/claude-agent-sdk@latest in the sidecar installation")?;
     let mut bytes = Vec::new();
     Read::by_ref(&mut sdk_file)
         .take(64 * 1024 + 1)
@@ -539,9 +583,7 @@ fn trust(project: &Path, data_dir: &Path) -> Result<Trust, String> {
         return Err("SDK metadata exceeds bound".into());
     }
     let package: Value = serde_json::from_slice(&bytes).map_err(|_| "SDK metadata invalid")?;
-    if package["version"] != SDK_VERSION || package["claudeCodeVersion"] != CLI_VERSION {
-        return Err("Claude SDK/embedded CLI mismatch: require SDK 0.3.296 / CLI 2.1.296".into());
-    }
+    let versions = sdk_versions(&package)?;
     let node = node_path()?;
     for path in [&entry, &node] {
         let value = path.to_str().ok_or("SDK/runtime paths must be Unicode")?;
@@ -610,6 +652,7 @@ fn trust(project: &Path, data_dir: &Path) -> Result<Trust, String> {
         root,
         entry,
         stamp,
+        versions,
         project_id: crate::workspace::runner::native::directory_identity(project)
             .map_err(|_| "Project identity unavailable")?,
         account,
@@ -621,6 +664,7 @@ fn revalidate(project: &Path, data_dir: &Path, old: &Trust) -> Result<(), String
     if now.launch != old.launch
         || now.entry != old.entry
         || now.stamp != old.stamp
+        || now.versions != old.versions
         || now.project_id != old.project_id
         || now.account != old.account
         || now.state_dir != old.state_dir
@@ -631,7 +675,7 @@ fn revalidate(project: &Path, data_dir: &Path, old: &Trust) -> Result<(), String
     }
     Ok(())
 }
-// The pinned sidecar's "plan" policy exposes only read/question tools and
+// The sidecar's "plan" policy exposes only read/question tools and
 // mandatory-disables writes, shell, delegation and MCP. Review deliberately
 // reuses that policy, not its prompt or provider session.
 fn sdk_tool_policy(operation: Operation) -> &'static str {
@@ -762,6 +806,7 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
     let text = serde_json::to_string_pretty(&json!({
         "purpose": if input.operation == Operation::Plan { "Plan only; no implementation tools are exposed." } else { "Implement only reviewed files, preserving existing dirty working content. This is external SDK agent policy, not strict OS confinement. Do not commit/merge. Report unverified patch for human diff review." },
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
+        "request": input.task.request_text(),
         "approved_memories": input.task.approved_memories,
         "selected_sources": serde_json::from_str::<Value>(&sources.text).map_err(|_| "Invalid source envelope")?, "edit_baselines": baselines, "handoff": input.handoff,
     })).map_err(|_| "Could not encode Claude payload")?;
@@ -838,7 +883,7 @@ fn worker(
                 let observed = trust(project, data_dir);
                 match &observed {
                     Ok(t) => preview.trust.extend([
-                        format!("Consent executes Node {} sha256 {}, native-TypeScript sidecar {} and complete dependency tree sha256 {} ({} entries / {} bytes). SDK {} / embedded CLI {} are required; --inspect loads real SDK without a model before one query.", t.launch.executable.path.display(), t.launch.executable.sha256, t.entry.display(), t.stamp.digest, t.stamp.files, t.stamp.bytes, SDK_VERSION, CLI_VERSION),
+                        format!("Consent executes Node {} sha256 {}, native-TypeScript sidecar {} and complete dependency tree sha256 {} ({} entries / {} bytes). Installed SDK {} / embedded CLI {} are bound to this review, not release-pinned; --inspect loads the real SDK and checks bridge policy without a model before one query. Unsupported protocol/capabilities fail closed.", t.launch.executable.path.display(), t.launch.executable.sha256, t.entry.display(), t.stamp.digest, t.stamp.files, t.stamp.bytes, t.versions.sdk, t.versions.cli),
                         format!("Authentication/billing source: {}. Credential values are never read/copied/stored by Eevee; installed claude.ai subscription auth is not used. SDK state/transcripts persist separately at {}.", t.account, t.state_dir.display()),
                         if t.account.starts_with("Anthropic Console OAuth profile") {
                             "CONSOLE OAUTH PROFILE: the SDK reads only the selected ant profile (explicit ANTHROPIC_CONFIG_DIR/ANTHROPIC_PROFILE) and bills API usage to its Console organization/workspace, not a claude.ai subscription. The embedded CLI may refresh that profile's access token in place; a profile base_url is provider configuration. HOME and Claude configuration stay isolated. The effective backend must report profile credentials (no API-key/subscription source) before prompt release.".into()
@@ -852,7 +897,7 @@ fn worker(
                         match input.operation {
                             Operation::Implement => "EXTERNAL-POLICY IMPLEMENTATION: Write/Edit only, mandatory selected-path hook plus explicit user approval. No shell/delegation/MCP mutations. Symlinks are refused at check; SDK path checks are NOT atomic OS confinement. Consent accepts that external-policy boundary; inspect dirty baseline/current diff and deliberately verify; no auto commit/merge.".into(),
                             Operation::Plan => "PLAN: SDK tool exposure excludes all file-write/shell/delegation routes. This is verified configured agent tool policy, not filesystem/network isolation.".into(),
-                            Operation::Review => "REVIEW: fresh requirements/patch/selected-observation context in a new session; no implementation history or Resume. Uses the pinned SDK read-only tool policy: Write/Edit/Bash/delegation/MCP are unavailable independently of approval callbacks. Agent tool policy is not OS isolation.".into(),
+                            Operation::Review => "REVIEW: fresh requirements/patch/selected-observation context in a new session; no implementation history or Resume. Uses the reviewed SDK read-only tool policy: Write/Edit/Bash/delegation/MCP are unavailable independently of approval callbacks. Agent tool policy is not OS isolation.".into(),
                         },
                         if input.operation == Operation::Review { "Review never sends a provider session ID or resumes prior history. A fix requires a deliberate separate implementation handoff.".into() } else { "Resume includes provider-owned prior transcript, not just the selected context. Same-task/session/current policy only. Usage is latest cumulative query-pipeline snapshot including restored session, never summed with prior results; main-loop per-turn tokens have separate coverage.".into() },
                     ]),
@@ -1288,16 +1333,13 @@ fn transport(
                     return Err("SDK inspect emitted unexpected additional frames".into());
                 }
                 if let Some(value) = messages.first() {
-                    if value["type"] == "capabilities"
-                        && value["sdk_version"] == SDK_VERSION
-                        && value["cli_version"] == CLI_VERSION
-                        && value["bridge_revision"] == 2
-                        && value["query"] == true
-                    {
+                    if inspection_matches(value, &run.trust.versions) {
                         let native = value["cli"]
                             .as_str()
                             .ok_or("SDK inspect omitted native executable identity")?;
-                        if !Path::new(native).starts_with(&run.trust.root) {
+                        if !Path::new(native).starts_with(&run.trust.root)
+                            || fs::canonicalize(native).ok().as_deref() != Some(Path::new(native))
+                        {
                             return Err(
                                 "SDK inspect resolved native code outside reviewed dependency tree"
                                     .into(),
@@ -1311,12 +1353,14 @@ fn transport(
                             .ok_or("SDK inspect omitted loaded SDK entry")?;
                         if Path::new(runtime) != run.trust.launch.executable.path.as_path()
                             || !Path::new(sdk_entry).starts_with(&run.trust.root)
+                            || fs::canonicalize(sdk_entry).ok().as_deref()
+                                != Some(Path::new(sdk_entry))
                         {
                             return Err("SDK/Node inspect resolved code outside reviewed runtime/package identity".into());
                         }
                         return Ok(());
                     }
-                    return Err("Pinned SDK capability inspection failed".into());
+                    return Err("Installed SDK identity/bridge capability inspection failed".into());
                 }
                 if probe.eof {
                     return Err("SDK inspection ended without loaded capability evidence".into());

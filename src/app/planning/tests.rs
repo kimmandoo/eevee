@@ -534,6 +534,7 @@ fn message() -> Item {
         kind: ItemKind::Message,
         text: "Visible decision".into(),
         complete: true,
+        request: "Original request".into(),
     }
 }
 
@@ -775,6 +776,132 @@ fn streamed(state: &mut State, id: &str, text: &str, complete: bool) {
     });
 }
 
+fn run_request(state: &mut State, generation: u64, request: &str) {
+    command(state, "new", true);
+    assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
+    state.event(Event::Preview(Preview {
+        generation,
+        task_id: 7,
+        thread_id: None,
+        trust: vec!["Executable trust".into()],
+        payload: request.into(),
+        blockers: Vec::new(),
+    }));
+    state.reviewed = true;
+    press(state, KeyCode::Char('y'), true);
+    assert!(
+        matches!(state.pending.take(), Some(Request::Run { generation: actual }) if actual == generation)
+    );
+    // App captures the exact saved request when Run is approved.
+    state.submitted_request = request.into();
+}
+
+#[test]
+fn retained_output_keeps_request_ownership_during_startup_failure_and_navigation() {
+    let mut state = active();
+    state.submitted_request = "First question".into();
+    streamed(&mut state, "first", "First answer", true);
+    assert_eq!(state.response_request(), ("First question", false));
+    state.event(Event::Finished {
+        generation: 11,
+        task_id: 7,
+        outcome: Outcome::Completed,
+        message: "Complete".into(),
+    });
+    run_request(&mut state, 12, "Second question");
+    assert_eq!(state.response_request(), ("First question", true));
+    assert_eq!(state.submitted_request.as_ref(), "Second question");
+    state.event(Event::Finished {
+        generation: 12,
+        task_id: 7,
+        outcome: Outcome::Failed,
+        message: "No output".into(),
+    });
+    assert_eq!(state.response_request(), ("First question", true));
+    assert!(state.failed_request);
+
+    // Repeated text is still a distinct request, not the old answer's owner.
+    run_request(&mut state, 13, "First question");
+    assert_eq!(state.response_request(), ("First question", true));
+    press(&mut state, KeyCode::Home, true);
+    for (item_id, text, complete) in [
+        ("second", "Partial", false),
+        ("second", "Second answer", true),
+        ("third", "Another observation", true),
+    ] {
+        state.event(Event::Item {
+            generation: 13,
+            task_id: 7,
+            thread_id: "thread".into(),
+            turn_id: "second-turn".into(),
+            item_id: item_id.into(),
+            kind: ItemKind::Message,
+            text: text.into(),
+            complete,
+        });
+    }
+    assert_eq!(state.response_request(), ("First question", true));
+    assert!(state.new_output && !state.following);
+    assert!(Arc::ptr_eq(
+        &state.items[1].request,
+        &state.items[2].request
+    ));
+    assert!(Arc::ptr_eq(
+        &state.items[1].request,
+        &state.submitted_request
+    ));
+    press(&mut state, KeyCode::End, true);
+    assert_eq!(state.response_request(), ("First question", false));
+    press(&mut state, KeyCode::Up, true);
+    press(&mut state, KeyCode::Up, true);
+    assert_eq!(state.response_request(), ("First question", true));
+    assert_eq!(state.items[state.selected].text, "First answer");
+}
+
+#[test]
+fn request_ownership_follows_provider_role_sessions_and_retained_turn_replays() {
+    let mut state = active();
+    state.submitted_request = "Original request".into();
+    streamed(&mut state, "first", "Original answer", true);
+    state.event(Event::Finished {
+        generation: 11,
+        task_id: 7,
+        outcome: Outcome::Completed,
+        message: "Complete".into(),
+    });
+    run_request(&mut state, 12, "New request");
+    state.event(Event::Item {
+        generation: 12,
+        task_id: 7,
+        thread_id: "thread".into(),
+        turn_id: "turn".into(),
+        item_id: "replayed-item".into(),
+        kind: ItemKind::Message,
+        text: "Retained turn observation".into(),
+        complete: true,
+    });
+    assert_eq!(state.response_request(), ("Original request", true));
+    state.event(Event::Finished {
+        generation: 12,
+        task_id: 7,
+        outcome: Outcome::Completed,
+        message: "Complete".into(),
+    });
+    state.set_operation(Operation::Review);
+    assert_eq!(state.response_request(), ("", false));
+    state.set_operation(Operation::Plan);
+    assert_eq!(state.response_request(), ("Original request", true));
+    assert_eq!(state.submitted_request.as_ref(), "New request");
+    state.switch_to = Some(Agent::Gemini);
+    state.complete_switch();
+    assert_eq!(state.response_request(), ("", false));
+    state.switch_to = Some(Agent::Codex);
+    state.complete_switch();
+    assert_eq!(state.response_request(), ("Original request", true));
+    state.invalidate_authentication();
+    assert_eq!(state.response_request(), ("", false));
+}
+
 #[test]
 fn partial_response_follows_each_snapshot_until_explicit_scroll_and_end() {
     let mut state = active();
@@ -965,6 +1092,7 @@ fn activity_excludes_local_review_and_reports_cancellation_until_acknowledged() 
 #[test]
 fn bounded_output_keeps_the_manually_selected_item_and_scroll() {
     let mut state = active();
+    state.submitted_request = "Bounded request".into();
     streamed(&mut state, "pinned", "one\ntwo\nthree", true);
     press(&mut state, KeyCode::Home, true);
     state.response_scroll = 1;
@@ -979,6 +1107,7 @@ fn bounded_output_keeps_the_manually_selected_item_and_scroll() {
     );
     assert_eq!(state.scroll, 1);
     assert_eq!(state.omitted, 4);
+    assert_eq!(Arc::strong_count(&state.submitted_request), ITEM_LIMIT + 1);
 }
 
 #[test]

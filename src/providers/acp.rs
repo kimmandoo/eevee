@@ -132,23 +132,11 @@ struct Reviewed {
     trust: crate::providers::agent::ExternalTrust,
     payload: String,
 }
-fn profile(agent: Agent) -> Result<(usize, &'static str, Vec<String>), String> {
+fn profile(agent: Agent) -> Result<(usize, Vec<String>), String> {
     match agent {
-        Agent::OpenCode => Ok((
-            2,
-            crate::providers::agent::OPENCODE_RELEASE,
-            vec!["acp".into(), "--pure".into()],
-        )),
-        Agent::Gemini => Ok((
-            3,
-            crate::providers::agent::GEMINI_RELEASE,
-            vec!["--experimental-acp".into()],
-        )),
-        Agent::Devin => Ok((
-            crate::providers::agent::DEVIN,
-            crate::providers::agent::DEVIN_RELEASE,
-            vec!["acp".into()],
-        )),
+        Agent::OpenCode => Ok((2, vec!["acp".into(), "--pure".into()])),
+        Agent::Gemini => Ok((3, vec!["--acp".into()])),
+        Agent::Devin => Ok((crate::providers::agent::DEVIN, vec!["acp".into()])),
         _ => Err("ACP route accepts only OpenCode, Gemini or Devin".into()),
     }
 }
@@ -177,7 +165,7 @@ fn worker(
                 let task_id = input.task.id;
                 preview_owner = Some((generation, task_id));
                 let result = (|| {
-                    let (index, _, launch) = profile(input.agent)?;
+                    let (index, launch) = profile(input.agent)?;
                     let trust =
                         crate::providers::agent::external_trust(index, &workspace.project, launch)?;
                     let payload = payload(&workspace, &input)?;
@@ -188,12 +176,12 @@ fn worker(
                         "Agent-owned tools, project instructions, MCP, configuration, hooks and history are EXTERNAL PROVIDER POLICY. ACP is not a path/network sandbox or a read-only guarantee.".into(),
                         "Only exact reject-once/allow-once provider permission IDs are offered; persistent grants are filtered. Unknown questions/elicitation extensions are refused, not advertised.".into(),
                         "No authenticate/login action is invoked. Provider-owned auth/account/product eligibility must succeed at session creation; installed is not authenticated.".into(),
-                        "Resume is only sent if session/load is actually negotiated; replayed history is suppressed. No standardized token usage is negotiated by these pinned interfaces.".into(),
+                        "Resume is only sent if session/load is actually negotiated; replayed history is suppressed. No standardized token usage is negotiated by these interfaces.".into(),
                     ]);
                     match input.agent {
-                        Agent::OpenCode => lines.push(format!("OpenCode {} acp --pure disables external plugins; built-in tools/config/MCP/project rules remain provider-owned.", crate::providers::agent::OPENCODE_RELEASE)),
-                        Agent::Gemini => lines.push("Gemini CLI 0.28.0 uses --experimental-acp (not newer releases' --acp). Its configured Google OAuth/API/Vertex route is provider-owned; no free-account eligibility claim.".into()),
-                        Agent::Devin => lines.push(format!("Devin CLI {} acp uses local stdio, without --cloud. Connect separately through the official native browser login; credentials, account eligibility, tools and configuration remain provider-owned.", crate::providers::agent::DEVIN_RELEASE)),
+                        Agent::OpenCode => lines.push("OpenCode acp --pure disables external plugins; built-in tools/config/MCP/project rules remain provider-owned.".into()),
+                        Agent::Gemini => lines.push("Gemini CLI uses current stable --acp. Older --experimental-acp-only releases must be updated explicitly; no fallback or automatic download. Its configured Google OAuth/API/Vertex route is provider-owned; no free-account eligibility claim.".into()),
+                        Agent::Devin => lines.push("Devin CLI acp uses local stdio, without --cloud. Connect separately through the official native browser login; credentials, account eligibility, tools and configuration remain provider-owned.".into()),
                         Agent::Codex | Agent::Claude => unreachable!("profile rejects non-ACP providers"),
                     }
                     lines.push(format!(
@@ -404,6 +392,7 @@ fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
     let text = serde_json::to_string_pretty(&json!({
         "purpose":"Plan the user's task. Do not implement or write files. Ask for decisions and report proposals as unverified planning. This instruction is not an enforced sandbox.",
         "task":{"id":input.task.id,"revision":input.task.revision,"goal":input.task.goal,"acceptance_criteria":input.task.criteria,"next_action":crate::workspace::handoff::without_local_provenance(&input.task.next_action)},
+        "request":input.task.request_text(),
         "approved_memories":input.task.approved_memories,
         "selected_sources":serde_json::from_str::<Value>(&sources.text).map_err(|_| "Invalid selected source JSON")?,
         "accepted_handoff":input.handoff
@@ -417,7 +406,7 @@ fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
     Ok(text)
 }
 fn revalidate(workspace: &Workspace, run: &Reviewed) -> Result<(), String> {
-    let (index, _, _) = profile(run.input.agent)?;
+    let (index, _) = profile(run.input.agent)?;
     crate::providers::agent::revalidate_external_trust(index, &workspace.project, &run.trust)?;
     if payload(workspace, &run.input)? != run.payload {
         return Err("Task/source/handoff changed after preview; no substituted prompt sent".into());
@@ -1192,14 +1181,9 @@ fn transport(
         if stop.load(Ordering::Acquire) || cancelled.load(Ordering::Acquire) == run.generation {
             return Err("Cancelled before ACP launch".into());
         }
-        let (index, expected, _) = profile(run.input.agent)?;
-        let prepared = crate::providers::agent::qualify_external(
-            index,
-            &workspace.project,
-            &run.trust,
-            expected,
-            stop,
-        )?;
+        let (index, _) = profile(run.input.agent)?;
+        let prepared =
+            crate::providers::agent::qualify_external(index, &workspace.project, &run.trust, stop)?;
         if stop.load(Ordering::Acquire) || cancelled.load(Ordering::Acquire) == run.generation {
             return Err("Cancelled before ACP launch".into());
         }
@@ -1549,19 +1533,13 @@ impl Engine<'_> {
         match call.kind {
             Call::Initialize => {
                 self.capabilities = negotiated(result)?;
-                // Devin's qualified release reports the agent build version, not the
-                // CLI package release. Executable release/identity is checked separately.
-                let peer_version = match self.run.input.agent {
-                    Agent::Devin => "0.0.0-dev",
-                    agent => profile(agent)?.1,
-                };
-                if let Some(version) = result.pointer("/agentInfo/version").and_then(Value::as_str)
-                    && version != peer_version
-                {
-                    return Err(
-                        "ACP peer-reported version differs from qualified executable".into(),
-                    );
-                }
+                // agentInfo describes the agent build, not necessarily its CLI package
+                // (Devin has reported 0.0.0-dev). Protocol capabilities, not package
+                // equality, qualify this peer; executable identity remains bound.
+                self.status(&format!(
+                    "Observed CLI {}; ACP v1 negotiated; required actions remain capability-gated",
+                    self.run.trust.observed_version().unwrap_or("unavailable")
+                ))?;
                 let auth = result
                     .get("authMethods")
                     .and_then(Value::as_array)

@@ -129,7 +129,11 @@ impl App {
         if self.overlay.is_none()
             && let Some(field) = self.composer_return.take()
         {
-            self.begin_edit_field(field);
+            if field == store::EditorField::Request {
+                self.open_editor(field);
+            } else {
+                self.begin_edit_field(field);
+            }
         }
     }
 

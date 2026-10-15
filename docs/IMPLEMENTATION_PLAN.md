@@ -28,7 +28,7 @@ One native Rust binary and one Cargo package with these module boundaries; an op
 
 The reducer owns mutable application state. Workers send typed events; render functions perform no I/O and report only derived viewport scroll bounds back to state. Store writes run on a dedicated blocking worker. Large payloads are referenced rather than repeatedly cloned into events.
 
-Connect Codex first through a release-pinned local app-server child. Add the official Claude Agent SDK through an optional TypeScript sidecar, then a shared ACP v1 client exercised against both OpenCode and Gemini. The SDK bridge is a deliberate compatibility exception, not a rewrite or mandatory runtime for local work. Unsupported CLIs use a reviewed manual handoff, not terminal scraping. See [agent compatibility](AGENT_COMPATIBILITY.md) for primary sources, exact protocol distinctions, auth/terms constraints, and acceptance scenarios.
+Connect Codex first through a local app-server child whose installed identity is reviewed and revalidated. Explicit setup/update resolves current stable provider releases; admission requires the actual protocol, capabilities and policy acknowledgments rather than an exact release-number allowlist. Add the official Claude Agent SDK through an optional TypeScript sidecar, then a shared ACP v1 client exercised against both OpenCode and Gemini. The SDK bridge is a deliberate compatibility exception, not a rewrite or mandatory runtime for local work. Unsupported CLIs use a reviewed manual handoff, not terminal scraping. See [agent compatibility](AGENT_COMPATIBILITY.md) for primary sources, exact protocol distinctions, auth/terms constraints, and acceptance scenarios.
 
 Forms define work and expected evidence; agent profiles define execution and actual control boundaries. A profile is not a model, and a provider mode is not an evolution. Choose one task agent by default; a deliberate role override still requires capability admission. Provider-native commands are observed with origin/coverage, not rerun through Jolteon. Never promise that all tools are intercepted, that a permission prompt is a sandbox, or that selected excerpts are the agent's complete effective context.
 
@@ -196,4 +196,13 @@ No custom model runtime, autonomous multi-agent swarm, hosted synchronization, p
 
 ## Current next action
 
-The authorized 0.1.0 core release is public at `d198fa5`, after native run `38435667550` and publication run `38440422658` both passed. Anonymous downloads/checksums and the public installed binary's 15 specialist journeys plus three actual schema continuity cases passed. Local core implementation, five-target acceptance and available measured workloads are complete. Resume A04/A06/full A07 only after permitted Claude API/cloud and eligible Gemini authentication are available, then finish the dependent full Q01/Q02/P03 conformance/resource gates. Preserve those six unchecked tasks; no credentials were copied or subscription authentication repurposed for SDK access.
+The immediate user-requested task is the v0.1.5 request-first UX release, ahead of PT06A and the provider-authentication backlog. v0.1.4 is published at `6489264` after native qualification run `38703367315` and release run `38704171970`.
+
+1. Replace Goal-first intake with an independent durable Request draft; Enter prepares only after matching storage acknowledgment, and explicit Run remains separate.
+2. Keep streamed responses on the home workspace, preserve follow-up input and manual follow, and center selection/confirmation overlays.
+3. Show concise scope/effect reviews with fixed controls and optional exact details; remove mandatory end-scroll. Add guarded y/n and provider allow-once a without permitting paste, repeats, stale scope or hidden approvals.
+4. Replace exact CLI/SDK release lockouts with reviewed installed identity and retained protocol/policy validation. Provide explicit latest-stable setup/update, without silent startup installations.
+5. Verify actual 120×36 and 60×18 terminal journeys, native Windows rendering, persistence/flicker and published 0.1.4→Schema 9 upgrade/refusal. Run the integrated checks and existing relevant smoke journeys.
+6. Commit and push the exact candidate, require Check plus all five native build/test/install rows, publish v0.1.5, and verify public assets and installed behavior.
+
+The separate A04/A06/full A07 provider-conformance backlog remains blocked on permitted Claude/Gemini authentication; this UX release does not claim those gates or native macOS GUI verification.

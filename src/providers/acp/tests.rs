@@ -502,6 +502,37 @@ fn negotiated_capabilities_are_not_profile_assumptions() {
     assert!(negotiated(&json!({"protocolVersion":2})).is_err());
     assert!(!supports_method(&open, "session/elicitation"));
 }
+
+#[test]
+fn current_gemini_uses_stable_acp_flag_without_an_experimental_fallback() {
+    assert_eq!(profile(Agent::Gemini).unwrap(), (3, vec!["--acp".into()]));
+    assert_eq!(
+        profile(Agent::OpenCode).unwrap(),
+        (2, vec!["acp".into(), "--pure".into()])
+    );
+    assert!(profile(Agent::Codex).is_err());
+}
+
+#[test]
+fn newer_peer_metadata_cannot_override_protocol_or_missing_capabilities() {
+    let current = negotiated(&json!({
+        "protocolVersion": 1,
+        "agentInfo": {"name": "gemini", "version": "0.64.0"},
+        "agentCapabilities": {"loadSession": true}
+    }))
+    .unwrap();
+    assert!(supports_method(&current, "session/load"));
+    assert!(!supports_method(&current, "session/list"));
+    assert!(!supports_method(&current, "session/elicitation"));
+    for invalid in [
+        json!({"protocolVersion": 0, "agentInfo": {"version": "0.64.0"}}),
+        json!({"protocolVersion": 2, "agentCapabilities": {"loadSession": true}}),
+        json!({"protocolVersion": 1, "agentCapabilities": []}),
+        json!({"agentInfo": {"version": "999.0.0"}}),
+    ] {
+        assert!(negotiated(&invalid).is_err());
+    }
+}
 #[test]
 fn persistent_options_are_filtered_exact_ids_survive() {
     let params = json!({"options":[{"optionId":"forever","name":"Always","kind":"allow_always"},{"optionId":"no-future","name":"Never","kind":"reject_always"},{"optionId":"deny exact","name":"No","kind":"reject_once"},{"optionId":"yes exact","name":"Yes","kind":"allow_once"}]});

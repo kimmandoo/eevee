@@ -12,7 +12,6 @@ import time
 from terminal_smoke import Session, confirm_exit, terminal_environment
 from workbench_smoke import wait_for
 
-END = '\x1b[F'
 RIGHT = '\x1b[C'
 TITLE = 'Portable task handoff / local-only'
 
@@ -50,7 +49,6 @@ def main():
                               project, environment, (120, 36), output / 'manual')
             sessions.append(session)
             wait_for(session, 'Storage: saved')
-            session.send('\x1b')  # Leave the clean first-run Goal composer.
             session.command('goal')
             session.paste('Portable local goal 漢字; password=handoff-private-canary')
             session.send('\r')
@@ -69,11 +67,10 @@ def main():
                 session.paste(str(destination))
                 session.send('\r')
                 wait_for(session, 'SANITIZED EXPORT PREVIEW')
-                session.send(END)
-                wait_for(session, 'review complete')
+                wait_for(session, 'y Confirm')
 
             def accept():
-                session.send(RIGHT + '\r')
+                session.send('y')
 
             exported = root / 'approved.json'
             review_export('export-json', exported)
@@ -83,8 +80,7 @@ def main():
             session.send(RIGHT + '\r')
             assert not exported.exists(), 'undersize review wrote an export'
             session.resize((60, 18))
-            session.send(END)
-            wait_for(session, 'review complete')
+            wait_for(session, 'y Confirm')
             session.capture('compact-export-review')
             accept()
             deadline = time.monotonic() + 10
@@ -120,8 +116,7 @@ def main():
             session.paste(str(markdown))
             session.send('\r')
             wait_for(session, 'USER-SUPPLIED IMPORT REVIEW')
-            session.send(END)
-            wait_for(session, 'review complete')
+            wait_for(session, 'y Confirm')
             session.send('\r')
             assert database_state() == before, 'neutral import created task/evidence state'
             accept()

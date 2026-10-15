@@ -11,9 +11,16 @@ use crate::{
 };
 
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
-    let area = centered(area, 104, area.height.saturating_sub(2));
+    let compact =
+        (app.agents.preview || app.agents.auth_preview.is_some()) && !app.agents.auth_details;
+    let height = if compact {
+        18
+    } else {
+        area.height.saturating_sub(2)
+    };
+    let area = centered(area, 104, height);
     frame.render_widget(Clear, area);
-    let auth_room = app.width >= 80 && app.height >= 24;
+    let auth_room = app.width >= 60 && app.height >= 18;
     let in_use = format!("in use · {}", app.planning.selection.summary());
     let state = &mut app.agents;
     state.active = app.planning.agent.index();
@@ -243,38 +250,53 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         );
         return;
     }
-    let value = if let Some(plan) = &state.auth_preview {
-        if state.auth_details {
+    let details = row(content, 0, content.height.saturating_sub(3));
+    if state.auth_details {
+        let value = if let Some(plan) = &state.auth_preview {
             plan.lines.join("\n\n")
         } else {
-            plan.summary.join("\n")
-        }
+            profile.trust_preview.join("\n\n")
+        };
+        state.scroll_max = selection_details(
+            frame,
+            details,
+            Paragraph::new(crate::workspace::privacy::redact(&value))
+                .style(paint.surface)
+                .wrap(Wrap { trim: false }),
+            state.scroll,
+        );
+        state.scroll = state.scroll.min(state.scroll_max);
+        state.reviewed = false;
     } else {
-        profile.trust_preview.join("\n\n")
-    };
-    let details = row(content, 0, content.height.saturating_sub(3));
-    state.scroll_max = selection_details(
-        frame,
-        details,
-        Paragraph::new(crate::workspace::privacy::redact(&value))
-            .style(paint.surface)
-            .wrap(Wrap { trim: false }),
-        state.scroll,
-    );
-    state.scroll = state.scroll.min(state.scroll_max);
-    if !state.auth_details
-        && (state.auth_preview.is_none() || auth_room)
-        && details.width >= 40
-        && details.height >= 3
-        && state.scroll >= state.scroll_max
-    {
-        state.reviewed = true;
+        let version_summary;
+        let summary = if let Some(plan) = &state.auth_preview {
+            &plan.summary
+        } else {
+            version_summary = vec![
+                format!("{} · version check only", profile.name),
+                format!("Executable: {:?}", profile.executable),
+                "Runs executable with version argument; no task sent.".into(),
+                "Trust executable and inherited environment/config.".into(),
+                "Not sandboxed; executable may have unknown effects.".into(),
+                if profile.probe_allowed {
+                    "One bounded check; does not establish authentication.".into()
+                } else {
+                    "BLOCKED: executable prerequisites not satisfied.".into()
+                },
+                "d Details: exact executable/configuration and risks.".into(),
+            ];
+            &version_summary
+        };
+        state.reviewed =
+            auth_room && super::planning::render_summary(frame, details, summary, paint);
+        state.scroll = 0;
+        state.scroll_max = 0;
     }
     let footer = if let Some(plan) = &state.auth_preview {
         if !auth_room {
-            "Resize to 80 × 24 to review. Esc Back; nothing launches.".into()
+            "Resize to 60 × 18 to review. Esc Back; nothing launches.".into()
         } else if state.auth_details {
-            "[Back to summary]\nUp/Down Scroll · Enter Summary · Esc Cancel".into()
+            "d Summary / PgUp/Dn Details / Esc Cancel\nReturn to summary to choose; nothing launches.".into()
         } else {
             let approve = if plan.method.is_status() {
                 "Check status"
@@ -304,18 +326,21 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             format!(
                 "{buttons}\n{}",
                 if state.reviewed {
-                    "Tab Choose · Enter Confirm · Esc Back"
+                    "y Confirm / n Back / d Details · Tab / Enter"
                 } else {
-                    "Up/Down Read remaining effects · Tab Details/Back · Esc Back"
+                    "Resize to show scope · d Details · Esc Back"
                 }
             )
         }
+    } else if state.auth_details {
+        "d Summary / PgUp/Dn Details / Esc Back\nReturn to summary to choose; nothing launches."
+            .into()
     } else if !state.reviewed {
-        "[Back]   Check version (read remaining effects first)\nUp/Down Scroll · Esc Back".into()
+        "[Back]   Check version unavailable until summary fits\nResize / Esc Back".into()
     } else if state.affirmative {
-        "Back   [Check version]\nTab Choose · Enter Confirm · Esc Back".into()
+        "Back   [Check version] · y Check / n Back\nTab Choose · Enter Confirm · d Details · Esc Back".into()
     } else {
-        "[Back]   Check version\nTab Choose · Enter Confirm · Esc Back".into()
+        "[Back]   Check version · y Check / n Back\nTab Choose · Enter Confirm · d Details · Esc Back".into()
     };
     text(
         frame,

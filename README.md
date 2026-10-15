@@ -57,13 +57,13 @@ ev uninstall        # remove the binary; keep user data
 
 Use a terminal of at least **60 × 18** (120 × 36 recommended).
 
-1. Type a goal in the bottom **Task composer** and press Enter. It is saved locally; nothing is sent.
-2. `/connect` → choose a provider → sign in through its official CLI.
-3. `/provider`, `/model`, `/effort` → pick provider, model and reasoning level.
-4. `/new` → review the exact request and its receipt → approve once.
-5. `/run` → `/command-edit` → enter argv such as `["cargo","test"]` → review → approve once.
+1. Type the request in the bottom composer. **Enter** saves it and opens a short review; **Ctrl+S** only saves locally. No separate Goal setup.
+2. If a provider is not ready, `/connect` opens its official sign-in flow. `/provider`, `/model` and `/effort` change the selection without sending anything.
+3. Check the centered summary, then **y** to Run or **n** to go back. Exact payload and technical details remain available without a mandatory scroll-to-bottom.
+4. Read the streaming response directly on the main screen, then type the next request in the same composer. Existing task facts stay intact.
+5. Use `/run` → `/command-edit` for a separately reviewed local command such as `["cargo","test"]`.
 
-Type `@` in the composer to attach files, and `/` (or Ctrl+K) to search available actions by name or description. Multiple search words can appear in any order (`desk review`, `attach`). The chooser keeps your draft visible and shows why an action is unavailable. Arrows/Tab/Enter/Esc navigate; revisiting an open surface unwinds its history instead of adding more Back steps.
+Type `@` to attach files, or `/` (Ctrl+K) to search actions by name or description. The centered chooser supports multiple search words in any order (`desk review`, `attach`), preserves the draft and shows unavailable reasons. Arrows/Tab/Enter/Esc navigate; repeated visits do not add extra Back steps. On confirmation surfaces, **y** confirms and **n** cancels; offered provider permission prompts also accept **a** for **allow once**, never a permanent grant. These letters remain ordinary text inside editors; paste and held-key repeats never approve.
 
 ```sh
 ev --theme light            # cream palette
@@ -94,7 +94,7 @@ ev --help
 
 No command bypasses approval or executes pasted text. Model catalogues come from each provider's official interface; an empty model/effort picker can fetch metadata automatically, without sending a task prompt. `/models-refresh` retains its explicit reviewed refresh.
 
-**Responses.** The provider view puts the reply first and follows incoming text without an artificial typing delay. Completed words can appear before a newline; unfinished tokens and ambiguous credential prefixes remain withheld for best-effort redaction. PgUp/PgDn/Home or item selection pauses follow; **End** returns to the latest response. A new-output indicator appears while you read older content. `/verbose`, then Home, exposes provider/thread/turn/item provenance. The spinner represents actual preparation/connection/response activity, not estimated progress; permission reviews and idle screens do not animate. `--no-animation` keeps the indicator static without slowing streamed text.
+**Responses.** Replies stream into the full-width home workspace without an extra output window or artificial typing delay. Completed words can appear before a newline; unfinished tokens and ambiguous credential prefixes remain withheld for best-effort redaction. PgUp/PgDn pause follow; the displayed response controls let you return to the newest output without stealing ordinary draft input. A new-output indicator appears while you read older content. Exact provenance and technical details remain optional. The spinner represents actual preparation/connection/response activity, not estimated progress; permission reviews and idle screens do not animate. `--no-animation` keeps the indicator static without slowing streamed text.
 
 **Request receipt.** Every provider preview breaks the exact payload Eevee sends into instructions, task facts, attachments, handoff and memories, with exact bytes and a labelled local token estimate (`eevee-local-v1`, CJK-aware). It runs offline. Provider-added context, usage and billing stay **unknown**, not zero.
 
@@ -104,25 +104,39 @@ Authentication is only needed for provider requests. Login runs in the provider'
 
 | Provider | Integration | Sign-in |
 | --- | --- | --- |
-| Codex **0.152.1** | stdio app-server | Browser OAuth or device authorization |
-| Claude Agent SDK **0.3.296** | Optional Node 24 sidecar | API key, Console OAuth via `ant` **1.40.0**, Bedrock or Vertex (no claude.ai subscription reuse) |
-| OpenCode **1.18.0** | ACP (`acp --pure`) | OpenCode's own `auth login` |
-| Gemini CLI **0.28.0** | ACP | Gemini's native CLI (OAuth, API key or Vertex) |
-| Devin CLI **3000.11.3** | ACP (local agent) | Website OAuth (browser callback or pasted redirect; in-memory session credential injected as `WINDSURF_API_KEY`) or the CLI's own browser OAuth / manual token |
+| Codex latest stable | stdio app-server | Browser OAuth or device authorization |
+| Claude Agent SDK latest stable | Optional Node 24+ sidecar | API key, Console OAuth via `ant`, Bedrock or Vertex (no claude.ai subscription reuse) |
+| OpenCode latest stable | ACP (`acp --pure`) | OpenCode's own `auth login` |
+| Gemini CLI latest stable | ACP (`--acp`) | Gemini's native CLI (OAuth, API key or Vertex) |
+| Devin CLI latest stable | ACP (local agent) | Website OAuth (in-memory session credential) or the CLI's browser OAuth / manual token |
 
-Other provider versions fail closed. On WSL/SSH, use Codex **device authorization** instead of a localhost callback. The Claude sidecar:
+Provider admission is no longer tied to an exact release number. Eevee observes the installed version, binds executable/configuration identity to the review, and validates the actual protocol and permission capabilities before use. Unsupported protocol behavior still fails closed; a new release is not automatically a conformance claim. On WSL/SSH, use Codex **device authorization** instead of a localhost callback.
+
+Explicitly install or update the latest stable CLI, then **Refresh installed providers** in `/connect`:
 
 ```sh
-npm ci --prefix sidecar --ignore-scripts --no-audit --no-fund
+npm install -g @openai/codex@latest
+npm install -g opencode-ai@latest
+npm install -g @google/gemini-cli@latest
+```
+
+For Devin, use its [official installer](https://docs.devin.ai/cli) and `devin update`. For Anthropic Console login, install/update `ant` with `go install github.com/anthropics/anthropic-cli/cmd/ant@latest` or the [official Homebrew instructions](https://github.com/anthropics/anthropic-cli#installation). These are explicit user actions; opening Eevee never silently installs or globally upgrades providers.
+
+The Claude sidecar's `latest` dependency is refreshed by setup; repeat the same command to update:
+
+```sh
+npm run setup --prefix sidecar
 export EEVEE_CLAUDE_SIDECAR="$PWD/sidecar/main.ts"
 ```
+
+`npm ci` reproduces the checked-in lock snapshot rather than fetching latest. For an existing independent sidecar installation, `npm install --ignore-scripts --include=optional @anthropic-ai/claude-agent-sdk@latest` explicitly refreshes the SDK. Eevee checks the loaded SDK/embedded CLI against the reviewed dependency tree and bridge policy before releasing a prompt.
 
 Credential routes, enforcement boundaries and per-provider limits: [Agent compatibility](docs/AGENT_COMPATIBILITY.md).
 
 ## Data and trust
 
 - Tasks, drafts, excerpts and journals live in local SQLite (`~/.local/share/eevee`, `~/Library/Application Support/eevee`, or `%LOCALAPPDATA%\eevee`). Schema upgrades are transactional; newer or corrupt databases are never silently reset.
-- Ordinary typing and navigation are autosaved after 500ms of quiet, with at most 2s of deferral during continuous edits. `Storage: autosave pending` is not yet durable; `Storage: saved` means SQLite acknowledged the current snapshot. Enter/Ctrl+S and task/partner transitions or confirmed exit flush pending changes immediately.
+- Ordinary typing/navigation autosaves after 500ms of quiet, with at most 2s deferral during continuous edits. `Storage: autosave pending` is not yet durable; `Storage: saved` means SQLite acknowledged the snapshot. During an active provider request, follow-up edits remain visibly pending until its terminal acknowledgment so saves cannot invalidate reviewed input or permission checks. Ctrl+S cannot bypass that ownership boundary; safe exit cancels/waits, then flushes. Outside active requests, explicit saves and task/partner transitions flush immediately.
 - Recognizable credentials are filtered before storage, but masking is incomplete; review exports.
 - Provider configuration, hooks, MCP and resumed history can add effects beyond the displayed payload. Provider read-only policy is not an Eevee sandbox.
 - Restart never replays commands or model turns; unresolved outcomes stay visible.
@@ -133,19 +147,19 @@ Sprites are nine original PokeAPI images that installers download and hash-verif
 
 | Machine | Package |
 | --- | --- |
-| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.4/ev-darwin-arm64.tar.gz) |
-| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.4/ev-darwin-x86_64.tar.gz) |
-| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.4/ev-linux-x86_64.tar.gz) |
-| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.4/ev-linux-arm64.tar.gz) |
-| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.4/ev-windows-x86_64.zip) |
+| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.5/ev-darwin-arm64.tar.gz) |
+| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.5/ev-darwin-x86_64.tar.gz) |
+| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.5/ev-linux-x86_64.tar.gz) |
+| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.5/ev-linux-arm64.tar.gz) |
+| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.5/ev-windows-x86_64.zip) |
 
 Installers verify SHA-256, refuse to overwrite commands they don't own, and never edit your shell profile or persistent PATH — the last step on each platform is yours.
 
 ### macOS
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.4/install.sh
-sh ./install-ev.sh --version v0.1.4          # installs to ~/.local/bin/ev
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.5/install.sh
+sh ./install-ev.sh --version v0.1.5          # installs to ~/.local/bin/ev
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && exec zsh
 ```
 
@@ -154,8 +168,8 @@ Builds are not notarized. The script installs via `curl`, which sets no quaranti
 ### Linux and WSL
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.4/install.sh
-sh ./install-ev.sh --version v0.1.4          # installs to ~/.local/bin/ev
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.5/install.sh
+sh ./install-ev.sh --version v0.1.5          # installs to ~/.local/bin/ev
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && exec bash
 ```
 
@@ -166,7 +180,7 @@ Inside WSL, use this Linux build, not the Windows one. For provider sign-in on W
 Run in **PowerShell** (5.1 or 7, no admin). Windows blocks downloaded `.ps1` files by default, so run the installer as a script block instead of `.\install.ps1`:
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.4/install.ps1))) -Version v0.1.4
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.5/install.ps1))) -Version v0.1.5
 ```
 
 It installs `%LOCALAPPDATA%\ev\bin\ev.exe`. Use it right away, and keep it on PATH for new terminals:
@@ -176,7 +190,7 @@ $env:PATH = "$env:LOCALAPPDATA\ev\bin;" + $env:PATH
 [Environment]::SetEnvironmentVariable('Path', "$env:LOCALAPPDATA\ev\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')
 ```
 
-Prefer a saved script? Run it with a process-only bypass: `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-ev.ps1 -Version v0.1.4`. Windows Terminal shows the sprites (Sixel); other consoles fall back to text.
+Prefer a saved script? Run it with a process-only bypass: `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-ev.ps1 -Version v0.1.5`. Windows Terminal shows the sprites (Sixel); other consoles fall back to text.
 
 ### Offline
 
@@ -217,6 +231,8 @@ npm ci --ignore-scripts --no-audit --no-fund --prefix sidecar && npm test --pref
 [CI](.github/workflows/native.yml) runs those checks once on Linux, then tests, builds, packages and offline-installs on macOS arm64/x86_64, Linux x86_64/arm64 and Windows x86_64. Tagging a commit whose `main` run fully passed [publishes](.github/workflows/release.yml) those exact packages.
 
 Real-terminal journeys live in `scripts/*_smoke.py` (need `pyte==0.8.2` and `wcwidth==0.2.13`), e.g. `python scripts/workbench_smoke.py --binary target/release/ev --output target/workbench-smoke`. Live provider checks are opt-in (`--live`) and may incur usage.
+
+For Windows verification, use an unpackaged Python installation (for example, isolated uv-managed Python), not a Microsoft Store/App Execution Alias interpreter. This host's Store interpreter launched fixture descendants outside the tracked Job, so cancellation correctly remained unknown. This is a smoke-host prerequisite, not a Python dependency of `ev`; see [troubleshooting](docs/TROUBLESHOOTING.md).
 
 Source layout, by role:
 

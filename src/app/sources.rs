@@ -28,6 +28,7 @@ pub struct Confirmation {
     pub id: i64,
     pub purge: bool,
     pub destructive: bool,
+    pub reviewed: bool,
 }
 pub enum Action {
     Changed,
@@ -75,6 +76,12 @@ impl State {
         *self = Self::default();
         if task_id > 0 {
             self.queue_store(task_id, store::ContextOperation::Load);
+        }
+    }
+    pub fn invalidate_review(&mut self) {
+        if let Some(confirmation) = &mut self.confirmation {
+            confirmation.reviewed = false;
+            confirmation.destructive = false;
         }
     }
     pub fn busy(&self) -> bool {
@@ -533,6 +540,7 @@ impl State {
                         id: excerpt.id,
                         purge: name == "purge",
                         destructive: false,
+                        reviewed: false,
                     });
                 }
             }
@@ -554,7 +562,7 @@ impl State {
 
     pub fn key(
         &mut self,
-        key: KeyEvent,
+        mut key: KeyEvent,
         task_id: i64,
         report: Option<&Arc<repo::Report>>,
     ) -> Action {
@@ -566,6 +574,20 @@ impl State {
             return Action::Quit;
         }
         if let Some(confirmation) = self.confirmation.as_mut() {
+            if key.modifiers.is_empty() {
+                match key.code {
+                    KeyCode::Char('y') if confirmation.reviewed => {
+                        confirmation.destructive = true;
+                        key.code = KeyCode::Enter;
+                    }
+                    KeyCode::Char('n') => key.code = KeyCode::Esc,
+                    _ => {}
+                }
+            }
+            if key.code == KeyCode::Enter && confirmation.destructive && !confirmation.reviewed {
+                self.error = "Review the visible excerpt scope before confirming.".into();
+                return Action::Changed;
+            }
             match key.code {
                 KeyCode::Esc => self.confirmation = None,
                 KeyCode::Tab | KeyCode::BackTab => {
@@ -852,6 +874,7 @@ mod tests {
             id: 7,
             purge: true,
             destructive: false,
+            reviewed: false,
         });
         state.command("purge", 1, None);
         assert!(!state.confirmation.unwrap().destructive);

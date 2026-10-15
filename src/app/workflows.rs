@@ -606,7 +606,7 @@ impl App {
         false
     }
 
-    pub fn workflow_key(&mut self, key: KeyEvent) -> bool {
+    pub fn workflow_key(&mut self, mut key: KeyEvent) -> bool {
         if key.kind == KeyEventKind::Release {
             return false;
         }
@@ -625,6 +625,16 @@ impl App {
                 self.close_overlay();
             }
             return true;
+        }
+        if self.workflow.preview && key.kind == KeyEventKind::Press && key.modifiers.is_empty() {
+            match key.code {
+                KeyCode::Char('y') if self.workflow.reviewed => {
+                    self.workflow.affirmative = true;
+                    key.code = KeyCode::Enter;
+                }
+                KeyCode::Char('n') => key.code = KeyCode::Esc,
+                _ => {}
+            }
         }
         if key.code == KeyCode::Esc {
             if self.workflow.chooser.take().is_some() || self.workflow.preview {
@@ -658,7 +668,7 @@ impl App {
                         self.workflow.preview = false;
                     } else if !self.workflow.reviewed {
                         self.workflow.notice =
-                            "Read all preview pages before applying. Nothing changed.".into();
+                            "Review the displayed scope before applying. Nothing changed.".into();
                     } else {
                         let result = self.workflow_apply_recipe();
                         self.workflow_result(result);

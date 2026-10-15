@@ -1,5 +1,81 @@
 # Troubleshooting
 
+### [2026-10-15] Microsoft Store Python escaped the native smoke's tracked process tree
+
+- **Context / Symptom:** Windows command cancellation saved `OutcomeUnknown / OwnershipUnknown`: the launched root had exited and Job accounting was empty, but both output pipes remained open. A direct process-handle check found the fixture root stopped while its child and grandchild remained alive.
+- **Root Cause:** `uv run --python 3.13` selected Microsoft Store/App Execution Alias Python 3.13.14. Its fixture descendants were not contained in the tracked Job on this host; the exact package/broker mechanism was not traced. Ordinary native Rust children and a separate unpackaged Python tree did not reproduce it. This was not resolved by closing observer handles or changing console-detachment flags.
+- **Solution:** Installed unpackaged Python 3.13.14 into an isolated temporary directory with `uv python install 3.13 --install-dir <directory> --no-bin --no-registry`, then set `UV_PYTHON_INSTALL_DIR` to that directory and `UV_MANAGED_PYTHON=1` for native verification. The unchanged cancellation implementation then reported `Cancelled / OwnedTreeExited`, no truncation/error, and all three fixture processes stopped. No global Python, PATH or registry changes were made.
+- **Prevention / Reference:** Keep the unknown-outcome guard and original cancellation deadlines; do not count terminated launcher processes as proof that descendants stopped. Use unpackaged Python for ConPTY/owned-tree qualification. Native fixtures record interpreter provenance, and execution timeout diagnostics now include persisted state/tree/cancellation/reservation values. All temporary runner traces and console-flag experiments were removed.
+
+### [2026-10-15] Deferred clean exit blocked waiting for an unnecessary key
+
+- **Context / Symptom:** The actual command lifecycle cancelled its owned process tree and committed the final journal, but cancel-and-exit then remained on idle output instead of exiting or offering an exit review.
+- **Root Cause:** Diagnostic tracing confirmed `Navigate(Quit)` reached the app with equal saved/current revisions and no dirty active draft. This clean exit was set near the start of the main loop, which entered blocking `input.read()` before its bottom-of-loop exit check. Request-first focus exposed the clean path that previously often required another save-confirmation key.
+- **Solution:** Honored the settled quit immediately after deferred execution actions, before rendering or input waiting. Kept the existing bottom check for input/worker-driven outcomes. Removed the temporary diagnostic prints; no extra polling timer or forced process termination was added.
+- **Prevention / Reference:** The existing actual execution smoke's cancel-and-wait/clean-exit/draft-restart scenario reproduced the failure without extra input; it remains the regression acceptance path on Linux and native Windows.
+
+### [2026-10-15] Context smoke still expected the old repeated-root packet
+
+- **Context / Symptom:** The source smoke expected 326 outgoing bytes while the actual reviewed envelope contained 267. Its expectation serialized the full stored capture DTO instead of the already-shipped compact outgoing packet.
+- **Root Cause:** The fixture predated root hoisting, hexadecimal source identities and removal of storage-only fields from outbound captures. Execution fixtures also expected duplicate Back-history entries, and treated absent task cards as proof of cancel-and-switch acknowledgment even though the cancellation guard had already hidden those cards.
+- **Solution:** Checked the current reviewed envelope against independent committed capture facts and its exact UTF-8 count, comparing parsed JSON rather than incidental key order. Removed the obsolete navigation-cycle expectation and waited for the selected task's actual home content before sending further input. Privacy masking, source identities, stale/missing-source refusals and execution-denial assertions remain.
+- **Prevention / Reference:** All 10 actual source/context journeys passed (`target/015-context-final`); keep storage DTO and outgoing review contracts distinct.
+
+### [2026-10-15] Request-first startup displaced a restored specialist overlay
+
+- **Context / Symptom:** The actual specialist workflow resumed a saved task into its Goal editor instead of the saved Memory overlay. Closing Help could also resurrect a previously completed Goal edit instead of returning to navigation.
+- **Root Cause:** Request-first editor initialization ran after restoring overlay navigation and overwrote it; a later explicit editor change retained the old composer-return owner.
+- **Solution:** Restored overlays take precedence over the underlying editor, with its return owner preserved separately. Opening a different editor replaces that owner, and closing an overlay preserves its actual invoking focus.
+- **Prevention / Reference:** A restart/focus regression and all 15 actual Linux specialist workflow cases passed (`target/015-workflows-complete`).
+
+### [2026-10-15] Parallel capacity verification exceeded its worker-event deadline
+
+- **Context / Symptom:** One integrated Rust run passed 480 tests but the capacity test timed out after save 239 while waiting five seconds for a Store worker event. Native verification was also running; this overlap alone does not establish the cause.
+- **Root Cause:** Not established. Subsequent host sampling showed no sustained CPU or I/O saturation; no product storage failure was reproduced independently.
+- **Solution:** Isolated final verification with `cargo test --locked --all-targets -- --test-threads=1`; all 481 tests passed with 2 ignored. No timeout, capacity, durability assertion or Store implementation was weakened.
+- **Prevention / Reference:** Retain the original deadline and investigate with worker/thread diagnostics if the timeout recurs; a passing serial run is not a claimed concurrency fix.
+
+### [2026-10-15] Clearing a submitted request raced committed-input admission
+
+- **Context / Symptom:** A real first-screen request reached its review, but `y` immediately produced `Task changed since preview; save and review a new request` instead of a response.
+- **Root Cause:** Returning home cleared and saved the Request draft before the worker's read-only committed-snapshot check. Providers also repeat that check during dispatch and permission handling, so merely delaying until thread creation was insufficient. Retained previous answers were additionally labelled with the newly submitted request.
+- **Solution:** Held task saves through the content request's terminal acknowledgment while allowing visibly pending follow-up editing. Ctrl+S cannot bypass this ownership hold; cancellation waits before flushing. Pre-output failure restores the original input when no follow-up exists. Shared bounded request ownership now follows each retained response item.
+- **Prevention / Reference:** The regression exercises real Store admission across Run, editing, Ctrl+S, thread establishment and cancellation. Actual latest Codex 0.162.1 first/follow-up requests passed at 120×36 and 60×18 with inline streaming and previous-response attribution (`target/015-request-first-final`).
+
+### [2026-10-15] A source-purge shortcut could approve a hidden resized dialog
+
+- **Context / Symptom:** Review found that `y` in a Sources removal confirmation lacked the visible-summary guard used by other confirmations; below-minimum rendering hid that dialog.
+- **Root Cause:** The inner source handler had no terminal-size or rendered-scope state. Adding a direct shortcut exposed the existing cross-layer omission.
+- **Solution:** Added current-target summary visibility to consent, invalidated it on resize and hidden renders, and rejected affirmative handling below minimum size. Source effects stay concise and fixed above optional exact capture details.
+- **Prevention / Reference:** An actual-render regression covers unrendered consent, shrink/grow without repaint, long Unicode paths, paste/repeat/modified input and the final intended purge identity.
+
+### [2026-10-15] Native smoke helpers could not lock an incremental target over WSL UNC
+
+- **Context / Symptom:** The published Windows install journey passed live self-update, then its lifecycle-probe build failed with `incremental compilation: could not create session directory lock file` and OS error `-2147024895`.
+- **Root Cause:** The helper hard-coded the repository's `target`, placing native Cargo incremental locks on a WSL UNC filesystem instead of a local Windows volume.
+- **Solution:** Both lifecycle and older-release fixture builders now honor `CARGO_TARGET_DIR`. Native verification sets it to a local-C temporary directory; the pinned Rust 1.90.0 suite and release build complete there.
+- **Prevention / Reference:** Keep native binary/build output local to Windows when the source checkout is accessed through `\\\\wsl.localhost\\…`.
+
+### [2026-10-15] Installed-update smoke terminated the native cleanup helper too early
+
+- **Context / Symptom:** Native self-update succeeded but the fixture observed a retained `.ev-stage*` directory after closing its ConPTY session.
+- **Root Cause:** The updater's cleanup helper belonged to the harness-owned Windows Job. Closing that Job immediately after the old process exited killed the helper before it could remove the retired directory.
+- **Solution:** Waited up to ten seconds for retired-stage cleanup before closing the session/Job. The original final cleanup assertion remains; the product updater was not changed.
+
+### [2026-10-15] Latest OpenCode required its native-package postinstall
+
+- **Context / Symptom:** An isolated latest-provider verification install used `--ignore-scripts`; OpenCode then reported `opencode-ai's postinstall script was not run`.
+- **Root Cause:** OpenCode's official package needs its postinstall to select/link the installed native optional dependency.
+- **Solution:** Inspected and explicitly ran that official postinstall inside the disposable verification prefix, without changing global providers. OpenCode 1.19.0 and Gemini 0.64.0 subsequently passed actual ACP1 initialization with no model request.
+- **Prevention / Reference:** Normal documented OpenCode npm installation runs its required setup. Claude's separate latest-SDK setup intentionally retains `--ignore-scripts` and was verified independently.
+
+### [2026-10-15] Published-release installer smoke duplicated checksum entries
+
+- **Context / Symptom:** The published 0.1.4 archive passed fresh install and ten preservation/security cases, then the local HTTP bootstrap fixture failed with `malformed SHA256SUMS or missing unique checksum for ev-linux-x86_64.tar.gz`.
+- **Root Cause:** `ReleaseFixture` always appended `install.sh` and `install.ps1` checksums. Native build-artifact manifests omit those entries, but the downloaded public release manifest already contained them; the fixture introduced duplicates that the real installer correctly refused.
+- **Solution:** Preserved the supplied manifest and appended only missing installer entries. No installer validation, checksum assertion or release package changed.
+- **Prevention / Reference:** Run installation lifecycle verification against downloaded public-release packages as well as pre-publication build artifacts; their checksum-manifest scopes differ.
+
 ### [2026-10-15] ConPTY full clears could escape effective visual synchronization
 
 - **Context / Symptom:** The native save journey emitted about fifty full-screen clears. A minimal native probe showed `Begin → Clear → End → text` for a batched write: this ConPTY forwards DEC 2026 markers before publishing its rendered cells, so markers alone cannot prevent a blank flash.

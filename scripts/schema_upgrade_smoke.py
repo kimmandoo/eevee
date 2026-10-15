@@ -17,7 +17,7 @@ import subprocess
 import tempfile
 
 from package_binary import digest_file
-from terminal_smoke import Session, terminal_environment
+from terminal_smoke import Session, confirm_exit, terminal_environment
 from workbench_smoke import wait_for
 
 
@@ -74,8 +74,7 @@ def main():
             def finish(session):
                 session.send('\x1b')
                 session.command('quit')
-                if session.alive():
-                    session.send('\x1b[C\r')
+                confirm_exit(session)
                 assert session.wait_exit() == 0
                 session.close()
 
@@ -89,7 +88,7 @@ def main():
                     session.pump(0.4)
                     session.send(command)
                     session.pump(0.4)
-                    if any(('> /' + command) in line
+                    if any(('> /' + command + ' ') in (' '.join(line.split()) + ' ')
                            for line in session.display().splitlines()):
                         session.send('\r')
                         session.pump(0.4)
@@ -113,8 +112,7 @@ def main():
             wait_for(old, 'Storage: saved')
             old.capture('previous-task')
             old.send('\x03')  # Structural safe exit works on prior releases.
-            wait_for(old, 'Confirm exit')
-            old.send('\x1b[C\r')
+            confirm_exit(old)
             assert old.wait_exit() == 0
             old.close()
             old_schema, before = snapshot(database)
