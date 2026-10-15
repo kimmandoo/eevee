@@ -1298,7 +1298,8 @@ impl Stream {
                 generation: run.generation,
                 task_id: run.input.task.id,
                 thread_id: String::new(),
-                turn_id: String::new(),
+                // Local request correlation, not a resumable provider turn.
+                turn_id: format!("native-request-{}", run.generation),
                 item_id: format!("native-response-{}", run.generation),
                 kind: if run.input.operation == Operation::Plan {
                     ItemKind::Plan

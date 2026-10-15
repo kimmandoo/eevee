@@ -149,7 +149,10 @@ fn native_responses_keep_distinct_cross_request_item_ownership() {
             _ => None,
         })
         .collect();
-    assert_ne!(items[0].0, items[1].0);
+    assert_ne!(
+        (&items[0].0.0, &items[0].0.1),
+        (&items[1].0.0, &items[1].0.1)
+    );
     assert_eq!(items[0].1, "First answer");
     assert_eq!(items[1].1, "Second answer");
 }

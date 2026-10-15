@@ -17,9 +17,9 @@
 ### [2026-10-16] Native follow-up was incorrectly routed to unavailable session resume
 
 - **Context / Symptom:** The actual TUI native-service fixture completed its first request, but Enter on the saved second request showed `Direct API requests are fresh and stateless here` instead of a Run review.
-- **Root Cause:** Observed-model metadata reused `Event::Thread` with an empty thread ID. The consumer retained `Some(\"\")`, so the request composer treated a stateless HTTP call as an owned resumable agent session.
-- **Solution:** Introduced a separate correlated `ModelObserved` event. Native streams report their actual model without manufacturing a provider thread; fresh follow-ups remain available and retain independent response/request ownership.
-- **Prevention / Reference:** The model-acknowledgment regression asserts no resumable thread and a fresh follow-up input. The extended native workbench journey approves two real HTTP/SSE requests, inspects both request owners, then exercises metadata failure and client cancellation.
+- **Root Cause:** Observed-model metadata reused `Event::Thread` with an empty thread ID. The consumer retained `Some("")`, so the composer attempted session resume. After separating that event, identical empty turn IDs still made the consumer associate the second response with the first request.
+- **Solution:** Introduced a separate correlated `ModelObserved` event and unique `native-request-{generation}` local turn identities. Native streams report their actual model without manufacturing a provider session; fresh follow-ups and response ownership remain independent.
+- **Prevention / Reference:** The model-acknowledgment regression asserts no resumable thread and a fresh follow-up. Producer tests assert distinct thread/turn correlation pairs; the workbench approves two actual HTTP/SSE requests and inspects each request owner before testing metadata failure and client cancellation.
 
 ### [2026-10-15] macOS self-update smoke lost its PTY before restoration inspection
 
