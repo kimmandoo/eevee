@@ -1,5 +1,16 @@
 # Work Checkpoint
 
+## 2026-10-15 — Party contract, source reorganization and fine-grained backlog
+
+- **Requested:** Use the proposed party limits, split tasks into smaller units, and split existing files into role-based folders/files for maintainability.
+- **Delivered:**
+  - PT01 is done: `docs/DESIGN_RULES.md` § Party records ≤6 partners, ≤3 working per task, one writer, per-partner ownership, no autonomy and visible per-partner cost. It is marked pending implementation; README's tagline is unchanged until the party ships.
+  - Source: `src/{store,workspace,providers,platform}/` plus `ui/artwork.rs`. `store.rs` is split into 8 role submodules plus `store/tests.rs`, and 15 large files moved their inline tests to sibling `tests.rs`. Scripts (`terminal_smoke.py`, `installation_smoke.py`) and doc paths are updated; `platform/terminal.rs` uses `super::input` so the standalone terminal probe still compiles.
+  - Backlog: `task.md` is now an index; `tasks/*.md` hold 105 small tasks.
+- **Issue fixed during the move:** runner tests re-launch themselves by test path; nine failed until the filter string became `workspace::runner::tests::native_fixture` (recorded in TROUBLESHOOTING).
+- **Verification:** `cargo fmt --check` clean, `cargo clippy --locked --all-targets -- -D warnings` clean, `cargo test` 375 passed / 0 failed / 2 ignored (same as before). The task graph parsed with 105 unique IDs, all references resolved and no cycles. Smoke scripts were not run (only their source paths changed).
+- **Next action:** Wave 1: RF03 (split `app.rs` along `impl App` concerns), then PT02A (partner table + Schema 7 migration).
+
 ## 2026-10-15 — Party backlog: free switching and cooperating partners
 
 - **Requested:** Forms switch freely and different Eevees cooperate; revise PK and Eevee/evolution tasks accordingly.
