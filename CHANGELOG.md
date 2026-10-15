@@ -26,6 +26,9 @@
 
 ## 2026-10-15
 
+- fix(ux): restored the persistent home partner card, returned model/provider selections directly to their invoking surface, and removed intermediate role/form navigation steps while preserving drafts.
+- fix(providers): loaded model catalogues before task creation, retained visible loading/error pickers and retry paths, isolated metadata from task content, and accepted omitted optional Codex input modalities using the protocol default.
+- fix(responses): consolidated live progress in the header, gave compact responses more usable rows, and kept previous partial output distinct from current streaming/model state.
 - chore(release): published v0.1.5 from `6e43e6b` after exact-commit Check and all five native build/test/install rows passed, verified all eight public assets and seven manifest checksums, and passed 23 installation lifecycle checks plus 34 installed terminal scenarios on both Linux and native Windows.
 - fix(runtime): completed deferred cancel-and-exit immediately after owned-process and journal acknowledgment instead of blocking for another key on an idle screen.
 - fix(smoke): checked compact outgoing context against committed capture facts without pinning JSON key order, removed an obsolete navigation-cycle expectation, and kept native helper builds on the configured local target.

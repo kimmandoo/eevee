@@ -250,6 +250,42 @@ fn catalogue_metadata_is_bounded_single_line_and_validated() {
 }
 
 #[test]
+fn model_modalities_follow_installed_protocol_default_without_accepting_malformed_values() {
+    // Codex 0.147.0's generated Model schema makes inputModalities optional,
+    // with the explicit default ["text", "image"].
+    let mut advertised = model("schema-default", true);
+    advertised
+        .as_object_mut()
+        .unwrap()
+        .remove("inputModalities");
+    let mut listing = ModelListing::default();
+    listing.page(&json!({"data":[advertised.clone()]})).unwrap();
+    assert_eq!(
+        listing.select(&ModelSelection::default()).unwrap().0,
+        "schema-default"
+    );
+    for value in [Value::Null, json!("text"), json!([true, "text"])] {
+        advertised["inputModalities"] = value;
+        assert!(
+            ModelListing::default()
+                .page(&json!({"data":[advertised.clone()]}))
+                .is_err()
+        );
+    }
+    for value in [json!([]), json!(["image"]), json!(["audio"])] {
+        advertised["inputModalities"] = value;
+        let mut listing = ModelListing::default();
+        listing.page(&json!({"data":[advertised.clone()]})).unwrap();
+        assert!(
+            listing
+                .into_catalogue(&ModelSelection::default())
+                .models
+                .is_empty()
+        );
+    }
+}
+
+#[test]
 fn model_inspection_has_no_task_prompt_or_source_or_edit_lookup() {
     let mut input = Input {
         task: crate::store::Snapshot::empty("unopened-project".into()),

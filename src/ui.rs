@@ -216,10 +216,10 @@ fn shell(area: Rect, linear: bool, focus: Pane) -> Shell {
         composer_height,
     );
     let body = row(outer, 2, composer.y.saturating_sub(outer.y + 2));
-    // Keep the response full width unless secondary details are focused.
+    // Keep the partner visible at roomy widths; focused details share its slot.
     let inspector = (!linear && area.width >= 120 && focus == Pane::Inspector)
         .then(|| Rect::new(body.right().saturating_sub(30), body.y, 30, body.height));
-    let rail = (!linear && area.width >= 90 && focus == Pane::Companion).then(|| {
+    let rail = (!linear && area.width >= 90 && inspector.is_none()).then(|| {
         Rect::new(
             body.right().saturating_sub(26),
             body.y,
@@ -736,7 +736,7 @@ fn compact_companion(
         if focused {
             "> Enter Choose form"
         } else {
-            "/role / /companion"
+            "/forms / /companion"
         },
         paint.accent,
     );
@@ -767,7 +767,7 @@ fn companion(
         row(content, 0, 1),
     );
     frame.render_widget(
-        Paragraph::new("/role / /images")
+        Paragraph::new("/forms / /images")
             .style(paint.accent)
             .alignment(Alignment::Center),
         row(content, 1, 1),

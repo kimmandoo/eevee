@@ -455,6 +455,50 @@ fn managed_review_is_refused_before_loading_or_dispatching_an_acp_session() {
 }
 
 #[test]
+fn model_metadata_needs_no_saved_task_or_managed_role_and_retains_identity_checks() {
+    let workspace = Workspace {
+        project: PathBuf::from("unopened-project"),
+        data_dir: PathBuf::from("unopened-storage"),
+        exclusions: Vec::new(),
+    };
+    for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
+        for operation in [Operation::Plan, Operation::Implement, Operation::Review] {
+            let mut input = Input {
+                task: crate::store::Snapshot::empty("unopened-project".into()),
+                excerpts: Vec::new(),
+                report: None,
+                resume: None,
+                agent,
+                operation,
+                edit_paths: vec!["never-read.txt".into()],
+                handoff: None,
+                inspect_sessions: false,
+                inspect_models: true,
+                selection: ModelSelection::default(),
+                credential: None,
+            };
+            input.task.goal = "private-goal-canary".into();
+            input.task.archived = true;
+            let text = payload(&workspace, &input).unwrap();
+            assert!(!text.contains("private-goal-canary"));
+            assert!(!text.contains("never-read.txt"));
+            let metadata: Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(metadata["model_prompts_sent"], 0);
+            assert_eq!(metadata["session/new"]["mcpServers"], json!([]));
+            assert_eq!(metadata["retain_resume_grant"], false);
+            input.resume = Some("unowned-session".into());
+            assert!(payload(&workspace, &input).is_err());
+            input.resume = None;
+            input.task.project = "different-project".into();
+            assert!(payload(&workspace, &input).is_err());
+            input.task.project = "unopened-project".into();
+            input.agent = Agent::Codex;
+            assert!(payload(&workspace, &input).is_err());
+        }
+    }
+}
+
+#[test]
 fn cancellation_requests_do_not_override_authoritative_stop_reason() {
     assert_eq!(prompt_outcome("end_turn"), Outcome::Completed);
     assert_eq!(prompt_outcome("cancelled"), Outcome::Cancelled);

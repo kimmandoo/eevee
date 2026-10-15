@@ -95,7 +95,7 @@ Auto images require negotiated Kitty/Sixel support and real pixel/cell dimension
 Unsupported or too-small terminals show text, not a pixelated approximation.
 --images cells explicitly opts into low-resolution previews. Startup stays offline.
 
-Type in the visible Goal box; Enter saves locally without sending anything.
+Type in the Request box; Enter saves and prepares a review, Ctrl+S only saves.
 Use / commands: /connect, /provider, /model, /effort, /forms, /images, /help.
 Model requests require separate approval; empty model pickers fetch metadata only.
 Secret detection is best-effort. Purge is not forensic secure erasure.

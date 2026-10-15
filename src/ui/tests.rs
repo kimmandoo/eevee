@@ -69,8 +69,8 @@ fn caret_tracks_wide_wrapped_and_combining_graphemes() {
 }
 
 #[test]
-fn home_keeps_request_and_response_full_width_with_optional_details() {
-    for (width, height) in [(120, 36), (100, 30), (80, 24), (70, 24), (60, 18)] {
+fn home_keeps_partner_visible_and_primary_surfaces_usable() {
+    for (width, height) in [(120, 36), (100, 30), (90, 24), (80, 24), (70, 24), (60, 18)] {
         let area = Rect::new(0, 0, width, height);
         let layout = shell(area, false, Pane::Workspace);
         assert_eq!(layout.composer.width, width - 2);
@@ -83,8 +83,20 @@ fn home_keeps_request_and_response_full_width_with_optional_details() {
         assert_eq!(layout.workspace.bottom(), layout.composer.y);
         assert_eq!(layout.composer.bottom(), layout.footer.y);
         assert!(layout.inspector.is_none());
-        assert!(layout.rail.is_none());
-        assert_eq!(layout.workspace.width, layout.composer.width);
+        if width >= 90 {
+            let partner = layout.rail.expect("roomy home has a partner");
+            assert_eq!(partner.width, 26);
+            assert!(partner.height <= 16);
+            assert!(!partner.intersects(layout.workspace));
+            assert!(!partner.intersects(layout.composer));
+            assert!(layout.workspace.width >= 60);
+            let portrait = companion_portrait(partner);
+            assert_eq!(portrait.width, 22);
+            assert_eq!(portrait.height, partner.height.saturating_sub(6).min(10));
+        } else {
+            assert!(layout.rail.is_none());
+            assert_eq!(layout.workspace.width, layout.composer.width);
+        }
         assert!(inner(layout.workspace).height >= 7);
         let linear = shell(area, true, Pane::Inspector);
         assert!(linear.rail.is_none());
@@ -94,6 +106,37 @@ fn home_keeps_request_and_response_full_width_with_optional_details() {
     let focused = shell(Rect::new(0, 0, 120, 36), false, Pane::Inspector);
     assert!(focused.inspector.is_some());
     assert!(focused.rail.is_none());
+}
+
+#[test]
+fn home_portrait_targets_follow_layout_and_hide_under_modals() {
+    let mut app = App::new("/workspace".into(), 120, 36);
+    let roomy = Rect::new(0, 0, 120, 36);
+    let mut targets = Vec::new();
+    portrait_targets(&app, roomy, &mut targets);
+    assert_eq!(
+        targets,
+        vec![(
+            app.form(),
+            companion_portrait(shell(roomy, false, Pane::Workspace).rail.unwrap())
+        )]
+    );
+    assert_eq!(targets[0].1.width, 22);
+    assert_eq!(targets[0].1.height, 10);
+    app.command("model");
+    portrait_targets(&app, roomy, &mut targets);
+    assert!(
+        targets.is_empty(),
+        "native images cannot cover the model picker"
+    );
+
+    let mut compact = App::new("/workspace".into(), 60, 18);
+    let area = Rect::new(0, 0, 60, 18);
+    portrait_targets(&compact, area, &mut targets);
+    assert!(targets.is_empty());
+    compact.command("companion");
+    portrait_targets(&compact, area, &mut targets);
+    assert_eq!(targets, vec![(compact.form(), portrait(drawer(area)))]);
 }
 
 #[test]

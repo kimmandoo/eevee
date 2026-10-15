@@ -127,12 +127,13 @@ pub struct State {
     pub selection: ModelSelection,
     selections: HashMap<Agent, ModelSelection>,
     pub catalogues: HashMap<Agent, ModelCatalogue>,
+    catalogue_errors: HashMap<Agent, String>,
     pub picker: Option<Picker>,
     pub picker_selected: usize,
     pub selection_change: Option<ModelSelection>,
     pub inspect_models: bool,
     /// A catalogue fetch is wanted (after a connection or an empty `/model`);
-    /// the app starts it once a saved task can carry the request.
+    /// the app starts it once the metadata-only request slot is free.
     pub auto_models: bool,
     /// The in-flight catalogue inspection was started automatically: its
     /// metadata-only preview runs without a review step.
@@ -179,7 +180,7 @@ impl State {
             receipt: Vec::new(),
             inspection: None, inspect_sessions: false,
             selection: ModelSelection::default(), selections: HashMap::new(),
-            catalogues: HashMap::new(), picker: None, picker_selected: 0,
+            catalogues: HashMap::new(), catalogue_errors: HashMap::new(), picker: None, picker_selected: 0,
             selection_change: None, inspect_models: false,
             auto_models: false, auto_run: false, auto_picker: false, auto_blocked: None,
             request_selection: ModelSelection::default(), session_selection: ModelSelection::default(),
@@ -194,6 +195,7 @@ impl State {
 
     pub fn needs_saved_input(&self, key: &KeyEvent) -> bool {
         key.kind == KeyEventKind::Press
+            && !self.inspect_models
             && !self.editing
             && !self.quit_review
             && !self.journal_mode
@@ -210,7 +212,7 @@ impl State {
         !self.active
             && !self.awaiting_preview
             && !self.journal_mode
-            && (matches!(name, "new" | "resume" | "sessions" | "models-refresh")
+            && (matches!(name, "new" | "resume" | "sessions")
                 || name.starts_with("provider-") && name != "provider-journal")
     }
 
@@ -242,6 +244,7 @@ impl State {
         if !self.busy() && !self.journal_failed() {
             let selections = std::mem::take(&mut self.selections);
             let catalogues = std::mem::take(&mut self.catalogues);
+            let catalogue_errors = std::mem::take(&mut self.catalogue_errors);
             let selection = self.selection.clone();
             let credential = self.devin_credential.take();
             let agent = self.agent;
@@ -254,6 +257,7 @@ impl State {
             self.selection = selection;
             self.selections = selections;
             self.catalogues = catalogues;
+            self.catalogue_errors = catalogue_errors;
             self.devin_credential = credential;
         }
     }
@@ -280,6 +284,7 @@ impl State {
         }
         self.sessions.clear();
         self.catalogues.clear();
+        self.catalogue_errors.clear();
         self.thread_id = None;
         self.observed_model = None;
         self.items.clear();
@@ -360,6 +365,11 @@ impl State {
         self.selections.insert(self.agent, self.selection.clone());
         self.agent = next;
         self.selection = self.selections.get(&next).cloned().unwrap_or_default();
+        // A queued inspection belongs to the old provider, not the new selection.
+        self.auto_models = false;
+        self.auto_picker = false;
+        self.auto_run = false;
+        self.auto_blocked = None;
         self.inspection = None;
         self.inspect_sessions = false;
         self.inspect_models = false;
@@ -441,7 +451,11 @@ impl State {
                             self.notice = "The refreshed catalogue no longer advertises the selected model; the next request fails its advertised check unless you reselect.".into();
                         }
                     }
-                    Err(reason) => self.notice = format!("Model catalogue rejected: {reason}"),
+                    Err(reason) => {
+                        self.notice = format!("Model catalogue rejected: {reason}");
+                        self.catalogue_errors
+                            .insert(self.agent, self.notice.clone());
+                    }
                 }
             }
             Event::Inspection {
@@ -597,21 +611,32 @@ impl State {
                 self.close_request();
                 self.generation = None;
                 self.notice = message;
-                if self.inspect_models
-                    && matches!(outcome, Outcome::Completed)
-                    && !self.quit_after_cancel
-                    && (!self.auto_run || self.auto_picker)
-                {
-                    self.open_picker(Picker::Model);
-                }
-                if self.auto_run {
-                    self.auto_run = false;
-                    self.auto_picker = false;
+                if self.inspect_models {
                     if let Some(blocked) = self.auto_blocked.take() {
-                        self.notice = blocked;
-                    } else if matches!(outcome, Outcome::Completed) {
+                        self.catalogue_errors.insert(self.agent, blocked);
+                    } else if !matches!(outcome, Outcome::Completed) {
+                        self.catalogue_errors
+                            .entry(self.agent)
+                            .or_insert_with(|| self.notice.clone());
+                    } else if !self.catalogues.contains_key(&self.agent) {
+                        self.catalogue_errors.entry(self.agent).or_insert_with(|| {
+                            "Provider completed without a usable model catalogue.".into()
+                        });
+                    }
+                    if self.catalogue_errors.contains_key(&self.agent) {
+                        self.catalogues.remove(&self.agent);
+                    }
+                    if let Some(reason) = self.catalogue_errors.get(&self.agent) {
+                        self.notice =
+                            format!("{reason} Retry with /model or review /models-refresh.");
+                    } else if self.auto_run {
                         self.notice = "Models loaded.".into();
                     }
+                    if !self.quit_after_cancel && (!self.auto_run || self.auto_picker) {
+                        self.open_picker(Picker::Model);
+                    }
+                    self.auto_run = false;
+                    self.auto_picker = false;
                 }
                 self.cancel_when_ready = false;
                 self.unknown |= matches!(outcome, Outcome::Unknown);
@@ -635,6 +660,20 @@ impl State {
                 self.awaiting_preview = false;
                 self.preview = None;
                 self.pending = None;
+                if self.inspect_models {
+                    self.catalogue_errors
+                        .insert(self.agent, self.notice.clone());
+                    self.notice
+                        .push_str(" Retry with /model or review /models-refresh.");
+                    if !self.active {
+                        if !self.quit_after_cancel && (!self.auto_run || self.auto_picker) {
+                            self.open_picker(Picker::Model);
+                        }
+                        self.auto_run = false;
+                        self.auto_picker = false;
+                        self.auto_blocked = None;
+                    }
+                }
                 if !self.active {
                     self.generation = None;
                     self.cancel_when_ready = false;
@@ -748,6 +787,8 @@ impl State {
         }
         if self.picker.is_some() {
             return vec![
+                Choice::new("model", "Choose models / retry metadata loading"),
+                Choice::new("effort", "Choose reasoning effort"),
                 Choice::new("models-refresh", "Review model catalogue refresh"),
                 Choice::new("cancel", "Close picker"),
             ];
@@ -867,6 +908,8 @@ impl State {
                 if self.preview.is_some() {
                     self.notice = "Close the existing preview before inspecting models.".into();
                 } else {
+                    self.auto_models = false;
+                    self.auto_picker = false;
                     self.prepare(false, false, true, task, excerpts, report);
                 }
             }

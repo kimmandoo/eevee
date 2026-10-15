@@ -198,17 +198,15 @@ fn root_catalogue_exposes_provider_setup_without_scope_bound_mutations() {
 }
 
 #[test]
-fn root_provider_inspection_shortcuts_keep_saved_task_prerequisites() {
-    for command in ["sessions", "models-refresh"] {
-        let mut app = app();
-        key(&mut app, KeyCode::Char('/'));
-        type_text(&mut app, command);
-        key(&mut app, KeyCode::Enter);
-        assert!(app.command_popup.is_some());
-        assert!(app.overlay.is_none());
-        assert!(app.planning.pending.is_none());
-        assert!(app.notice.contains("save a local task"));
-    }
+fn root_session_inspection_keeps_saved_task_prerequisites() {
+    let mut app = app();
+    key(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "sessions");
+    key(&mut app, KeyCode::Enter);
+    assert!(app.command_popup.is_some());
+    assert!(app.overlay.is_none());
+    assert!(app.planning.pending.is_none());
+    assert!(app.notice.contains("save a local task"));
 }
 
 #[test]
@@ -1728,22 +1726,19 @@ fn finish_catalogue(app: &mut App, task_id: i64, blockers: Vec<String>) {
 #[test]
 fn connecting_the_task_provider_loads_models_without_a_review() {
     let mut app = app();
-    // Connected before any task exists: the fetch waits for a saved task.
+    // Connecting on a fresh home must not require saving a request first.
     app.connection_returned(
         app.agents.active,
         crate::providers::auth::Outcome::Authenticated,
     );
-    assert!(!app.drive_catalogue());
-    let task_id = saved_task(&mut app);
     assert!(app.drive_catalogue());
-    finish_catalogue(&mut app, task_id, Vec::new());
+    finish_catalogue(&mut app, 0, Vec::new());
     assert!(app.planning.catalogues.contains_key(&app.planning.agent));
     assert!(
         app.planning.picker.is_none(),
         "a connect-time fetch opens nothing"
     );
     assert!(!app.planning.busy());
-    assert_eq!(app.planning.notice, "Models loaded.");
     assert!(!app.drive_catalogue(), "one fetch per connection");
     // A failed login never fetches.
     app.planning.catalogues.clear();
@@ -1757,7 +1752,6 @@ fn empty_model_picker_fetches_then_reopens_and_blockers_are_reported() {
     let task_id = saved_task(&mut app);
     app.editing = false;
     app.command("model");
-    assert_eq!(app.planning.notice, "Loading models…");
     assert!(app.drive_catalogue());
     finish_catalogue(&mut app, task_id, Vec::new());
     assert!(app.planning.picker == Some(planning::Picker::Model));
@@ -1772,11 +1766,37 @@ fn empty_model_picker_fetches_then_reopens_and_blockers_are_reported() {
         task_id,
         vec!["provider executable missing".into()],
     );
-    assert_eq!(
-        app.planning.notice,
-        "Models not loaded: provider executable missing"
-    );
+    assert!(app.planning.notice.contains("provider executable missing"));
     assert!(app.planning.catalogues.is_empty() && !app.planning.busy());
+}
+
+#[test]
+fn fresh_model_picker_loads_without_saving_or_consuming_the_request_draft() {
+    let mut app = request_app();
+    app.update(Event::Paste("아직 보내지 않은 요청".into()));
+    let draft = app.input.clone();
+    let cursor = app.cursor;
+    app.command("model");
+    assert!(app.drive_catalogue());
+    let Some(crate::providers::Request::Preview(input)) = app.planning.pending.as_ref() else {
+        panic!("metadata inspection must start on a fresh home");
+    };
+    assert_eq!(input.task.id, 0);
+    assert!(input.task.goal.is_empty());
+    assert!(input.excerpts.is_empty() && input.report.is_none());
+    app.settle_planning();
+    assert_eq!(app.overlay, Some(Overlay::Planning));
+    finish_catalogue(&mut app, 0, Vec::new());
+    app.settle_planning();
+    assert_eq!(app.overlay, Some(Overlay::Planning));
+    assert!(app.planning.picker == Some(planning::Picker::Model));
+    assert!(app.planning.picker_current().is_some());
+    key(&mut app, KeyCode::Esc);
+    assert!(app.overlay.is_none() && app.editing);
+    assert_eq!(app.input, draft);
+    assert_eq!(app.cursor, cursor);
+    assert_eq!(app.task_id, 0);
+    assert!(!app.planning.busy());
 }
 
 fn request_app() -> App {

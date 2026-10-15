@@ -129,12 +129,8 @@ impl State {
                 "Retry failed journal storage before preparing another provider request.".into();
             return;
         }
-        if task.id <= 0 || task.archived || (!inspect_models && task.goal.trim().is_empty()) {
-            self.notice = if inspect_models {
-                "Save an active task before model inspection.".into()
-            } else {
-                "Save a nonempty goal in an active task before planning.".into()
-            };
+        if !inspect_models && (task.id <= 0 || task.archived || task.goal.trim().is_empty()) {
+            self.notice = "Save a nonempty goal in an active task before planning.".into();
             return;
         }
         if resume && (self.task != task.id || self.thread_id.is_none()) {
@@ -153,31 +149,47 @@ impl State {
         self.inspect_sessions = inspect_sessions;
         self.inspect_models = inspect_models;
         self.request_selection = if inspect_models {
-            ModelSelection {
-                model: if matches!(self.agent, Agent::OpenCode | Agent::Gemini | Agent::Devin) {
-                    self.selection.model.clone()
-                } else {
-                    None
-                },
-                effort: None,
-            }
+            self.catalogues.remove(&self.agent);
+            self.catalogue_errors.remove(&self.agent);
+            ModelSelection::default()
         } else {
             self.selection.clone()
         };
         self.inspection = None;
+        let request_task = if inspect_models {
+            // Keep only local event ownership and project identity, never task content.
+            let mut metadata = store::Snapshot::empty(task.project.clone());
+            metadata.id = task.id;
+            metadata.revision = task.revision;
+            metadata
+        } else {
+            task.clone()
+        };
         self.pending = Some(Request::Preview(Box::new(Input {
-            task: task.clone(),
-            excerpts: excerpts.to_vec(),
-            report: report.cloned(),
+            task: request_task,
+            excerpts: if inspect_models {
+                Vec::new()
+            } else {
+                excerpts.to_vec()
+            },
+            report: if inspect_models {
+                None
+            } else {
+                report.cloned()
+            },
             resume: if resume { self.thread_id.clone() } else { None },
             agent: self.agent,
-            operation: self.operation,
-            edit_paths: if self.operation == Operation::Review {
+            operation: if inspect_models {
+                Operation::Plan
+            } else {
+                self.operation
+            },
+            edit_paths: if inspect_models || self.operation == Operation::Review {
                 Vec::new()
             } else {
                 self.edit_paths.clone()
             },
-            handoff: if self.operation == Operation::Review {
+            handoff: if inspect_models || self.operation == Operation::Review {
                 None
             } else {
                 self.handoff.clone()
@@ -235,7 +247,6 @@ impl State {
         };
         if let Some(blocker) = preview.blockers.first() {
             self.auto_blocked = Some(format!("Models not loaded: {blocker}"));
-            self.auto_picker = false;
             self.cancel();
             return;
         }

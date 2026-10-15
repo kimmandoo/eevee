@@ -725,12 +725,17 @@ impl ModelListing {
             if model.get("hidden").and_then(Value::as_bool) == Some(true) {
                 continue;
             }
-            let modes = model
-                .get("inputModalities")
-                .and_then(Value::as_array)
-                .ok_or("Protocol model/list missing input modalities")?;
-            if !modes.iter().any(|mode| mode == "text") {
-                continue;
+            // Codex's Model schema defaults an omitted inputModalities field
+            // to ["text", "image"]; explicit non-text and malformed values
+            // must not inherit that default.
+            match model.get("inputModalities") {
+                None => {}
+                Some(Value::Array(modes)) if modes.iter().all(Value::is_string) => {
+                    if !modes.iter().any(|mode| mode == "text") {
+                        continue;
+                    }
+                }
+                Some(_) => return Err("Protocol model/list has malformed input modalities".into()),
             }
             let id = identity(model, "model")?;
             if self.models.iter().any(|option| option.id == id) {
