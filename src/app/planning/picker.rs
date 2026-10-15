@@ -119,7 +119,10 @@ impl State {
                     Choice::disabled(
                         "model-select",
                         "No inspected models",
-                        "Refresh requires a reviewed provider connection; opening this picker sends nothing.",
+                        self.catalogue_errors.get(&self.agent).map_or_else(
+                            || "Loading provider metadata only; no request text or tools are sent.".into(),
+                            |reason| format!("{reason} Retry with /model, or choose Refresh to review the connection."),
+                        ),
                     )
                 }
             }

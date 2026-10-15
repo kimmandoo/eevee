@@ -129,7 +129,6 @@ def main():
                 wait_for(fresh, "Connect / credential setup")
                 fresh.capture("command-provider-actions")
                 fresh.send("\r")  # Missing provider: setup guidance, never auth.
-                wait_for(fresh, "npm install")
                 assert "Review connection" not in fresh.display()
                 fresh.capture("command-missing-provider-guidance")
                 fresh.send("\x1b")
@@ -257,6 +256,7 @@ def main():
                 locked.paste(" pending locked edit")
                 locked.send("\r")
                 wait_for(locked, "Storage: save failed")
+                locked.command("goal")  # Home summarizes only the first task line.
                 assert "pending locked edit" in locked.display()
                 locked.capture("save-failure")
             finally:

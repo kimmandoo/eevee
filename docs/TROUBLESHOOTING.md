@@ -1,5 +1,32 @@
 # Troubleshooting
 
+### [2026-10-15] Fresh-home model loading stalled or completed into a hidden picker
+
+- **Context / Symptom:** Published 0.1.5 stayed on `Loading models…` after `/model` on a fresh home. An integrated real-TUI smoke then found that the request-first settlement path closed the loading overlay, leaving a completed picker hidden behind the home screen and blocking another model action.
+- **Root Cause:** The automatic catalogue driver and preparation path required a saved task even though metadata inspection carries no task content. The generic response-to-home transition treated catalogue loading like a model response. ACP also validated committed task/review input before its metadata-only branch; Codex required `inputModalities` even though the installed 0.147.0 schema declares it optional with a text/image default.
+- **Solution:** Used an empty project-scoped snapshot before task creation, stripped task/context/write/handoff data from metadata inspection, kept metadata dialogs visible through completion, and retained provider-specific errors with retry actions. Moved ACP metadata admission before task-content checks while retaining provider/project/selection checks. Accepted only an absent Codex optional field using its documented default; explicit invalid modalities still fail. Preserved separate consent for manual refresh and all content requests.
+- **Prevention / Reference:** Fresh-home and save-during-load regressions cover ownership and draft restoration. Actual Codex 0.147.0 catalogues loaded at 120×36 and 60×18; missing-provider/retry and fresh reviewed-refresh paths ran in the native macOS PTY (`target/home-model-after`). These metadata inspections sent no task prompt.
+
+### [2026-10-15] Response progress appeared twice and the home partner disappeared
+
+- **Context / Symptom:** The user observed duplicate loading in the response UI and no Eevee card on the main screen.
+- **Root Cause:** Both the shell header and response metadata rendered `activity_label()` with a spinner, while the response also displayed a progress notice. The request-first shell gated the partner rail on companion focus rather than screen capacity.
+- **Solution:** Made the header the sole live-progress owner, kept response metadata about its selected output only, and reserved footer rows only for available controls/notices. Earlier partial output no longer inherits the current stream or observed model. Restored the partner card at ≥90 columns, using the same native-image placement geometry; compact/linear layouts retain the drawer.
+- **Prevention / Reference:** Two actual Codex turns at 120×36 and 60×18 exercised connecting, waiting, streaming, completion, previous-request attribution, paused follow and return-to-latest. Captured 110 wide and 123 compact sampled frames without duplicate stage labels. Cell-rendered cached portraits were exercised; this is not a new Kitty/Sixel GUI compatibility claim.
+
+### [2026-10-15] Host Clippy version differed from the repository qualification toolchain
+
+- **Context / Symptom:** Host Rust 1.97.1 passed 497 tests, but strict Clippy rejected an existing `src/ui/handoff.rs` optional-candidate access with `clippy::unnecessary_unwrap`.
+- **Root Cause:** The host default toolchain was newer than the repository's Rust 1.90.0 qualification toolchain and enforced a newer lint on unchanged code.
+- **Solution:** Ran final formatting, all-target tests, strict Clippy and the runtime build with the already-installed `+1.90.0` toolchain. No lint was suppressed and no unrelated handoff code was changed.
+- **Prevention / Reference:** Use `cargo +1.90.0 clippy --locked --all-targets -- -D warnings` to reproduce the supported qualification check. Host 1.97.1 strict lint remains a known unmodified-code limitation. Language-server startup also exited on this host; scoped source inspection was used instead.
+
+### [2026-10-15] Workbench smoke assumed unwrapped setup text and full task text on home
+
+- **Context / Symptom:** The 60×18 journey failed waiting for contiguous `npm install`, although setup visibly wrapped those words onto adjacent rows. The locked-store journey also expected an appended multi-line Goal tail on the summarized home card.
+- **Root Cause:** The assertions depended on incidental text wrapping and the older full-task home presentation rather than the actual setup and retained editor state.
+- **Solution:** Removed the installation-wording assertion and reopened `/goal` before checking the retained failed-save edit. The smoke still checks missing-provider state, absence of an authentication review, safe navigation back, failed-save retention/retry and byte-preserved persisted drafts.
+
 ### [2026-10-15] Microsoft Store Python escaped the native smoke's tracked process tree
 
 - **Context / Symptom:** Windows command cancellation saved `OutcomeUnknown / OwnershipUnknown`: the launched root had exited and Job accounting was empty, but both output pipes remained open. A direct process-handle check found the fixture root stopped while its child and grandchild remained alive.

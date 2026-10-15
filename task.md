@@ -17,7 +17,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 ## Status
 
 - **Released:** 0.1.5 (tags v0.1.0–v0.1.5). Schema 9 store.
-- **Latest user request completed:** Published v0.1.5 request-first home, inline responses, centered concise reviews, guarded y/n/a shortcuts and explicit latest-stable providers. Public Linux/Windows packages passed installation/update/uninstall and installed terminal acceptance. PT06A remains the next unstarted backlog item.
+- **Latest user request completed:** Restored the home partner card, fixed fresh-home model loading and hidden catalogue completion, flattened role/model/provider returns, and consolidated response loading into one indicator. Native macOS PTY passed 34 terminal and 21 persistent-workbench cases; two real Codex turns passed wide/compact response checks. Source changes are not yet released; public release remains v0.1.5. PT06A remains the next unstarted backlog item.
 - **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B, PT05A/PT05B, RF05 and the first code-structure pass (index below). **Open:** 96 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.

@@ -197,6 +197,9 @@ impl App {
             &empty
         };
         let operation = self.planning.operation;
+        let choosing_locally = self.planning.picker.is_some()
+            || self.planning.selection_change.is_some()
+            || self.planning.switch_to.is_some();
         let changed = self.planning.key(
             key,
             self.width >= 60 && self.height >= 18,
@@ -213,6 +216,15 @@ impl App {
             self.planning.submitted_request = task.request_text().into();
             self.planning.failed_request = false;
             self.request_home(true);
+        } else if choosing_locally
+            && !self.planning.busy()
+            && self.planning.selection_change.is_none()
+            && self.planning.request.is_none()
+        {
+            // Model/effort and provider choices return to their invoking
+            // surface, rather than leaving an empty planning drawer behind.
+            self.close_overlay();
+            self.notice.clone_from(&self.planning.notice);
         } else if self.planning.preview.is_none()
             && self.planning.request.is_none()
             && self.planning.picker.is_none()
@@ -332,8 +344,7 @@ impl App {
         }
     }
 
-    /// Start a wanted catalogue fetch once a committed task can route it. The
-    /// metadata-only request carries no draft, so editing does not block it.
+    /// Fetch provider metadata without requiring a saved task or draft.
     pub fn drive_catalogue(&mut self) -> bool {
         if !self.planning.catalogue_due()
             || self.execution.busy()
@@ -343,19 +354,14 @@ impl App {
         {
             return false;
         }
-        let Some(task) = self
-            .tasks
-            .iter()
-            .find(|task| task.id == self.task_id && task.id > 0 && !task.archived)
-            .cloned()
-        else {
-            return false;
+        let empty;
+        let task = if let Some(task) = self.tasks.iter().find(|task| task.id == self.task_id) {
+            task
+        } else {
+            empty = store::Snapshot::empty(self.cwd.clone());
+            &empty
         };
-        self.planning.start_automatic_catalogue(
-            &task,
-            &self.sources.basket,
-            self.repository.as_ref(),
-        );
+        self.planning.start_automatic_catalogue(task, &[], None);
         true
     }
 
@@ -399,6 +405,8 @@ impl App {
             && self.planning.switch_to.is_none()
             && self.planning.inspection.is_none()
             && !self.planning.quit_review
+            && !self.planning.inspect_models
+            && !self.planning.inspect_sessions
             && !self.planning.journal_mode
             && self.composer_return == Some(store::EditorField::Request)
         {
@@ -634,6 +642,10 @@ impl App {
             self.open_overlay(Overlay::Planning);
             if self.overlay == Some(Overlay::Planning) {
                 self.planning_command(name);
+                if !self.planning.busy() {
+                    self.close_overlay();
+                    self.notice.clone_from(&self.planning.notice);
+                }
             }
         }
     }

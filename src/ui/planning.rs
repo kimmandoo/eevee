@@ -22,10 +22,9 @@ pub(super) fn render_workspace(
     frame: &mut Frame,
     area: Rect,
     app: &mut App,
-    config: &Config,
+    _config: &Config,
     paint: &Paint,
 ) {
-    let marker = super::activity_marker(app.activity_frame, config);
     let (request, previous) = app.planning.response_request();
     let area = if previous && !app.planning.submitted_request.is_empty() {
         let current = app
@@ -66,7 +65,7 @@ pub(super) fn render_workspace(
         );
         row(area, 1, area.height.saturating_sub(1))
     };
-    response(frame, response_area, &mut app.planning, marker, paint);
+    response(frame, response_area, &mut app.planning, paint);
 }
 
 pub(super) fn render_small(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
@@ -123,7 +122,6 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     };
     let area = centered(area, 112, height);
     frame.render_widget(Clear, area);
-    let marker = super::activity_marker(app.activity_frame, config);
     let state = &mut app.planning;
     let title = format!(
         " {} / {} {} ",
@@ -163,7 +161,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         return;
     }
     if state.preview.is_none() && state.request.is_none() && state.inspection.is_none() {
-        response(frame, content, state, marker, paint);
+        response(frame, content, state, paint);
         return;
     }
     let header = if state.preview.is_some() {
@@ -526,19 +524,15 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
     );
 }
 
-fn response(frame: &mut Frame, area: Rect, state: &mut State, marker: &str, paint: &Paint) {
-    let label = state.activity_label();
-    let status = if let Some(label) = label {
-        format!("{marker} {label}")
-    } else if state.outcome_unknown() {
-        "Outcome unknown".into()
-    } else {
-        "Ready".into()
-    };
-    let model = state.observed_model.as_deref().unwrap_or("not observed");
+fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
+    // The shell header owns live progress; this line describes only the
+    // selected output, which may belong to an earlier request.
+    let active = state.activity_label().is_some();
+    let (_, previous) = state.response_request();
     let metadata = if let Some(item) = state.items.get(state.selected) {
-        format!(
-            "{status} · {} {}/{} {} · model {}",
+        let mut metadata = format!(
+            "{}{} {}/{} · {} · unverified",
+            if previous { "Previous " } else { "" },
             match item.kind {
                 ItemKind::Message => "Response",
                 ItemKind::Plan => "Plan",
@@ -548,15 +542,20 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, marker: &str, pain
             state.items.len(),
             if item.complete {
                 "complete"
-            } else if label.is_some() && !state.cancelling {
+            } else if active && !previous && !state.cancelling {
                 "streaming"
             } else {
                 "partial"
             },
-            model,
-        )
+        );
+        if !previous && let Some(model) = state.observed_model.as_deref() {
+            let _ = write!(metadata, " · {model}");
+        }
+        metadata
+    } else if state.outcome_unknown() {
+        "No response · outcome unknown".into()
     } else {
-        format!("{status} · observed model {model}")
+        "Response · no output yet".into()
     };
     text(
         frame,
@@ -564,10 +563,14 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, marker: &str, pain
         &clipped(&metadata, area.width as usize),
         paint.accent,
     );
-    let body = row(area, 1, area.height.saturating_sub(4));
+    let show_notice = !active && !state.notice.is_empty();
+    let show_follow = !state.items.is_empty();
+    let show_evidence = super::VERBOSE.get() && show_follow;
+    let footer_rows = u16::from(show_notice) + u16::from(show_follow) + u16::from(show_evidence);
+    let body = row(area, 1, area.height.saturating_sub(1 + footer_rows));
     if state.items.is_empty() {
-        let empty = if label.is_some() {
-            "Waiting for provider output. Partial responses appear here as they arrive."
+        let empty = if active {
+            "You can keep editing your next request below."
         } else if state.operation == Operation::Review {
             "Type a request below for an independent review. Review scope before Run; no source writes or resumed implementation history."
         } else {
@@ -586,40 +589,49 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, marker: &str, pain
             .collect();
         frame.render_widget(Paragraph::new(lines).style(paint.surface), body);
     }
-    text(
-        frame,
-        row(area, area.height.saturating_sub(3), 1),
-        &clipped(&super::brief(&state.notice), area.width as usize),
-        paint.muted,
-    );
-    let follow = if state.new_output {
-        "New output · Alt+End: latest / follow"
-    } else if state.following {
-        "Following · PgUp: pause"
-    } else {
-        "Follow paused · Alt+End: latest / follow"
-    };
-    let navigation = format!("{follow} · Alt+↑↓ items · PgUp/Dn");
-    text(
-        frame,
-        row(area, area.height.saturating_sub(2), 1),
-        &clipped(&navigation, area.width as usize),
-        paint.accent,
-    );
-    let evidence = if state.omitted > 0 {
-        format!(
-            "Unverified provider output · {} earlier items omitted · /decision copies complete proposal",
-            state.omitted
-        )
-    } else {
-        "Unverified provider output · /decision copies a complete proposal for local review".into()
-    };
-    text(
-        frame,
-        row(area, area.height.saturating_sub(1), 1),
-        &clipped(&evidence, area.width as usize),
-        paint.muted,
-    );
+    let mut footer_y = area.height.saturating_sub(footer_rows);
+    if show_notice {
+        text(
+            frame,
+            row(area, footer_y, 1),
+            &clipped(&super::brief(&state.notice), area.width as usize),
+            paint.muted,
+        );
+        footer_y += 1;
+    }
+    if show_follow {
+        let follow = if state.new_output {
+            "New output · Alt+End: latest"
+        } else if state.following {
+            "Following"
+        } else {
+            "Paused · Alt+End: latest"
+        };
+        let navigation = format!("{follow} · PgUp/Dn scroll · Alt+↑↓ items");
+        text(
+            frame,
+            row(area, footer_y, 1),
+            &clipped(&navigation, area.width as usize),
+            paint.accent,
+        );
+        footer_y += 1;
+    }
+    if show_evidence {
+        let evidence = if state.omitted > 0 {
+            format!(
+                "{} earlier items omitted · /decision reviews a complete proposal",
+                state.omitted
+            )
+        } else {
+            "/decision reviews a complete proposal locally".into()
+        };
+        text(
+            frame,
+            row(area, footer_y, 1),
+            &clipped(&evidence, area.width as usize),
+            paint.muted,
+        );
+    }
 }
 
 fn controls(state: &State) -> &'static str {
@@ -1137,6 +1149,71 @@ mod tests {
             .collect::<String>()
             .trim_end()
             .to_owned()
+    }
+
+    fn draw_home(app: &mut App) -> String {
+        let config = config();
+        let mut artwork = super::super::Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(app.width, app.height)).unwrap();
+        terminal
+            .draw(|frame| super::super::render(frame, app, &config, &mut artwork, "off"))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        (0..app.height)
+            .map(|y| rendered_row(buffer, buffer.area, y))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn home_progress_has_one_owner_before_and_during_streaming() {
+        for (width, height) in [(60, 18), (120, 36)] {
+            let (mut app, task) = preview(width, height);
+            draw(&mut app);
+            key(&mut app, &task, KeyCode::Char('y'));
+            app.planning.pending.take();
+            let label = app.planning.activity_label().unwrap();
+            let screen = draw_home(&mut app);
+            assert_eq!(screen.matches(label).count(), 1, "{screen}");
+            app.planning.event(Event::Item {
+                generation: 11,
+                task_id: 7,
+                thread_id: "thread".into(),
+                turn_id: "turn".into(),
+                item_id: "response".into(),
+                kind: ItemKind::Message,
+                text: "Partial answer stays readable".into(),
+                complete: false,
+            });
+            let label = app.planning.activity_label().unwrap();
+            let screen = draw_home(&mut app);
+            assert_eq!(screen.matches(label).count(), 1, "{screen}");
+            assert!(screen.contains("Partial answer stays readable"), "{screen}");
+            assert!(screen.contains("streaming"), "{screen}");
+        }
+    }
+
+    #[test]
+    fn prior_partial_response_is_not_labelled_as_current_stream_or_model() {
+        let (mut app, task) = preview(120, 36);
+        draw(&mut app);
+        key(&mut app, &task, KeyCode::Char('y'));
+        app.planning.pending.take();
+        app.planning.observed_model = Some("current-model-only".into());
+        app.planning.items.push(crate::app::planning::Item {
+            thread_id: "old-thread".into(),
+            turn_id: "old-turn".into(),
+            item_id: "old-response".into(),
+            kind: ItemKind::Message,
+            text: "Earlier interrupted answer".into(),
+            complete: false,
+            request: "Earlier request".into(),
+        });
+        let screen = draw_home(&mut app);
+        assert!(screen.contains("Earlier interrupted answer"), "{screen}");
+        assert!(screen.contains("partial"), "{screen}");
+        assert!(!screen.contains("streaming"), "{screen}");
+        assert!(!screen.contains("current-model-only"), "{screen}");
     }
 
     fn compact_bounds(buffer: &ratatui::buffer::Buffer) -> Rect {

@@ -311,6 +311,9 @@ impl App {
                 if self.overlay == Some(Overlay::Forms) {
                     self.close_overlay();
                 }
+                if self.overlay.is_none() && self.composer_return.is_some() {
+                    self.close_overlay();
+                }
             }
             execution::Action::EditCommand => {
                 self.execution.invalidate();

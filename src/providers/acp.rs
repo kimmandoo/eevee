@@ -336,14 +336,15 @@ fn worker(
     busy.store(false, Ordering::Release);
 }
 fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
-    input.validate_review()?;
+    input.validate_selection()?;
     if std::path::Path::new(&input.task.project) != workspace.project.as_path()
         || !matches!(input.agent, Agent::OpenCode | Agent::Gemini | Agent::Devin)
-        || (input.operation == Operation::Plan && !input.edit_paths.is_empty())
+        || (!input.inspect_models
+            && input.operation == Operation::Plan
+            && !input.edit_paths.is_empty())
     {
         return Err("ACP task/project/profile or planning write scope mismatch".into());
     }
-    crate::store::validate_planning_input(&workspace.data_dir, &input.task, &input.excerpts)?;
     if input.inspect_models {
         return serde_json::to_string_pretty(&json!({
             "purpose":"Inspect provider-advertised model and reasoning selectors only",
@@ -357,6 +358,8 @@ fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
             "retain_resume_grant":false
         })).map_err(|_| "Could not encode ACP model inspection".into());
     }
+    input.validate_review()?;
+    crate::store::validate_planning_input(&workspace.data_dir, &input.task, &input.excerpts)?;
     if input.inspect_sessions {
         if input.selection != ModelSelection::default() {
             return Err(

@@ -332,7 +332,7 @@ impl App {
         {
             return Some("This provider/role has no owned resumable session; choose /new.".into());
         }
-        if matches!(name, "new" | "resume" | "sessions" | "models-refresh") && self.task_id <= 0 {
+        if matches!(name, "new" | "resume" | "sessions") && self.task_id <= 0 {
             return Some("Create /task-new or save a local task before inspecting or submitting provider work.".into());
         }
         if matches!(name, "new" | "resume") && self.goal.trim().is_empty() {
@@ -478,6 +478,27 @@ impl App {
             }
             return changed;
         }
+        if name == "role" {
+            // This is a local chooser, not a provider workspace or request.
+            // Keep the invoking editor alive so Back needs no extra drawer.
+            self.command_popup = Some(Popup {
+                query: String::new(),
+                selected: None,
+                choices: self
+                    .planning
+                    .command_choices()
+                    .into_iter()
+                    .filter(|choice| {
+                        matches!(
+                            choice.command,
+                            "role-plan" | "role-implement" | "role-review"
+                        )
+                    })
+                    .collect(),
+                scope: self.overlay,
+            });
+            return true;
+        }
         if self.editing && name != "quit" {
             self.pending_request = None;
             // Opening an action retains the actual draft without applying it.
@@ -554,12 +575,22 @@ impl App {
             self.request_navigation(super::execution::Action::SelectForm(index));
             return true;
         }
-        if name.starts_with("provider-")
-            || matches!(name, "role-plan" | "role-implement" | "role-review")
-        {
+        if matches!(name, "role-plan" | "role-implement" | "role-review") {
+            let changed = self.planning_command(name);
+            if self.overlay.is_none() {
+                self.close_overlay();
+            }
+            return changed;
+        }
+        if name.starts_with("provider-") {
             self.open_overlay(Overlay::Planning);
             if self.overlay == Some(Overlay::Planning) {
-                return self.planning_command(name);
+                let changed = self.planning_command(name);
+                if !self.planning.busy() {
+                    self.close_overlay();
+                    self.notice.clone_from(&self.planning.notice);
+                }
+                return changed;
             }
             return false;
         }
@@ -595,28 +626,6 @@ impl App {
                         "provider-journal"
                     } else {
                         name
-                    });
-                }
-            }
-            "role" => {
-                self.open_overlay(Overlay::Planning);
-                if self.overlay == Some(Overlay::Planning) {
-                    let choices = self
-                        .planning
-                        .command_choices()
-                        .into_iter()
-                        .filter(|choice| {
-                            matches!(
-                                choice.command,
-                                "role-plan" | "role-implement" | "role-review"
-                            )
-                        })
-                        .collect();
-                    self.command_popup = Some(Popup {
-                        query: String::new(),
-                        selected: None,
-                        choices,
-                        scope: self.overlay,
                     });
                 }
             }
@@ -747,6 +756,10 @@ mod tests {
         key(&mut app, KeyCode::Enter);
         assert_eq!(app.form(), 2);
         assert!(app.command_popup.is_none());
+        assert!(app.editing);
+        assert!(app.overlay.is_none());
+        assert_eq!(app.input, "draft stays 漢字");
+        assert_eq!(app.cursor, 6);
         assert_eq!(app.goal, "");
         assert_eq!(app.drafts.len(), 1);
         assert_eq!(app.drafts[0].text, "draft stays 漢字");
@@ -979,5 +992,83 @@ mod tests {
         assert!(app.linear && app.save_requested && app.revision > revision);
         assert_eq!(app.goal, "Saved task");
         assert!(app.planning.pending.is_none());
+    }
+    #[test]
+    fn role_chooser_and_selection_return_directly_to_unchanged_composer() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.update(Event::Paste("before suffix".into()));
+        app.cursor = 6;
+        app.command("role");
+        assert!(app.overlay.is_none());
+        assert!(app.editing);
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(app.input, "before suffix");
+        assert_eq!(app.cursor, 6);
+        app.command("role");
+        query(&mut app, "role-review");
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.planning.operation, crate::providers::Operation::Review);
+        assert_eq!(app.form(), 7);
+        assert!(app.overlay.is_none());
+        assert!(app.command_popup.is_none());
+        assert!(app.editing);
+        assert_eq!(app.input, "before suffix");
+        assert_eq!(app.cursor, 6);
+        assert!(app.planning.pending.is_none());
+    }
+
+    #[test]
+    fn local_picker_returns_to_its_invoker_without_an_empty_planning_drawer() {
+        for from_hub in [false, true] {
+            for (command, finish) in [
+                ("model", KeyCode::Esc),
+                ("model", KeyCode::Enter),
+                ("effort", KeyCode::Esc),
+                ("effort", KeyCode::Enter),
+            ] {
+                let mut app = App::new("/workspace".into(), 120, 36);
+                app.update(Event::Paste("before suffix".into()));
+                app.cursor = 6;
+                app.planning.catalogues.insert(
+                    crate::providers::Agent::Codex,
+                    crate::providers::ModelCatalogue {
+                        models: Vec::new(),
+                        current: None,
+                        source: "Inspected metadata".into(),
+                        effort_note: None,
+                    },
+                );
+                if from_hub {
+                    app.command("provider");
+                }
+                app.command(command);
+                assert!(app.planning.picker.is_some());
+                key(&mut app, finish);
+                assert!(app.planning.picker.is_none());
+                assert!(app.planning.pending.is_none());
+                if from_hub {
+                    assert_eq!(app.overlay, Some(Overlay::Agents));
+                    key(&mut app, KeyCode::Esc);
+                }
+                assert!(app.overlay.is_none());
+                assert!(app.editing);
+                assert_eq!(app.input, "before suffix");
+                assert_eq!(app.cursor, 6);
+            }
+        }
+    }
+
+    #[test]
+    fn fresh_manual_model_refresh_prepares_review_without_saving_request_text() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.update(Event::Paste("private unsaved request".into()));
+        assert!(app.command("models-refresh"));
+        assert!(matches!(
+            app.planning.pending.as_ref(),
+            Some(crate::providers::Request::Preview(input))
+                if input.inspect_models && input.task.request_text().is_empty()
+        ));
+        assert_eq!(app.overlay, Some(Overlay::Planning));
+        assert!(!app.planning.reviewed);
     }
 }

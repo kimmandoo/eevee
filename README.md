@@ -58,7 +58,7 @@ ev uninstall        # remove the binary; keep user data
 Use a terminal of at least **60 × 18** (120 × 36 recommended).
 
 1. Type the request in the bottom composer. **Enter** saves it and opens a short review; **Ctrl+S** only saves locally. No separate Goal setup.
-2. If a provider is not ready, `/connect` opens its official sign-in flow. `/provider`, `/model` and `/effort` change the selection without sending anything.
+2. If a provider is not ready, `/connect` opens its official sign-in flow. `/provider`, `/model` and `/effort` change the selection without sending a prompt; model loading works before you create a task.
 3. Check the centered summary, then **y** to Run or **n** to go back. Exact payload and technical details remain available without a mandatory scroll-to-bottom.
 4. Read the streaming response directly on the main screen, then type the next request in the same composer. Existing task facts stay intact.
 5. Use `/run` → `/command-edit` for a separately reviewed local command such as `["cargo","test"]`.
@@ -92,9 +92,9 @@ ev --help
 | `/images` / `/inspect` / `/companion` | Sprites / details / companion |
 | `/quit` / Ctrl+C | Safe exit review |
 
-No command bypasses approval or executes pasted text. Model catalogues come from each provider's official interface; an empty model/effort picker can fetch metadata automatically, without sending a task prompt. `/models-refresh` retains its explicit reviewed refresh.
+No command bypasses approval or executes pasted text. Model catalogues come from each provider's official interface; an empty model/effort picker fetches metadata automatically, even on a fresh home, without sending task content. Failures remain visible with a retry path. `/models-refresh` retains its explicit reviewed refresh. Selecting or cancelling a model, effort or provider returns directly to the invoking surface; `/role` opens its choices directly and form changes preserve the editable draft.
 
-**Responses.** Replies stream into the full-width home workspace without an extra output window or artificial typing delay. Completed words can appear before a newline; unfinished tokens and ambiguous credential prefixes remain withheld for best-effort redaction. PgUp/PgDn pause follow; the displayed response controls let you return to the newest output without stealing ordinary draft input. A new-output indicator appears while you read older content. Exact provenance and technical details remain optional. The spinner represents actual preparation/connection/response activity, not estimated progress; permission reviews and idle screens do not animate. `--no-animation` keeps the indicator static without slowing streamed text.
+**Home and responses.** At 90 columns or wider, the partner card stays visible beside the response; smaller and linear layouts keep full-width output with `/companion` for the partner. Replies stream inline without an extra output window or artificial typing delay. The header shows the single live progress indicator; the response labels its own complete/streaming/partial state. Earlier output stays attributed to its earlier request. Completed words can appear before a newline; unfinished tokens and ambiguous credential prefixes remain withheld for best-effort redaction. PgUp/PgDn pause follow and Alt+End returns to the newest output without stealing ordinary draft input. Exact provenance and technical details remain optional. The spinner represents actual preparation/connection/response activity, not estimated progress; permission reviews and idle screens do not animate. `--no-animation` keeps the indicator static without slowing streamed text.
 
 **Request receipt.** Every provider preview breaks the exact payload Eevee sends into instructions, task facts, attachments, handoff and memories, with exact bytes and a labelled local token estimate (`eevee-local-v1`, CJK-aware). It runs offline. Provider-added context, usage and billing stay **unknown**, not zero.
 

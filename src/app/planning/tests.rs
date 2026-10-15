@@ -223,6 +223,290 @@ fn unsafe_model_catalogue_is_rejected_before_caching() {
     assert!(state.notice.starts_with("Model catalogue rejected:"));
 }
 
+fn start_catalogue(state: &mut State, task: &store::Snapshot, generation: u64) {
+    state.command("model", true, task, &[], None);
+    assert!(state.catalogue_due());
+    state.start_automatic_catalogue(task, &[], None);
+    assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
+    state.event(Event::Preview(Preview {
+        generation,
+        task_id: task.id,
+        thread_id: None,
+        trust: Vec::new(),
+        payload: "{}".into(),
+        blockers: Vec::new(),
+    }));
+    assert!(
+        matches!(state.pending.take(), Some(Request::Run { generation: found }) if found == generation)
+    );
+}
+
+#[test]
+fn fresh_and_archived_catalogues_strip_content_role_and_stale_selection() {
+    for agent in Agent::ALL {
+        for id in [0, 7] {
+            let mut state = State::new();
+            state.agent = agent;
+            state.operation = Operation::Review;
+            state.edit_paths.push("never-send.txt".into());
+            state.selection.model = Some("removed-model".into());
+            state.selection.effort = Some("removed-effort".into());
+            let mut task = store::Snapshot::empty("project".into());
+            task.id = id;
+            task.archived = id > 0;
+            task.goal = "private-goal-canary".into();
+            task.next_action = "private-next-action".into();
+            state.prepare(false, false, true, &task, &[], None);
+            let Some(Request::Preview(input)) = state.pending.take() else {
+                panic!("metadata preview must not require task storage");
+            };
+            assert_eq!(input.task.id, id);
+            assert_eq!(input.task.project, "project");
+            assert!(input.task.goal.is_empty() && input.task.next_action.is_empty());
+            assert!(input.task.request_text().is_empty());
+            assert!(input.excerpts.is_empty() && input.report.is_none());
+            assert!(input.edit_paths.is_empty() && input.handoff.is_none());
+            assert_eq!(input.operation, Operation::Plan);
+            assert_eq!(input.selection, ModelSelection::default());
+            assert!(!state.needs_saved_command("models-refresh"));
+            assert!(
+                !state.needs_saved_input(&KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE))
+            );
+        }
+    }
+    let mut state = State::new();
+    state.prepare(
+        false,
+        false,
+        false,
+        &store::Snapshot::empty("project".into()),
+        &[],
+        None,
+    );
+    assert!(
+        state.pending.is_none(),
+        "prompt admission still requires a saved task"
+    );
+}
+
+#[test]
+fn failed_metadata_reopens_persistent_reason_and_retry_recovers() {
+    let mut state = State::new();
+    let task = task();
+    start_catalogue(&mut state, &task, 11);
+    state.event(Event::Finished {
+        generation: 11,
+        task_id: task.id,
+        outcome: Outcome::Failed,
+        message: "Authentication unavailable: use /connect.".into(),
+    });
+    assert!(!state.busy_except_picker());
+    assert!(state.picker == Some(Picker::Model));
+    state.notice = "Unrelated transient notice".into();
+    assert!(
+        state
+            .picker_choice(1)
+            .unwrap()
+            .reason
+            .unwrap()
+            .contains("/connect")
+    );
+    start_catalogue(&mut state, &task, 12);
+    state.event(Event::Models {
+        generation: 11,
+        task_id: task.id,
+        catalogue: catalogue(),
+    });
+    assert!(
+        state.catalogues.is_empty(),
+        "late failed-request metadata must be ignored"
+    );
+    state.event(Event::Models {
+        generation: 12,
+        task_id: task.id,
+        catalogue: catalogue(),
+    });
+    state.event(Event::Finished {
+        generation: 12,
+        task_id: task.id,
+        outcome: Outcome::Completed,
+        message: "Complete".into(),
+    });
+    assert!(state.picker == Some(Picker::Model));
+    assert!(state.picker_choice(1).unwrap().reason.is_none());
+    assert!(state.catalogue_errors.is_empty());
+    assert!(state.pending_journal.is_empty() && state.thread_id.is_none());
+}
+
+#[test]
+fn blocked_preview_and_preview_error_retain_reason_without_automatic_manual_run() {
+    for preview_error in [false, true] {
+        let mut state = State::new();
+        let task = task();
+        state.command("model", true, &task, &[], None);
+        state.start_automatic_catalogue(&task, &[], None);
+        state.pending.take();
+        if preview_error {
+            state.event(Event::Error {
+                generation: None,
+                message: "Executable missing: install the provider explicitly.".into(),
+            });
+        } else {
+            state.event(Event::Preview(Preview {
+                generation: 11,
+                task_id: task.id,
+                thread_id: None,
+                trust: Vec::new(),
+                payload: "{}".into(),
+                blockers: vec!["Executable missing: install the provider explicitly.".into()],
+            }));
+            assert!(matches!(
+                state.pending.take(),
+                Some(Request::Cancel { generation: 11 })
+            ));
+            state.event(Event::Finished {
+                generation: 11,
+                task_id: task.id,
+                outcome: Outcome::Cancelled,
+                message: "Preview discarded".into(),
+            });
+        }
+        assert!(state.picker == Some(Picker::Model));
+        assert!(!state.busy_except_picker());
+        assert!(
+            state
+                .picker_choice(1)
+                .unwrap()
+                .reason
+                .unwrap()
+                .contains("install the provider explicitly")
+        );
+        state.command("models-refresh", true, &task, &[], None);
+        assert!(!state.auto_run && !state.auto_models);
+        assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
+        state.event(Event::Preview(Preview {
+            generation: 12,
+            task_id: task.id,
+            thread_id: None,
+            trust: Vec::new(),
+            payload: "{}".into(),
+            blockers: Vec::new(),
+        }));
+        assert!(
+            state.preview.is_some() && state.pending.is_none(),
+            "manual retry still requires reviewed Run"
+        );
+    }
+}
+
+#[test]
+fn refresh_drops_stale_cache_and_completed_without_valid_metadata_is_a_failure() {
+    for invalid in [false, true] {
+        let mut state = State::new();
+        state.reset(7);
+        state.catalogues.insert(Agent::Codex, catalogue());
+        state.command("models-refresh", true, &task(), &[], None);
+        assert!(state.catalogues.is_empty());
+        state.pending.take();
+        state.awaiting_preview = false;
+        state.generation = Some(11);
+        state.active = true;
+        if invalid {
+            let mut bad = catalogue();
+            bad.models[0].name = "invalid\nname".into();
+            state.event(Event::Models {
+                generation: 11,
+                task_id: 7,
+                catalogue: bad,
+            });
+        }
+        state.event(Event::Finished {
+            generation: 11,
+            task_id: 7,
+            outcome: Outcome::Completed,
+            message: "Complete".into(),
+        });
+        assert!(state.catalogues.is_empty());
+        assert!(
+            state
+                .picker_choice(1)
+                .unwrap()
+                .reason
+                .unwrap()
+                .contains(if invalid {
+                    "rejected"
+                } else {
+                    "without a usable model catalogue"
+                })
+        );
+        assert!(!state.notice.contains("Models loaded."));
+    }
+}
+
+#[test]
+fn provider_switch_does_not_transfer_queued_inspection_or_failure() {
+    let mut state = State::new();
+    state.reset(7);
+    state
+        .catalogue_errors
+        .insert(Agent::Codex, "Codex-only failure".into());
+    state.auto_models = true;
+    state.auto_picker = true;
+    state.switch_to = Some(Agent::Claude);
+    state.complete_switch();
+    assert!(!state.catalogue_due());
+    state.open_picker(Picker::Model);
+    assert!(
+        !state
+            .picker_choice(1)
+            .unwrap()
+            .reason
+            .unwrap()
+            .contains("Codex-only")
+    );
+    state.picker = None;
+    state.switch_to = Some(Agent::Codex);
+    state.complete_switch();
+    state.open_picker(Picker::Model);
+    assert!(
+        state
+            .picker_choice(1)
+            .unwrap()
+            .reason
+            .unwrap()
+            .contains("Codex-only")
+    );
+}
+
+#[test]
+fn fresh_catalogue_owns_original_task_until_completion_after_save() {
+    let mut state = State::new();
+    let fresh = store::Snapshot::empty("project".into());
+    start_catalogue(&mut state, &fresh, 11);
+    // An autosave can assign a task ID while metadata is in flight.
+    state.key(
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+        true,
+        &task(),
+        &[],
+        None,
+    );
+    assert_eq!(state.task_id(), 0);
+    state.event(Event::Models {
+        generation: 11,
+        task_id: 0,
+        catalogue: catalogue(),
+    });
+    state.event(Event::Finished {
+        generation: 11,
+        task_id: 0,
+        outcome: Outcome::Completed,
+        message: "Complete".into(),
+    });
+    assert!(state.picker == Some(Picker::Model));
+    assert!(state.catalogues.contains_key(&Agent::Codex));
+}
+
 fn preview() -> State {
     let mut state = State::new();
     command(&mut state, "new", true);
