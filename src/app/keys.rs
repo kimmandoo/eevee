@@ -68,7 +68,12 @@ impl App {
             {
                 self.insert_input(&text)
             }
-            Event::Key(key) if key.kind != KeyEventKind::Release => self.key(key),
+            Event::Key(key) if key.kind != KeyEventKind::Release => {
+                // A notice answers the previous action only; the next key
+                // starts from a clean footer.
+                self.notice.clear();
+                self.key(key)
+            }
             _ => false,
         };
         if changed
@@ -598,8 +603,9 @@ impl App {
     }
 
     pub(super) fn finish_request_quit(&mut self) {
-        if !self.goal.is_empty()
-            || self.draft_dirty()
+        // A committed, clean task exits directly; only unsaved or failed
+        // state needs the save/stay decision.
+        if self.draft_dirty()
             || self.revision != self.saved_revision
             || self.sources.persistence_pending()
             || self.sources.store_failed

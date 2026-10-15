@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 
-from terminal_smoke import Session, terminal_environment
+from terminal_smoke import Session, confirm_exit, terminal_environment
 from workbench_smoke import wait_for
 from execution_smoke import HOME, RIGHT, DELETE, TITLE, REVIEW, IDLE, NativeProcess
 
@@ -123,8 +123,7 @@ def main():
 
             def quit_idle(session):
                 session.command('quit')
-                wait_for(session, 'Confirm exit')
-                session.send(RIGHT + '\r')
+                confirm_exit(session)
                 assert session.wait_exit() == 0
                 session.close()
 

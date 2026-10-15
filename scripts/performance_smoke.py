@@ -29,7 +29,7 @@ import threading
 import time
 import traceback
 
-from terminal_smoke import (ESC, RIGHT, WINDOWS, Session, command_version,
+from terminal_smoke import (ESC, RIGHT, WINDOWS, Session, confirm_exit, command_version,
                             host_evidence, run_owned, save_json, terminal_environment)
 from workbench_smoke import wait_for
 
@@ -366,13 +366,7 @@ def await_run(session, data, timeout=40):
 
 def quit_app(session):
     session.send("\x03")  # Preserve the invoking composer/drawer across a normal safe exit.
-    deadline = time.monotonic() + 10
-    while session.alive() and "Confirm exit" not in session.display():
-        if time.monotonic() >= deadline:
-            raise TimeoutError("application neither exited nor offered exit review")
-        session.pump(0.02)
-    if session.alive():
-        session.send(RIGHT + "\r")
+    confirm_exit(session)
     if session.wait_exit() != 0:
         raise RuntimeError("application exited unsuccessfully")
     session.close()

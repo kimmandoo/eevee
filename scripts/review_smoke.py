@@ -11,7 +11,7 @@ import sqlite3
 import subprocess
 import tempfile
 
-from terminal_smoke import Session, terminal_environment
+from terminal_smoke import Session, confirm_exit, terminal_environment
 from workbench_smoke import wait_for
 
 ESC, DOWN, RIGHT, PAGE = "\x1b", "\x1b[B", "\x1b[C", "\x1b[6~"
@@ -140,8 +140,7 @@ def main():
             result["project_after_sha256"] = {str(path.relative_to(project)): hashlib.sha256(path.read_bytes()).hexdigest()
                                                for path in project.rglob("*") if path.is_file()}
             session.send("\x03")
-            wait_for(session, "Confirm exit")
-            session.send(RIGHT + "\r")
+            confirm_exit(session)
             assert session.wait_exit() == 0
             session.close()
         result["status"] = "passed"

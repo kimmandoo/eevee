@@ -504,6 +504,22 @@ def terminal_environment(mode):
     return environment
 
 
+def confirm_exit(session, choice=RIGHT + "\r"):
+    """Finish a requested exit: a clean task exits directly, otherwise the
+    Confirm exit review appears and `choice` selects save-and-quit."""
+    deadline = time.monotonic() + 10
+    while session.alive() and "Confirm exit" not in session.display():
+        assert time.monotonic() < deadline, "application neither exited nor offered exit review"
+        session.pump(0.02)
+    if session.alive():
+        session.send(choice)
+
+
+def without_notice(screen):
+    rows = screen.split("\n")
+    return "\n".join(rows[:-2] + rows[-1:])
+
+
 def await_saved(session):
     deadline = time.monotonic() + 8
     while "Storage: saved" not in session.display():
@@ -581,7 +597,9 @@ def exercise_ui(session, size, cwd):
         session.send(ESC)
         await_saved(session)
         session.capture(name + "-back")
-        assert session.display() == before, name + " back did not restore the invoking surface"
+        # The notice row answers only the latest key, so compare everything else.
+        assert without_notice(session.display()) == without_notice(before), \
+            name + " back did not restore the invoking surface"
     session.command("forms")
     for index, form in enumerate(FORMS):
         session.send("\x1b[H" + RIGHT * index)
@@ -605,13 +623,8 @@ def exercise_ui(session, size, cwd):
     session.command("goal")
     session.send(ESC)  # Unchanged drafts close without a destructive confirmation.
     session.idle()
-    session.send("\x03")
-    session.capture("quit-neutral")
-    session.send("\r")
-    assert session.alive(), "neutral quit confirmation exited"
-    session.send("\x03")
-    session.send(RIGHT)
-    session.send("\r")
+    await_saved(session)
+    session.send("\x03")  # A committed, clean task exits without a review popup.
     assert session.wait_exit() == 0, "normal terminal exit failed"
 
 
