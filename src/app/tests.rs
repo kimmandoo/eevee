@@ -293,7 +293,7 @@ fn clearing_first_draft_before_insert_ack_does_not_restore_deleted_text() {
     app.command("goal");
     key(&mut app, KeyCode::Char('x'));
     let first = committed(&app);
-    app.save_requested = false;
+    app.save_submitted();
     key(&mut app, KeyCode::Backspace);
     assert!(app.revision > first.revision);
     app.store_event(store::Event::Saved(first));

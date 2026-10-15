@@ -110,6 +110,8 @@ fn run(config: Config) -> io::Result<()> {
         // it stays latched across resize re-queries so the portrait never blinks.
         let mut graphics_settled = false;
         let mut dirty = true;
+        let mut animation_dirty = false;
+        let mut clear_needed = true;
         let mut targets = Vec::with_capacity(9);
         let mut input = input::Input::new()?;
         let graphics_queries = config.images == config::ImageMode::Auto
@@ -127,6 +129,7 @@ fn run(config: Config) -> io::Result<()> {
         let mut context_task = None;
         let mut outstanding_agents = 0_usize;
         let mut activity_tick: Option<std::time::Instant> = None;
+        let mut mailbox_pending = false;
         loop {
             if let Some(request) = app.images_pending
                 && artwork_worker.try_request(request)
@@ -174,7 +177,7 @@ fn run(config: Config) -> io::Result<()> {
                     input = input::Input::new()?;
                     input.discard_pending()?;
                     graphics = native::NativeGraphics::new(&config);
-                    terminal::clear(terminal)?;
+                    clear_needed = true;
                     if graphics_queries {
                         input.query_graphics(&mut io::stdout().lock())?;
                     }
@@ -203,12 +206,7 @@ fn run(config: Config) -> io::Result<()> {
                 app.handoff.process_pending();
                 dirty = true;
             }
-            if dirty {
-                // ConPTY's legacy cell projection can turn changed blanks into
-                // cursor moves over old text, especially with indexed colors.
-                // Repaint only on state changes; idle input stays blocking.
-                #[cfg(windows)]
-                terminal::clear(terminal)?;
+            if dirty || animation_dirty {
                 ui::portrait_targets(
                     &app,
                     ratatui::layout::Rect::new(0, 0, app.width, app.height),
@@ -220,8 +218,17 @@ fn run(config: Config) -> io::Result<()> {
                 if !graphics.is_native() {
                     artwork.prepare(&targets, ui::image_background(&config));
                 }
-                if graphics.prepare(&artwork, &targets, ui::image_background(&config))? {
+                // Publish native deletions, cell changes and placements together.
+                let frame = modes.frame()?;
+                clear_needed |=
+                    graphics.prepare(&artwork, &targets, ui::image_background(&config))?;
+                // Ordinary redraws retain cell differences on every platform.
+                // Clearing on each input can flash even inside DEC 2026 when
+                // ConPTY forwards frame markers before publishing its cells.
+                let repaint_native = dirty || clear_needed;
+                if clear_needed {
                     terminal::clear(terminal)?;
+                    clear_needed = false;
                 }
                 terminal.draw(|frame| {
                     ui::render(frame, &mut app, &config, &mut artwork, graphics.status());
@@ -229,7 +236,10 @@ fn run(config: Config) -> io::Result<()> {
                     #[cfg(windows)]
                     ui::compose_console_graphemes(frame.buffer_mut());
                 })?;
-                graphics.paint()?;
+                if repaint_native {
+                    graphics.paint()?;
+                }
+                frame.finish()?;
             }
             if app.execution.repo_requested() && outstanding_repo == 0 && repository.refresh() {
                 app.execution.repo_started();
@@ -292,13 +302,8 @@ fn run(config: Config) -> io::Result<()> {
                 app.switch_task = None;
                 outstanding_store += 1;
             }
-            if app.save_requested
-                && !app.transitioning
+            if app.save_due(std::time::Instant::now())
                 && !(app.task_id == 0 && outstanding_store > 0)
-                && matches!(
-                    app.storage,
-                    app::StorageState::Saved | app::StorageState::Saving
-                )
             {
                 if pending_save.as_ref().is_none_or(|snapshot| {
                     snapshot.revision != app.revision || snapshot.id != app.task_id
@@ -306,11 +311,13 @@ fn run(config: Config) -> io::Result<()> {
                     pending_save = Some(app.snapshot(&cwd));
                 }
                 if store.try_save(&mut pending_save) {
-                    app.save_requested = false;
+                    app.save_submitted();
                     outstanding_store += 1;
                 }
             }
-            // Only outstanding I/O uses a bounded wait; an idle saved UI blocks.
+            // Deferred persistence sleeps until due; only outstanding I/O polls.
+            // No idle frame timer or output is introduced by either wait.
+            let save_wait = app.save_wait(std::time::Instant::now());
             let pending = outstanding_store > 0
                 || outstanding_repo > 0
                 || outstanding_sources > 0
@@ -334,15 +341,23 @@ fn run(config: Config) -> io::Result<()> {
                 || app.management.is_some()
                 || app.party_request.is_some()
                 || app.party_inflight
-                || input.graphics_pending()
-                || (app.save_requested && matches!(app.storage, app::StorageState::Saving));
-            let event = if pending {
-                input.read_timeout(std::time::Duration::from_millis(30))?
+                || mailbox_pending
+                || input.graphics_pending();
+            let wait = if pending {
+                Some(std::time::Duration::from_millis(30))
+            } else {
+                save_wait
+            };
+            let event = if let Some(wait) = wait {
+                input.read_timeout(wait)?
             } else {
                 input.read()?
             };
             dirty = false;
+            animation_dirty = false;
+            mailbox_pending = false;
             let resized = matches!(event, Some(event::Event::Resize(_, _)));
+            clear_needed |= resized;
             if resized && graphics_queries {
                 input.query_graphics(&mut io::stdout().lock())?;
             }
@@ -353,7 +368,11 @@ fn run(config: Config) -> io::Result<()> {
             if let Some(event) = event {
                 dirty |= app.update(event);
             }
-            while let Some(event) = artwork_worker.try_event() {
+            for index in 0..64 {
+                let Some(event) = artwork_worker.try_event() else {
+                    break;
+                };
+                mailbox_pending |= index == 63;
                 match event {
                     artwork::Event::Progress(message) => app.images_notice = message,
                     artwork::Event::Finished {
@@ -370,11 +389,22 @@ fn run(config: Config) -> io::Result<()> {
                 }
                 dirty = true;
             }
-            while let Some(event) = agents.try_event() {
+            for index in 0..64 {
+                let Some(event) = agents.try_event() else {
+                    break;
+                };
+                mailbox_pending |= index == 63;
                 outstanding_agents = outstanding_agents.saturating_sub(1);
                 dirty |= app.agent_event(event);
             }
-            while let Some(event) = planning.try_event() {
+            // Bound each mailbox drain so a hot producer cannot monopolize the
+            // UI thread. Input (including consent and cancellation) comes first;
+            // available stream updates are coalesced into the next single draw.
+            for index in 0..64 {
+                let Some(event) = planning.try_event() else {
+                    break;
+                };
+                mailbox_pending |= index == 63;
                 if matches!(&event, providers::Event::Finished { .. })
                     && app.planning.operation == providers::Operation::Implement
                 {
@@ -385,7 +415,11 @@ fn run(config: Config) -> io::Result<()> {
             }
             dirty |= app.settle_planning();
             dirty |= app.drive_catalogue();
-            while let Some(event) = store.try_event() {
+            for index in 0..64 {
+                let Some(event) = store.try_event() else {
+                    break;
+                };
+                mailbox_pending |= index == 63;
                 outstanding_store = outstanding_store.saturating_sub(1);
                 if matches!(&event, store::Event::Managed { .. }) {
                     pending_save = None;
@@ -402,7 +436,11 @@ fn run(config: Config) -> io::Result<()> {
                 }
                 dirty |= !hidden_memory_load || app.revision != revision;
             }
-            while let Some(event) = repository.try_event() {
+            for index in 0..64 {
+                let Some(event) = repository.try_event() else {
+                    break;
+                };
+                mailbox_pending |= index == 63;
                 outstanding_repo = outstanding_repo.saturating_sub(1);
                 let succeeded = matches!(&event, repo::Event::Updated(_));
                 app.repo_event(event);
@@ -429,12 +467,20 @@ fn run(config: Config) -> io::Result<()> {
                     )
                 );
             }
-            while let Some(event) = sources.try_event() {
+            for index in 0..64 {
+                let Some(event) = sources.try_event() else {
+                    break;
+                };
+                mailbox_pending |= index == 63;
                 outstanding_sources = outstanding_sources.saturating_sub(1);
                 app.sources.event(app.task_id, event);
                 dirty |= app.overlay == Some(app::Overlay::Sources) || app.composer_menu.is_some();
             }
-            while let Some(event) = execution.try_event() {
+            for index in 0..64 {
+                let Some(event) = execution.try_event() else {
+                    break;
+                };
+                mailbox_pending |= index == 63;
                 app.execution.runner_event(event);
                 dirty = true;
             }
@@ -454,7 +500,7 @@ fn run(config: Config) -> io::Result<()> {
                 if now.duration_since(*last) >= std::time::Duration::from_millis(120) {
                     app.activity_frame = (app.activity_frame + 1) % 20;
                     *last = now;
-                    dirty = true;
+                    animation_dirty = true;
                 }
             } else {
                 activity_tick = None;

@@ -9,6 +9,7 @@ pub mod planning;
 pub mod sources;
 pub mod workflows;
 
+mod autosave;
 mod editing;
 mod events;
 mod keys;
@@ -103,6 +104,8 @@ struct OverlayFrame {
 pub enum StorageState {
     Loading,
     Saved,
+    /// Local changes are retained in memory until the debounce deadline.
+    Pending,
     Saving,
     Failed(String),
 }
@@ -152,6 +155,8 @@ pub struct App {
     pub revision: u64,
     pub saved_revision: u64,
     pub save_requested: bool,
+    autosave: Option<autosave::Window>,
+    save_inflight: Option<u64>,
     pub retry_storage: bool,
     pub quit_after_save: bool,
     pub task_id: i64,
@@ -249,6 +254,8 @@ impl App {
             revision: 0,
             saved_revision: 0,
             save_requested: false,
+            autosave: None,
+            save_inflight: None,
             retry_storage: false,
             quit_after_save: false,
             task_id: 0,
@@ -314,6 +321,7 @@ impl App {
                 "Storage: saved / retained draft"
             }
             StorageState::Saved => "Storage: saved",
+            StorageState::Pending => "Storage: autosave pending",
             StorageState::Saving if self.quit_after_save => {
                 "Storage: saving before exit / Esc stay"
             }

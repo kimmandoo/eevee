@@ -679,12 +679,16 @@ impl State {
 }
 
 impl super::App {
-    pub(super) fn memory_key(&mut self, key: KeyEvent) -> bool {
+    pub(super) fn memory_key(&mut self, key: KeyEvent, now: std::time::Instant) -> bool {
         if key.kind == KeyEventKind::Press
             && key.modifiers.contains(KeyModifiers::CONTROL)
             && key.code == KeyCode::Char('c')
         {
             self.request_quit();
+            return true;
+        }
+        if key.code == KeyCode::Char('s') && key.modifiers == KeyModifiers::CONTROL {
+            self.flush_save();
             return true;
         }
         if self.memory_loading {
@@ -703,7 +707,11 @@ impl super::App {
             self.close_overlay();
         }
         if before != self.memory.draft_snapshot() {
-            self.changed_task();
+            if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::SHIFT) {
+                self.changed_task();
+            } else {
+                self.changed_implicitly(now);
+            }
         }
         true
     }
@@ -763,7 +771,7 @@ impl super::App {
         handled
     }
 
-    pub(super) fn memory_paste(&mut self, value: &str) -> bool {
+    pub(super) fn memory_paste(&mut self, value: &str, now: std::time::Instant) -> bool {
         if self.memory_loading {
             self.memory.notice = "Loading approved memories; paste was not inserted.".into();
             return true;
@@ -771,7 +779,7 @@ impl super::App {
         let before = self.memory.draft_snapshot();
         let handled = self.memory.paste(value);
         if before != self.memory.draft_snapshot() {
-            self.changed_task();
+            self.changed_implicitly(now);
         }
         handled
     }

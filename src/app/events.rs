@@ -166,11 +166,12 @@ impl App {
                     }
                 }
                 self.save_requested = self.revision != self.saved_revision;
-                self.storage = if self.save_requested {
-                    StorageState::Saving
-                } else {
-                    StorageState::Saved
-                };
+                self.save_inflight = None;
+                self.storage = StorageState::Saved;
+                if !self.save_requested {
+                    self.autosave = None;
+                }
+                self.refresh_save_state();
             }
             store::Event::Selected(snapshot) => {
                 self.load_task(snapshot);
@@ -188,6 +189,12 @@ impl App {
                     });
                 }
                 if self.task_id == snapshot.id {
+                    if self
+                        .save_inflight
+                        .is_some_and(|revision| revision <= snapshot.revision)
+                    {
+                        self.save_inflight = None;
+                    }
                     self.updated_at = snapshot.updated_at;
                     self.saved_revision = self.saved_revision.max(snapshot.revision);
                     if snapshot.revision == self.revision {
@@ -204,13 +211,18 @@ impl App {
                             self.drafts.clone_from(&draft.drafts);
                         }
                         self.storage = StorageState::Saved;
+                        self.save_requested = false;
+                        self.autosave = None;
                         if let Some(command) = self.pending_command.take() {
                             self.execution.prepare_command(self.task_id, &command);
                         }
                     }
+                    self.refresh_save_state();
                 }
                 if let Some(previous) = self.tasks.iter_mut().find(|task| task.id == snapshot.id) {
-                    *previous = snapshot;
+                    if previous.revision <= snapshot.revision {
+                        *previous = snapshot;
+                    }
                 } else {
                     self.tasks.push(snapshot);
                 }
@@ -305,10 +317,18 @@ impl App {
             }
             store::Event::Failed { revision, message } => {
                 self.transitioning = false;
+                if self
+                    .save_inflight
+                    .is_some_and(|inflight| revision.is_none_or(|revision| revision == inflight))
+                {
+                    self.save_inflight = None;
+                }
                 if revision.is_none_or(|revision| revision == self.revision) {
                     self.storage = StorageState::Failed(message);
+                    self.save_requested |= self.revision != self.saved_revision;
                     self.quit_after_save = false;
                 }
+                self.refresh_save_state();
             }
         }
         self.settle_exit();

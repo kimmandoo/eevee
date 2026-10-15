@@ -221,6 +221,10 @@ class Resources:
                 with process.oneshot():
                     created = process.create_time()
                     identity = (process.pid, created)
+                    # A completed child can lose its command line before it is
+                    # reaped. Keep its already observed, identity-bound scope.
+                    if owned and scope == "app_helpers" and identity in self.records:
+                        scope = self.records[identity]["scope"]
                     if owned and scope == "app_helpers":
                         executable = process.exe()
                         if os.path.normcase(executable) == os.path.normcase(str(self.binary)):
@@ -545,8 +549,13 @@ def main():
                 return resource
 
             def ready(session):
-                return visible(session, lambda text: "Storage: saved" in text and "Ctrl+K Actions" in text
-                               and not session.screen.cursor.hidden)
+                observed = visible(session, lambda text: "Storage: saved" in text
+                                   and not session.screen.cursor.hidden
+                                   and bool(session.screen.display[-1].strip()))
+                # The low-latency reader bypasses Session.pump; capture terminal
+                # modes while the process is alive, without adding a timed wait.
+                session.pump(0)
+                return observed
 
             data = root / "startup-data"
             seed = launch("warm-seed", data)

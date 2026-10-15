@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4
+
+- feat(ux): shortened navigation, added fluent response streaming and activity indicators, and preserved draft/follow state across inspection.
+- perf(tui): coalesced background saves, bounded event processing, synchronized frames and removed per-input Windows full-screen clears.
+- feat(party): added persistent partner selection, form switching, a roster and per-partner drafts with transactional Schema 8 migration.
+- fix(smoke): verified portable terminal resize, storage durability and published-version upgrade behavior without weakening safety gates.
+
 ## 0.1.3
 
 - feat(auth): Devin website OAuth (authorization code + PKCE) with a memory-only session credential injected only into the launched `devin acp` child.
@@ -11,6 +18,10 @@
 
 ## 2026-10-15
 
+- fix(store): coalesced implicit draft, caret and navigation saves after 500ms of quiet with a 2s deferral bound, preserved immediate explicit saves and transition/exit flushes, and separated pending edits from in-flight storage and stale acknowledgments.
+- fix(terminal): synchronized screen clears, text and native-image updates, released frames on errors and terminal lifecycle transitions, removed per-input Windows full-screen clears in favor of cell differences, and avoided unchanged image placement on spinner-only frames.
+- perf(runtime): bounded worker-event batches to preserve input responsiveness, slept until deferred-save deadlines instead of polling idle storage, and retained cached response layout across activity ticks.
+- fix(smoke): measured settled idle after deferred saves, refreshed startup readiness without losing raw-mode evidence, retained short-lived helper resource attribution after exit, and made native resize/draft checks independent of optional ConPTY hints and OSC filtering.
 - feat(ux): flattened specialist and editor entry points, added multiword action search and visible blockers, kept drafts visible beneath the command chooser, and unwound repeated overlay visits instead of accumulating Back steps.
 - feat(streaming): displayed credential-safe partial words before newlines across Codex, ACP and Claude, reduced SDK snapshot batching, and prioritized response text with cached wrapping, pauseable follow, new-output notices and inspectable provenance.
 - feat(tui): added observed-stage activity spinners with a static `--no-animation` option, stopped animation for local decisions and idle screens, removed hidden workspace rendering behind provider responses, and corrected the live Escape cancellation hint.

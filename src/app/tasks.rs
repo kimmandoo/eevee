@@ -192,6 +192,8 @@ impl App {
         self.storage = StorageState::Saved;
         self.show_archived = false;
         self.save_requested = false;
+        self.autosave = None;
+        self.save_inflight = None;
         let selection = self
             .visible_tasks()
             .position(|task| task.id == self.task_id)
@@ -207,6 +209,7 @@ impl App {
     }
 
     pub(super) fn finish_new_task(&mut self) {
+        self.flush_save();
         if !matches!(self.storage, StorageState::Saved)
             || self.save_requested
             || self.sources.persistence_pending()
@@ -308,6 +311,7 @@ impl App {
                 self.begin_edit_field(store::EditorField::Command);
             }
             execution::Action::SwitchTask(id) => {
+                self.flush_save();
                 if !matches!(self.storage, StorageState::Saved)
                     || self.save_requested
                     || self.sources.persistence_pending()
@@ -326,6 +330,9 @@ impl App {
     pub fn settle_exit(&mut self) {
         if self.quit_after_save
             && matches!(self.storage, StorageState::Saved)
+            && self.saved_revision == self.revision
+            && !self.save_requested
+            && self.save_inflight.is_none()
             && !self.sources.persistence_pending()
             && !self.execution.busy()
             && !self.planning.busy()
@@ -470,11 +477,6 @@ impl App {
     pub(super) fn changed_task(&mut self) {
         self.revision = self.revision.saturating_add(1);
         self.save_requested = true;
-        if !matches!(
-            self.storage,
-            StorageState::Failed(_) | StorageState::Loading
-        ) {
-            self.storage = StorageState::Saving;
-        }
+        self.flush_save();
     }
 }

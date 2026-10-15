@@ -259,8 +259,8 @@ class Session:
                     super().select_graphic_rendition(*attributes)
 
             def window_manipulation(self, operation, lines=0, columns=0):
-                # ConPTY announces its resize in the output stream. Apply it
-                # at that boundary, not before draining old-size output.
+                # Honor explicit resize boundaries when ConPTY sends them;
+                # Session.resize also sets dimensions when no hint is emitted.
                 if operation == 8 and lines > 0 and columns > 0:
                     self.resize(lines=lines, columns=columns)
 
@@ -378,6 +378,7 @@ class Session:
 
     def resize(self, size):
         if WINDOWS:
+            self.pump(0, settle=True)
             self.process.setwinsize(size[1], size[0])
         else:
             import fcntl
@@ -385,8 +386,9 @@ class Session:
             import termios
             fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", size[1], size[0], 0, 0))
             os.kill(self.process.pid, signal.SIGWINCH)
-        if not WINDOWS:
-            self.screen.resize(lines=size[1], columns=size[0])
+        # The terminal owns its dimensions. ConPTY does not emit CSI 8 on
+        # every growth; drain the old frame first, then apply the requested size.
+        self.screen.resize(lines=size[1], columns=size[0])
         self.events.append({"resize": list(size)})
         self.pump(settle=WINDOWS)
 
@@ -564,7 +566,8 @@ def exercise_ui(session, size, cwd):
     assert "🐾" in session.display(), "astral paste lost its UTF-16 surrogate pair"
     session.send("\x08")
     assert "café" not in session.display(), "backspace split a combining grapheme"
-    session.paste("e\u0301 qf?\necho unsafe > SMOKE_SIDE_EFFECT\n" + ESC + "]0;SMOKE_TITLE\x07")
+    session.paste("e\u0301 qf?\necho unsafe > SMOKE_SIDE_EFFECT\n"
+                  + ESC + "]0;SMOKE_TITLE\x07\nSMOKE_DRAFT_TAIL")
     session.capture("editor-paste")
     assert session.alive(), "paste executed a shortcut or quit"
     assert not (cwd / "SMOKE_SIDE_EFFECT").exists(), "pasted command was executed"
@@ -582,7 +585,7 @@ def exercise_ui(session, size, cwd):
     # A compact composer follows the caret; earlier lines can be above its
     # viewport. Check the editing tail here and the complete saved goal below.
     assert not session.screen.cursor.hidden, "resize did not restore the editor caret"
-    assert "]0;SMOKE_TITLE" in session.display(), "resize lost the draft tail"
+    assert "SMOKE_DRAFT_TAIL" in session.display(), "resize lost the literal draft tail"
     session.send("\r")
     await_saved(session)
     assert "type to search" not in session.display(), "goal save opened an unsolicited chooser"
@@ -622,8 +625,8 @@ def exercise_ui(session, size, cwd):
     assert "changed" not in session.display(), "explicit discard did not restore the goal"
     session.command("goal")
     session.send(ESC)  # Unchanged drafts close without a destructive confirmation.
+    await_saved(session)  # Deferred navigation autosave is work, not idle.
     session.idle()
-    await_saved(session)
     session.send("\x03")  # A committed, clean task exits without a review popup.
     assert session.wait_exit() == 0, "normal terminal exit failed"
 
