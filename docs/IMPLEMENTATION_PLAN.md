@@ -204,7 +204,9 @@ v0.1.7 delivered native model-provider connectivity and model discovery from qua
 4. Exercise native account discovery and real response/cancellation in the actual terminal at wide/compact sizes; run unit/policy/workbench/terminal acceptance. Update binding contracts and failures with observed evidence.
 5. Commit the candidate, qualify exact-commit Check and five native build/test/install rows, publish only their immutable artifacts, verify public hashes and installed runtime, and record completion in the checkpoint. Do not advance PT06A or claim unrelated authenticated provider conformance.
 
-## Current active request — inline sending and remembered models (v0.1.8)
+## Completed request — inline sending and remembered models (v0.1.8)
+
+All five steps completed at immutable v0.1.8 source `53f3fd0`: exact-commit native qualification, public publication, installed runtime, schema safety and actual GPT-6.1/low restart/direct-send proof passed. See `WORK_CHECKPOINT.md` for commands, run IDs and counts. No PT06A work was started.
 
 1. Make ordinary composer Enter the explicit send action after matching durable save and immutable local preparation, with no routine second popup. Retain approval for commands, writes, write-enabled sessions, project executables, external helpers and unmanaged connections; repeats/paste never dispatch.
 2. Show one Codex provider, with native no-tool responses and CLI tool/edit methods below it. Preserve their distinct credential audiences, session ownership and explicit method selection.
