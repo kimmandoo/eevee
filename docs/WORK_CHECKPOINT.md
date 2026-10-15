@@ -1,5 +1,12 @@
 # Work Checkpoint
 
+
+## 2026-10-15 — PT04A party roster view
+
+- **Delivered:** `/party` opens a read-only centered roster ("Party roster / read-only") listing each partner as `name · form · status · task`: `Eevee #n` or nickname via `App::partner_label` (shared with `lead_label`), the live form, and a derived `idle / working / waiting for approval` status with the engaged task's goal first line. `Overlay::Party` is a new variant; `App::party` caches `Project.partners` on `Loaded`/`Managed` and `set_form` keeps the lead row current before saves land. `partner_status()` is pure derivation from the one planning/execution slot (preview or provider prompt → waiting; busy → working; else idle), ready for PT06/PT07's per-partner slots. Companion drawer gained a `/party` hint; help lists the command; the namespace-duplicate test covers the new overlay.
+- **Verification:** `cargo fmt --check` clean; `cargo clippy --locked --all-targets -- -D warnings` clean; `cargo test --locked --all-targets` 387 passed / 0 failed / 2 ignored (was 384/2); `cargo build --locked --release` clean. New tests: `party_roster_lists_every_partner_with_derived_idle_status`, `partner_status_tracks_live_request_and_approval_states`, `roster_reflects_unsaved_form_switch_on_the_lead_row`. PTY demo at 120×36 and 60×18 (`target/pt04a-demo/`): migrated partner #1 renders `* Eevee #1 · Eevee · idle · -` at both sizes; Esc closes the roster and restores the workspace.
+- **Next action:** PT04B add a partner (roster action + `store::add_partner`, ≤6 enforced in the store).
+
 ## 2026-10-15 — PT03B previous-form toggle
 
 - **Delivered:** `set_form` now records the lead partner's prior form into `App::previous_form`, persisted as `navigation.previous_form` inside the task's existing bounded navigation JSON (serde `default`; no schema bump, old stores read as `None`, bound-checked `0..=8` in store validation). Backspace on every non-text surface and `/back-form` call `previous_form_toggle`, which routes through the picker's `SelectForm` path; with no recorded previous form it shows a notice instead. The binding is suppressed while editing, inside overlay text fields (`command_surface_editing`), in the command popup and during confirmations, where Backspace remains delete.

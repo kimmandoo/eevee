@@ -4,7 +4,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 
 | File | Section | Open |
 |---|---|---|
-| [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 16 |
+| [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 15 |
 | [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 9 |
 | [C-relays.md](tasks/C-relays.md) | Form relays | 8 |
 | [D-moves.md](tasks/D-moves.md) | Moves: teaching and learning skills | 14 |
@@ -17,13 +17,13 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 ## Status
 
 - **Released:** 0.1.3 (tags v0.1.0–v0.1.3). Schema 7 store.
-- **Done:** the 25 original tasks plus PT01 (party contract), PT02A (partner table / Schema 7), PT02B (lead-partner accessor), PT03A (named form commands), PT03B (previous-form toggle) and the first code-structure pass (index below). **Open:** 100 small tasks. **Dropped:** T05.
+- **Done:** the 25 original tasks plus PT01 (party contract), PT02A (partner table / Schema 7), PT02B (lead-partner accessor), PT03A (named form commands), PT03B (previous-form toggle), PT04A (party roster) and the first code-structure pass (index below). **Open:** 99 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.
 
 ### Completed index (referenced by "Builds on")
 
-V01 sanctuary layout · P01 native terminal lifecycle · V02A/V02B species art and native graphics · V03 evolution picker · UX01 focus/editing · E01 durable goal · E02 task cards/resume · E03 task lifecycle/privacy/quota · C01 repository baseline/diff · C02 Vaporeon source map/basket · R01 Jolteon approve/run/cancel · R02 execution journal/freshness · UX02 interruption/recovery · P02 filesystem/process parity · A01 agent preflight · A02 Espeon planning request · A03 Flareon implementation · A05 OpenCode ACP · U01 Umbreon hypotheses · L01 Leafeon refactor comparison · G01 Glaceon review desk · S01 Sylveon handoff · S02 curated memory (Bond) · S03 Evolution Stone recipes · PT01 party contract (DESIGN_RULES § Party: ≤6 partners, ≤3 working per task, one writer) · RF03 `app.rs` split.
+V01 sanctuary layout · P01 native terminal lifecycle · V02A/V02B species art and native graphics · V03 evolution picker · UX01 focus/editing · E01 durable goal · E02 task cards/resume · E03 task lifecycle/privacy/quota · C01 repository baseline/diff · C02 Vaporeon source map/basket · R01 Jolteon approve/run/cancel · R02 execution journal/freshness · UX02 interruption/recovery · P02 filesystem/process parity · A01 agent preflight · A02 Espeon planning request · A03 Flareon implementation · A05 OpenCode ACP · U01 Umbreon hypotheses · L01 Leafeon refactor comparison · G01 Glaceon review desk · S01 Sylveon handoff · S02 curated memory (Bond) · S03 Evolution Stone recipes · PT01 party contract (DESIGN_RULES § Party: ≤6 partners, ≤3 working per task, one writer) · PT02A/PT02B partner table and lead accessor · PT03A/PT03B named form commands and previous-form toggle · PT04A party roster view · RF03 `app.rs` split.
 
 ## How to pick work
 

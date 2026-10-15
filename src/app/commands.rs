@@ -121,6 +121,7 @@ impl App {
             ("back-form", "Return to the previous form (Backspace)"),
             ("files", "Source context"),
             ("tasks", "Saved tasks"),
+            ("party", "Party roster"),
             ("run", "Local command execution"),
             ("history", "Provider history"),
             ("handoff", "Portable task handoff"),
@@ -500,6 +501,7 @@ impl App {
             }
             "task-new" => self.new_task(),
             "tasks" => self.open_overlay(Overlay::Tasks),
+            "party" => self.open_overlay(Overlay::Party),
             "new" | "resume" | "model" | "effort" | "history" => {
                 self.open_overlay(Overlay::Planning);
                 if self.overlay == Some(Overlay::Planning) {
@@ -707,6 +709,7 @@ mod tests {
             Some(Overlay::Images),
             Some(Overlay::Workflows),
             Some(Overlay::Memory),
+            Some(Overlay::Party),
         ] {
             app.overlay = overlay;
             let choices = app.command_choices();

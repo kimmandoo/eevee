@@ -35,7 +35,7 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT04A — Party roster view
 
-- [ ] See every partner and what it is doing.
+- [x] See every partner and what it is doing.
 - **Priority:** 1. **Needs:** PT02A. **Builds on:** UX01.
 - **Change:** `/party` opens a read-only list: sprite (or text), nickname or `Eevee #n`, current form, status (idle / working / waiting for approval) and current task.
 - **Accept:** With one migrated partner, the roster shows it as idle in its form at both sizes. Escape restores focus.

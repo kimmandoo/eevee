@@ -47,7 +47,7 @@ const EMPTY_WORKFLOW_COLUMNS: &str = "'{}','null','[]','null'";
 const MAX_WORKFLOW_BYTES: usize = 512 * 1024;
 const MAX_MEMORY_BYTES: usize = 64 * 1024;
 const MAX_MEMORIES: usize = 256;
-const MAX_PARTNERS: usize = 6;
+pub(crate) const MAX_PARTNERS: usize = 6;
 const MAX_NICKNAME_BYTES: usize = 512;
 const MAX_PARTNER_DRAFTS_BYTES: usize = 64 * 1024;
 

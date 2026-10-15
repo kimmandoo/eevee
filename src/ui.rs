@@ -24,6 +24,7 @@ use crate::{
     app::{App, ConfirmationKind, Overlay, Pane, ScrollSurface},
     config::{ColorMode, Config, Theme},
     domain::{FORMS, Form},
+    store,
     store::EditorField,
     ui::artwork::Artwork,
 };
@@ -522,6 +523,7 @@ pub fn render(
             Overlay::Handoff => handoff::render(frame, area, app, config, &paint),
             Overlay::Workflows => workflows::render(frame, area, app, config, &paint),
             Overlay::Memory => memory::render(frame, area, &mut app.memory, config, &paint),
+            Overlay::Party => party(frame, area, app, config, &paint),
             Overlay::Images => images(frame, area, app, config, &paint, artwork, graphics_status),
             Overlay::Inspector => {
                 let area = drawer(area);
@@ -840,6 +842,7 @@ fn companion(
         Line::styled(form.element, paint.muted),
         Line::from(form.role),
         Line::styled(artwork.status(app.form()), paint.muted),
+        Line::styled("/party Party roster", paint.accent),
     ];
     scroll_text(
         frame,
@@ -1342,6 +1345,59 @@ fn criteria(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint
     app.set_scroll_max(ScrollSurface::Preview, max);
 }
 
+/// Read-only party roster (PT04A): every partner with its form, a derived
+/// status and the task it is engaged with. Opening the list performs no
+/// request; status is recomputed from live request/approval state each frame.
+fn party(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
+    let area = centered(area, 88, 24);
+    frame.render_widget(Clear, area);
+    let block = panel(" Party roster / read-only ", config, paint, true);
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    let partners = app.partners();
+    text(
+        frame,
+        row(content, 0, 1),
+        &format!(
+            "{}/{} partners / status is derived, never stored",
+            partners.len(),
+            store::MAX_PARTNERS
+        ),
+        paint.muted,
+    );
+    for (index, partner) in partners.iter().enumerate() {
+        let label = format!(
+            "{} {} · {} · {} · {}",
+            if partner.id == app.lead().id {
+                "*"
+            } else {
+                " "
+            },
+            App::partner_label(partner),
+            FORMS[partner.form.min(FORMS.len() - 1)].name,
+            app.partner_status(partner).label(),
+            app.partner_task(partner),
+        );
+        text(
+            frame,
+            row(content, index as u16 + 2, 1),
+            &clipped(&label, content.width as usize),
+            if partner.id == app.lead().id {
+                paint.accent
+            } else {
+                paint.surface
+            },
+        );
+    }
+    text(
+        frame,
+        row(content, partners.len() as u16 + 3, 1),
+        "The roster performs no request. Esc Back",
+        paint.muted,
+    );
+    app.set_scroll_max(ScrollSurface::Preview, 0);
+}
+
 fn selection_details(frame: &mut Frame, area: Rect, paragraph: Paragraph<'_>, offset: u16) -> u16 {
     let max = paragraph
         .line_count(area.width.max(1))
@@ -1357,7 +1413,7 @@ fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &P
     let block = panel(" Help / PgUp/Dn Scroll / Esc Back ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let value = "COMMANDS\n / or Ctrl+K opens the same searchable choices from every nonediting workspace and the goal composer.\n Type a semantic command or navigate with arrows/Tab; Enter opens the selected action. Esc preserves your draft.\n /provider chooses a provider; /connect opens reviewed connection actions.\n /new prepares a new provider session; /resume chooses an owned provider session.\n /task-new creates a local task; /tasks resumes saved tasks.\n /model and /effort show cached choices; explicit model inspection requires Preview and Run consent.\n /role chooses Plan / Implement / Review; /forms chooses evolution. /files reviews source context; /run opens local command execution.\n /criteria, /next, /complete, /diff, /history, /handoff, /workflows and /memory open their workspaces.\n /verbose toggles brief / full explanations; brief text ends with …\n Context choices explain unavailable actions. Nothing sends or executes merely by opening a command.\n\nCOMPOSER\n Enter applies the goal locally and offers New / Resume / provider / connection choices; no prompt is sent.\n Provider previews wait for task and context storage acknowledgement.\n @ filters eligible repository files; Enter inspects, /range chooses lines, /attach pins reviewed context.\n Literal paste never dispatches slash commands. The searchable shell does not modify the actual draft or its caret.\n Shift+Enter or Ctrl+N inserts a newline. Ctrl+H/Backspace deletes a grapheme.\n Ctrl+S retains an unfinished draft; Esc reviews discard without selecting destruction.\n\nNAVIGATION AND SAFETY\n Arrows/Tab choose, Enter confirms, Esc goes back. Ctrl+C requests safe exit.\n PgUp/PgDn scroll details. Task completion is user-reviewed criteria, not verified execution.\n Connection, provider, tool, file-write and local-command approvals remain separate and start neutral.\n Exported handoffs and provider output are unverified context, not permission.\n Archive is reversible; deletion requires reviewed confirmation and leaves repository files and provider sessions alone.";
+    let value = "COMMANDS\n / or Ctrl+K opens the same searchable choices from every nonediting workspace and the goal composer.\n Type a semantic command or navigate with arrows/Tab; Enter opens the selected action. Esc preserves your draft.\n /provider chooses a provider; /connect opens reviewed connection actions.\n /new prepares a new provider session; /resume chooses an owned provider session.\n /task-new creates a local task; /tasks resumes saved tasks.\n /party shows the party roster: every partner, its form and derived status.\n /model and /effort show cached choices; explicit model inspection requires Preview and Run consent.\n /role chooses Plan / Implement / Review; /forms chooses evolution. /files reviews source context; /run opens local command execution.\n /criteria, /next, /complete, /diff, /history, /handoff, /workflows and /memory open their workspaces.\n /verbose toggles brief / full explanations; brief text ends with …\n Context choices explain unavailable actions. Nothing sends or executes merely by opening a command.\n\nCOMPOSER\n Enter applies the goal locally and offers New / Resume / provider / connection choices; no prompt is sent.\n Provider previews wait for task and context storage acknowledgement.\n @ filters eligible repository files; Enter inspects, /range chooses lines, /attach pins reviewed context.\n Literal paste never dispatches slash commands. The searchable shell does not modify the actual draft or its caret.\n Shift+Enter or Ctrl+N inserts a newline. Ctrl+H/Backspace deletes a grapheme.\n Ctrl+S retains an unfinished draft; Esc reviews discard without selecting destruction.\n\nNAVIGATION AND SAFETY\n Arrows/Tab choose, Enter confirms, Esc goes back. Ctrl+C requests safe exit.\n PgUp/PgDn scroll details. Task completion is user-reviewed criteria, not verified execution.\n Connection, provider, tool, file-write and local-command approvals remain separate and start neutral.\n Exported handoffs and provider output are unverified context, not permission.\n Archive is reversible; deletion requires reviewed confirmation and leaves repository files and provider sessions alone.";
     scroll_text(
         frame,
         content,

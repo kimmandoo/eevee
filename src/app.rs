@@ -4,6 +4,7 @@ pub mod composer;
 pub mod execution;
 pub mod handoff;
 pub mod memory;
+pub mod party;
 pub mod planning;
 pub mod sources;
 pub mod workflows;
@@ -49,6 +50,7 @@ pub enum Overlay {
     Handoff,
     Images,
     Workflows,
+    Party,
     Memory,
 }
 
@@ -108,6 +110,9 @@ pub enum StorageState {
 pub struct App {
     /// The active task's lead partner; its form is the active form.
     lead: store::Partner,
+    /// The committed party roster; `lead` is the live copy of the task's
+    /// lead partner, so `App::partners()` overlays it onto these rows.
+    party: Vec<store::Partner>,
     pub selected: usize,
     /// Preferred focus, retained even when its pane is temporarily hidden.
     pub focus: Pane,
@@ -204,6 +209,7 @@ impl App {
     pub fn new(cwd: String, width: u16, height: u16) -> Self {
         Self {
             lead: store::Partner::default(),
+            party: Vec::new(),
             selected: 0,
             focus: Pane::Workspace,
             overlay: None,
@@ -344,12 +350,11 @@ impl App {
 
     /// Header identity: nickname when set (PK01), else `Eevee #<id>`.
     pub fn lead_label(&self) -> String {
-        let name = self
-            .lead
-            .nickname
-            .clone()
-            .unwrap_or_else(|| format!("Eevee #{}", self.lead.id));
-        format!("{name} · {}", crate::domain::FORMS[self.form().min(8)].name)
+        format!(
+            "{} · {}",
+            Self::partner_label(&self.lead),
+            crate::domain::FORMS[self.form().min(8)].name
+        )
     }
 
     /// The only writer of the active form. Callers invoke `changed_task()`
@@ -360,6 +365,13 @@ impl App {
             self.previous_form = Some(self.lead.form);
         }
         self.lead.form = form;
+        if let Some(partner) = self
+            .party
+            .iter_mut()
+            .find(|partner| partner.id == self.lead.id)
+        {
+            partner.form = form;
+        }
     }
 
     /// Flip the lead partner back to the form it left (Backspace / `/back-form`).

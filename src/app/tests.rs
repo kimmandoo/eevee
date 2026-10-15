@@ -995,3 +995,82 @@ fn archived_view_restores_instead_of_resuming_hidden_tasks() {
     ));
     assert_eq!(app.task_id, 0);
 }
+
+#[test]
+fn party_roster_lists_every_partner_with_derived_idle_status() {
+    let mut app = app();
+    let partners = vec![
+        store::Partner {
+            id: 1,
+            nickname: Some("Bolt".into()),
+            form: 2,
+            met_at: 7,
+            met_derived: false,
+            created_project: "/workspace".into(),
+        },
+        store::Partner {
+            id: 2,
+            nickname: None,
+            form: 0,
+            met_at: 9,
+            met_derived: false,
+            created_project: "/workspace".into(),
+        },
+    ];
+    app.store_event(store::Event::Loaded(store::Project {
+        tasks: Vec::new(),
+        partners,
+        active_id: None,
+        usage_bytes: 0,
+    }));
+    let roster = app.partners();
+    assert_eq!(roster.len(), 2);
+    assert_eq!(App::partner_label(&roster[0]), "Bolt");
+    assert_eq!(App::partner_label(&roster[1]), "Eevee #2");
+    for partner in &roster {
+        // Nothing is running: every partner derives idle without a request.
+        assert_eq!(app.partner_status(partner), party::PartnerStatus::Idle);
+        assert_eq!(app.partner_task(partner), "-");
+    }
+    // The roster opens and Escape restores the previous surface and focus.
+    app.editing = false;
+    app.command("party");
+    assert_eq!(app.overlay, Some(Overlay::Party));
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.overlay, None);
+}
+
+#[test]
+fn partner_status_tracks_live_request_and_approval_states() {
+    let mut app = app();
+    app.task_id = 7;
+    app.goal = "task".into();
+    app.planning.reset(7);
+    let lead = app.lead().clone();
+    // A provider preview awaiting the user's review is a waiting status.
+    app.planning.preview = Some(crate::providers::Preview {
+        generation: 1,
+        task_id: 7,
+        thread_id: None,
+        trust: Vec::new(),
+        payload: "{}".into(),
+        blockers: Vec::new(),
+    });
+    assert_eq!(app.partner_status(&lead), party::PartnerStatus::Waiting);
+    // Another partner owns no request slot yet, so it stays derived idle.
+    let other = store::Partner {
+        id: 2,
+        ..store::Partner::default()
+    };
+    assert_eq!(app.partner_status(&other), party::PartnerStatus::Idle);
+}
+
+#[test]
+fn roster_reflects_unsaved_form_switch_on_the_lead_row() {
+    let mut app = app();
+    app.editing = false;
+    app.command("jolteon");
+    let roster = app.partners();
+    assert_eq!(roster[0].form, 2);
+    assert_eq!(app.lead().form, 2);
+}
