@@ -394,7 +394,7 @@ impl App {
                     )))
                 || (key.code == KeyCode::Char('k') && key.modifiers == KeyModifiers::CONTROL))
         {
-            self.open_commands(false);
+            self.open_commands();
             return true;
         }
         if key.kind == KeyEventKind::Repeat

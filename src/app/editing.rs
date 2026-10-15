@@ -184,7 +184,6 @@ impl App {
             self.notice = "Enlarge the terminal before applying this draft.".into();
             return false;
         }
-        let goal_saved = self.editor_field == store::EditorField::Goal;
         match self.editor_field {
             store::EditorField::Goal => self.goal = std::mem::take(&mut self.input),
             store::EditorField::NextAction => self.next_action = std::mem::take(&mut self.input),
@@ -224,8 +223,8 @@ impl App {
         self.drafts.retain(|draft| draft.field != self.editor_field);
         self.finish_edit();
         self.changed_task();
-        if goal_saved {
-            self.open_commands(true);
+        if self.editor_field == store::EditorField::Goal {
+            self.notice = "Goal saved; / or Ctrl+K opens actions.".into();
         }
         true
     }

@@ -36,7 +36,6 @@ pub struct Popup {
     pub selected: Option<usize>,
     pub choices: Vec<Choice>,
     pub scope: Option<Overlay>,
-    pub after_goal: bool,
 }
 
 impl Popup {
@@ -307,32 +306,20 @@ impl App {
         None
     }
 
-    pub(super) fn open_commands(&mut self, after_goal: bool) {
-        let choices = if after_goal {
-            vec![
-                Choice::new("new", "New provider session"),
-                Choice::new("resume", "Resume owned provider session"),
-                Choice::new("provider", "Choose provider, model and effort"),
-                Choice::new("connect", "Connect a provider; no prompt sent"),
-            ]
-        } else {
-            self.command_choices()
-        };
+    pub(super) fn open_commands(&mut self) {
         self.command_popup = Some(Popup {
             query: String::new(),
             selected: None,
-            choices,
+            choices: self.command_choices(),
             scope: self.overlay,
-            after_goal,
         });
     }
-
     pub(super) fn command_popup_key(&mut self, key: KeyEvent) -> bool {
         if key.kind != KeyEventKind::Press {
             return false;
         }
         if key.code == KeyCode::Char('k') && key.modifiers == KeyModifiers::CONTROL {
-            self.open_commands(false);
+            self.open_commands();
             return true;
         }
         if key
@@ -534,7 +521,6 @@ impl App {
                         selected: None,
                         choices,
                         scope: self.overlay,
-                        after_goal: false,
                     });
                 }
             }
@@ -754,16 +740,18 @@ mod tests {
     }
 
     #[test]
-    fn goal_enter_saves_and_requires_ack_before_provider_preview() {
+    fn goal_enter_saves_without_popup_and_requires_ack_before_provider_preview() {
         let mut app = App::new("/workspace".into(), 120, 36);
         app.update(Event::Paste("Saved prompt".into()));
         key(&mut app, KeyCode::Enter);
         assert_eq!(app.goal, "Saved prompt");
-        assert!(app.command_popup.as_ref().unwrap().selected.is_none());
+        // Goal apply stays on the composer; the chooser opens only on demand.
+        assert!(app.command_popup.is_none());
         assert!(app.planning.pending.is_none());
+        key(&mut app, KeyCode::Char('/'));
         query(&mut app, "new");
         key(&mut app, KeyCode::Enter);
-        assert!(app.planning.pending.is_none());
+        // The refused choice keeps the deliberate chooser open with the reason.
         assert!(app.command_popup.is_some());
         let mut snapshot = app.snapshot("/workspace");
         snapshot.id = 7;
@@ -772,7 +760,7 @@ mod tests {
         assert!(matches!(app.storage, StorageState::Saved));
         assert!(app.planning.pending.is_none());
         assert_eq!(app.goal, "Saved prompt");
-        key(&mut app, KeyCode::Enter);
+        app.command("new");
         assert!(matches!(app.planning.pending.as_ref(),
             Some(crate::providers::Request::Preview(input)) if !input.inspect_models));
         assert!(app.command_popup.is_none());
@@ -855,11 +843,7 @@ mod tests {
         let mut app = App::new("/workspace".into(), 120, 36);
         app.update(Event::Paste("Uncommitted goal".into()));
         key(&mut app, KeyCode::Enter);
-        assert!(
-            app.command_popup
-                .as_ref()
-                .is_some_and(|popup| popup.after_goal)
-        );
+        assert!(app.command_popup.is_none());
         app.store_event(crate::store::Event::Failed {
             revision: Some(app.revision),
             message: "disk full".into(),

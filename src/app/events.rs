@@ -301,13 +301,6 @@ impl App {
                 if revision.is_none_or(|revision| revision == self.revision) {
                     self.storage = StorageState::Failed(message);
                     self.quit_after_save = false;
-                    if self
-                        .command_popup
-                        .as_ref()
-                        .is_some_and(|popup| popup.after_goal)
-                    {
-                        self.command_popup = None;
-                    }
                 }
             }
         }
