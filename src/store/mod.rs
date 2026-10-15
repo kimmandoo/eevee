@@ -12,6 +12,7 @@ mod admission;
 mod journal;
 mod memories;
 mod partners;
+mod preferences;
 mod recovery;
 mod runs;
 mod schema;
@@ -30,6 +31,7 @@ use spool::*;
 use tasks::*;
 
 pub use admission::{review_run_observations, validate_planning_input};
+pub use preferences::{PreferenceRequest, ProviderPreferences};
 pub use recovery::export_readable;
 pub(crate) use runs::valid_run_id;
 
@@ -425,6 +427,7 @@ pub enum Event {
         revision: Option<u64>,
         message: String,
     },
+    Preferences(Result<Option<ProviderPreferences>, String>),
     /// Committed party roster after a `PartyRequest`, or the refusal reason.
     Party(Result<Vec<Partner>, String>),
     Context {
@@ -462,6 +465,7 @@ enum Command {
     Journal(JournalRequest),
     Memory(MemoryRequest),
     Party(PartyRequest),
+    Preferences(PreferenceRequest),
     Retry,
 }
 
@@ -621,6 +625,25 @@ impl Worker {
         }
     }
 
+    /// Transfers a nonsecret preference request only after queue acceptance.
+    pub fn try_preferences(&self, pending: &mut Option<PreferenceRequest>) -> bool {
+        let Some(commands) = &self.commands else {
+            return false;
+        };
+        let Some(request) = pending.take() else {
+            return false;
+        };
+        match commands.try_send(Command::Preferences(request)) {
+            Ok(()) => true,
+            Err(TrySendError::Full(Command::Preferences(request)))
+            | Err(TrySendError::Disconnected(Command::Preferences(request))) => {
+                *pending = Some(request);
+                false
+            }
+            Err(_) => unreachable!("try_send returns the submitted command"),
+        }
+    }
+
     pub fn try_select(&self, id: i64) -> bool {
         self.commands
             .as_ref()
@@ -669,6 +692,9 @@ fn run(
     while let Ok(command) = commands.recv() {
         let event = match command {
             Command::Retry => state.reopen(),
+            Command::Preferences(request) => {
+                Event::Preferences(state.preference_request(request).map_err(actionable))
+            }
             Command::Context(request) => Event::Context {
                 task_id: request.task_id,
                 result: state.context(request).map_err(actionable),

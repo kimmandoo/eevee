@@ -194,12 +194,20 @@ P03 remains the full distribution gate after P02, Q01, and Q02: prove native ins
 
 No custom model runtime, autonomous multi-agent swarm, hosted synchronization, plugin marketplace, automatic commits/merges, agent-TUI scraping, or background model calls for pet animation. No new MCP server or generic plugin framework in this plan. No claim of canonical game evolution mechanics or affiliation. Public distribution requires naming/art review plus provider authentication/branding/terms review.
 
-## Current active request — native provider connectivity
+## Completed request — native provider connectivity (v0.1.7)
 
-The v0.1.6 release completed the previous home/response and command request. The active user request supersedes unstarted PT06A: separate model providers from installed agent runtimes, repair model discovery/selection and connection handling, verify actual requests, then publish v0.1.7.
+v0.1.7 delivered native model-provider connectivity and model discovery from qualified source `0a43c0e`, with all five native build/install rows and public package/runtime acceptance. The following was its accepted implementation sequence; its immutable tag remains unchanged.
 
 1. Add native ChatGPT, OpenAI Responses, Anthropic Messages, Google Gemini and configurable OpenAI-compatible connections alongside existing CLI/SDK/ACP adapters. Resolve user-scoped endpoint/model settings and environment-held keys without project commands. Existing ChatGPT session credentials may be used read-only by the explicitly disclosed native route; never send them to a custom endpoint or persist/copy them into task data.
 2. Keep model discovery independent from request eligibility: optional reasoning metadata, exact configured/custom IDs, searchable lists, retained snapshots on refresh errors, and provider-side validation rather than stale CLI allowlists. Preserve explicit model identity and reject silent substitution.
 3. Keep immutable payload review and explicit Run, cancellation ownership and truthful observed-model reporting. Native requests expose no tools or source-writing capability; implementation replies are proposals, not applied edits. Existing controlled-agent editing remains a separate route.
 4. Exercise native account discovery and real response/cancellation in the actual terminal at wide/compact sizes; run unit/policy/workbench/terminal acceptance. Update binding contracts and failures with observed evidence.
 5. Commit the candidate, qualify exact-commit Check and five native build/test/install rows, publish only their immutable artifacts, verify public hashes and installed runtime, and record completion in the checkpoint. Do not advance PT06A or claim unrelated authenticated provider conformance.
+
+## Current active request — inline sending and remembered models (v0.1.8)
+
+1. Make ordinary composer Enter the explicit send action after matching durable save and immutable local preparation, with no routine second popup. Retain approval for commands, writes, write-enabled sessions, project executables, external helpers and unmanaged connections; repeats/paste never dispatch.
+2. Show one Codex provider, with native no-tool responses and CLI tool/edit methods below it. Preserve their distinct credential audiences, session ownership and explicit method selection.
+3. Persist only nonsecret last-used provider/method and per-route exact model/effort. Migrate Schema 9→10 transactionally, respect explicit `EV_PROVIDER`, block fallback dispatch during failed/pending hydration, preserve drafts on failure and await preference commit on quit.
+4. Exercise actual TUI direct sends, real connection/permission boundaries, no forced effort popup, immediate-quit/restart preferences, competing startup providers and old-binary refusal. Keep API/account qualification limits truthful.
+5. Commit the complete v0.1.8 source; qualify Check plus five native build/test/install rows at that exact commit. Publish only their immutable artifacts, verify all public hashes and installed runtime, and record completion. Do not retag v0.1.7 or advance PT06A.

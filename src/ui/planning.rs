@@ -620,9 +620,9 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         let empty = if active {
             "You can keep editing your next request below."
         } else if state.operation == Operation::Review {
-            "Type a request below for an independent review. Review scope before Run; no source writes or resumed implementation history."
+            "Enter sends an independent review request. No source writes or resumed implementation history."
         } else {
-            "Type a request below. Enter prepares a concise scope review; only explicit Run connects to the provider."
+            "Type a request below. Enter sends; commands and file changes require separate approval."
         };
         frame.render_widget(
             Paragraph::new(empty)
@@ -1219,6 +1219,7 @@ mod tests {
         ));
         app.planning.event(Event::Preview(Preview {
             destination: None,
+            requires_connection_review: true,
             generation: 11,
             task_id: 7,
             thread_id: None,

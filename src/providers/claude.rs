@@ -852,6 +852,7 @@ fn worker(
                 preview_owner = Some((generation, input.task.id));
                 let mut preview = Preview {
                     destination: None,
+                    requires_connection_review: true,
                     generation,
                     task_id: input.task.id,
                     thread_id: input.resume.clone(),
@@ -882,6 +883,15 @@ fn worker(
                         .push("SDK session bound reached; restart before another session".into());
                 }
                 let observed = trust(project, data_dir);
+                if let Ok(t) = &observed {
+                    preview.requires_connection_review =
+                        t.launch.executable.path.starts_with(project)
+                            || t.entry.starts_with(project)
+                            || t.root.starts_with(project)
+                            || input.operation == Operation::Implement
+                            || std::env::var("EEVEE_CLAUDE_CLOUD_AUTH").ok().as_deref()
+                                == Some("provider-chain");
+                }
                 match &observed {
                     Ok(t) => preview.trust.extend([
                         format!("Consent executes Node {} sha256 {}, native-TypeScript sidecar {} and complete dependency tree sha256 {} ({} entries / {} bytes). Installed SDK {} / embedded CLI {} are bound to this review, not release-pinned; --inspect loads the real SDK and checks bridge policy without a model before one query. Unsupported protocol/capabilities fail closed.", t.launch.executable.path.display(), t.launch.executable.sha256, t.entry.display(), t.stamp.digest, t.stamp.files, t.stamp.bytes, t.versions.sdk, t.versions.cli),

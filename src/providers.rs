@@ -39,12 +39,12 @@ impl Agent {
     ];
     pub fn label(self) -> &'static str {
         match self {
-            Self::Codex => "Codex",
+            Self::Codex => "Codex · CLI agent",
             Self::Claude => "Claude Agent",
             Self::OpenCode => "OpenCode ACP",
             Self::Gemini => "Gemini ACP",
             Self::Devin => "Devin ACP",
-            Self::ChatGPT => "ChatGPT / direct",
+            Self::ChatGPT => "Codex · native (no tools)",
             Self::OpenAI => "OpenAI API",
             Self::Anthropic => "Anthropic API",
             Self::Google => "Google Gemini API",
@@ -77,6 +77,16 @@ impl Agent {
     }
     pub fn from_command(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|agent| agent.command() == name)
+    }
+    pub fn is_codex(self) -> bool {
+        matches!(self, Self::Codex | Self::ChatGPT)
+    }
+    pub fn provider_label(self) -> &'static str {
+        if self.is_codex() {
+            "Codex"
+        } else {
+            self.label()
+        }
     }
     pub fn is_direct(self) -> bool {
         matches!(
@@ -280,6 +290,8 @@ pub struct Preview {
     pub thread_id: Option<String>,
     /// Immutable HTTP destination; external agents retain their launch trust.
     pub destination: Option<String>,
+    /// Project-supplied executables and unmanaged tool/helper effects still need consent.
+    pub requires_connection_review: bool,
     pub trust: Vec<String>,
     pub payload: String,
     pub blockers: Vec<String>,

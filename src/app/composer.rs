@@ -24,14 +24,14 @@ impl App {
         self.planning.response_visible()
     }
 
-    /// Enter requests review only; the main loop waits for the exact saved draft.
+    /// Enter sends the exact committed draft; preparation and storage still gate dispatch.
     pub(super) fn submit_request(&mut self) -> bool {
         if self.width < 60 || self.height < 18 || self.input.trim().is_empty() {
-            self.notice = "Type a request and enlarge the terminal before reviewing.".into();
+            self.notice = "Type a request and enlarge the terminal before sending.".into();
             return true;
         }
         if self.pending_request.is_some() || self.planning.busy() || self.execution.busy() {
-            self.notice = "Finish or cancel the current request before reviewing another.".into();
+            self.notice = "Finish or cancel the current request before sending another.".into();
             return true;
         }
         if self.archived {
@@ -48,7 +48,7 @@ impl App {
                 && self.planning.operation != crate::providers::Operation::Review,
         ));
         self.flush_save();
-        self.notice = "Saving request before review; nothing has been sent.".into();
+        self.notice = "Saving request before sending…".into();
         true
     }
 
@@ -59,10 +59,14 @@ impl App {
         if revision != self.revision {
             self.pending_request = None;
             self.notice =
-                "Draft changed while saving. Press Enter to review the current request.".into();
+                "Draft changed while saving. Press Enter to send the current request.".into();
             return true;
         }
-        if !self.planning_input_ready() || self.agents.busy() {
+        if self.planning.preference_restore_error().is_some()
+            || self.planning.preferences_loading()
+            || !self.planning_input_ready()
+            || self.agents.busy()
+        {
             return false;
         }
         self.pending_request = None;
@@ -86,6 +90,14 @@ impl App {
         self.composer_return = Some(EditorField::Request);
         self.open_overlay(Overlay::Planning);
         self.planning_command(if resume { "resume" } else { "new" });
+        if matches!(
+            self.planning.pending,
+            Some(crate::providers::Request::Preview(_))
+        ) {
+            self.planning.send_after_prepare = true;
+            self.request_home(false);
+            self.notice = "Preparing request… Enter will not send it twice.".into();
+        }
         true
     }
 

@@ -246,6 +246,7 @@ fn worker(
                     }
                     let preview = Preview {
                         destination: None,
+                        requires_connection_review: true,
                         generation,
                         task_id,
                         thread_id: input.resume.clone(),

@@ -389,33 +389,6 @@ fn global_confirmation_exposes_shortcuts_only_with_visible_scope() {
 }
 
 #[test]
-fn first_use_invites_request_without_a_goal_prerequisite() {
-    use ratatui::{Terminal, backend::TestBackend};
-    let config = home_config();
-    for (width, height) in [(120, 36), (60, 18)] {
-        let mut app = App::new("/workspace".into(), width, height);
-        app.editing = true;
-        app.editor_field = EditorField::Request;
-        let mut artwork = Artwork::load(&config);
-        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-        terminal
-            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
-            .unwrap();
-        let rendered = screen_text(&terminal);
-        for expected in [
-            "Request",
-            "What would you like to do?",
-            "Enter Review",
-            "Responses appear here",
-        ] {
-            assert!(rendered.contains(expected), "{width}x{height}: {expected}");
-        }
-        assert!(!rendered.contains("Enter Save"));
-        assert!(app.goal.is_empty());
-    }
-}
-
-#[test]
 fn provider_response_and_request_share_home_at_supported_sizes() {
     use ratatui::{Terminal, backend::TestBackend};
     let config = home_config();
@@ -445,7 +418,6 @@ fn provider_response_and_request_share_home_at_supported_sizes() {
         for expected in [
             "The actual provider response is here.",
             "Follow-up request remains editable",
-            "Enter Review",
         ] {
             assert!(rendered.contains(expected), "{width}x{height}: {expected}");
         }
@@ -672,6 +644,89 @@ fn reset_and_init_reviews_keep_scope_and_neutral_actions_visible() {
             tiny.draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
                 .unwrap();
             assert!(!app.confirmation_reviewed);
+        }
+    }
+}
+
+#[test]
+fn codex_connection_drawer_groups_routes_and_keeps_method_controls_visible() {
+    use crate::app::agents::Page;
+    use crate::providers::{
+        Agent,
+        agent::{Event as AgentEvent, Profile},
+    };
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    let paint = Paint::new(&config, &FORMS[0], 0);
+    for (width, height) in [(120, 36), (60, 18)] {
+        for agent in [Agent::Codex, Agent::ChatGPT] {
+            let mut app = App::new("/workspace".into(), width, height);
+            app.planning.agent = agent;
+            app.agents.pending.take();
+            app.agents.event(AgentEvent::Discovered(
+                Agent::ALL
+                    .into_iter()
+                    .map(|provider| Profile {
+                        name: provider.label().into(),
+                        executable: None,
+                        argv: Vec::new(),
+                        installed: "absent".into(),
+                        version: "unknown".into(),
+                        authentication: "unknown".into(),
+                        configuration: "no credentials read".into(),
+                        os: "test".into(),
+                        adapter: "test".into(),
+                        action: "test".into(),
+                        probe_allowed: false,
+                        trust_preview: Vec::new(),
+                        revision: 1,
+                        architecture: "test".into(),
+                        billing: "unknown".into(),
+                        blockers: Vec::new(),
+                        capabilities: Vec::new(),
+                    })
+                    .collect(),
+            ));
+            app.agents.active = agent.index();
+            app.agents.focus_active();
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| {
+                    agents::render(frame, frame.area(), &mut app, &config, &paint);
+                })
+                .unwrap();
+            let rendered = screen_text(&terminal);
+            assert_eq!(app.agents.provider_indices().count(), Agent::ALL.len() - 1);
+            assert!(!rendered.contains("ChatGPT / direct"));
+            assert!(rendered.contains("Codex"), "{width}x{height}");
+            assert!(
+                rendered.contains(if agent == Agent::ChatGPT {
+                    "Native/no tools"
+                } else {
+                    "CLI/tools"
+                }),
+                "{width}x{height}"
+            );
+            app.agents.page = Page::Actions;
+            terminal
+                .draw(|frame| {
+                    agents::render(frame, frame.area(), &mut app, &config, &paint);
+                })
+                .unwrap();
+            let rendered = screen_text(&terminal);
+            assert!(rendered.contains(agent.label()), "{width}x{height}");
+            assert!(
+                rendered.contains(if agent == Agent::ChatGPT {
+                    "Use CLI agent (tools / edits)"
+                } else {
+                    "Use native responses (no tools; no CLI)"
+                }),
+                "{width}x{height}"
+            );
+            if agent == Agent::ChatGPT {
+                assert!(!rendered.contains("Check installed version"));
+                assert!(!rendered.contains("Check connection status"));
+            }
         }
     }
 }

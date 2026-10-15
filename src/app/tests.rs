@@ -1289,6 +1289,7 @@ fn partner_status_tracks_live_request_and_approval_states() {
     // A provider preview awaiting the user's review is a waiting status.
     app.planning.preview = Some(crate::providers::Preview {
         destination: None,
+        requires_connection_review: true,
         generation: 1,
         task_id: 7,
         thread_id: None,
@@ -1521,6 +1522,7 @@ fn lead_switch_is_refused_while_the_lead_owns_live_work() {
     app.planning.reset(7);
     app.planning.preview = Some(crate::providers::Preview {
         destination: None,
+        requires_connection_review: true,
         generation: 1,
         task_id: 7,
         thread_id: None,
@@ -1687,6 +1689,7 @@ fn finish_catalogue(app: &mut App, task_id: i64, blockers: Vec<String>) {
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
             destination: None,
+            requires_connection_review: false,
             generation: 3,
             task_id,
             thread_id: None,
@@ -1838,6 +1841,23 @@ fn fresh_provider_selection_preserves_unsaved_request_without_task_or_network() 
     assert_eq!(app.cursor, cursor);
 }
 
+#[test]
+fn codex_method_switch_changes_actual_route_and_returns_to_the_invoking_editor() {
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = request_app();
+        app.width = width;
+        app.height = height;
+        app.update(Event::Paste("keep this method-switch draft".into()));
+        app.open_overlay(Overlay::Agents);
+        app.agents.use_for_task = Some(crate::providers::Agent::ChatGPT.index());
+        app.use_selected_provider();
+        assert_eq!(app.planning.agent, crate::providers::Agent::ChatGPT);
+        assert!(app.overlay.is_none() && app.editing);
+        assert_eq!(app.input, "keep this method-switch draft");
+        assert!(app.planning.pending.is_none());
+    }
+}
+
 fn request_app() -> App {
     let mut app = App::new("/workspace".into(), 120, 36);
     app.storage = StorageState::Saved;
@@ -1864,6 +1884,7 @@ fn request_preview(app: &mut App) {
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
             destination: None,
+            requires_connection_review: true,
             generation: 12,
             task_id: app.task_id,
             thread_id: None,
@@ -1872,6 +1893,115 @@ fn request_preview(app: &mut App) {
             blockers: vec![],
         },
     ));
+    app.settle_planning();
+}
+
+#[test]
+fn only_deliberate_unmodified_enter_can_submit_a_request() {
+    let mut app = request_app();
+    app.update(Event::Paste("retained request".into()));
+    for event in [
+        KeyEvent::new_with_kind(KeyCode::Enter, KeyModifiers::NONE, KeyEventKind::Repeat),
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL),
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT),
+    ] {
+        app.update(Event::Key(event));
+        assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+        assert_eq!(app.input, "retained request");
+    }
+}
+
+#[test]
+fn composer_enter_dispatches_the_committed_request_once_without_a_popup() {
+    let mut app = request_app();
+    app.update(Event::Paste("Send exactly this request".into()));
+    key(&mut app, KeyCode::Enter);
+    save_request(&mut app);
+    app.settle_planning();
+    let Some(crate::providers::Request::Preview(input)) = app.planning.pending.take() else {
+        panic!("committed request was not prepared");
+    };
+    assert_eq!(input.task.request_text(), "Send exactly this request");
+    assert!(app.overlay.is_none());
+    app.planning.event(crate::providers::Event::Preview(
+        crate::providers::Preview {
+            generation: 91,
+            task_id: app.task_id,
+            thread_id: None,
+            destination: Some("https://example.test/v1/responses".into()),
+            requires_connection_review: false,
+            trust: Vec::new(),
+            payload: "{}".into(),
+            blockers: Vec::new(),
+        },
+    ));
+    app.storage = StorageState::Saving;
+    assert!(
+        !app.settle_planning(),
+        "transient local I/O must defer rather than cancel"
+    );
+    assert!(app.overlay.is_none() && app.planning.preview.is_some());
+    assert!(app.planning.pending.is_none());
+    app.storage = StorageState::Saved;
+    assert!(app.settle_planning());
+    assert!(app.overlay.is_none() && app.editing && app.input.is_empty());
+    assert_eq!(
+        &*app.planning.submitted_request,
+        "Send exactly this request"
+    );
+    assert!(matches!(
+        app.planning.pending.take(),
+        Some(crate::providers::Request::Run { generation: 91 })
+    ));
+    app.settle_planning();
+    assert!(app.planning.pending.is_none());
+    app.update(Event::Paste("unsent follow-up".into()));
+    assert_eq!(app.input, "unsent follow-up");
+    assert!(app.planning.holds_committed_input());
+}
+
+#[test]
+fn changed_draft_or_blocked_preparation_never_auto_sends() {
+    for changed in [false, true] {
+        let mut app = request_app();
+        app.update(Event::Paste("original".into()));
+        key(&mut app, KeyCode::Enter);
+        save_request(&mut app);
+        app.settle_planning();
+        app.planning.pending.take();
+        if changed {
+            app.update(Event::Paste(" edited before dispatch".into()));
+        }
+        app.planning.event(crate::providers::Event::Preview(
+            crate::providers::Preview {
+                generation: 92,
+                task_id: app.task_id,
+                thread_id: None,
+                destination: None,
+                requires_connection_review: false,
+                trust: Vec::new(),
+                payload: "{}".into(),
+                blockers: if changed {
+                    Vec::new()
+                } else {
+                    vec!["Credentials unavailable".into()]
+                },
+            },
+        ));
+        app.settle_planning();
+        assert!(matches!(
+            app.planning.pending.take(),
+            Some(crate::providers::Request::Cancel { generation: 92 })
+        ));
+        assert!(app.input.starts_with("original") && app.overlay.is_none());
+        app.planning.event(crate::providers::Event::Finished {
+            generation: 92,
+            task_id: app.task_id,
+            outcome: crate::providers::Outcome::Cancelled,
+            message: "Prepared request cancelled".into(),
+        });
+        assert!(!app.planning.holds_committed_input());
+    }
 }
 
 #[test]
@@ -1931,6 +2061,7 @@ fn running_request_preserves_real_store_admission_until_terminal_acknowledgement
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
             destination: None,
+            requires_connection_review: true,
             generation: 12,
             task_id: app.task_id,
             thread_id: None,
@@ -1939,6 +2070,7 @@ fn running_request_preserves_real_store_admission_until_terminal_acknowledgement
             blockers: vec![],
         },
     ));
+    app.settle_planning();
     app.planning.reviewed = true;
     key(&mut app, KeyCode::Char('y'));
     assert!(matches!(

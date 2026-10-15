@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.8
+
+- feat(ux): sent ordinary requests directly from Enter after durable preparation, while retaining scoped approval for commands, writes and risky connections.
+- fix(providers): grouped Codex native responses and CLI tools under one provider entry with explicit connection methods.
+- feat(models): persisted last-used provider/model/effort in Schema 10, restored exact per-route choices, and removed the forced effort dialog after model selection.
+- fix(ux): kept first-send preparation through pending context restoration and prevented cancelled model reviews from reopening an invisible input-owning picker.
+
 ## 0.1.7
 
 - feat(providers): added native ChatGPT, OpenAI, Anthropic, Gemini and compatible-service discovery and streamed responses without installed agent runtimes.
@@ -41,6 +48,11 @@
 
 ## 2026-10-16
 
+- chore(release): published v0.1.7 from `0a43c0e` after Check and all five native build/test/install rows passed, verified eight public assets and seven checksums, and passed 23 installation checks, 34 installed terminal scenarios, 31 public workbench journeys and actual no-CLI GPT-6.1/default-model responses.
+- feat(ux): made composer Enter save and send qualified ordinary requests without a second popup, kept actual effect approvals, and prevented repeat/modified Enter from submitting.
+- fix(providers): presented one Codex provider with native/CLI methods while retaining distinct tool, credential and session boundaries.
+- feat(models): added acknowledged durable per-route model/effort and last-used provider preferences, safe Schema 9→10 migration, explicit startup-route precedence and retryable save failures; model selection returned without a forced effort dialog.
+- fix(ux): waited for matching local readiness on first direct sends and kept asynchronous metadata cancellation from stranding a hidden picker over the home editor.
 - feat(providers): added native scoped HTTP connections with immutable request review, cancellable streaming, user-scoped endpoint configuration and no credential copying or implicit tool execution.
 - fix(models): removed stale CLI-list membership and stable-release-only admission barriers, preserved exact configured/custom IDs and optional effort defaults, and made catalogue refresh failure nondestructive.
 - feat(models): added searchable model pickers, safe custom-ID editing and scrollable native-provider selection on compact terminals.

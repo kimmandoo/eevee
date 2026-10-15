@@ -897,7 +897,10 @@ mod tests {
         app.save_submitted();
         app.store_event(crate::store::Event::Saved(snapshot.clone()));
         assert!(app.settle_planning());
-        assert_eq!(app.overlay, Some(Overlay::Planning));
+        assert!(
+            app.overlay.is_none(),
+            "preparation must not open a request popup"
+        );
         assert!(matches!(app.planning.pending.as_ref(),
             Some(crate::providers::Request::Preview(input))
                 if input.task.request_text() == "Saved prompt" && !input.inspect_models));

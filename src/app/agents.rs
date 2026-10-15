@@ -24,6 +24,7 @@ pub enum Action {
     UseForTask,
     Model,
     Effort,
+    ConnectionMethod,
 }
 
 impl Action {
@@ -37,6 +38,7 @@ impl Action {
             Self::UseForTask => "Use for task",
             Self::Model => "Choose model",
             Self::Effort => "Choose reasoning effort",
+            Self::ConnectionMethod => "Change Codex connection method",
         }
     }
 }
@@ -121,9 +123,54 @@ impl State {
     pub fn at_root(&self) -> bool {
         self.page == Page::Providers
     }
+    /// Public provider rows; Codex's two routes retain their distinct profile indices.
+    pub fn provider_indices(&self) -> impl Iterator<Item = usize> + Clone + use<> {
+        let codex = if Agent::from_index(self.selected).is_some_and(Agent::is_codex) {
+            self.selected
+        } else if Agent::from_index(self.active).is_some_and(Agent::is_codex) {
+            self.active
+        } else {
+            Agent::Codex.index()
+        };
+        (0..self.profiles.len())
+            .filter(|index| *index != Agent::ChatGPT.index())
+            .map(move |index| {
+                if index == Agent::Codex.index() {
+                    codex
+                } else {
+                    index
+                }
+            })
+    }
+
+    pub fn action_label(&self, action: Action) -> &'static str {
+        if action == Action::ConnectionMethod {
+            if self.selected == Agent::Codex.index() {
+                "Use native responses (no tools; no CLI)"
+            } else {
+                "Use CLI agent (tools / edits)"
+            }
+        } else {
+            action.label()
+        }
+    }
+
+    fn alternate_codex(&self) -> Option<usize> {
+        let alternate = match Agent::from_index(self.selected)? {
+            Agent::Codex => Agent::ChatGPT,
+            Agent::ChatGPT => Agent::Codex,
+            _ => return None,
+        };
+        self.profiles
+            .get(alternate.index())
+            .map(|_| alternate.index())
+    }
 
     pub fn actions(&self) -> Vec<Action> {
         let mut actions = vec![Action::Connect];
+        if self.alternate_codex().is_some() {
+            actions.push(Action::ConnectionMethod);
+        }
         if crate::providers::auth::status_method(self.selected).is_some() {
             actions.push(Action::Status);
         }
@@ -141,7 +188,12 @@ impl State {
 
     /// Most likely next step: connect, then use for task, then choose a model.
     fn default_action(&self) -> usize {
-        let next = if !matches!(
+        let next = if self.selected == Agent::Codex.index()
+            && !self.connectable(self.selected)
+            && self.alternate_codex().is_some()
+        {
+            Action::ConnectionMethod
+        } else if !matches!(
             self.connection_status(self.selected),
             "Connected" | "Configured (unchecked)"
         ) {
@@ -302,6 +354,16 @@ impl State {
                     "Refreshing provider configuration; no program or network request launched."
                         .into();
             }
+            Action::ConnectionMethod => {
+                if let Some(alternate) = self.alternate_codex() {
+                    self.selected = alternate;
+                    self.method = crate::providers::auth::default_method(alternate);
+                    // The app's normal explicit provider switch owns persistence
+                    // and any session/handoff boundary; never transfer state here.
+                    self.use_for_task = Some(alternate);
+                    self.action = self.default_action();
+                }
+            }
             Action::UseForTask => self.use_for_task = Some(self.selected),
             Action::Model => self.pick = Some("model"),
             Action::Effort => self.pick = Some("effort"),
@@ -421,8 +483,14 @@ impl State {
         vec![
             choice(
                 "connect",
-                "Choose provider connection method",
-                blocked.or(missing).or(connect),
+                "Set up selected connection",
+                blocked.or(missing).or_else(|| {
+                    if Agent::from_index(self.selected).is_some_and(Agent::is_direct) {
+                        None
+                    } else {
+                        connect
+                    }
+                }),
             ),
             choice(
                 "connect-method",
@@ -461,6 +529,15 @@ impl State {
                 "refresh",
                 "Refresh installed providers without launching",
                 blocked,
+            ),
+            choice(
+                "connection-method",
+                self.action_label(Action::ConnectionMethod),
+                blocked.or(missing).or_else(|| {
+                    self.alternate_codex()
+                        .is_none()
+                        .then_some("Select Codex to choose native responses or the CLI agent.")
+                }),
             ),
             choice(
                 "provider-use",
@@ -508,6 +585,9 @@ impl State {
                 }
             }
             "status" => self.activate(Action::Status),
+            "connection-method" if self.alternate_codex().is_some() => {
+                self.activate(Action::ConnectionMethod)
+            }
             "version" => self.activate(Action::Version),
             "diagnostics" => self.activate(Action::Diagnostics),
             "refresh" => self.activate(Action::Refresh),
@@ -656,9 +736,25 @@ impl State {
                 };
                 self.scroll = 0;
             }
+            KeyCode::Up | KeyCode::Down if self.page == Page::Providers => {
+                let indices = self.provider_indices();
+                let Some(current) = indices.clone().position(|index| index == self.selected) else {
+                    return false;
+                };
+                let count = indices.clone().count();
+                let next = if key.code == KeyCode::Up {
+                    (current + count - 1) % count
+                } else {
+                    (current + 1) % count
+                };
+                self.selected = indices.clone().nth(next).expect("visible provider index");
+                self.method = crate::providers::auth::default_method(self.selected);
+                self.action = 0;
+                self.scroll = 0;
+            }
             KeyCode::Up | KeyCode::Down if self.page != Page::Diagnostics => {
                 let (selected, count) = match self.page {
-                    Page::Providers => (&mut self.selected, self.profiles.len()),
+                    Page::Providers => unreachable!("provider navigation handled above"),
                     Page::Methods => (
                         &mut self.method,
                         crate::providers::auth::methods(self.selected).len(),
@@ -676,10 +772,6 @@ impl State {
                 } else {
                     (*selected + 1) % count
                 };
-                if self.page == Page::Providers {
-                    self.method = crate::providers::auth::default_method(self.selected);
-                    self.action = 0;
-                }
                 self.scroll = 0;
             }
             KeyCode::Up
@@ -1073,5 +1165,59 @@ mod tests {
         assert_eq!(state.profiles[1].authentication, "unknown");
         assert!(state.pending.is_none());
         assert!(state.pending_auth.is_none());
+    }
+
+    #[test]
+    fn codex_has_one_public_row_and_native_route_is_not_a_second_provider() {
+        let mut state = discovered();
+        state.profiles = Agent::ALL.iter().map(|_| profile()).collect();
+        assert_eq!(state.provider_indices().count(), Agent::ALL.len() - 1);
+        assert!(
+            !state
+                .provider_indices()
+                .any(|index| index == Agent::ChatGPT.index())
+        );
+        state.active = Agent::ChatGPT.index();
+        state.focus_active();
+        assert_eq!(state.selected, Agent::ChatGPT.index());
+        assert_eq!(
+            state.provider_indices().next(),
+            Some(Agent::ChatGPT.index())
+        );
+        press(&mut state, KeyCode::Down);
+        assert_eq!(state.selected, Agent::Claude.index());
+        press(&mut state, KeyCode::Up);
+        assert_eq!(state.selected, Agent::ChatGPT.index());
+        assert!(state.pending.is_none() && state.use_for_task.is_none());
+    }
+
+    #[test]
+    fn native_method_without_cli_uses_explicit_provider_switch_hook_only() {
+        let mut state = discovered();
+        state.profiles = Agent::ALL.iter().map(|_| profile()).collect();
+        state.profiles[Agent::Codex.index()].executable = None;
+        state.active = Agent::Codex.index();
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.actions()[state.action], Action::ConnectionMethod);
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.selected, Agent::ChatGPT.index());
+        assert_eq!(state.use_for_task.take(), Some(Agent::ChatGPT.index()));
+        assert_eq!(
+            state.active,
+            Agent::Codex.index(),
+            "only app may change task ownership"
+        );
+        assert!(state.connectable(Agent::ChatGPT.index()));
+        assert!(!state.actions().contains(&Action::Version));
+        assert!(!state.actions().contains(&Action::Status));
+        assert!(state.pending.is_none() && state.pending_auth.is_none());
+        assert!(state.command("connection-method", true));
+        assert_eq!(state.use_for_task, Some(Agent::Codex.index()));
+        assert!(state.pending.is_none() && state.pending_auth.is_none());
+        assert_eq!(Agent::from_command("provider-codex"), Some(Agent::Codex));
+        assert_eq!(
+            Agent::from_command("provider-chatgpt"),
+            Some(Agent::ChatGPT)
+        );
     }
 }

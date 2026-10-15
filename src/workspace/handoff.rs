@@ -90,6 +90,9 @@ pub(crate) fn without_local_provenance(text: &str) -> Cow<'_, str> {
                     | "Codex Plan"
                     | "Codex Implement"
                     | "Codex Review"
+                    | "Codex · CLI agent Plan"
+                    | "Codex · CLI agent Implement"
+                    | "Codex · CLI agent Review"
                     | "Claude Agent Plan"
                     | "Claude Agent Implement"
                     | "Claude Agent Review"
@@ -684,6 +687,9 @@ mod tests {
         for origin in [
             "Codex planning",
             "Codex Plan",
+            "Codex · CLI agent Plan",
+            "Codex · CLI agent Implement",
+            "Codex · CLI agent Review",
             "Claude Agent Plan",
             "OpenCode ACP Implement",
             "Gemini ACP Plan",

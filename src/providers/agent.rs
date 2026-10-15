@@ -1149,6 +1149,23 @@ pub(crate) struct PlanningTrust {
 }
 
 impl PlanningTrust {
+    pub(crate) fn requires_connection_review(&self) -> bool {
+        let Some(project) = self.snapshot.stamp.project.as_deref() else {
+            return true;
+        };
+        self.snapshot
+            .stamp
+            .selected
+            .as_ref()
+            .is_some_and(|path| path.starts_with(project))
+            || self
+                .snapshot
+                .profile
+                .executable
+                .as_ref()
+                .is_some_and(|path| path.starts_with(project))
+    }
+
     pub(crate) fn observed_version(&self) -> Option<&str> {
         self.observed_version.get().map(String::as_str)
     }

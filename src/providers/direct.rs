@@ -221,7 +221,7 @@ fn worker(
                 generation = generation.saturating_add(1);
                 current.store(generation, Ordering::Release);
                 owner = Some((generation, input.task.id));
-                let mut preview = Preview { destination: None, generation, task_id: input.task.id, thread_id: None, trust: vec![
+                let mut preview = Preview { destination: None, requires_connection_review: false, generation, task_id: input.task.id, thread_id: None, trust: vec![
                     "Native HTTPS request; no provider executable, project hooks, tools, local file writes, shell commands, or automatic retries. Fresh call only; no session or resume support.".into(),
                     "Only the exact HTTP JSON body below is sent for inference. Credentials are scoped request headers, not prompt context; no credentials are logged or persisted.".into(),
                     "Cancellation closes the local response reader; after dispatch the remote outcome remains unknown, not confirmed stopped. Connect/write/read deadlines are bounded.".into(),

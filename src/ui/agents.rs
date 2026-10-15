@@ -64,24 +64,41 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             let providers = if narrow { body_area } else { columns[0] };
             text(frame, row(providers, 0, 1), "PROVIDERS", paint.accent);
             let capacity = usize::from(providers.height.saturating_sub(1) / 2).max(1);
-            let first = state.selected.saturating_sub(capacity.saturating_sub(1));
-            for (offset, (index, provider)) in state
-                .profiles
-                .iter()
-                .enumerate()
-                .skip(first)
-                .take(capacity)
-                .enumerate()
-            {
+            let indices = state.provider_indices();
+            let selected = indices
+                .clone()
+                .position(|index| index == state.selected)
+                .unwrap_or(0);
+            let first = selected.saturating_sub(capacity.saturating_sub(1));
+            for (offset, index) in indices.skip(first).take(capacity).enumerate() {
+                let provider = &state.profiles[index];
+                let agent = crate::providers::Agent::from_index(index);
+                let codex = agent.is_some_and(crate::providers::Agent::is_codex);
+                let active = index == state.active
+                    || (codex
+                        && crate::providers::Agent::from_index(state.active)
+                            .is_some_and(crate::providers::Agent::is_codex));
                 text(
                     frame,
                     row(providers, 1 + offset as u16 * 2, 2),
                     &format!(
                         "{} {}{}\n  {}",
                         if index == state.selected { ">" } else { " " },
-                        provider.name,
-                        if index == state.active { " ●" } else { "" },
-                        state.connection_status(index)
+                        agent.map_or(provider.name.as_str(), |agent| agent.provider_label()),
+                        if active { " ●" } else { "" },
+                        if codex {
+                            format!(
+                                "{} · {}",
+                                if index == crate::providers::Agent::ChatGPT.index() {
+                                    "Native/no tools"
+                                } else {
+                                    "CLI/tools"
+                                },
+                                state.connection_status(index)
+                            )
+                        } else {
+                            state.connection_status(index).into()
+                        }
                     ),
                     if index == state.selected && state.page == Page::Providers {
                         paint.accent
@@ -96,20 +113,23 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         if !provider_list {
             text(
                 frame,
-                row(body, 0, 1),
-                &if state.selected == state.active {
-                    format!(
-                        "{} · {} · {in_use}",
-                        profile.name,
-                        state.connection_status(state.selected)
-                    )
-                } else {
-                    format!(
-                        "{} · {}",
-                        profile.name,
-                        state.connection_status(state.selected)
-                    )
-                },
+                row(body, 0, 2),
+                &format!(
+                    "{}{}\n{} · {}",
+                    crate::providers::Agent::from_index(state.selected)
+                        .map_or(profile.name.as_str(), |agent| agent.label()),
+                    if state.selected == state.active {
+                        " · in use"
+                    } else {
+                        ""
+                    },
+                    state.connection_status(state.selected),
+                    if state.selected == state.active {
+                        in_use.as_str()
+                    } else {
+                        "not selected for task"
+                    },
+                ),
                 paint.accent,
             );
         }
@@ -141,7 +161,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             }
             state.scroll_max = selection_details(
                 frame,
-                row(body, 1, body.height.saturating_sub(1)),
+                row(body, 2, body.height.saturating_sub(2)),
                 Paragraph::new(crate::workspace::privacy::redact(&value))
                     .style(paint.surface)
                     .wrap(Wrap { trim: false }),
@@ -155,7 +175,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 let methods = state.page == Page::Methods;
                 text(
                     frame,
-                    row(body, 1, 1),
+                    row(body, 2, 1),
                     if methods {
                         "CHOOSE SIGN-IN METHOD"
                     } else {
@@ -170,7 +190,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     {
                         text(
                             frame,
-                            row(body, 2 + index as u16, 1),
+                            row(body, 3 + index as u16, 1),
                             &format!(
                                 "{} {}{}",
                                 if index == state.method { ">" } else { " " },
@@ -190,14 +210,23 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     }
                     crate::providers::auth::methods(state.selected).len() as u16
                 } else {
-                    for (index, action) in state.actions().iter().enumerate() {
+                    let actions = state.actions();
+                    let capacity = usize::from(body.height.saturating_sub(4)).max(1);
+                    let first = state.action.saturating_sub(capacity.saturating_sub(1));
+                    for (offset, (index, action)) in actions
+                        .iter()
+                        .enumerate()
+                        .skip(first)
+                        .take(capacity)
+                        .enumerate()
+                    {
                         text(
                             frame,
-                            row(body, 2 + index as u16, 1),
+                            row(body, 3 + offset as u16, 1),
                             &format!(
                                 "{} {}",
                                 if index == state.action { ">" } else { " " },
-                                action.label()
+                                state.action_label(*action)
                             ),
                             if index == state.action && state.page == Page::Actions {
                                 paint.accent
@@ -206,9 +235,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                             },
                         );
                     }
-                    state.actions().len() as u16
+                    actions.len().min(capacity) as u16
                 };
-                3 + count
+                4 + count
             };
             let methods = state.page == Page::Methods;
             // Claude's executable row is the Claude CLI; its connection uses ant instead.
@@ -255,7 +284,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             if state.page == Page::Diagnostics {
                 "Up/Down Scroll · Enter Back · / choices · Esc Back"
             } else {
-                "Arrows Select · Tab Providers/Actions · Enter Open (suggested step preselected)\n● task provider · / choices: connect, status, version, diagnostics · Esc Back"
+                "Arrows Select · Tab Switch pane · Enter Open\n● task provider · / choices · Esc Back"
             },
             paint.accent,
         );

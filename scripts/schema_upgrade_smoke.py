@@ -98,6 +98,7 @@ def main():
                 raise AssertionError('previous executable has no visible action: ' + command)
             old = launch(previous, 'previous-create')
             wait_for(old, 'Storage: saved')
+            previous_action(old, 'goal')
             old.paste('schema continuity 漢字')
             old.send('\r')
             wait_for(old, 'Storage: saved')

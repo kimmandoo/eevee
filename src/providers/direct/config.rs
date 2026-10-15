@@ -726,7 +726,7 @@ fn resolve_with<F: Fn(&str) -> Option<String>>(
         }
     };
     let description = format!(
-        "{}: {:?} at {}; {}; no host CLI required. Only reviewed input is sent; no provider tools, project hooks, hidden source, automatic edits, credential refresh or persistence. Account access and billing are not authenticated by configuration.",
+        "{}: {:?} at {}; {}; no host CLI required. Only submitted input is sent; no provider tools, project hooks, hidden source, automatic edits, credential refresh or persistence. Account access and billing are not authenticated by configuration.",
         provider.label(),
         settings.protocol,
         settings.base_url,
@@ -850,7 +850,7 @@ pub(crate) fn configured(provider: Agent) -> bool {
 pub(crate) fn guidance(provider: Agent) -> String {
     let guidance = match provider {
         Agent::ChatGPT => {
-            "ChatGPT direct requires explicit CODEX_ACCESS_TOKEN (+ optional CODEX_ACCOUNT_ID), or your reviewed read-only CODEX_HOME/auth.json (default ~/.codex/auth.json) tokens.access_token. The token is sent only to the official ChatGPT Codex backend; no host CLI is needed. Nonsecret model/model_reasoning_effort defaults come from CODEX_HOME/config.toml; CODEX_MODEL/CODEX_REASONING_EFFORT override them. Keychain-only, missing or expired credentials require supplying/renewing provider credentials outside Eevee. No refresh, login, import or credential write is performed."
+            "Codex native responses requires explicit CODEX_ACCESS_TOKEN (+ optional CODEX_ACCOUNT_ID), or your reviewed read-only CODEX_HOME/auth.json (default ~/.codex/auth.json) tokens.access_token. The token is sent only to the official ChatGPT Codex backend; no host CLI is needed. This method has no tools, local execution or edits; choose the Codex CLI agent for tool-driven work. Nonsecret model/model_reasoning_effort defaults come from CODEX_HOME/config.toml; CODEX_MODEL/CODEX_REASONING_EFFORT override them. Keychain-only, missing or expired credentials require supplying/renewing provider credentials outside Eevee. No refresh, login, import or credential write is performed."
         }
         Agent::OpenAI => {
             "Set OPENAI_API_KEY; optional OPENAI_BASE_URL and OPENAI_MODEL. User providers.toml may select api_key_env. This is metered API access, not ChatGPT subscription authentication."
@@ -907,7 +907,7 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
     } else {
         "Credential source: selected API-key environment variable only; configured is not authenticated. Credential bytes are read only when an approved metadata/request launch resolves the connection.".into()
     };
-    let boundary = "Native tool-free HTTP: only the immutable previewed request is sent. No project hooks/tools, hidden files, provider sessions or automatic edits. Implement returns proposals only; choose an existing controlled CLI implementation for writes.";
+    let boundary = "Native tool-free HTTP: only the immutable submitted request is sent. No project hooks/tools, hidden files, provider sessions or automatic edits. Implement returns proposals only; choose an existing controlled CLI implementation for writes.";
     agent::Profile {
         revision: 1,
         name: provider.label().into(),
@@ -920,10 +920,10 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
         os: env::consts::OS.into(),
         architecture: env::consts::ARCH.into(),
         adapter: "Native direct HTTP; no subprocess, login or refresh".into(),
-        action: "Explicit preview and Run required for inference; Models fetches metadata only after consent".into(),
+        action: "Enter saves and sends a prepared inference request; model inspection sends metadata only".into(),
         billing: "Provider account/API billing, eligibility and quota are unknown until an actual request; no billing lookup".into(),
         probe_allowed: false,
-        trust_preview: vec![configuration, credential_source, guidance(provider), boundary.into(), "Review explicitly authorizes reading the selected environment API credential or ChatGPT provider-owned auth.json and sending it only to the displayed endpoint. Credentials are never logged or persisted. Cancellation stops local waiting; it cannot promise a remote request stopped or was not billed. No retries or fallback.".into()],
+        trust_preview: vec![configuration, credential_source, guidance(provider), boundary.into(), "Choosing model inspection or sending a request authorizes reading its selected environment API credential or ChatGPT provider-owned auth.json and sending it only to the configured endpoint. Credentials are never logged or persisted. Cancellation stops local waiting; it cannot promise a remote request stopped or was not billed. No retries or fallback.".into()],
         blockers: if available { Vec::new() } else { vec![guidance(provider)] },
         capabilities: ["Plan", "Review", "Implement proposals", "Models metadata"].into_iter().map(|action| agent::Capability {
             action: action.into(), boundary: boundary.into(), evidence: "Native protocol adapter; requires reviewed endpoint and explicit request".into(), blocker: "Configuration is not successful authentication; provider may reject credentials, model, quota or protocol".into(),

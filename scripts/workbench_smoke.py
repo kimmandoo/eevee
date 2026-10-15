@@ -270,11 +270,17 @@ def main():
                 wait_for(fresh, "Not installed")
                 fresh.capture("command-provider-list")
                 fresh.send("\r")  # Provider -> visible actions.
-                wait_for(fresh, "Connect / credential setup")
+                wait_for(fresh, "Use native responses")
                 fresh.capture("command-provider-actions")
-                fresh.send("\r")  # Missing provider: setup guidance, never auth.
+                fresh.send("\r")  # Missing CLI: choose the native connection locally.
+                wait_for(fresh, "Codex")
                 assert "Review connection" not in fresh.display()
-                fresh.capture("command-missing-provider-guidance")
+                assert "Connections" not in fresh.display(), "method selection left an unnecessary provider drawer"
+                fresh.command("provider")
+                wait_for(fresh, "PROVIDERS")
+                fresh.send("\r")
+                wait_for(fresh, "Use CLI agent")
+                fresh.capture("unified-codex-native-method")
                 fresh.send("\x1b")
                 wait_for(fresh, "PROVIDERS")
                 fresh.send("\x1b")
@@ -452,17 +458,32 @@ def main():
                     assert not fixture.snapshot("POST"), "local model selection submitted a draft"
                     passed("native-fixture-metadata-search-exact-custom-id-retains-draft-" + str(width))
 
-                    native.send("\r")
-                    wait_for(native, "Run once")
-                    assert not fixture.snapshot("POST"), "request preview dispatched before Run"
-                    native.capture("native-first-neutral-review")
-                    native.send("\r")  # Neutral review cancels; draft remains durable.
+                    quit_app(native)  # Immediate exit waits for the preference commit.
+                    restored_environment = native_environment.copy()
+                    restored_environment.pop("EV_PROVIDER", None)
+                    restored_environment.update(
+                        OPENAI_API_KEY="fixture-competing-provider-not-a-real-key",
+                        OPENAI_BASE_URL="http://127.0.0.1:" + str(fixture.server.server_port) + "/v1",
+                    )
+                    native = launch("native-restored-" + str(width), directory=native_data,
+                                    cwd=native_project, size=(width, 36 if width == 120 else 18),
+                                    environment=restored_environment)
+                    wait_for(native, "Storage: saved")
+                    assert len(fixture.snapshot("GET")) == 1, "restart queried models without user intent"
+                    assert not fixture.snapshot("POST"), "restart submitted an old draft"
+                    native.command("model")
+                    wait_for(native, "Requested: " + custom_model)
+                    wait_for(native, "Models loaded")
+                    assert len(fixture.snapshot("GET")) == 2
+                    native.capture("durable-model-restored-with-competing-provider")
+                    native.send("\x1b")
                     wait_for(native, first_request)
-                    assert not fixture.snapshot("POST")
-                    assert saved_request(inspect_store(native_data)) == first_request
-                    native.send("\r")
-                    wait_for(native, "Run once")
-                    native.send("y")
+                    with closing(sqlite3.connect((native_data / "workbench.sqlite3").as_uri() + "?mode=ro", uri=True)) as db:
+                        preference = json.loads(db.execute("SELECT record FROM provider_preferences WHERE id=1").fetchone()[0])
+                    assert preference["selections"][preference["provider"]]["model"] == custom_model
+                    assert "fixture-competing-provider-not-a-real-key" not in json.dumps(preference)
+                    passed("durable-exact-model-provider-restoration-without-implicit-network-" + str(width))
+                    native.send("\r")  # Enter sends; no second Run or approval key.
                     wait_for(native, fixture.responses[0])
                     wait_for(native, "complete")
                     wait_for(native, "Request: " + first_request)
@@ -471,9 +492,6 @@ def main():
                     stored_when(native_data, lambda rows: saved_request(rows) == second_request)
                     assert "Request: " + first_request in native.display(), "new draft relabelled the old response"
                     native.send("\r")
-                    wait_for(native, "Run once")
-                    assert len(fixture.snapshot("POST")) == 1, "second preview auto-dispatched"
-                    native.send("y")
                     wait_for(native, fixture.responses[1])
                     wait_for(native, "2/2")
                     wait_for(native, "Request: " + second_request)
@@ -487,7 +505,7 @@ def main():
                     wait_for(native, fixture.responses[1])
                     assert fixture.private_reasoning not in native.text
                     assert len(fixture.snapshot("POST")) == 2
-                    passed("native-fixture-two-approved-turns-preserve-response-owners-" + str(width))
+                    passed("native-fixture-two-direct-send-turns-preserve-response-owners-" + str(width))
 
                     native.paste(third_request)
                     native.send("\x13")
@@ -495,9 +513,6 @@ def main():
                     before_refresh = inspect_store(native_data)
                     fixture.fail_models.set()
                     native.command("models-refresh")
-                    wait_for(native, "Run once")
-                    assert len(fixture.snapshot("GET")) == 1, "refresh bypassed its connection review"
-                    native.send("y")
                     wait_for(native, "STALE / fetch failed")
                     native.capture("native-failed-refresh-retains-snapshot")
                     for model in ("fixture-alpha", "fixture-beta"):
@@ -514,7 +529,7 @@ def main():
                         assert time.monotonic() < deadline, native.display()
                         native.send("\x1b[6~")
                     native.capture("native-failed-refresh-error")
-                    assert len(fixture.snapshot("GET")) == 2
+                    assert len(fixture.snapshot("GET")) == 3
                     assert len(fixture.snapshot("POST")) == 2
                     native.send("\x1b")
                     assert lead_drafts(inspect_store(native_data)[0]) == lead_drafts(before_refresh[0])
@@ -522,9 +537,6 @@ def main():
                     passed("native-fixture-failed-metadata-refresh-retains-rows-error-and-draft-" + str(width))
 
                     native.send("\r")
-                    wait_for(native, "Run once")
-                    assert len(fixture.snapshot("POST")) == 2
-                    native.send("y")
                     deadline = time.monotonic() + 5
                     while not fixture.delayed_started.is_set():
                         assert native.alive() and time.monotonic() < deadline, native.display()

@@ -606,7 +606,9 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
     } else if app.planning.cancelling {
         "Cancelling provider / /provider Status"
     } else if app.planning.preview.is_some() {
-        "Request ready for review / /provider"
+        "Request prepared / /provider Details"
+    } else if app.planning.preference_error().is_some() {
+        "Model preference not saved / /storage-retry"
     } else if let Some(activity) = app.planning.activity_label() {
         activity
     } else if app.planning.outcome_unknown() {
@@ -658,9 +660,9 @@ fn workspace(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &
     };
     let mut lines = vec![
         heading,
-        Line::from("Write a request below. Enter reviews it before sending."),
+        Line::from("Write a request below. Enter sends it."),
         Line::styled(
-            "Responses appear here. Nothing runs without approval.",
+            "Responses appear here. Tool actions require separate approval.",
             paint.muted,
         ),
         Line::from(""),
@@ -1365,7 +1367,7 @@ fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &P
     let block = panel(" Help / PgUp/Dn Scroll / Esc Back ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let value = "KEYS\n / Ctrl+K   Commands (type to search)\n Enter      Review request / select / confirm\n Esc        Back (drafts are kept)\n Tab        Switch pane\n PgUp/PgDn  Scroll response or details\n Shift+Enter, Ctrl+N  Newline\n Ctrl+S     Keep draft locally\n @          Attach files\n Backspace  Previous form (outside text)\n Ctrl+C     Exit\n\nCOMMANDS\n /connect /provider  Provider setup or pending review\n /model /effort      Model and reasoning effort\n /new /resume        Provider session\n /task-new /tasks    Local tasks\n /reset              Fresh task; old task/draft in /tasks\n /init               Draft project guide request; not sent\n /goal /criteria     Optional task facts\n /party /lead NAME   Partners and the lead\n /forms /role        Evolution and role\n /files /run         Source context, local commands\n /complete           Mark acceptance checklist complete\n /verbose            Brief / full explanations\n\nSAFETY\n Enter prepares a review; it does not approve sending.\n Choose Run or Allow deliberately after reading scope.\n Full technical details remain inspectable.\n Pasted text never runs commands.\n Provider output and handoffs are unverified context.";
+    let value = "KEYS\n / Ctrl+K   Commands (type to search)\n Enter      Send request / select / confirm\n Esc        Back (drafts are kept)\n Tab        Switch pane\n PgUp/PgDn  Scroll response or details\n Shift+Enter, Ctrl+N  Newline\n Ctrl+S     Keep draft locally\n @          Attach files\n Backspace  Previous form (outside text)\n Ctrl+C     Exit\n\nCOMMANDS\n /connect /provider  Provider and connection method\n /model /effort      Model and reasoning effort\n /new /resume        Advanced session request review\n /task-new /tasks    Local tasks\n /reset              Fresh task; old task/draft in /tasks\n /init               Draft project guide request; not sent\n /goal /criteria     Optional task facts\n /party /lead NAME   Partners and the lead\n /forms /role        Evolution and role\n /files /run         Source context, local commands\n /complete           Mark acceptance checklist complete\n /verbose            Brief / full explanations\n\nSAFETY\n Enter sends the saved request to the selected provider.\n Commands, file changes and privilege grants require approval.\n Project-supplied runtimes and unmanaged tool routes still need connection review.\n Full technical details remain inspectable.\n Pasted text never sends a request or runs commands.\n Provider output and handoffs are unverified context.";
     scroll_text(
         frame,
         content,
@@ -1429,9 +1431,9 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
         if app.composer_is_request() && app.planning.busy() {
             "Draft only / PgUp/Dn Response / /provider / /cancel"
         } else if app.composer_is_request() && app.response_on_home() {
-            "Enter Review / PgUp/Dn Response / / Commands"
+            "Enter Send / PgUp/Dn Response / / Commands"
         } else if app.composer_is_request() {
-            "Enter Review / Ctrl+N Newline / @ Files / / Commands"
+            "Enter Send / Ctrl+N Newline / @ Files / / Commands"
         } else {
             "Enter Save fact / Ctrl+N Newline / Esc Draft"
         }
@@ -1712,7 +1714,7 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         row(content, 0, 2),
         match app.editor_field {
             EditorField::Request => {
-                "Request draft. Enter prepares review; sending requires explicit approval."
+                "Enter sends this request. Commands and file changes need separate approval."
             }
             EditorField::Criteria => {
                 "One criterion per line; 64 max, 256 bytes each. Changed criteria reset to unmet."
