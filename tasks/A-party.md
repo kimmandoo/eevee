@@ -28,8 +28,7 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT03B — Previous-form toggle
 
-- [ ] Flip back to the last form with one key.
-- **Priority:** 1. **Needs:** PT03A. **Builds on:** UX01.
+- [x] Flip back to the last form with one key.
 - **Change:** Add a `previous form` action (`/back-form` plus a key that is free on every non-text surface), stored per partner.
 - **Accept:** Vaporeon → Flareon → toggle → toggle ends in Flareon. The toggle is suppressed inside text fields, and the stored previous form survives a restart.
 - **Watch out:** Native images clear and redraw once per switch, not once per frame.

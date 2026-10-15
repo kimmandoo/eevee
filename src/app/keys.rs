@@ -370,6 +370,19 @@ impl App {
         if self.command_popup.is_some() {
             return self.command_popup_key(key);
         }
+        // Backspace is the previous-form toggle on every non-text surface;
+        // inside any text field it stays a plain delete. Held repeats are
+        // consumed once so the toggle never flips twice from one keydown.
+        if key.code == KeyCode::Backspace
+            && key.modifiers.is_empty()
+            && !self.editing
+            && !self.command_surface_editing()
+        {
+            if key.kind == KeyEventKind::Press {
+                self.previous_form_toggle();
+            }
+            return true;
+        }
         if key.kind == KeyEventKind::Press
             && !self.command_surface_editing()
             && ((key.code == KeyCode::Char('/')

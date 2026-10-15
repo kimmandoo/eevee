@@ -1166,6 +1166,7 @@ fn two_tasks_preserve_drafts_navigation_selection_and_timestamps_across_restart(
                 criterion_selection: 63,
                 scroll: [1, 2, 3, 4, u16::MAX],
                 overlay: Some(5),
+                previous_form: Some(1),
                 editing: true,
                 editor_field: EditorField::NextAction,
             },
@@ -3401,4 +3402,6 @@ fn old_palette_navigation_preserves_remaining_navigation() {
     assert_eq!(navigation.criterion_selection, 4);
     assert_eq!(navigation.scroll, [1, 2, 3, 4, 5]);
     assert_eq!(navigation.editor_field, EditorField::NextAction);
+    // Stores written before PT03B carry no previous form.
+    assert_eq!(navigation.previous_form, None);
 }
