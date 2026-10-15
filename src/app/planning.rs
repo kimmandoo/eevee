@@ -117,6 +117,16 @@ pub struct State {
     pub picker_selected: usize,
     pub selection_change: Option<ModelSelection>,
     pub inspect_models: bool,
+    /// A catalogue fetch is wanted (after a connection or an empty `/model`);
+    /// the app starts it once a saved task can carry the request.
+    pub auto_models: bool,
+    /// The in-flight catalogue inspection was started automatically: its
+    /// metadata-only preview runs without a review step.
+    auto_run: bool,
+    /// Reopen the model picker when the automatic fetch completes.
+    auto_picker: bool,
+    /// Why the automatic fetch stopped before running, shown after its cancel.
+    auto_blocked: Option<String>,
     request_selection: ModelSelection,
     session_selection: ModelSelection,
     pub observed_model: Option<String>,
@@ -151,6 +161,7 @@ impl State {
             selection: ModelSelection::default(), selections: HashMap::new(),
             catalogues: HashMap::new(), picker: None, picker_selected: 0,
             selection_change: None, inspect_models: false,
+            auto_models: false, auto_run: false, auto_picker: false, auto_blocked: None,
             request_selection: ModelSelection::default(), session_selection: ModelSelection::default(),
             observed_model: None,
             devin_credential: None,
@@ -211,7 +222,10 @@ impl State {
             let selection = self.selection.clone();
             let credential = self.devin_credential.take();
             let agent = self.agent;
+            let (auto_models, auto_picker) = (self.auto_models, self.auto_picker);
             *self = Self::new();
+            self.auto_models = auto_models;
+            self.auto_picker = auto_picker;
             self.task = task_id;
             self.agent = agent;
             self.selection = selection;
@@ -362,6 +376,9 @@ impl State {
                 self.preview = Some(preview);
                 self.notice = "Local preview only. Review every page; Stay is the default.".into();
                 self.review_start();
+                if self.auto_run && self.inspect_models && !self.cancel_when_ready {
+                    self.run_automatic_catalogue();
+                }
                 if self.cancel_when_ready {
                     self.cancel_when_ready = false;
                     self.cancel();
@@ -520,8 +537,18 @@ impl State {
                 if self.inspect_models
                     && matches!(outcome, Outcome::Completed)
                     && !self.quit_after_cancel
+                    && (!self.auto_run || self.auto_picker)
                 {
                     self.open_picker(Picker::Model);
+                }
+                if self.auto_run {
+                    self.auto_run = false;
+                    self.auto_picker = false;
+                    if let Some(blocked) = self.auto_blocked.take() {
+                        self.notice = blocked;
+                    } else if matches!(outcome, Outcome::Completed) {
+                        self.notice = "Models loaded.".into();
+                    }
                 }
                 self.cancel_when_ready = false;
                 self.unknown |= matches!(outcome, Outcome::Unknown);
@@ -762,7 +789,14 @@ impl State {
                 } else {
                     Picker::Effort
                 });
-                self.notice = "Local picker only. Default means provider configuration; inspection requires separate Preview/Run consent.".into();
+                self.notice = if self.catalogues.contains_key(&self.agent) {
+                    "Default means the provider's own configuration.".into()
+                } else {
+                    // Nothing cached yet: fetch the catalogue and reopen here.
+                    self.auto_models = true;
+                    self.auto_picker = true;
+                    "Loading models…".into()
+                };
             }
             "models-refresh" => {
                 if self.preview.is_some() {

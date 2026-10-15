@@ -1,6 +1,13 @@
 # Work Checkpoint
 
 
+## 2026-10-15 — UX cleanup and automatic model catalogue
+
+- **Delivered (fix(ux)):** `finish_request_quit` no longer treats a non-empty goal as unsaved, so a committed clean task exits directly (unsaved/failed state still gets the neutral Confirm exit). Composer hints are no longer repeated inside the composer; the footer carries them on its bottom row. `App::update` clears `notice` on every key press. `/help` is a compact KEYS/COMMANDS/SAFETY table. Task cards use `ago()` relative times and drop `Archive: false / Masked secrets: false`; run, criteria, forms and inspector text was shortened, and the inspector's stale `e/j/z` letter shortcuts became slash commands. Smoke scripts use a shared `terminal_smoke.confirm_exit` that accepts a direct exit; `terminal_smoke.py` compares surfaces without the notice row and asserts a clean Ctrl+C exit.
+- **Delivered (feat(providers)):** `planning::State` gained `auto_models`/`auto_run`/`auto_picker`/`auto_blocked`. `App::connection_returned` (main loop, after native auth) wants a catalogue when the active profile authenticates and none is cached; `/model`/`/effort` with nothing cached want one and reopen the picker. the fetch helpers live in `planning/review.rs` after RF05; `App::drive_catalogue` (main loop, after `settle_planning`) starts it once a committed, unarchived task exists; the metadata-only preview runs directly (`run_automatic_catalogue`) or is cancelled with "Models not loaded: <blocker>". DESIGN_RULES §108 and the footer rule were updated.
+- **Verification:** `cargo fmt`; `cargo clippy --locked --all-targets -- -D warnings` clean; `cargo test --locked --all-targets` 401 passed / 0 failed / 2 ignored (was 399/2 after PT05B); `cargo build --locked --release` clean; `scripts/terminal_smoke.py` passed. New tests: `connecting_the_task_provider_loads_models_without_a_review`, `empty_model_picker_fetches_then_reopens_and_blockers_are_reported`. Provider smokes (`*_smoke.py` needing real providers) were updated for the direct exit but not run here.
+- **Next action:** PT06A partner attribution on journal entries.
+
 ## 2026-10-15 — PT05B per-partner drafts; RF05 planning split
 
 - **Delivered (PT05B):** drafts and carets are keyed by (task, partner) in `tasks.partner_drafts`; existing drafts transfer to the task lead, the composer names its owner, each partner keeps its own previous-form memory, and draft discard affects only the current partner's draft. Schema 8 enlarges the reserved draft bound (six complete escaped draft sets) through a transactional task-table rebuild (see TROUBLESHOOTING).
