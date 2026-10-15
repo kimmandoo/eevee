@@ -36,7 +36,7 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
     };
     let inspection = json!({
         "type":"capabilities", "sdk_version":"1.5.0", "cli_version":"4.0.0",
-        "bridge_revision":2, "query":true,
+        "bridge_revision":3, "query":true,
         "policy":{"tools":"closed-allowlist","permissions":"default-host-once","mcp":"disabled",
             "configuration":"isolated","authentication":"api-console-cloud-only"},
     });
@@ -44,7 +44,7 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
     for (field, value) in [
         ("sdk_version", json!("1.5.1")),
         ("cli_version", json!("4.0.1")),
-        ("bridge_revision", json!(3)),
+        ("bridge_revision", json!(2)),
         ("query", json!(false)),
         ("policy", Value::Null),
     ] {

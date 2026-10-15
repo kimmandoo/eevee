@@ -147,7 +147,7 @@ fn official_grouped_select_fixture_is_flattened_without_guessing_or_duplicate_va
 }
 
 #[test]
-fn actual_unauthenticated_devin_selector_is_not_a_selectable_or_reasoning_fallback() {
+fn empty_devin_selector_does_not_invent_model_options_or_reasoning_controls() {
     // Verbatim sanitized selector from real isolated Devin 3000.11.3 session/new.
     let fixture = json!({"configOptions":[{"id":"model","name":"Model","description":"AI model to use","category":"model","type":"select","currentValue":"swe-1-6-fast","options":[]}]});
     let state = Models::parse(&fixture).unwrap();
@@ -160,18 +160,6 @@ fn actual_unauthenticated_devin_selector_is_not_a_selectable_or_reasoning_fallba
             .next_change(&ModelSelection::default(), false, false)
             .unwrap()
             .is_none()
-    );
-    assert!(
-        state
-            .next_change(
-                &ModelSelection {
-                    model: Some("swe-1-6-fast".into()),
-                    effort: None,
-                },
-                false,
-                false
-            )
-            .is_err()
     );
     assert!(
         state
@@ -237,18 +225,6 @@ fn requested_values_need_exact_acknowledgment_and_dependent_reasoning_revalidati
             .validate_selected(&selection, true, true)
             .is_err()
     );
-    updated = acknowledged.clone();
-    updated["configOptions"][0]["options"]
-        .as_array_mut()
-        .unwrap()
-        .pop();
-    assert!(
-        state
-            .updated(&updated)
-            .unwrap()
-            .validate_selected(&selection, true, true)
-            .is_err()
-    );
     updated = acknowledged;
     updated["configOptions"].as_array_mut().unwrap().pop();
     assert!(
@@ -258,30 +234,56 @@ fn requested_values_need_exact_acknowledgment_and_dependent_reasoning_revalidati
             .validate_selected(&selection, true, true)
             .is_err()
     );
-    assert!(
-        state
-            .next_change(
-                &ModelSelection {
-                    model: Some("unadvertised".into()),
-                    effort: None
-                },
-                false,
-                false
-            )
-            .is_err()
-    );
-    assert!(
-        state
-            .next_change(
-                &ModelSelection {
-                    model: None,
-                    effort: Some("unadvertised".into())
-                },
-                false,
-                false
-            )
-            .is_err()
-    );
+}
+
+#[test]
+fn custom_model_selection_requires_exact_backend_ack_not_catalogue_membership() {
+    let selection = ModelSelection {
+        model: Some("custom/new-model".into()),
+        effort: None,
+    };
+    for fixture in [
+        opencode_options(),
+        json!({"models":{"currentModelId":"old","availableModels":[]}}),
+    ] {
+        let mut state = Models::parse(&fixture).unwrap();
+        let change = state
+            .next_change(&selection, false, false)
+            .unwrap()
+            .unwrap();
+        assert!(
+            state
+                .require_acknowledged(&selection, false, false)
+                .is_err()
+        );
+        assert!(state.acknowledge(&Value::Null, &change).is_err());
+        let mut acknowledgment = fixture.clone();
+        if acknowledgment.get("configOptions").is_some() {
+            acknowledgment["configOptions"][0]["currentValue"] = json!("custom/new-model");
+        } else {
+            acknowledgment["models"]["currentModelId"] = json!("custom/new-model");
+        }
+        state.acknowledge(&acknowledgment, &change).unwrap();
+        assert_eq!(
+            state.catalogue(Agent::OpenCode).unwrap().current,
+            selection.model
+        );
+        assert!(
+            state
+                .next_change(&selection, true, false)
+                .unwrap()
+                .is_none()
+        );
+        let substituted = ModelSelection {
+            model: Some("substituted".into()),
+            effort: None,
+        };
+        assert!(
+            state
+                .require_acknowledged(&substituted, true, false)
+                .is_err()
+        );
+    }
 }
 
 #[test]
@@ -337,7 +339,6 @@ fn legacy_model_contract_requires_success_and_never_invents_reasoning() {
     preferred["models"] = fixture["models"].clone();
     let state = Models::parse(&preferred).unwrap();
     assert_eq!(state.catalogue(Agent::OpenCode).unwrap().models.len(), 3);
-    assert!(state.next_change(&selection, false, false).is_err());
 }
 
 #[test]
@@ -405,7 +406,7 @@ fn official_selector_bounds_reject_malformed_duplicate_and_unsafe_metadata() {
     }
     let mut oversized = base.clone();
     oversized["configOptions"][0]["options"] = json!(
-        (0..257)
+        (0..4097)
             .map(|id| json!({"value":id.to_string(),"name":format!("Model {id}")}))
             .collect::<Vec<_>>()
     );

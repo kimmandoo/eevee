@@ -530,7 +530,7 @@ fn inspection_matches(value: &Value, versions: &SdkVersions) -> bool {
     value["type"] == "capabilities"
         && value["sdk_version"].as_str() == Some(versions.sdk.as_str())
         && value["cli_version"].as_str() == Some(versions.cli.as_str())
-        && value["bridge_revision"] == 2
+        && value["bridge_revision"] == 3
         && value["query"] == true
         && value["policy"]
             == json!({
@@ -908,14 +908,11 @@ fn worker(
                     preview.blockers.push(error);
                 }
                 preview.trust.push(format!(
-                    "Model: {}; reasoning effort: {}. Explicit choices use official SDK Options. Model support is checked live, then setModel/getContextUsage(summary) must acknowledge the advertised resolved model before prompt release; summary uses local estimates, not token-count/model requests. Explicit reasoning effort is unsupported: this SDK cannot publicly acknowledge pre-prompt applied effort after organization caps/downgrades. {}",
+                    "Model: {}; requested reasoning effort: {}. Explicit choices use official SDK Options. Catalogue metadata is informational; exact configured/custom IDs are validated by the SDK control path and provider, not a local list. Effort is requested through supported SDK Options; organization caps/downgrades may apply and applied effort is not reported. {}",
                     input.selection.model.as_deref().unwrap_or("provider default (not yet observed)"),
                     input.selection.effort.as_deref().unwrap_or("provider default (not advertised)"),
                     if input.inspect_models { "MODEL INSPECTION ONLY: no prompt/history/model turn or journal; SDK initialization may contact provider/auth services, refresh credentials and create isolated SDK state. All tools are disabled; the SDK closes after bounded capabilities and terminal result." } else { "The selected model and effort belong to this immutable reviewed request." },
                 ));
-                if input.selection.effort.is_some() {
-                    preview.blockers.push("Claude reasoning selection unsupported: no public pre-prompt applied-effort acknowledgement; organization caps/downgrades cannot be qualified. Use provider-default effort.".into());
-                }
                 match payload(data_dir, &input, exclusions) {
                     Ok(text) => preview.payload = text,
                     Err(error) => preview.blockers.push(safe(&error)),

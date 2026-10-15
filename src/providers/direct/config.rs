@@ -215,6 +215,14 @@ struct Inputs<F> {
     now: u64,
 }
 
+fn project_boundary(cwd: Option<PathBuf>, home: Option<&Path>) -> Option<PathBuf> {
+    let directory = cwd?.canonicalize().ok()?;
+    let home = home.and_then(|path| path.canonicalize().ok());
+    // Starting in the verified user home must not reclassify its provider stores
+    // as project configuration. Every other workspace retains the project guard.
+    (home.as_ref() != Some(&directory)).then_some(directory)
+}
+
 fn inputs() -> Inputs<impl Fn(&str) -> Option<String>> {
     let home = env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
     let config_home = if cfg!(windows) {
@@ -226,11 +234,12 @@ fn inputs() -> Inputs<impl Fn(&str) -> Option<String>> {
             .map(PathBuf::from)
             .or_else(|| home.as_ref().map(|p| p.join(".config")))
     };
+    let project = project_boundary(env::current_dir().ok(), home.as_deref());
     Inputs {
         get: |key: &str| env::var(key).ok(),
         home,
         config_home,
-        project: env::current_dir().ok().and_then(|p| p.canonicalize().ok()),
+        project,
         now: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -1326,6 +1335,28 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+    #[cfg(unix)]
+    #[test]
+    fn home_startup_reads_user_config_but_other_workspaces_keep_the_project_guard() {
+        let home = Temp::new();
+        let text = "[compatible]\nbase_url='http://127.0.0.1:4321/v1'\nkeyless=true\nmodel='home-custom'\n";
+        let path = home.file("providers.toml", text, 0o600);
+        let mut user = input(&[("EV_PROVIDERS_CONFIG", path.to_str().unwrap())]);
+        user.project = project_boundary(Some(home.0.clone()), Some(&home.0));
+        assert_eq!(
+            settings(Agent::Compatible, &user).unwrap().model.as_deref(),
+            Some("home-custom")
+        );
+        user.project = project_boundary(Some(home.0.clone()), None);
+        assert!(settings(Agent::Compatible, &user).is_err());
+
+        let project = home.0.join("project");
+        fs::create_dir(&project).unwrap();
+        let local_path = home.file("project/providers.toml", text, 0o600);
+        let mut local = input(&[("EV_PROVIDERS_CONFIG", local_path.to_str().unwrap())]);
+        local.project = project_boundary(Some(project), Some(&home.0));
+        assert!(settings(Agent::Compatible, &local).is_err());
     }
 
     #[cfg(unix)]

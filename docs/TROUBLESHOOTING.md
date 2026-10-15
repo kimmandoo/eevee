@@ -1,11 +1,25 @@
 # Troubleshooting
 
+### [2026-10-16] Starting in the user home blocked native provider configuration
+
+- **Context / Symptom:** The actual release TUI launched with its working directory equal to HOME refused a private user-owned provider config with `Cannot read user provider config safely`; no metadata HTTP request was sent.
+- **Root Cause:** Every current working directory was treated as an untrusted project boundary, so launching from the home directory incorrectly classified its own user-scoped provider stores as project files.
+- **Solution:** Canonically verified home-directory startup is no longer a project-file boundary. Other workspaces, including projects beneath home, retain the project-source restriction. Ownership, permissions/DACL, no-follow identity and endpoint restrictions remain unchanged.
+- **Prevention / Reference:** The focused real-TUI journey records failing-before and successful-after discovery without inference or config changes. Regression coverage also refuses the same files without a verified home and refuses project-local configuration in home descendants.
+
+### [2026-10-16] SDK and ACP still rejected models omitted by discovery
+
+- **Context / Symptom:** Exact custom IDs were locally refused even when the selected integration exposed a real model setter. The SDK also blocked every explicit effort because it lacked an applied-effort acknowledgment, although official request Options supported the value.
+- **Root Cause:** Catalogue membership had been coupled to request eligibility in adapter-specific preflight and setter acknowledgment checks. Informational effort capability was confused with an assertion of observed application.
+- **Solution:** Removed membership gates, retained official selector/control availability and exact correlated model acknowledgments, and kept SDK authentication/tool policy independent. SDK discovery failures remained inspection errors but no longer blocked acknowledged explicit models. Exposed advertised SDK effort request values with applied effort explicitly unknown. Required bridge revision 3 so old installed bridge code could not silently retain the rejected behavior.
+- **Prevention / Reference:** Exact-ID and stale-option acknowledgment regressions cover SDK/ACP state transitions. Provider account qualification remains separate from parser/policy fixtures; no unconfigured live account is claimed.
+
 ### [2026-10-16] Native platform qualification exposed HTTP and ACL fixture assumptions
 
 - **Context / Symptom:** Native macOS CI failed the loopback SSE reader fixture with `WouldBlock` / `Resource temporarily unavailable`; native Windows tests failed before production validation at fixture `SetSecurityInfo`, returning `ERROR_ACCESS_DENIED` (5). Linux rows and the local serialized Rust suite had passed.
 - **Root Cause:** Darwin accepted sockets inherited the listener's nonblocking mode, while the fixture assumed bounded blocking reads. Windows fixtures rewrote inherited ownership/DACL state after file creation; the reported API transition failed on the runner account. The exact internal Windows denial cause was not established, so it was not attributed to guessed handle rights.
 - **Solution:** Explicitly selected blocking mode on accepted fixture sockets while retaining read/write deadlines. Created Windows fixtures atomically with current-user owner and protected DACL in `SECURITY_ATTRIBUTES`; NULL-DACL cases use the same creation path. Production owner/DACL/reparse checks were not weakened, and no failing platform test was skipped.
-- **Prevention / Reference:** Run the ordinary parallel all-target suite, not only `--test-threads=1`; local parallel acceptance passed 563 tests with 2 ignored after the socket fix. Native Windows acceptance must qualify the creation-time ACL fixtures before release. Runtime cancellation checks use actual client socket closure, no-resend and preserved draft/response ownership rather than incidental transient notice wording.
+- **Prevention / Reference:** Run the ordinary parallel all-target suite, not only `--test-threads=1`; local parallel acceptance passed 563 tests with 2 ignored after the socket fix, and native Windows owner/DACL fixtures passed qualification run `38762603406`. Each final source candidate still requires its own five-platform qualification. Runtime cancellation checks use actual client socket closure, no-resend and preserved draft/response ownership rather than incidental transient notice wording.
 
 ### [2026-10-16] Native response was rejected despite valid streamed provider output
 
@@ -227,10 +241,10 @@
 
 ### Model picker has no selectable models or reasoning values
 
-- Opening `/model` or `/effort` uses local cached state only. If no local task exists, use `/task-new` or save the Goal first. Choose **Refresh / inspect** or `/models-refresh`, review executable/configuration/network effects, then explicitly Run. Inspection sends no task prompt.
+- Opening `/model` or `/effort` uses cached state and can automatically inspect metadata when empty, including before task creation. `/models-refresh` provides a separately reviewed refresh. Inspection sends no task prompt; an error retains the previous list visibly stale. Exact-ID entry remains available independently of list membership.
 - An unauthenticated Devin 3000.11.3 session can report a current model with an empty option list. That default is not evidence of selectable models or entitlement; connect through the native login and explicitly refresh again. No guessed model list is substituted.
 - ACP reasoning options can belong only to the model active during inspection. After selecting another model, refresh the catalogue for that selected model before choosing effort. Unsupported controls show an explanation and reject requests instead of ignoring the selection.
-- Claude SDK effort cannot be qualified before a prompt after organization caps, so `/effort` explains its unavailability. Claude model selection remains available through official model listing and effective-model control acknowledgment. Reinstall the optional sidecar for required bridge revision 2; an older bridge is refused before dispatch.
+- Claude SDK effort choices are advertised request values, not observed applied settings; organization caps/downgrades may apply. Exact model selection uses official setter/context acknowledgment even when discovery omits that ID. Update the complete optional bridge to revision 3 as well as its SDK dependencies; an older bridge is refused before dispatch.
 
 ### [2026-10-14] Schema growth changed the quota smoke's payload budget
 

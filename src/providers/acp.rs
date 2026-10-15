@@ -185,12 +185,12 @@ fn worker(
                         _ => unreachable!("profile rejects non-ACP providers"),
                     }
                     lines.push(format!(
-                        "Reviewed selection snapshot: model = {}; reasoning = {}. Explicit values must be advertised and acknowledged before any prompt; unsupported values are refused.",
+                        "Reviewed selection snapshot: model = {}; reasoning = {}. Explicit values are sent through the peer's official selectors and must be acknowledged before any prompt; catalogue membership is not an authorization gate.",
                         input.selection.model.as_deref().unwrap_or("provider default (not yet observed)"),
                         input.selection.effort.as_deref().unwrap_or("provider default (not yet observed)")
                     ));
                     if input.selection != ModelSelection::default() {
-                        lines.push("Requested model/reasoning changes use only advertised session configuration IDs. Setters affect the created or explicitly resumed provider session and can persist provider-owned configuration/session metadata; each exact value must be acknowledged before any prompt.".into());
+                        lines.push("Requested model/reasoning changes use official session configuration IDs. Setters can persist provider-owned session metadata; exact current-value acknowledgments are required, not membership in a potentially stale option list.".into());
                     }
                     if input.inspect_models {
                         lines.push("MODEL INSPECTION ONLY: initialize, then one temporary session/new because ACP advertises session models/configOptions there, not in initialize. Session creation can persist provider metadata, load project/provider configuration, initialize services/MCP and contact provider/auth networks; external effects are not a read-only guarantee. Reviewed model/effort selections may change this temporary session's configuration. No session/prompt/load/list/history/authenticate, task content, journal or retained resume grant. The process is closed afterward; provider-owned session metadata may remain.".into());
@@ -352,7 +352,7 @@ fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
             "initialize":{"protocolVersion":1,"clientCapabilities":client_capabilities()},
             "session/new":{"cwd":workspace.project,"mcpServers":[]},
             "selection":input.selection,
-            "optional_configuration":"session/set_config_option for advertised model/thought_level selectors; legacy session/set_model only for advertised legacy models",
+            "optional_configuration":"session/set_config_option for model/thought_level controls; legacy session/set_model for exact model IDs; correlated setter success is required",
             "effects":"Temporary session creation/configuration may persist provider metadata, load configuration/services and contact provider networks. Provider-owned metadata may remain after teardown.",
             "session_prompt_load_list_history":false,
             "model_prompts_sent":0,
@@ -795,7 +795,7 @@ impl Models {
                     current: config_text(option, "currentValue", 256, false)?,
                     values: select_values(
                         option.get("options").ok_or("ACP select lacks options")?,
-                        if thought { 32 } else { 256 },
+                        if thought { 32 } else { 4096 },
                     )?,
                 };
                 // ACP's ordered configuration list resolves category ties.
@@ -817,8 +817,8 @@ impl Models {
                 .get("availableModels")
                 .and_then(Value::as_array)
                 .ok_or("ACP legacy models lack availableModels array")?;
-            if available.len() > 256 {
-                return Err("ACP legacy models exceed the 256-model bound".into());
+            if available.len() > 4096 {
+                return Err("ACP legacy models exceed the 4096-entry resource bound".into());
             }
             let mut values = Vec::with_capacity(available.len());
             let mut ids = HashSet::new();
@@ -880,7 +880,7 @@ impl Models {
                 else if self.legacy.is_some() { "legacy models.availableModels/currentModelId" }
                 else { "no supported model selector advertised" },
                 if active.is_none_or(|select| select.values.is_empty()) {
-                    " No selectable models advertised; connect/configure the provider before refreshing."
+                    " No model options advertised; use a known exact ID, or connect/configure and refresh."
                 } else { "" }),
             effort_note: self.thought.as_ref().map(|_| "Official thought_level values apply only to the observed current model. Changing model can replace this list; requested reasoning is revalidated after model acknowledgment.".into()),
         };
@@ -897,12 +897,6 @@ impl Models {
             let active = self
                 .active_model()
                 .ok_or("ACP peer does not advertise model selection")?;
-            if !active.values.iter().any(|value| &value.id == model) {
-                return Err(
-                    "Requested ACP model is not advertised; no fallback or substituted prompt"
-                        .into(),
-                );
-            }
             if model_ack && &active.current != model {
                 return Err(
                     "ACP model changed or was not acknowledged; reviewed selection invalidated"
@@ -917,11 +911,6 @@ impl Models {
                 .thought
                 .as_ref()
                 .ok_or("ACP peer does not advertise an official thought_level select control")?;
-            if !thought.values.iter().any(|value| &value.id == effort) {
-                return Err(
-                    "Requested ACP reasoning value is not advertised for this model".into(),
-                );
-            }
             if effort_ack && &thought.current != effort {
                 return Err(
                     "ACP reasoning changed or was not acknowledged; reviewed selection invalidated"
@@ -993,13 +982,12 @@ impl Models {
                 }
                 let next = self.updated(result)?;
                 let control = if *thought { &next.thought } else { &next.model };
-                if !control.as_ref().is_some_and(|control| {
-                    &control.id == id
-                        && &control.current == value
-                        && control.values.iter().any(|option| &option.id == value)
-                }) {
+                if !control
+                    .as_ref()
+                    .is_some_and(|control| &control.id == id && &control.current == value)
+                {
                     return Err(
-                        "ACP set_config_option did not acknowledge the exact advertised selection"
+                        "ACP set_config_option did not acknowledge the exact requested selection"
                             .into(),
                     );
                 }
@@ -1013,12 +1001,13 @@ impl Models {
                 }
                 if result.get("models").is_some() || result.get("configOptions").is_some() {
                     let next = Self::parse(result)?;
-                    if !next.active_model().is_some_and(|active| {
-                        &active.current == model
-                            && active.values.iter().any(|option| &option.id == model)
-                    }) {
+                    if next
+                        .active_model()
+                        .is_none_or(|active| &active.current != model)
+                    {
                         return Err(
-                            "ACP legacy set_model returned a different or unavailable model".into(),
+                            "ACP legacy set_model did not acknowledge the exact requested model"
+                                .into(),
                         );
                     }
                     *self = next;
@@ -1027,9 +1016,6 @@ impl Models {
                         .legacy
                         .as_mut()
                         .ok_or("ACP legacy model control disappeared")?;
-                    if !active.values.iter().any(|option| &option.id == model) {
-                        return Err("ACP legacy model selection is no longer advertised".into());
-                    }
                     active.current.clone_from(model);
                 }
             }

@@ -212,7 +212,7 @@ async function run(command: z.infer<typeof RunSchema>) {
   const streaming = new Map<string, { text: string; at: number; bytes: number }>();
   const toolCalls = new Map<string, { tool: string; input: unknown }>();
   try {
-    // Backend and live model/effort validation complete before any user prompt.
+    // Authentication/tool policy and explicit model acknowledgments precede prompt release.
     const { catalogue, approvedModel } = await prepareModels(current, command.selection, account, expectedProvider,
       { sdkVersion, cliVersion, requireHooks: options.hooks !== undefined }, command.inspect_models);
     if (command.inspect_models) {
@@ -222,7 +222,6 @@ async function run(command: z.infer<typeof RunSchema>) {
       resultSeen = true;
       return;
     }
-    if (catalogue.models.length === 0) throw new SDKPolicyError('Model selection unsupported: the live SDK returned no supported models; no prompt sent');
     promptReleased = true;
     authReady.resolve(true);
     for await (const message of current) {
@@ -320,7 +319,7 @@ function fatal(_error: unknown) {
   void emit({ type: 'fatal', ...meta(), message: 'Claude SDK sidecar failed; raw diagnostics withheld; outcome unknown' }).finally(() => { current?.close(); process.exitCode = 1; process.stdin.pause(); }).catch(() => process.exit(1));
 }
 if (process.argv.includes('--inspect')) {
-  await emit({ type: 'capabilities', bridge_revision: 2, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
+  await emit({ type: 'capabilities', bridge_revision: 3, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
     query: typeof query === 'function', approvals: 'canUseTool with exact once/deny answers; no persistent rules', questions: 'AskUserQuestion single-select/free text',
     elicitation: 'distinct onElicitation; MCP disabled so decline/cancel only', resume: 'explicit same-task session ID only',
     usage: 'latest cumulative query-pipeline snapshot, not additive', confinement: 'agent policy; not OS sandbox', credential_route: credentialRoute(process.env) ?? 'unavailable' });
