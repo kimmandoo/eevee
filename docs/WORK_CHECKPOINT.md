@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-15 — Pixel-art installer Poké Ball
+
+- **Released first:** v0.1.3 published from `96b1ab0` after native CI run 38665079741 passed; release run 38665646904 succeeded with all 8 assets (5 archives, 2 installers, SHA256SUMS).
+- **Requested:** The install/update Poké Ball looked bad.
+- **Delivered:** `install.sh` and `install.ps1` draw a 16×16 pixel-art ball in 8 half-block rows with a caught-ball shake and lit button. POSIX: 256-color; NO_COLOR: monochrome blocks; non-UTF-8 locale: ASCII ball. Windows: console colors, ASCII fallback when `[Console]::OutputEncoding` cannot carry block glyphs. `install.sh` captures the user's locale before forcing `LC_ALL=C`.
+- **Verification:** Real-PTY pyte captures for color, NO_COLOR and C locale, plus a rendered PNG of the colored frames. `sh -n install.sh` OK. `scripts/installation_smoke.py` passed all 19 cases on Linux (`target/ball-install-smoke`). The PowerShell path was **not executed** (no pwsh here); native CI's Windows row and a Windows Terminal check are still needed.
+- **Next action:** Decide whether to publish this in 0.1.4; then wave 1 PT02A.
+
 ## 2026-10-15 — RF03 and 0.1.3 release
 
 - **Requested:** Finish RF03, then release.
