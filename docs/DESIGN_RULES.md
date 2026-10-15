@@ -1,6 +1,6 @@
 # Eevee Design Rules
 
-Status: the local runtime implements artwork/navigation, durable task lifecycle/privacy/quotas, repository/source evidence, approved owned commands/recoverable journals, preflight, Codex Plan/controlled Implement, optional official Claude SDK, shared ACP1 OpenCode/Gemini/Devin and version-1 handoff. The user has authorized public 0.1.0 release, binary installation/update/uninstall, commit and push. Fresh five-row native qualification gates publication; the historical billing/deferment state is superseded. A04/A06/full A07 remain authentication-blocked; implemented adapters are not claims of full provider conformance.
+Status: the party model (one or more partners, free switching, cooperation) is a confirmed contract whose implementation is pending; the local runtime implements artwork/navigation, durable task lifecycle/privacy/quotas, repository/source evidence, approved owned commands/recoverable journals, preflight, Codex Plan/controlled Implement, optional official Claude SDK, shared ACP1 OpenCode/Gemini/Devin and version-1 handoff. The user has authorized public 0.1.0 release, binary installation/update/uninstall, commit and push. Fresh five-row native qualification gates publication; the historical billing/deferment state is superseded. A04/A06/full A07 remain authentication-blocked; implemented adapters are not claims of full provider conformance.
 
 Implemented B/C boundaries: context exclusions conservatively match case-folded path components without merging file/project identities; assembly revalidates source containment/content and persisted references. Payload previews show exact serialized bytes and a labelled bytes/4 token estimate, not a provider's effective prompt. Task-row export is not an evidence backup. Metadata deletion can commit while physical cleanup fails: report the committed scope and cleanup warning, never a fictional rollback. Below-minimum terminals must retain neutral owned-work cancellation while refusing command approval until the complete review surface fits. Restored nested overlays and search retain their input ownership.
 
@@ -20,13 +20,14 @@ Curated memory and recipe consent: approved task/project/personal notes use the 
 
 ## Product
 
-Eevee is a local-first terminal workbench for LLM-assisted development. One partner retains the task, evidence, and decisions while specialized forms expose the right tools. It is not another full-screen chat log or nine permanently running agents.
+Eevee is a local-first terminal workbench for LLM-assisted development. Your own party of Eevee partners retains the task, evidence, and decisions while specialized forms expose the right tools; each partner switches form freely, and several partners may cooperate on one task. It is not another full-screen chat log or nine permanently running agents: idle partners do nothing and cost nothing.
 
 Use Eevee and its eight existing evolutions; do not invent additional species. Species and types follow the original concept. Software responsibilities below are product interpretations, not claims about canonical abilities. Forms are reversible workbench states, not a simulation of the games' evolution restrictions.
 
 ### Experience: a partner, not a themed dashboard
 
 - **Sanctuary** is Eevee's home: one active task card, its completion criteria, and one recommended next action. With no task, show one invitation to create a goal, not nine empty specialist dashboards.
+- **Partner** is one individual Eevee in the user's party: nickname, current form, met date and, later, its own learned moves. The lead partner is the one in front of the current task; other partners may be idle or working on the same task.
 - **Evolution** changes the tools for the same task. Keep the task identity, selected evidence, decisions, and user-approved scope across forms. The role is independent of the selected execution agent/model; changing either selection does not itself submit a request.
 - **Field journal** is the task's inspectable evidence history: observations, decisions, executions, reviews, and handoffs. Cosmetic form selection is not evidence. Opening the journal performs no model call.
 - **Bond** means explicitly approved project/personal habits that save repeated instructions. No affection score, XP, hunger, streaks, random unlocks, or inaccessible forms.
@@ -68,10 +69,22 @@ These defaults define requested workflow scope, not proof that a tool or subproc
 - Flareon changes behavior; Leafeon improves structure or efficiency within an agreed behavioral contract.
 - Jolteon records execution, not correctness judgments. Provider-native tool runs may be observed in its journal without being launched by Eevee; never duplicate them to simulate control. Glaceon judges evidence and never silently fixes its own findings.
 - Sylveon records verified conclusions, not invented success or inferred user preferences.
-- One active form per task by default. Switching forms is local UI/state work and must not trigger a model call by itself.
-- Form changes require deliberate selection or acceptance of a recommendation. They never grant additional permissions automatically.
+- One active form per partner. An idle partner switches form freely and instantly; switching is local UI/state work and must not trigger a model call by itself.
+- Form changes require deliberate selection (picker Enter, a named form command or the previous-form toggle) or acceptance of a recommendation. No confirmation dialog is required, and a switch never grants additional permissions.
 - Shared state does not imply shared prompts: specialist requests contain only relevant evidence and constraints.
 - Independence in Glaceon means a separate review context with the requirements, patch, and observed evidence; it does not imply a different model or guaranteed correctness.
+
+### Party
+
+Status: contract confirmed 2026-10-15; implementation pending (task.md PT02–PT11). Until PT06/PT07 ship, the runtime keeps a single partner and one working request.
+
+- **Size:** up to **6** partners in the party. A new partner starts as Eevee. Releasing a partner deletes its moves and pairings but never its evidence; evidence keeps a name snapshot of the partner that produced it.
+- **Concurrency:** up to **3** partners may work on one task at the same time. Each partner owns its own draft, requests, approvals, questions and cancellation. Every journal entry, provider event and approval carries (task, partner, request); a late or stale event is never routed to another partner.
+- **One writer:** edit-capable work (Flareon, Leafeon) takes a per-task write lease. Another partner's edit waits; a run started while the lease is held is recorded as `revision moving` and is not fresh verification. The lease is released on completion, cancellation and crash recovery.
+- **No autonomy:** partners never start work on their own and never trigger another partner's work. Handing work to a partner pre-fills its draft with references only: no approvals, sessions or grants move.
+- **Visible cost:** each provider request keeps its own review and receipt; cooperation never merges or hides per-partner cost.
+- **Review independence:** a Glaceon review by a partner other than the patch author is preferred; the same partner is allowed and labelled `same partner`.
+- **Flavor stays local:** nicknames, partner names and dialogue never enter provider packets or handoffs.
 
 ### Signature interactions
 
@@ -87,7 +100,7 @@ These defaults define requested workflow scope, not proof that a tool or subproc
 | Glaceon | Change set -> inspect criteria, findings, verification age | Accept / request changes / inconclusive with evidence links |
 | Sylveon | Verified task facts -> preview handoff, propose a memory | Editable handoff and separately approved durable knowledge |
 
-An action card distinguishes three operations: local navigation (no model call), a provider request (selected context leaves the process), and a command/write operation (capability check). Display unavailable prerequisites with a reason, not a working-looking button. A running request keeps its owning form; activating another form requires completion or explicit cancellation, never an implicit cancel or second worker.
+An action card distinguishes three operations: local navigation (no model call), a provider request (selected context leaves the process), and a command/write operation (capability check). Display unavailable prerequisites with a reason, not a working-looking button. A running request keeps its owning partner and form; that partner changes form only after completion or explicit cancellation, never an implicit cancel. Another partner may be brought to the front instead (see Party).
 
 ### Role, agent, model, and control are independent
 
@@ -95,7 +108,7 @@ An action card distinguishes three operations: local navigation (no model call),
 - Show requested provider/model/effort/role separately from the observed session model, without recoloring the companion. Opening model/effort pickers is local and never spawns a provider. Explicit catalogue refresh requires ordinary executable/configuration/network-effects review; model selection must be applied and acknowledged by the official interface before prompt submission, or fail with a capability reason.
 - Capabilities are action-specific: structured output, approval/questions, cancellation, same-agent session loading, tool limits, filesystem/network policy, and usage may differ. Missing or unknown support is not permission. Disable only the affected action, explain why, and keep local browsing/notes/review available.
 - An approval callback is not an OS sandbox. Distinguish **Eevee-mediated**, **agent-policy-controlled**, and **observed/unmanaged** effects in the inspector and request preview. Label restrictions by the actual mechanism/scope, not a single reassuring “safe” badge.
-- During a request, users may browse existing evidence and edit a future draft, but changing the active form/agent/task requires completion or an explicit cancel-and-wait transition. Offer Stay instead; never transfer a running request's ownership. Preserve per-task drafts and never route a late approval or streamed event to another agent/task.
+- During a request, users may browse existing evidence and edit a future draft, but changing the working partner's form/agent/task requires completion or an explicit cancel-and-wait transition. Offer Stay instead; never transfer a running request's ownership. Preserve per-task drafts and never route a late approval or streamed event to another agent/task.
 - A new agent receives a user-reviewed handoff, not the old agent's opaque session ID, private reasoning, credentials, or assumed memory. Same-agent resumption is separately verified against agent version, cwd, context/config identity, and policy. Fresh Glaceon review context remains separate even when the same agent is reused.
 - The outgoing context basket describes **what Eevee sends**, not necessarily the whole effective model input. Agents may load project rules, hooks, history, plugins, MCP tools, or additional files. Inspect or disclose those sources where possible; if they cannot be bounded, do not promise complete context isolation or hard read-only operation.
 - Before connecting, distinguish provider-owned authentication/billing, project executable configuration, and persistent trust/configuration effects. Do not import credentials or mutate global settings to hide a missing prerequisite. Provider-owned side effects such as a persistent trust change require explicit preview/consent, not a form selection.
