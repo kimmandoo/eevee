@@ -28,6 +28,266 @@ fn modified_key(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> bool {
 }
 
 #[test]
+fn root_provider_metadata_shortcuts_prepare_review_not_execution() {
+    for (command, inspect_models) in [("sessions", false), ("models-refresh", true)] {
+        let mut app = app();
+        let mut task = store::Snapshot::empty("/workspace".into());
+        task.id = 7;
+        task.goal = "Inspect provider metadata".into();
+        app.store_event(store::Event::Loaded(store::Project {
+            tasks: vec![task],
+            partners: vec![store::Partner::default()],
+            active_id: Some(7),
+            usage_bytes: 0,
+        }));
+        key(&mut app, KeyCode::Char('/'));
+        type_text(&mut app, command);
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.overlay, Some(Overlay::Planning));
+        assert!(app.command_popup.is_none());
+        assert!(matches!(
+            app.planning.pending.as_ref(),
+            Some(crate::providers::Request::Preview(input))
+                if input.inspect_models == inspect_models
+                    && input.inspect_sessions != inspect_models
+                    && input.resume.is_none()
+        ));
+        assert!(!app.planning.affirmative);
+        assert!(app.execution.active.is_none());
+    }
+}
+
+#[test]
+fn corrected_command_query_keeps_a_choice_but_clearing_it_is_neutral() {
+    let mut app = app();
+    key(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "workflow-reviewx");
+    assert_eq!(app.command_popup.as_ref().unwrap().candidates().count(), 0);
+    key(&mut app, KeyCode::Backspace);
+    assert_eq!(app.command_popup.as_ref().unwrap().selected, Some(0));
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.workflow.tab, workflows::Tab::Review);
+    key(&mut app, KeyCode::Esc);
+    key(&mut app, KeyCode::Char('/'));
+    key(&mut app, KeyCode::Char('x'));
+    key(&mut app, KeyCode::Backspace);
+    assert!(app.command_popup.as_ref().unwrap().selected.is_none());
+    key(&mut app, KeyCode::Enter);
+    assert!(app.overlay.is_none());
+    assert!(app.planning.pending.is_none());
+}
+
+#[test]
+fn root_commands_open_each_specialist_desk_without_a_second_palette() {
+    for (command, tab) in [
+        ("workflow-diagnosis", workflows::Tab::Diagnosis),
+        ("workflow-refactor", workflows::Tab::Refactor),
+        ("workflow-review", workflows::Tab::Review),
+        ("workflow-recipe", workflows::Tab::Recipe),
+    ] {
+        let mut app = app();
+        key(&mut app, KeyCode::Char('/'));
+        type_text(&mut app, command);
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.overlay, Some(Overlay::Workflows), "{command}");
+        assert_eq!(app.workflow.tab, tab);
+        assert!(app.command_popup.is_none());
+        assert!(app.planning.pending.is_none());
+        assert!(app.execution.active.is_none());
+        assert!(!app.workflow.preview);
+        assert!(!app.workflow.affirmative);
+        key(&mut app, KeyCode::Esc);
+        assert!(app.overlay.is_none());
+    }
+}
+
+#[test]
+fn direct_specialist_navigation_restores_draft_caret_and_suffix() {
+    let mut app = app();
+    app.command("goal");
+    app.update(Event::Paste("draft 한글 suffix".into()));
+    key(&mut app, KeyCode::Left);
+    key(&mut app, KeyCode::Left);
+    let draft = app.input.clone();
+    let cursor = app.cursor;
+    key(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "workflow-refactor");
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.workflow.tab, workflows::Tab::Refactor);
+    assert!(app.goal.is_empty());
+    assert!(app.planning.pending.is_none());
+    key(&mut app, KeyCode::Esc);
+    assert!(app.editing);
+    assert_eq!(app.input, draft);
+    assert_eq!(app.cursor, cursor);
+}
+
+#[test]
+fn specialist_shortcut_rechecks_hidden_review_and_popup_scope() {
+    let mut app = app();
+    key(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "workflow-review");
+    app.workflow.preview = true;
+    key(&mut app, KeyCode::Enter);
+    assert!(app.overlay.is_none());
+    assert!(app.command_popup.is_some());
+    assert!(app.workflow.preview);
+    assert!(!app.workflow.affirmative);
+    assert!(app.notice.contains("specialist"));
+    app.workflow.preview = false;
+    app.overlay = Some(Overlay::Help);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.overlay, Some(Overlay::Help));
+    assert!(app.notice.contains("workspace changed"));
+    assert!(app.planning.pending.is_none());
+}
+
+#[test]
+fn root_catalogue_exposes_provider_setup_without_scope_bound_mutations() {
+    let mut app = app();
+    let choices = app.command_choices();
+    for command in [
+        "sessions",
+        "paths",
+        "models-refresh",
+        "criteria-edit",
+        "role-plan",
+        "role-implement",
+        "role-review",
+    ] {
+        assert_eq!(
+            choices
+                .iter()
+                .filter(|choice| choice.command == command)
+                .count(),
+            1,
+            "{command}"
+        );
+    }
+    for command in [
+        "attach-evidence",
+        "open-evidence",
+        "decision",
+        "archive",
+        "delete",
+    ] {
+        assert!(!choices.iter().any(|choice| choice.command == command));
+    }
+    app.planning.operation = crate::providers::Operation::Review;
+    let choices = app.command_choices();
+    assert!(
+        choices
+            .iter()
+            .find(|choice| choice.command == "paths")
+            .unwrap()
+            .reason
+            .is_some()
+    );
+    assert!(
+        choices
+            .iter()
+            .find(|choice| choice.command == "role-implement")
+            .unwrap()
+            .reason
+            .is_some()
+    );
+}
+
+#[test]
+fn root_provider_inspection_shortcuts_keep_saved_task_prerequisites() {
+    for command in ["sessions", "models-refresh"] {
+        let mut app = app();
+        key(&mut app, KeyCode::Char('/'));
+        type_text(&mut app, command);
+        key(&mut app, KeyCode::Enter);
+        assert!(app.command_popup.is_some());
+        assert!(app.overlay.is_none());
+        assert!(app.planning.pending.is_none());
+        assert!(app.notice.contains("save a local task"));
+    }
+}
+
+#[test]
+fn root_criteria_edit_opens_the_editor_without_the_list() {
+    let mut app = app();
+    key(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "criteria-edit");
+    key(&mut app, KeyCode::Enter);
+    assert!(app.editing);
+    assert_eq!(app.editor_field, store::EditorField::Criteria);
+    assert!(app.overlay.is_none());
+    assert!(app.criteria.is_empty());
+    assert!(app.planning.pending.is_none());
+}
+
+#[test]
+fn command_search_matches_unordered_terms_and_keeps_exact_commands_first() {
+    let mut app = app();
+    app.open_commands();
+    let popup = app.command_popup.as_mut().unwrap();
+    popup.query = "  DESK review  ".into();
+    assert_eq!(
+        popup
+            .candidates()
+            .map(|choice| choice.command)
+            .collect::<Vec<_>>(),
+        vec!["workflow-review"]
+    );
+    popup.query = "/ROLE-REVIEW".into();
+    assert_eq!(
+        popup
+            .candidates()
+            .map(|choice| choice.command)
+            .collect::<Vec<_>>(),
+        vec!["role-review"]
+    );
+    popup.query = "model provider".into();
+    assert!(popup.candidates().any(|choice| choice.command == "model"));
+    for (query, command) in [
+        ("attach", "files"),
+        ("cancel provider", "provider"),
+        ("evidence", "history"),
+        ("evidence", "diff"),
+    ] {
+        popup.query = query.into();
+        assert!(
+            popup.candidates().any(|choice| choice.command == command),
+            "{query}"
+        );
+    }
+    popup.query = "model impossible-word".into();
+    assert_eq!(popup.candidates().count(), 0);
+    popup.query = " \t ".into();
+    assert_eq!(popup.candidates().count(), popup.choices.len());
+}
+
+#[test]
+fn typed_lead_argument_wins_over_matching_search_labels() {
+    let mut app = app();
+    app.store_event(store::Event::Party(Ok(vec![
+        store::Partner::default(),
+        store::Partner {
+            id: 2,
+            nickname: Some("partner".into()),
+            ..store::Partner::default()
+        },
+    ])));
+    key(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "lead partner");
+    assert!(
+        app.command_popup
+            .as_ref()
+            .unwrap()
+            .candidates()
+            .any(|choice| choice.command == "lead")
+    );
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.lead().id, 2, "{}", app.notice);
+    assert!(app.overlay.is_none());
+    assert!(app.planning.pending.is_none());
+}
+
+#[test]
 fn clearing_first_draft_before_insert_ack_does_not_restore_deleted_text() {
     let mut app = app();
     app.command("goal");
@@ -769,35 +1029,6 @@ fn rendered_scroll_bounds_prevent_overscroll_and_clamp_after_reflow() {
     assert_eq!(app.scroll(), 1);
     app.set_scroll_max(ScrollSurface::Workspace, 0);
     assert_eq!(app.scroll(), 0);
-}
-
-#[test]
-fn nested_previews_restore_role_selection_and_hidden_focus_exactly() {
-    let mut app = app();
-    app.focus = Pane::Inspector;
-    app.command("forms");
-    app.selected = 8;
-    app.command("preview");
-    assert_eq!(app.preview_form(), 8);
-    app.command("forms");
-    app.selected = 1;
-    app.command("preview");
-    assert_eq!(app.preview_form(), 1);
-    app.update(Event::Resize(10, 3));
-    key(&mut app, KeyCode::Esc);
-    assert_eq!(app.overlay, Some(Overlay::Forms));
-    assert_eq!(app.selected, 1);
-    key(&mut app, KeyCode::Esc);
-    assert_eq!(app.overlay, Some(Overlay::Preview));
-    assert_eq!(app.preview_form(), 8);
-    assert_eq!(app.selected, 8);
-    key(&mut app, KeyCode::Esc);
-    assert_eq!(app.overlay, Some(Overlay::Forms));
-    assert_eq!(app.selected, 8);
-    key(&mut app, KeyCode::Esc);
-    app.update(Event::Resize(120, 36));
-    assert_eq!(app.effective_focus(), Pane::Inspector);
-    assert_eq!(app.form(), 0);
 }
 
 #[test]

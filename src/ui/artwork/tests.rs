@@ -46,6 +46,7 @@ impl Drop for TestDirectory {
 fn config(path: &Path) -> Config {
     Config {
         ascii: false,
+        no_animation: false,
         theme: Theme::Dark,
         color: ColorMode::TrueColor,
         images: ImageMode::Cells,

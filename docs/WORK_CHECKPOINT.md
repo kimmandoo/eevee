@@ -1,5 +1,14 @@
 # Work Checkpoint
 
+## 2026-10-15 — Direct navigation and fluent provider responses
+
+- **Delivered:** Direct specialist/criteria/session/path entry points, multiword action search, visible disabled reasons, draft-preserving compact command menus, and cycle-free overlay returns. Provider replies became response-first, with cached Unicode wrapping, paused-follow/new-output/End behavior, optional detailed provenance, credential-safe pre-newline text and observed-stage spinners (`--no-animation` supported).
+- **Verification:** `cargo test --locked --all-targets` passed 430 tests with 2 ignored; strict Clippy and the release build passed; `npm test --prefix sidecar` passed 13 policy tests. Real PTY navigation/blocked-search/draft-preservation journeys passed at 120×36 and 60×18. Two actual Codex 0.152.1 no-tools requests passed at those sizes, including growing partial paragraphs, manual follow pause/resume, retained final text, idle silence and terminal restoration. The wide run showed all ten spinner frames; the compact `--no-animation` run showed none. Final response captures are in `target/response-ux`; the full terminal matrix is still running and its result must be recorded before release.
+- **Changed files:** App commands, overlay navigation, planning/response state and tests; UI shell/composer/provider response and tests; all three provider transports and tests; privacy streaming and SDK batching; config/main activity timing; README, design rules, changelog and troubleshooting.
+- **Active user request:** After UX, measure/fix performance, flicker and excessive saves, then release. Do not resume PT06A instead. The local save-frequency baseline observed 20 committed-change intervals for 20 keys over 5.01 seconds (`target/save-before/counts.json`).
+- **Exact next action:** Finish the running terminal matrix; repair the stale performance harness readiness/raw-mode sampling assumptions, record baseline measurements, implement bounded/coalesced persistence and atomic/non-flickering rendering, then run local and native release qualification. Current public release is v0.1.3; next patch is v0.1.4. SSH access to origin works; `gh` is absent and no GH_TOKEN/GITHUB_TOKEN is available, so public Actions API plus authenticated git pushes can drive the existing tag-release workflow.
+- **Limits:** This session's live response evidence is Codex on Linux/WSL PTY, not Claude/ACP authentication conformance or a new native Windows/macOS visual claim. No release has been published yet. Existing provider-authentication backlog remains pending.
+
 
 ## 2026-10-15 — UX cleanup and automatic model catalogue
 

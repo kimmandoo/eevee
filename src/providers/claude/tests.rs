@@ -143,6 +143,43 @@ fn sdk_tool_snapshots_retain_partial_and_preserve_terminal_identity() {
     assert!(items.observe(&json!({"item_id":"tool-1","kind":"message","text":"provider result","complete":true})).is_err());
     assert!(items.observe(&finished).is_ok());
 }
+
+#[test]
+fn sdk_cumulative_message_snapshots_release_words_and_hide_every_secret_split() {
+    let mut items = SdkItems::default();
+    for (text, expected) in [
+        ("First ordinary ", "First ordinary "),
+        (
+            "First ordinary words 日本語 tail",
+            "First ordinary words 日本語 ",
+        ),
+    ] {
+        let value = json!({"item_id":"message","kind":"message","text":text,"complete":false});
+        assert_eq!(items.observe(&value).unwrap().text, expected);
+    }
+    for text in [
+        "前 sk-secret123456 後 ",
+        "前 password=\"opaque value\" 後 ",
+        "前 https://user:opaque@example.test/path 後 ",
+        "前 -----BEGIN PRIVATE KEY-----\nopaque\n-----END PRIVATE KEY----- 後 ",
+        "前 sk\r-secret123456 後 ",
+    ] {
+        let mut items = SdkItems::default();
+        let final_text = safe(text);
+        for end in text
+            .char_indices()
+            .map(|(index, _)| index)
+            .chain([text.len()])
+        {
+            let value =
+                json!({"item_id":"message","kind":"message","text":&text[..end],"complete":false});
+            assert!(final_text.starts_with(&items.observe(&value).unwrap().text));
+        }
+        let value = json!({"item_id":"message","kind":"message","text":text,"complete":true});
+        assert_eq!(items.observe(&value).unwrap().text, final_text);
+        assert!(items.observe(&value).is_ok());
+    }
+}
 #[test]
 fn provider_permission_options_preserve_exact_answers_without_persistent_grants() {
     let value = json!({"kind":"approval","input":{"options":[{"label":"Deny","answer":{"behavior":"deny","message":"No"}},{"label":"Allow once","answer":{"behavior":"allow","updatedInput":{"file_path":"a.rs"}}}]}});

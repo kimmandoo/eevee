@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-15] UX smoke dependencies were unavailable in the system Python
+
+- **Context / Symptom:** The real-PTY UX capture failed with `ModuleNotFoundError: No module named 'pyte'`; installing into the system interpreter was refused with `externally-managed-environment`.
+- **Root Cause:** This host uses a distribution-managed Python environment; the smoke harness requires its own pinned `pyte` and `wcwidth` dependencies.
+- **Solution:** Created `target/ux-venv` with `uv venv` and installed `pyte==0.8.2 wcwidth==0.2.13` using `uv pip install --python target/ux-venv/bin/python`. Ran terminal verification with that interpreter without changing system packages.
+- **Prevention / Reference:** Use an isolated smoke environment; do not override the distribution's externally-managed protection. Rust LSP reference lookup also exited before serving requests on this host; source inspection and compiler/runtime checks were used instead.
+
 ### [2026-10-15] Reserved partner drafts could not preserve valid escaped text
 
 - **Context / Symptom:** PT05B's existing maximum-text round-trip failed with `Stored JSON exceeds its bounded size`.

@@ -26,6 +26,7 @@ impl State {
     pub(super) fn review_start(&mut self) {
         self.scroll = 0;
         self.scroll_max = 0;
+        self.response_cache.invalidate();
         self.invalidate_review();
     }
 
@@ -90,11 +91,13 @@ impl State {
     }
 
     pub(super) fn close_request(&mut self) {
-        self.request = None;
+        let was_open = self.request.take().is_some();
         self.answers.clear();
         self.editing = false;
         self.submit_review = false;
-        self.scroll = self.saved_scroll;
+        if was_open {
+            self.scroll = self.saved_scroll;
+        }
         self.invalidate_review();
     }
 
@@ -561,6 +564,9 @@ impl State {
         if !large_enough {
             return false;
         }
+        if self.response_surface() && self.response_key(key.code) {
+            return true;
+        }
         match key.code {
             KeyCode::PageUp => {
                 self.scroll = self.scroll.saturating_sub(5);
@@ -651,13 +657,20 @@ impl State {
                             self.items.clear();
                             self.selected = 0;
                             self.omitted = 0;
+                            self.following = true;
+                            self.new_output = false;
+                            self.saved_scroll = 0;
+                            self.response_scroll = 0;
+                            self.response_max = 0;
                             self.thread_id = None;
                             self.observed_model = None;
                         }
                         self.pending = Some(Request::Run { generation });
                         self.preview = None;
                         self.active = true;
+                        self.activity = "Connecting";
                         self.review_start();
+                        self.scroll = self.saved_scroll;
                         self.notice = "Explicit trust and run consent given for this exact preview. Connecting to provider.".into();
                     } else {
                         self.notice = "Run blocked. Review prerequisites; no executable launch is authorized.".into();
@@ -778,17 +791,6 @@ impl State {
             }
             return true;
         }
-        match key.code {
-            KeyCode::Up if self.inspection.is_none() => {
-                self.selected = self.selected.saturating_sub(1);
-                self.scroll = 0;
-            }
-            KeyCode::Down if self.inspection.is_none() => {
-                self.selected = (self.selected + 1).min(self.items.len().saturating_sub(1));
-                self.scroll = 0;
-            }
-            _ => return false,
-        }
-        true
+        false
     }
 }

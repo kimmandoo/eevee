@@ -2025,11 +2025,7 @@ impl Engine<'_> {
                 turn_id: self.turn(),
                 item_id: id.into(),
                 kind: item.kind,
-                text: safe(if item.kind == ItemKind::Message && !item.complete {
-                    &item.text[..item.text.rfind('\n').map_or(0, |end| end + 1)]
-                } else {
-                    &item.text
-                }),
+                text: safe_stream(&item.text, item.complete || item.kind != ItemKind::Message),
                 complete: item.complete,
             },
         )
@@ -2165,7 +2161,10 @@ fn bidi(c: char) -> bool {
     matches!(c,'\u{061c}'|'\u{200e}'|'\u{200f}'|'\u{202a}'..='\u{202e}'|'\u{2066}'..='\u{2069}')
 }
 fn safe(text: &str) -> String {
-    crate::workspace::privacy::redact(text)
+    safe_stream(text, true)
+}
+fn safe_stream(text: &str, complete: bool) -> String {
+    crate::workspace::privacy::redact_stream(text, complete)
         .chars()
         .map(|c| {
             if c.is_control() && c != '\n' && c != '\t' || bidi(c) {

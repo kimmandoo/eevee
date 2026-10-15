@@ -32,6 +32,7 @@ pub enum LayoutMode {
 #[derive(Clone, Debug)]
 pub struct Config {
     pub ascii: bool,
+    pub no_animation: bool,
     pub theme: Theme,
     pub color: ColorMode,
     pub images: ImageMode,
@@ -70,6 +71,7 @@ Options:
   --theme dark|light    Terminal theme (default: dark)
   --color auto|256|mono Color mode (default: auto)
   --ascii              Use ASCII borders (cell previews use luminance)
+  --no-animation       Keep activity indicators static (reduced motion)
   --images auto|cells|off Native pixels, low-res cell preview, or no image (default: auto)
   --assets-dir PATH    Local PNG directory (default: platform cache/eevee/sprites)
   --download-artwork   Download/resume nine pinned original sprites and manifest
@@ -93,9 +95,9 @@ Auto images require negotiated Kitty/Sixel support and real pixel/cell dimension
 Unsupported or too-small terminals show text, not a pixelated approximation.
 --images cells explicitly opts into low-resolution previews. Startup stays offline.
 
-Type in the visible Goal box; Enter saves locally and offers neutral next actions.
+Type in the visible Goal box; Enter saves locally without sending anything.
 Use / commands: /connect, /provider, /model, /effort, /forms, /images, /help.
-Model inspection and requests require separate approval. Storage failures retain drafts.
+Model requests require separate approval; empty model pickers fetch metadata only.
 Secret detection is best-effort. Purge is not forensic secure erasure.
 ";
 
@@ -156,6 +158,7 @@ fn parse_with(
     let mut theme = Theme::Dark;
     let mut color = None;
     let mut ascii = false;
+    let mut no_animation = false;
     let mut images = ImageMode::Auto;
     let mut assets_dir = default_assets_dir(&environment);
     let mut layout = LayoutMode::Sanctuary;
@@ -298,6 +301,7 @@ fn parse_with(
             }
             "--download-artwork" if attached.is_none() => download = true,
             "--ascii" if attached.is_none() => ascii = true,
+            "--no-animation" if attached.is_none() => no_animation = true,
             "--help" | "-h" if attached.is_none() => action = Some(Command::Help),
             "--version" | "-V" if attached.is_none() => action = Some(Command::Version),
             _ => return Err(format!("unrecognized argument {text:?}; see --help")),
@@ -352,6 +356,7 @@ fn parse_with(
     });
     let config = Config {
         ascii: ascii || dumb || !utf8,
+        no_animation: no_animation || dumb,
         theme,
         color,
         images,

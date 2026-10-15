@@ -67,6 +67,18 @@ impl App {
             if previous.overlay == overlay {
                 return;
             }
+            // Returning to an already open surface unwinds to its frame.
+            // Repeated cross-navigation must not grow an Esc maze.
+            if let Some(index) = self
+                .overlay_history
+                .iter()
+                .position(|frame| frame.overlay == overlay)
+            {
+                let frame = self.overlay_history.remove(index);
+                self.overlay_history.truncate(index);
+                self.restore_frame(Some(frame));
+                return;
+            }
             self.overlay_history.push(previous);
         }
         if overlay == Overlay::Preview {
@@ -317,5 +329,43 @@ impl App {
             }
         };
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn returning_to_open_surface_unwinds_cycles_and_restores_selection() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.focus = Pane::Inspector;
+        app.open_overlay(Overlay::Inspector);
+        app.open_overlay(Overlay::Forms);
+        app.selected = 5;
+        app.open_overlay(Overlay::Help);
+        app.open_overlay(Overlay::Forms);
+        assert_eq!(app.overlay, Some(Overlay::Forms));
+        assert_eq!(app.selected, 5);
+        app.update(Event::Resize(40, 10));
+        app.close_overlay();
+        assert_eq!(app.overlay, Some(Overlay::Inspector));
+        app.close_overlay();
+        assert_eq!(app.overlay, None);
+        app.update(Event::Resize(120, 36));
+        assert_eq!(app.effective_focus(), Pane::Inspector);
+    }
+
+    #[test]
+    fn repeated_cross_navigation_does_not_accumulate_back_steps() {
+        let mut app = App::new("/workspace".into(), 60, 18);
+        for _ in 0..20 {
+            app.open_overlay(Overlay::Inspector);
+            app.open_overlay(Overlay::Help);
+        }
+        app.close_overlay();
+        assert_eq!(app.overlay, Some(Overlay::Inspector));
+        app.close_overlay();
+        assert_eq!(app.overlay, None);
     }
 }

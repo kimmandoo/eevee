@@ -63,12 +63,13 @@ Use a terminal of at least **60 × 18** (120 × 36 recommended).
 4. `/new` → review the exact request and its receipt → approve once.
 5. `/run` → `/command-edit` → enter argv such as `["cargo","test"]` → review → approve once.
 
-Type `@` in the composer to attach files, and `/` (or Ctrl+K) to search every available action. Arrows/Tab/Enter/Esc navigate.
+Type `@` in the composer to attach files, and `/` (or Ctrl+K) to search available actions by name or description. Multiple search words can appear in any order (`desk review`, `attach`). The chooser keeps your draft visible and shows why an action is unavailable. Arrows/Tab/Enter/Esc navigate; revisiting an open surface unwinds its history instead of adding more Back steps.
 
 ```sh
 ev --theme light            # cream palette
 ev --ascii --color mono     # plain-terminal fallback
 ev --data-dir /abs/path     # isolated data directory
+ev --no-animation           # static activity indicator; streaming stays enabled
 ev --help
 ```
 
@@ -80,16 +81,20 @@ ev --help
 | `/model` / `/effort` / `/models-refresh` | Local model and reasoning pickers / reviewed catalogue refresh |
 | `/new` / `/resume` | Review a fresh request / resume an owned same-task session |
 | `/role` / `/forms` | Plan, Implement or Review / choose an evolution |
-| `/goal` / `/next` / `/criteria` | Edit task facts and completion criteria |
+| `/goal` / `/next` / `/criteria` / `/criteria-edit` | Edit task facts, inspect criteria, or edit criteria directly |
 | `/tasks` / `/task-new` | Browse saved tasks / create one |
 | `/files` / `@` / `/range` | Source context / attach files / attach line ranges |
 | `/run` / `/command-edit` | Local execution / author argv or an explicit shell object |
 | `/diff` / `/history` / `/decision` | Worktree diff / provider journal / save a proposal as next action |
 | `/handoff` / `/memory` / `/workflows` | Portable handoff / approved notes / diagnosis, refactor, review and recipe desk |
+| `/workflow-diagnosis` / `/workflow-refactor` / `/workflow-review` / `/workflow-recipe` | Open the chosen specialist desk directly |
+| `/sessions` / `/paths` | Review session metadata inspection / edit the implementation path draft directly |
 | `/images` / `/inspect` / `/companion` | Sprites / details / companion |
 | `/quit` / Ctrl+C | Safe exit review |
 
-No command bypasses approval or executes pasted text. Model catalogues come from each provider's official interface; opening a picker starts no process or network request.
+No command bypasses approval or executes pasted text. Model catalogues come from each provider's official interface; an empty model/effort picker can fetch metadata automatically, without sending a task prompt. `/models-refresh` retains its explicit reviewed refresh.
+
+**Responses.** The provider view puts the reply first and follows incoming text without an artificial typing delay. Completed words can appear before a newline; unfinished tokens and ambiguous credential prefixes remain withheld for best-effort redaction. PgUp/PgDn/Home or item selection pauses follow; **End** returns to the latest response. A new-output indicator appears while you read older content. `/verbose`, then Home, exposes provider/thread/turn/item provenance. The spinner represents actual preparation/connection/response activity, not estimated progress; permission reviews and idle screens do not animate. `--no-animation` keeps the indicator static without slowing streamed text.
 
 **Request receipt.** Every provider preview breaks the exact payload Eevee sends into instructions, task facts, attachments, handoff and memories, with exact bytes and a labelled local token estimate (`eevee-local-v1`, CJK-aware). It runs offline. Provider-added context, usage and billing stay **unknown**, not zero.
 
