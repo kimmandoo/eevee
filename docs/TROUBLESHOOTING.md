@@ -1,5 +1,26 @@
 # Troubleshooting
 
+### [2026-10-15] ConPTY full clears could escape effective visual synchronization
+
+- **Context / Symptom:** The native save journey emitted about fifty full-screen clears. A minimal native probe showed `Begin → Clear → End → text` for a batched write: this ConPTY forwards DEC 2026 markers before publishing its rendered cells, so markers alone cannot prevent a blank flash.
+- **Root Cause:** The main loop forced a full Windows clear on every dirty frame instead of using the terminal cell diff. The previous native smoke also relied on optional CSI 8 resize hints and on retaining the text inside an injected OSC sequence; ConPTY omitted the growth hint and filtered that OSC before the application received it.
+- **Solution:** Removed ordinary Windows full clears while retaining startup, resize and native-image invalidation. Drained the old frame and updated the smoke terminal's requested dimensions directly, while still honoring explicit hints. Added a plain-text draft tail to the existing hostile-control paste fixture, retaining its no-execution and no-OSC-escape checks rather than asserting a platform-specific control-filter residue.
+- **Prevention / Reference:** Native ConPTY editing at 120×36 and 60×18 produced zero full clears after startup, preserved exact draft/caret storage and restored console state. Six dark/light/mono-ASCII native journeys passed popup return, CJK/combining input, shrink/grow, nine forms, idle silence and exit (`target/native-014-{persistence,ui}`). Do not restore blanket per-input clears or assume every ConPTY version implements synchronized publication.
+
+### [2026-10-15] Windows pipe fixture stalled before its test body
+
+- **Context / Symptom:** Native Windows tests launched from WSL timed out in the piped stdin round-trip with an alive child, no output and no entry into the fixture. The failure reproduced with both Rust 1.92 and the release-pinned 1.90.0, including while the parent kept stdin open.
+- **Root Cause:** A CDB child-stack capture located the wait in `NtCreateFile` → Rust libtest's `terminfo::get_dbpath_for_term` / `TermInfo::from_env`, before the fixture ran. The interop environment supplied `TERM=xterm-color`. Libtest initializes its terminal even with `--color=never`; this was not evidence of a pipe EOF or backpressure defect.
+- **Solution:** Cleared `TERM` only in the native PowerShell verification process (`$env:TERM=$null`). Removed all diagnostic waits, markers and test-argument changes, retaining the original five-second deadline and round-trip/backpressure assertions. The pinned native suite passed 428 tests with 2 ignored and the optimized `ev 0.1.4` build completed.
+- **Prevention / Reference:** Keep native verification environments separate from WSL terminal metadata. Do not increase transport timeouts or weaken process assertions to compensate for a test harness stalled before its fixture.
+
+### [2026-10-15] Performance harness could not measure the current composer and child scope
+
+- **Context / Symptom:** Baseline runs failed first on the removed `Ctrl+K Actions` footer, then with `POSIX raw input mode not observed`, and finally with `approved workload resource scope was not observed; refusing a core-only measurement`. The final terminal matrix also reported idle output while its before-capture visibly said `Storage: autosave pending`.
+- **Root Cause:** Readiness was pinned to obsolete wording. The low-latency reader bypassed the normal raw-mode snapshot, so a clean, immediate quit could end before it was recorded. A completed child lost its command line before reaping and was reclassified from `local_commands` to `app_helpers`, despite a nonzero recorded local-command RSS peak. The idle check started before deferred navigation persistence completed.
+- **Solution:** Removed the wording dependency; sampled terminal modes without adding a timed wait after the measured readiness instant; retained previously observed scope for the same PID/creation-time identity; awaited committed storage before asserting zero idle output. Kept resource-scope, zero-output and restoration assertions intact.
+- **Prevention / Reference:** `target/performance-{baseline,after}/results.json` both completed with `measured_local_targets_met`, including the real approved stream, 10 MiB output and 10,000-line diff. Scope identity must not regress when an exited process stops exposing argv; pending storage is work, not idle.
+
 ### [2026-10-15] UX smoke dependencies were unavailable in the system Python
 
 - **Context / Symptom:** The real-PTY UX capture failed with `ModuleNotFoundError: No module named 'pyte'`; installing into the system interpreter was refused with `externally-managed-environment`.

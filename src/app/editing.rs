@@ -224,7 +224,7 @@ impl App {
         self.finish_edit();
         self.changed_task();
         if self.editor_field == store::EditorField::Goal {
-            self.notice = "Goal saved; / or Ctrl+K opens actions.".into();
+            self.notice = "Goal applied; / or Ctrl+K opens actions.".into();
         }
         true
     }

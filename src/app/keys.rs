@@ -4,6 +4,11 @@ use super::*;
 impl App {
     /// Returns whether visible state changed. The event loop otherwise stays asleep.
     pub fn update(&mut self, event: Event) -> bool {
+        self.update_at(event, std::time::Instant::now())
+    }
+
+    /// Inject the event clock for deterministic autosave scheduling.
+    pub fn update_at(&mut self, event: Event, now: std::time::Instant) -> bool {
         let resized = matches!(event, Event::Resize(_, _));
         let command_action = self.command_popup.is_some()
             && matches!(&event, Event::Key(key) if key.code == KeyCode::Enter);
@@ -45,7 +50,9 @@ impl App {
             Event::Paste(text) if self.overlay == Some(Overlay::Workflows) => {
                 self.workflow_paste(&text)
             }
-            Event::Paste(text) if self.overlay == Some(Overlay::Memory) => self.memory_paste(&text),
+            Event::Paste(text) if self.overlay == Some(Overlay::Memory) => {
+                self.memory_paste(&text, now)
+            }
             Event::Paste(text) if self.overlay == Some(Overlay::Handoff) => {
                 self.handoff.paste(&text)
             }
@@ -72,7 +79,7 @@ impl App {
                 // A notice answers the previous action only; the next key
                 // starts from a clean footer.
                 self.notice.clear();
-                self.key(key)
+                self.key(key, now)
             }
             _ => false,
         };
@@ -90,7 +97,7 @@ impl App {
                 || self.save_requested
                 || matches!(self.storage, StorageState::Saving))
         {
-            self.changed_task();
+            self.changed_implicitly(now);
         }
         changed
     }
@@ -388,7 +395,7 @@ impl App {
             || self.handoff.editing
     }
 
-    pub(super) fn key(&mut self, key: KeyEvent) -> bool {
+    pub(super) fn key(&mut self, key: KeyEvent, now: std::time::Instant) -> bool {
         if self.transitioning {
             if self.deletion_preview_pending && key.code == KeyCode::Esc {
                 self.deletion_preview_pending = false;
@@ -458,7 +465,7 @@ impl App {
         }
         match self.overlay {
             Some(Overlay::Workflows) => return self.workflow_key(key),
-            Some(Overlay::Memory) => return self.memory_key(key),
+            Some(Overlay::Memory) => return self.memory_key(key, now),
             Some(Overlay::Handoff) => return self.handoff_key(key),
             Some(Overlay::Planning) => return self.planning_key(key),
             Some(Overlay::Execution) => return self.execution_key(key),
@@ -491,6 +498,10 @@ impl App {
         }
         if self.editing {
             return self.edit_key(key);
+        }
+        if key.code == KeyCode::Char('s') && key.modifiers == KeyModifiers::CONTROL {
+            self.flush_save();
+            return true;
         }
         if key.code == KeyCode::Esc && self.overlay.is_some() {
             self.close_overlay();
@@ -740,8 +751,13 @@ impl App {
                             self.changed_task();
                         }
                         ConfirmationKind::Quit => {
-                            if matches!(self.storage, StorageState::Saving | StorageState::Loading)
-                                || self.sources.persistence_pending()
+                            self.flush_save();
+                            if matches!(
+                                self.storage,
+                                StorageState::Pending
+                                    | StorageState::Saving
+                                    | StorageState::Loading
+                            ) || self.sources.persistence_pending()
                                 || self.execution.busy()
                                 || self.planning.busy()
                             {
