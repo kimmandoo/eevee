@@ -120,21 +120,46 @@ fn all_forms_preview_confirm_and_cancel_in_grid_list_and_linear_layouts() {
         app.goal = "Keep existing work\n한글".into();
         app.focus = Pane::Inspector;
         for selection in 0..FORMS.len() {
-            let original = app.form;
+            let original = app.form();
             app.command("forms");
             app.selected = selection;
             assert_eq!(app.selected, selection);
-            assert_eq!(app.form, original);
+            assert_eq!(app.form(), original);
             key(&mut app, KeyCode::Esc);
-            assert_eq!(app.form, original);
+            assert_eq!(app.form(), original);
             app.command("forms");
             assert_eq!(app.selected, selection);
             key(&mut app, KeyCode::Enter);
-            assert_eq!(app.form, selection);
+            assert_eq!(app.form(), selection);
             assert_eq!(app.goal, "Keep existing work\n한글");
             assert_eq!(app.focus, Pane::Inspector);
         }
     }
+}
+
+#[test]
+fn restart_restores_the_lead_partners_stored_form() {
+    let mut task = store::Snapshot::empty("/workspace".into());
+    task.id = 7;
+    task.goal = "kept".into();
+    task.form = 5;
+    task.lead_partner = 1;
+    let partner = store::Partner {
+        form: 5,
+        met_at: 172800000,
+        ..store::Partner::default()
+    };
+    let mut resumed = App::new("/workspace".into(), 120, 36);
+    resumed.store_event(store::Event::Loaded(store::Project {
+        tasks: vec![task],
+        partners: vec![partner],
+        active_id: Some(7),
+        usage_bytes: 0,
+    }));
+    assert_eq!(resumed.lead().id, 1);
+    assert_eq!(resumed.lead().met_at, 172800000);
+    assert_eq!(resumed.form(), 5);
+    assert_eq!(resumed.lead_label(), "Eevee #1 · Umbreon");
 }
 
 #[test]
@@ -405,7 +430,7 @@ fn preview_is_navigation_only_and_preserves_picker_preview() {
     assert_eq!(app.preview_form(), 8);
     assert!(!key(&mut app, KeyCode::Enter));
     assert!(!key(&mut app, KeyCode::Char('r')));
-    assert_eq!(app.form, 0);
+    assert_eq!(app.form(), 0);
     assert_eq!(app.goal, "local goal");
     key(&mut app, KeyCode::Esc);
     assert_eq!(app.overlay, Some(Overlay::Forms));
@@ -431,7 +456,7 @@ fn linear_toggle_and_semantic_actions_remain_available() {
     app.command("forms");
     app.selected = 2;
     key(&mut app, KeyCode::Enter);
-    assert_eq!(app.form, 2);
+    assert_eq!(app.form(), 2);
     app.command("preview");
     key(&mut app, KeyCode::Esc);
     app.command("layout");
@@ -702,7 +727,7 @@ fn nested_previews_restore_role_selection_and_hidden_focus_exactly() {
     key(&mut app, KeyCode::Esc);
     app.update(Event::Resize(120, 36));
     assert_eq!(app.effective_focus(), Pane::Inspector);
-    assert_eq!(app.form, 0);
+    assert_eq!(app.form(), 0);
 }
 
 #[test]
