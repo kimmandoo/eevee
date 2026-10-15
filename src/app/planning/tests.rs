@@ -761,3 +761,326 @@ fn unsolicited_or_wrong_kind_journal_reply_cannot_clear_retained_failure() {
             .all(|request| matches!(request.operation, store::JournalOperation::List))
     );
 }
+
+fn streamed(state: &mut State, id: &str, text: &str, complete: bool) {
+    state.event(Event::Item {
+        generation: 11,
+        task_id: 7,
+        thread_id: "thread".into(),
+        turn_id: "turn".into(),
+        item_id: id.into(),
+        kind: ItemKind::Message,
+        text: text.into(),
+        complete,
+    });
+}
+
+#[test]
+fn partial_response_follows_each_snapshot_until_explicit_scroll_and_end() {
+    let mut state = active();
+    streamed(
+        &mut state,
+        "first",
+        "one\ntwo\nthree\nfour\nfive\nsix\nseven",
+        false,
+    );
+    assert_eq!(
+        state.response_rows(40, 2, false).collect::<Vec<_>>(),
+        ["six", "seven"]
+    );
+    assert_eq!(state.activity_label(), Some("Receiving response"));
+    press(&mut state, KeyCode::PageUp, true);
+    assert!(!state.following);
+    let held = state.scroll;
+    streamed(
+        &mut state,
+        "first",
+        "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight",
+        false,
+    );
+    assert!(state.new_output);
+    assert_eq!(
+        state.response_rows(40, 2, false).collect::<Vec<_>>(),
+        ["one", "two"]
+    );
+    assert_eq!(state.scroll, held);
+    press(&mut state, KeyCode::PageDown, true);
+    assert!(
+        !state.following,
+        "reaching the end manually must not resume follow"
+    );
+    press(&mut state, KeyCode::End, true);
+    assert!(state.following && !state.new_output);
+    assert_eq!(
+        state.response_rows(40, 2, false).collect::<Vec<_>>(),
+        ["seven", "eight"]
+    );
+    streamed(
+        &mut state,
+        "first",
+        "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine",
+        true,
+    );
+    assert_eq!(
+        state.response_rows(40, 2, false).collect::<Vec<_>>(),
+        ["eight", "nine"]
+    );
+}
+
+#[test]
+fn newest_response_follows_but_older_selection_stays_until_end() {
+    let mut state = active();
+    streamed(&mut state, "first", "first response", true);
+    streamed(&mut state, "second", "second response", false);
+    assert_eq!(state.selected, 1);
+    press(&mut state, KeyCode::Up, true);
+    streamed(&mut state, "second", "second response grows", false);
+    streamed(&mut state, "third", "third response", false);
+    assert_eq!(state.items[state.selected].item_id, "first");
+    assert!(state.new_output && !state.following);
+    press(&mut state, KeyCode::End, true);
+    assert_eq!(state.items[state.selected].item_id, "third");
+    assert_eq!(
+        state.response_rows(40, 2, false).collect::<Vec<_>>(),
+        ["third response"]
+    );
+}
+
+#[test]
+fn output_does_not_move_prompt_question_or_journal_review() {
+    let mut state = active();
+    streamed(&mut state, "first", "one\ntwo\nthree\nfour", false);
+    state.response_rows(40, 1, false).count();
+    let response_scroll = state.scroll;
+    for kind in [
+        PromptKind::Approval {
+            command: "echo".into(),
+            cwd: ".".into(),
+            reason: "test".into(),
+            allow_once: true,
+            deny_decision: "decline".into(),
+        },
+        PromptKind::Questions(vec![Question {
+            id: "q".into(),
+            header: "Question".into(),
+            question: "Which?".into(),
+            options: vec![],
+            other: true,
+            secret: false,
+        }]),
+    ] {
+        state.event(Event::Prompt {
+            generation: 11,
+            task_id: 7,
+            request: Prompt {
+                request_id: "request".into(),
+                thread_id: "thread".into(),
+                turn_id: "turn".into(),
+                item_id: "first".into(),
+                kind,
+            },
+        });
+        state.scroll_max = 8;
+        state.scroll = 2;
+        let selected = state.selected;
+        streamed(&mut state, "second", "response behind request", false);
+        assert_eq!(state.selected, selected);
+        assert_eq!(state.scroll, 2);
+        assert!(!state.reviewed && !state.affirmative);
+        assert_eq!(state.activity_label(), None);
+        press(&mut state, KeyCode::End, true);
+        assert_eq!(state.scroll, 8);
+        assert_eq!(state.selected, selected);
+        state.event(Event::PromptClosed {
+            generation: 11,
+            request_id: "request".into(),
+        });
+        assert_eq!(state.scroll, response_scroll);
+    }
+    state.journal_mode = true;
+    state.scroll = 3;
+    state.scroll_max = 9;
+    let selected = state.selected;
+    streamed(&mut state, "third", "journal stays open", false);
+    press(&mut state, KeyCode::End, true);
+    assert!(state.journal_mode);
+    assert_eq!(state.selected, selected);
+    assert_eq!(state.scroll, 9);
+}
+
+#[test]
+fn terminal_outcomes_stop_activity_and_preserve_partial_scroll() {
+    for outcome in [
+        Outcome::Completed,
+        Outcome::Cancelled,
+        Outcome::Failed,
+        Outcome::Unknown,
+    ] {
+        let mut state = active();
+        streamed(&mut state, "first", "one\ntwo\nthree\nfour", false);
+        state.response_rows(40, 1, false).count();
+        press(&mut state, KeyCode::Home, true);
+        state.event(Event::Finished {
+            generation: 11,
+            task_id: 7,
+            outcome,
+            message: "terminal".into(),
+        });
+        assert_eq!(state.activity_label(), None);
+        assert!(!state.active && !state.cancelling);
+        assert_eq!(
+            state.response_rows(40, 1, false).collect::<Vec<_>>(),
+            ["one"]
+        );
+        assert_eq!(state.scroll, 0);
+        assert!(
+            !state.items[0].complete,
+            "completion must not fabricate a complete item"
+        );
+        streamed(&mut state, "late", "ignored", false);
+        assert_eq!(state.items.len(), 1);
+    }
+}
+
+#[test]
+fn activity_excludes_local_review_and_reports_cancellation_until_acknowledged() {
+    let mut state = State::new();
+    assert_eq!(state.activity_label(), None);
+    command(&mut state, "new", true);
+    assert_eq!(state.activity_label(), Some("Preparing request"));
+    let mut state = preview();
+    assert_eq!(state.activity_label(), None);
+    state.scroll_max = 20;
+    press(&mut state, KeyCode::End, true);
+    assert!(!state.affirmative && state.selected == 0);
+    let mut state = active();
+    assert_eq!(state.activity_label(), Some("Connecting"));
+    state.request_quit();
+    assert_eq!(state.activity_label(), None);
+    press(&mut state, KeyCode::Esc, true);
+    state.cancel();
+    assert_eq!(state.activity_label(), Some("Cancelling"));
+}
+
+#[test]
+fn bounded_output_keeps_the_manually_selected_item_and_scroll() {
+    let mut state = active();
+    streamed(&mut state, "pinned", "one\ntwo\nthree", true);
+    press(&mut state, KeyCode::Home, true);
+    state.response_scroll = 1;
+    for index in 0..ITEM_LIMIT + 3 {
+        streamed(&mut state, &format!("item-{index}"), "new", false);
+    }
+    assert_eq!(state.items.len(), ITEM_LIMIT);
+    assert_eq!(state.items[state.selected].item_id, "pinned");
+    assert_eq!(
+        state.response_rows(40, 1, false).collect::<Vec<_>>(),
+        ["two"]
+    );
+    assert_eq!(state.scroll, 1);
+    assert_eq!(state.omitted, 4);
+}
+
+#[test]
+fn response_layout_reflows_unicode_without_copying_or_splitting_graphemes() {
+    let mut state = active();
+    streamed(
+        &mut state,
+        "first",
+        "界界界\ne\u{301}e\u{301}e\u{301}",
+        false,
+    );
+    press(&mut state, KeyCode::Home, true);
+    assert_eq!(
+        state.response_rows(4, 8, false).collect::<Vec<_>>(),
+        ["界界", "界", "e\u{301}e\u{301}e\u{301}"]
+    );
+    assert_eq!(
+        state.response_rows(2, 8, false).collect::<Vec<_>>(),
+        ["界", "界", "界", "e\u{301}e\u{301}", "e\u{301}"]
+    );
+    // A same-sized replacement must invalidate the cached byte ranges too.
+    streamed(&mut state, "first", "aa bb\ncc dd", false);
+    assert_eq!(
+        state.response_rows(4, 8, false).collect::<Vec<_>>(),
+        ["aa ", "bb", "cc ", "dd"]
+    );
+}
+
+#[test]
+fn tool_updates_do_not_replace_the_response_and_hidden_cache_stays_fresh() {
+    let mut state = active();
+    streamed(&mut state, "first", "first response", true);
+    state.response_rows(40, 2, false).count();
+    state.event(Event::Item {
+        generation: 11,
+        task_id: 7,
+        thread_id: "thread".into(),
+        turn_id: "turn".into(),
+        item_id: "tool".into(),
+        kind: ItemKind::Tool,
+        text: "tool observation".into(),
+        complete: false,
+    });
+    assert_eq!(state.selected, 0);
+    assert!(state.new_output);
+    press(&mut state, KeyCode::Down, true);
+    // The user navigates back before another render. Invalidation must track
+    // the cached item's identity, not just the currently selected index.
+    streamed(&mut state, "first", "replacement\nwith two rows", true);
+    press(&mut state, KeyCode::Up, true);
+    assert_eq!(
+        state.response_rows(40, 3, false).collect::<Vec<_>>(),
+        ["replacement", "with two rows"]
+    );
+}
+
+#[test]
+fn response_tail_and_manual_scrolling_are_not_limited_to_u16_rows() {
+    let mut state = active();
+    let text = format!("{}tail", "row\n".repeat(70_000));
+    streamed(&mut state, "large", &text, false);
+    assert_eq!(
+        state.response_rows(40, 1, false).collect::<Vec<_>>(),
+        ["tail"]
+    );
+    assert_eq!(state.response_scroll, 70_000);
+    press(&mut state, KeyCode::PageUp, true);
+    assert_eq!(state.response_scroll, 69_995);
+    assert_eq!(
+        state.response_rows(40, 1, false).collect::<Vec<_>>(),
+        ["row"]
+    );
+    press(&mut state, KeyCode::End, true);
+    assert_eq!(
+        state.response_rows(40, 1, false).collect::<Vec<_>>(),
+        ["tail"]
+    );
+    press(&mut state, KeyCode::Home, true);
+    assert_eq!(state.response_scroll, 0);
+}
+
+#[test]
+fn verbose_response_retains_provenance_without_stale_cached_content() {
+    let mut state = active();
+    streamed(&mut state, "source-item", "partial text", false);
+    press(&mut state, KeyCode::Home, true);
+    let details = state
+        .response_rows(100, 30, true)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        details.contains("source-item") && details.contains("thread") && details.contains("turn")
+    );
+    assert!(details.ends_with("partial text"));
+    assert_eq!(
+        state.response_rows(100, 30, false).collect::<Vec<_>>(),
+        ["partial text"]
+    );
+    streamed(&mut state, "source-item", "completed text", true);
+    let details = state
+        .response_rows(100, 30, true)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(details.ends_with("completed text") && !details.contains("partial text"));
+}

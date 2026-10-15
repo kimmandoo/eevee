@@ -132,6 +132,8 @@ pub struct App {
     /// Full explanations instead of first-sentence summaries (`/verbose`).
     pub verbose: bool,
     pub command_popup: Option<commands::Popup>,
+    /// Transient activity animation; never persisted as task navigation.
+    pub activity_frame: u8,
     composer_catalogue: bool,
     composer_return: Option<store::EditorField>,
     pub images_pending: Option<crate::ui::artwork::Request>,
@@ -228,6 +230,7 @@ impl App {
             composer_menu: None,
             verbose: false,
             command_popup: None,
+            activity_frame: 0,
             composer_catalogue: false,
             composer_return: None,
             images_pending: None,

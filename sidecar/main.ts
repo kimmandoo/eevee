@@ -248,7 +248,7 @@ async function run(command: z.infer<typeof RunSchema>) {
           item.text += event.delta.text;
           const size = Buffer.byteLength(item.text);
           if (size > 32 * 1024 || (!streaming.has(id) && streaming.size >= 128)) throw new Error('SDK text stream retention bound');
-          if (Date.now() - item.at >= 250 || size - item.bytes >= 1024) {
+          if (Date.now() - item.at >= 30 || size - item.bytes >= 256) {
             await emit({ type: 'item', ...meta(), session_id: session, item_id: id, kind: 'message', text: item.text, complete: false });
             item.at = Date.now(); item.bytes = size;
           }

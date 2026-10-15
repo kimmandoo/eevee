@@ -126,6 +126,7 @@ fn run(config: Config) -> io::Result<()> {
         let mut outstanding_sources = 0_usize;
         let mut context_task = None;
         let mut outstanding_agents = 0_usize;
+        let mut activity_tick: Option<std::time::Instant> = None;
         loop {
             if let Some(request) = app.images_pending
                 && artwork_worker.try_request(request)
@@ -438,6 +439,27 @@ fn run(config: Config) -> io::Result<()> {
                 dirty = true;
             }
             app.settle_exit();
+            // Only genuine, visible provider work animates. Local reviews,
+            // permission prompts and idle screens keep their blocking/no-redraw
+            // behavior; frame changes never mutate persisted task state.
+            let animate = !config.no_animation
+                && app.width >= 60
+                && app.height >= 18
+                && matches!(app.overlay, None | Some(app::Overlay::Planning))
+                && app.confirmation.is_none()
+                && app.planning.activity_label().is_some();
+            if animate {
+                let now = std::time::Instant::now();
+                let last = activity_tick.get_or_insert(now);
+                if now.duration_since(*last) >= std::time::Duration::from_millis(120) {
+                    app.activity_frame = (app.activity_frame + 1) % 20;
+                    *last = now;
+                    dirty = true;
+                }
+            } else {
+                activity_tick = None;
+                app.activity_frame = 0;
+            }
             #[cfg(windows)]
             {
                 dirty |= resized;

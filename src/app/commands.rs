@@ -40,26 +40,28 @@ pub struct Popup {
 
 impl Popup {
     pub fn candidates(&self) -> impl Iterator<Item = &Choice> {
-        let query = self.query.as_bytes();
+        let query = self
+            .query
+            .trim()
+            .strip_prefix('/')
+            .unwrap_or(self.query.trim());
         let exact = self
             .choices
             .iter()
-            .any(|choice| choice.command.eq_ignore_ascii_case(&self.query));
+            .any(|choice| choice.command.eq_ignore_ascii_case(query));
         self.choices.iter().filter(move |choice| {
             if exact {
-                return choice.command.eq_ignore_ascii_case(&self.query);
+                return choice.command.eq_ignore_ascii_case(query);
             }
-            query.is_empty()
-                || choice
-                    .command
-                    .as_bytes()
-                    .windows(query.len())
-                    .any(|part| part.eq_ignore_ascii_case(query))
-                || choice
-                    .label
-                    .as_bytes()
-                    .windows(query.len())
-                    .any(|part| part.eq_ignore_ascii_case(query))
+            // Terms may match the command and label independently, in any order.
+            // Keep catalogue order stable and avoid fuzzy scores or search copies.
+            query.split_whitespace().all(|term| {
+                [choice.command, choice.label.as_str()].iter().any(|text| {
+                    text.as_bytes()
+                        .windows(term.len())
+                        .any(|part| part.eq_ignore_ascii_case(term.as_bytes()))
+                })
+            })
         })
     }
 }
@@ -109,7 +111,10 @@ impl App {
             _ => Vec::new(),
         };
         for (name, label) in [
-            ("provider", "Providers: connect, choose, model, effort"),
+            (
+                "provider",
+                "Providers: connect, model, effort / active request / cancellation",
+            ),
             ("connect", "Provider connections; nothing sent"),
             ("new", "New provider session"),
             ("resume", "Resume owned provider session"),
@@ -119,21 +124,22 @@ impl App {
             ("role", "Choose Plan / Implement / Review role"),
             ("forms", "Choose evolution"),
             ("back-form", "Return to the previous form (Backspace)"),
-            ("files", "Source context"),
+            ("files", "Attach files / inspect source context"),
             ("tasks", "Saved tasks"),
             ("party", "Party roster"),
             (
                 "lead",
                 "Front a partner: /lead <name> or pick in the roster",
             ),
-            ("run", "Local command execution"),
-            ("history", "Provider history"),
+            ("run", "Local commands / execution evidence / cancellation"),
+            ("history", "Provider history / journal evidence"),
             ("handoff", "Portable task handoff"),
             ("goal", "Edit goal"),
             ("criteria", "Acceptance criteria"),
+            ("criteria-edit", "Edit acceptance criteria"),
             ("next", "Edit next action"),
             ("complete", "Review task completion"),
-            ("diff", "Repository baseline and changes"),
+            ("diff", "Repository diff / change evidence"),
             ("inspect", "Task and storage details"),
             ("companion", "Show companion"),
             ("preview", "Local role preview"),
@@ -173,8 +179,22 @@ impl App {
             .command_choices()
             .into_iter()
             .filter(|choice| {
-                choice.command.starts_with("provider-") || choice.command.starts_with("role-")
+                choice.command.starts_with("provider-")
+                    || choice.command.starts_with("role-")
+                    || matches!(choice.command, "sessions" | "paths" | "models-refresh")
             })
+        {
+            if !choices
+                .iter()
+                .any(|existing| existing.command == choice.command)
+            {
+                choices.push(choice);
+            }
+        }
+        for choice in self
+            .workflow_command_choices()
+            .into_iter()
+            .filter(|choice| choice.command.starts_with("workflow-"))
         {
             if !choices
                 .iter()
@@ -244,6 +264,19 @@ impl App {
                 || self.criteria.iter().any(|criterion| !criterion.met))
         {
             return Some("Completion requires an open task with every nonempty acceptance criterion checked.".into());
+        }
+        if matches!(
+            name,
+            "workflow-diagnosis" | "workflow-refactor" | "workflow-review" | "workflow-recipe"
+        ) && !self
+            .workflow_command_choices()
+            .iter()
+            .any(|choice| choice.command == name)
+        {
+            return Some(
+                "Finish or close the current specialist editor, evidence chooser, or review first."
+                    .into(),
+            );
         }
         let local_preview_choice = self.planning.preview.is_some()
             && (matches!(name, "model" | "effort" | "role")
@@ -354,7 +387,8 @@ impl App {
             KeyCode::End => popup.selected = popup.candidates().count().checked_sub(1),
             KeyCode::Backspace => {
                 popup.query.pop();
-                popup.selected = None;
+                popup.selected =
+                    (!popup.query.is_empty() && popup.candidates().count() > 0).then_some(0);
             }
             KeyCode::Char(character) if super::safe_character(character) => {
                 popup.query.push(character);
@@ -365,6 +399,20 @@ impl App {
                     popup.selected = None;
                     self.notice = "The workspace changed while commands were open. Reopen / commands before choosing an action.".into();
                     return true;
+                }
+                // A literal argument owns dispatch even if its words also match
+                // a catalogue label (for example, a partner named "partner").
+                let query = popup
+                    .query
+                    .trim()
+                    .strip_prefix('/')
+                    .unwrap_or(popup.query.trim());
+                if query
+                    .split_once(char::is_whitespace)
+                    .is_some_and(|(name, argument)| name == "lead" && !argument.trim().is_empty())
+                {
+                    let query = query.to_owned();
+                    return self.command_with_argument(&query);
                 }
                 let choice = popup
                     .selected
@@ -390,10 +438,10 @@ impl App {
         true
     }
 
-    /// Commands that take a typed argument when no catalogue choice is
-    /// selected. Only `lead` accepts one today: `/lead <partner>`.
+    /// Commands that take a literal typed argument rather than a catalogue
+    /// selection. Only `lead` accepts one today: `/lead <partner>`.
     pub(super) fn command_with_argument(&mut self, query: &str) -> bool {
-        let query = query.trim();
+        let query = query.trim().strip_prefix('/').unwrap_or(query.trim());
         let (name, argument) = match query.split_once(char::is_whitespace) {
             Some((name, argument)) => (name, argument.trim()),
             None => (query, ""),
@@ -515,7 +563,8 @@ impl App {
             "lead" => {
                 self.lead_command("");
             }
-            "new" | "resume" | "model" | "effort" | "history" => {
+            "new" | "resume" | "model" | "effort" | "history" | "sessions" | "paths"
+            | "models-refresh" => {
                 self.open_overlay(Overlay::Planning);
                 if self.overlay == Some(Overlay::Planning) {
                     return self.planning_command(if name == "history" {
@@ -565,6 +614,12 @@ impl App {
             "layout" => self.linear = !self.linear,
             "images" => self.open_overlay(Overlay::Images),
             "workflows" => self.open_overlay(Overlay::Workflows),
+            "workflow-diagnosis" | "workflow-refactor" | "workflow-review" | "workflow-recipe" => {
+                self.open_overlay(Overlay::Workflows);
+                if self.overlay == Some(Overlay::Workflows) {
+                    return self.workflow_command(name);
+                }
+            }
             "memory" => self.open_overlay(Overlay::Memory),
             "refresh" => {
                 self.repo_refresh = true;

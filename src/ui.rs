@@ -209,13 +209,13 @@ fn shell(area: Rect, linear: bool, focus: Pane) -> Shell {
     let outer = area.inner(ratatui::layout::Margin::new(1, 0));
     let header = row(outer, 0, 2);
     let footer = row(outer, outer.height.saturating_sub(2), 2);
-    let composer_height = if area.height >= 26 { 7 } else { 6 };
+    let composer_height = if area.height >= 26 { 7 } else { 5 };
     let composer = row(
         outer,
         outer.height.saturating_sub(composer_height + 2),
         composer_height,
     );
-    let body = row(outer, 3, composer.y.saturating_sub(outer.y + 4));
+    let body = row(outer, 2, composer.y.saturating_sub(outer.y + 2));
     // The task owns the screen. Secondary details are disclosed on focus,
     // rather than keeping three full-height dashboard columns on screen.
     let inspector = (!linear && area.width >= 120 && focus == Pane::Inspector)
@@ -411,18 +411,27 @@ pub fn portrait_targets(app: &App, area: Rect, targets: &mut Vec<(usize, Rect)>)
 /// Floating `/` palette. On the main screen it stays left of the companion rail,
 /// so opening it never has to erase the portrait.
 fn command_popup_area(area: Rect, app: &App) -> Rect {
-    // Keep storage/pending state visible even at the minimum supported size.
-    let mut viewport = Rect {
-        y: area.y.saturating_add(2),
-        height: area.height.saturating_sub(4),
-        ..area
+    // Root commands replace the workspace, not the draft or safety/status rows.
+    let layout = shell(area, app.linear, app.effective_focus());
+    let bottom = if app.overlay.is_none() {
+        layout.composer.y
+    } else {
+        layout.footer.y
     };
-    if app.overlay.is_none()
-        && let Some(rail) = shell(area, app.linear, app.effective_focus()).rail
-    {
-        viewport.width = rail.x.saturating_sub(viewport.x);
-    }
-    centered(viewport, 100, 22)
+    let width = layout
+        .rail
+        .filter(|_| app.overlay.is_none())
+        .map_or(layout.composer.width, |rail| {
+            rail.x.saturating_sub(layout.workspace.x + 1)
+        })
+        .min(100);
+    let height = bottom.saturating_sub(layout.header.bottom()).min(22);
+    Rect::new(
+        layout.workspace.x,
+        bottom.saturating_sub(height),
+        width,
+        height,
+    )
 }
 
 fn composer_menu_area(area: Rect, app: &App) -> Option<Rect> {
@@ -486,36 +495,40 @@ pub fn render(
         return;
     }
     let shell = shell(area, app.linear, app.effective_focus());
-    header(frame, shell.header, app, &paint);
-    if let Some(rail) = shell.rail {
-        compact_companion(
-            frame,
-            rail,
-            app,
-            config,
-            &paint,
-            artwork,
-            app.overlay.is_none()
-                && !occluded(area, app, companion_portrait(rail))
-                && !(app.editing
-                    && matches!(
-                        app.editor_field,
-                        EditorField::Criteria | EditorField::Command
-                    )),
-        );
-    }
-    workspace(frame, shell.workspace, app, form, config, &paint);
-    composer_input(frame, shell.composer, app, config, &paint);
-    if let Some(inspector) = shell.inspector {
-        inspect(
-            frame,
-            inspector,
-            app,
-            config,
-            &paint,
-            artwork,
-            graphics_status,
-        );
+    // The response drawer owns the screen. Do not re-wrap the hidden task
+    // log or leave fragments of it around the live response on each tick.
+    if app.overlay != Some(Overlay::Planning) {
+        header(frame, shell.header, app, config, &paint);
+        if let Some(rail) = shell.rail {
+            compact_companion(
+                frame,
+                rail,
+                app,
+                config,
+                &paint,
+                artwork,
+                app.overlay.is_none()
+                    && !occluded(area, app, companion_portrait(rail))
+                    && !(app.editing
+                        && matches!(
+                            app.editor_field,
+                            EditorField::Criteria | EditorField::Command
+                        )),
+            );
+        }
+        workspace(frame, shell.workspace, app, form, config, &paint);
+        composer_input(frame, shell.composer, app, config, &paint);
+        if let Some(inspector) = shell.inspector {
+            inspect(
+                frame,
+                inspector,
+                app,
+                config,
+                &paint,
+                artwork,
+                graphics_status,
+            );
+        }
     }
     footer(frame, shell.footer, app, &paint);
     if let Some(menu) = composer_menu_area(area, app) {
@@ -587,7 +600,17 @@ fn selection_text(state: &crate::app::planning::State) -> String {
     }
 }
 
-fn header(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
+fn activity_marker(frame: u8, config: &Config) -> &'static str {
+    if config.no_animation {
+        "*"
+    } else if config.ascii {
+        ["|", "/", "-", "\\"][usize::from(frame) % 4]
+    } else {
+        ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"][usize::from(frame) % 10]
+    }
+}
+
+fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
     let project = std::path::Path::new(&app.cwd)
         .file_name()
         .and_then(|name| name.to_str())
@@ -609,8 +632,8 @@ fn header(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
         "Cancelling provider / /provider Status"
     } else if app.planning.preview.is_some() {
         "Provider preview / /provider Review"
-    } else if app.planning.busy() {
-        "Provider active / /provider Status"
+    } else if let Some(activity) = app.planning.activity_label() {
+        activity
     } else if app.planning.outcome_unknown() {
         "Provider outcome unknown / /provider Inspect"
     } else {
@@ -620,7 +643,15 @@ fn header(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
         frame,
         row(area, 1, 1),
         &clipped(
-            &format!("{activity}  /  {}", app.storage_label()),
+            &format!(
+                "{} {activity}  /  {}",
+                if app.planning.activity_label().is_some() {
+                    activity_marker(app.activity_frame, config)
+                } else {
+                    ""
+                },
+                app.storage_label()
+            ),
             area.width as usize,
         ),
         paint.muted,
@@ -650,9 +681,19 @@ fn workspace(
         .filter(|criterion| criterion.met)
         .count();
     let mut lines = Vec::new();
+    if !app.drafts.is_empty() {
+        lines.push(Line::styled(
+            "Retained draft / /goal Resume editor",
+            paint.accent,
+        ));
+    }
     if app.goal.is_empty() {
         lines.push(Line::styled("Ready for a new task", paint.accent));
-        lines.push(Line::styled("/connect Connect a provider", paint.muted));
+        lines.push(Line::from("Type a goal below; Enter saves locally."));
+        lines.push(Line::styled(
+            "/ Commands / /tasks Resume / /connect Optional provider",
+            paint.muted,
+        ));
     } else {
         lines.push(Line::styled("SAVED TASK", paint.accent));
         lines.extend(app.goal.lines().map(Line::from));
@@ -669,14 +710,15 @@ fn workspace(
             paint.muted,
         ));
         if !app.next_action.is_empty() {
-            lines.push(Line::from(""));
             lines.push(Line::styled("NEXT ACTION", paint.accent));
             lines.extend(app.next_action.lines().map(Line::from));
         }
-        lines.push(Line::from(""));
+        if area.height > 8 {
+            lines.push(Line::from(""));
+        }
         if app.planning.items.is_empty() {
             lines.push(Line::from(
-                "/provider Choose provider; /new or /resume prepares a request",
+                "/criteria-edit Define done / /new Preview request",
             ));
         } else {
             lines.push(Line::styled(
@@ -716,17 +758,10 @@ fn workspace(
                 }
             }
             lines.push(Line::styled(
-                "e All items, provenance and provider controls",
+                "/provider All items, provenance and controls",
                 paint.muted,
             ));
         }
-    }
-    if !app.drafts.is_empty() {
-        lines.push(Line::from(""));
-        lines.push(Line::styled(
-            "Retained draft available / /goal Resume editor",
-            paint.accent,
-        ));
     }
     if matches!(app.form(), 5..=8) {
         lines.push(Line::from(""));
@@ -1491,7 +1526,11 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
     } else if app.command_popup.is_some() {
         "Type / arrows Choose / Enter Open / Esc Back"
     } else if app.editing && app.overlay.is_none() {
-        "Enter Save / Shift+Enter Newline / @ Files / / Commands / Esc Review draft"
+        if area.width < 80 {
+            "Enter Save / / Commands / @ Files / Esc Draft"
+        } else {
+            "Enter Save / Shift+Enter Newline / @ Files / / Commands / Esc Review draft"
+        }
     } else {
         match app.overlay {
             Some(Overlay::Forms) => "Arrows Preview / Enter Select / /preview Details / Esc Back",
@@ -1500,6 +1539,9 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
             }
             Some(Overlay::Tasks) => {
                 "Enter Resume / /archived / /archive / /restore / /delete / Esc Back"
+            }
+            Some(Overlay::Planning) if app.planning.activity_label().is_some() => {
+                "/ Commands / Esc Cancel request / Ctrl+C Safe exit"
             }
             Some(
                 Overlay::Execution
@@ -1667,10 +1709,21 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
         App::partner_label(app.lead()),
         app.sources.basket.len()
     );
-    let block = panel(&title, config, paint, editing && app.overlay.is_none());
+    let mut block = panel(&title, config, paint, editing && app.overlay.is_none());
+    if editing {
+        block = block.title_bottom(Line::styled(
+            " Ctrl+N Newline / Ctrl+S Retain draft ",
+            paint.muted,
+        ));
+    }
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let input = row(content, 0, content.height.saturating_sub(2));
+    let hint_rows = if editing && !app.input_truncated {
+        0
+    } else {
+        1
+    };
+    let input = row(content, 0, content.height.saturating_sub(hint_rows));
     let value = if editing { app.input.as_str() } else { "" };
     let cursor = if editing { app.cursor } else { 0 };
     let (lines, (caret_row, caret_column)) =
@@ -1720,7 +1773,7 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
     } else if editing {
         ""
     } else if app.effective_focus() != Pane::Workspace {
-        "/goal Edit goal / Tab Focus\nEnter opens focused details"
+        "/goal Edit / Tab Focus / Enter Details"
     } else if matches!(app.form(), 5..=7) {
         "Enter Specialist desk / /goal Edit goal"
     } else if app.form() == 8 {
@@ -1730,7 +1783,7 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
     };
     text(
         frame,
-        row(content, content.height.saturating_sub(2), 2),
+        row(content, content.height.saturating_sub(hint_rows), hint_rows),
         hint,
         paint.muted,
     );

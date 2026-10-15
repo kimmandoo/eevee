@@ -1731,17 +1731,12 @@ impl Engine<'_> {
         }
         self.output_bytes = self.output_bytes - previous + length;
         item.complete = complete;
-        // Redact the cumulative item, not individual deltas. Withhold a partial final line so
-        // credentials split across JSONL deltas are not exposed before their prefix is complete.
-        let visible = if complete || !delta {
-            item.raw.as_str()
-        } else {
-            &item.raw[..item.raw.rfind('\n').map_or(0, |end| end + 1)]
-        };
+        // Cumulative context protects credentials split across arbitrary deltas;
+        // ordinary words become visible without waiting for a newline.
+        let visible = safe_stream(&item.raw, complete || !delta && kind == ItemKind::Tool);
         if visible.is_empty() && !complete {
             return Ok(());
         }
-        let visible = safe(visible);
         emit(
             self.events,
             Event::Item {
@@ -2569,7 +2564,10 @@ fn catalogue_text(text: &str, limit: usize) -> String {
     visible
 }
 fn safe(text: &str) -> String {
-    crate::workspace::privacy::redact(text)
+    safe_stream(text, true)
+}
+fn safe_stream(text: &str, complete: bool) -> String {
+    crate::workspace::privacy::redact_stream(text, complete)
         .chars()
         .map(|c| {
             if c.is_control() && c != '\n' && c != '\t' || bidi(c) {

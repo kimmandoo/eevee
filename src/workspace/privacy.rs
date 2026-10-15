@@ -3,6 +3,29 @@ use std::borrow::Cow;
 
 const REPLACEMENT: &str = "[REDACTED]";
 
+/// Redacts a cumulative response snapshot, withholding only its unfinished token.
+///
+/// Never call this with isolated deltas: quoted values, bearer credentials and PEM
+/// bodies need their preceding context. Completion releases the final token through
+/// the same redactor. An unfinished PEM header is held even across whitespace,
+/// because a later `PRIVATE KEY-----` can classify the entire header as secret.
+pub fn redact_stream(text: &str, complete: bool) -> Cow<'_, str> {
+    if complete {
+        return redact(text);
+    }
+    // These boundaries survive every provider's display normalization. Unicode
+    // whitespace is deliberately excluded: it can still be URL userinfo before @.
+    let mut end = text.rfind([' ', '\t', '\n']).map_or(0, |index| index + 1);
+    let prefix = &text[..end];
+    for (start, rest) in prefix.match_indices("-----BEGIN ") {
+        if !prefix[start + rest.len()..].contains("-----") {
+            end = start;
+            break;
+        }
+    }
+    redact(&text[..end])
+}
+
 /// Redacts recognizable credentials without allocating for unchanged text.
 pub fn redact(text: &str) -> Cow<'_, str> {
     let mut ranges = Vec::new();
@@ -187,6 +210,97 @@ fn token_end(text: &str, start: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_stream_split_keeps_recognizable_credentials_private() {
+        for secret in [
+            "sk-secret123456",
+            "ghp_secret123456",
+            "gho_secret123456",
+            "ghu_secret123456",
+            "ghs_secret123456",
+            "ghr_secret123456",
+            "github_pat_secret123456",
+            "xoxb-secret123456",
+            "xoxp-secret123456",
+            "xoxa-secret123456",
+            "xoxr-secret123456",
+            "AKIA1234567890123456",
+            "ASIA1234567890123456",
+            "AIza1234567890123456",
+            "Bearer opaque-value",
+            "Bearer\topaque-value",
+            "Authorization: Bearer opaque-value",
+            "password=opaque-value",
+            "\"api_key\" : \"opaque value with spaces\"",
+            "CLIENT_SECRET='opaque value'",
+            "password=\"opaque\\\" value\"",
+            "password=\"秘密 値 with spaces\"",
+            "password=\"opaque\nmultiline value\"",
+            "https://user:opaque-value@example.test/path",
+            "https://user:opaque\u{3000}value@example.test/path",
+            "-----BEGIN RSA PRIVATE KEY-----\nopaque value\n-----END RSA PRIVATE KEY-----",
+            "private_key=-----BEGIN PRIVATE KEY-----\nopaque-value\n-----END PRIVATE KEY-----",
+            "-----BEGIN EC PRIVATE KEY-----\nopaque-value",
+        ] {
+            let text = format!("前 ordinary prose {secret} 後 more words");
+            let final_text = redact(&text);
+            for split in text
+                .char_indices()
+                .map(|(index, _)| index)
+                .chain([text.len()])
+            {
+                let mut cumulative = text[..split].to_owned();
+                let visible = redact_stream(&cumulative, false);
+                assert!(
+                    final_text.starts_with(visible.as_ref()),
+                    "split {split} of {secret:?}: {visible:?} is not a safe final prefix {final_text:?}",
+                );
+                cumulative.push_str(&text[split..]);
+                assert_eq!(redact_stream(&cumulative, true), final_text);
+            }
+        }
+    }
+
+    #[test]
+    fn no_newline_prose_releases_multiple_borrowed_prefixes_before_completion() {
+        let text = "前 ordinary words 日本語 more prose without newline";
+        let mut previous = "";
+        let mut updates = 0;
+        for end in text
+            .char_indices()
+            .map(|(index, _)| index)
+            .chain([text.len()])
+        {
+            let visible = redact_stream(&text[..end], false);
+            assert!(matches!(visible, Cow::Borrowed(_)));
+            assert!(text.starts_with(visible.as_ref()));
+            if visible != previous {
+                updates += 1;
+                previous = &text[..visible.len()];
+            }
+        }
+        assert!(updates >= 7);
+        assert_eq!(previous, "前 ordinary words 日本語 more prose without ");
+        assert_eq!(redact_stream(text, true), text);
+    }
+
+    #[test]
+    fn unfinished_pem_headers_wait_but_nonprivate_headers_resume() {
+        assert_eq!(redact_stream("前 -----BEGIN RSA ", false), "前 ");
+        assert_eq!(
+            redact_stream("前 -----BEGIN RSA PRIVATE KEY-----", false),
+            "前 "
+        );
+        assert_eq!(
+            redact_stream("前 -----BEGIN RSA PRIVATE KEY-----\nopaque ", false),
+            "前 [REDACTED]",
+        );
+        assert_eq!(
+            redact_stream("前 -----BEGIN CERTIFICATE-----\npublic ", false),
+            "前 -----BEGIN CERTIFICATE-----\npublic ",
+        );
+    }
 
     #[test]
     fn recognizable_credentials_are_removed_without_losing_unicode() {

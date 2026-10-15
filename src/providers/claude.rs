@@ -161,9 +161,12 @@ fn finish(events: &Events, generation: u64, task_id: i64, outcome: Outcome, mess
     }
 }
 fn safe(text: &str) -> String {
+    safe_stream(text, true)
+}
+fn safe_stream(text: &str, complete: bool) -> String {
     let normalized: String = text.chars().filter(|c| (!c.is_control() || matches!(c, '\n' | '\t')) &&
         !matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')).collect();
-    crate::workspace::privacy::redact(&normalized)
+    crate::workspace::privacy::redact_stream(&normalized, complete)
         .chars()
         .take(ITEM_LIMIT)
         .collect()
@@ -1174,7 +1177,7 @@ impl SdkItems {
         {
             return Err("Claude retained item bound/identity invalid".into());
         }
-        let text = safe(text);
+        let text = safe_stream(text, complete || kind != ItemKind::Message);
         let previous = self.items.get(id);
         if previous.is_some_and(|item| {
             item.kind != kind || item.complete && (!complete || item.text != text)

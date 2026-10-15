@@ -74,41 +74,85 @@ pub(super) fn commands(frame: &mut Frame, area: Rect, app: &App, config: &Config
     let block = panel(" / Commands / type to search ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    text(
-        frame,
-        row(content, 0, 1),
-        &format!("/{}", popup.query),
-        paint.accent,
-    );
-    let rows = content.height.saturating_sub(4) as usize;
+    let count = popup.candidates().count();
+    let selected = popup
+        .selected
+        .and_then(|index| popup.candidates().nth(index));
+    let reason = selected.and_then(|choice| {
+        choice
+            .reason
+            .clone()
+            .or_else(|| app.command_disabled_reason(choice.command))
+    });
+    let detail = reason
+        .as_deref()
+        .or_else(|| selected.map(|choice| choice.label.as_str()))
+        .unwrap_or("Search actions by name or description. Esc keeps your draft.");
+    let detail = if reason.is_some() {
+        std::borrow::Cow::Owned(format!("Unavailable: {detail}"))
+    } else {
+        std::borrow::Cow::Borrowed(detail)
+    };
+    let detail_rows = Paragraph::new(detail.as_ref())
+        .wrap(ratatui::widgets::Wrap { trim: false })
+        .line_count(content.width.max(1))
+        .min(2) as u16;
+    let rows = content.height.saturating_sub(detail_rows + 2) as usize;
     let start = popup
         .selected
         .unwrap_or(0)
-        .saturating_sub(rows.saturating_sub(1));
-    let mut selected_reason = None;
+        .saturating_sub(rows / 2)
+        .min(count.saturating_sub(rows));
+    let end = (start + rows).min(count);
+    let range = if count == 0 {
+        "0 matches".to_owned()
+    } else {
+        format!("{}-{end}/{count}", start + 1)
+    };
+    let query_width = content.width.saturating_sub(range.len() as u16 + 1);
+    text(
+        frame,
+        Rect {
+            width: query_width,
+            ..row(content, 0, 1)
+        },
+        &clipped(&format!("/{}", popup.query), query_width as usize),
+        paint.accent,
+    );
+    text(
+        frame,
+        Rect {
+            x: content.x + query_width + 1,
+            width: content.width.saturating_sub(query_width + 1),
+            ..row(content, 0, 1)
+        },
+        &range,
+        paint.muted,
+    );
+    let command_width = popup
+        .candidates()
+        .map(|choice| choice.command.len() + 1)
+        .max()
+        .unwrap_or(0)
+        .min(content.width.saturating_sub(5) as usize / 2);
     for (visible, choice) in popup.candidates().skip(start).take(rows).enumerate() {
         let selected = popup.selected == Some(start + visible);
-        let reason = choice
-            .reason
-            .clone()
-            .or_else(|| app.command_disabled_reason(choice.command));
+        let unavailable =
+            choice.reason.is_some() || app.command_disabled_reason(choice.command).is_some();
         let style = if selected {
             paint.selected
-        } else if reason.is_some() {
+        } else if unavailable {
             paint.muted
         } else {
             paint.surface
         };
+        let command = format!("/{}", choice.command);
+        let command = clipped(&command, command_width);
         let label = format!(
-            "{} /{}  {}{}",
+            "{}{} {command:command_width$} {}",
             if selected { ">" } else { " " },
-            choice.command,
+            if unavailable { "x" } else { " " },
             choice.label,
-            if reason.is_some() {
-                " [unavailable]"
-            } else {
-                ""
-            }
         );
         text(
             frame,
@@ -116,28 +160,29 @@ pub(super) fn commands(frame: &mut Frame, area: Rect, app: &App, config: &Config
             &clipped(&label, content.width as usize),
             style,
         );
-        if selected {
-            selected_reason = reason;
-        }
     }
-    if popup.candidates().count() == 0 {
+    if count == 0 {
         text(
             frame,
-            row(content, 1, 2),
-            "No command on this surface matches. Esc preserves your draft; paste is never a command.",
+            row(content, 1, rows as u16),
+            "No matching command. Try a shorter search.",
             paint.muted,
         );
     }
     text(
         frame,
-        row(content, content.height.saturating_sub(3), 2),
-        &super::brief(selected_reason.as_deref().unwrap_or(&app.notice)),
+        row(
+            content,
+            content.height.saturating_sub(detail_rows + 1),
+            detail_rows,
+        ),
+        &clipped(&detail, content.width as usize * detail_rows as usize),
         paint.muted,
     );
     text(
         frame,
         row(content, content.height.saturating_sub(1), 1),
-        "Type / arrows Choose • Enter Open • Esc Back • Ctrl+K All choices",
+        "Up/Down Choose / Enter Open / Esc Back / Ctrl+K All",
         paint.muted,
     );
 }

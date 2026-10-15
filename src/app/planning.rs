@@ -23,6 +23,7 @@ use crate::{
 
 mod journal;
 mod picker;
+mod response;
 mod review;
 
 const ANSWER_BYTES: usize = 4096;
@@ -73,6 +74,12 @@ pub struct State {
     pub inspect_sessions: bool,
     pub scroll: u16,
     pub scroll_max: u16,
+    pub following: bool,
+    pub new_output: bool,
+    response_cache: response::Layout,
+    activity: &'static str,
+    response_scroll: usize,
+    response_max: usize,
     pub reviewed: bool,
     pub affirmative: bool,
     pub question: usize,
@@ -147,6 +154,9 @@ impl State {
             items: Vec::new(), selected: 0, thread_id: None,
             notice: "No model session yet. /new and /resume prepare an outgoing-payload review; /connect manages provider login separately.".into(),
             scroll: 0, scroll_max: 0, reviewed: false, affirmative: false,
+            following: true, new_output: false, response_cache: response::Layout::default(),
+            activity: "Connecting",
+            response_scroll: 0, response_max: 0,
             question: 0, option: 0, answers: Vec::new(), editing: false, submit_review: false,
             quit_review: false, quit_ready: false, cancelling: false, omitted: 0,
             task: 0, revision: 0, generation: None, awaiting_preview: false, active: false,
@@ -440,6 +450,7 @@ impl State {
                 && !self.inspect_models =>
             {
                 self.thread_id = Some(thread_id);
+                self.activity = "Waiting for response";
                 self.session_selection = self.request_selection.clone();
                 self.observed_model = Some(model.clone());
                 self.notice = format!(
@@ -461,18 +472,30 @@ impl State {
                 && !self.inspect_sessions
                 && !self.inspect_models =>
             {
-                if let Some(item) = self.items.iter_mut().find(|item| {
+                self.activity = "Receiving response";
+                let position = self.items.iter().position(|item| {
                     item.thread_id == thread_id
                         && item.turn_id == turn_id
                         && item.item_id == item_id
-                }) {
+                });
+                let index = if let Some(index) = position {
+                    let item = &mut self.items[index];
                     item.text = text;
                     item.complete = complete;
                     item.kind = kind;
+                    index
                 } else {
                     if self.items.len() == ITEM_LIMIT {
-                        self.items.remove(0);
-                        self.selected = self.selected.saturating_sub(1);
+                        // Keep an explicitly inspected item even when the bounded
+                        // display fills; discard the oldest other observation.
+                        let removed = usize::from(
+                            self.selected == 0 && (!self.following || !self.response_surface()),
+                        );
+                        self.items.remove(removed);
+                        if self.selected > removed {
+                            self.selected -= 1;
+                        }
+                        self.response_cache.invalidate();
                         self.omitted += 1;
                     }
                     self.items.push(Item {
@@ -483,7 +506,10 @@ impl State {
                         text,
                         complete,
                     });
-                }
+                    self.items.len() - 1
+                };
+                self.response_cache.item_changed(index);
+                self.response_arrived(index);
             }
             Event::Prompt {
                 generation,
@@ -495,7 +521,9 @@ impl State {
                 && !self.inspect_sessions
                 && !self.inspect_models =>
             {
-                self.saved_scroll = self.scroll;
+                if self.request.is_none() {
+                    self.saved_scroll = self.scroll;
+                }
                 self.answers = match &request.kind {
                     PromptKind::Questions(questions) => {
                         questions.iter().map(|_| Answer::default()).collect()
@@ -607,7 +635,9 @@ impl State {
             return false;
         };
         self.pending = Some(Request::Cancel { generation });
-        self.preview = None;
+        if self.preview.take().is_some() {
+            self.scroll = self.saved_scroll;
+        }
         self.close_request();
         self.active = true;
         self.cancelling = true;

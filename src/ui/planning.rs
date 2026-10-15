@@ -54,9 +54,10 @@ pub(super) fn render_small(frame: &mut Frame, area: Rect, state: &mut State, pai
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
     let area = centered(area, 112, area.height.saturating_sub(2));
     frame.render_widget(Clear, area);
+    let marker = super::activity_marker(app.activity_frame, config);
     let state = &mut app.planning;
     let title = format!(
-        " {} / {} {} / selected model {} / selected effort {} ",
+        " {} / {} {} ",
         match state.operation {
             Operation::Plan => "Espeon",
             Operation::Implement => "Flareon",
@@ -68,8 +69,6 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             Operation::Implement => "implementation",
             Operation::Review => "independent review",
         },
-        state.selection.model.as_deref().unwrap_or("Default"),
-        state.selection.effort.as_deref().unwrap_or("Default")
     );
     let block = panel(&title, config, paint, true);
     let content = block.inner(area);
@@ -94,32 +93,18 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         picker(frame, content, state, paint);
         return;
     }
+    if state.preview.is_none() && state.request.is_none() && state.inspection.is_none() {
+        response(frame, content, state, marker, paint);
+        return;
+    }
     let header = if state.preview.is_some() {
         "LOCAL PREVIEW / no provider connection authorized"
     } else if state.request.is_some() {
         "PROVIDER REQUEST / explicit response required"
     } else if state.cancelling {
         "CANCELLING / waiting; outcome not yet known"
-    } else if state.busy() {
-        if state.inspect_models {
-            "INSPECTING MODELS / no model turn authorized"
-        } else if state.inspect_sessions {
-            "INSPECTING SESSION METADATA / no model turn authorized"
-        } else {
-            match state.operation {
-                Operation::Plan => "PLANNING / provider-owned history and billing",
-                Operation::Implement => "IMPLEMENTING / reviewed write boundary",
-                Operation::Review => "REVIEWING / separate session; source writes unavailable",
-            }
-        }
-    } else if state.inspection.is_some() {
-        "SESSION METADATA / not a selectable decision or model result"
-    } else if state.outcome_unknown() {
-        "IDLE / prior provider outcome UNKNOWN; effects may remain"
-    } else if state.operation == Operation::Review {
-        "IDLE / New independent Review; Resume unavailable"
     } else {
-        "IDLE / explicit New or same-task Resume"
+        "SESSION METADATA / not a selectable decision or model result"
     };
     text(
         frame,
@@ -293,76 +278,6 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         }
     } else if let Some(inspection) = &state.inspection {
         value.push_str(inspection);
-    } else {
-        if state.operation == Operation::Review {
-            value.push_str("/new: independent Review in a fresh provider session, using current requirements, working patch and selected observations only. No implementation transcript or portable handoff is reused. Source-writing tools, Resume and edit grants are unavailable. ACP Review is unavailable because no-write tool policy cannot be established. Applying a fix requires a deliberate implementation handoff from the review desk.\n\n");
-        } else {
-            value.push_str("/new: new provider thread. /resume: this task's last explicitly created compatible thread only; provider history is additional context. Both open a local preview first. No executable is launched by opening this drawer or a model picker.\n\n");
-        }
-        if let Some(id) = &state.thread_id {
-            let _ = writeln!(
-                value,
-                "Session-local {}thread: {id}\n",
-                if state.operation == Operation::Review {
-                    "non-resumable review "
-                } else {
-                    "resumable "
-                }
-            );
-        }
-        if state.omitted > 0 {
-            let _ = writeln!(
-                value,
-                "Display bound: {} earlier items omitted; no local execution evidence is implied.\n",
-                state.omitted
-            );
-        }
-        if let Some(item) = state.items.get(state.selected) {
-            let kind = match item.kind {
-                ItemKind::Message => "agent message",
-                ItemKind::Plan => "plan",
-                ItemKind::Tool => "tool output (not a decision)",
-            };
-            let _ = writeln!(
-                value,
-                "ITEM {}/{} / {kind} / {}\nSource: {} / thread {}\nTurn {} / item {}\n\n{}",
-                state.selected + 1,
-                state.items.len(),
-                if item.complete {
-                    "complete"
-                } else {
-                    "streaming"
-                },
-                state.agent.label(),
-                item.thread_id,
-                item.turn_id,
-                item.item_id,
-                item.text
-            );
-            value.push_str("\n\nDecision selection copies only a complete message/plan into the NextAction editor. Review and explicitly save it. It is an unverified provider proposal, not command success, a saved review verdict, or task acceptance.\n");
-        } else {
-            if state.operation == Operation::Review {
-                value.push_str(&super::brief("No review items yet. /new opens a local outgoing-context preview before any provider launch.\n\nReview compares saved acceptance criteria with the current working patch and selected evidence. Missing, stale or ambiguous evidence must be labelled inconclusive, never passed. Findings must name affected source/run references and a proposed next action; returning a response does not mark the task complete."));
-                value.push('\n');
-            } else {
-                value.push_str(&super::brief("No provider items yet. /new previews the saved goal, criteria and source basket before sending.\n\nAn empty basket is goal-only planning. Save the goal first (/goal); use /sources before starting to change the basket. Item display is bounded and source-qualified; raw private reasoning is not displayed."));
-                value.push('\n');
-            }
-            let _ = writeln!(
-                value,
-                "\nAgent: {} / Operation: {:?}\n{}",
-                state.agent.label(),
-                state.operation,
-                if state.operation == Operation::Review {
-                    "No write paths or grants. /provider reviews provider switch; /handoff opens portable handoff.".into()
-                } else {
-                    format!(
-                        "Selected edit paths: {:?}\n/provider reviews provider switch; /role chooses role; /paths edits selected paths; /handoff opens portable handoff.",
-                        state.edit_paths
-                    )
-                }
-            );
-        }
     }
     let details = row(content, 1, content.height.saturating_sub(6));
     state.scroll_max = selection_details(
@@ -392,6 +307,102 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     if state.editing {
         editor(frame, area, state, config, paint);
     }
+}
+
+fn response(frame: &mut Frame, area: Rect, state: &mut State, marker: &str, paint: &Paint) {
+    let label = state.activity_label();
+    let status = if let Some(label) = label {
+        format!("{marker} {label}")
+    } else if state.outcome_unknown() {
+        "Outcome unknown".into()
+    } else {
+        "IDLE / explicit New".into()
+    };
+    let model = state.observed_model.as_deref().unwrap_or("not observed");
+    let metadata = if let Some(item) = state.items.get(state.selected) {
+        format!(
+            "{status} · {} {}/{} {} · model {}",
+            match item.kind {
+                ItemKind::Message => "Response",
+                ItemKind::Plan => "Plan",
+                ItemKind::Tool => "Tool output",
+            },
+            state.selected + 1,
+            state.items.len(),
+            if item.complete {
+                "complete"
+            } else if label.is_some() && !state.cancelling {
+                "streaming"
+            } else {
+                "partial"
+            },
+            model,
+        )
+    } else {
+        format!("{status} · observed model {model}")
+    };
+    text(
+        frame,
+        row(area, 0, 1),
+        &clipped(&metadata, area.width as usize),
+        paint.accent,
+    );
+    let body = row(area, 1, area.height.saturating_sub(4));
+    if state.items.is_empty() {
+        let empty = if label.is_some() {
+            "Waiting for provider output. Partial responses appear here as they arrive."
+        } else if state.operation == Operation::Review {
+            "/new prepares an independent review. Review the outgoing context before Run; no source writes or resumed implementation history."
+        } else {
+            "/new prepares a response from your saved goal and selected sources. Review the outgoing context before Run."
+        };
+        frame.render_widget(
+            Paragraph::new(empty)
+                .style(paint.surface)
+                .wrap(Wrap { trim: false }),
+            body,
+        );
+    } else {
+        let lines: Vec<Line<'_>> = state
+            .response_rows(body.width, body.height, super::VERBOSE.get())
+            .map(Line::raw)
+            .collect();
+        frame.render_widget(Paragraph::new(lines).style(paint.surface), body);
+    }
+    text(
+        frame,
+        row(area, area.height.saturating_sub(3), 1),
+        &clipped(&super::brief(&state.notice), area.width as usize),
+        paint.muted,
+    );
+    let follow = if state.new_output {
+        "New output · End: latest / follow"
+    } else if state.following {
+        "Following · PgUp: pause"
+    } else {
+        "Follow paused · End: latest / follow"
+    };
+    let navigation = format!("{follow} · ↑↓ items · PgUp/Dn · /verbose details");
+    text(
+        frame,
+        row(area, area.height.saturating_sub(2), 1),
+        &clipped(&navigation, area.width as usize),
+        paint.accent,
+    );
+    let evidence = if state.omitted > 0 {
+        format!(
+            "Unverified provider output · {} earlier items omitted · /decision copies complete proposal",
+            state.omitted
+        )
+    } else {
+        "Unverified provider output · /decision copies a complete proposal for local review".into()
+    };
+    text(
+        frame,
+        row(area, area.height.saturating_sub(1), 1),
+        &clipped(&evidence, area.width as usize),
+        paint.muted,
+    );
 }
 
 fn controls(state: &State) -> &'static str {
@@ -440,19 +451,10 @@ fn controls(state: &State) -> &'static str {
             }
         };
     }
-    if state.inspection.is_some() {
-        return if state.busy() {
-            "PgUp/Dn Scroll session metadata\nEsc Cancel / /quit Safe exit"
-        } else {
-            "PgUp/Dn Scroll session metadata / Esc Messages\n/new /resume /provider /history"
-        };
-    }
     if state.busy() {
-        "Up/Down Item / PgUp/Dn Scroll\nEsc Cancel / /quit Safe exit"
-    } else if state.operation == Operation::Review {
-        "/goal /new /decision /provider /model /effort\n/history /handoff /commands\nResume/writes unavailable / Esc Back"
+        "PgUp/Dn Scroll session metadata\nEsc Cancel / /quit Safe exit"
     } else {
-        "/goal /new /resume /decision /provider /model /effort\n/role /paths /history /sessions /handoff\n/commands Choices / Esc Back"
+        "PgUp/Dn Scroll session metadata / Esc Messages\n/new /resume /provider /history"
     }
 }
 

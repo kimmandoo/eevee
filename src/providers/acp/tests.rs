@@ -1,6 +1,31 @@
 use super::*;
 
 #[test]
+fn message_snapshots_release_words_without_exposing_split_secrets() {
+    assert_eq!(safe_stream("First ordinary ", false), "First ordinary ");
+    assert_eq!(
+        safe_stream("First ordinary words 日本語 tail", false),
+        "First ordinary words 日本語 "
+    );
+    for text in [
+        "前 ghp_secret123456 後 ",
+        "前 api_key=\"opaque value\" 後 ",
+        "前 https://user:opaque@example.test/path 後 ",
+        "前 -----BEGIN PRIVATE KEY-----\nopaque\n-----END PRIVATE KEY----- 後 ",
+    ] {
+        let final_text = safe(text);
+        for end in text
+            .char_indices()
+            .map(|(index, _)| index)
+            .chain([text.len()])
+        {
+            assert!(final_text.starts_with(&safe_stream(&text[..end], false)));
+        }
+        assert_eq!(safe_stream(text, true), final_text);
+    }
+}
+
+#[test]
 fn already_current_values_still_require_explicit_setter_acknowledgment() {
     let state = Models::parse(&opencode_options()).unwrap();
     let selection = ModelSelection {
