@@ -33,6 +33,8 @@
 
 ## 2026-10-15
 
+- chore(release): published v0.1.6 from `ef9cef4` after exact-commit Check and all five native build/test/install rows passed, verified all eight public assets and seven checksums, and passed 23 installation checks, 34 installed terminal scenarios and 23 workbench journeys against the public macOS package.
+- fix(smoke): applied the existing POSIX shell-session ownership guard to self-update as well as bootstrap, preserving macOS terminal-restoration evidence after installer exec.
 - fix(codex): read effective nonsecret model configuration, preserved configured defaults through catalogue revalidation, exposed installed CLI provenance and update guidance, and kept full native model/effort choices inspectable on compact screens.
 - feat(commands): added neutral `/reset` with a durable-save barrier and recoverable old tasks, plus `/init` proposal drafts with explicit replacement review and no implicit execution or file writes.
 - fix(ux): restored the persistent home partner card, returned model/provider selections directly to their invoking surface, and removed intermediate role/form navigation steps while preserving drafts.
