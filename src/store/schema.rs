@@ -230,9 +230,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=9).contains(&version) {
+    if !(0..=10).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0 through 9"
+            "Unsupported database schema version {version}; this ev supports versions 0 through 10"
         ));
     }
     let mut statement = connection
@@ -323,6 +323,24 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
             } else {
                 Schema::Current
             }
+        }
+        (10, objects)
+            if objects.len() == 8
+                && objects
+                    .iter()
+                    .zip([
+                        "excerpts",
+                        "executions",
+                        "memories",
+                        "partners",
+                        "provider_journal",
+                        "provider_preferences",
+                        "selections",
+                        "tasks",
+                    ])
+                    .all(|((kind, name), expected)| kind == "table" && name == expected) =>
+        {
+            Schema::Current
         }
         _ => return Err("Unrecognized or nonempty foreign database schema".into()),
     };
@@ -487,6 +505,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
             if version >= 7 {
                 inspect_partners(connection)?;
             }
+            if version >= 10 {
+                super::preferences::inspect_preferences(connection)?;
+            }
             return Ok(schema);
         }
     };
@@ -547,11 +568,29 @@ pub(super) fn initialize(connection: &mut Connection) -> Result<(), String> {
 }
 
 pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), String> {
+    migrate_tasks(connection, schema)?;
+    let version: i64 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    if version < 10 {
+        connection
+            .execute_batch(
+                "CREATE TABLE provider_preferences(
+             id INTEGER PRIMARY KEY CHECK(id=1),
+             record TEXT NOT NULL CHECK(length(CAST(record AS BLOB))<=16384));
+             PRAGMA user_version=10;",
+            )
+            .map_err(|error| format!("Cannot migrate provider preferences: {error}"))?;
+    }
+    Ok(())
+}
+
+fn migrate_tasks(connection: &Connection, schema: Schema) -> Result<(), String> {
     if matches!(schema, Schema::Current) {
         let version: i64 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|error| error.to_string())?;
-        if version == 9 {
+        if version >= 9 {
             return Ok(());
         }
         // Schema 9 adds the Request draft variant to the existing JSON contract.

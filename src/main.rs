@@ -101,7 +101,10 @@ fn run(config: Config) -> io::Result<()> {
             size.width,
             size.height,
         );
-        app.planning.agent = providers::direct::config::preferred_agent();
+        app.planning.set_startup_provider(
+            providers::direct::config::preferred_agent(),
+            std::env::var_os("EV_PROVIDER").is_some(),
+        );
         app.agents.active = app.planning.agent.index();
         app.agents.selected = app.agents.active;
         app.linear = config.layout == config::LayoutMode::Linear;
@@ -197,8 +200,13 @@ fn run(config: Config) -> io::Result<()> {
             }
             // A deferred cancel-and-exit can become ready here, before input
             // polling. Do not wait for another key after ownership is settled.
-            if app.quit {
+            if app.planning.preferences_allow_quit(app.quit) {
                 return Ok(());
+            }
+            if app.quit {
+                app.quit = false;
+                app.notice.clone_from(&app.planning.notice);
+                dirty = true;
             }
             dirty |= activity != app.execution.activity_label();
             if context_task != Some(app.task_id) {
@@ -253,6 +261,10 @@ fn run(config: Config) -> io::Result<()> {
                 app.execution.repo_started();
                 outstanding_repo += 1;
             }
+            if store.try_preferences(app.planning.preference_request()) {
+                app.planning.preference_started();
+                outstanding_store += 1;
+            }
             if sources.try_request(&mut app.sources.pending) {
                 outstanding_sources += 1;
             }
@@ -295,6 +307,7 @@ fn run(config: Config) -> io::Result<()> {
             }
             if app.retry_storage && store.retry() {
                 app.retry_storage = false;
+                app.planning.retry_preferences();
                 outstanding_store += 1;
             }
             if store.try_manage(&mut app.management) {
@@ -519,8 +532,13 @@ fn run(config: Config) -> io::Result<()> {
             {
                 dirty |= resized;
             }
-            if app.quit {
+            if app.planning.preferences_allow_quit(app.quit) {
                 return Ok(());
+            }
+            if app.quit {
+                app.quit = false;
+                app.notice.clone_from(&app.planning.notice);
+                dirty = true;
             }
         }
     })

@@ -72,7 +72,7 @@ impl App {
         self.cursor = 0;
         self.insert_input(&request);
         self.changed_task();
-        self.notice = "/init prepared an editable request; selected Espeon / Plan and cleared write paths. Enter reviews; Run sends separately. No files changed or request sent.".into();
+        self.notice = "/init prepared an editable request; selected Espeon / Plan and cleared write paths. Enter sends when ready. No files changed or request sent.".into();
     }
 
     pub(super) fn insert_input(&mut self, text: &str) -> bool {

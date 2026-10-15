@@ -1,5 +1,26 @@
 # Troubleshooting
 
+### [2026-10-16] Cancelling metadata connection review left an invisible picker owning input
+
+- **Context / Symptom:** The real-TUI project-executable trust fixture correctly stopped before execution, but Escape returned home and `/quit` was subsequently typed as literal draft text. The interface reported an unfinished request although no modal was visible.
+- **Root Cause:** Metadata cancellation completed after the review overlay closed. Its normal completion path reopened the model picker inside planning state without a visible owner, leaving global commands blocked.
+- **Solution:** Explicit catalogue dismissal now survives asynchronous cancellation and prevents both completion/error paths from reopening a picker. A new inspection resets this dismissal; blocked automatic inspections still retain their error/retry view.
+- **Prevention / Reference:** Regression coverage checks cancellation reaches idle without a hidden picker or queued run. The actual terminal fixture also requires normal command-based exit and verifies the project executable remains untouched.
+
+### [2026-10-16] First direct request cancelled during pending local context restoration
+
+- **Context / Symptom:** The initial Enter-only native request returned to its draft before any network output with a misleading request-changed notice.
+- **Root Cause:** The first durable task save could trigger context restoration before its prepared preview arrived. Temporary local readiness loss was incorrectly treated as a changed request.
+- **Solution:** Retained the immutable prepared owner while the matching task/revision waited for local readiness, then dispatched exactly once. Real revision changes and invalid terminal sizes still cancel; failure notices preserve the actual reason.
+- **Prevention / Reference:** The regression exercises pending save/readiness before dispatch. The actual first-send fixture completed one response with zero model-discovery requests and committed its first-used default route before exit.
+
+### [2026-10-16] Compact Codex method selection browsed native settings without switching the task
+
+- **Context / Symptom:** The 60×18 real-TUI journey chose native responses, but the task header remained CLI and the next action opened native setup instead of returning home. The wide layout's persistent provider column had hidden that incomplete transition.
+- **Root Cause:** Removing a method shortcut from visible command choices also removed it from the shared availability validator, so the actual provider-switch command was refused after the drawer changed its browsed row. The intermediate provider frame also remained in overlay ancestry.
+- **Solution:** Kept explicit native/CLI shortcuts as connection-method actions under the one Codex provider, preserving their capability validation. A completed local method choice removes the intermediate provider frame and returns to its invoking editor; sessions still use the real handoff boundary.
+- **Prevention / Reference:** Assert actual task route and retained editor at both supported widths, not merely presence of a Codex label. The runtime journey checks that method selection closes the extra drawer without launching authentication.
+
 ### [2026-10-16] Starting in the user home blocked native provider configuration
 
 - **Context / Symptom:** The actual release TUI launched with its working directory equal to HOME refused a private user-owned provider config with `Cannot read user provider config safely`; no metadata HTTP request was sent.

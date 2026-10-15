@@ -98,6 +98,7 @@ impl State {
 
     pub(super) fn choose_selection(&mut self, selection: ModelSelection) {
         if selection == self.selection {
+            self.preference_changed();
             self.picker = None;
         } else if selection.model != self.selection.model && self.thread_id.is_some() {
             self.selection_change = Some(selection);
@@ -207,7 +208,6 @@ impl State {
     }
 
     pub(super) fn apply_selection(&mut self, selection: ModelSelection, fresh: bool) {
-        let model_changed = selection.model != self.selection.model;
         self.picker = None;
         self.selection_change = None;
         self.custom_model = None;
@@ -215,7 +215,7 @@ impl State {
             self.cancel();
         }
         self.selection = selection;
-        self.selections.insert(self.agent, self.selection.clone());
+        self.preference_changed();
         if fresh {
             self.thread_id = None;
             self.items.clear();
@@ -224,16 +224,6 @@ impl State {
             self.observed_model = None;
         }
         self.review_start();
-        self.notice = "Selection updated locally. Previous payload consent invalidated; /new or compatible /resume requires fresh review. No connection was authorized.".into();
-        // Continue straight to effort when the new model advertises choices.
-        if model_changed
-            && self.selection.model.is_some()
-            && self
-                .effort_model()
-                .is_some_and(|model| !model.efforts.is_empty())
-        {
-            self.open_picker(Picker::Effort);
-            self.notice = "Model updated locally. Choose reasoning effort, or Esc to keep the provider default.".into();
-        }
+        self.notice = "Selection updated locally; its nonsecret provider/model preference is queued for storage. Previous payload consent invalidated. No connection was authorized.".into();
     }
 }

@@ -176,6 +176,7 @@ impl State {
     }
 
     pub(super) fn close_request(&mut self) {
+        self.send_after_prepare = false;
         let was_open = self.request.take().is_some();
         self.answers.clear();
         self.editing = false;
@@ -204,6 +205,18 @@ impl State {
         if self.busy() {
             return;
         }
+        if self.preferences_loading() {
+            self.notice =
+                "Restoring the last provider/model preference before preparing a connection…"
+                    .into();
+            return;
+        }
+        if let Some(error) = self.preference_restore_error() {
+            self.notice = error.to_owned();
+            return;
+        }
+        self.catalogue_dismissed = false;
+        self.send_after_prepare = false;
         if !inspect_models && self.agent.is_direct() && (resume || inspect_sessions) {
             self.notice = "Direct API requests are fresh and stateless here; choose /new. No session inspection or resume was prepared.".into();
             return;
@@ -345,6 +358,14 @@ impl State {
             self.picker = picker;
             return;
         }
+        if preview.requires_connection_review {
+            self.auto_run = false;
+            self.picker = None;
+            self.notice =
+                "Review this project-supplied runtime or unmanaged connection before it executes."
+                    .into();
+            return;
+        }
         self.pending = Some(Request::Run {
             generation: preview.generation,
         });
@@ -352,6 +373,42 @@ impl State {
         self.active = true;
         self.review_start();
         self.notice = "Loading models…".into();
+    }
+
+    pub(in crate::app) fn dispatch_prepared(&mut self) -> bool {
+        let Some(preview) = self.preview.as_ref() else {
+            return false;
+        };
+        if !preview.blockers.is_empty() || self.pending.is_some() {
+            return false;
+        }
+        let generation = preview.generation;
+        if preview.thread_id.is_none() && !self.inspect_sessions && !self.inspect_models {
+            self.following = true;
+            self.new_output = false;
+            self.saved_scroll = 0;
+            self.response_scroll = 0;
+            self.response_max = 0;
+            self.thread_id = None;
+            self.observed_model = None;
+        }
+        if !self.inspect_models && !self.inspect_sessions {
+            self.remember_used_selection();
+        }
+        self.pending = Some(Request::Run { generation });
+        self.preview = None;
+        self.send_after_prepare = false;
+        self.active = true;
+        self.activity = "Connecting";
+        self.review_start();
+        self.scroll = self.saved_scroll;
+        self.notice = "Sending request to the selected provider.".into();
+        if self.inspect_models {
+            self.open_picker(Picker::Model);
+            self.notice =
+                "Loading provider metadata only; no request text or tools are sent.".into();
+        }
+        true
     }
 
     pub fn paste(&mut self, text: &str) -> bool {
@@ -887,34 +944,10 @@ impl State {
                     self.cancel();
                 }
                 KeyCode::Enter if self.reviewed && self.pending.is_none() => {
-                    let preview = self.preview.as_ref().expect("preview is open");
-                    if preview.blockers.is_empty() {
-                        let generation = preview.generation;
-                        if preview.thread_id.is_none()
-                            && !self.inspect_sessions
-                            && !self.inspect_models
-                        {
-                            self.following = true;
-                            self.new_output = false;
-                            self.saved_scroll = 0;
-                            self.response_scroll = 0;
-                            self.response_max = 0;
-                            self.thread_id = None;
-                            self.observed_model = None;
-                        }
-                        self.pending = Some(Request::Run { generation });
-                        self.preview = None;
-                        self.active = true;
-                        self.activity = "Connecting";
-                        self.review_start();
-                        self.scroll = self.saved_scroll;
-                        self.notice = "Explicit trust and run consent given for this exact preview. Connecting to provider.".into();
-                        if self.inspect_models {
-                            self.open_picker(Picker::Model);
-                            self.notice = "Loading provider metadata only; no request text or tools are sent.".into();
-                        }
-                    } else {
-                        self.notice = "Run blocked. Review prerequisites; no executable launch is authorized.".into();
+                    if !self.dispatch_prepared() {
+                        self.notice =
+                            "Request blocked; resolve the listed prerequisites before sending."
+                                .into();
                     }
                 }
                 _ => return false,

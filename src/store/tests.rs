@@ -520,7 +520,7 @@ fn migrates_documented_schema_zero_and_one_atomically() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            9
+            10
         );
         assert!(connection.prepare("SELECT * FROM goals").is_err());
         assert!(connection.prepare("SELECT * FROM projects").is_err());
@@ -537,7 +537,7 @@ fn newer_foreign_and_corrupt_databases_are_untouched() {
         } else {
             let connection = Connection::open(&path).unwrap();
             connection.execute_batch(if fixture == 0 {
-                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=10;"
+                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=11;"
                 } else {
                     "CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('keep');"
                 }).unwrap();
@@ -1029,7 +1029,7 @@ fn crash_during_migration(directory: &Directory, kind: &str) {
         )
         .unwrap();
     match kind {
-            "newer" => connection.execute_batch("PRAGMA user_version=10;").unwrap(),
+            "newer" => connection.execute_batch("PRAGMA user_version=11;").unwrap(),
             "foreign" => connection.execute_batch("CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('preserve');").unwrap(),
             "one" => connection.execute_batch(
                 "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL);
@@ -1092,7 +1092,7 @@ fn process_interruption_recovers_legacy_and_current_committed_tasks() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            9
+            10
         );
     }
 }
@@ -2969,7 +2969,8 @@ fn schema_six_migration_is_atomic_and_defaults_preserve_old_snapshots() {
 fn downgrade_partners(connection: &Connection) {
     connection
         .execute_batch(
-            "DROP TABLE partners;
+            "DROP TABLE provider_preferences;
+             DROP TABLE partners;
              ALTER TABLE tasks DROP COLUMN lead_partner;
              ALTER TABLE tasks DROP COLUMN partner_drafts;
              PRAGMA user_version=6;",
@@ -3675,13 +3676,15 @@ fn added_partner_ids_are_never_reused_after_a_release() {
 fn schema_eight_migrates_request_drafts_without_changing_task_facts() {
     let mut connection = Connection::open_in_memory().unwrap();
     initialize(&mut connection).unwrap();
-    connection.execute_batch("PRAGMA user_version=8;").unwrap();
+    connection
+        .execute_batch("DROP TABLE provider_preferences; PRAGMA user_version=8;")
+        .unwrap();
     initialize(&mut connection).unwrap();
     assert_eq!(
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        9
+        10
     );
     let mut task = Snapshot::empty("/workspace".into());
     task.goal = "Stable task identity".into();
@@ -3696,4 +3699,142 @@ fn schema_eight_migrates_request_drafts_without_changing_task_facts() {
     assert_eq!(restored.request_text(), "Follow-up question");
     assert_eq!(restored.goal, "Stable task identity");
     assert_eq!(restored.next_action, "Existing task fact");
+}
+
+#[test]
+fn provider_preferences_survive_restart_and_preserve_exact_route_ids_and_task_data() {
+    use crate::providers::{Agent, ModelSelection};
+    let directory = Directory::new();
+    let worker = worker(&directory, "project");
+    loaded(&worker);
+    let task = create(&worker, snapshot("project", 1));
+    let preferences = ProviderPreferences {
+        provider: Agent::ChatGPT,
+        selections: [
+            (
+                Agent::Codex,
+                ModelSelection {
+                    model: Some("cli/EXACT-2026".into()),
+                    effort: Some("high".into()),
+                },
+            ),
+            (
+                Agent::ChatGPT,
+                ModelSelection {
+                    model: Some("native/EXACT-2026".into()),
+                    effort: Some("medium".into()),
+                },
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    };
+    let mut pending = Some(PreferenceRequest::Save(preferences.clone()));
+    assert!(worker.try_preferences(&mut pending));
+    assert!(matches!(event(&worker), Event::Preferences(Ok(Some(saved))) if saved == preferences));
+    drop(worker);
+    let restarted =
+        super::Worker::start(directory.0.clone(), "project".into(), Policy::default()).unwrap();
+    assert_eq!(loaded(&restarted).tasks, vec![task]);
+    let mut pending = Some(PreferenceRequest::Load);
+    assert!(restarted.try_preferences(&mut pending));
+    assert!(
+        matches!(event(&restarted), Event::Preferences(Ok(Some(saved))) if saved == preferences)
+    );
+    let connection = open_readonly(&directory.0.join(DATABASE)).unwrap();
+    let record: String = connection
+        .query_row("SELECT record FROM provider_preferences", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_str(&record).unwrap();
+    assert_eq!(json.as_object().unwrap().len(), 2);
+    for selection in json["selections"].as_object().unwrap().values() {
+        assert_eq!(selection.as_object().unwrap().len(), 2);
+        assert!(selection.get("model").is_some() && selection.get("effort").is_some());
+    }
+}
+
+#[test]
+fn failed_preference_save_preserves_committed_preference_and_task_draft() {
+    use crate::providers::{Agent, ModelSelection};
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let task = store.save(snapshot("project", 1)).unwrap();
+    let preferences = ProviderPreferences {
+        provider: Agent::Codex,
+        selections: [(
+            Agent::Codex,
+            ModelSelection {
+                model: Some("exact".into()),
+                effort: Some("high".into()),
+            },
+        )]
+        .into_iter()
+        .collect(),
+    };
+    store
+        .preference_request(PreferenceRequest::Save(preferences.clone()))
+        .unwrap();
+    let mut invalid = preferences.clone();
+    invalid.selections.get_mut(&Agent::Codex).unwrap().model = Some("token=private-secret".into());
+    assert!(
+        store
+            .preference_request(PreferenceRequest::Save(invalid))
+            .is_err()
+    );
+    assert_eq!(
+        store.preference_request(PreferenceRequest::Load).unwrap(),
+        Some(preferences)
+    );
+    assert_eq!(
+        load_task(store.connection.as_ref().unwrap(), "project", task.id).unwrap(),
+        Some(task)
+    );
+}
+
+#[test]
+fn schema_nine_preference_migration_is_atomic_and_preserves_existing_data() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let task = store.save(snapshot("project", 1)).unwrap();
+    drop(store);
+    let mut connection = Connection::open(directory.0.join(DATABASE)).unwrap();
+    connection
+        .execute_batch("DROP TABLE provider_preferences; PRAGMA user_version=9;")
+        .unwrap();
+    {
+        let transaction = connection.transaction().unwrap();
+        migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
+        assert_eq!(
+            load_task(&transaction, "project", task.id).unwrap(),
+            Some(task.clone())
+        );
+        assert!(
+            super::preferences::load_preferences(&transaction)
+                .unwrap()
+                .is_none()
+        );
+    }
+    assert_eq!(
+        connection
+            .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
+            .unwrap(),
+        9
+    );
+    assert!(
+        connection
+            .prepare("SELECT * FROM provider_preferences")
+            .is_err()
+    );
+    initialize(&mut connection).unwrap();
+    assert_eq!(
+        load_task(&connection, "project", task.id).unwrap(),
+        Some(task)
+    );
+    assert!(
+        super::preferences::load_preferences(&connection)
+            .unwrap()
+            .is_none()
+    );
 }

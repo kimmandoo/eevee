@@ -1,4 +1,4 @@
-//! Explicit session-local provider requests; provider text is never local execution evidence.
+//! Provider requests with durable nonsecret selection; provider text is never local execution evidence.
 use std::{
     collections::{HashMap, VecDeque},
     path::PathBuf,
@@ -23,6 +23,7 @@ use crate::{
 
 mod journal;
 mod picker;
+mod preferences;
 mod response;
 mod review;
 
@@ -126,6 +127,7 @@ pub struct State {
     pub receipt: Vec<String>,
     pub selection: ModelSelection,
     selections: HashMap<Agent, ModelSelection>,
+    preferences: preferences::Preferences,
     pub catalogues: HashMap<Agent, ModelCatalogue>,
     catalogue_errors: HashMap<Agent, String>,
     pub picker: Option<Picker>,
@@ -142,8 +144,12 @@ pub struct State {
     /// The in-flight catalogue inspection was started automatically: its
     /// metadata-only preview runs without a review step.
     auto_run: bool,
+    /// A deliberate composer Enter requests dispatch after local preparation, not a popup.
+    pub(super) send_after_prepare: bool,
     /// Reopen the model picker when the automatic fetch completes.
     auto_picker: bool,
+    /// Explicit dismissal owns cancellation; a late result must not reopen a hidden picker.
+    catalogue_dismissed: bool,
     /// Why the automatic fetch stopped before running, shown after its cancel.
     auto_blocked: Option<String>,
     request_selection: ModelSelection,
@@ -184,11 +190,12 @@ impl State {
             receipt: Vec::new(),
             inspection: None, inspect_sessions: false,
             selection: ModelSelection::default(), selections: HashMap::new(),
+            preferences: preferences::Preferences::default(),
             catalogues: HashMap::new(), catalogue_errors: HashMap::new(), picker: None, picker_selected: 0,
             picker_query: Answer::default(), custom_model: None, picker_models: Vec::new(),
             catalogue_pending: None,
             selection_change: None, inspect_models: false,
-            auto_models: false, auto_run: false, auto_picker: false, auto_blocked: None,
+            auto_models: false, auto_run: false, auto_picker: false, catalogue_dismissed: false, auto_blocked: None, send_after_prepare: false,
             request_selection: ModelSelection::default(), session_selection: ModelSelection::default(),
             observed_model: None,
             devin_credential: None,
@@ -255,6 +262,7 @@ impl State {
     pub fn reset(&mut self, task_id: i64) {
         if !self.busy() && !self.journal_failed() {
             let selections = std::mem::take(&mut self.selections);
+            let preferences = std::mem::take(&mut self.preferences);
             let catalogues = std::mem::take(&mut self.catalogues);
             let catalogue_errors = std::mem::take(&mut self.catalogue_errors);
             let selection = self.selection.clone();
@@ -268,6 +276,7 @@ impl State {
             self.agent = agent;
             self.selection = selection;
             self.selections = selections;
+            self.preferences = preferences;
             self.catalogues = catalogues;
             self.catalogue_errors = catalogue_errors;
             self.devin_credential = credential;
@@ -387,6 +396,7 @@ impl State {
         self.selections.insert(self.agent, self.selection.clone());
         self.agent = next;
         self.selection = self.selections.get(&next).cloned().unwrap_or_default();
+        self.preference_changed();
         // A queued inspection belongs to the old provider, not the new selection.
         self.auto_models = false;
         self.auto_picker = false;
@@ -667,6 +677,7 @@ impl State {
                         self.notice = "Models loaded.".into();
                     }
                     if !self.quit_after_cancel
+                        && !self.catalogue_dismissed
                         && (!self.auto_run || self.auto_picker)
                         && self.picker.is_none()
                     {
@@ -704,6 +715,7 @@ impl State {
                         .push_str(" Retry with /model or review /models-refresh.");
                     if !self.active {
                         if !self.quit_after_cancel
+                            && !self.catalogue_dismissed
                             && (!self.auto_run || self.auto_picker)
                             && self.picker.is_none()
                         {
@@ -728,7 +740,12 @@ impl State {
     }
 
     pub fn cancel(&mut self) -> bool {
+        self.send_after_prepare = false;
         self.invalidate_review();
+        if self.inspect_models && self.auto_blocked.is_none() {
+            self.catalogue_dismissed = true;
+            self.auto_picker = false;
+        }
         // Closing the metadata surface must not swallow owned-request cancellation.
         if self.inspect_models && (self.active || self.awaiting_preview) {
             self.picker = None;
@@ -848,20 +865,20 @@ impl State {
             ("decision", "Copy selected proposal into NextAction"),
             ("model", "Choose model"),
             ("effort", "Choose reasoning effort"),
-            (
-                "models-refresh",
-                "Review provider model catalogue inspection",
-            ),
+            ("models-refresh", "Refresh provider model metadata"),
             ("sessions", "Inspect provider session metadata"),
             ("paths", "Edit selected write paths"),
             ("provider-journal", "Open local provider journal"),
             ("handoff-clear", "Deselect portable handoff"),
-            ("provider-codex", "Choose Codex"),
+            ("provider-codex", "Codex CLI method (tools / edits)"),
+            (
+                "provider-chatgpt",
+                "Codex native method (responses / no tools)",
+            ),
             ("provider-claude", "Choose Claude"),
             ("provider-opencode", "Choose OpenCode"),
             ("provider-gemini", "Choose Gemini"),
             ("provider-devin", "Choose Devin"),
-            ("provider-chatgpt", "Choose ChatGPT direct"),
             ("provider-openai", "Choose OpenAI API"),
             ("provider-anthropic", "Choose Anthropic API"),
             ("provider-google", "Choose Google Gemini API"),
@@ -966,9 +983,8 @@ impl State {
                 if self.preview.is_some() {
                     self.notice = "Close the existing preview before inspecting models.".into();
                 } else {
-                    self.auto_models = false;
-                    self.auto_picker = false;
-                    self.prepare(false, false, true, task, excerpts, report);
+                    self.auto_picker = true;
+                    self.start_automatic_catalogue(task, excerpts, report);
                 }
             }
             "new" => self.prepare(false, false, false, task, excerpts, report),
@@ -994,6 +1010,8 @@ impl State {
                     }
                     self.switch_to = Some(next);
                     self.review_start();
+                } else {
+                    self.preference_changed();
                 }
             }
             "role-plan" => self.set_operation(Operation::Plan),

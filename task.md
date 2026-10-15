@@ -16,8 +16,8 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 
 ## Status
 
-- **Released:** 0.1.6 (tags v0.1.0–v0.1.6). Schema 9 store.
-- **Active user request:** v0.1.7 native model-provider connectivity and model discovery overhaul is implemented; final live-response, hardened trust/provenance, terminal/workbench and release acceptance remain active. Latest released version stays 0.1.6 until publication verification. PT06A remains unstarted.
+- **Released:** 0.1.7 (tags v0.1.0–v0.1.7), including verified public installation/runtime and actual native GPT-6.1 responses. Released store: Schema 9.
+- **Active user request:** v0.1.8 removes routine message approval popups, unifies Codex connection methods and persists last-used provider/model/effort with Schema 10. Implementation is complete; final actual TUI/schema, source checks and release acceptance remain active. PT06A remains unstarted.
 - **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B, PT05A/PT05B, RF05 and the first code-structure pass (index below). **Open:** 96 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.
@@ -36,7 +36,7 @@ V01 sanctuary layout · P01 native terminal lifecycle · V02A/V02B species art a
 
 ### Cross-cutting watch-outs
 
-- **Schema:** Published v0.1.5 uses Schema 9 for independent per-partner Request drafts and refuses the older v0.1.4/Schema 8 writer. PT02A reserved `partners.nickname` and `tasks.partner_drafts`; PT05B enlarged the draft bound transactionally. Every persisted addition needs a migration plus byte-preserving old-binary refusal; never rewrite data so an older binary can start.
+- **Schema:** Released v0.1.7 uses Schema 9; the v0.1.8 candidate adds bounded nonsecret provider preferences through transactional Schema 10 migration. Older writers must refuse before any rewrite; tasks, partner drafts and evidence remain unchanged. Every persisted addition needs migration and byte-preserving old-binary refusal.
 - **Packets:** Partner flavor (nicknames, partner names, move names, dialogue, ribbons, routes) never enters provider packets or handoffs. The receipt must show zero flavor bytes.
 - **Facts first:** Pokémon-style copy wraps a factual line (command, exit code, permission scope), never replaces it. Monochrome, ASCII and linear layouts keep the same information.
 - **No fake progression:** No XP, levels, affection, streaks, hunger or random unlocks. Raising partners means learned moves, nicknames and real records. Add each new concept (Moves, Dex) to DESIGN_RULES when it ships.

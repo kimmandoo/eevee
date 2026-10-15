@@ -96,6 +96,14 @@ impl App {
 
     pub fn store_event(&mut self, event: store::Event) {
         match event {
+            store::Event::Preferences(result) => {
+                self.planning.preference_event(result);
+                self.agents.active = self.planning.agent.index();
+                self.agents.selected = self.agents.active;
+                if self.planning.preference_error().is_some() {
+                    self.notice.clone_from(&self.planning.notice);
+                }
+            }
             store::Event::Memory { task_id, result } => {
                 if task_id == self.task_id {
                     let before = self.memory.draft_snapshot();

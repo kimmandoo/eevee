@@ -286,6 +286,7 @@ fn custom_id_is_exact_local_and_invalidates_previous_review_and_effort() {
     state.pending.take();
     state.event(Event::Preview(Preview {
         destination: None,
+        requires_connection_review: true,
         generation: 11,
         task_id: 7,
         thread_id: None,
@@ -397,6 +398,7 @@ fn refresh_failure_retains_last_successful_rows_and_retry_replaces_them() {
     state.pending.take();
     state.event(Event::Preview(Preview {
         destination: None,
+        requires_connection_review: false,
         generation: 12,
         task_id: 7,
         thread_id: None,
@@ -447,6 +449,7 @@ fn first_fetch_failure_remains_retryable_and_empty_success_is_not_fake_failure()
     state.pending.take();
     state.event(Event::Preview(Preview {
         destination: None,
+        requires_connection_review: false,
         generation: 13,
         task_id: 7,
         thread_id: None,
@@ -507,6 +510,7 @@ fn model_picker_is_local_and_refresh_requires_preview_run_without_journal() {
     assert_eq!(input.selection, ModelSelection::default());
     state.event(Event::Preview(Preview {
         destination: None,
+        requires_connection_review: true,
         generation: 11,
         task_id: 7,
         thread_id: None,
@@ -589,8 +593,11 @@ fn advertised_effort_and_model_are_snapshotted_and_preview_change_revokes_consen
     command(&mut state, "model", true);
     press(&mut state, KeyCode::Down, true);
     press(&mut state, KeyCode::Enter, true);
-    // Choosing a model continues straight to its advertised efforts.
-    assert!(state.picker == Some(Picker::Effort));
+    assert!(
+        state.picker.is_none(),
+        "model choice returns directly without a second picker"
+    );
+    command(&mut state, "effort", true);
     press(&mut state, KeyCode::Down, true);
     press(&mut state, KeyCode::Enter, true);
     assert!(state.picker.is_none());
@@ -602,6 +609,7 @@ fn advertised_effort_and_model_are_snapshotted_and_preview_change_revokes_consen
     assert_eq!(input.selection.effort.as_deref(), Some("high"));
     state.event(Event::Preview(Preview {
         destination: None,
+        requires_connection_review: true,
         generation: 11,
         task_id: 7,
         thread_id: None,
@@ -668,7 +676,8 @@ fn newer_catalogue_choices_keep_exact_model_and_effort_without_dispatch() {
         state.selection.model.as_deref(),
         Some("provider-next-generation")
     );
-    assert!(state.picker == Some(Picker::Effort));
+    assert!(state.picker.is_none());
+    command(&mut state, "effort", true);
     press(&mut state, KeyCode::Down, true);
     press(&mut state, KeyCode::Enter, true);
     assert_eq!(state.selection.effort.as_deref(), Some("max"));
@@ -741,6 +750,7 @@ fn start_catalogue(state: &mut State, task: &store::Snapshot, generation: u64) {
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
         destination: None,
+        requires_connection_review: false,
         generation,
         task_id: task.id,
         thread_id: None,
@@ -866,6 +876,7 @@ fn blocked_preview_and_preview_error_retain_reason_without_automatic_manual_run(
         } else {
             state.event(Event::Preview(Preview {
                 destination: None,
+                requires_connection_review: true,
                 generation: 11,
                 task_id: task.id,
                 thread_id: None,
@@ -895,10 +906,10 @@ fn blocked_preview_and_preview_error_retain_reason_without_automatic_manual_run(
                 .contains("install the provider explicitly")
         );
         state.command("models-refresh", true, &task, &[], None);
-        assert!(!state.auto_run && !state.auto_models);
         assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
         state.event(Event::Preview(Preview {
             destination: None,
+            requires_connection_review: true,
             generation: 12,
             task_id: task.id,
             thread_id: None,
@@ -906,10 +917,7 @@ fn blocked_preview_and_preview_error_retain_reason_without_automatic_manual_run(
             payload: "{}".into(),
             blockers: Vec::new(),
         }));
-        assert!(
-            state.preview.is_some() && state.pending.is_none(),
-            "manual retry still requires reviewed Run"
-        );
+        assert!(state.preview.is_some() && state.pending.is_none(),);
     }
 }
 
@@ -1021,6 +1029,7 @@ fn preview() -> State {
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
         destination: None,
+        requires_connection_review: true,
         generation: 11,
         task_id: 7,
         thread_id: None,
@@ -1038,6 +1047,7 @@ fn preview_shows_local_receipt() {
     state.pending.take();
     state.event(Event::Preview(Preview {
         destination: None,
+        requires_connection_review: true,
         generation: 11,
         task_id: 7,
         thread_id: None,
@@ -1469,6 +1479,7 @@ fn prior_unknown_outcome_survives_later_completion_and_authentication_reset() {
     state.pending.take();
     state.event(Event::Preview(Preview {
         destination: None,
+        requires_connection_review: true,
         generation: 12,
         task_id: 7,
         thread_id: None,
@@ -1576,6 +1587,7 @@ fn run_request(state: &mut State, generation: u64, request: &str) {
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
         destination: None,
+        requires_connection_review: true,
         generation,
         task_id: 7,
         thread_id: None,
@@ -2008,4 +2020,35 @@ fn verbose_response_retains_provenance_without_stale_cached_content() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(details.ends_with("completed text") && !details.contains("partial text"));
+}
+
+#[test]
+fn cancelling_connection_review_does_not_reopen_a_hidden_model_picker() {
+    let mut state = State::new();
+    command(&mut state, "models-refresh", true);
+    state.pending.take();
+    state.event(Event::Preview(Preview {
+        destination: None,
+        requires_connection_review: true,
+        generation: 99,
+        task_id: 7,
+        thread_id: None,
+        trust: Vec::new(),
+        payload: "{}".into(),
+        blockers: Vec::new(),
+    }));
+    assert!(state.preview.is_some() && state.picker.is_none() && state.pending.is_none());
+    press(&mut state, KeyCode::Esc, true);
+    assert!(matches!(
+        state.pending.take(),
+        Some(Request::Cancel { generation: 99 })
+    ));
+    state.event(Event::Finished {
+        generation: 99,
+        task_id: 7,
+        outcome: Outcome::Cancelled,
+        message: "Metadata preparation cancelled".into(),
+    });
+    assert!(state.picker.is_none() && !state.busy());
+    assert!(state.pending.is_none());
 }

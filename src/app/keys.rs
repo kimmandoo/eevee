@@ -250,6 +250,22 @@ impl App {
     }
 
     pub(super) fn planning_command(&mut self, name: &str) -> bool {
+        if self.planning.preference_restore_error().is_some()
+            && matches!(name, "new" | "resume" | "sessions" | "models-refresh")
+        {
+            self.planning.notice = self.planning.preference_restore_error().unwrap().to_owned();
+            return true;
+        }
+        if self.planning.preferences_loading()
+            && matches!(name, "new" | "resume" | "sessions" | "models-refresh")
+        {
+            if name == "models-refresh" {
+                self.planning.want_catalogue();
+            }
+            self.planning.notice =
+                "Restoring the last provider/model preference before connecting…".into();
+            return true;
+        }
         if self.planning.needs_saved_command(name) {
             if let Err(error) = self.memory.selected_snapshot() {
                 self.planning.notice = format!("Review selected memories first: {error}");
@@ -347,7 +363,9 @@ impl App {
 
     /// Fetch provider metadata without requiring a saved task or draft.
     pub fn drive_catalogue(&mut self) -> bool {
-        if !self.planning.catalogue_due()
+        if self.planning.preference_restore_error().is_some()
+            || self.planning.preferences_loading()
+            || !self.planning.catalogue_due()
             || self.execution.busy()
             || self.transitioning
             || self.management.is_some()
@@ -377,14 +395,46 @@ impl App {
                 self.input = self.planning.submitted_request.to_string();
                 self.cursor = self.input.len();
                 self.changed_task();
-                self.notice = "Request stopped before output; the original request is restored for editing and review.".into();
+                self.notice = format!(
+                    "{} Original request restored; edit and press Enter to send again.",
+                    self.planning.notice
+                );
             } else {
-                self.notice = "Request stopped before output; your follow-up is retained and the submitted request remains above.".into();
+                self.notice = format!("{} Your draft is retained.", self.planning.notice);
             }
             return true;
         }
         if self.drive_request() {
             return true;
+        }
+        if self.planning.send_after_prepare && self.planning.preview.is_some() {
+            if self.width < 60
+                || self.height < 18
+                || !self.planning.matches_task(self.task_id, self.revision)
+            {
+                self.planning.cancel();
+                self.notice = "Draft changed before dispatch or the terminal is too small; the request is retained. Press Enter when ready.".into();
+                return true;
+            }
+            if !self.committed_input_ready() {
+                return false;
+            }
+            self.planning.send_after_prepare = false;
+            let preview = self.planning.preview.as_ref().expect("prepared request");
+            if !preview.blockers.is_empty() {
+                let reason = preview.blockers.join(" ");
+                self.planning.cancel();
+                self.notice = reason;
+                return true;
+            }
+            if !preview.requires_connection_review && self.planning.dispatch_prepared() {
+                if let Some(task) = self.tasks.iter().find(|task| task.id == self.task_id) {
+                    self.planning.submitted_request = task.request_text().into();
+                }
+                self.planning.failed_request = false;
+                self.request_home(true);
+                return true;
+            }
         }
         // Only an actual consent/input surface opens a modal. Stream events
         // and provider completion never move the response away from home.
@@ -657,6 +707,8 @@ impl App {
             if self.overlay == Some(Overlay::Planning) {
                 self.planning_command(name);
                 if !self.planning.busy() {
+                    self.overlay_history
+                        .retain(|frame| frame.overlay != Overlay::Agents);
                     self.close_overlay();
                     self.notice.clone_from(&self.planning.notice);
                 }
@@ -693,7 +745,7 @@ impl App {
                 self.notice = if self.planning.holds_committed_input() {
                     "Draft pending until the current request ends; not yet saved."
                 } else {
-                    "Local save requested; Enter reviews before sending."
+                    "Local save requested; Enter sends to the selected provider."
                 }
                 .into();
                 return true;
@@ -739,7 +791,10 @@ impl App {
             KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
                 self.insert_input("\n")
             }
-            KeyCode::Enter => self.apply_editor(),
+            KeyCode::Enter if key.kind == KeyEventKind::Press && key.modifiers.is_empty() => {
+                self.apply_editor()
+            }
+            KeyCode::Enter => false,
             KeyCode::Left => self.move_cursor(self.previous_boundary()),
             KeyCode::Right => self.move_cursor(self.next_boundary()),
             KeyCode::Home => self.move_cursor(self.line_start()),

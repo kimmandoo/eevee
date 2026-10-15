@@ -455,6 +455,7 @@ fn worker(
                 preview_owner = Some((generation, input.task.id));
                 let mut preview = Preview {
                     destination: None,
+                    requires_connection_review: true,
                     generation,
                     task_id: input.task.id,
                     thread_id: input.resume.clone(),
@@ -470,6 +471,8 @@ fn worker(
                 }
                 let trust = crate::providers::agent::planning_trust(project);
                 if let Ok(trust) = &trust {
+                    preview.requires_connection_review = trust.requires_connection_review()
+                        || input.operation == Operation::Implement;
                     preview.trust = trust.lines.iter().map(|line| safe(line)).collect();
                 } else if let Err(error) = &trust {
                     preview.blockers.push(safe(error));
@@ -890,7 +893,7 @@ impl ModelListing {
         ModelCatalogue {
             models: self.models,
             current,
-            source: format!("Codex config/read + paginated model/list; provider: {}; configured model: {}; catalogue default: {}. CLI metadata may be cached. Explicit configured/custom IDs are sent unchanged even when absent from this list; the provider decides availability. For live account discovery without an installed CLI choose ChatGPT / direct.", self.provider.as_deref().unwrap_or("native default"), self.configured_model.as_deref().unwrap_or("unset"), self.default.as_deref().unwrap_or("unreported")),
+            source: format!("Codex config/read + paginated model/list; provider: {}; configured model: {}; catalogue default: {}. CLI metadata may be cached. Explicit configured/custom IDs are sent unchanged even when absent from this list; the provider decides availability. For live account discovery without an installed CLI choose Codex's native responses method (no tools).", self.provider.as_deref().unwrap_or("native default"), self.configured_model.as_deref().unwrap_or("unset"), self.default.as_deref().unwrap_or("unreported")),
             effort_note: Some("Reasoning controls are optional. Default preserves configured effort for the configured model, otherwise the advertised default when present. Explicit unsupported advertised efforts fail; unknown custom-model capabilities are validated by the provider.".into()),
         }
     }
