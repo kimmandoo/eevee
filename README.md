@@ -127,19 +127,19 @@ Sprites are nine original PokeAPI images that installers download and hash-verif
 
 | Machine | Package |
 | --- | --- |
-| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.2/ev-darwin-arm64.tar.gz) |
-| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.2/ev-darwin-x86_64.tar.gz) |
-| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.2/ev-linux-x86_64.tar.gz) |
-| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.2/ev-linux-arm64.tar.gz) |
-| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.2/ev-windows-x86_64.zip) |
+| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.3/ev-darwin-arm64.tar.gz) |
+| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.3/ev-darwin-x86_64.tar.gz) |
+| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.3/ev-linux-x86_64.tar.gz) |
+| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.3/ev-linux-arm64.tar.gz) |
+| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.3/ev-windows-x86_64.zip) |
 
 Installers verify SHA-256, refuse to overwrite commands they don't own, and never edit your shell profile or persistent PATH — the last step on each platform is yours.
 
 ### macOS
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.2/install.sh
-sh ./install-ev.sh --version v0.1.2          # installs to ~/.local/bin/ev
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.3/install.sh
+sh ./install-ev.sh --version v0.1.3          # installs to ~/.local/bin/ev
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && exec zsh
 ```
 
@@ -148,8 +148,8 @@ Builds are not notarized. The script installs via `curl`, which sets no quaranti
 ### Linux and WSL
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.2/install.sh
-sh ./install-ev.sh --version v0.1.2          # installs to ~/.local/bin/ev
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.3/install.sh
+sh ./install-ev.sh --version v0.1.3          # installs to ~/.local/bin/ev
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && exec bash
 ```
 
@@ -160,7 +160,7 @@ Inside WSL, use this Linux build, not the Windows one. For provider sign-in on W
 Run in **PowerShell** (5.1 or 7, no admin). Windows blocks downloaded `.ps1` files by default, so run the installer as a script block instead of `.\install.ps1`:
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.2/install.ps1))) -Version v0.1.2
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.3/install.ps1))) -Version v0.1.3
 ```
 
 It installs `%LOCALAPPDATA%\ev\bin\ev.exe`. Use it right away, and keep it on PATH for new terminals:
@@ -170,7 +170,7 @@ $env:PATH = "$env:LOCALAPPDATA\ev\bin;" + $env:PATH
 [Environment]::SetEnvironmentVariable('Path', "$env:LOCALAPPDATA\ev\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')
 ```
 
-Prefer a saved script? Run it with a process-only bypass: `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-ev.ps1 -Version v0.1.2`. Windows Terminal shows the sprites (Sixel); other consoles fall back to text.
+Prefer a saved script? Run it with a process-only bypass: `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-ev.ps1 -Version v0.1.3`. Windows Terminal shows the sprites (Sixel); other consoles fall back to text.
 
 ### Offline
 

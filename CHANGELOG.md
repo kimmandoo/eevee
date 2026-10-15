@@ -1,7 +1,17 @@
 # Changelog
 
+## 0.1.3
+
+- feat(auth): Devin website OAuth (authorization code + PKCE) with a memory-only session credential injected only into the launched `devin acp` child.
+- feat(context): outgoing packets deduplicate repeated and overlapping captures (`same_bytes_as`, hoisted `source_root`), Codex edit baselines cite identical captures, and receipts disclose the local savings.
+- fix(acp): oversized ACP tool observations are truncated with exact omitted-byte counts instead of aborting the provider session; session credentials are refused for non-Devin providers.
+- fix(ci): clippy `-D warnings` passes on the pinned 1.90.0 toolchain.
+- refactor(src): modules grouped by role (`store/`, `workspace/`, `providers/`, `platform/`), `store.rs` and `app.rs` split by responsibility, unit tests moved into sibling `tests.rs`. No behavior change.
+- docs: party contract in DESIGN_RULES; backlog reorganized into `tasks/` with 105 small tasks.
+
 ## 2026-10-15
 
+- refactor(app): split the single `impl App` in `app.rs` (2,328 lines) into `app/events.rs`, `app/tasks.rs`, `app/keys.rs`, `app/editing.rs` and `app/overlays.rs`; `app.rs` keeps the state types, constructor and accessors. No behavior change.
 - refactor(src): grouped modules by role into `src/store/`, `src/workspace/`, `src/providers/` and `src/platform/` (artwork moved under `src/ui/`); split the 7,139-line `store.rs` into `tasks`, `memories`, `journal`, `runs`, `spool`, `schema`, `admission` and `recovery` submodules; moved the inline test modules of large files into sibling `tests.rs` files. No behavior change: 375 tests pass, 2 ignored, as before. README gained a source-layout table.
 - docs(design): confirmed the party contract (PT01): up to 6 partners, up to 3 working on one task, one editing partner per task, per-partner requests/approvals/drafts, no autonomous partner work, flavor never sent to providers. Marked as pending implementation.
 - docs(tasks): split the backlog into `tasks/A–H, R` section files with `task.md` as the index, and broke open work into 105 one-commit tasks (e.g. PT02 → PT02A/B, MV01 → MV01A/B/C), each with Needs / Builds on / Watch out. Added section R (RF01–RF09) to keep splitting large source files right before the features that touch them.
