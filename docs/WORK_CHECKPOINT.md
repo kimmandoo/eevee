@@ -1,5 +1,12 @@
 # Work Checkpoint
 
+## 2026-10-15 — Eevee form relays (section J, EV10–EV17)
+
+- **Requested / specified:** More small Eevee-specific tasks in a stronger direction. Added eight unchecked relay tasks where one form's stored output pre-fills the next form's reviewed input: EV10 pin from run output, EV11 form-ranked `@`, EV12 hypothesis → fix, EV13 finding → fix → re-review, EV14 stale rerun, EV15 decision → criteria, EV16 run as refactor baseline, EV17 per-form provider pairing. Relays never approve, run or send.
+- **Verification:** Parsed 66 unique task IDs; every `Depends on` reference resolves. Documentation-only change; no code, test or backtest run.
+- **Process:** Per user request, the Claude co-author trailer was removed from the unpushed section J commit and is omitted going forward.
+- **Next action:** Implement EV01 or a priority-1 relay (EV10/EV14 have only completed dependencies) when requested.
+
 ## 2026-10-15 — Eevee identity backlog (section J)
 
 - **Requested / specified:** Add small tasks that specialize Eevee's trait. Section J in `task.md` adds nine unchecked tasks, EV01–EV09, each with priority, dependencies, bounded change and observable acceptance: evidence-based form suggestion, carry-over card, capability chip, empty states, party status from exit evidence, route history, return to Eevee, event dialogue lines and bond proposals.
