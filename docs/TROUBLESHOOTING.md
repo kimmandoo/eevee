@@ -1,5 +1,12 @@
 # Troubleshooting
 
+
+### [2026-10-15] schema_upgrade_smoke couldn't drive the slash palette
+
+- **Context / Symptom:** `scripts/schema_upgrade_smoke.py` was written against a pre-slash palette and kept failing on the real v0.1.3 binary: `previous executable has no visible action: Acceptance criteria`.
+- **Root cause:** Three drifted assumptions: chooser rows render as `> /criteria Acceptance criteria` (slash-prefixed, `║` border); `criteria-edit` is a contextual choice that only exists inside the checklist overlay; and Ctrl+K+Home sent in one write raced the chooser opening, so the retained cursor hid the target row.
+- **Solution:** `previous_action` now opens/resets the chooser with Ctrl+K, types the command's slash name into the filter, and requires the selected row to contain `> /<name>` before Enter.
+- **Prevention / Reference:** When driving the palette from scripts, filter by typed command name instead of arrowing to labels, and pump between chooser open and filter typing.
 ### [2026-10-15] Source-packet dedup produced dangling citations
 
 - **Context / Symptom:** A new `same_bytes_as` dedup for overlapping basket captures passed compile and a first-run assembly, but the focused test failed: a covered capture cited another *covered* capture (`same_bytes_as` pointed at an entry with no `text` field), so the referenced bytes were absent from the packet.

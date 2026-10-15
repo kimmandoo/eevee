@@ -79,30 +79,35 @@ def main():
                 assert session.wait_exit() == 0
                 session.close()
 
-            def previous_action(session, label):
-                # Navigate the explicitly provided historical executable's
-                # visible palette, not a persisted/incidental numeric index.
-                session.send('\x0b\x1b[H')
-                for _ in range(32):
-                    if any(line.strip(' │|').startswith('> ' + label)
+            def previous_action(session, command):
+                # Drive the explicitly provided historical executable's visible
+                # palette: Ctrl+K opens or resets the chooser (query starts
+                # fresh), typing filters by the command's unique slash name,
+                # and the selected (>) row must name it before Enter.
+                for _ in range(3):
+                    session.send('\x0b')
+                    session.pump(0.4)
+                    session.send(command)
+                    session.pump(0.4)
+                    if any(('> /' + command) in line
                            for line in session.display().splitlines()):
                         session.send('\r')
+                        session.pump(0.4)
                         return
-                    session.send('\x1b[B')
-                raise AssertionError('previous executable has no visible action: ' + label)
-
+                    session.send('\x1b')
+                    session.pump(0.2)
+                raise AssertionError('previous executable has no visible action: ' + command)
             old = launch(previous, 'previous-create')
             wait_for(old, 'Storage: saved')
             old.paste('schema continuity 漢字')
             old.send('\r')
             wait_for(old, 'Storage: saved')
-            previous_action(old, 'Acceptance criteria')
-            # Historical executable contract: prior criteria editing has no
-            # semantic or arrow/Enter route. This key never drives current.
-            old.send('e')
+            previous_action(old, 'criteria')
+            # criteria-edit is a contextual choice inside the checklist overlay.
+            previous_action(old, 'criteria-edit')
             old.paste('Preserve user goal\nRetain exact criteria')
             old.send('\r\x1b')
-            previous_action(old, 'Next action')
+            previous_action(old, 'next')
             old.paste('Inspect unchanged evidence after upgrade')
             old.send('\r')
             wait_for(old, 'Storage: saved')

@@ -293,14 +293,23 @@ pub(super) fn export_inner(data_dir: &Path, output: &Path) -> Result<(), String>
             |row| row.get(0),
         )
         .map_err(|error| error.to_string())?;
-    let columns = if workflows {
+    let lead_partner: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('tasks') WHERE name='lead_partner')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    let columns = if lead_partner {
         TASK_COLUMNS.to_string()
+    } else if workflows {
+        format!("{TASK_COLUMNS_V6},1")
     } else if command {
-        format!("{TASK_COLUMNS_V5},{EMPTY_WORKFLOW_COLUMNS}")
+        format!("{TASK_COLUMNS_V5},{EMPTY_WORKFLOW_COLUMNS},1")
     } else if modern {
-        format!("{TASK_COLUMNS_V3},'',{EMPTY_WORKFLOW_COLUMNS}")
+        format!("{TASK_COLUMNS_V3},'',{EMPTY_WORKFLOW_COLUMNS},1")
     } else {
-        format!("{TASK_COLUMNS_V2},0,0,0,'',{EMPTY_WORKFLOW_COLUMNS}")
+        format!("{TASK_COLUMNS_V2},0,0,0,'',{EMPTY_WORKFLOW_COLUMNS},1")
     };
     let task_query = format!("SELECT {columns} FROM tasks ORDER BY project,id");
     for (table, query) in [

@@ -4,7 +4,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 
 | File | Section | Open |
 |---|---|---|
-| [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 20 |
+| [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 19 |
 | [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 9 |
 | [C-relays.md](tasks/C-relays.md) | Form relays | 8 |
 | [D-moves.md](tasks/D-moves.md) | Moves: teaching and learning skills | 14 |
@@ -16,8 +16,8 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 
 ## Status
 
-- **Released:** 0.1.3 (tags v0.1.0–v0.1.3). Schema 6 store.
-- **Done:** the 25 original tasks plus PT01 (party contract) and the first code-structure pass (index below). **Open:** 104 small tasks. **Dropped:** T05.
+- **Released:** 0.1.3 (tags v0.1.0–v0.1.3). Schema 7 store.
+- **Done:** the 25 original tasks plus PT01 (party contract), PT02A (partner table / Schema 7) and the first code-structure pass (index below). **Open:** 103 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.
 
@@ -35,7 +35,7 @@ V01 sanctuary layout · P01 native terminal lifecycle · V02A/V02B species art a
 
 ### Cross-cutting watch-outs
 
-- **Schema:** The store is Schema 6. PT02A introduces Schema 7 with partner records; reserve columns so waves 1–2 share that one bump. Every later persisted addition needs a migration plus the byte-preserving old-binary refusal test; never rewrite data so an older binary can start.
+- **Schema:** The store is Schema 7 (partners). PT02A reserved `partners.nickname` and `tasks.partner_drafts` so waves 1–2 share that one bump. Every later persisted addition needs a migration plus the byte-preserving old-binary refusal test; never rewrite data so an older binary can start.
 - **Packets:** Partner flavor (nicknames, partner names, move names, dialogue, ribbons, routes) never enters provider packets or handoffs. The receipt must show zero flavor bytes.
 - **Facts first:** Pokémon-style copy wraps a factual line (command, exit code, permission scope), never replaces it. Monochrome, ASCII and linear layouts keep the same information.
 - **No fake progression:** No XP, levels, affection, streaks, hunger or random unlocks. Raising partners means learned moves, nicknames and real records. Add each new concept (Moves, Dex) to DESIGN_RULES when it ships.

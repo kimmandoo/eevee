@@ -741,6 +741,7 @@ mod tests {
         task.goal = "Saved task".into();
         app.store_event(crate::store::Event::Loaded(crate::store::Project {
             tasks: vec![task],
+            partners: vec![crate::store::Partner::default()],
             active_id: Some(7),
             usage_bytes: 0,
         }));

@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 mod admission;
 mod journal;
 mod memories;
+mod partners;
 mod recovery;
 mod runs;
 mod schema;
@@ -21,6 +22,7 @@ mod tests;
 
 use journal::*;
 use memories::*;
+use partners::*;
 use recovery::*;
 use runs::*;
 use schema::*;
@@ -39,11 +41,15 @@ const MAX_TASKS: usize = 256;
 const TASK_COLUMNS_V2: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at";
 const TASK_COLUMNS_V3: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted";
 const TASK_COLUMNS_V5: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted, command";
-const TASK_COLUMNS: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted, command, workflows, memory_draft, approved_memories, workflow_draft";
+const TASK_COLUMNS_V6: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted, command, workflows, memory_draft, approved_memories, workflow_draft";
+const TASK_COLUMNS: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted, command, workflows, memory_draft, approved_memories, workflow_draft, lead_partner";
 const EMPTY_WORKFLOW_COLUMNS: &str = "'{}','null','[]','null'";
 const MAX_WORKFLOW_BYTES: usize = 512 * 1024;
 const MAX_MEMORY_BYTES: usize = 64 * 1024;
 const MAX_MEMORIES: usize = 256;
+const MAX_PARTNERS: usize = 6;
+const MAX_NICKNAME_BYTES: usize = 512;
+const MAX_PARTNER_DRAFTS_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Policy {
@@ -90,6 +96,10 @@ pub struct Snapshot {
     pub project: String,
     pub goal: String,
     pub form: usize,
+    /// The task's lead partner (Schema 7 `tasks.lead_partner`). Exported
+    /// snapshots written before partners existed default to partner #1.
+    #[serde(default = "default_lead_partner")]
+    pub lead_partner: i64,
     pub revision: u64,
     pub id: i64,
     pub criteria: Vec<Criterion>,
@@ -119,6 +129,7 @@ impl Snapshot {
             project,
             goal: String::new(),
             form: 0,
+            lead_partner: 1,
             revision: 0,
             id: 0,
             criteria: Vec::new(),
@@ -188,9 +199,44 @@ impl Default for Navigation {
     }
 }
 
+fn default_lead_partner() -> i64 {
+    1
+}
+
+/// One individual Eevee in the user's party (Schema 7 `partners` table).
+/// Nickname is PK01-reserved flavor: it never leaves this store and never
+/// enters provider packets or handoffs.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Partner {
+    pub id: i64,
+    pub nickname: Option<String>,
+    pub form: usize,
+    /// Unix milliseconds; `met_derived` marks a value reconstructed from task
+    /// history during the Schema 7 migration rather than a real first meeting.
+    pub met_at: i64,
+    pub met_derived: bool,
+    /// Project this partner was first seen on; empty when no task existed.
+    pub created_project: String,
+}
+
+impl Default for Partner {
+    fn default() -> Self {
+        Self {
+            id: 1,
+            nickname: None,
+            form: 0,
+            met_at: 0,
+            met_derived: true,
+            created_project: String::new(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Project {
     pub tasks: Vec<Snapshot>,
+    /// The party roster; Schema 7 always holds at least partner #1.
+    pub partners: Vec<Partner>,
     pub active_id: Option<i64>,
     /// Live SQLite pages, retained output and committed capture reservations.
     pub usage_bytes: u64,

@@ -5,6 +5,7 @@ fn app() -> App {
     let mut app = App::new("/workspace".into(), 120, 36);
     app.store_event(store::Event::Loaded(store::Project {
         tasks: Vec::new(),
+        partners: vec![store::Partner::default()],
         active_id: None,
         usage_bytes: 0,
     }));
@@ -43,6 +44,7 @@ fn clearing_first_draft_before_insert_ack_does_not_restore_deleted_text() {
     resumed.store_event(store::Event::Loaded(store::Project {
         active_id: Some(cleared.id),
         tasks: vec![cleared],
+        partners: vec![store::Partner::default()],
         usage_bytes: 0,
     }));
     assert!(resumed.input.is_empty());
@@ -780,6 +782,7 @@ fn failed_save_retains_goal_and_requires_explicit_unsaved_exit() {
     assert!(app.retry_storage);
     app.store_event(store::Event::Loaded(store::Project {
         tasks: Vec::new(),
+        partners: vec![store::Partner::default()],
         active_id: None,
         usage_bytes: 0,
     }));
@@ -799,6 +802,7 @@ fn startup_load_retains_new_edit_without_overwriting_existing_task() {
     existing.revision = 40;
     app.store_event(store::Event::Loaded(store::Project {
         tasks: vec![existing],
+        partners: vec![store::Partner::default()],
         active_id: Some(7),
         usage_bytes: 0,
     }));
@@ -862,6 +866,7 @@ fn deleting_another_task_to_free_quota_keeps_the_failed_current_draft() {
     app.store_event(store::Event::Managed {
         project: store::Project {
             tasks: Vec::new(),
+            partners: vec![store::Partner::default()],
             active_id: None,
             usage_bytes: 8192,
         },

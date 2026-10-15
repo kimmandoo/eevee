@@ -76,7 +76,7 @@ These defaults define requested workflow scope, not proof that a tool or subproc
 
 ### Party
 
-Status: contract confirmed 2026-10-15; implementation pending (task.md PT02–PT11). Until PT06/PT07 ship, the runtime keeps a single partner and one working request.
+Status: contract confirmed 2026-10-15; PT02A shipped the `partners` table (Schema 7, one migrated partner). The rest of the party feature set is pending (task.md PT02B–PT11). Until PT06/PT07 ship, the runtime keeps a single partner and one working request.
 
 - **Size:** up to **6** partners in the party. A new partner starts as Eevee. Releasing a partner deletes its moves and pairings but never its evidence; evidence keeps a name snapshot of the partner that produced it.
 - **Concurrency:** up to **3** partners may work on one task at the same time. Each partner owns its own draft, requests, approvals, questions and cancellation. Every journal entry, provider event and approval carries (task, partner, request); a late or stale event is never routed to another partner.

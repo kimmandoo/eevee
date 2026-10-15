@@ -157,11 +157,11 @@ impl State {
             .map_err(|_| "Save timestamp exceeds SQLite's integer range")?;
         let id = if snapshot.id == 0 {
             transaction.execute(
-                "INSERT INTO tasks(project,goal,form,revision,criteria,next_action,complete,drafts,navigation,updated_at,redacted,command,workflows,memory_draft,approved_memories,workflow_draft)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+                "INSERT INTO tasks(project,goal,form,revision,criteria,next_action,complete,drafts,navigation,updated_at,redacted,command,workflows,memory_draft,approved_memories,workflow_draft,lead_partner)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
                 params![snapshot.project, snapshot.goal, snapshot.form as i64, snapshot.revision as i64,
                     criteria, snapshot.next_action, snapshot.complete, drafts, navigation, updated_at, snapshot.redacted, snapshot.command,
-                    workflows, memory_draft, approved_memories, workflow_draft],
+                    workflows, memory_draft, approved_memories, workflow_draft, snapshot.lead_partner],
             ).map_err(|error| format!("Cannot insert the task: {error}"))?;
             let id = transaction.last_insert_rowid();
             select_task(&transaction, &self.project, id)?;
@@ -170,14 +170,15 @@ impl State {
             transaction.execute(
                 "UPDATE tasks SET goal=?1,form=?2,revision=?3,criteria=?4,next_action=?5,complete=?6,
                  drafts=?7,navigation=?8,updated_at=?9,redacted=?12,command=?13,
-                 workflows=?14,memory_draft=?15,approved_memories=?16,workflow_draft=?17 WHERE id=?10 AND project=?11",
+                 workflows=?14,memory_draft=?15,approved_memories=?16,workflow_draft=?17,lead_partner=?18 WHERE id=?10 AND project=?11",
                 params![snapshot.goal, snapshot.form as i64, snapshot.revision as i64, criteria,
                     snapshot.next_action, snapshot.complete, drafts, navigation, updated_at,
                     snapshot.id, snapshot.project, snapshot.redacted, snapshot.command,
-                    workflows, memory_draft, approved_memories, workflow_draft],
+                    workflows, memory_draft, approved_memories, workflow_draft, snapshot.lead_partner],
             ).map_err(|error| format!("Cannot write the task: {error}"))?;
             snapshot.id
         };
+        set_partner_form(&transaction, snapshot.lead_partner, snapshot.form)?;
         enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
         transaction
             .commit()
@@ -618,6 +619,9 @@ pub(super) fn validate(snapshot: &Snapshot) -> Result<(), String> {
     if snapshot.form >= 9 {
         return Err("A stored form is outside 0..=8".into());
     }
+    if !(1..=MAX_PARTNERS as i64).contains(&snapshot.lead_partner) {
+        return Err("A lead partner must stay within the party capacity 1..=6".into());
+    }
     if snapshot.revision > i64::MAX as u64 {
         return Err("A revision exceeds SQLite's signed integer range".into());
     }
@@ -717,6 +721,7 @@ pub(super) fn load(connection: &Connection, project: &str) -> Result<Project, St
         .map_err(|error| error.to_string())?;
     Ok(Project {
         tasks,
+        partners: partners(connection)?,
         active_id,
         usage_bytes: match connection.path().and_then(|path| Path::new(path).parent()) {
             Some(directory) => evidence_usage(connection, directory)?,
@@ -774,6 +779,7 @@ pub(super) fn snapshot_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Snapshot
         project: row.get(0)?,
         goal: row.get(1)?,
         form: row.get(2)?,
+        lead_partner: row.get(19)?,
         revision: row.get(3)?,
         id: row.get(4)?,
         criteria: json_column(row, 5, 110_000)?,

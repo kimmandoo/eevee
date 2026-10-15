@@ -35,11 +35,24 @@ fn usage(directory: &Directory) -> u64 {
     live_bytes(&open_readonly(&directory.0.join(DATABASE)).unwrap()).unwrap()
 }
 
+/// Partner #1 in a store that initialized before any task existed: form 0 at
+/// creation, adopted each saved form, derived met timestamp.
+fn first_partner(form: usize) -> Partner {
+    Partner {
+        form,
+        ..Partner::default()
+    }
+}
+
 fn empty_project(directory: &Directory) -> Project {
+    // Partners are store-global: a task saved under a sibling project still
+    // shows up in this project's roster.
+    let connection = open_readonly(&directory.0.join(DATABASE)).unwrap();
     Project {
         tasks: Vec::new(),
+        partners: partners(&connection).unwrap(),
         active_id: None,
-        usage_bytes: usage(directory),
+        usage_bytes: live_bytes(&connection).unwrap(),
     }
 }
 
@@ -81,6 +94,7 @@ fn create(worker: &Worker, snapshot: Snapshot) -> Snapshot {
 }
 
 fn downgrade_workflows(connection: &Connection) {
+    downgrade_partners(connection);
     connection
         .execute_batch(
             "DROP TABLE memories;
@@ -397,6 +411,7 @@ fn saves_reopens_and_isolates_projects() {
             loaded(&worker),
             Project {
                 usage_bytes: usage(&directory),
+                partners: vec![first_partner(3)],
                 active_id: Some(saved.id),
                 tasks: vec![saved]
             }
@@ -444,6 +459,7 @@ fn directory_aliases_share_writer_identity_and_allow_readonly_open() {
     let expected = Project {
         active_id: Some(saved.id),
         tasks: vec![saved],
+        partners: vec![first_partner(3)],
         usage_bytes: usage(&directory),
     };
     assert_eq!(load(&readonly, "project").unwrap(), expected);
@@ -487,7 +503,7 @@ fn migrates_documented_schema_zero_and_one_atomically() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            6
+            7
         );
         assert!(connection.prepare("SELECT * FROM goals").is_err());
         assert!(connection.prepare("SELECT * FROM projects").is_err());
@@ -1056,7 +1072,7 @@ fn process_interruption_recovers_legacy_and_current_committed_tasks() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            6
+            7
         );
     }
 }
@@ -1174,6 +1190,7 @@ fn two_tasks_preserve_drafts_navigation_selection_and_timestamps_across_restart(
         loaded(&store),
         Project {
             usage_bytes: usage(&directory),
+            partners: vec![first_partner(3)],
             active_id: Some(second.id),
             tasks: vec![first.clone(), second.clone()],
         }
@@ -1186,6 +1203,7 @@ fn two_tasks_preserve_drafts_navigation_selection_and_timestamps_across_restart(
         loaded(&reopened),
         Project {
             usage_bytes: usage(&directory),
+            partners: vec![first_partner(3)],
             active_id: Some(first.id),
             tasks: vec![first, second],
         }
@@ -1225,6 +1243,7 @@ fn selection_rejects_missing_and_cross_project_ids_without_changing_active_task(
         loaded(&store),
         Project {
             usage_bytes: usage(&directory),
+            partners: vec![first_partner(3)],
             active_id: Some(own.id),
             tasks: vec![own]
         }
@@ -1356,6 +1375,7 @@ fn capacity_is_explicit_and_never_evicts_existing_tasks() {
         loaded(&store),
         Project {
             usage_bytes: usage(&directory),
+            partners: vec![first_partner(3)],
             active_id: Some(tasks[MAX_TASKS - 1].id),
             tasks
         }
@@ -1370,6 +1390,9 @@ fn malformed_current_schema_data_is_refused_without_rewriting() {
         "UPDATE selections SET active_id=99999",
         "UPDATE tasks SET complete=1",
         "UPDATE tasks SET drafts='[{\"field\":\"Goal\",\"text\":\"目\",\"cursor\":1}]'",
+        "DELETE FROM partners",
+        "UPDATE partners SET id=77",
+        "UPDATE tasks SET partner_drafts='[0]'",
     ] {
         let directory = Directory::new();
         let store = worker(&directory, "project");
@@ -2907,6 +2930,149 @@ fn schema_six_migration_is_atomic_and_defaults_preserve_old_snapshots() {
             .is_empty()
     );
     assert!(matches!(inspect(&connection).unwrap(), Schema::Current));
+}
+
+fn downgrade_partners(connection: &Connection) {
+    connection
+        .execute_batch(
+            "DROP TABLE partners;
+             ALTER TABLE tasks DROP COLUMN lead_partner;
+             ALTER TABLE tasks DROP COLUMN partner_drafts;
+             PRAGMA user_version=6;",
+        )
+        .unwrap();
+}
+
+#[test]
+fn schema_six_store_migrates_partner_one_and_resumes_tasks_unchanged() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let first = store
+        .save(Snapshot {
+            form: 2,
+            ..snapshot("project", 1)
+        })
+        .unwrap();
+    let second = store.save(snapshot("project", 1)).unwrap();
+    drop(store);
+    let path = directory.0.join(DATABASE);
+    let mut connection = Connection::open(&path).unwrap();
+    downgrade_partners(&connection);
+    // Deterministic history: a foreign project's earliest task wins partner #1.
+    connection
+        .execute_batch(&format!(
+            "INSERT INTO tasks(project,goal,form,revision,criteria,next_action,complete,drafts,
+                 navigation,updated_at,archived,archived_at,redacted,command,workflows,
+                 memory_draft,approved_memories,workflow_draft)
+             SELECT 'other',goal,5,revision,criteria,next_action,complete,drafts,navigation,
+                 200000,archived,archived_at,redacted,command,workflows,memory_draft,
+                 approved_memories,workflow_draft FROM tasks WHERE id={};
+             UPDATE tasks SET updated_at=300000 WHERE id={};
+             UPDATE tasks SET updated_at=400000 WHERE id={};",
+            first.id, first.id, second.id
+        ))
+        .unwrap();
+    assert!(matches!(inspect(&connection).unwrap(), Schema::Workflows));
+    {
+        let transaction = connection.transaction().unwrap();
+        migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
+        transaction.commit().unwrap();
+    }
+    assert!(matches!(inspect(&connection).unwrap(), Schema::Current));
+    // Partner #1: the oldest task's project and form, earliest met date,
+    // derived flag set, no nickname, and every task leads partner #1.
+    let partner: (i64, Option<String>, i64, i64, i64, String) = connection
+        .query_row(
+            "SELECT id,nickname,form,met_at,met_derived,created_project FROM partners",
+            [],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .unwrap();
+    assert_eq!(partner, (1, None, 5, 200000, 1, "other".to_string()));
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM partners WHERE id != 1", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM tasks WHERE lead_partner != 1 OR partner_drafts != '{}'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    drop(connection);
+    // Every task resumes unchanged: snapshots equal the pre-migration rows.
+    let reopened = worker(&directory, "project");
+    let project = loaded(&reopened);
+    assert_eq!(
+        project.partners,
+        vec![Partner {
+            id: 1,
+            nickname: None,
+            form: 5,
+            met_at: 200000,
+            met_derived: true,
+            created_project: "other".into(),
+        }]
+    );
+    assert_eq!(
+        project.tasks,
+        vec![
+            Snapshot {
+                lead_partner: 1,
+                updated_at: 300000,
+                ..first
+            },
+            Snapshot {
+                lead_partner: 1,
+                updated_at: 400000,
+                ..second
+            },
+        ]
+    );
+    drop(reopened);
+    let other = worker(&directory, "other");
+    let other_project = loaded(&other);
+    assert_eq!(other_project.tasks.len(), 1);
+    assert_eq!(other_project.tasks[0].form, 5);
+    assert_eq!(other_project.tasks[0].lead_partner, 1);
+    drop(other);
+}
+
+#[test]
+fn schema_eight_store_is_refused_without_rewriting() {
+    let directory = Directory::new();
+    let store = worker(&directory, "project");
+    loaded(&store);
+    drop(store);
+    let path = directory.0.join(DATABASE);
+    {
+        let connection = Connection::open(&path).unwrap();
+        connection.execute_batch("PRAGMA user_version=8;").unwrap();
+    }
+    let before = fs::read(&path).unwrap();
+    let refused = worker(&directory, "project");
+    assert!(matches!(
+        event(&refused),
+        Event::Failed { revision: None, message } if message.contains("schema version 8")
+    ));
+    drop(refused);
+    assert_eq!(fs::read(&path).unwrap(), before);
 }
 
 #[test]
