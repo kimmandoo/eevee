@@ -4,7 +4,7 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT02A — Partner table and Schema 7 migration
 
-- [ ] Store partners and migrate the existing state as partner #1.
+- [x] Store partners and migrate the existing state as partner #1.
 - **Priority:** 1. **Needs:** —. **Builds on:** PT01, E02.
 - **Change:** Add a `partners` table (id, nickname nullable, current form, met date, created project) and `tasks.lead_partner`. Migrating a Schema 6 store creates partner #1 in the stored form, with the met date set to the earliest task date and labelled derived. No UI change.
 - **Accept:** Upgrade a Schema 6 fixture: one partner exists in the previous form and every task resumes unchanged. An old binary refuses the new store with byte-identical files (reuse `scripts/schema_upgrade_smoke.py`).

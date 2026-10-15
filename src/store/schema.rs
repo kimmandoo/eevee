@@ -19,6 +19,32 @@ pub(super) fn migrate_workflows(connection: &Connection) -> Result<(), String> {
     ).map_err(|error| format!("Cannot migrate workflow and memory storage: {error}"))
 }
 
+/// Schema 7: the party. Creates `partners` with partner #1 derived from task
+/// history, and reserves `tasks.lead_partner` plus the per-partner draft
+/// column PT05B needs so no later wave bumps the schema.
+pub(super) fn migrate_partners(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute_batch(&format!(
+            "CREATE TABLE partners(
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           nickname TEXT CHECK(nickname IS NULL OR length(CAST(nickname AS BLOB))<={MAX_NICKNAME_BYTES}),
+           form INTEGER NOT NULL CHECK(form>=0 AND form<9),
+           met_at INTEGER NOT NULL CHECK(met_at>=0),
+           met_derived INTEGER NOT NULL CHECK(met_derived IN (0,1)),
+           created_project TEXT NOT NULL CHECK(length(CAST(created_project AS BLOB))<=4096));
+         INSERT INTO partners(nickname,form,met_at,met_derived,created_project)
+           SELECT NULL,
+                  coalesce((SELECT form FROM tasks ORDER BY updated_at,id LIMIT 1),0),
+                  coalesce((SELECT MIN(updated_at) FROM tasks),0),
+                  1,
+                  coalesce((SELECT project FROM tasks ORDER BY updated_at,id LIMIT 1),'');
+         ALTER TABLE tasks ADD COLUMN lead_partner INTEGER NOT NULL DEFAULT 1 CHECK(lead_partner>=1);
+         ALTER TABLE tasks ADD COLUMN partner_drafts TEXT NOT NULL DEFAULT '{{}}' CHECK(length(CAST(partner_drafts AS BLOB))<={MAX_PARTNER_DRAFTS_BYTES});
+         PRAGMA user_version=7;"
+        ))
+        .map_err(|error| format!("Cannot migrate partner storage: {error}"))
+}
+
 pub(super) fn create_evidence_schema(connection: &Connection) -> Result<(), String> {
     connection.execute_batch(
         "CREATE TABLE excerpts(id INTEGER PRIMARY KEY AUTOINCREMENT,task_id INTEGER NOT NULL,record TEXT NOT NULL CHECK(length(CAST(record AS BLOB)) <= 524288));
@@ -144,6 +170,7 @@ pub(super) enum Schema {
     Lifecycle,
     Evidence,
     ProviderJournal,
+    Workflows,
     Current,
 }
 
@@ -165,9 +192,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=6).contains(&version) {
+    if !(0..=7).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0 through 6"
+            "Unsupported database schema version {version}; this ev supports versions 0 through 7"
         ));
     }
     let mut statement = connection
@@ -236,6 +263,23 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
                     ])
                     .all(|((kind, name), expected)| kind == "table" && name == expected) =>
         {
+            Schema::Workflows
+        }
+        (7, objects)
+            if objects.len() == 7
+                && objects
+                    .iter()
+                    .zip([
+                        "excerpts",
+                        "executions",
+                        "memories",
+                        "partners",
+                        "provider_journal",
+                        "selections",
+                        "tasks",
+                    ])
+                    .all(|((kind, name), expected)| kind == "table" && name == expected) =>
+        {
             Schema::Current
         }
         _ => return Err("Unrecognized or nonempty foreign database schema".into()),
@@ -265,6 +309,7 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
         | Schema::Lifecycle
         | Schema::Evidence
         | Schema::ProviderJournal
+        | Schema::Workflows
         | Schema::Current => {
             inspect_columns(
                 connection,
@@ -305,15 +350,23 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
                     ("workflow_draft", "TEXT", true, 0),
                 ]);
             }
+            if version >= 7 {
+                expected.extend([
+                    ("lead_partner", "INTEGER", true, 0),
+                    ("partner_drafts", "TEXT", true, 0),
+                ]);
+            }
             inspect_columns(connection, "tasks", &expected)?;
-            let columns = if version >= 6 {
+            let columns = if version >= 7 {
                 TASK_COLUMNS.to_string()
+            } else if version >= 6 {
+                format!("{TASK_COLUMNS_V6},1")
             } else if version >= 4 {
-                format!("{TASK_COLUMNS_V5},{EMPTY_WORKFLOW_COLUMNS}")
+                format!("{TASK_COLUMNS_V5},{EMPTY_WORKFLOW_COLUMNS},1")
             } else if version == 3 {
-                format!("{TASK_COLUMNS_V3},'',{EMPTY_WORKFLOW_COLUMNS}")
+                format!("{TASK_COLUMNS_V3},'',{EMPTY_WORKFLOW_COLUMNS},1")
             } else {
-                format!("{TASK_COLUMNS_V2},0,0,0,'',{EMPTY_WORKFLOW_COLUMNS}")
+                format!("{TASK_COLUMNS_V2},0,0,0,'',{EMPTY_WORKFLOW_COLUMNS},1")
             };
             let mut rows = connection
                 .prepare(&format!("SELECT {columns} FROM tasks"))
@@ -388,6 +441,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
             if version >= 6 {
                 inspect_memories(connection)?;
             }
+            if version >= 7 {
+                inspect_partners(connection)?;
+            }
             return Ok(schema);
         }
     };
@@ -451,12 +507,17 @@ pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), Str
     if matches!(schema, Schema::Current) {
         return Ok(());
     }
+    if matches!(schema, Schema::Workflows) {
+        return migrate_partners(connection);
+    }
     if matches!(schema, Schema::Evidence) {
         connection.execute_batch("CREATE TABLE provider_journal(id TEXT PRIMARY KEY,task_id INTEGER NOT NULL,record TEXT NOT NULL CHECK(length(CAST(record AS BLOB)) <= 65536)); PRAGMA user_version=5;").map_err(|error| format!("Cannot migrate provider journal: {error}"))?;
-        return migrate_workflows(connection);
+        migrate_workflows(connection)?;
+        return migrate_partners(connection);
     }
     if matches!(schema, Schema::ProviderJournal) {
-        return migrate_workflows(connection);
+        migrate_workflows(connection)?;
+        return migrate_partners(connection);
     }
     if matches!(schema, Schema::Tasks | Schema::Lifecycle) {
         connection
@@ -503,13 +564,13 @@ pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), Str
         Schema::Tasks => Some((
             "old_tasks",
             format!(
-                "SELECT {TASK_COLUMNS_V2},0,0,0,'',{EMPTY_WORKFLOW_COLUMNS} FROM old_tasks ORDER BY id"
+                "SELECT {TASK_COLUMNS_V2},0,0,0,'',{EMPTY_WORKFLOW_COLUMNS},1 FROM old_tasks ORDER BY id"
             ),
         )),
         Schema::Lifecycle => Some((
             "old_tasks",
             format!(
-                "SELECT {TASK_COLUMNS_V3},'',{EMPTY_WORKFLOW_COLUMNS} FROM old_tasks ORDER BY id"
+                "SELECT {TASK_COLUMNS_V3},'',{EMPTY_WORKFLOW_COLUMNS},1 FROM old_tasks ORDER BY id"
             ),
         )),
         _ => None,
@@ -567,5 +628,6 @@ pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), Str
             .map_err(|error| error.to_string())?;
     }
     create_evidence_schema(connection)?;
-    migrate_workflows(connection)
+    migrate_workflows(connection)?;
+    migrate_partners(connection)
 }

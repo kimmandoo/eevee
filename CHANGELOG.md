@@ -11,6 +11,7 @@
 
 ## 2026-10-15
 
+- feat(store): Schema 7 adds a `partners` table plus `tasks.lead_partner` and a reserved `tasks.partner_drafts` (PK01 nickname and PT05B per-partner drafts share this one bump). Migrating a Schema 6 store derives partner #1 in the oldest task's form with a derived met date; `scripts/schema_upgrade_smoke.py` proves the Schema-6 binary refuses the new store byte-for-byte.
 - feat(install): redrew the install/update Poké Ball as 16×16 pixel art in half blocks (red shell with highlight, thin black band, white shell, lit button) with a caught-ball shake. POSIX uses 256 colors, Windows uses console colors; NO_COLOR draws monochrome blocks; non-UTF-8 locales and console code pages without block glyphs fall back to an ASCII ball. The POSIX installer now remembers the user's locale before forcing `LC_ALL=C`.
 - refactor(app): split the single `impl App` in `app.rs` (2,328 lines) into `app/events.rs`, `app/tasks.rs`, `app/keys.rs`, `app/editing.rs` and `app/overlays.rs`; `app.rs` keeps the state types, constructor and accessors. No behavior change.
 - refactor(src): grouped modules by role into `src/store/`, `src/workspace/`, `src/providers/` and `src/platform/` (artwork moved under `src/ui/`); split the 7,139-line `store.rs` into `tasks`, `memories`, `journal`, `runs`, `spool`, `schema`, `admission` and `recovery` submodules; moved the inline test modules of large files into sibling `tests.rs` files. No behavior change: 375 tests pass, 2 ignored, as before. README gained a source-layout table.

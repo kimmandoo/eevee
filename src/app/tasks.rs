@@ -67,6 +67,7 @@ impl App {
             project: project.to_owned(),
             goal: self.goal.clone(),
             form: self.form,
+            lead_partner: 1,
             revision: self.revision,
             id: self.task_id,
             criteria: self.criteria.clone(),
