@@ -26,6 +26,7 @@
 
 ## 2026-10-15
 
+- chore(release): published v0.1.5 from `6e43e6b` after exact-commit Check and all five native build/test/install rows passed, verified all eight public assets and seven manifest checksums, and passed 23 installation lifecycle checks plus 34 installed terminal scenarios on both Linux and native Windows.
 - fix(runtime): completed deferred cancel-and-exit immediately after owned-process and journal acknowledgment instead of blocking for another key on an idle screen.
 - fix(smoke): checked compact outgoing context against committed capture facts without pinning JSON key order, removed an obsolete navigation-cycle expectation, and kept native helper builds on the configured local target.
 - feat(providers): accepted newer stable provider releases through observed identity and capability validation, switched Gemini to current `--acp`, and refreshed the optional Claude SDK through explicit latest setup while retaining its policy controls.

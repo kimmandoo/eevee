@@ -196,13 +196,8 @@ No custom model runtime, autonomous multi-agent swarm, hosted synchronization, p
 
 ## Current next action
 
-The immediate user-requested task is the v0.1.5 request-first UX release, ahead of PT06A and the provider-authentication backlog. v0.1.4 is published at `6489264` after native qualification run `38703367315` and release run `38704171970`.
+The request-first UX and latest-provider implementation is published as **v0.1.5**, at `6e43e6b5ef1b33c670e8c3ec14d40889fdab3ed6`. Exact-commit Check plus all five native build/test/install rows passed in run `38723240558`; publication run `38724050989` succeeded. All eight public assets and seven manifest checksums were verified.
 
-1. Replace Goal-first intake with an independent durable Request draft; Enter prepares only after matching storage acknowledgment, and explicit Run remains separate.
-2. Keep streamed responses on the home workspace, preserve follow-up input and manual follow, and center selection/confirmation overlays.
-3. Show concise scope/effect reviews with fixed controls and optional exact details; remove mandatory end-scroll. Add guarded y/n and provider allow-once a without permitting paste, repeats, stale scope or hidden approvals.
-4. Replace exact CLI/SDK release lockouts with reviewed installed identity and retained protocol/policy validation. Provide explicit latest-stable setup/update, without silent startup installations.
-5. Verify actual 120×36 and 60×18 terminal journeys, native Windows rendering, persistence/flicker and published 0.1.4→Schema 9 upgrade/refusal. Run the integrated checks and existing relevant smoke journeys.
-6. Commit and push the exact candidate, require Check plus all five native build/test/install rows, publish v0.1.5, and verify public assets and installed behavior.
+Public-package Linux and native Windows acceptance each passed all 23 installation lifecycle checks and all 34 installed terminal scenarios, including actual self-update and uninstall preserving user data. This user-requested UX/performance/latest-provider release is complete. PT06A remains the next unstarted backlog item; the release did not start it.
 
 The separate A04/A06/full A07 provider-conformance backlog remains blocked on permitted Claude/Gemini authentication; this UX release does not claim those gates or native macOS GUI verification.
