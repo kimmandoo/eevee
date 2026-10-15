@@ -43,7 +43,7 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT04B — Add a partner
 
-- [ ] Welcome a new Eevee into the party.
+- [x] Welcome a new Eevee into the party.
 - **Priority:** 1. **Needs:** PT04A. **Builds on:** —.
 - **Change:** A roster action adds a partner that starts in Eevee form with today's met date. A seventh is refused with the limit as the reason.
 - **Accept:** Add two partners, restart, and see three. The seventh attempt changes nothing.

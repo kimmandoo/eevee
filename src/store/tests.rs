@@ -3405,3 +3405,81 @@ fn old_palette_navigation_preserves_remaining_navigation() {
     // Stores written before PT03B carry no previous form.
     assert_eq!(navigation.previous_form, None);
 }
+
+#[test]
+fn add_partner_seats_eevee_with_today_and_refuses_the_seventh() {
+    let directory = Directory::new();
+    let store = worker(&directory, "project");
+    loaded(&store);
+    let before = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    for _ in 0..5 {
+        let mut pending = Some(PartyRequest::Add);
+        assert!(store.try_party(&mut pending));
+        match event(&store) {
+            Event::Party(Ok(_)) => {}
+            other => panic!("expected added roster: {other:?}"),
+        }
+    }
+    let mut pending = Some(PartyRequest::Add);
+    assert!(store.try_party(&mut pending));
+    let refusal = event(&store);
+    let Event::Party(Err(message)) = refusal else {
+        panic!("expected capacity refusal: {refusal:?}");
+    };
+    assert!(message.contains("at most 6"), "wrong refusal: {message}");
+    let roster = return_full_check(&directory);
+    assert_eq!(roster.len(), MAX_PARTNERS);
+    for (seat, partner) in roster.iter().enumerate().skip(1) {
+        assert_eq!(partner.id, seat as i64 + 1);
+        assert_eq!(partner.form, 0, "a new partner starts in Eevee form");
+        assert!(
+            partner.met_at >= before,
+            "met date is the real clock, not derived"
+        );
+        assert!(!partner.met_derived);
+        assert_eq!(partner.created_project, "project");
+        assert!(partner.nickname.is_none());
+    }
+}
+
+fn return_full_check(directory: &Directory) -> Vec<Partner> {
+    let connection = open_readonly(&directory.0.join(DATABASE)).unwrap();
+    partners(&connection).unwrap()
+}
+
+#[test]
+fn added_partner_ids_are_never_reused_after_a_release() {
+    let directory = Directory::new();
+    {
+        let store = worker(&directory, "project");
+        loaded(&store);
+        let mut pending = Some(PartyRequest::Add);
+        assert!(store.try_party(&mut pending));
+        assert!(matches!(event(&store), Event::Party(Ok(_))));
+    }
+    // Simulate a future release: delete partner #2 with a raw connection while
+    // no worker holds the store lock.
+    let path = directory.0.join(DATABASE);
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute("DELETE FROM partners WHERE id=2", [])
+        .unwrap();
+    drop(connection);
+    let store = worker(&directory, "project");
+    loaded(&store);
+    let mut pending = Some(PartyRequest::Add);
+    assert!(store.try_party(&mut pending));
+    match event(&store) {
+        Event::Party(Ok(roster)) => {
+            assert_eq!(roster.len(), 2);
+            assert_eq!(
+                roster[1].id, 3,
+                "AUTOINCREMENT must not reuse released partner id 2"
+            );
+        }
+        other => panic!("expected added roster: {other:?}"),
+    }
+}

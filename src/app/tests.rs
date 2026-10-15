@@ -1066,6 +1066,58 @@ fn partner_status_tracks_live_request_and_approval_states() {
 }
 
 #[test]
+fn roster_add_queues_one_request_and_applies_the_committed_roster() {
+    let mut app = app();
+    app.editing = false;
+    app.command("party");
+    assert_eq!(app.overlay, Some(Overlay::Party));
+    key(&mut app, KeyCode::Char('a'));
+    assert_eq!(app.party_request, Some(store::PartyRequest::Add));
+    // A second key press while the store write is in flight adds nothing more.
+    app.party_inflight = true;
+    key(&mut app, KeyCode::Char('a'));
+    assert!(app.notice.contains("already joining"));
+    let joined = store::Partner {
+        id: 2,
+        nickname: None,
+        form: 0,
+        met_at: 1,
+        met_derived: false,
+        created_project: "/workspace".into(),
+    };
+    app.store_event(store::Event::Party(Ok(vec![
+        store::Partner::default(),
+        joined,
+    ])));
+    assert!(!app.party_inflight);
+    assert_eq!(app.partners().len(), 2);
+    assert!(app.notice.contains("Eevee #2 joined"));
+}
+
+#[test]
+fn roster_add_is_disabled_with_the_capacity_reason_at_six() {
+    let mut app = app();
+    for id in 2..=6 {
+        app.store_event(store::Event::Party(Ok((1..=id)
+            .map(|id| store::Partner {
+                id,
+                ..store::Partner::default()
+            })
+            .collect())));
+    }
+    assert_eq!(app.partners().len(), 6);
+    app.editing = false;
+    app.command("party");
+    assert_eq!(app.overlay, Some(Overlay::Party));
+    key(&mut app, KeyCode::Char('a'));
+    assert!(app.party_request.is_none());
+    assert!(app.notice.contains("at most 6"), "{}", app.notice);
+    app.command("add");
+    assert!(app.party_request.is_none());
+    assert!(app.notice.contains("at most 6"), "{}", app.notice);
+}
+
+#[test]
 fn roster_reflects_unsaved_form_switch_on_the_lead_row() {
     let mut app = app();
     app.editing = false;

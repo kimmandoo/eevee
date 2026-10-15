@@ -110,6 +110,25 @@ impl App {
             store::Event::Journal { task_id, result } => {
                 self.planning.journal_event(task_id, result);
             }
+            store::Event::Party(result) => {
+                self.party_inflight = false;
+                match result {
+                    Ok(partners) => {
+                        if let Some(partner) = partners.last() {
+                            self.notice = format!(
+                                "{} joined the party in Eevee form ({} of {}).",
+                                Self::partner_label(partner),
+                                partners.len(),
+                                store::MAX_PARTNERS
+                            );
+                        }
+                        self.party = partners;
+                    }
+                    Err(message) => {
+                        self.notice = message;
+                    }
+                }
+            }
             store::Event::Loaded(project) => {
                 let local_changes = self.revision != self.saved_revision;
                 self.usage_bytes = project.usage_bytes;

@@ -1392,7 +1392,11 @@ fn party(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
     text(
         frame,
         row(content, partners.len() as u16 + 3, 1),
-        "The roster performs no request. Esc Back",
+        if partners.len() >= store::MAX_PARTNERS {
+            "Party full: a partner holds at most 6 members / Esc Back"
+        } else {
+            "a Add partner / Esc Back"
+        },
         paint.muted,
     );
     app.set_scroll_max(ScrollSurface::Preview, 0);
