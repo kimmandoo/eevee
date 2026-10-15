@@ -2,6 +2,7 @@
 
 ## 2026-10-15
 
+- docs(tasks): specify section J's nine unimplemented Eevee-identity tasks (EV01–EV09): evidence-based form suggestion, evolution carry-over card, form capability chip with owning-form redirect, form-specific empty states, party status from real exit evidence, non-evidence form route history, return to Eevee, deterministic partner lines for real events and bond proposals from repeated instructions. Updated the backlog to 25/58 without changing release gates.
 - feat(context): deduplicate repeated/overlapping source captures inside an outgoing packet. Basket assembly emits `{source_root, captures:[…]}` — the shared repository root is hoisted once, `source_sha256` is hex, and a capture byte-covered by a wider capture of the same file revision carries a `same_bytes_as` citation to a text-bearing entry instead of resending identical bytes; every basket id still resolves, and identical text from a different path or revision is never conflated.
 - feat(codex): `edit_baseline` entries cite a byte-identical whole-file `selected_sources` capture (`working_content_same_as_capture`) instead of embedding the file twice in one request.
 - feat(receipt): the request receipt and basket drawer disclose local deduplication — citation count in the receipt lines, saved bytes in the payload detail — always labelled local-only, never as provider cache or billing.
