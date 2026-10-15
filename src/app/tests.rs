@@ -1126,3 +1126,213 @@ fn roster_reflects_unsaved_form_switch_on_the_lead_row() {
     assert_eq!(roster[0].form, 2);
     assert_eq!(app.lead().form, 2);
 }
+
+fn type_text(app: &mut App, text: &str) {
+    for character in text.chars() {
+        key(app, KeyCode::Char(character));
+    }
+}
+
+#[test]
+fn roster_enter_fronts_the_selected_partner_and_the_picker_follows() {
+    let mut app = app();
+    app.editing = false;
+    // Lead switches to Jolteon first so the rows carry distinct live forms.
+    app.command("jolteon");
+    assert_eq!(app.lead().form, 2);
+    app.store_event(store::Event::Party(Ok(vec![
+        store::Partner {
+            id: 1,
+            form: 2,
+            ..store::Partner::default()
+        },
+        store::Partner {
+            id: 2,
+            nickname: Some("Bolt".into()),
+            form: 1,
+            ..store::Partner::default()
+        },
+    ])));
+    app.command("party");
+    assert_eq!(app.overlay, Some(Overlay::Party));
+    assert_eq!(app.selected, 0, "the roster opens on the current lead row");
+    key(&mut app, KeyCode::Down);
+    assert_eq!(app.selected, 1);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.lead().id, 2);
+    assert_eq!(app.lead().nickname.as_deref(), Some("Bolt"));
+    assert_eq!(app.form(), 1, "the new lead's own form is active");
+    assert_eq!(app.lead_label(), "Bolt · Vaporeon");
+    // The picker follows the lead.
+    app.command("forms");
+    assert_eq!(app.selected, 1);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.form(), 1);
+    // Switching back re-arms the same path from the roster; it reopens on the
+    // current lead row, so move back to the first partner first.
+    app.command("party");
+    key(&mut app, KeyCode::Up);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.lead().id, 1, "notice={}", app.notice);
+    assert_eq!(app.form(), 2);
+    assert_eq!(app.lead_label(), "Eevee #1 · Jolteon");
+}
+
+#[test]
+fn slash_lead_resolves_nicknames_and_eevee_numbers() {
+    let mut app = app();
+    app.editing = false;
+    app.store_event(store::Event::Party(Ok(vec![
+        store::Partner::default(),
+        store::Partner {
+            id: 2,
+            nickname: Some("Bolt".into()),
+            form: 1,
+            ..store::Partner::default()
+        },
+        store::Partner {
+            id: 3,
+            form: 4,
+            ..store::Partner::default()
+        },
+    ])));
+    // A typed argument fronts the named partner without touching the roster.
+    key(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "lead bolt");
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.lead().id, 2, "notice={}", app.notice);
+    assert_eq!(app.form(), 1);
+    key(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "lead Eevee #3");
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(
+        app.lead().id,
+        3,
+        "notice={} overlay={:?}",
+        app.notice,
+        app.overlay
+    );
+    assert_eq!(app.form(), 4);
+    key(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "lead nobody");
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.lead().id, 3);
+    assert!(app.notice.contains("No partner named"), "{}", app.notice);
+    // Pasted text never dispatches the command.
+    let revision = app.revision;
+    app.update(Event::Paste("/lead Bolt".into()));
+    assert_eq!(app.lead().id, 3);
+    assert_eq!(app.revision, revision);
+    // Even inside the editor it lands as literal text, not a dispatch.
+    app.command("goal");
+    app.update(Event::Paste("/lead Bolt".into()));
+    assert_eq!(app.input, "/lead Bolt");
+    assert_eq!(app.lead().id, 3);
+}
+
+#[test]
+fn lead_switch_persists_through_save_and_restart() {
+    let mut app = app();
+    app.editing = false;
+    app.store_event(store::Event::Party(Ok(vec![
+        store::Partner::default(),
+        store::Partner {
+            id: 2,
+            form: 1,
+            ..store::Partner::default()
+        },
+    ])));
+    app.command("lead");
+    assert_eq!(app.overlay, Some(Overlay::Party));
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.lead().id, 2);
+    let mut committed = committed(&app);
+    assert_eq!(committed.lead_partner, 2);
+    assert_eq!(committed.form, 1);
+    committed.id = 7;
+    let mut resumed = App::new("/workspace".into(), 120, 36);
+    resumed.store_event(store::Event::Loaded(store::Project {
+        tasks: vec![committed],
+        partners: vec![
+            store::Partner::default(),
+            store::Partner {
+                id: 2,
+                form: 1,
+                met_at: 99,
+                ..store::Partner::default()
+            },
+        ],
+        active_id: Some(7),
+        usage_bytes: 0,
+    }));
+    assert_eq!(resumed.lead().id, 2);
+    assert_eq!(resumed.lead().met_at, 99);
+    assert_eq!(resumed.form(), 1);
+    assert_eq!(resumed.lead_label(), "Eevee #2 · Vaporeon");
+}
+
+#[test]
+fn lead_switch_is_refused_while_the_lead_owns_live_work() {
+    let mut app = app();
+    app.editing = false;
+    app.task_id = 7;
+    app.goal = "task".into();
+    app.planning.reset(7);
+    app.planning.preview = Some(crate::providers::Preview {
+        generation: 1,
+        task_id: 7,
+        thread_id: None,
+        trust: Vec::new(),
+        payload: "{}".into(),
+        blockers: Vec::new(),
+    });
+    app.store_event(store::Event::Party(Ok(vec![
+        store::Partner::default(),
+        store::Partner {
+            id: 2,
+            ..store::Partner::default()
+        },
+    ])));
+    app.request_lead(2);
+    assert_eq!(app.lead().id, 1);
+    assert!(
+        app.notice.contains("waiting for approval"),
+        "{}",
+        app.notice
+    );
+    // A roster write in flight also blocks the switch.
+    app.planning.preview = None;
+    app.party_inflight = true;
+    app.request_lead(2);
+    assert_eq!(app.lead().id, 1);
+    assert!(
+        app.notice.contains("in-flight party change"),
+        "{}",
+        app.notice
+    );
+}
+
+#[test]
+fn lead_switch_resets_the_previous_form_toggle() {
+    let mut app = app();
+    app.editing = false;
+    app.store_event(store::Event::Party(Ok(vec![
+        store::Partner::default(),
+        store::Partner {
+            id: 2,
+            form: 3,
+            ..store::Partner::default()
+        },
+    ])));
+    app.command("jolteon"); // lead 1 records previous form Eevee
+    app.request_lead(2);
+    assert_eq!(app.form(), 3);
+    key(&mut app, KeyCode::Backspace);
+    assert_eq!(
+        app.form(),
+        3,
+        "the old lead's previous form does not carry over"
+    );
+    assert!(app.notice.contains("No previous form"), "{}", app.notice);
+}

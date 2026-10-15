@@ -146,17 +146,21 @@ impl App {
                     .cloned()
                 {
                     // The task's lead partner fronts this session; its stored
-                    // form is what the task resumes into.
-                    if let Some(partner) = project
-                        .partners
-                        .iter()
-                        .find(|partner| partner.id == snapshot.lead_partner)
-                    {
-                        self.lead = partner.clone();
-                    }
+                    // form is what the task resumes into. With local changes,
+                    // keep the live lead (unsaved lead/form switches) and only
+                    // refresh its identity fields from the committed roster.
                     if !local_changes {
                         self.load_task(snapshot);
-                    } else if local_changes && self.task_id == snapshot.id {
+                    } else if self.task_id == snapshot.id {
+                        if let Some(partner) = project
+                            .partners
+                            .iter()
+                            .find(|partner| partner.id == self.lead.id)
+                        {
+                            let form = self.lead.form;
+                            self.lead = partner.clone();
+                            self.lead.form = form;
+                        }
                         self.saved_revision = snapshot.revision;
                         self.revision = self.revision.max(snapshot.revision.saturating_add(1));
                     }
