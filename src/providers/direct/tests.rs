@@ -664,6 +664,9 @@ fn http_fixture(body: String) -> (String, JoinHandle<()>) {
                 Err(error) => panic!("fixture accept failed: {error}"),
             }
         };
+        // Accepted sockets inherit O_NONBLOCK on Darwin. Use bounded blocking
+        // fixture I/O consistently across platforms, not scheduler timing.
+        socket.set_nonblocking(false).unwrap();
         socket
             .set_read_timeout(Some(Duration::from_secs(1)))
             .unwrap();
