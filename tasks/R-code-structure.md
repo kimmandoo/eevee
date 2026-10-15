@@ -1,6 +1,6 @@
 # R — Code structure
 
-Done on 2026-10-15 (`refactor(src)`): modules grouped into `store/`, `workspace/`, `providers/`, `platform/`; `store.rs` split by role; inline tests of large files moved into sibling `tests.rs`. Remaining goal: no non-test source file above ~1,200 lines, split along responsibilities rather than line counts.
+Done on 2026-10-15 (`refactor(src)`): modules grouped into `store/`, `workspace/`, `providers/`, `platform/`; `store.rs` split by role; inline tests of large files moved into sibling `tests.rs`. RF03 done the same day: `impl App` split into `app/{events,tasks,keys,editing,overlays}.rs`. Remaining goal: no non-test source file above ~1,200 lines, split along responsibilities rather than line counts.
 
 Rules for every RF task:
 - **Behavior-free:** a pure move or extraction, with no logic or visibility widening beyond `pub(super)`. The test count (375 passed, 2 ignored at `d93402a`) must be unchanged.
@@ -22,14 +22,6 @@ Rules for every RF task:
 - **Priority:** 2. **Needs:** —. **Builds on:** —.
 - **Change:** `acp/rpc.rs` (Framer, rpc id validation, bounds), `acp/permissions.rs` (permission options, selections), `acp/models.rs`, `acp/transport.rs`.
 - **Accept:** The ACP tests pass unchanged.
-
-### RF03 — Split `app.rs` (2,328 lines)
-
-- [ ] Split the single `impl App` by concern.
-- **Priority:** 1. **Needs:** —. **Builds on:** —.
-- **Change:** Keep the state types in `app.rs`; move `impl App` blocks into `app/keys.rs` (key dispatch), `app/overlays.rs` (confirmation/overlay stack) and `app/navigation.rs` (panes/focus/forms). This is the place PT02B's lead-partner accessor will live.
-- **Accept:** App tests and `scripts/workbench_smoke.py` pass unchanged.
-- **Watch out:** Do this before PT02B.
 
 ### RF04 — Split `ui.rs` (1,974 lines)
 

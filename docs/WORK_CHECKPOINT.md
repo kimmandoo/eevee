@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-15 — RF03 and 0.1.3 release
+
+- **Requested:** Finish RF03, then release.
+- **RF03 delivered:** `impl App` split from `app.rs` (2,328 → 353 lines) into `app/{events,tasks,keys,editing,overlays}.rs`; methods became `pub(super)`. No behavior change.
+- **Verification:** `cargo fmt --check` clean; `cargo clippy --locked --all-targets -- -D warnings` clean; `cargo test --locked --all-targets` 375 passed / 0 failed / 2 ignored. A release build passed all 21 real-terminal cases of `scripts/workbench_smoke.py` (`target/rf03-workbench/results.json`; pyte 0.8.2 / wcwidth 0.2.13 in a scratch venv).
+- **Release:** Version bumped to 0.1.3 (Cargo.toml/lock, README download/install pins, CHANGELOG `## 0.1.3`). Publication follows the existing gate: push `main`, the native workflow must pass for the exact commit, then tag `v0.1.3` to run `release.yml`.
+- **Next action:** Confirm the v0.1.3 release assets, then wave 1 PT02A (partner table + Schema 7 migration).
+
 ## 2026-10-15 — Party contract, source reorganization and fine-grained backlog
 
 - **Requested:** Use the proposed party limits, split tasks into smaller units, and split existing files into role-based folders/files for maintainability.
