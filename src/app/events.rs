@@ -125,6 +125,15 @@ impl App {
                     .find(|task| Some(task.id) == target)
                     .cloned()
                 {
+                    // The task's lead partner fronts this session; its stored
+                    // form is what the task resumes into.
+                    if let Some(partner) = project
+                        .partners
+                        .iter()
+                        .find(|partner| partner.id == snapshot.lead_partner)
+                    {
+                        self.lead = partner.clone();
+                    }
                     if !local_changes {
                         self.load_task(snapshot);
                     } else if local_changes && self.task_id == snapshot.id {

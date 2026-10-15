@@ -41,8 +41,8 @@ impl App {
             self.notice = "Finish or cancel the local command before starting planning.".into();
             return;
         }
-        if overlay == Overlay::Planning && matches!(self.form, 3 | 4 | 7) {
-            self.planning.set_operation(match self.form {
+        if overlay == Overlay::Planning && matches!(self.form(), 3 | 4 | 7) {
+            self.planning.set_operation(match self.form() {
                 3 => crate::providers::Operation::Implement,
                 7 => crate::providers::Operation::Review,
                 _ => crate::providers::Operation::Plan,
@@ -73,7 +73,7 @@ impl App {
             self.preview_form = if self.overlay == Some(Overlay::Forms) {
                 self.selected
             } else {
-                self.form
+                self.form()
             };
         }
         if matches!(

@@ -66,8 +66,8 @@ impl App {
         store::Snapshot {
             project: project.to_owned(),
             goal: self.goal.clone(),
-            form: self.form,
-            lead_partner: 1,
+            form: self.form(),
+            lead_partner: self.lead().id,
             revision: self.revision,
             id: self.task_id,
             criteria: self.criteria.clone(),
@@ -97,8 +97,9 @@ impl App {
         self.task_id = snapshot.id;
         self.pending_command = None;
         self.goal = snapshot.goal;
-        self.form = snapshot.form;
-        self.preview_form = self.form;
+        self.lead.id = snapshot.lead_partner;
+        self.set_form(snapshot.form);
+        self.preview_form = self.form();
         self.revision = snapshot.revision;
         self.saved_revision = snapshot.revision;
         self.criteria = snapshot.criteria;
@@ -253,8 +254,8 @@ impl App {
             execution::Action::NewTask => self.finish_new_task(),
             execution::Action::Quit => self.finish_request_quit(),
             execution::Action::SelectForm(index) => {
-                if self.form != index {
-                    self.form = index;
+                if self.form() != index {
+                    self.set_form(index);
                     if index == 3 || index == 4 {
                         self.planning.set_operation(if index == 3 {
                             crate::providers::Operation::Implement

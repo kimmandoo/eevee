@@ -383,11 +383,11 @@ pub fn portrait_targets(app: &App, area: Rect, targets: &mut Vec<(usize, Rect)>)
                 targets.push((app.selected.min(8), compact_picker_portrait(picker)));
             }
         }
-        Some(Overlay::Companion) => targets.push((app.form, portrait(drawer(area)))),
+        Some(Overlay::Companion) => targets.push((app.form(), portrait(drawer(area)))),
         Some(_) => {}
         None => {
             if let Some(rail) = shell(area, app.linear, app.effective_focus()).rail {
-                targets.push((app.form, companion_portrait(rail)));
+                targets.push((app.form(), companion_portrait(rail)));
             }
         }
     }
@@ -444,8 +444,8 @@ pub fn render(
 ) {
     VERBOSE.set(app.verbose);
     let area = frame.area();
-    let form = &FORMS[app.form.min(8)];
-    let paint = Paint::new(config, form, app.form.min(8));
+    let form = &FORMS[app.form().min(8)];
+    let paint = Paint::new(config, form, app.form().min(8));
     frame.render_widget(Block::default().style(paint.base), area);
     if area.width < 60 || area.height < 18 {
         app.agents.affirmative = false;
@@ -472,7 +472,7 @@ pub fn render(
         return;
     }
     let shell = shell(area, app.linear, app.effective_focus());
-    header(frame, shell.header, app, form, &paint);
+    header(frame, shell.header, app, &paint);
     if let Some(rail) = shell.rail {
         compact_companion(
             frame,
@@ -572,7 +572,7 @@ fn selection_text(state: &crate::app::planning::State) -> String {
     }
 }
 
-fn header(frame: &mut Frame, area: Rect, app: &App, form: &Form, paint: &Paint) {
+fn header(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
     let project = std::path::Path::new(&app.cwd)
         .file_name()
         .and_then(|name| name.to_str())
@@ -582,7 +582,7 @@ fn header(frame: &mut Frame, area: Rect, app: &App, form: &Form, paint: &Paint) 
             Span::styled(" EEVEE ", paint.selected),
             Span::styled(format!("  {project}"), paint.base),
             Span::styled(
-                format!("  /  {}  /  {}", form.name, selection_line(app)),
+                format!("  /  {}  /  {}", app.lead_label(), selection_line(app)),
                 paint.muted,
             ),
         ])),
@@ -714,10 +714,10 @@ fn workspace(
             paint.accent,
         ));
     }
-    if matches!(app.form, 5..=8) {
+    if matches!(app.form(), 5..=8) {
         lines.push(Line::from(""));
         lines.push(Line::styled(
-            if app.form == 8 {
+            if app.form() == 8 {
                 "Enter Handoff / /memory Approved memories"
             } else {
                 "Enter Specialist desk / /workflows"
@@ -756,18 +756,18 @@ fn compact_companion(
     text(
         frame,
         row(content, 0, 1),
-        FORMS[app.form].name,
+        FORMS[app.form()].name,
         paint.accent,
     );
     text(
         frame,
         row(content, 1, 1),
-        FORMS[app.form].element,
+        FORMS[app.form()].element,
         paint.muted,
     );
     let image = companion_portrait(area);
     if show_image {
-        artwork.render(app.form, image, frame.buffer_mut());
+        artwork.render(app.form(), image, frame.buffer_mut());
     }
     let status = if app.criteria.is_empty() {
         Cow::Borrowed("No criteria yet")
@@ -814,7 +814,7 @@ fn companion(
     );
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let form = &FORMS[app.form];
+    let form = &FORMS[app.form()];
     frame.render_widget(
         Paragraph::new(form.name)
             .style(paint.accent)
@@ -829,7 +829,7 @@ fn companion(
     );
     let image = portrait(area);
     if show_image {
-        artwork.render(app.form, image, frame.buffer_mut());
+        artwork.render(app.form(), image, frame.buffer_mut());
     }
     let details = row(
         content,
@@ -839,7 +839,7 @@ fn companion(
     let lines = vec![
         Line::styled(form.element, paint.muted),
         Line::from(form.role),
-        Line::styled(artwork.status(app.form), paint.muted),
+        Line::styled(artwork.status(app.form()), paint.muted),
     ];
     scroll_text(
         frame,
@@ -909,7 +909,7 @@ fn inspect(
                 _ => "",
             }
             .escape_debug(),
-            artwork.status(app.form),
+            artwork.status(app.form()),
             graphics_status,
             safe_path
         )
@@ -960,7 +960,7 @@ fn forms(
         row(content, 0, 1),
         &format!(
             "Current: {} / selection starts no work",
-            FORMS[app.form].name
+            FORMS[app.form()].name
         ),
         paint.muted,
     );
@@ -988,7 +988,7 @@ fn forms(
                     "{} {}{}",
                     if index == selected { ">" } else { " " },
                     index + 1,
-                    if index == app.form { " current" } else { "" }
+                    if index == app.form() { " current" } else { "" }
                 ),
                 if index == selected {
                     cell_paint.selected
@@ -1018,7 +1018,7 @@ fn forms(
                 if index == selected { ">" } else { " " },
                 index + 1,
                 form.name,
-                if index == app.form { " *" } else { "" }
+                if index == app.form() { " *" } else { "" }
             );
             text(
                 frame,
@@ -1635,9 +1635,9 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
         "Enter Save locally / Ctrl+N Newline\n@ Files / / Commands / Esc Review draft"
     } else if app.effective_focus() != Pane::Workspace {
         "/goal Edit goal / Tab Focus\nEnter opens focused details"
-    } else if matches!(app.form, 5..=7) {
+    } else if matches!(app.form(), 5..=7) {
         "Enter Specialist desk / /goal Edit goal"
-    } else if app.form == 8 {
+    } else if app.form() == 8 {
         "Enter Prepare handoff / /goal Edit goal"
     } else {
         "Enter Edit goal / /provider Choose provider"

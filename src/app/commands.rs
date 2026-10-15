@@ -612,7 +612,7 @@ mod tests {
         query(&mut app, "role-glaceon");
         assert_eq!(app.command_popup.as_ref().unwrap().candidates().count(), 0);
         key(&mut app, KeyCode::Enter);
-        assert_eq!(app.form, 0);
+        assert_eq!(app.form(), 0);
     }
 
     #[test]

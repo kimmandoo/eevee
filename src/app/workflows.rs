@@ -404,9 +404,9 @@ fn actions(tab: Tab) -> &'static [(Action, &'static str)] {
 impl App {
     pub fn workflow_open(&mut self) {
         if !self.workflow.opened
-            || (self.workflow.last_form != Some(self.form) && matches!(self.form, 5..=7))
+            || (self.workflow.last_form != Some(self.form()) && matches!(self.form(), 5..=7))
         {
-            self.workflow.tab = match self.form {
+            self.workflow.tab = match self.form() {
                 6 => Tab::Refactor,
                 7 => Tab::Review,
                 8 => Tab::Recipe,
@@ -415,7 +415,7 @@ impl App {
             self.workflow.selected = 0;
             self.workflow.opened = true;
         }
-        self.workflow.last_form = Some(self.form);
+        self.workflow.last_form = Some(self.form());
         self.execution.open(self.task_id);
         self.workflow_refresh();
     }
@@ -978,7 +978,7 @@ impl App {
                 if self.planning.busy() || self.execution.busy() {
                     return Err("Finish or cancel active work before a Jolteon handoff.".into());
                 }
-                self.form = 2;
+                self.set_form(2);
                 self.changed_task();
                 self.execution.open(self.task_id);
                 self.open_overlay(Overlay::Execution);
@@ -1072,7 +1072,7 @@ impl App {
                         "Finish or cancel active work before a separate managed review.".into(),
                     );
                 }
-                self.form = 7;
+                self.set_form(7);
                 self.planning
                     .set_operation(crate::providers::Operation::Review);
                 self.changed_task();
@@ -1325,7 +1325,7 @@ impl App {
             return Err("Curated handoff exceeds the 4096-byte Next action limit. Shorten the selected explanation/finding before handing it off; existing task input is unchanged.".into());
         }
         self.next_action = next;
-        self.form = 3;
+        self.set_form(3);
         self.changed_task();
         self.planning
             .set_operation(crate::providers::Operation::Implement);

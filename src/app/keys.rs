@@ -187,11 +187,11 @@ impl App {
             self.repository.as_ref(),
         );
         if operation != self.planning.operation {
-            self.form = match self.planning.operation {
+            self.set_form(match self.planning.operation {
                 crate::providers::Operation::Implement => 3,
                 crate::providers::Operation::Review => 7,
                 crate::providers::Operation::Plan => 4,
-            };
+            });
             self.changed_task();
         }
         changed
@@ -224,11 +224,11 @@ impl App {
             self.repository.as_ref(),
         );
         if operation != self.planning.operation {
-            self.form = match self.planning.operation {
+            self.set_form(match self.planning.operation {
                 crate::providers::Operation::Implement => 3,
                 crate::providers::Operation::Review => 7,
                 crate::providers::Operation::Plan => 4,
-            };
+            });
             self.changed_task();
         }
         changed
@@ -453,10 +453,10 @@ impl App {
             }
             KeyCode::Enter => match self.effective_focus() {
                 Pane::Companion => self.open_overlay(Overlay::Forms),
-                Pane::Workspace if matches!(self.form, 5..=7) => {
+                Pane::Workspace if matches!(self.form(), 5..=7) => {
                     self.open_overlay(Overlay::Workflows)
                 }
-                Pane::Workspace if self.form == 8 => self.open_overlay(Overlay::Handoff),
+                Pane::Workspace if self.form() == 8 => self.open_overlay(Overlay::Handoff),
                 Pane::Workspace => self.begin_edit(),
                 Pane::Inspector => self.open_overlay(Overlay::Inspector),
             },

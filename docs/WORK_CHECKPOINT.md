@@ -1,5 +1,14 @@
 # Work Checkpoint
 
+## 2026-10-15 — PT02A partner table (Schema 7) and PT02B lead-partner accessor
+
+- **Delivered:**
+  - `b004f82` `feat(store): add partner table and schema 7 migration` — new `partners` table (id, nickname nullable ≤512B, form, met_at, met_derived flag, created_project), `tasks.lead_partner` (default 1, CHECK ≥1) and reserved `tasks.partner_drafts` (JSON object keyed by partner id, ≤64KiB, reserved for PT05B). Migration derives partner #1 in the globally oldest task's form, met_at = earliest `updated_at`, created_project = that project; `migrate_partners` runs in the same transaction for every path (v6 direct, and transitively v0–v5). `src/store/partners.rs` holds load/validate/inspect; `Snapshot.lead_partner` and `Project.partners` carry the rows. New tests: `schema_six_store_migrates_partner_one_and_resumes_tasks_unchanged`, `schema_eight_store_is_refused_without_rewriting`, plus three partner-corruption mutations in the malformed-schema test.
+  - `refactor(app): route form state through the lead partner` — `App.form` field replaced by `lead: store::Partner`; `form()`, `lead()`, `lead_label()` and `set_form()` are the only access paths; header shows `Eevee #1 · <Form>`; `save()` persists the partner's form; `restart_restores_the_lead_partners_stored_form` test added.
+- **Verification:** `cargo fmt --check` clean; `cargo clippy --locked --all-targets -- -D warnings` clean; `cargo test --locked --all-targets` 378 passed / 0 failed / 2 ignored (was 375/2 at 086c697). `scripts/schema_upgrade_smoke.py --previous-binary target/ev-previous (real 086c697 build) --binary target/release/ev` passed all three cases: v6→v7 upgrade preserved task bytes, the v6 binary refused the v7 store byte-identically, and the current binary resumed (`target/schema-upgrade-smoke/results.json`). PTY demo at 120×36 and 60×18 (`target/pt02b-demo/`): header `Eevee #1 · Eevee` → `/forms` → Jolteon → `Eevee #1 · Jolteon`, restored after relaunch.
+- **Script fix:** `schema_upgrade_smoke.py` `previous_action` predated the slash chooser (labels, `║` borders, Ctrl+K/Home race); now filters by typed command name with a `> /name` confirmation (see TROUBLESHOOTING).
+- **Next action:** PT03A named form commands (`/vaporeon` etc.).
+
 ## 2026-10-15 — Pixel-art installer Poké Ball
 
 - **Released first:** v0.1.3 published from `96b1ab0` after native CI run 38665079741 passed; release run 38665646904 succeeded with all 8 assets (5 archives, 2 installers, SHA256SUMS).

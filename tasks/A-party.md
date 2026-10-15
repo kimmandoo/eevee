@@ -12,7 +12,7 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT02B — Lead-partner accessor
 
-- [ ] Route every read and write of the active form through the lead partner.
+- [x] Route every read and write of the active form through the lead partner.
 - **Priority:** 1. **Needs:** PT02A. **Builds on:** V03.
 - **Change:** Replace direct `App.form` uses with one accessor/mutator pair backed by the lead partner. The header shows the partner (`Eevee #1 · Jolteon`).
 - **Accept:** All existing form-switch, picker and persistence tests pass unchanged. After a restart, the stored form equals the partner's form.

@@ -106,7 +106,8 @@ pub enum StorageState {
 }
 
 pub struct App {
-    pub form: usize,
+    /// The active task's lead partner; its form is the active form.
+    lead: store::Partner,
     pub selected: usize,
     /// Preferred focus, retained even when its pane is temporarily hidden.
     pub focus: Pane,
@@ -199,7 +200,7 @@ pub struct App {
 impl App {
     pub fn new(cwd: String, width: u16, height: u16) -> Self {
         Self {
-            form: 0,
+            lead: store::Partner::default(),
             selected: 0,
             focus: Pane::Workspace,
             overlay: None,
@@ -322,8 +323,35 @@ impl App {
         if self.overlay == Some(Overlay::Preview) {
             self.preview_form
         } else {
-            self.form
+            self.form()
         }
+    }
+
+    /// The active form is the lead partner's form; persisted per task as
+    /// `Snapshot.form` / `tasks.lead_partner`.
+    pub fn form(&self) -> usize {
+        self.lead.form
+    }
+
+    /// The lead partner record loaded from the store.
+    pub fn lead(&self) -> &store::Partner {
+        &self.lead
+    }
+
+    /// Header identity: nickname when set (PK01), else `Eevee #<id>`.
+    pub fn lead_label(&self) -> String {
+        let name = self
+            .lead
+            .nickname
+            .clone()
+            .unwrap_or_else(|| format!("Eevee #{}", self.lead.id));
+        format!("{name} · {}", crate::domain::FORMS[self.form().min(8)].name)
+    }
+
+    /// The only writer of the active form. Callers invoke `changed_task()`
+    /// when the switch should persist.
+    pub(super) fn set_form(&mut self, form: usize) {
+        self.lead.form = form;
     }
 
     /// Saved line offset for the currently visible, non-selecting surface.

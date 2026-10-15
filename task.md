@@ -4,7 +4,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 
 | File | Section | Open |
 |---|---|---|
-| [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 19 |
+| [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 18 |
 | [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 9 |
 | [C-relays.md](tasks/C-relays.md) | Form relays | 8 |
 | [D-moves.md](tasks/D-moves.md) | Moves: teaching and learning skills | 14 |
@@ -17,7 +17,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 ## Status
 
 - **Released:** 0.1.3 (tags v0.1.0–v0.1.3). Schema 7 store.
-- **Done:** the 25 original tasks plus PT01 (party contract), PT02A (partner table / Schema 7) and the first code-structure pass (index below). **Open:** 103 small tasks. **Dropped:** T05.
+- **Done:** the 25 original tasks plus PT01 (party contract), PT02A (partner table / Schema 7), PT02B (lead-partner accessor) and the first code-structure pass (index below). **Open:** 102 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.
 
