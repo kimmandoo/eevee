@@ -1,5 +1,12 @@
 # Work Checkpoint
 
+## 2026-10-15 — Eevee identity backlog (section J)
+
+- **Requested / specified:** Add small tasks that specialize Eevee's trait. Section J in `task.md` adds nine unchecked tasks, EV01–EV09, each with priority, dependencies, bounded change and observable acceptance: evidence-based form suggestion, carry-over card, capability chip, empty states, party status from exit evidence, route history, return to Eevee, event dialogue lines and bond proposals.
+- **Boundary:** Local UI/state only; suggestions never self-activate, switches grant/send nothing, and DESIGN_RULES' no-XP/affection/streak rule plus "form selection is not evidence" are preserved.
+- **Verification:** Parsed 58 unique task IDs; every `Depends on` reference resolves. Documentation-only change; no code, test or backtest run.
+- **Next action:** Implement EV01 (priority 1) when requested; it depends on completed V03/E02/R02.
+
 ## 2026-10-15 — Token-economy dedup + provider-hub logic fixes
 
 - **Delivered:** Local, deterministic request deduplication across the basket and Codex baseline. `context::execute` Assemble now emits `{source_root, captures:[…]}`: the shared repository root is hoisted once, `source_sha256` serializes as hex, and a capture byte-covered by a wider capture of the same `(root, path, revision)` emits `same_bytes_as` instead of duplicated text — the citation target is always a maximal (text-bearing) entry, so chains are impossible. Codex `edit_baseline` cites a byte-identical whole-file capture rather than embedding the file twice. `Payload.deduplicated_bytes` and `Receipt.deduplicated` surface savings in the basket drawer and request receipt, labelled local-only.

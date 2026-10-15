@@ -2,9 +2,11 @@
 
 ## Active work
 
-**Existing A–G scope: 25 of 31 tasks passed scoped acceptance**, including P02 and U01/L01/G01/S01/S02/S03. **Future sections H–I contain 18 planned items (0/18 complete); total backlog: 25/49 complete.** Schema-6 specialist workflows, approved scoped memory and plan-only recipes passed all five native build/installed-runtime rows at `d198fa5`; SDK policy also passed. All specified local performance workloads and real Codex/OpenCode scenarios completed. The user-authorized **0.1.0 core release** promotes those exact qualified artifacts. **A04/A06/full A07 remain unchecked pending permitted Claude credentials and completed eligible Gemini authentication/model conformance; full Q01/Q02/P03 retain those dependencies.** Core acceptance is not advertised as complete provider interoperability.
+**Existing A–G scope: 25 of 31 tasks passed scoped acceptance**, including P02 and U01/L01/G01/S01/S02/S03. **Future sections H–J contain 27 planned items (0/27 complete); total backlog: 25/58 complete.** Schema-6 specialist workflows, approved scoped memory and plan-only recipes passed all five native build/installed-runtime rows at `d198fa5`; SDK policy also passed. All specified local performance workloads and real Codex/OpenCode scenarios completed. The user-authorized **0.1.0 core release** promotes those exact qualified artifacts. **A04/A06/full A07 remain unchecked pending permitted Claude credentials and completed eligible Gemini authentication/model conformance; full Q01/Q02/P03 retain those dependencies.** Core acceptance is not advertised as complete provider interoperability.
 
 **0.1.1 release request (2026-10-14):** The user asked to implement the token-economy work, commit/push it and release **0.1.1**. Delivered: T01's local request receipt (partial; see its note), the Claude Console OAuth route, and the version bump. Publication still requires the exact-commit five-row native qualification. This explicit request lifts only the release hold; A04/A06/A07 and the other section I tasks remain unchecked. T05 budgets/repeat detection were later dropped at the user's request, and CI was reduced to one check job plus five build/install rows.
+
+**Eevee identity request (2026-10-15):** Add small tasks that make Eevee's adaptability concrete. Section J defines nine future tasks (EV01–EV09): evidence-based form suggestion, carry-over card, capability chip, empty states, evidence-backed party status, route history, return to Eevee, event dialogue and bond proposals. Backlog design only; no runtime change.
 
 **Current differentiation request (2026-10-14):** Add substantive token-saving and tool-calling features, not just more commands or cosmetic changes. Section I defines twelve future tasks with measurable acceptance, explicit control boundaries and no promised savings before measurement. This is backlog design, not implementation or permission for paid model runs.
 
@@ -484,6 +486,85 @@ These twelve items are **planned, not implemented**. The product distinction is 
 - **Change:** Maintain paired baseline/optimized journeys for bug fixing, code explanation, noisy-log diagnosis and resume, including Unicode, cross-file and stale-input cases. Hold model/version/settings, initial repository and success criteria constant; separate cold/warm caches and include discovery, indexing, summarization, rehydration and retries in the cost. This is targeted optimization acceptance, not a replacement for Q02's complete resource/platform gate.
 - **Accept:** Run at least three paired trials per journey on an actually qualified provider and report raw samples, task correctness, missed seeded defects, wall time, model turns, executed tools and available usage/cost. Baseline and optimized runs pass the same functional/permission checks. Show a measured reduction for context selection and tool-result paging; publish regressions and unknown billing separately, with no universal percentage claim. Missing credentials block live results, not offline byte/selection checks.
 
+## J — Eevee as an adaptable partner
+
+These nine items are **planned, not implemented**. Eevee's distinguishing trait is adaptability: one partner keeps the same task while changing form to fit the problem. Each item makes that trait concrete in a small, independently demoable slice: the right form is easy to reach, a switch shows exactly what carries over, and each form leaves a distinct, evidence-backed trace.
+
+- **Boundaries:** All items are local UI/state work with zero provider or network invocations. Suggestions are labelled, deterministic and never self-activate; a form switch grants nothing and sends nothing. Respect the bond rule: no affection score, XP, streaks, random unlocks, invented praise or fabricated stats. Form selection alone remains non-evidence.
+- **Order:** Priority 1 (EV01–EV04) makes switching informed; priority 2 (EV05–EV09) adds history, dialogue and habit reuse. Each item needs its own actual-TUI demo at 120×36 and 60×18 and its own commit.
+
+### EV01 — Evidence-based form suggestion
+
+- [ ] Suggest the form that fits the task's current evidence, with the fact that triggered it.
+- **Priority:** 1.
+- **Depends on:** V03, E02, R02.
+- **Change:** Map task state to at most one suggested form with deterministic local rules: goal without criteria → Espeon; criteria without pinned context → Vaporeon; latest owned run failed → Umbreon; working diff with no run at its revision → Jolteon; passing run not yet reviewed → Glaceon; accepted review → Sylveon. Show it in the task card and picker as `Suggested: Umbreon — cargo test exited 101`. No rule match shows no suggestion.
+- **Accept:** Seed each state in a fixture task and observe the expected suggestion and reason. Editing a source after a passing run makes the run stale and changes the suggestion. Dismissing hides it until the triggering evidence identity changes. Enter in the picker only previews; no form, permission or request changes without confirmation.
+
+### EV02 — Evolution carry-over card
+
+- [ ] Show what stays and what changes before a form switch is confirmed.
+- **Priority:** 1.
+- **Depends on:** V03, C02, UX01.
+- **Change:** Confirming a different form opens a one-screen card listing what carries over (goal, criteria met/total, pinned captures, open hypotheses/findings, draft) and the capability difference between the two forms from the DESIGN_RULES role table (read / edit / run). State `No permission granted. Nothing sent.` once. Reuse the existing task envelope fields; no new state copy.
+- **Accept:** Switch Vaporeon→Flareon, Flareon→Jolteon and Glaceon→Flareon; displayed counts equal stored state and the capability difference matches the role table. Esc cancels with form, focus and draft unchanged. Fits 60×18 without hiding Confirm/Cancel; monochrome/ASCII keep the added/removed capabilities distinguishable.
+
+### EV03 — Form capability chip and owning-form redirect
+
+- [ ] Make it obvious which form owns an action instead of failing silently.
+- **Priority:** 1.
+- **Depends on:** UX01, R01, A03.
+- **Change:** Add a short header chip with the active form's default capabilities (`read · run` for Jolteon, `read` for Glaceon). An action outside the active form's responsibility shows a disabled reason naming its owning form and offers `Switch to <form>`, which opens EV02. The chip is descriptive; enforcement remains the existing approval flow.
+- **Accept:** From Glaceon request an edit and from Espeon request a command; each shows the owning form and a working switch path without starting the action. Existing approvals are neither widened nor bypassed. Chip text fits the header at 60×18 without truncating project/form names.
+
+### EV04 — Form-specific empty states
+
+- [ ] Give each form one obvious first action when it has nothing to show.
+- **Priority:** 1.
+- **Depends on:** V01, UX01.
+- **Change:** When a form's main surface is empty, show its `object → action` line from the DESIGN_RULES interaction table and one primary action that opens the existing flow (Vaporeon `@` attach, Jolteon `/run` review, Umbreon add hypothesis, Glaceon open review desk, Sylveon preview handoff). One line plus one action; keep concise-copy rules.
+- **Accept:** Open all nine forms on an empty task at 120×36 and 60×18; each primary action opens the existing review/flow and never executes. No placeholder counts or fake results; non-empty surfaces are unchanged.
+
+### EV05 — Party status from real exit evidence
+
+- [ ] Turn the evolution picker into a status board of what each form has actually produced for this task.
+- **Priority:** 2.
+- **Depends on:** V03, R02, G01, S01.
+- **Change:** In picker detail and grid, mark each form's exit artifact for the current task as `produced`, `stale` or `none` with one fact (Vaporeon `4 captures`, Jolteon `exit 0 at a1b2c3, stale`, Glaceon `changes requested`). Derive only from stored evidence identities; never show HP, levels or completion percentages.
+- **Accept:** Produce, then invalidate (source edit, new diff) artifacts for Vaporeon, Jolteon and Glaceon; markers change accordingly after restart. An unused form shows `none`, not a failure. Markers stay readable in monochrome/ASCII and the compact list.
+
+### EV06 — Form route in the field journal
+
+- [ ] Record how the task moved between forms without treating the moves as evidence.
+- **Priority:** 2.
+- **Depends on:** E02, R02, EV05.
+- **Change:** Store form switches as route events (from, to, time, accepted EV01 suggestion if any, optional user reason) distinct from evidence. The task card shows a compact route such as `Vaporeon → Flareon → Jolteon → Glaceon`, dimming visits that produced no exit artifact. Resume restores the last active form. Route events are excluded from provider packets and handoff evidence.
+- **Accept:** Switch through four forms, restart and resume in the last form with the same route. Inspect the journal: route events are labelled non-evidence. An assembled provider packet and Sylveon handoff contain no route events. Purge removes them with the task.
+
+### EV07 — Return to Eevee
+
+- [ ] Step back to intake from any form in one action.
+- **Priority:** 2.
+- **Depends on:** V03, EV01.
+- **Change:** Add a `/eevee` action and a top picker entry that returns an idle form to Eevee, preserving task, draft, focus and context, and shows the current EV01 suggestion. While a request is running, offer Stay or explicit cancel-and-wait per the running-ownership rule.
+- **Accept:** Return from Flareon, Umbreon and Sylveon; state is byte-identical before/after. During a running request, the action never cancels implicitly or transfers ownership.
+
+### EV08 — Partner lines for real events
+
+- [ ] Let Eevee react in its dialogue box to actual events, naming the fact and next form.
+- **Priority:** 2.
+- **Depends on:** V01, R02, EV01.
+- **Change:** On a small fixed set of events (owned run failed/passed, review verdict, handoff ready, source changed after verification), show one deterministic dialogue line naming the fact and the EV01 suggestion, e.g. `Eevee: the test failed (exit 101). Umbreon can investigate.` No randomness, emotion score or praise; at most one line per event identity; a persistent preference turns lines off.
+- **Accept:** Trigger each event and see exactly one matching line; replaying the journal or restarting does not repeat it. With lines off, nothing else changes. Lines never hide permission/error facts and stay within the composer area at 60×18.
+
+### EV09 — Bond proposal from repeated instructions
+
+- [ ] Notice repeated instructions and offer to save them as an approved habit.
+- **Priority:** 2.
+- **Depends on:** S02, T01.
+- **Change:** Locally detect identical normalized instruction text sent in three or more requests within a project and let Sylveon propose it as a project or personal memory, showing where it was repeated. Proposals require the existing explicit S02 approval; dismissal is remembered per text hash. Never save, scope or infer preferences automatically.
+- **Accept:** Send the same instruction in three planning requests (recorded fixture events); a proposal appears with its three sources. Approve once and the next receipt shows the memory instead of repeated text; dismiss another and it does not return. Secrets-filtered or excluded text never becomes a proposal.
+
 ## Phase status
 
-Existing A–G scope: **25/31 complete, 6 unchecked**. Requested future section H: **0/6 complete**; section I: **0/12 complete**; T01 is partially implemented in 0.1.1 and T05 is dropped, with remaining acceptance recorded. Total: **25/49 complete, 24 unchecked**. A04/A06/full A07 still lack permitted Claude/Gemini authentication; full Q01/Q02/P03 therefore remain pending rather than inheriting local-core acceptance. Sections H–I do not retroactively widen existing acceptance or authorize implementation, paid experiments or provider access. The separately authorized 0.1.0 core release used successful exact-commit native artifacts. On 2026-10-14 the user explicitly requested 0.1.1 with the token-economy slice. That release lifts only the release hold; A04/A06/A07 remain unchecked and no provider gate is inherited.
+Existing A–G scope: **25/31 complete, 6 unchecked**. Requested future section H: **0/6 complete**; section I: **0/12 complete**; section J: **0/9 complete**; T01 is partially implemented in 0.1.1 and T05 is dropped, with remaining acceptance recorded. Total: **25/58 complete, 33 unchecked**. A04/A06/full A07 still lack permitted Claude/Gemini authentication; full Q01/Q02/P03 therefore remain pending rather than inheriting local-core acceptance. Sections H–J do not retroactively widen existing acceptance or authorize implementation, paid experiments or provider access. The separately authorized 0.1.0 core release used successful exact-commit native artifacts. On 2026-10-14 the user explicitly requested 0.1.1 with the token-economy slice. That release lifts only the release hold; A04/A06/A07 remain unchecked and no provider gate is inherited.
