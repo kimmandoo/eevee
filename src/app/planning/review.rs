@@ -194,6 +194,56 @@ impl State {
         self.review_start();
     }
 
+    /// Request the automatic catalogue fetch; the next call to
+    /// `start_automatic_catalogue` runs it once nothing else is in flight.
+    pub fn want_catalogue(&mut self) {
+        self.auto_models = true;
+    }
+
+    /// Whether an automatic catalogue fetch is wanted and the request slot
+    /// is free (an open picker is replaced by the fetch, then reopened).
+    pub fn catalogue_due(&self) -> bool {
+        self.auto_models && !self.busy_except_picker() && !self.journal_failed()
+    }
+
+    /// Prepare the metadata-only catalogue preview without opening a review;
+    /// `Event::Preview` then runs it directly unless it reports blockers.
+    pub fn start_automatic_catalogue(
+        &mut self,
+        task: &store::Snapshot,
+        excerpts: &[context::Excerpt],
+        report: Option<&Arc<repo::Report>>,
+    ) {
+        self.auto_models = false;
+        self.picker = None;
+        self.prepare(false, false, true, task, excerpts, report);
+        if self.awaiting_preview {
+            self.auto_run = true;
+            self.notice = "Loading models…".into();
+        } else {
+            self.auto_picker = false;
+        }
+    }
+
+    pub(super) fn run_automatic_catalogue(&mut self) {
+        let Some(preview) = self.preview.as_ref() else {
+            return;
+        };
+        if let Some(blocker) = preview.blockers.first() {
+            self.auto_blocked = Some(format!("Models not loaded: {blocker}"));
+            self.auto_picker = false;
+            self.cancel();
+            return;
+        }
+        self.pending = Some(Request::Run {
+            generation: preview.generation,
+        });
+        self.preview = None;
+        self.active = true;
+        self.review_start();
+        self.notice = "Loading models…".into();
+    }
+
     pub fn paste(&mut self, text: &str) -> bool {
         if let Some(answer) = &mut self.paths_editor {
             let remaining = ANSWER_BYTES.saturating_sub(answer.text.len());

@@ -282,6 +282,49 @@ impl App {
             && !self.editing
     }
 
+    /// A provider login/status check finished: a connected task provider
+    /// with no cached catalogue fetches its models automatically.
+    pub fn connection_returned(
+        &mut self,
+        profile: usize,
+        outcome: crate::providers::auth::Outcome,
+    ) {
+        self.agents.auth_returned(profile, outcome);
+        if outcome == crate::providers::auth::Outcome::Authenticated
+            && profile == self.agents.active
+            && !self.planning.catalogues.contains_key(&self.planning.agent)
+        {
+            self.planning.want_catalogue();
+        }
+    }
+
+    /// Start a wanted catalogue fetch once a committed task can route it. The
+    /// metadata-only request carries no draft, so editing does not block it.
+    pub fn drive_catalogue(&mut self) -> bool {
+        if !self.planning.catalogue_due()
+            || self.execution.busy()
+            || self.transitioning
+            || self.management.is_some()
+            || self.switch_task.is_some()
+        {
+            return false;
+        }
+        let Some(task) = self
+            .tasks
+            .iter()
+            .find(|task| task.id == self.task_id && task.id > 0 && !task.archived)
+            .cloned()
+        else {
+            return false;
+        };
+        self.planning.start_automatic_catalogue(
+            &task,
+            &self.sources.basket,
+            self.repository.as_ref(),
+        );
+        true
+    }
+
     pub fn authentication_returned(&mut self) {
         self.planning.invalidate_authentication();
         self.repo_refresh = true;

@@ -1418,3 +1418,127 @@ fn dirty_draft_discard_only_affects_its_own_partner() {
     app.open_editor(store::EditorField::Goal);
     assert!(app.input.is_empty());
 }
+
+fn saved_task(app: &mut App) -> i64 {
+    app.command("goal");
+    app.update(Event::Paste("catalogue goal".into()));
+    key(app, KeyCode::Enter);
+    app.store_event(store::Event::Saved(committed(app)));
+    app.task_id
+}
+
+fn catalogue() -> crate::providers::ModelCatalogue {
+    crate::providers::ModelCatalogue {
+        models: vec![crate::providers::ModelOption {
+            id: "advertised-model".into(),
+            name: "Advertised model".into(),
+            description: "From provider metadata".into(),
+            efforts: vec!["high".into()],
+            default_effort: Some("high".into()),
+        }],
+        current: Some("advertised-model".into()),
+        source: "Official metadata".into(),
+        effort_note: None,
+    }
+}
+
+/// Answer the automatic catalogue preview and run it to completion.
+fn finish_catalogue(app: &mut App, task_id: i64, blockers: Vec<String>) {
+    let Some(crate::providers::Request::Preview(input)) = app.planning.pending.take() else {
+        panic!("catalogue preview was not requested");
+    };
+    assert!(input.inspect_models && input.resume.is_none());
+    app.planning.event(crate::providers::Event::Preview(
+        crate::providers::Preview {
+            generation: 3,
+            task_id,
+            thread_id: None,
+            trust: Vec::new(),
+            payload: "{}".into(),
+            blockers: blockers.clone(),
+        },
+    ));
+    if blockers.is_empty() {
+        assert!(
+            matches!(
+                app.planning.pending.take(),
+                Some(crate::providers::Request::Run { generation: 3 })
+            ),
+            "the metadata-only preview runs without a review"
+        );
+        app.planning.event(crate::providers::Event::Models {
+            generation: 3,
+            task_id,
+            catalogue: catalogue(),
+        });
+    } else {
+        assert!(matches!(
+            app.planning.pending.take(),
+            Some(crate::providers::Request::Cancel { generation: 3 })
+        ));
+    }
+    app.planning.event(crate::providers::Event::Finished {
+        generation: 3,
+        task_id,
+        outcome: if blockers.is_empty() {
+            crate::providers::Outcome::Completed
+        } else {
+            crate::providers::Outcome::Cancelled
+        },
+        message: "done".into(),
+    });
+}
+
+#[test]
+fn connecting_the_task_provider_loads_models_without_a_review() {
+    let mut app = app();
+    // Connected before any task exists: the fetch waits for a saved task.
+    app.connection_returned(
+        app.agents.active,
+        crate::providers::auth::Outcome::Authenticated,
+    );
+    assert!(!app.drive_catalogue());
+    let task_id = saved_task(&mut app);
+    assert!(app.drive_catalogue());
+    finish_catalogue(&mut app, task_id, Vec::new());
+    assert!(app.planning.catalogues.contains_key(&app.planning.agent));
+    assert!(
+        app.planning.picker.is_none(),
+        "a connect-time fetch opens nothing"
+    );
+    assert!(!app.planning.busy());
+    assert_eq!(app.planning.notice, "Models loaded.");
+    assert!(!app.drive_catalogue(), "one fetch per connection");
+    // A failed login never fetches.
+    app.planning.catalogues.clear();
+    app.connection_returned(app.agents.active, crate::providers::auth::Outcome::Failed);
+    assert!(!app.drive_catalogue());
+}
+
+#[test]
+fn empty_model_picker_fetches_then_reopens_and_blockers_are_reported() {
+    let mut app = app();
+    let task_id = saved_task(&mut app);
+    app.editing = false;
+    app.command("model");
+    assert_eq!(app.planning.notice, "Loading models…");
+    assert!(app.drive_catalogue());
+    finish_catalogue(&mut app, task_id, Vec::new());
+    assert!(app.planning.picker == Some(planning::Picker::Model));
+    assert!(app.planning.picker_current().is_some());
+    // A blocked preview is cancelled with its reason instead of a review.
+    app.planning.picker = None;
+    app.planning.catalogues.clear();
+    app.planning.want_catalogue();
+    assert!(app.drive_catalogue());
+    finish_catalogue(
+        &mut app,
+        task_id,
+        vec!["provider executable missing".into()],
+    );
+    assert_eq!(
+        app.planning.notice,
+        "Models not loaded: provider executable missing"
+    );
+    assert!(app.planning.catalogues.is_empty() && !app.planning.busy());
+}

@@ -11,6 +11,8 @@
 
 ## 2026-10-15
 
+- feat(providers): loaded the model catalogue automatically — a successful task-provider connection, or opening `/model`/`/effort` with nothing cached, runs the metadata-only catalogue inspection without a review page (it waits for a saved task, and preview blockers stop it with a one-line reason); the picker reopens once models arrive. `/models-refresh` stays the reviewed manual refresh.
+- fix(ux): trimmed popups and repeated text — a committed, clean task exits without the Confirm exit popup; composer hints appear once (footer, bottom row) instead of in both the composer and the footer; a notice clears on the next key; `/help` became a short key/command table; task cards show relative update times and only true archive/masked flags; run, criteria, forms and inspector text was shortened, and the inspector's removed letter shortcuts (e/j/z) were replaced by slash commands.
 - feat(party): retained per-(task, partner) drafts and exact carets, named the composer owner, and restored each partner's own previous-form memory. Existing drafts transferred to the task lead; discard reviews affected only the current draft. Schema 8 enlarged the reserved bounded draft column without reducing existing text limits.
 
 - fix(ux): goal Enter stays on the composer — the automatic post-save action chooser is removed; `/` and Ctrl+K still open the same searchable choices deliberately, and the save surfaces a short "Goal saved" notice. The `Popup.after_goal` machinery and the save-failure popup dismissal it needed are gone; DESIGN_RULES first-use contract updated, and the PTY smoke now asserts no chooser after a goal save.

@@ -179,7 +179,7 @@ fn run(config: Config) -> io::Result<()> {
                     }
                     let size = terminal.size()?;
                     app.update(event::Event::Resize(size.width, size.height));
-                    app.agents.auth_returned(plan.profile, completion.outcome);
+                    app.connection_returned(plan.profile, completion.outcome);
                     dirty = true;
                 }
             }
@@ -383,6 +383,7 @@ fn run(config: Config) -> io::Result<()> {
                 dirty = true;
             }
             dirty |= app.settle_planning();
+            dirty |= app.drive_catalogue();
             while let Some(event) = store.try_event() {
                 outstanding_store = outstanding_store.saturating_sub(1);
                 if matches!(&event, store::Event::Managed { .. }) {
