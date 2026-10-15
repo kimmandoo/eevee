@@ -6,7 +6,7 @@ use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::{App, Overlay};
-use crate::workflows::{
+use crate::workspace::workflows::{
     self, EvidenceRef, EvidenceRelation, EvidenceStatus, EvidenceView, Verdict,
 };
 
@@ -86,7 +86,7 @@ pub struct State {
     #[serde(skip)]
     pub reviewed: bool,
     #[serde(skip)]
-    pub recipe: Option<crate::workflows::Recipe>,
+    pub recipe: Option<crate::workspace::workflows::Recipe>,
     #[serde(skip)]
     pub statuses: Vec<(EvidenceRef, EvidenceStatus)>,
     #[serde(skip)]
@@ -378,15 +378,15 @@ fn actions(tab: Tab) -> &'static [(Action, &'static str)] {
             ),
             (Review, "Open managed Review preview (no send)"),
             (
-                Verdict(crate::workflows::Verdict::Inconclusive),
+                Verdict(crate::workspace::workflows::Verdict::Inconclusive),
                 "Verdict: Inconclusive",
             ),
             (
-                Verdict(crate::workflows::Verdict::RequestChanges),
+                Verdict(crate::workspace::workflows::Verdict::RequestChanges),
                 "Verdict: Request changes",
             ),
             (
-                Verdict(crate::workflows::Verdict::Accept),
+                Verdict(crate::workspace::workflows::Verdict::Accept),
                 "Verdict: Accept (coverage guarded)",
             ),
             (Fix, "Handoff selected finding to Flareon"),
@@ -500,9 +500,9 @@ impl App {
         );
     }
 
-    fn workflow_fingerprint(&self) -> crate::runner::InputSnapshot {
+    fn workflow_fingerprint(&self) -> crate::workspace::runner::InputSnapshot {
         if self.repo_loading || self.repo_refresh || !self.repo_error.is_empty() {
-            crate::runner::InputSnapshot::default()
+            crate::workspace::runner::InputSnapshot::default()
         } else {
             self.repository
                 .as_deref()
@@ -917,7 +917,7 @@ impl App {
                 .repository
                 .as_deref()
                 .ok_or_else(|| "Repository observation unavailable".to_string())
-                .and_then(crate::repo::revalidate_review);
+                .and_then(crate::workspace::repo::revalidate_review);
             if let Err(error) = result {
                 self.repo_refresh = true;
                 self.repo_loading = true;
@@ -1074,7 +1074,7 @@ impl App {
                 }
                 self.form = 7;
                 self.planning
-                    .set_operation(crate::provider::Operation::Review);
+                    .set_operation(crate::providers::Operation::Review);
                 self.changed_task();
                 self.open_overlay(Overlay::Planning);
                 self.planning.notice = "Independent read-only Review. Inspect scoped criteria, patch and selected observations; Preview and Run remain separate explicit actions.".into();
@@ -1328,7 +1328,7 @@ impl App {
         self.form = 3;
         self.changed_task();
         self.planning
-            .set_operation(crate::provider::Operation::Implement);
+            .set_operation(crate::providers::Operation::Implement);
         self.open_overlay(Overlay::Planning);
         self.planning.notice = "Curated specialist handoff staged as Next action. Save must finish before explicit Preview; no model request sent and no source permissions granted.".into();
         Ok(())
@@ -1513,28 +1513,4 @@ impl App {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn semantic_specialist_actions_keep_editor_text_and_context_guards() {
-        let mut app = App::new("/project".into(), 120, 36);
-        app.task_id = 7;
-        assert!(app.workflow_command("edit-hypothesis"));
-        app.workflow_paste("Literal /diagnostic, not a command.");
-        assert!(!app.workflow_command("diagnostic"));
-        assert_eq!(
-            app.workflow.value(Field::Hypothesis),
-            "Literal /diagnostic, not a command."
-        );
-        app.workflow_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        assert!(app.workflow_command("add-hypothesis"));
-        assert_eq!(app.workflows.hypotheses.len(), 1);
-        assert!(app.workflow_command("hypothesis-evidence"));
-        assert!(!app.workflow_command("specialist-fix"));
-        assert!(app.workflow_command("attach-evidence"));
-        assert!(app.workflows.hypotheses[0].evidence.is_empty());
-        assert!(app.workflow.chooser.is_some());
-        assert!(app.workflow.notice.contains("No evidence selected"));
-    }
-}
+mod tests;

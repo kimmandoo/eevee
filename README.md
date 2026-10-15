@@ -212,6 +212,20 @@ npm ci --ignore-scripts --no-audit --no-fund --prefix sidecar && npm test --pref
 
 Real-terminal journeys live in `scripts/*_smoke.py` (need `pyte==0.8.2` and `wcwidth==0.2.13`), e.g. `python scripts/workbench_smoke.py --binary target/release/ev --output target/workbench-smoke`. Live provider checks are opt-in (`--live`) and may incur usage.
 
+Source layout, by role:
+
+| Path | Role |
+| --- | --- |
+| `src/main.rs`, `config.rs`, `domain.rs` | Entry point, CLI/config parsing, form identities |
+| `src/app.rs`, `src/app/` | Interaction state and key handling per surface |
+| `src/ui.rs`, `src/ui/` | Rendering per surface; `ui/artwork.rs` sprites and native graphics |
+| `src/store/` | SQLite store: `tasks`, `memories`, `journal`, `runs`, `spool`, `schema`, `admission`, `recovery` |
+| `src/workspace/` | Local work: `repo`, `context`, `runner`, `receipt`, `privacy`, `handoff`, `memory`, `workflows` |
+| `src/providers.rs`, `src/providers/` | Provider request/event contract; `acp`, `codex`, `claude`, `agent` preflight, `auth` |
+| `src/platform/` | OS boundary: `terminal`, `input`, `native`, `distribution` |
+
+Large modules keep their unit tests in a sibling `tests.rs` (for example `src/store/tests.rs`).
+
 Please keep the approval, storage and cancellation contracts intact, add a focused regression for behavior fixes, and never commit credentials, task data or downloaded artwork.
 
 | Document | Purpose |

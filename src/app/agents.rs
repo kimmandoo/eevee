@@ -2,8 +2,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::{
-    agent::{Event, Profile, Request},
-    provider::Agent,
+    providers::Agent,
+    providers::agent::{Event, Profile, Request},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,15 +59,15 @@ pub struct State {
     discovering: bool,
     generation: u64,
     inflight: Option<(usize, u64)>,
-    pub auth_preview: Option<crate::auth::Plan>,
-    pub pending_auth: Option<crate::auth::Plan>,
+    pub auth_preview: Option<crate::providers::auth::Plan>,
+    pub pending_auth: Option<crate::providers::auth::Plan>,
     auth_preparing: Option<(usize, u64)>,
     pub method: usize,
     pub page: Page,
     pub action: usize,
     pub auth_details: bool,
     pub review_choice: usize,
-    outcomes: Vec<Option<crate::auth::Outcome>>,
+    outcomes: Vec<Option<crate::providers::auth::Outcome>>,
     /// Live website-OAuth credential expiry (unix seconds) for Devin launches;
     /// `u64::MAX` when the token has no JWT expiry, `None` when detached.
     pub session_credential_until: Option<u64>,
@@ -100,7 +100,7 @@ impl State {
             auth_preview: None,
             pending_auth: None,
             auth_preparing: None,
-            method: crate::auth::default_method(0),
+            method: crate::providers::auth::default_method(0),
             page: Page::Providers,
             action: 0,
             auth_details: false,
@@ -124,7 +124,7 @@ impl State {
 
     pub fn actions(&self) -> Vec<Action> {
         let mut actions = vec![Action::Connect];
-        if crate::auth::status_method(self.selected).is_some() {
+        if crate::providers::auth::status_method(self.selected).is_some() {
             actions.push(Action::Status);
         }
         if self.selected == self.active {
@@ -164,7 +164,7 @@ impl State {
     pub fn focus_active(&mut self) {
         if !self.busy() && self.auth_preview.is_none() && !self.preview {
             self.selected = self.active.min(self.profiles.len().saturating_sub(1));
-            self.method = crate::auth::default_method(self.selected);
+            self.method = crate::providers::auth::default_method(self.selected);
             self.page = Page::Providers;
             self.scroll = 0;
         }
@@ -187,7 +187,7 @@ impl State {
             return "Not installed";
         }
         match self.outcomes.get(index).copied().flatten() {
-            _ if index == crate::agent::DEVIN
+            _ if index == crate::providers::agent::DEVIN
                 && self.session_credential_until.is_some_and(|until| {
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -197,8 +197,8 @@ impl State {
             {
                 "Connected (session credential)"
             }
-            Some(crate::auth::Outcome::Authenticated) => "Connected",
-            Some(crate::auth::Outcome::NotAuthenticated) => "Not connected",
+            Some(crate::providers::auth::Outcome::Authenticated) => "Connected",
+            Some(crate::providers::auth::Outcome::NotAuthenticated) => "Not connected",
             _ => "Unknown",
         }
     }
@@ -207,26 +207,26 @@ impl State {
         match self.selected {
             0 => format!(
                 "Install the official Codex CLI on PATH: npm install -g @openai/codex@{}. Then Refresh installed providers.",
-                crate::agent::CODEX_RELEASE
+                crate::providers::agent::CODEX_RELEASE
             ),
-            1 => crate::auth::CLAUDE_POLICY.into(),
+            1 => crate::providers::auth::CLAUDE_POLICY.into(),
             2 => format!(
                 "Install the official OpenCode CLI on PATH: npm install -g opencode-ai@{}. Then Refresh installed providers.",
-                crate::agent::OPENCODE_RELEASE
+                crate::providers::agent::OPENCODE_RELEASE
             ),
             3 => format!(
                 "Install the official Gemini CLI on PATH: npm install -g @google/gemini-cli@{}. Then Refresh installed providers.",
-                crate::agent::GEMINI_RELEASE
+                crate::providers::agent::GEMINI_RELEASE
             ),
-            crate::agent::DEVIN => format!(
+            crate::providers::agent::DEVIN => format!(
                 "Install the official Devin CLI from https://docs.devin.ai/cli/ on PATH and use the supported {} release. Then Refresh installed providers. Eevee does not run an installer.",
-                crate::agent::DEVIN_RELEASE
+                crate::providers::agent::DEVIN_RELEASE
             ),
             _ => "Select a supported provider before installation or connection setup.".into(),
         }
     }
 
-    fn prepare_auth(&mut self, method: Option<crate::auth::Method>) {
+    fn prepare_auth(&mut self, method: Option<crate::providers::auth::Method>) {
         if let Some(method) = method {
             self.generation += 1;
             self.auth_preparing = Some((self.selected, self.generation));
@@ -238,7 +238,7 @@ impl State {
             self.notice = "Preparing connection review; no provider program launched.".into();
         } else {
             self.notice = if self.selected == Agent::Claude.index() {
-                crate::auth::CLAUDE_POLICY.into()
+                crate::providers::auth::CLAUDE_POLICY.into()
             } else {
                 "No read-only status command is available. Native exit leaves connection status unknown.".into()
             };
@@ -250,13 +250,19 @@ impl State {
             Action::Connect => {
                 if !self.connectable(self.selected) {
                     self.notice = self.setup_hint();
-                } else if crate::auth::methods(self.selected).len() > 1 {
+                } else if crate::providers::auth::methods(self.selected).len() > 1 {
                     self.page = Page::Methods;
                 } else {
-                    self.prepare_auth(crate::auth::methods(self.selected).first().copied());
+                    self.prepare_auth(
+                        crate::providers::auth::methods(self.selected)
+                            .first()
+                            .copied(),
+                    );
                 }
             }
-            Action::Status => self.prepare_auth(crate::auth::status_method(self.selected)),
+            Action::Status => {
+                self.prepare_auth(crate::providers::auth::status_method(self.selected))
+            }
             Action::Version => {
                 if self
                     .profiles
@@ -287,7 +293,7 @@ impl State {
         }
     }
 
-    pub fn auth_returned(&mut self, profile: usize, outcome: crate::auth::Outcome) {
+    pub fn auth_returned(&mut self, profile: usize, outcome: crate::providers::auth::Outcome) {
         self.notice = outcome.label().into();
         if let Some(current) = self.outcomes.get_mut(profile) {
             *current = Some(outcome);
@@ -295,7 +301,7 @@ impl State {
         if let Some(profile) = self.profiles.get_mut(profile) {
             profile.authentication = self.notice.clone();
         }
-        if outcome == crate::auth::Outcome::Authenticated && profile == self.selected {
+        if outcome == crate::providers::auth::Outcome::Authenticated && profile == self.selected {
             self.page = Page::Actions;
             self.action = self.default_action();
             self.notice.push_str(if profile == self.active {
@@ -304,7 +310,7 @@ impl State {
                 " Next: Use for task."
             });
         }
-        if profile == 0 && outcome != crate::auth::Outcome::Authenticated {
+        if profile == 0 && outcome != crate::providers::auth::Outcome::Authenticated {
             self.notice.push_str(" Next: if the browser showed localhost connection refused (WSL/SSH), choose Connect > device authorization. On WSL, Windows port reservations can block Codex ports 1455/1457 even while its Linux listener is running. Choose Connect > device authorization to log in without changing Windows networking. Enable device-code authorization in ChatGPT Settings > Security (workspace policy may require an admin). Keep the official login open while entering its code in your browser. Never share codes or callback URLs; cancelled links cannot be reused.");
         }
         self.scroll = 0;
@@ -319,7 +325,7 @@ impl State {
                 // stable, so index-aligned outcomes carry over.
                 self.outcomes.resize(self.profiles.len(), None);
                 self.selected = self.selected.min(self.profiles.len().saturating_sub(1));
-                self.method = crate::auth::default_method(self.selected);
+                self.method = crate::providers::auth::default_method(self.selected);
                 self.discovering = false;
                 self.notice = "Choose a provider, then Enter for actions.".into();
             }
@@ -388,7 +394,7 @@ impl State {
             .then_some("Wait for installed provider discovery.");
         let connect = if profile.is_some() && !self.connectable(self.selected) {
             Some("This provider is not installed; inspect diagnostics for setup.")
-        } else if crate::auth::methods(self.selected).is_empty() {
+        } else if crate::providers::auth::methods(self.selected).is_empty() {
             Some("This provider has no supported connection method.")
         } else {
             None
@@ -417,7 +423,7 @@ impl State {
                 "status",
                 "Review provider connection status check",
                 blocked.or(missing).or_else(|| {
-                    crate::auth::status_method(self.selected)
+                    crate::providers::auth::status_method(self.selected)
                         .is_none()
                         .then_some("This provider has no supported status check.")
                 }),
@@ -475,12 +481,12 @@ impl State {
         match name {
             "connect" => self.activate(Action::Connect),
             "connect-method" => self.prepare_auth(
-                crate::auth::methods(self.selected)
+                crate::providers::auth::methods(self.selected)
                     .get(self.method)
                     .copied(),
             ),
             "method-next" => {
-                let count = crate::auth::methods(self.selected).len();
+                let count = crate::providers::auth::methods(self.selected).len();
                 if count > 0 {
                     self.method = (self.method + 1) % count;
                 }
@@ -603,7 +609,7 @@ impl State {
                 }
                 Page::Actions => self.activate(self.actions()[self.action]),
                 Page::Methods => self.prepare_auth(
-                    crate::auth::methods(self.selected)
+                    crate::providers::auth::methods(self.selected)
                         .get(self.method)
                         .copied(),
                 ),
@@ -619,7 +625,10 @@ impl State {
             KeyCode::Up | KeyCode::Down if self.page != Page::Diagnostics => {
                 let (selected, count) = match self.page {
                     Page::Providers => (&mut self.selected, self.profiles.len()),
-                    Page::Methods => (&mut self.method, crate::auth::methods(self.selected).len()),
+                    Page::Methods => (
+                        &mut self.method,
+                        crate::providers::auth::methods(self.selected).len(),
+                    ),
                     _ => {
                         let count = self.actions().len();
                         (&mut self.action, count)
@@ -634,7 +643,7 @@ impl State {
                     (*selected + 1) % count
                 };
                 if self.page == Page::Providers {
-                    self.method = crate::auth::default_method(self.selected);
+                    self.method = crate::providers::auth::default_method(self.selected);
                     self.action = 0;
                 }
                 self.scroll = 0;
@@ -711,7 +720,7 @@ mod tests {
     #[test]
     fn discovery_and_provider_return_select_recommendation_without_launching() {
         let state = State::new();
-        assert_eq!(state.method, crate::auth::default_method(0));
+        assert_eq!(state.method, crate::providers::auth::default_method(0));
         let mut state = discovered();
         state.method = 1;
         press(&mut state, KeyCode::Down);
@@ -719,7 +728,7 @@ mod tests {
         assert_eq!(state.method, 0);
         press(&mut state, KeyCode::Up);
         press(&mut state, KeyCode::Up);
-        assert_eq!(state.method, crate::auth::default_method(0));
+        assert_eq!(state.method, crate::providers::auth::default_method(0));
         assert!(state.pending.is_none());
         assert!(state.pending_auth.is_none());
     }
@@ -728,7 +737,7 @@ mod tests {
     fn login_failure_offers_recovery_without_substituting_method_or_launching() {
         let mut state = discovered();
         state.method = 0; // Deliberately selected browser, even on WSL/SSH.
-        state.auth_returned(0, crate::auth::Outcome::Failed);
+        state.auth_returned(0, crate::providers::auth::Outcome::Failed);
         assert_eq!(state.method, 0);
         assert!(state.notice.contains("localhost connection refused"));
         assert!(state.notice.contains("device authorization"));
@@ -738,7 +747,7 @@ mod tests {
         assert!(matches!(
             state.pending,
             Some(Request::PrepareAuth {
-                method: crate::auth::Method::CodexBrowser,
+                method: crate::providers::auth::Method::CodexBrowser,
                 ..
             })
         ));
@@ -757,7 +766,7 @@ mod tests {
         assert_eq!(state.page, Page::Methods);
         assert!(state.pending.is_none());
         press(&mut state, KeyCode::Down);
-        let expected = crate::auth::methods(0)[state.method];
+        let expected = crate::providers::auth::methods(0)[state.method];
         press(&mut state, KeyCode::Enter);
         assert!(matches!(
             state.pending,
@@ -864,7 +873,7 @@ mod tests {
             Some(Request::PrepareAuth {
                 profile: 0,
                 generation: 1,
-                method: crate::auth::Method::CodexDevice
+                method: crate::providers::auth::Method::CodexDevice
             })
         ));
         assert!(state.auth_busy());
@@ -920,7 +929,7 @@ mod tests {
         state.command("method-next", true);
         assert_eq!(state.method, 0);
         press(&mut state, KeyCode::Up);
-        assert_eq!(state.method, crate::auth::default_method(1));
+        assert_eq!(state.method, crate::providers::auth::default_method(1));
         press(&mut state, KeyCode::Enter);
         press(&mut state, KeyCode::Enter);
         assert_eq!(state.page, Page::Methods);
@@ -931,7 +940,8 @@ mod tests {
             state.pending,
             Some(Request::PrepareAuth {
                 profile: 1,
-                method: crate::auth::Method::ClaudeConsole | crate::auth::Method::ClaudeConsoleCode,
+                method: crate::providers::auth::Method::ClaudeConsole
+                    | crate::providers::auth::Method::ClaudeConsoleCode,
                 ..
             })
         ));
@@ -941,11 +951,11 @@ mod tests {
     fn native_exit_does_not_claim_connected_and_status_checks_are_explicit() {
         let mut state = discovered();
         assert_eq!(state.connection_status(0), "Unknown");
-        state.auth_returned(0, crate::auth::Outcome::Authenticated);
+        state.auth_returned(0, crate::providers::auth::Outcome::Authenticated);
         assert_eq!(state.connection_status(0), "Connected");
-        state.auth_returned(0, crate::auth::Outcome::Unknown);
+        state.auth_returned(0, crate::providers::auth::Outcome::Unknown);
         assert_eq!(state.connection_status(0), "Unknown");
-        state.auth_returned(0, crate::auth::Outcome::NotAuthenticated);
+        state.auth_returned(0, crate::providers::auth::Outcome::NotAuthenticated);
         assert_eq!(state.connection_status(0), "Not connected");
         press(&mut state, KeyCode::Esc);
         assert!(state.at_root());
@@ -957,7 +967,7 @@ mod tests {
         assert!(matches!(
             state.pending,
             Some(Request::PrepareAuth {
-                method: crate::auth::Method::CodexStatus,
+                method: crate::providers::auth::Method::CodexStatus,
                 ..
             })
         ));
@@ -974,7 +984,7 @@ mod tests {
         press(&mut state, KeyCode::Enter);
         assert_eq!(state.actions()[state.action], Action::Connect);
         assert!(!state.actions().contains(&Action::Model));
-        state.auth_returned(1, crate::auth::Outcome::Authenticated);
+        state.auth_returned(1, crate::providers::auth::Outcome::Authenticated);
         assert_eq!(state.page, Page::Actions);
         assert_eq!(state.actions()[state.action], Action::UseForTask);
         press(&mut state, KeyCode::Enter);
@@ -1004,8 +1014,8 @@ mod tests {
     #[test]
     fn sole_native_method_skips_method_picker_without_launching() {
         for (index, method) in [
-            (2, crate::auth::Method::OpenCode),
-            (3, crate::auth::Method::GeminiNative),
+            (2, crate::providers::auth::Method::OpenCode),
+            (3, crate::providers::auth::Method::GeminiNative),
         ] {
             let mut state = discovered();
             state.selected = index;
@@ -1021,10 +1031,10 @@ mod tests {
     #[test]
     fn login_result_keeps_only_classification_and_never_replays_task() {
         let mut state = discovered();
-        state.auth_returned(0, crate::auth::Outcome::Unknown);
+        state.auth_returned(0, crate::providers::auth::Outcome::Unknown);
         assert_eq!(
             state.profiles[0].authentication,
-            crate::auth::Outcome::Unknown.label()
+            crate::providers::auth::Outcome::Unknown.label()
         );
         assert_eq!(state.profiles[1].authentication, "unknown");
         assert!(state.pending.is_none());

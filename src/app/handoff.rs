@@ -5,9 +5,9 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    context,
-    handoff::{self, Document, Format},
     store,
+    workspace::context,
+    workspace::handoff::{self, Document, Format},
 };
 
 const PATH_BYTES: usize = 4096;

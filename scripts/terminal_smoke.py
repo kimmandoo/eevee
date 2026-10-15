@@ -642,9 +642,9 @@ def lifecycle_binary(root, output):
         (package / "src").mkdir()
         for name in ("Cargo.toml", "Cargo.lock"):
             shutil.copyfile(root / name, package / name)
-        shutil.copyfile(root / "src/terminal.rs", package / "src/terminal.rs")
-        shutil.copyfile(root / "src/input.rs", package / "src/input.rs")
-        shutil.copytree(root / "src/input", package / "src/input")
+        shutil.copyfile(root / "src/platform/terminal.rs", package / "src/terminal.rs")
+        shutil.copyfile(root / "src/platform/input.rs", package / "src/input.rs")
+        shutil.copytree(root / "src/platform/input", package / "src/input")
         (package / "examples/terminal_probe.rs").write_text('''#[path = "../src/terminal.rs"]
 mod terminal;
 #[path = "../src/input.rs"]

@@ -15,7 +15,7 @@ use crate::{
         planning::{Picker, State},
     },
     config::Config,
-    provider::{ItemKind, Operation, PromptKind},
+    providers::{ItemKind, Operation, PromptKind},
 };
 
 pub(super) fn render_small(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {

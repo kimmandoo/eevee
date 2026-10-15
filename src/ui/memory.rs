@@ -9,7 +9,7 @@ use super::{Paint, centered, clipped, editor_rows, panel, row, selection_details
 use crate::{
     app::memory::{Mode, State},
     config::Config,
-    memory::{self, Proposal},
+    workspace::memory::{self, Proposal},
 };
 
 pub(super) fn render_small(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {

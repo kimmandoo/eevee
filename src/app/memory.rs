@@ -3,7 +3,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::memory::{self, Mutation, Proposal, Provenance, Record, Scope, SourceKind};
+use crate::workspace::memory::{self, Mutation, Proposal, Provenance, Record, Scope, SourceKind};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Mode {
@@ -170,7 +170,7 @@ impl State {
                 Err(error) => {
                     self.notice = format!(
                         "Memory load failed: {}. Draft retained.",
-                        crate::handoff::sanitize(&error)
+                        crate::workspace::handoff::sanitize(&error)
                     )
                 }
             }
@@ -190,7 +190,7 @@ impl State {
             Err(error) => {
                 self.notice = format!(
                     "Save failed: {}. Draft retained; review then retry.",
-                    crate::handoff::sanitize(&error)
+                    crate::workspace::handoff::sanitize(&error)
                 );
             }
         }

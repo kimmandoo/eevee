@@ -1,29 +1,18 @@
-mod acp;
-mod agent;
 mod app;
-mod artwork;
-mod auth;
-mod claude;
-mod codex;
 mod config;
-mod context;
-mod distribution;
 mod domain;
-mod handoff;
-mod input;
-mod memory;
-mod native;
-mod privacy;
-mod provider;
-mod receipt;
-mod repo;
-mod runner;
+mod platform;
+mod providers;
 mod store;
-mod terminal;
 mod ui;
-mod workflows;
+mod workspace;
 
 use std::{io, process::ExitCode};
+
+use platform::{distribution, input, native, terminal};
+use providers::{agent, auth};
+use ui::artwork;
+use workspace::{context, repo, runner};
 
 use app::App;
 use config::{Command, Config};
@@ -101,7 +90,7 @@ fn run(config: Config) -> io::Result<()> {
         let execution = runner::Worker::start()?;
         let agents = agent::Worker::start(project.clone())?;
         let artwork_worker = artwork::Worker::start(config.clone())?;
-        let planning = provider::Worker::start(
+        let planning = providers::Worker::start(
             project.clone(),
             config.data_dir.clone(),
             config.context_exclusions.clone(),
@@ -379,8 +368,8 @@ fn run(config: Config) -> io::Result<()> {
                 dirty |= app.agent_event(event);
             }
             while let Some(event) = planning.try_event() {
-                if matches!(&event, provider::Event::Finished { .. })
-                    && app.planning.operation == provider::Operation::Implement
+                if matches!(&event, providers::Event::Finished { .. })
+                    && app.planning.operation == providers::Operation::Implement
                 {
                     app.repo_refresh = true;
                 }
