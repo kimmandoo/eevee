@@ -368,7 +368,7 @@ class Session:
     def command(self, name):
         """Choose a semantic action; any subsequent consent remains separate."""
         # Slash opens the chooser without changing Goal/Next-action drafts.
-        # Ctrl+K resets only an already visible chooser (including post-save choices).
+        # Ctrl+K resets only an already visible chooser.
         self.send("\x0b" if "/ Commands" in self.display() else "/")
         self.send(name)
         self.send("\r")
@@ -569,7 +569,7 @@ def exercise_ui(session, size, cwd):
     assert "]0;SMOKE_TITLE" in session.display(), "resize lost the draft tail"
     session.send("\r")
     await_saved(session)
-    session.send(ESC)  # Dismiss the neutral post-save next-action chooser.
+    assert "type to search" not in session.display(), "goal save opened an unsolicited chooser"
     assert "smoke_goal 漢字 café" in session.display(), "local apply lost the goal"
     session.capture("applied-goal")
     for command, name in (("help", "help"), ("inspect", "inspector"), ("companion", "companion"),
