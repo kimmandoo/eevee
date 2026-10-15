@@ -172,14 +172,33 @@ impl App {
         self.changed_task();
     }
 
-    /// The actual lead swap: the new partner's own form becomes the active form
-    /// and the picker's selection follows. The previous-form memory is the
-    /// former lead's, so it resets rather than applying to the new lead.
+    /// Retain the outgoing partner's composer and restore only the incoming
+    /// partner's draft, caret and previous-form memory.
     fn switch_lead(&mut self, partner: store::Partner) {
+        self.partner_drafts
+            .insert(self.lead.id, self.partner_draft());
         self.lead = partner;
         self.form_selection = self.lead.form;
         self.preview_form = self.lead.form;
-        self.previous_form = None;
+        let draft = self
+            .partner_drafts
+            .get(&self.lead.id)
+            .cloned()
+            .unwrap_or_default();
+        self.previous_form = draft.previous_form;
+        self.drafts = draft.drafts;
+        self.input.clear();
+        self.cursor = 0;
+        self.editing = false;
+        self.editor_field = draft.editor_field;
+        self.edit_return = None;
+        self.composer_return = None;
+        if self.overlay == Some(Overlay::Party) {
+            self.close_overlay();
+        }
+        if draft.editing {
+            self.open_editor(draft.editor_field);
+        }
     }
 
     /// Why a lead switch is refused right now: a party roster write is in

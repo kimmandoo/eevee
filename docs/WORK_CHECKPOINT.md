@@ -1,6 +1,13 @@
 # Work Checkpoint
 
 
+## 2026-10-15 — PT05B per-partner drafts; RF05 planning split
+
+- **Delivered (PT05B):** drafts and carets are keyed by (task, partner) in `tasks.partner_drafts`; existing drafts transfer to the task lead, the composer names its owner, each partner keeps its own previous-form memory, and draft discard affects only the current partner's draft. Schema 8 enlarges the reserved draft bound (six complete escaped draft sets) through a transactional task-table rebuild (see TROUBLESHOOTING).
+- **Delivered (RF05):** `app/planning.rs` (1,866 lines) split into `planning/{picker,review,journal}.rs`; `planning/tests.rs` unchanged.
+- **Verification:** `cargo fmt --check` clean; `cargo clippy --locked --all-targets -- -D warnings` clean; `cargo test --locked --all-targets` 399 passed / 0 failed / 2 ignored; `cargo build --locked --release` clean. PTY demo `target/pt05b-demo/demo.py` passed at 120×36 and 60×18 (two partners' CJK drafts and carets survive a lead switch and restart). New tests: `partner_cjk_drafts_and_carets_survive_lead_switch_and_restart`, `dirty_draft_discard_only_affects_its_own_partner`, `lead_switch_retains_each_partners_previous_form_toggle`, `schema_seven_capacity_migration_preserves_escaped_drafts_evidence_and_deleted_ids`.
+- **Next action:** PT06A partner attribution on journal entries.
+
 ## 2026-10-15 — UX: no auto chooser after goal save; PT05A choose the lead partner
 
 - **Delivered (fix(ux), 1b5227b):** `apply_editor` no longer opens the after-goal command chooser — goal Enter stays on the composer with a short "Goal saved; / or Ctrl+K opens actions." notice. `Popup.after_goal`, the `open_commands(after_goal)` branch, its fixed choice list and the save-failure popup dismissal are removed; tests updated to assert no popup after Enter and kept-open-with-reason on a refused explicit choice. DESIGN_RULES first-use + composer contract lines updated; `terminal_smoke.py` asserts `type to search` absent after a goal save (the earlier `/ Commands` probe falsely matched the footer).

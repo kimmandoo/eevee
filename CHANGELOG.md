@@ -11,6 +11,8 @@
 
 ## 2026-10-15
 
+- feat(party): retained per-(task, partner) drafts and exact carets, named the composer owner, and restored each partner's own previous-form memory. Existing drafts transferred to the task lead; discard reviews affected only the current draft. Schema 8 enlarged the reserved bounded draft column without reducing existing text limits.
+
 - fix(ux): goal Enter stays on the composer — the automatic post-save action chooser is removed; `/` and Ctrl+K still open the same searchable choices deliberately, and the save surfaces a short "Goal saved" notice. The `Popup.after_goal` machinery and the save-failure popup dismissal it needed are gone; DESIGN_RULES first-use contract updated, and the PTY smoke now asserts no chooser after a goal save.
 
 - feat(party): choose the task lead partner — `/lead <name>` resolves a nickname or `Eevee #n`/`#n`/bare id and bare `/lead` opens the roster, where Up/Down now select a row and Enter/`l` (or the contextual `/lead`) fronts that partner directly, no extra confirmation. `request_lead` swaps `App.lead` to the partner's stored row so the header and the form picker follow immediately, and the choice persists through the normal task save (`tasks.lead_partner` + the partner's own `form`). The toggle memory resets per lead (`previous_form` is the old lead's), and a guard refuses a switch while a party write is in flight or the current lead still owns live work — the hook PT06's per-partner slots will keep.

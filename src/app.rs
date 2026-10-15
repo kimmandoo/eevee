@@ -160,6 +160,7 @@ pub struct App {
     pub updated_at: i64,
     pub editor_field: store::EditorField,
     pub drafts: Vec<store::Draft>,
+    pub partner_drafts: std::collections::BTreeMap<i64, store::PartnerDrafts>,
     pub task_selection: usize,
     pub criterion_selection: usize,
     pub notice: String,
@@ -200,8 +201,7 @@ pub struct App {
     overlay_history: Vec<OverlayFrame>,
     edit_return: Option<OverlayFrame>,
     preview_form: usize,
-    /// Form the lead partner was in before the latest switch (PT03B);
-    /// persisted in the task's navigation JSON.
+    /// Lead partner's prior form, retained in `tasks.partner_drafts`.
     previous_form: Option<usize>,
     preferred_column: Option<usize>,
     // Companion, workspace, inspector, help, and local preview respectively.
@@ -297,6 +297,7 @@ impl App {
             edit_return: None,
             preview_form: 0,
             previous_form: None,
+            partner_drafts: std::collections::BTreeMap::new(),
             preferred_column: None,
             surface_scroll: [0; 5],
             surface_scroll_max: [0; 5],

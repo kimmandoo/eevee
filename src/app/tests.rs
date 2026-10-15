@@ -39,7 +39,12 @@ fn clearing_first_draft_before_insert_ack_does_not_restore_deleted_text() {
     app.store_event(store::Event::Saved(first));
     let cleared = committed(&app);
     assert!(cleared.goal.is_empty());
-    assert!(cleared.drafts.is_empty());
+    assert!(
+        cleared
+            .partner_drafts
+            .values()
+            .all(|state| state.drafts.is_empty())
+    );
     let mut resumed = App::new("/workspace".into(), 120, 36);
     resumed.store_event(store::Event::Loaded(store::Project {
         active_id: Some(cleared.id),
@@ -1314,7 +1319,7 @@ fn lead_switch_is_refused_while_the_lead_owns_live_work() {
 }
 
 #[test]
-fn lead_switch_resets_the_previous_form_toggle() {
+fn lead_switch_retains_each_partners_previous_form_toggle() {
     let mut app = app();
     app.editing = false;
     app.store_event(store::Event::Party(Ok(vec![
@@ -1335,4 +1340,81 @@ fn lead_switch_resets_the_previous_form_toggle() {
         "the old lead's previous form does not carry over"
     );
     assert!(app.notice.contains("No previous form"), "{}", app.notice);
+    app.request_lead(1);
+    key(&mut app, KeyCode::Backspace);
+    assert_eq!(app.form(), 0, "partner 1 retains its own previous form");
+}
+
+#[test]
+fn partner_cjk_drafts_and_carets_survive_lead_switch_and_restart() {
+    let mut app = app();
+    let party = vec![
+        store::Partner::default(),
+        store::Partner {
+            id: 2,
+            ..store::Partner::default()
+        },
+    ];
+    app.store_event(store::Event::Party(Ok(party.clone())));
+    app.open_editor(store::EditorField::Goal);
+    app.update(Event::Paste("첫째 日本語 e\u{301} 끝".into()));
+    key(&mut app, KeyCode::Left);
+    key(&mut app, KeyCode::Left);
+    let first = (app.input.clone(), app.cursor);
+    app.request_lead(2);
+    assert!(app.input.is_empty());
+    app.open_editor(store::EditorField::Goal);
+    app.update(Event::Paste("둘째 中文 /jolteon".into()));
+    key(&mut app, KeyCode::Home);
+    key(&mut app, KeyCode::Right);
+    let second = (app.input.clone(), app.cursor);
+    app.request_lead(1);
+    assert_eq!((&app.input, app.cursor), (&first.0, first.1));
+    let saved = committed(&app);
+    let mut resumed = App::new("/workspace".into(), 60, 18);
+    resumed.store_event(store::Event::Loaded(store::Project {
+        active_id: Some(saved.id),
+        tasks: vec![saved],
+        partners: party,
+        usage_bytes: 0,
+    }));
+    assert_eq!((&resumed.input, resumed.cursor), (&first.0, first.1));
+    resumed.request_lead(2);
+    assert_eq!((&resumed.input, resumed.cursor), (&second.0, second.1));
+    assert_eq!(resumed.form(), 0, "pasted slash text never changes form");
+}
+
+#[test]
+fn dirty_draft_discard_only_affects_its_own_partner() {
+    let mut app = app();
+    app.store_event(store::Event::Party(Ok(vec![
+        store::Partner::default(),
+        store::Partner {
+            id: 2,
+            ..store::Partner::default()
+        },
+    ])));
+    app.open_editor(store::EditorField::Goal);
+    app.update(Event::Paste("保留 첫째".into()));
+    app.request_lead(2);
+    app.open_editor(store::EditorField::Goal);
+    key(&mut app, KeyCode::Esc);
+    assert!(
+        app.confirmation.is_none(),
+        "partner 1's draft does not dirty partner 2"
+    );
+    app.open_editor(store::EditorField::Goal);
+    app.update(Event::Paste("버릴 둘째".into()));
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(
+        app.confirmation.as_ref().unwrap().kind,
+        ConfirmationKind::DiscardDraft
+    );
+    key(&mut app, KeyCode::Right);
+    key(&mut app, KeyCode::Enter);
+    app.request_lead(1);
+    assert_eq!(app.input, "保留 첫째");
+    app.request_lead(2);
+    app.open_editor(store::EditorField::Goal);
+    assert!(app.input.is_empty());
 }

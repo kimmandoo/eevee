@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
@@ -393,6 +394,16 @@ fn snapshot(project: &str, revision: u64) -> Snapshot {
     }
 }
 
+fn partner_drafts(drafts: Vec<Draft>) -> BTreeMap<i64, PartnerDrafts> {
+    BTreeMap::from([(
+        1,
+        PartnerDrafts {
+            drafts,
+            ..PartnerDrafts::default()
+        },
+    )])
+}
+
 #[test]
 fn saves_reopens_and_isolates_projects() {
     let directory = Directory::new();
@@ -496,14 +507,20 @@ fn migrates_documented_schema_zero_and_one_atomically() {
             assert_eq!(task.form, form);
             assert_eq!(task.revision, revision);
             assert_eq!(task.updated_at, 0);
-            assert!(task.drafts.is_empty() && task.criteria.is_empty() && !task.complete);
+            assert!(
+                task.partner_drafts
+                    .values()
+                    .all(|state| state.drafts.is_empty())
+                    && task.criteria.is_empty()
+                    && !task.complete
+            );
         }
         let connection = open_readonly(&path).unwrap();
         assert_eq!(
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            7
+            8
         );
         assert!(connection.prepare("SELECT * FROM goals").is_err());
         assert!(connection.prepare("SELECT * FROM projects").is_err());
@@ -520,7 +537,7 @@ fn newer_foreign_and_corrupt_databases_are_untouched() {
         } else {
             let connection = Connection::open(&path).unwrap();
             connection.execute_batch(if fixture == 0 {
-                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=99;"
+                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=9;"
                 } else {
                     "CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('keep');"
                 }).unwrap();
@@ -620,11 +637,11 @@ fn export_is_read_only_and_never_overwrites() {
             Some(create(
                 &store,
                 Snapshot {
-                    drafts: vec![Draft {
+                    partner_drafts: partner_drafts(vec![Draft {
                         field: EditorField::Goal,
                         text: "保留".into(),
                         cursor: 6,
-                    }],
+                    }]),
                     criteria: vec![Criterion {
                         text: "reviewed".into(),
                         met: true,
@@ -737,31 +754,31 @@ fn invalid_save_bounds_are_never_acknowledged() {
             ..snapshot("project", 1)
         },
         Snapshot {
-            drafts: vec![draft],
+            partner_drafts: partner_drafts(vec![draft]),
             ..snapshot("project", 1)
         },
         Snapshot {
-            drafts: vec![duplicate.clone(), duplicate.clone()],
+            partner_drafts: partner_drafts(vec![duplicate.clone(), duplicate.clone()]),
             ..snapshot("project", 1)
         },
         Snapshot {
-            drafts: vec![duplicate; 5],
+            partner_drafts: partner_drafts(vec![duplicate; 5]),
             ..snapshot("project", 1)
         },
         Snapshot {
-            drafts: vec![Draft {
+            partner_drafts: partner_drafts(vec![Draft {
                 field: EditorField::Goal,
                 text: "x".repeat(4097),
                 cursor: 0,
-            }],
+            }]),
             ..snapshot("project", 1)
         },
         Snapshot {
-            drafts: vec![Draft {
+            partner_drafts: partner_drafts(vec![Draft {
                 field: EditorField::Goal,
                 text: "x".into(),
                 cursor: 2,
-            }],
+            }]),
             ..snapshot("project", 1)
         },
         Snapshot {
@@ -859,6 +876,9 @@ fn sqlite_full_rolls_back_save_without_success() {
         matches!(state.reopen(), Event::Loaded(project) if project == empty_project(&directory))
     );
     let connection = state.connection.as_ref().unwrap();
+    // Schema table rebuilds can leave reusable pages. Compact before capping
+    // growth so the overflow-page write deterministically reaches SQLITE_FULL.
+    connection.execute_batch("VACUUM;").unwrap();
     let page_count: i64 = connection
         .pragma_query_value(None, "page_count", |row| row.get(0))
         .unwrap();
@@ -1009,7 +1029,7 @@ fn crash_during_migration(directory: &Directory, kind: &str) {
         )
         .unwrap();
     match kind {
-            "newer" => connection.execute_batch("PRAGMA user_version=99;").unwrap(),
+            "newer" => connection.execute_batch("PRAGMA user_version=9;").unwrap(),
             "foreign" => connection.execute_batch("CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('preserve');").unwrap(),
             "one" => connection.execute_batch(
                 "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL);
@@ -1072,7 +1092,7 @@ fn process_interruption_recovers_legacy_and_current_committed_tasks() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            7
+            8
         );
     }
 }
@@ -1142,23 +1162,31 @@ fn two_tasks_preserve_drafts_navigation_selection_and_timestamps_across_restart(
                 met: true,
             }],
             next_action: "Review the result".into(),
-            drafts: vec![
-                Draft {
-                    field: EditorField::Goal,
-                    text: "新目标".into(),
-                    cursor: 3,
+            partner_drafts: BTreeMap::from([(
+                1,
+                PartnerDrafts {
+                    drafts: vec![
+                        Draft {
+                            field: EditorField::Goal,
+                            text: "新目标".into(),
+                            cursor: 3,
+                        },
+                        Draft {
+                            field: EditorField::Criteria,
+                            text: "first\nsecond".into(),
+                            cursor: 6,
+                        },
+                        Draft {
+                            field: EditorField::NextAction,
+                            text: "later".into(),
+                            cursor: 5,
+                        },
+                    ],
+                    editor_field: EditorField::NextAction,
+                    editing: true,
+                    previous_form: Some(1),
                 },
-                Draft {
-                    field: EditorField::Criteria,
-                    text: "first\nsecond".into(),
-                    cursor: 6,
-                },
-                Draft {
-                    field: EditorField::NextAction,
-                    text: "later".into(),
-                    cursor: 5,
-                },
-            ],
+            )]),
             navigation: Navigation {
                 focus: 2,
                 linear: true,
@@ -1685,24 +1713,24 @@ fn secrets_are_redacted_before_sqlite_and_export_and_history_is_sticky() {
             text: "https://user:pass@example.test".into(),
             met: false,
         }],
-        drafts: vec![Draft {
+        partner_drafts: partner_drafts(vec![Draft {
             field: EditorField::Goal,
             text: raw.into(),
             cursor: raw.len() - 3,
-        }],
+        }]),
         ..snapshot("project", 1)
     };
     let mut saved = store.save(task).unwrap();
     assert!(saved.redacted);
     assert!(
-        saved.drafts[0]
+        saved.partner_drafts[&1].drafts[0]
             .text
-            .is_char_boundary(saved.drafts[0].cursor)
+            .is_char_boundary(saved.partner_drafts[&1].drafts[0].cursor)
     );
     let connection = store.connection.as_ref().unwrap();
     let raw: String = connection
         .query_row(
-            "SELECT goal||criteria||next_action||drafts FROM tasks",
+            "SELECT goal||criteria||next_action||partner_drafts FROM tasks",
             [],
             |row| row.get(0),
         )
@@ -1982,19 +2010,21 @@ fn maximum_valid_text_and_json_escaping_round_trip() {
                 64
             ],
             complete: true,
-            drafts: [
-                EditorField::Goal,
-                EditorField::Criteria,
-                EditorField::NextAction,
-                EditorField::Command,
-            ]
-            .into_iter()
-            .map(|field| Draft {
-                field,
-                text: text.clone(),
-                cursor: 4096,
-            })
-            .collect(),
+            partner_drafts: partner_drafts(
+                [
+                    EditorField::Goal,
+                    EditorField::Criteria,
+                    EditorField::NextAction,
+                    EditorField::Command,
+                ]
+                .into_iter()
+                .map(|field| Draft {
+                    field,
+                    text: text.clone(),
+                    cursor: 4096,
+                })
+                .collect(),
+            ),
             ..snapshot("project", 1)
         },
     );
@@ -2481,25 +2511,28 @@ fn schema_three_migration_is_transactional_and_preserves_archives_and_four_comma
     let mut task = project.tasks[1].clone();
     task.revision += 1;
     task.command = "echo password=command-value".into();
-    task.drafts = [
-        EditorField::Goal,
-        EditorField::Criteria,
-        EditorField::NextAction,
-        EditorField::Command,
-    ]
-    .into_iter()
-    .map(|field| Draft {
-        field,
-        text: "token=draft-value".into(),
-        cursor: 17,
-    })
-    .collect();
+    task.partner_drafts = partner_drafts(
+        [
+            EditorField::Goal,
+            EditorField::Criteria,
+            EditorField::NextAction,
+            EditorField::Command,
+        ]
+        .into_iter()
+        .map(|field| Draft {
+            field,
+            text: "token=draft-value".into(),
+            cursor: 17,
+        })
+        .collect(),
+    );
+    task.partner_drafts.get_mut(&1).unwrap().editor_field = EditorField::Command;
     task.navigation.editor_field = EditorField::Command;
     let saved = store.save(task).unwrap();
     assert_eq!(saved.command, "echo password=[REDACTED]");
-    assert_eq!(saved.drafts.len(), 4);
+    assert_eq!(saved.partner_drafts[&1].drafts.len(), 4);
     assert!(
-        saved
+        saved.partner_drafts[&1]
             .drafts
             .iter()
             .all(|draft| !draft.text.contains("draft-value"))
@@ -2945,6 +2978,153 @@ fn downgrade_partners(connection: &Connection) {
 }
 
 #[test]
+fn schema_seven_capacity_migration_preserves_escaped_drafts_evidence_and_deleted_ids() {
+    for version in [6, 7] {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let task = store.save(snapshot("project", 1)).unwrap();
+        drop(store);
+        let mut connection = Connection::open(directory.0.join(DATABASE)).unwrap();
+        downgrade_partners(&connection);
+        if version == 7 {
+            migrate_partners(&connection).unwrap();
+        }
+        let text = "\0".repeat(4096);
+        let drafts: Vec<_> = [
+            EditorField::Goal,
+            EditorField::Criteria,
+            EditorField::NextAction,
+            EditorField::Command,
+        ]
+        .into_iter()
+        .map(|field| Draft {
+            field,
+            text: text.clone(),
+            cursor: text.len(),
+        })
+        .collect();
+        let legacy = serde_json::to_string(&drafts).unwrap();
+        assert!(legacy.len() > 65536);
+        connection
+            .execute("UPDATE tasks SET drafts=?1", [&legacy])
+            .unwrap();
+        let mut excerpt = captured_excerpt(
+            task.id,
+            &directory.0.join("source.txt"),
+            "preserved evidence",
+        );
+        excerpt.id = 1;
+        let evidence = serde_json::to_string(&excerpt).unwrap();
+        connection
+            .execute(
+                "INSERT INTO excerpts(id,task_id,record) VALUES (1,?1,?2)",
+                params![task.id, evidence],
+            )
+            .unwrap();
+        connection
+            .execute_batch(
+                "UPDATE sqlite_sequence SET seq=900 WHERE name='tasks';
+             UPDATE sqlite_sequence SET seq=700 WHERE name='excerpts';",
+            )
+            .unwrap();
+        let schema = inspect(&connection).unwrap();
+        assert!(matches!(
+            (version, schema),
+            (6, Schema::Workflows) | (7, Schema::Partners)
+        ));
+        {
+            let transaction = connection.transaction().unwrap();
+            migrate(&transaction, schema).unwrap();
+            assert!(matches!(inspect(&transaction).unwrap(), Schema::Current));
+            // Dropping the transaction must restore the original schema and rows.
+        }
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            version
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT drafts FROM tasks", [], |row| row
+                    .get::<_, String>(0))
+                .unwrap(),
+            legacy
+        );
+        initialize(&mut connection).unwrap();
+        assert!(matches!(inspect(&connection).unwrap(), Schema::Current));
+        connection
+            .execute_batch(
+                "INSERT INTO partners(id,nickname,form,met_at,met_derived,created_project)
+             SELECT 2,NULL,0,0,1,'project' UNION ALL SELECT 3,NULL,0,0,1,'project'
+             UNION ALL SELECT 4,NULL,0,0,1,'project' UNION ALL SELECT 5,NULL,0,0,1,'project'
+             UNION ALL SELECT 6,NULL,0,0,1,'project';",
+            )
+            .unwrap();
+        let loaded = load(&connection, "project").unwrap();
+        assert_eq!(loaded.tasks[0].partner_drafts[&1].drafts, drafts);
+        assert_eq!(
+            connection
+                .query_row("SELECT record FROM excerpts", [], |row| row
+                    .get::<_, String>(0))
+                .unwrap(),
+            evidence
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT seq FROM sqlite_sequence WHERE name='tasks'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            900
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT seq FROM sqlite_sequence WHERE name='excerpts'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            700
+        );
+        let states: BTreeMap<_, _> = (1..=6)
+            .map(|id| {
+                (
+                    id,
+                    PartnerDrafts {
+                        drafts: drafts.clone(),
+                        ..PartnerDrafts::default()
+                    },
+                )
+            })
+            .collect();
+        let encoded = serde_json::to_string(&states).unwrap();
+        assert!(encoded.len() > 512 * 1024);
+        assert!(encoded.len() < MAX_PARTNER_DRAFTS_BYTES);
+        connection
+            .execute("UPDATE tasks SET drafts='[]',partner_drafts=?1", [&encoded])
+            .unwrap();
+        assert_eq!(
+            load(&connection, "project").unwrap().tasks[0].partner_drafts,
+            states
+        );
+        let oversized = "x".repeat(MAX_PARTNER_DRAFTS_BYTES + 1);
+        assert!(
+            connection
+                .execute("UPDATE tasks SET partner_drafts=?1", [&oversized])
+                .is_err()
+        );
+        connection.execute(&format!(
+            "INSERT INTO tasks({TASK_COLUMNS}) SELECT project,goal,form,revision,NULL,criteria,next_action,complete,drafts,navigation,updated_at,archived,archived_at,redacted,command,workflows,memory_draft,approved_memories,workflow_draft,lead_partner,partner_drafts FROM tasks"
+        ), []).unwrap();
+        assert_eq!(connection.last_insert_rowid(), 901);
+    }
+}
+
+#[test]
 fn schema_six_store_migrates_partner_one_and_resumes_tasks_unchanged() {
     let directory = Directory::new();
     let mut store = state(&directory, "project", Policy::default());
@@ -3056,7 +3236,7 @@ fn schema_six_store_migrates_partner_one_and_resumes_tasks_unchanged() {
 }
 
 #[test]
-fn schema_eight_store_is_refused_without_rewriting() {
+fn schema_nine_store_is_refused_without_rewriting() {
     let directory = Directory::new();
     let store = worker(&directory, "project");
     loaded(&store);
@@ -3064,13 +3244,13 @@ fn schema_eight_store_is_refused_without_rewriting() {
     let path = directory.0.join(DATABASE);
     {
         let connection = Connection::open(&path).unwrap();
-        connection.execute_batch("PRAGMA user_version=8;").unwrap();
+        connection.execute_batch("PRAGMA user_version=9;").unwrap();
     }
     let before = fs::read(&path).unwrap();
     let refused = worker(&directory, "project");
     assert!(matches!(
         event(&refused),
-        Event::Failed { revision: None, message } if message.contains("schema version 8")
+        Event::Failed { revision: None, message } if message.contains("schema version 9")
     ));
     drop(refused);
     assert_eq!(fs::read(&path).unwrap(), before);

@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-15] Reserved partner drafts could not preserve valid escaped text
+
+- **Context / Symptom:** PT05B's existing maximum-text round-trip failed with `Stored JSON exceeds its bounded size`.
+- **Root Cause:** Schema 7 reserved only 64 KiB for all partner drafts, but four valid 4096-byte drafts can JSON-escape to nearly 100 KiB before adding other partners. Reusing that bound would reject previously valid data.
+- **Solution:** Schema 8 enlarged the same reserved column through a transactional task-table rebuild, retaining all fields and deleted AUTOINCREMENT identities. The bounded capacity accommodates six complete draft sets without custom encoding or a reduced text limit.
+- **Prevention / Reference:** Keep the existing maximum-escaped-text test and migration/old-binary-refusal coverage when changing persisted aggregate bounds.
+
 
 ### [2026-10-15] schema_upgrade_smoke couldn't drive the slash palette
 

@@ -42,14 +42,14 @@ const TASK_COLUMNS_V2: &str = "project, goal, form, revision, id, criteria, next
 const TASK_COLUMNS_V3: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted";
 const TASK_COLUMNS_V5: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted, command";
 const TASK_COLUMNS_V6: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted, command, workflows, memory_draft, approved_memories, workflow_draft";
-const TASK_COLUMNS: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted, command, workflows, memory_draft, approved_memories, workflow_draft, lead_partner";
+const TASK_COLUMNS: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted, command, workflows, memory_draft, approved_memories, workflow_draft, lead_partner, partner_drafts";
 const EMPTY_WORKFLOW_COLUMNS: &str = "'{}','null','[]','null'";
 const MAX_WORKFLOW_BYTES: usize = 512 * 1024;
 const MAX_MEMORY_BYTES: usize = 64 * 1024;
 const MAX_MEMORIES: usize = 256;
 pub(crate) const MAX_PARTNERS: usize = 6;
 const MAX_NICKNAME_BYTES: usize = 512;
-const MAX_PARTNER_DRAFTS_BYTES: usize = 64 * 1024;
+const MAX_PARTNER_DRAFTS_BYTES: usize = 768 * 1024;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Policy {
@@ -115,7 +115,8 @@ pub struct Snapshot {
     #[serde(default)]
     pub workflow_draft: serde_json::Value,
     pub complete: bool,
-    pub drafts: Vec<Draft>,
+    #[serde(default)]
+    pub partner_drafts: std::collections::BTreeMap<i64, PartnerDrafts>,
     pub navigation: Navigation,
     pub updated_at: i64,
     pub archived: bool,
@@ -140,7 +141,7 @@ impl Snapshot {
             approved_memories: Vec::new(),
             workflow_draft: serde_json::Value::Null,
             complete: false,
-            drafts: Vec::new(),
+            partner_drafts: std::collections::BTreeMap::new(),
             navigation: Navigation::default(),
             updated_at: 0,
             archived: false,
@@ -170,6 +171,14 @@ pub struct Draft {
     pub field: EditorField,
     pub text: String,
     pub cursor: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct PartnerDrafts {
+    pub drafts: Vec<Draft>,
+    pub editor_field: EditorField,
+    pub editing: bool,
+    pub previous_form: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

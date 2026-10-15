@@ -66,7 +66,7 @@ def main():
 
             def task():
                 with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True)) as db:
-                    return db.execute('SELECT command,goal,drafts FROM tasks ORDER BY id LIMIT 1').fetchone()
+                    return db.execute('SELECT command,goal,lead_partner,partner_drafts FROM tasks ORDER BY id LIMIT 1').fetchone()
 
             def until(session, predicate, message, timeout=35):
                 deadline = time.monotonic() + timeout

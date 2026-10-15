@@ -13,6 +13,10 @@ from contextlib import closing
 from terminal_smoke import Session, terminal_environment
 
 
+def lead_drafts(task):
+    return task["partner_drafts"].get(str(task["lead_partner"]), {}).get("drafts", [])
+
+
 def wait_for(session, text, timeout=8):
     deadline = time.monotonic() + timeout
     while text not in session.display():
@@ -137,7 +141,7 @@ def main():
                 wait_for(fresh, "Storage: saved")
                 retained = inspect_store(first_use_data)[0]
                 assert retained["goal"] == saved_goal
-                assert retained["drafts"][0]["text"] == saved_goal + " retained shortcut draft"
+                assert lead_drafts(retained)[0]["text"] == saved_goal + " retained shortcut draft"
                 passed("command-discoverable-provider-actions-back-preserves-draft-without-auth-" + str(width))
                 for command, label in (("help", "command-help"),
                                        (None, "ctrl-k-actions")):
@@ -151,7 +155,7 @@ def main():
                     assert "retained shortcut draft" in fresh.display(), label + " discarded the draft"
                     fresh.send("\x13")
                     wait_for(fresh, "Storage: saved")
-                    assert inspect_store(first_use_data)[0]["drafts"] == retained["drafts"]
+                    assert lead_drafts(inspect_store(first_use_data)[0]) == lead_drafts(retained)
                 passed("global-help-and-actions-preserve-inline-draft-" + str(width))
 
                 fresh.command("forms")
@@ -164,7 +168,7 @@ def main():
                 fresh.command("forms")
                 fresh.command("role-sylveon")
                 stored_when(first_use_data, lambda rows: rows[0]["form"] == 8)
-                assert inspect_store(first_use_data)[0]["drafts"] == retained["drafts"]
+                assert lead_drafts(inspect_store(first_use_data)[0]) == lead_drafts(retained)
                 passed("command-evolution-preview-back-and-explicit-select-" + str(width))
                 fresh.command("goal")
                 fresh.command("images")  # Retain the draft and open only a review.
@@ -192,7 +196,7 @@ def main():
                 assert "retained shortcut draft" in fresh.display(), "/images discarded the task draft"
                 fresh.send("\x13")
                 wait_for(fresh, "Storage: saved")
-                assert inspect_store(first_use_data)[0]["drafts"] == retained["drafts"]
+                assert lead_drafts(inspect_store(first_use_data)[0]) == lead_drafts(retained)
                 passed("command-image-review-neutral-enter-and-escape-no-download-" + str(width))
                 with closing(sqlite3.connect((first_use_data / "workbench.sqlite3").as_uri() + "?mode=ro", uri=True)) as db:
                     assert db.execute("SELECT count(*) FROM provider_journal").fetchone()[0] == 0
@@ -365,8 +369,8 @@ def main():
                 assert two["next_action"] == "inspect second source"
                 assert [c["text"] for c in one["criteria"]] == ["criterion alpha","criterion beta"]
                 assert [c["text"] for c in two["criteria"]] == ["criterion gamma"]
-                assert one["drafts"][0]["text"].endswith("pending one")
-                assert two["drafts"][0]["text"].endswith("pending two")
+                assert lead_drafts(one)[0]["text"].endswith("pending one")
+                assert lead_drafts(two)[0]["text"].endswith("pending two")
                 card.command("tasks")
                 card.send("\x1b[H\r")
                 wait_for(card, "card one 漢字")
@@ -450,7 +454,7 @@ def main():
             rows = inspect_store(lifecycle)
             other_id = next(row["id"] for row in rows if row["id"] != private_id)
             assert secret not in json.dumps(rows)
-            assert next(row for row in rows if row["id"] == other_id)["drafts"]
+            assert lead_drafts(next(row for row in rows if row["id"] == other_id))
             export_copy = root / "user-export.json"
             export_copy.write_text(json.dumps(rows))
             export_before = export_copy.read_bytes()
@@ -473,7 +477,7 @@ def main():
             life.command("delete")
             life.send("\x1b[C\r")
             rows = stored_when(lifecycle, lambda rows: len(rows) == 1)
-            assert rows[0]["id"] == other_id and rows[0]["drafts"]
+            assert rows[0]["id"] == other_id and lead_drafts(rows[0])
             assert export_copy.read_bytes() == export_before
             assert untouched.read_bytes() == b"user bytes\r\nnot managed by ev\n"
             life.command("archive")
@@ -542,7 +546,7 @@ def main():
             wait_for(quota, "Storage: saved")
             rows = inspect_store(quota_data)
             recovered = next(row for row in rows if row["goal"] == failed_goal)
-            assert recovered["drafts"][0]["text"] == failed_goal + " retained"
+            assert lead_drafts(recovered)[0]["text"] == failed_goal + " retained"
             assert {row["id"] for row in rows} == {before[-1]["id"], recovered["id"]}
             quota.send("\x1b")
             quota.command("goal")

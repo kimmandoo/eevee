@@ -120,9 +120,9 @@ pub(super) fn set_partner_form(
     Ok(())
 }
 
-/// Per-partner draft storage is reserved on `tasks.partner_drafts` (Schema 7):
-/// a JSON object keyed by partner id holding that partner's composer draft, so
-/// PT05B does not need another schema bump. Only the shape is checked here.
+/// Partner draft JSON uses the column reserved in Schema 7 and enlarged in
+/// Schema 8. Typed draft bounds are validated with the task; inspection also
+/// refuses a non-object container before any writable open.
 fn valid_partner_drafts(text: &str) -> Result<(), String> {
     let value: serde_json::Value = serde_json::from_str(text)
         .map_err(|error| format!("Invalid partner drafts JSON: {error}"))?;
@@ -144,7 +144,7 @@ pub(super) fn inspect_partners(connection: &Connection) -> Result<(), String> {
             .map_err(|error| error.to_string())?
     };
     if rows.is_empty() {
-        return Err("A Schema 7 store must hold at least partner #1".into());
+        return Err("A party store must hold at least one partner".into());
     }
     for (index, partner) in rows.iter().enumerate() {
         validate_partner(partner)?;
