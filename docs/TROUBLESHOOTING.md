@@ -281,3 +281,10 @@
 - **Root Cause:** Those tests re-launch the test binary with a hard-coded test filter string `"runner::tests::native_fixture"`. The module path became `workspace::runner::tests::native_fixture`, so the child ran zero tests and produced no fixture output.
 - **Solution:** Updated the filter strings to the new path. `store::tests::interrupted_migration_process_fixture` kept its path because store tests stayed at `store::tests`.
 - **Prevention / Reference:** Before moving a module, `grep -rn '"[a-z_:]*tests::' src` to find self-referencing test filters. When extracting an inline `mod tests` into `tests.rs`, keep the original indentation and run `cargo fmt` instead of dedenting by hand, so multi-line string literals stay byte-identical.
+
+### [2026-10-15] Installer always chose the ASCII ball despite a UTF-8 terminal
+
+- **Context / Symptom:** With `LANG=C.UTF-8`, the new pixel-art installer animation still drew the ASCII fallback in a real PTY.
+- **Root Cause:** `install.sh` sets `LC_ALL=C` on line 4 for predictable parsing, so the later UTF-8 check always saw `C`.
+- **Solution:** Capture `user_locale=${LC_ALL:-${LC_CTYPE:-${LANG:-}}}` before forcing `LC_ALL=C` and decide the ball style from it. UTF-8 bytes still pass through `printf` unchanged under the C locale.
+- **Prevention / Reference:** Any terminal-capability decision in the installers must use the user's environment captured before the script normalizes it. Windows PowerShell has the same class of issue with the console code page; `Test-BlockGlyphs` round-trips the glyphs through `[Console]::OutputEncoding` before drawing them.

@@ -100,6 +100,63 @@ try {
     $helper.Dispose()
 }
 
+# Original 16x16 Poke Ball pixel art: K outline/band, R/D/H red shades, W/g white
+# shades, F the lit button. Code points keep this file ASCII for Windows PowerShell.
+$script:ballArt = @(
+    '.....KKKKKK.....',
+    '...KKRRRRRRKK...',
+    '..KRRRRRRRRRRK..',
+    '.KRHHRRRRRRRRDK.',
+    '.KRHRRRRRRRRRDK.',
+    'KRRRRRKKKKRRRRDK',
+    'KRRRRKWWWWKRRDDK',
+    'KKKKKKWWWWKKKKKK',
+    'KKKKKKWWWWKKKKKK',
+    'KWWWWKWWWWKWWWgK',
+    'KWWWWWKKKKWWWWgK',
+    '.KWWWWWWWWWWWgK.',
+    '.KWWWWWWWWWWggK.',
+    '..KWWWWWWWWggK..',
+    '...KKWWWWggKK...',
+    '.....KKKKKK.....'
+)
+$script:ballFlashArt = @(
+    '.....KKKKKK.....',
+    '...KKRRRRRRKK...',
+    '..KRRRRRRRRRRK..',
+    '.KRHHRRRRRRRRDK.',
+    '.KRHRRRRRRRRRDK.',
+    'KRRRRRKKKKRRRRDK',
+    'KRRRRKFFFFKRRDDK',
+    'KKKKKKFFFFKKKKKK',
+    'KKKKKKFFFFKKKKKK',
+    'KWWWWKFFFFKWWWgK',
+    'KWWWWWKKKKWWWWgK',
+    '.KWWWWWWWWWWWgK.',
+    '.KWWWWWWWWWWggK.',
+    '..KWWWWWWWWggK..',
+    '...KKWWWWggKK...',
+    '.....KKKKKK.....'
+)
+$script:ballColors = @{ K = [ConsoleColor]::DarkGray; R = [ConsoleColor]::Red; D = [ConsoleColor]::DarkRed; H = [ConsoleColor]::White;
+    W = [ConsoleColor]::White; g = [ConsoleColor]::Gray; F = [ConsoleColor]::Red }
+$script:ballUpper = [string][char]0x2580
+$script:ballLower = [string][char]0x2584
+$script:ballFull = [string][char]0x2588
+$script:ballLight = [string][char]0x2591
+$script:ballMedium = [string][char]0x2592
+$script:ballAscii = @('     ______', "   .'      '.", '  /          \', ' |=====(o)====|', ' |            |', '  \          /', "   '.______.'", '')
+
+function Test-BlockGlyphs {
+    # Windows PowerShell writes through the console code page; fall back to
+    # ASCII art when that page cannot carry the half-block characters.
+    try {
+        $encoding = [Console]::OutputEncoding
+        $sample = $script:ballUpper + $script:ballLower + $script:ballFull + $script:ballLight + $script:ballMedium
+        return $encoding.GetString($encoding.GetBytes($sample)) -ceq $sample
+    } catch { return $false }
+}
+
 function Start-InstallAnimation([string]$Phase) {
     Stop-InstallAnimation
     if ([Console]::IsOutputRedirected -or [Console]::IsErrorRedirected -or
@@ -111,12 +168,12 @@ function Start-InstallAnimation([string]$Phase) {
     try {
         $width = [Console]::WindowWidth
         [Console]::Error.WriteLine($Phase.Substring(0, [Math]::Min($Phase.Length, [Math]::Max(1, $width - 1))))
-        if ($width -lt 16 -or [Console]::WindowHeight -lt 8) { return }
+        if ($width -lt 20 -or [Console]::WindowHeight -lt 12) { return }
         $script:oldCursorVisible = [Console]::CursorVisible
         $script:animation = $true
         [Console]::CursorVisible = $false
-        [Console]::Error.Write("`n`n`n")
-        $script:animationTop = [Console]::CursorTop - 3
+        [Console]::Error.Write("`n`n`n`n`n`n`n")
+        $script:animationTop = [Console]::CursorTop - 7
         $script:animationFrame = 0
         $script:animationClock.Restart()
         Update-InstallAnimation -Force
@@ -129,34 +186,63 @@ function Update-InstallAnimation([switch]$Force) {
         $width = [Math]::Min([Console]::WindowWidth, [Console]::BufferWidth)
         # The phase is ordinary text above a small redraw area, so reflow of
         # long phase text never becomes part of a moving animation frame.
-        $script:animationTop = [Math]::Max(0, [Console]::CursorTop - 3)
+        $script:animationTop = [Math]::Max(0, [Console]::CursorTop - 7)
+        # Shake like a caught ball: left, centre, right, then rest while the
+        # button lights up once. Pixels pair into half-block cells.
         $step = $script:animationFrame % 8
         $indent = 1
-        $button = 'o'
-        if ($step -eq 1 -or $step -eq 2) { $indent = 0 }
-        elseif ($step -eq 5 -or $step -eq 6) { $indent = 2 }
-        elseif ($step -eq 3 -or $step -eq 7) { $button = 'O' }
-        $lines = @('   .-----. ', '  /#######\', ('  |--(' + $button + ')--|'), '   \_____/ ')
+        if ($step -eq 1) { $indent = 0 } elseif ($step -eq 3) { $indent = 2 }
+        $art = $script:ballArt
+        if ($step -eq 5) { $art = $script:ballFlashArt }
         $colored = $null -eq [Environment]::GetEnvironmentVariable('NO_COLOR')
         $oldColor = [Console]::ForegroundColor
+        $oldBack = [Console]::BackgroundColor
+        $fits = $width -ge 20 -and [Console]::WindowHeight -ge 12
+        $blocks = Test-BlockGlyphs
         try {
-            for ($row = 0; $row -lt 4; $row++) {
+            for ($row = 0; $row -lt 8; $row++) {
                 [Console]::SetCursorPosition(0, $script:animationTop + $row)
-                $line = ''
-                if ($width -ge 16 -and [Console]::WindowHeight -ge 8) {
-                    $line = (' ' * $indent) + $lines[$row]
+                [Console]::Error.Write(' ' * [Math]::Max(0, [Math]::Min(18, $width - 1)))
+                if (-not $fits) { continue }
+                [Console]::SetCursorPosition($indent, $script:animationTop + $row)
+                if (-not $blocks) {
+                    $line = $script:ballAscii[$row]
+                    if ($row -eq 3 -and $step -eq 5) { $line = ' |=====(O)====|' }
+                    if ($colored) {
+                        if ($row -lt 3) { [Console]::ForegroundColor = [ConsoleColor]::Red }
+                        elseif ($row -gt 3) { [Console]::ForegroundColor = [ConsoleColor]::White }
+                        else { [Console]::ForegroundColor = $oldColor }
+                    }
+                    [Console]::Error.Write($line)
+                    continue
                 }
-                if ($colored) {
-                    if ($row -lt 2) { [Console]::ForegroundColor = [ConsoleColor]::Red }
-                    elseif ($row -eq 3) { [Console]::ForegroundColor = [ConsoleColor]::White }
-                    else { [Console]::ForegroundColor = $oldColor }
+                for ($x = 0; $x -lt 16; $x++) {
+                    $top = $art[2 * $row][$x]
+                    $bottom = $art[2 * $row + 1][$x]
+                    if ($colored) {
+                        if ($top -eq '.' -and $bottom -eq '.') { $glyph = ' '; $fore = $oldColor; $back = $oldBack }
+                        elseif ($top -eq $bottom) { $glyph = $script:ballFull; $fore = $script:ballColors[[string]$top]; $back = $oldBack }
+                        elseif ($top -eq '.') { $glyph = $script:ballLower; $fore = $script:ballColors[[string]$bottom]; $back = $oldBack }
+                        elseif ($bottom -eq '.') { $glyph = $script:ballUpper; $fore = $script:ballColors[[string]$top]; $back = $oldBack }
+                        else { $glyph = $script:ballUpper; $fore = $script:ballColors[[string]$top]; $back = $script:ballColors[[string]$bottom] }
+                        [Console]::ForegroundColor = $fore
+                        [Console]::BackgroundColor = $back
+                    } else {
+                        if (($top -eq 'K' -and 'KF'.Contains([string]$bottom)) -or ($bottom -eq 'K' -and $top -eq 'F')) { $glyph = $script:ballFull }
+                        elseif ($top -eq 'K') { $glyph = $script:ballUpper }
+                        elseif ($bottom -eq 'K') { $glyph = $script:ballLower }
+                        elseif ('RDH'.Contains([string]$top) -or 'RDH'.Contains([string]$bottom)) { $glyph = $script:ballLight }
+                        elseif ($top -eq 'F' -or $bottom -eq 'F') { $glyph = $script:ballMedium }
+                        else { $glyph = ' ' }
+                    }
+                    [Console]::Error.Write($glyph)
                 }
-                [Console]::Error.Write($line.PadRight([Math]::Max(0, [Math]::Min(14, $width - 1))))
             }
         } finally {
-            if ($colored) { [Console]::ForegroundColor = $oldColor }
+            [Console]::ForegroundColor = $oldColor
+            [Console]::BackgroundColor = $oldBack
         }
-        [Console]::SetCursorPosition(0, $script:animationTop + 3)
+        [Console]::SetCursorPosition(0, $script:animationTop + 7)
         $script:animationFrame++
         $script:animationClock.Restart()
     } catch { Stop-InstallAnimation }
@@ -167,10 +253,10 @@ function Stop-InstallAnimation {
     $script:animation = $false
     try {
         $width = [Math]::Min([Console]::WindowWidth, [Console]::BufferWidth)
-        $top = [Math]::Max(0, [Console]::CursorTop - 3)
-        for ($row = 0; $row -lt 4; $row++) {
+        $top = [Math]::Max(0, [Console]::CursorTop - 7)
+        for ($row = 0; $row -lt 8; $row++) {
             [Console]::SetCursorPosition(0, $top + $row)
-            [Console]::Error.Write(' ' * [Math]::Max(0, [Math]::Min(14, $width - 1)))
+            [Console]::Error.Write(' ' * [Math]::Max(0, [Math]::Min(18, $width - 1)))
         }
         [Console]::SetCursorPosition(0, $top)
     } catch { }
