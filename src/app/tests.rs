@@ -163,6 +163,71 @@ fn restart_restores_the_lead_partners_stored_form() {
 }
 
 #[test]
+fn backspace_and_back_form_toggle_between_the_last_two_forms() {
+    let mut app = app();
+    key(&mut app, KeyCode::Backspace);
+    assert_eq!(app.form(), 0);
+    assert!(app.notice.contains("No previous form"));
+    app.command("vaporeon");
+    assert_eq!(app.form(), 1);
+    app.command("flareon");
+    assert_eq!(app.form(), 3);
+    key(&mut app, KeyCode::Backspace);
+    assert_eq!(app.form(), 1);
+    key(&mut app, KeyCode::Backspace);
+    assert_eq!(app.form(), 3);
+    app.command("back-form");
+    assert_eq!(app.form(), 1);
+    app.command("back-form");
+    assert_eq!(app.form(), 3);
+}
+
+#[test]
+fn previous_form_toggle_is_suppressed_where_backspace_is_text_delete() {
+    let mut app = app();
+    app.command("vaporeon");
+    assert_eq!(app.form(), 1);
+    app.command("goal");
+    assert!(app.editing);
+    app.update(Event::Paste("abc".into()));
+    key(&mut app, KeyCode::Backspace);
+    assert_eq!(app.input, "ab");
+    assert_eq!(app.form(), 1);
+    // The command popup's query owns Backspace while it is open.
+    key(&mut app, KeyCode::Char('/'));
+    key(&mut app, KeyCode::Char('x'));
+    key(&mut app, KeyCode::Backspace);
+    assert_eq!(app.form(), 1);
+    assert_eq!(app.command_popup.as_ref().unwrap().query, "");
+}
+
+#[test]
+fn previous_form_survives_a_restart() {
+    let mut app = app();
+    app.command("vaporeon");
+    app.command("flareon");
+    let mut snapshot = committed(&app);
+    snapshot.id = 7;
+    assert_eq!(snapshot.navigation.previous_form, Some(1));
+    let partner = store::Partner {
+        form: 3,
+        ..store::Partner::default()
+    };
+    let mut resumed = App::new("/workspace".into(), 120, 36);
+    resumed.store_event(store::Event::Loaded(store::Project {
+        tasks: vec![snapshot],
+        partners: vec![partner],
+        active_id: Some(7),
+        usage_bytes: 0,
+    }));
+    assert_eq!(resumed.form(), 3);
+    key(&mut resumed, KeyCode::Backspace);
+    assert_eq!(resumed.form(), 1);
+    key(&mut resumed, KeyCode::Backspace);
+    assert_eq!(resumed.form(), 3);
+}
+
+#[test]
 fn grid_arrows_wrap_by_column_and_row_while_list_moves_one_item() {
     let mut app = app();
     app.command("forms");

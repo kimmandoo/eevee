@@ -681,6 +681,7 @@ pub(super) fn validate(snapshot: &Snapshot) -> Result<(), String> {
     let nav = &snapshot.navigation;
     if nav.focus > 2
         || nav.form_selection >= 9
+        || nav.previous_form.is_some_and(|form| form >= 9)
         || nav.criterion_selection >= 64
         || nav.overlay.is_some_and(|overlay| overlay > 7)
     {

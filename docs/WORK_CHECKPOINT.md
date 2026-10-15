@@ -1,5 +1,12 @@
 # Work Checkpoint
 
+## 2026-10-15 — PT03B previous-form toggle
+
+- **Delivered:** `set_form` now records the lead partner's prior form into `App::previous_form`, persisted as `navigation.previous_form` inside the task's existing bounded navigation JSON (serde `default`; no schema bump, old stores read as `None`, bound-checked `0..=8` in store validation). Backspace on every non-text surface and `/back-form` call `previous_form_toggle`, which routes through the picker's `SelectForm` path; with no recorded previous form it shows a notice instead. The binding is suppressed while editing, inside overlay text fields (`command_surface_editing`), in the command popup and during confirmations, where Backspace remains delete.
+- **Verification:** `cargo fmt --check` clean; `cargo clippy --locked --all-targets -- -D warnings` clean; `cargo test --locked --all-targets` 384 passed / 0 failed / 2 ignored (was 381/2); `cargo build --locked --release` clean. New tests: `backspace_and_back_form_toggle_between_the_last_two_forms`, `previous_form_toggle_is_suppressed_where_backspace_is_text_delete`, `previous_form_survives_a_restart`, plus an old-JSON `previous_form` default assertion in `old_palette_navigation_preserves_remaining_navigation`. PTY demo at 120×36 and 60×18 (`target/pt03b-demo/`): fresh partner shows "No previous form"; `/vaporeon` → `/flareon` → Backspace → Backspace ends on Flareon; Backspace inside the composer deletes a character without toggling; `/back-form` toggles twice; after relaunch Backspace flips Flareon→Vaporeon→Flareon.
+- **Notes:** "Stored per partner" rides the lead partner's task navigation JSON as the spec allows; a real per-partner store column lands with the roster work if needed. Native-image redraw inherits the picker's once-per-switch path.
+- **Next action:** PT04A party roster view.
+
 ## 2026-10-15 — PT03A named form commands
 
 - **Delivered:** `/eevee`…`/sylveon` and element aliases (`/normal`…`/fairy`) are registered choices in the `/` registry and dispatch through the picker's persisted `SelectForm` navigation, so a typed command switches the lead partner's form instantly and retains the composer draft/caret. Pasted `/…` text stays literal; no numeric shortcuts returned.

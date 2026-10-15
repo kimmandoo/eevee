@@ -36,6 +36,7 @@ impl App {
             form_selection: self.form_selection,
             criterion_selection: self.criterion_selection,
             scroll: self.surface_scroll,
+            previous_form: self.previous_form,
             overlay: match self.overlay {
                 Some(Overlay::Forms) => Some(0),
                 Some(Overlay::Help) => Some(2),
@@ -140,6 +141,9 @@ impl App {
         };
         self.linear = navigation.linear;
         self.form_selection = navigation.form_selection;
+        // Restored after set_form above so the stored value wins over the
+        // in-memory tracking the load path just recorded.
+        self.previous_form = navigation.previous_form;
         self.surface_scroll = navigation.scroll;
         self.surface_scroll_max = [u16::MAX; 5];
         self.overlay = match navigation.overlay {

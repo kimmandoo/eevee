@@ -180,6 +180,11 @@ pub struct Navigation {
     pub criterion_selection: usize,
     pub scroll: [u16; 5],
     pub overlay: Option<u8>,
+    /// Lead partner's form before the latest switch (PT03B). Lives in the
+    /// task's bounded navigation JSON — no schema bump — and serde treats
+    /// stores written before this field as `None`.
+    #[serde(default)]
+    pub previous_form: Option<usize>,
     pub editing: bool,
     pub editor_field: EditorField,
 }
@@ -193,6 +198,7 @@ impl Default for Navigation {
             criterion_selection: 0,
             scroll: [0; 5],
             overlay: None,
+            previous_form: None,
             editing: false,
             editor_field: EditorField::Goal,
         }

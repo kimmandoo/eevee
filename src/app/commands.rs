@@ -118,6 +118,7 @@ impl App {
             ("effort", "Choose reasoning effort"),
             ("role", "Choose Plan / Implement / Review role"),
             ("forms", "Choose evolution"),
+            ("back-form", "Return to the previous form (Backspace)"),
             ("files", "Source context"),
             ("tasks", "Saved tasks"),
             ("run", "Local command execution"),
@@ -533,6 +534,7 @@ impl App {
                 }
             }
             "forms" => self.open_overlay(Overlay::Forms),
+            "back-form" => self.previous_form_toggle(),
             "files" => self.open_overlay(Overlay::Sources),
             "run" => self.open_overlay(Overlay::Execution),
             "handoff" => self.open_overlay(Overlay::Handoff),

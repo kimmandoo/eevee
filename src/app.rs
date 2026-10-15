@@ -191,6 +191,9 @@ pub struct App {
     overlay_history: Vec<OverlayFrame>,
     edit_return: Option<OverlayFrame>,
     preview_form: usize,
+    /// Form the lead partner was in before the latest switch (PT03B);
+    /// persisted in the task's navigation JSON.
+    previous_form: Option<usize>,
     preferred_column: Option<usize>,
     // Companion, workspace, inspector, help, and local preview respectively.
     surface_scroll: [u16; 5],
@@ -281,6 +284,7 @@ impl App {
             overlay_history: Vec::new(),
             edit_return: None,
             preview_form: 0,
+            previous_form: None,
             preferred_column: None,
             surface_scroll: [0; 5],
             surface_scroll_max: [0; 5],
@@ -349,9 +353,25 @@ impl App {
     }
 
     /// The only writer of the active form. Callers invoke `changed_task()`
-    /// when the switch should persist.
+    /// when the switch should persist. Every change records the prior form so
+    /// Backspace / `/back-form` can return to it (PT03B).
     pub(super) fn set_form(&mut self, form: usize) {
+        if self.lead.form != form {
+            self.previous_form = Some(self.lead.form);
+        }
         self.lead.form = form;
+    }
+
+    /// Flip the lead partner back to the form it left (Backspace / `/back-form`).
+    /// The toggle routes through the same persisted navigation path as the
+    /// picker; no previous form leaves a notice instead of switching.
+    pub(super) fn previous_form_toggle(&mut self) {
+        match self.previous_form {
+            Some(previous) if previous != self.form() => {
+                self.request_navigation(execution::Action::SelectForm(previous));
+            }
+            _ => self.notice = "No previous form yet; switch once before toggling back.".into(),
+        }
     }
 
     /// Saved line offset for the currently visible, non-selecting surface.
