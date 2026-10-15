@@ -454,6 +454,7 @@ fn worker(
                 generation = generation.saturating_add(1);
                 preview_owner = Some((generation, input.task.id));
                 let mut preview = Preview {
+                    destination: None,
                     generation,
                     task_id: input.task.id,
                     thread_id: input.resume.clone(),
@@ -479,7 +480,7 @@ fn worker(
                         .push("Codex worker refuses a different provider identity".into());
                 }
                 preview.trust.push(format!(
-                    "Model: {}; reasoning effort: {}. After approval, account/read, config/read and bounded paginated model/list preserve the exact selected/configured model and supported effort. No guessed fallback; missing models require an explicit CLI update/account check and refresh.",
+                    "Model: {}; reasoning effort: {}. Account/configuration and paginated metadata preserve exact selection. Configured/custom IDs are sent unchanged even when missing from a stale catalogue; the provider validates actual availability. No automatic model substitution.",
                     input.selection.model.as_deref().unwrap_or("provider configuration, otherwise advertised default"),
                     input.selection.effort.as_deref().unwrap_or("configured effort for configured model, otherwise advertised default"),
                 ));
@@ -620,7 +621,7 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
         return serde_json::to_string_pretty(&json!({
             "purpose": "Inspect the complete bounded nonhidden text-model catalogue only; no thread or model turn.",
             "provider": "Codex",
-            "requests": ["initialize", "account/read (refreshToken=false)", "config/read (includeLayers=false; retain model/provider/effort only)", "model/list (includeHidden=false, limit=100, at most 10 pages)"],
+            "requests": ["initialize", "account/read (refreshToken=false)", "config/read (includeLayers=false; retain model/provider/effort only)", "model/list (includeHidden=false, limit=100, at most 64 pages / 4096 entries)"],
             "selection": input.selection,
             "effects": "Qualified app-server launch; provider configuration, account and network access. No task/source payload, thread start/resume, prompt, edit or journal.",
         })).map_err(|_| "Could not encode catalogue inspection preview".into());
@@ -740,7 +741,7 @@ impl ModelListing {
     }
     fn page(&mut self, result: &Value) -> Result<Option<String>, String> {
         self.pages += 1;
-        if self.pages > 10 {
+        if self.pages > 64 {
             return Err("Model catalogue pagination bound exceeded".into());
         }
         let models = result
@@ -770,16 +771,14 @@ impl ModelListing {
             if self.models.iter().any(|option| option.id == id) {
                 return Err("Model catalogue contains duplicate request identities".into());
             }
-            if self.models.len() >= 256 {
-                return Err("Model catalogue exceeds the complete 256-model bound; no partial catalogue accepted".into());
+            if self.models.len() >= 4096 {
+                return Err("Model catalogue exceeds the 4096-entry resource bound; no partial catalogue accepted".into());
             }
-            let supported = model
-                .get("supportedReasoningEfforts")
-                .and_then(Value::as_array)
-                .ok_or("Protocol model/list missing supported reasoning efforts")?;
-            if supported.is_empty() || supported.len() > 32 {
-                return Err("Model catalogue reasoning effort bound exceeded".into());
-            }
+            let supported = match model.get("supportedReasoningEfforts") {
+                None | Some(Value::Null) => &[][..],
+                Some(Value::Array(values)) if values.len() <= 32 => values.as_slice(),
+                _ => return Err("Model catalogue has malformed reasoning metadata".into()),
+            };
             let mut efforts = Vec::with_capacity(supported.len());
             for effort in supported {
                 let effort = identity(effort, "reasoningEffort")?;
@@ -788,8 +787,14 @@ impl ModelListing {
                 }
                 efforts.push(effort);
             }
-            let default_effort = identity(model, "defaultReasoningEffort")?;
-            if !efforts.contains(&default_effort) {
+            let default_effort = match model.get("defaultReasoningEffort") {
+                None | Some(Value::Null) => None,
+                Some(_) => Some(identity(model, "defaultReasoningEffort")?),
+            };
+            if default_effort
+                .as_ref()
+                .is_some_and(|effort| !efforts.contains(effort))
+            {
                 return Err("Model layer: advertised default effort is unsupported".into());
             }
             if model.get("isDefault").and_then(Value::as_bool) == Some(true) {
@@ -798,26 +803,32 @@ impl ModelListing {
                 }
                 self.default = Some(id.clone());
             }
-            let name = model
-                .get("displayName")
-                .and_then(Value::as_str)
-                .ok_or("Protocol model/list missing display name")?;
-            let description = model
-                .get("description")
-                .and_then(Value::as_str)
-                .ok_or("Protocol model/list missing description")?;
+            let name = catalogue_text(
+                model
+                    .get("displayName")
+                    .and_then(Value::as_str)
+                    .unwrap_or(&id),
+                256,
+            );
+            let description = catalogue_text(
+                model
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+                4096,
+            );
             self.models.push(ModelOption {
                 id,
-                name: catalogue_text(name, 256),
-                description: catalogue_text(description, 4096),
+                name,
+                description,
                 efforts,
-                default_effort: Some(default_effort),
+                default_effort,
             });
         }
         match result.get("nextCursor") {
             None | Some(Value::Null) => Ok(None),
             Some(Value::String(cursor)) => {
-                if self.pages >= 10
+                if self.pages >= 64
                     || cursor.is_empty()
                     || cursor.len() > 4096
                     || cursor.chars().any(|c| c.is_control() || bidi(c))
@@ -830,7 +841,7 @@ impl ModelListing {
             _ => Err("Protocol model/list contains a malformed cursor".into()),
         }
     }
-    fn select(&self, selection: &ModelSelection) -> Result<(String, String), String> {
+    fn select(&self, selection: &ModelSelection) -> Result<(String, Option<String>), String> {
         let requested = selection
             .model
             .as_ref()
@@ -839,8 +850,7 @@ impl ModelListing {
             .ok_or(
                 "Model layer: no configured or advertised default; no guessed model or fallback",
             )?;
-        let model = self.models.iter().find(|model| &model.id == requested)
-            .ok_or("Model layer: requested model is unavailable, hidden or does not support text; no fallback")?;
+        let model = self.models.iter().find(|model| &model.id == requested);
         let effort = selection
             .effort
             .as_ref()
@@ -850,21 +860,23 @@ impl ModelListing {
                 .then_some(self.configured_effort.as_ref())
                 .flatten()
             })
-            .or(model.default_effort.as_ref())
-            .ok_or("Model layer: selected model has no advertised default effort")?;
-        if !model.efforts.contains(effort) {
+            .or_else(|| model.and_then(|model| model.default_effort.as_ref()));
+        if let (Some(model), Some(effort)) = (model, effort)
+            && !model.efforts.is_empty()
+            && !model.efforts.contains(effort)
+        {
             return Err("Model layer: requested reasoning effort is unsupported by the selected model; no fallback".into());
         }
-        Ok((model.id.clone(), effort.clone()))
+        Ok((requested.clone(), effort.cloned()))
     }
     fn revalidate(
         &self,
         selection: &ModelSelection,
         model: &str,
-        effort: &str,
+        effort: Option<&str>,
     ) -> Result<(), String> {
         let selected = self.select(selection)?;
-        if selected.0 != model || selected.1 != effort {
+        if selected.0 != model || selected.1.as_deref() != effort {
             return Err("Model catalogue changed since thread qualification; review a fresh preview before dispatch".into());
         }
         Ok(())
@@ -878,8 +890,8 @@ impl ModelListing {
         ModelCatalogue {
             models: self.models,
             current,
-            source: format!("Codex config/read + complete bounded model/list; provider: {}; configured model: {}; catalogue default: {}. Native catalogue may be bundled/cached; freshness is not reported. Missing models? Connect > Advanced diagnostics shows CLI update instructions. Update the same executable on PATH, check account/provider, then Refresh. No automatic upgrade.", self.provider.as_deref().unwrap_or("native default"), self.configured_model.as_deref().unwrap_or("unset"), self.default.as_deref().unwrap_or("unreported")),
-            effort_note: Some("Reasoning choices come from each model. Default preserves configured effort for the configured model; another model uses its advertised default. Missing/unsupported selections fail before dispatch, never fall back.".into()),
+            source: format!("Codex config/read + paginated model/list; provider: {}; configured model: {}; catalogue default: {}. CLI metadata may be cached. Explicit configured/custom IDs are sent unchanged even when absent from this list; the provider decides availability. For live account discovery without an installed CLI choose ChatGPT / direct.", self.provider.as_deref().unwrap_or("native default"), self.configured_model.as_deref().unwrap_or("unset"), self.default.as_deref().unwrap_or("unreported")),
+            effort_note: Some("Reasoning controls are optional. Default preserves configured effort for the configured model, otherwise the advertised default when present. Explicit unsupported advertised efforts fail; unknown custom-model capabilities are validated by the provider.".into()),
         }
     }
 }
@@ -928,7 +940,7 @@ struct Engine<'a> {
     threads: &'a mut HashMap<String, i64>,
     turn_id: Option<String>,
     model: String,
-    effort: String,
+    effort: Option<String>,
     account: String,
     catalogue: ModelListing,
     prompts: Vec<Prompt>,
@@ -1007,7 +1019,7 @@ fn run_transport(
         threads,
         turn_id: None,
         model: String::new(),
-        effort: String::new(),
+        effort: None,
         account: String::new(),
         catalogue: ModelListing::default(),
         prompts: Vec::new(),
@@ -1335,6 +1347,24 @@ impl Engine<'_> {
             .position(|call| call.id == id)
             .ok_or("Protocol layer: stale/unknown response rejected")?;
         let call = self.calls.remove(index);
+        if value.get("error").is_some()
+            && matches!(call.kind, Call::Models | Call::VerifyModels)
+            && !self.run.input.inspect_models
+            && (self.run.input.selection.model.is_some()
+                || self.catalogue.configured_model.is_some())
+        {
+            self.status("Model discovery unavailable; preserving the exact explicit/configured selection for provider validation")?;
+            return if call.kind == Call::VerifyModels {
+                self.catalogue.revalidate(
+                    &self.run.input.selection,
+                    &self.model,
+                    self.effort.as_deref(),
+                )?;
+                self.dispatch_turn()
+            } else {
+                self.start_selected_thread()
+            };
+        }
         if let Some(error) = value.get("error") {
             let message = error
                 .get("message")
@@ -1367,6 +1397,7 @@ impl Engine<'_> {
                     Some("apiKey") => "API-key account present; provider-owned API billing and quota".into(),
                     Some("amazonBedrock") => "Amazon Bedrock account present; provider-owned cloud billing and quota".into(),
                     None if result.get("requiresOpenaiAuth").and_then(Value::as_bool) == Some(false) => "Provider does not require OpenAI auth; external credentials/billing unverified".into(),
+                    _ if self.run.input.inspect_models => "No authenticated account; catalogue metadata is not proof of access".into(),
                     _ => return Err("Authentication layer: no usable provider account; authenticate outside Eevee and review a fresh preview".into()),
                 };
                 self.call(Call::Config, "config/read", json!({"includeLayers":false,"cwd":self.project}))
@@ -1380,7 +1411,7 @@ impl Engine<'_> {
                     return self.call(kind, "model/list", json!({"includeHidden":false,"limit":100,"cursor":cursor}));
                 }
                 if kind == Call::VerifyModels {
-                    self.catalogue.revalidate(&self.run.input.selection, &self.model, &self.effort)?;
+                    self.catalogue.revalidate(&self.run.input.selection, &self.model, self.effort.as_deref())?;
                     return self.dispatch_turn();
                 }
                 if self.run.input.inspect_models {
@@ -1396,21 +1427,7 @@ impl Engine<'_> {
                     self.terminal = Some((Outcome::Completed, "Model catalogue inspection completed; no thread or model turn dispatched".into()));
                     return Ok(());
                 }
-                (self.model, self.effort) = self.catalogue.select(&self.run.input.selection)?;
-                let mut params = json!({"cwd":self.project,"model":self.model,"sandbox":"read-only","approvalPolicy":"on-request","approvalsReviewer":"user","config":{"model_reasoning_effort":self.effort,"features.multi_agent":false,"web_search":"disabled","allow_login_shell":false}});
-                if self.run.input.operation == Operation::Implement {
-                    params["dynamicTools"] = json!([{"type":"function","name":"eevee_edit_file","description":"The ONLY allowed implementation write route. Propose replacing an exact selected existing UTF-8 file with full content, preserving unrelated dirty changes. User reviews exact before/after patch and must allow once. Protected/unselected/stale/link paths denied without writing.","inputSchema":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}]);
-                }
-                let method = if let Some(id) = &self.run.input.resume {
-                    params["threadId"] = json!(id);
-                    params["excludeTurns"] = json!(true);
-                    "thread/resume"
-                } else {
-                    params["experimentalRawEvents"] = json!(false);
-                    params["allowProviderModelFallback"] = json!(false);
-                    "thread/start"
-                };
-                self.call(Call::Thread, method, params)
+                self.start_selected_thread()
             }
             Call::Thread => {
                 self.validate_policy(result)?;
@@ -1435,6 +1452,23 @@ impl Engine<'_> {
             Call::Interrupt => self.status("Provider acknowledged interrupt request; waiting for authoritative turn completion"),
         }
     }
+    fn start_selected_thread(&mut self) -> Result<(), String> {
+        (self.model, self.effort) = self.catalogue.select(&self.run.input.selection)?;
+        let mut params = json!({"cwd":self.project,"model":self.model,"sandbox":"read-only","approvalPolicy":"on-request","approvalsReviewer":"user","config":{"model_reasoning_effort":self.effort,"features.multi_agent":false,"web_search":"disabled","allow_login_shell":false}});
+        if self.run.input.operation == Operation::Implement {
+            params["dynamicTools"] = json!([{"type":"function","name":"eevee_edit_file","description":"The ONLY allowed implementation write route. Propose replacing an exact selected existing UTF-8 file with full content, preserving unrelated dirty changes. User reviews exact before/after patch and must allow once. Protected/unselected/stale/link paths denied without writing.","inputSchema":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}]);
+        }
+        let method = if let Some(id) = &self.run.input.resume {
+            params["threadId"] = json!(id);
+            params["excludeTurns"] = json!(true);
+            "thread/resume"
+        } else {
+            params["experimentalRawEvents"] = json!(false);
+            params["allowProviderModelFallback"] = json!(false);
+            "thread/start"
+        };
+        self.call(Call::Thread, method, params)
+    }
     fn dispatch_turn(&mut self) -> Result<(), String> {
         revalidate(self.project, self.data_dir, self.exclusions, self.run)?;
         if self.stop.load(Ordering::Acquire) {
@@ -1456,7 +1490,7 @@ impl Engine<'_> {
         }))?;
         // Enqueueing is conservatively treated as dispatch: partial writes are outcome-unknown.
         self.dispatched = true;
-        self.status(&format!("Turn dispatched once with model {} and reasoning effort {}; provider readOnly acknowledged. Implementation writes only through Eevee's reviewed selected-file tool.", self.model, self.effort))
+        self.status(&format!("Turn dispatched once with model {} and reasoning effort {}; provider readOnly acknowledged. Implementation writes only through Eevee's reviewed selected-file tool.", self.model, self.effort.as_deref().unwrap_or("provider default")))
     }
     fn validate_policy(&self, result: &Value) -> Result<(), String> {
         if result.get("approvalPolicy").and_then(Value::as_str) != Some("on-request")
@@ -1467,7 +1501,9 @@ impl Engine<'_> {
                 .and_then(Value::as_bool)
                 == Some(true)
             || result.get("model").and_then(Value::as_str) != Some(self.model.as_str())
-            || result.get("reasoningEffort").and_then(Value::as_str) != Some(self.effort.as_str())
+            || self.effort.as_deref().is_some_and(|effort| {
+                result.get("reasoningEffort").and_then(Value::as_str) != Some(effort)
+            })
             || result.get("cwd").and_then(Value::as_str) != self.project.to_str()
         {
             return Err("Policy qualification refused: provider did not acknowledge exact model/reasoning effort/cwd/read-only/user-approval boundaries".into());
@@ -1557,7 +1593,9 @@ impl Engine<'_> {
                     .and_then(Value::as_bool)
                     == Some(true)
                 || settings.get("model").and_then(Value::as_str) != Some(self.model.as_str())
-                || settings.get("effort").and_then(Value::as_str) != Some(self.effort.as_str())
+                || self.effort.as_deref().is_some_and(|effort| {
+                    settings.get("effort").and_then(Value::as_str) != Some(effort)
+                })
                 || settings.get("cwd").and_then(Value::as_str) != self.project.to_str()
                 || self.dispatched
                     && settings
@@ -1573,10 +1611,12 @@ impl Engine<'_> {
                         .pointer("/collaborationMode/settings/model")
                         .and_then(Value::as_str)
                         != Some(self.model.as_str())
-                        || settings
-                            .pointer("/collaborationMode/settings/reasoning_effort")
-                            .and_then(Value::as_str)
-                            != Some(self.effort.as_str()))
+                        || self.effort.as_deref().is_some_and(|effort| {
+                            settings
+                                .pointer("/collaborationMode/settings/reasoning_effort")
+                                .and_then(Value::as_str)
+                                != Some(effort)
+                        }))
             {
                 return Err(
                     "Provider operation/policy changed; dispatch/continuation refused".into(),

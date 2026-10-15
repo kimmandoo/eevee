@@ -851,6 +851,7 @@ fn worker(
                 generation = generation.saturating_add(1);
                 preview_owner = Some((generation, input.task.id));
                 let mut preview = Preview {
+                    destination: None,
                     generation,
                     task_id: input.task.id,
                     thread_id: input.resume.clone(),

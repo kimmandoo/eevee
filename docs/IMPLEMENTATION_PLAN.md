@@ -194,10 +194,12 @@ P03 remains the full distribution gate after P02, Q01, and Q02: prove native ins
 
 No custom model runtime, autonomous multi-agent swarm, hosted synchronization, plugin marketplace, automatic commits/merges, agent-TUI scraping, or background model calls for pet animation. No new MCP server or generic plugin framework in this plan. No claim of canonical game evolution mechanics or affiliation. Public distribution requires naming/art review plus provider authentication/branding/terms review.
 
-## Current next action
+## Current active request — native provider connectivity
 
-The request-first UX and latest-provider implementation is published as **v0.1.5**, at `6e43e6b5ef1b33c670e8c3ec14d40889fdab3ed6`. Exact-commit Check plus all five native build/test/install rows passed in run `38723240558`; publication run `38724050989` succeeded. All eight public assets and seven manifest checksums were verified.
+The v0.1.6 release completed the previous home/response and command request. The active user request supersedes unstarted PT06A: separate model providers from installed agent runtimes, repair model discovery/selection and connection handling, verify actual requests, then publish v0.1.7.
 
-Public-package Linux and native Windows acceptance each passed all 23 installation lifecycle checks and all 34 installed terminal scenarios, including actual self-update and uninstall preserving user data. This user-requested UX/performance/latest-provider release is complete. PT06A remains the next unstarted backlog item; the release did not start it.
-
-The separate A04/A06/full A07 provider-conformance backlog remains blocked on permitted Claude/Gemini authentication; this UX release does not claim those gates or native macOS GUI verification.
+1. Add native ChatGPT, OpenAI Responses, Anthropic Messages, Google Gemini and configurable OpenAI-compatible connections alongside existing CLI/SDK/ACP adapters. Resolve user-scoped endpoint/model settings and environment-held keys without project commands. Existing ChatGPT session credentials may be used read-only by the explicitly disclosed native route; never send them to a custom endpoint or persist/copy them into task data.
+2. Keep model discovery independent from request eligibility: optional reasoning metadata, exact configured/custom IDs, searchable lists, retained snapshots on refresh errors, and provider-side validation rather than stale CLI allowlists. Preserve explicit model identity and reject silent substitution.
+3. Keep immutable payload review and explicit Run, cancellation ownership and truthful observed-model reporting. Native requests expose no tools or source-writing capability; implementation replies are proposals, not applied edits. Existing controlled-agent editing remains a separate route.
+4. Exercise native account discovery and real response/cancellation in the actual terminal at wide/compact sizes; run unit/policy/workbench/terminal acceptance. Update binding contracts and failures with observed evidence.
+5. Commit the candidate, qualify exact-commit Check and five native build/test/install rows, publish only their immutable artifacts, verify public hashes and installed runtime, and record completion in the checkpoint. Do not advance PT06A or claim unrelated authenticated provider conformance.

@@ -125,10 +125,17 @@ impl Worker {
                 let event = match request {
                     Request::Discover => {
                         snapshots = (0..PROVIDERS).map(|index| discover(index, &project)).collect();
-                        Event::Discovered(snapshots.iter().map(|s| s.profile.clone()).collect())
+                        let mut profiles: Vec<_> = snapshots.iter().map(|s| s.profile.clone()).collect();
+                        profiles.extend(crate::providers::Agent::ALL.into_iter().filter(|agent| agent.is_direct()).map(crate::providers::direct::config::profile));
+                        Event::Discovered(profiles)
                     }
                     Request::PrepareAuth { profile, generation, method } => {
                         Event::AuthPrepared { profile, generation, result: crate::providers::auth::Plan::prepare(profile, method, &project).map(Box::new) }
+                    }
+                    Request::Probe { profile, generation }
+                        if crate::providers::Agent::from_index(profile).is_some_and(crate::providers::Agent::is_direct) => {
+                        let agent = crate::providers::Agent::from_index(profile).expect("guarded provider");
+                        Event::Probed { profile, generation, result: Box::new(crate::providers::direct::config::profile(agent)) }
                     }
                     Request::Probe { profile, generation } => {
                         let Some(previous) = snapshots.get(profile) else { continue };
@@ -977,9 +984,9 @@ fn apply_version(index: usize, profile: &mut Profile, version: &str) {
     if index == 1 {
         profile.blockers.push("Claude CLI version is not SDK version or permission to reuse claude.ai login. Qualify the sidecar and permitted API/cloud credentials in e.".into());
     } else {
-        profile.version.push_str(
-            "; stable version recognized, handshake/auth/capabilities remain unqualified",
-        );
+        profile
+            .version
+            .push_str("; version recorded, handshake/auth/capabilities remain unqualified");
     }
 }
 
@@ -1001,10 +1008,21 @@ fn parse_version(index: usize, bytes: &[u8]) -> Option<String> {
         ANT => text.strip_prefix("ant version ")?,
         _ => return None,
     };
-    if version.len() > 32 {
+    if version.len() > 96 || crate::workspace::privacy::redact(version) != version {
         return None;
     }
-    let mut parts = version.split('.');
+    let core_end = version.find(['-', '+']).unwrap_or(version.len());
+    if core_end < version.len() {
+        let suffix = &version[core_end + 1..];
+        if suffix.is_empty()
+            || !suffix
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'+'))
+        {
+            return None;
+        }
+    }
+    let mut parts = version[..core_end].split('.');
     for _ in 0..3 {
         let part = parts.next()?;
         if part.is_empty() || part.len() > 8 || !part.bytes().all(|c| c.is_ascii_digit()) {
@@ -1180,13 +1198,13 @@ pub(crate) fn planning_trust(project: &Path) -> Result<PlanningTrust, String> {
         }
     }
     let mut lines = vec![
-        format!("Trust executes {} twice: literal argv [--version], then {}. A stable version must be recognized; live protocol and policy acknowledgment determine compatibility. Stay launches nothing.", executable.path.display(), serde_json::to_string(&planning_argv()).unwrap_or_default()),
+        format!("Trust executes {} twice: literal argv [--version], then {}. Record recognizable version evidence; live protocol and policy acknowledgment determine compatibility. Stay launches nothing.", executable.path.display(), serde_json::to_string(&planning_argv()).unwrap_or_default()),
         format!("Selected PATH candidate: {}. Process cwd: {} (outside the project). Thread/turn cwd: {}.", selected.display(), cwd.display(), project.display()),
         "The executable inherits provider authentication and the current environment. Wrappers, interpreters, libraries, configuration, MCP servers and hooks may execute or persist side effects. Eevee does not sandbox this trusted provider process or pin transitive dependencies.".into(),
         snapshot.profile.configuration.clone(),
         snapshot.profile.authentication.clone(),
         snapshot.profile.billing.clone(),
-        "After trust: initialize experimental app-server API, account/read without refresh, config/read (retain only model/provider/effort), model/list; preserve configured/default or explicit advertised model and supported effort exactly, with no fallback. No login, credential-store read, credential/config mutation or startup model request is performed by Eevee.".into(),
+        "After trust: initialize experimental app-server API, account/read without refresh, config/read (retain only model/provider/effort), model/list. Preserve exact configured/custom selection even when absent from stale metadata; the provider decides availability and cannot silently substitute. No login, credential-store read, credential/config mutation or startup model request is performed by this CLI adapter.".into(),
         "Only Run sends the displayed immutable payload. Codex may additionally load project instructions, skills, provider configuration, MCP context and prior provider history. This is NOT a preview of the full effective model prompt. Provider account/plan owns billing and eligibility; a present account does not guarantee quota.".into(),
         "Provider persists thread history and thread IDs; Eevee keeps IDs/outputs only for this session. Resume is explicit and restricted to a previously started same-task thread; no automatic replay/restart. New thread does not mean provider forgets prior data.".into(),
         "Thread/turn request read-only, restricted network, approvalsReviewer=user and on-request approval policy; disable multi-agent delegation, web search and login shells by session config overrides (not global writes). These are AGENT-POLICY-CONTROLLED boundaries, not Eevee OS isolation. Provider config, MCP startup/tool actions and hook coverage is unknown. Process groups/Jobs own cancellation only. Commands the provider deems safe can run without callbacks.".into(),

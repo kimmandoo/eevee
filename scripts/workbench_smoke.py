@@ -3,10 +3,13 @@
 import argparse
 import json
 import os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import sqlite3
+import socket
 import subprocess
 import tempfile
+import threading
 import time
 from contextlib import closing
 
@@ -23,6 +26,147 @@ def wait_for(session, text, timeout=8):
         assert session.alive(), "application exited while waiting for " + text
         assert time.monotonic() < deadline, "missing state: " + text + "\n" + session.display()
         session.pump(0.05)
+
+
+class NativeFixture:
+    """Deterministic loopback HTTP/SSE service, not live-provider conformance."""
+
+    responses = ("Fixture alpha: proposal only.", "Fixture beta: proposal only.")
+    private_reasoning = "NATIVE_FIXTURE_PRIVATE_REASONING"
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.requests = []
+        self.errors = []
+        self.workers = []
+        self.fail_models = threading.Event()
+        self.delayed_started = threading.Event()
+        self.delayed_closed = threading.Event()
+        self.stopped = threading.Event()
+        fixture = self
+
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, *_args):
+                pass
+
+            def handle(self):
+                with fixture.lock:
+                    fixture.workers.append(threading.current_thread())
+                self.connection.settimeout(2)
+                try:
+                    super().handle()
+                except (OSError, ValueError) as error:
+                    if not fixture.stopped.is_set():
+                        with fixture.lock:
+                            fixture.errors.append(str(error))
+
+            def record(self, body=None):
+                with fixture.lock:
+                    fixture.requests.append({
+                        "method": self.command, "path": self.path,
+                        "headers": dict(self.headers), "body": body,
+                    })
+                    return sum(row["method"] == "POST" for row in fixture.requests)
+
+            def reply(self, status, body):
+                encoded = json.dumps(body).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(encoded)
+                self.close_connection = True
+
+            def do_GET(self):
+                self.record()
+                if self.path != "/v1/models":
+                    self.reply(404, {"error": "unexpected fixture route"})
+                elif fixture.fail_models.is_set():
+                    self.reply(503, {"error": "deterministic metadata failure"})
+                else:
+                    self.reply(200, {"data": [
+                        {"id": "fixture-alpha", "name": "fixture-alpha"},
+                        {"id": "fixture-beta", "name": "fixture-beta"},
+                    ]})
+
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", "0"))
+                if self.path != "/v1/chat/completions" or not 0 < length <= 1024 * 1024:
+                    self.record()
+                    self.reply(400, {"error": "unexpected fixture request"})
+                    return
+                ordinal = self.record(json.loads(self.rfile.read(length)))
+                self.send_response(200)
+                # Exercise valid semantic SSE even when a gateway omits Content-Type.
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.close_connection = True
+                if ordinal == 3:
+                    # No answer bytes: cancellation must drop the streaming
+                    # client, not merely hide output or wait for server EOF.
+                    self.wfile.write(b": fixture awaiting local cancellation\n\n")
+                    self.wfile.flush()
+                    fixture.delayed_started.set()
+                    self.connection.settimeout(0.1)
+                    deadline = time.monotonic() + 10
+                    while not fixture.stopped.is_set() and time.monotonic() < deadline:
+                        try:
+                            if self.connection.recv(1) == b"":
+                                fixture.delayed_closed.set()
+                                return
+                        except socket.timeout:
+                            continue
+                        except (ConnectionResetError, ConnectionAbortedError):
+                            fixture.delayed_closed.set()
+                            return
+                    if not fixture.stopped.is_set():
+                        with fixture.lock:
+                            fixture.errors.append("cancelled native client did not close")
+                    return
+                if ordinal not in (1, 2):
+                    with fixture.lock:
+                        fixture.errors.append("unexpected extra inference request")
+                    return
+                frame = {
+                    "id": "fixture-response-" + str(ordinal), "model": "fixture-observed",
+                    "choices": [{"index": 0, "delta": {
+                        "content": fixture.responses[ordinal - 1],
+                        "reasoning_content": fixture.private_reasoning,
+                    }, "finish_reason": "stop"}],
+                }
+                self.wfile.write(("data: " + json.dumps(frame) + "\n\ndata: [DONE]\n\n").encode("utf-8"))
+                self.wfile.flush()
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.server.daemon_threads = True
+        self.server.block_on_close = False
+        self.thread = threading.Thread(target=self.server.serve_forever,
+                                       kwargs={"poll_interval": 0.05}, daemon=True)
+
+    def snapshot(self, method=None):
+        with self.lock:
+            assert not self.errors, self.errors
+            return [row.copy() for row in self.requests if method is None or row["method"] == method]
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_error):
+        self.stopped.set()
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+        with self.lock:
+            workers = self.workers[:]
+        deadline = time.monotonic() + 3
+        for worker in workers:
+            worker.join(timeout=max(0, deadline - time.monotonic()))
+        assert not self.thread.is_alive() and not any(worker.is_alive() for worker in workers), \
+            "native fixture server leaked a thread"
 
 
 def main():
@@ -239,6 +383,204 @@ def main():
                 assert not assets.exists(), "first-use navigation created an unapproved artwork cache"
                 assert not any(path.is_file() for path in isolated_home.rglob("*")), "navigation wrote provider-owned configuration or credentials"
                 quit_app(fresh)
+
+            # These journeys drive the installed TUI and real native HTTP client.
+            # The service is deterministic and local; no external account or
+            # live-provider protocol/billing conformance is exercised or claimed.
+            for width in (120, 60):
+                native_data = root / ("native-data-" + str(width))
+                native_project = root / ("native-project-" + str(width))
+                native_project.mkdir()
+                native_home = root / ("native-home-" + str(width))
+                native_home.mkdir()
+                first_request = "native first " + str(width)
+                second_request = "native second " + str(width)
+                third_request = "native delayed " + str(width)
+                unsent_request = "native unsent followup " + str(width)
+                custom_model = "fixture/custom:Exact-v1"
+
+                def saved_request(rows):
+                    return next((draft["text"] for draft in lead_drafts(rows[0])
+                                 if draft["field"] == "Request"), "") if rows else ""
+
+                with NativeFixture() as fixture:
+                    native_environment = first_use_environment.copy()
+                    for key in list(native_environment):
+                        if key.startswith("EV_") or key.lower().endswith("_proxy"):
+                            native_environment.pop(key, None)
+                    native_environment.update(
+                        HOME=str(native_home), USERPROFILE=str(native_home),
+                        XDG_CONFIG_HOME=str(native_home / "config"),
+                        XDG_DATA_HOME=str(native_home / "data"),
+                        XDG_CACHE_HOME=str(native_home / "cache"),
+                        APPDATA=str(native_home / "config"), LOCALAPPDATA=str(native_home / "cache"),
+                        EV_PROVIDER="compatible",
+                        EV_API_BASE_URL="http://127.0.0.1:" + str(fixture.server.server_port) + "/v1",
+                        EV_API_PROTOCOL="chat_completions", EV_API_MODEL="custom", EV_API_KEYLESS="1",
+                        NO_PROXY="127.0.0.1,localhost", no_proxy="127.0.0.1,localhost",
+                    )
+                    native = launch("native-" + str(width), directory=native_data,
+                                    cwd=native_project, size=(width, 36 if width == 120 else 18),
+                                    environment=native_environment)
+                    wait_for(native, "Storage: saved")
+                    native.paste(first_request)
+                    native.send("\x13")
+                    stored_when(native_data, lambda rows: saved_request(rows) == first_request)
+                    native.command("model")
+                    wait_for(native, "Models loaded")
+                    assert len(fixture.snapshot("GET")) == 1
+                    assert not fixture.snapshot("POST"), "model discovery performed inference"
+                    native.send("fixture-beta")
+                    wait_for(native, "Search: fixture-beta")
+                    wait_for(native, "fixture-beta")
+                    assert "fixture-alpha" not in native.display(), "search retained a nonmatching model row"
+                    native.capture("native-metadata-search")
+                    native.send("\r")
+                    wait_for(native, first_request)
+                    native.command("model")
+                    wait_for(native, "Requested: fixture-beta")
+                    native.send("\x1b[F\x1b[A\r")  # End: Refresh; previous row: Custom ID.
+                    wait_for(native, "CUSTOM MODEL ID")
+                    native.paste(custom_model)
+                    native.send("\r")
+                    wait_for(native, first_request)
+                    native.command("model")
+                    wait_for(native, "Requested: " + custom_model)
+                    native.capture("native-exact-custom-model")
+                    native.send("\x1b")
+                    assert saved_request(inspect_store(native_data)) == first_request
+                    assert not fixture.snapshot("POST"), "local model selection submitted a draft"
+                    passed("native-fixture-metadata-search-exact-custom-id-retains-draft-" + str(width))
+
+                    native.send("\r")
+                    wait_for(native, "Run once")
+                    assert not fixture.snapshot("POST"), "request preview dispatched before Run"
+                    native.capture("native-first-neutral-review")
+                    native.send("\r")  # Neutral review cancels; draft remains durable.
+                    wait_for(native, first_request)
+                    assert not fixture.snapshot("POST")
+                    assert saved_request(inspect_store(native_data)) == first_request
+                    native.send("\r")
+                    wait_for(native, "Run once")
+                    native.send("y")
+                    wait_for(native, fixture.responses[0])
+                    wait_for(native, "complete")
+                    wait_for(native, "Request: " + first_request)
+                    native.paste(second_request)
+                    native.send("\x13")
+                    stored_when(native_data, lambda rows: saved_request(rows) == second_request)
+                    assert "Request: " + first_request in native.display(), "new draft relabelled the old response"
+                    native.send("\r")
+                    wait_for(native, "Run once")
+                    assert len(fixture.snapshot("POST")) == 1, "second preview auto-dispatched"
+                    native.send("y")
+                    wait_for(native, fixture.responses[1])
+                    wait_for(native, "2/2")
+                    wait_for(native, "Request: " + second_request)
+                    native.capture("native-second-response-owner")
+                    native.send("\x1b[1;3A")  # Alt+Up: retain and inspect the first owned response.
+                    wait_for(native, fixture.responses[0])
+                    wait_for(native, "Previous request: " + first_request)
+                    wait_for(native, "Current request: " + second_request)
+                    native.capture("native-first-response-owner-retained")
+                    native.send("\x1b[1;3B")
+                    wait_for(native, fixture.responses[1])
+                    assert fixture.private_reasoning not in native.text
+                    assert len(fixture.snapshot("POST")) == 2
+                    passed("native-fixture-two-approved-turns-preserve-response-owners-" + str(width))
+
+                    native.paste(third_request)
+                    native.send("\x13")
+                    stored_when(native_data, lambda rows: saved_request(rows) == third_request)
+                    before_refresh = inspect_store(native_data)
+                    fixture.fail_models.set()
+                    native.command("models-refresh")
+                    wait_for(native, "Run once")
+                    assert len(fixture.snapshot("GET")) == 1, "refresh bypassed its connection review"
+                    native.send("y")
+                    wait_for(native, "STALE / fetch failed")
+                    native.capture("native-failed-refresh-retains-snapshot")
+                    for model in ("fixture-alpha", "fixture-beta"):
+                        native.send("\x15")
+                        native.send(model)
+                        wait_for(native, "Search: " + model)
+                        wait_for(native, model)
+                        assert "STALE / fetch failed" in native.display()
+                    native.send("\x15")
+                    # Compact view may scroll the retained rows/error. Inspect
+                    # the actual error rather than counting a failed HTTP call.
+                    deadline = time.monotonic() + 4
+                    while "Fetch error:" not in native.display():
+                        assert time.monotonic() < deadline, native.display()
+                        native.send("\x1b[6~")
+                    native.capture("native-failed-refresh-error")
+                    assert len(fixture.snapshot("GET")) == 2
+                    assert len(fixture.snapshot("POST")) == 2
+                    native.send("\x1b")
+                    assert lead_drafts(inspect_store(native_data)[0]) == lead_drafts(before_refresh[0])
+                    wait_for(native, third_request)
+                    passed("native-fixture-failed-metadata-refresh-retains-rows-error-and-draft-" + str(width))
+
+                    native.send("\r")
+                    wait_for(native, "Run once")
+                    assert len(fixture.snapshot("POST")) == 2
+                    native.send("y")
+                    deadline = time.monotonic() + 5
+                    while not fixture.delayed_started.is_set():
+                        assert native.alive() and time.monotonic() < deadline, native.display()
+                        native.pump(0.05)
+                    native.paste(unsent_request)
+                    native.command("cancel")
+                    deadline = time.monotonic() + 5
+                    while not fixture.delayed_closed.is_set():
+                        assert native.alive() and time.monotonic() < deadline, "cancel did not close the local HTTP client"
+                        native.pump(0.05)
+                    stored_when(native_data, lambda rows: saved_request(rows) == unsent_request)
+                    wait_for(native, "Storage: saved")
+                    assert "local reader closed" in native.text
+                    native.pump(0.5)
+                    assert len(fixture.snapshot("POST")) == 3, "cancelled inference was automatically resent"
+                    native.send("\x1b[1;3A")
+                    wait_for(native, fixture.responses[0])
+                    wait_for(native, "Previous request: " + first_request)
+                    native.send("\x1b[1;3B")
+                    wait_for(native, fixture.responses[1])
+                    wait_for(native, "Previous request: " + second_request)
+                    wait_for(native, unsent_request)
+                    native.capture("native-cancel-preserves-responses-and-unsent-draft")
+                    requests = fixture.snapshot()
+                    assert all(row["path"] == ("/v1/models" if row["method"] == "GET"
+                                               else "/v1/chat/completions") for row in requests)
+                    for row in requests:
+                        assert not any(key.lower() in ("authorization", "cookie", "x-api-key")
+                                       for key in row["headers"]), "keyless fixture received credentials"
+                    payloads = fixture.snapshot("POST")
+                    task = inspect_store(native_data)[0]
+                    for row, request in zip(payloads, (first_request, second_request, third_request)):
+                        body = row["body"]
+                        assert set(body) == {"model", "messages", "stream"}, body
+                        assert body["model"] == custom_model and body["stream"] is True
+                        assert len(body["messages"]) == 1 and body["messages"][0]["role"] == "user"
+                        context = json.loads(body["messages"][0]["content"])
+                        assert context["request"] == request
+                        assert context["task"]["id"] == task["id"] and context["task"]["goal"] == first_request
+                        assert context["proposed_edit_paths_only"] == [] and context["approved_memories"] == []
+                        assert context["handoff"] is None
+                        assert unsent_request not in row["body"]["messages"][0]["content"]
+                    assert task["command"] == "" and task["goal"] == first_request
+                    assert fixture.private_reasoning not in native.text + json.dumps(task)
+                    with closing(sqlite3.connect((native_data / "workbench.sqlite3").as_uri() + "?mode=ro", uri=True)) as db:
+                        assert db.execute("SELECT count(*) FROM executions").fetchone()[0] == 0
+                    assert not list(native_project.iterdir()), "native provider created project files"
+                    assert not any(path.is_file() for path in native_home.rglob("*")), "native provider wrote credentials or config"
+                    native.command("quit")
+                    wait_for(native, "Exit with unknown outcome")
+                    native.send("y")  # Explicitly acknowledge remote outcome remains unknown.
+                    confirm_exit(native)
+                    assert native.wait_exit() == 0
+                    native.close()
+                    assert len(fixture.snapshot("POST")) == 3
+                    passed("native-fixture-delayed-cancel-closes-client-no-resend-or-local-effects-" + str(width))
 
             goal = "durable 漢字 cafe\u0301\nsecond line"
             first = launch("save")

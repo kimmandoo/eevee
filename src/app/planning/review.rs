@@ -11,6 +11,46 @@ use crate::{
     workspace::{context, repo},
 };
 
+impl super::Answer {
+    fn line_key(&mut self, key: KeyCode) -> bool {
+        let before = self.text[..self.cursor]
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .next_back()
+            .unwrap_or(0);
+        let after = self
+            .text
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .find(|index| *index > self.cursor)
+            .unwrap_or(self.text.len());
+        match key {
+            KeyCode::Home => self.cursor = 0,
+            KeyCode::End => self.cursor = self.text.len(),
+            KeyCode::Left => self.cursor = before,
+            KeyCode::Right => self.cursor = after,
+            KeyCode::Backspace => {
+                self.text.replace_range(before..self.cursor, "");
+                self.cursor = before;
+            }
+            KeyCode::Delete => self.text.replace_range(self.cursor..after, ""),
+            _ => return false,
+        }
+        true
+    }
+
+    fn insert_line(&mut self, text: &str) {
+        self.text.insert_str(self.cursor, text);
+        self.cursor += text.len();
+        self.cursor = self
+            .text
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .find(|index| *index >= self.cursor)
+            .unwrap_or(self.text.len());
+    }
+}
+
 impl State {
     pub fn invalidate_review(&mut self) {
         self.reviewed = false;
@@ -29,6 +69,50 @@ impl State {
         self.scroll_max = 0;
         self.response_cache.invalidate();
         self.invalidate_review();
+    }
+
+    fn custom_model_key(&mut self, key: KeyEvent) -> bool {
+        if key.code == KeyCode::Esc {
+            self.custom_model = None;
+            return true;
+        }
+        if key.code == KeyCode::Enter {
+            let id = &self.custom_model.as_ref().expect("model editor").text;
+            if id.is_empty() || id.len() > 256
+                || id.chars().any(|ch| ch.is_whitespace() || ch.is_control()
+                    || matches!(ch, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
+                || crate::workspace::privacy::redact(id) != *id
+            {
+                self.notice = "Use an exact model ID: 1–256 UTF-8 bytes, no whitespace, control, bidi or credential-like text. Nothing was changed.".into();
+                return true;
+            }
+            let model = Some(id.clone());
+            let effort = if model == self.selection.model {
+                self.selection.effort.clone()
+            } else {
+                None
+            };
+            self.custom_model = None;
+            self.choose_selection(ModelSelection { model, effort });
+            return true;
+        }
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('u') {
+            self.custom_model = Some(super::Answer::default());
+            return true;
+        }
+        if key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            return false;
+        }
+        if let KeyCode::Char(ch) = key.code {
+            return self.paste(ch.encode_utf8(&mut [0; 4]));
+        }
+        self.custom_model
+            .as_mut()
+            .expect("model editor")
+            .line_key(key.code)
     }
 
     fn paths_key(&mut self, key: KeyEvent) -> bool {
@@ -120,6 +204,10 @@ impl State {
         if self.busy() {
             return;
         }
+        if !inspect_models && self.agent.is_direct() && (resume || inspect_sessions) {
+            self.notice = "Direct API requests are fresh and stateless here; choose /new. No session inspection or resume was prepared.".into();
+            return;
+        }
         if !inspect_models && self.operation == Operation::Review && (resume || inspect_sessions) {
             self.notice = "Review requires a fresh session and freshly constructed evidence context. Resume/session inspection is unavailable here; choose New.".into();
             return;
@@ -149,7 +237,7 @@ impl State {
         self.inspect_sessions = inspect_sessions;
         self.inspect_models = inspect_models;
         self.request_selection = if inspect_models {
-            self.catalogues.remove(&self.agent);
+            self.catalogue_pending = None;
             self.catalogue_errors.remove(&self.agent);
             ModelSelection::default()
         } else {
@@ -216,8 +304,7 @@ impl State {
         self.auto_models = true;
     }
 
-    /// Whether an automatic catalogue fetch is wanted and the request slot
-    /// is free (an open picker is replaced by the fetch, then reopened).
+    /// Whether an automatic catalogue fetch is wanted and the request slot is free.
     pub fn catalogue_due(&self) -> bool {
         self.auto_models && !self.busy_except_picker() && !self.journal_failed()
     }
@@ -231,8 +318,14 @@ impl State {
         report: Option<&Arc<repo::Report>>,
     ) {
         self.auto_models = false;
-        self.picker = None;
+        let picker = self.picker.take();
         self.prepare(false, false, true, task, excerpts, report);
+        if let Some(picker) = picker {
+            self.picker = Some(picker);
+            self.filter_picker();
+        } else if self.auto_picker {
+            self.open_picker(Picker::Model);
+        }
         if self.awaiting_preview {
             self.auto_run = true;
             self.notice = "Loading models…".into();
@@ -247,7 +340,9 @@ impl State {
         };
         if let Some(blocker) = preview.blockers.first() {
             self.auto_blocked = Some(format!("Models not loaded: {blocker}"));
+            let picker = self.picker.take();
             self.cancel();
+            self.picker = picker;
             return;
         }
         self.pending = Some(Request::Run {
@@ -260,6 +355,28 @@ impl State {
     }
 
     pub fn paste(&mut self, text: &str) -> bool {
+        if self.custom_model.is_some() {
+            let answer = self.custom_model.as_mut().expect("model editor");
+            if text.chars().any(char::is_control) || answer.text.len() + text.len() > 256 {
+                self.notice = "Custom model ID paste rejected: use at most 256 bytes without control characters. Nothing was submitted.".into();
+                return true;
+            }
+            answer.insert_line(text);
+            return true;
+        }
+        if self.picker == Some(Picker::Model) && self.selection_change.is_none() {
+            let remaining = 256usize.saturating_sub(self.picker_query.text.len());
+            let mut end = 0;
+            for (index, ch) in text.char_indices() {
+                if ch.is_control() || index + ch.len_utf8() > remaining {
+                    break;
+                }
+                end = index + ch.len_utf8();
+            }
+            self.picker_query.insert_line(&text[..end]);
+            self.filter_picker();
+            return true;
+        }
         if let Some(answer) = &mut self.paths_editor {
             let remaining = ANSWER_BYTES.saturating_sub(answer.text.len());
             let mut inserted = String::new();
@@ -443,6 +560,13 @@ impl State {
             }
             return true;
         }
+        if self.custom_model.is_some() {
+            return if large_enough || key.code == KeyCode::Esc {
+                self.custom_model_key(key)
+            } else {
+                false
+            };
+        }
         if self.paths_editor.is_some() {
             return if large_enough || key.code == KeyCode::Esc {
                 self.paths_key(key)
@@ -471,6 +595,15 @@ impl State {
         }
         if self.editing {
             return self.editor_key(key);
+        }
+        if self.picker == Some(Picker::Model)
+            && self.selection_change.is_none()
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && key.code == KeyCode::Char('u')
+        {
+            self.picker_query = super::Answer::default();
+            self.filter_picker();
+            return true;
         }
         if key
             .modifiers
@@ -515,6 +648,21 @@ impl State {
                 }
                 return true;
             }
+            if self.picker == Some(Picker::Model) {
+                if let KeyCode::Char(ch) = key.code {
+                    return self.paste(ch.encode_utf8(&mut [0; 4]));
+                }
+                if matches!(
+                    key.code,
+                    KeyCode::Backspace | KeyCode::Delete | KeyCode::Left | KeyCode::Right
+                ) {
+                    self.picker_query.line_key(key.code);
+                    if matches!(key.code, KeyCode::Backspace | KeyCode::Delete) {
+                        self.filter_picker();
+                    }
+                    return true;
+                }
+            }
             let count = self.picker_len();
             match key.code {
                 KeyCode::Up => self.picker_selected = self.picker_selected.saturating_sub(1),
@@ -528,6 +676,10 @@ impl State {
                     self.scroll = self.scroll.saturating_add(5).min(self.scroll_max)
                 }
                 KeyCode::Enter => {
+                    if self.catalogue_loading() {
+                        self.notice = "Loading provider metadata only. Search remains available; wait for completion before selecting.".into();
+                        return true;
+                    }
                     let Some(row) = self.picker_choice(self.picker_selected) else {
                         return false;
                     };
@@ -544,17 +696,18 @@ impl State {
                             report,
                         );
                     }
+                    if row.command == "model-custom" {
+                        self.custom_model = Some(super::Answer::default());
+                        self.notice = "Enter an exact model ID locally. Availability is not entitlement; the next request still needs fresh review.".into();
+                        return true;
+                    }
                     let mut selection = self.selection.clone();
                     match self.picker {
                         Some(Picker::Model) => {
                             selection.model = if self.picker_selected == 0 {
                                 None
                             } else {
-                                self.catalogues
-                                    .get(&self.agent)
-                                    .and_then(|catalogue| {
-                                        catalogue.models.get(self.picker_selected - 1)
-                                    })
+                                self.picker_model(self.picker_selected)
                                     .map(|model| model.id.clone())
                             };
                             if selection.model != self.selection.model {
@@ -572,17 +725,7 @@ impl State {
                         }
                         None => return false,
                     }
-                    if selection == self.selection {
-                        self.picker = None;
-                        return true;
-                    }
-                    if selection.model != self.selection.model && self.thread_id.is_some() {
-                        self.selection_change = Some(selection);
-                        self.affirmative = false;
-                        self.reviewed = false;
-                    } else {
-                        self.apply_selection(selection, false);
-                    }
+                    self.choose_selection(selection);
                 }
                 _ => return false,
             }
@@ -766,6 +909,10 @@ impl State {
                         self.review_start();
                         self.scroll = self.saved_scroll;
                         self.notice = "Explicit trust and run consent given for this exact preview. Connecting to provider.".into();
+                        if self.inspect_models {
+                            self.open_picker(Picker::Model);
+                            self.notice = "Loading provider metadata only; no request text or tools are sent.".into();
+                        }
                     } else {
                         self.notice = "Run blocked. Review prerequisites; no executable launch is authorized.".into();
                     }

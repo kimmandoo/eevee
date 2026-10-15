@@ -56,7 +56,7 @@ fn complete_catalogue_pages_past_default_and_uses_exact_selected_model() {
     );
     assert_eq!(
         listing.select(&ModelSelection::default()).unwrap(),
-        ("default".into(), "medium".into())
+        ("default".into(), Some("medium".into()))
     );
     let selected = ModelSelection {
         model: Some("requested".into()),
@@ -64,7 +64,7 @@ fn complete_catalogue_pages_past_default_and_uses_exact_selected_model() {
     };
     assert_eq!(
         listing.select(&selected).unwrap(),
-        ("requested".into(), "high".into())
+        ("requested".into(), Some("high".into()))
     );
     let catalogue = listing.into_catalogue(&selected);
     catalogue.validate().unwrap();
@@ -97,7 +97,7 @@ fn configured_default_is_not_replaced_by_a_newer_catalogue_default() {
         .unwrap();
     assert_eq!(
         listing.select(&ModelSelection::default()).unwrap(),
-        ("configured".into(), "high".into())
+        ("configured".into(), Some("high".into()))
     );
     assert_eq!(
         listing
@@ -106,27 +106,22 @@ fn configured_default_is_not_replaced_by_a_newer_catalogue_default() {
                 effort: None,
             })
             .unwrap(),
-        ("new-default".into(), "medium".into())
+        ("new-default".into(), Some("medium".into()))
     );
     listing.refresh();
     listing
         .page(&json!({"data":[model("new-default", true),model("configured", false)]}))
         .unwrap();
     listing
-        .revalidate(&ModelSelection::default(), "configured", "high")
+        .revalidate(&ModelSelection::default(), "configured", Some("high"))
         .unwrap();
     let catalogue = listing.into_catalogue(&ModelSelection::default());
     catalogue.validate().unwrap();
     assert_eq!(catalogue.current.as_deref(), Some("configured"));
-    assert!(catalogue.source.contains("configured model: configured"));
-    assert!(catalogue.source.contains("catalogue default: new-default"));
-    assert!(catalogue.source.contains("custom-endpoint"));
-    assert!(catalogue.source.contains("Update the same executable"));
-    assert!(!catalogue.source.contains("never retain"));
 }
 
 #[test]
-fn missing_configured_models_and_unsupported_configured_effort_never_fall_back() {
+fn configured_custom_models_are_preserved_and_known_efforts_are_validated() {
     let mut listing = ModelListing::default();
     listing
         .configuration(&json!({"config":{"model":"missing"}}))
@@ -134,7 +129,10 @@ fn missing_configured_models_and_unsupported_configured_effort_never_fall_back()
     listing
         .page(&json!({"data":[model("available",true)]}))
         .unwrap();
-    assert!(listing.select(&ModelSelection::default()).is_err());
+    assert_eq!(
+        listing.select(&ModelSelection::default()).unwrap(),
+        ("missing".into(), None)
+    );
     let catalogue = listing.into_catalogue(&ModelSelection::default());
     assert_eq!(catalogue.current.as_deref(), Some("missing"));
     assert_eq!(catalogue.models.len(), 1);
@@ -157,7 +155,7 @@ fn missing_configured_models_and_unsupported_configured_effort_never_fall_back()
                 effort: Some("low".into()),
             })
             .unwrap(),
-        ("available".into(), "low".into())
+        ("available".into(), Some("low".into()))
     );
 }
 
@@ -179,7 +177,7 @@ fn new_provider_model_names_and_max_effort_are_not_version_filtered() {
                 effort: Some("max".into()),
             })
             .unwrap(),
-        ("provider-next-generation".into(), "max".into())
+        ("provider-next-generation".into(), Some("max".into()))
     );
 }
 
@@ -204,24 +202,25 @@ fn model_configuration_requires_valid_allowlisted_identity_fields() {
         .unwrap();
     assert_eq!(
         listing.select(&ModelSelection::default()).unwrap(),
-        ("advertised".into(), "medium".into())
+        ("advertised".into(), Some("medium".into()))
     );
 }
 
 #[test]
-fn unavailable_model_and_unsupported_effort_never_fall_back() {
+fn explicit_custom_models_are_forwarded_exactly_without_catalogue_authorization() {
     let mut listing = ModelListing::default();
     listing
         .page(&json!({"data":[model("advertised", true)]}))
         .unwrap();
     for requested in ["missing", "Advertised", "advertised-extra"] {
-        assert!(
+        assert_eq!(
             listing
                 .select(&ModelSelection {
                     model: Some(requested.into()),
                     effort: None
                 })
-                .is_err()
+                .unwrap(),
+            (requested.into(), None)
         );
     }
     assert!(
@@ -256,7 +255,7 @@ fn unavailable_model_and_unsupported_effort_never_fall_back() {
 }
 
 #[test]
-fn stale_catalogue_rejects_removed_model_effort_or_changed_default() {
+fn revalidation_keeps_exact_custom_selection_but_detects_changed_known_defaults() {
     let selection = ModelSelection {
         model: Some("selected".into()),
         effort: Some("high".into()),
@@ -265,15 +264,23 @@ fn stale_catalogue_rejects_removed_model_effort_or_changed_default() {
     removed
         .page(&json!({"data":[model("replacement", true)]}))
         .unwrap();
-    assert!(removed.revalidate(&selection, "selected", "high").is_err());
+    assert!(
+        removed
+            .revalidate(&selection, "selected", Some("high"))
+            .is_ok()
+    );
     let mut changed = model("selected", true);
     changed["supportedReasoningEfforts"] = json!([{"reasoningEffort":"medium"}]);
     let mut listing = ModelListing::default();
     listing.page(&json!({"data":[changed]})).unwrap();
-    assert!(listing.revalidate(&selection, "selected", "high").is_err());
+    assert!(
+        listing
+            .revalidate(&selection, "selected", Some("high"))
+            .is_err()
+    );
     assert!(
         removed
-            .revalidate(&ModelSelection::default(), "selected", "medium")
+            .revalidate(&ModelSelection::default(), "selected", Some("medium"))
             .is_err()
     );
     let mut new_effort = model("selected", true);
@@ -288,7 +295,7 @@ fn stale_catalogue_rejects_removed_model_effort_or_changed_default() {
                     effort: None
                 },
                 "selected",
-                "medium"
+                Some("medium")
             )
             .is_err()
     );
@@ -300,7 +307,7 @@ fn stale_catalogue_rejects_removed_model_effort_or_changed_default() {
                     effort: Some("medium".into())
                 },
                 "selected",
-                "medium"
+                Some("medium")
             )
             .is_ok()
     );
@@ -318,7 +325,7 @@ fn malformed_or_unbounded_catalogue_is_not_partially_accepted() {
             .is_err()
     );
     let mut listing = ModelListing::default();
-    for page in 0..9 {
+    for page in 0..63 {
         listing
             .page(&json!({"data":[],"nextCursor":format!("cursor-{page}")}))
             .unwrap();
@@ -362,7 +369,24 @@ fn malformed_or_unbounded_catalogue_is_not_partially_accepted() {
     let models: Vec<_> = (0..57)
         .map(|index| model(&format!("last-{index}"), false))
         .collect();
-    assert!(listing.page(&json!({"data":models})).is_err());
+    listing.page(&json!({"data":models})).unwrap();
+    assert_eq!(listing.models.len(), 257);
+}
+
+#[test]
+fn models_without_display_or_reasoning_metadata_remain_selectable() {
+    let mut listing = ModelListing::default();
+    listing
+        .page(&json!({"data":[{"model":"plain-text","isDefault":true}]}))
+        .unwrap();
+    assert_eq!(
+        listing.select(&ModelSelection::default()).unwrap(),
+        ("plain-text".into(), None)
+    );
+    let catalogue = listing.into_catalogue(&ModelSelection::default());
+    catalogue.validate().unwrap();
+    assert_eq!(catalogue.models[0].name, "plain-text");
+    assert!(catalogue.models[0].efforts.is_empty());
 }
 
 #[test]

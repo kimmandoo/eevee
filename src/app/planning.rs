@@ -130,6 +130,10 @@ pub struct State {
     catalogue_errors: HashMap<Agent, String>,
     pub picker: Option<Picker>,
     pub picker_selected: usize,
+    pub picker_query: Answer,
+    pub custom_model: Option<Answer>,
+    picker_models: Vec<usize>,
+    catalogue_pending: Option<ModelCatalogue>,
     pub selection_change: Option<ModelSelection>,
     pub inspect_models: bool,
     /// A catalogue fetch is wanted (after a connection or an empty `/model`);
@@ -181,6 +185,8 @@ impl State {
             inspection: None, inspect_sessions: false,
             selection: ModelSelection::default(), selections: HashMap::new(),
             catalogues: HashMap::new(), catalogue_errors: HashMap::new(), picker: None, picker_selected: 0,
+            picker_query: Answer::default(), custom_model: None, picker_models: Vec::new(),
+            catalogue_pending: None,
             selection_change: None, inspect_models: false,
             auto_models: false, auto_run: false, auto_picker: false, auto_blocked: None,
             request_selection: ModelSelection::default(), session_selection: ModelSelection::default(),
@@ -200,6 +206,7 @@ impl State {
             && !self.quit_review
             && !self.journal_mode
             && self.paths_editor.is_none()
+            && self.custom_model.is_none()
             && self.preview.is_some()
             && ((self.affirmative && key.code == KeyCode::Enter)
                 || (key.modifiers.is_empty()
@@ -213,7 +220,11 @@ impl State {
             && !self.awaiting_preview
             && !self.journal_mode
             && (matches!(name, "new" | "resume" | "sessions")
-                || name.starts_with("provider-") && name != "provider-journal")
+                || name.starts_with("provider-")
+                    && name != "provider-journal"
+                    && (self.thread_id.is_some()
+                        || !self.items.is_empty()
+                        || self.handoff.is_some()))
     }
 
     pub fn busy(&self) -> bool {
@@ -228,6 +239,7 @@ impl State {
             || self.quit_review
             || self.switch_to.is_some()
             || self.paths_editor.is_some()
+            || self.custom_model.is_some()
             || !self.pending_journal.is_empty()
             || !self.journal_inflight.is_empty()
     }
@@ -276,15 +288,25 @@ impl State {
         // credential change; a live request keeps its generation-correlated
         // state and is only flagged for re-review.
         self.picker = None;
+        self.custom_model = None;
         self.selection_change = None;
+        self.catalogues.clear();
+        self.catalogue_errors.clear();
+        self.catalogue_pending = None;
+        self.picker_models.clear();
+        if self.inspect_models && (self.active || self.awaiting_preview || self.preview.is_some()) {
+            // Late metadata belongs to the old credential and cannot publish.
+            self.catalogue_errors.insert(
+                self.agent,
+                "Authentication changed; refresh models with the current account.".into(),
+            );
+        }
         if self.busy() {
             self.invalidate_review();
             self.notice = "Authentication changed during a provider request; continuing work is not invalidated.".into();
             return;
         }
         self.sessions.clear();
-        self.catalogues.clear();
-        self.catalogue_errors.clear();
         self.thread_id = None;
         self.observed_model = None;
         self.items.clear();
@@ -388,7 +410,7 @@ impl State {
         self.close_request();
         self.review_start();
         self.notice = format!(
-            "{} selected at idle. All grants reset; New/Resume still requires full executable/context review.",
+            "{} selected locally. No connection or request authorized; sending still requires a fresh review.",
             next.label()
         );
     }
@@ -440,16 +462,9 @@ impl State {
             {
                 match catalogue.validate() {
                     Ok(()) => {
-                        // A refreshed catalogue that no longer advertises the
-                        // selected model must say so; the picker's Default row
-                        // is honest about a stale explicit id only here.
-                        let stale = self.selection.model.as_ref().is_some_and(|model| {
-                            !catalogue.models.iter().any(|entry| &entry.id == model)
-                        });
-                        self.catalogues.insert(self.agent, catalogue);
-                        if stale {
-                            self.notice = "The refreshed catalogue no longer advertises the selected model; the next request fails its advertised check unless you reselect.".into();
-                        }
+                        // Publish only after successful completion; a late failure
+                        // must not replace the last successful account-scoped snapshot.
+                        self.catalogue_pending = Some(catalogue);
                     }
                     Err(reason) => {
                         self.notice = format!("Model catalogue rejected: {reason}");
@@ -469,6 +484,21 @@ impl State {
             {
                 self.inspection = Some(text);
                 self.scroll = 0;
+            }
+            Event::ModelObserved {
+                generation,
+                task_id,
+                model,
+            } if self.matches(generation, task_id)
+                && self.active
+                && !self.inspect_sessions
+                && !self.inspect_models =>
+            {
+                self.activity = "Waiting for response";
+                self.observed_model = Some(model.clone());
+                self.notice = format!(
+                    "Provider acknowledged model {model}; fresh HTTP request, not a resumable session."
+                );
             }
             Event::Thread {
                 generation,
@@ -618,21 +648,28 @@ impl State {
                         self.catalogue_errors
                             .entry(self.agent)
                             .or_insert_with(|| self.notice.clone());
-                    } else if !self.catalogues.contains_key(&self.agent) {
+                    } else if self.catalogue_pending.is_none() {
                         self.catalogue_errors.entry(self.agent).or_insert_with(|| {
                             "Provider completed without a usable model catalogue.".into()
                         });
                     }
-                    if self.catalogue_errors.contains_key(&self.agent) {
-                        self.catalogues.remove(&self.agent);
+                    if let Some(catalogue) = self.catalogue_pending.take()
+                        && !self.catalogue_errors.contains_key(&self.agent)
+                    {
+                        self.catalogues.insert(self.agent, catalogue);
+                        self.filter_picker();
                     }
                     if let Some(reason) = self.catalogue_errors.get(&self.agent) {
-                        self.notice =
-                            format!("{reason} Retry with /model or review /models-refresh.");
+                        self.notice = format!(
+                            "{reason} Cached models, if any, are stale. Retry with /model or review /models-refresh."
+                        );
                     } else if self.auto_run {
                         self.notice = "Models loaded.".into();
                     }
-                    if !self.quit_after_cancel && (!self.auto_run || self.auto_picker) {
+                    if !self.quit_after_cancel
+                        && (!self.auto_run || self.auto_picker)
+                        && self.picker.is_none()
+                    {
                         self.open_picker(Picker::Model);
                     }
                     self.auto_run = false;
@@ -666,7 +703,10 @@ impl State {
                     self.notice
                         .push_str(" Retry with /model or review /models-refresh.");
                     if !self.active {
-                        if !self.quit_after_cancel && (!self.auto_run || self.auto_picker) {
+                        if !self.quit_after_cancel
+                            && (!self.auto_run || self.auto_picker)
+                            && self.picker.is_none()
+                        {
                             self.open_picker(Picker::Model);
                         }
                         self.auto_run = false;
@@ -689,8 +729,13 @@ impl State {
 
     pub fn cancel(&mut self) -> bool {
         self.invalidate_review();
+        // Closing the metadata surface must not swallow owned-request cancellation.
+        if self.inspect_models && (self.active || self.awaiting_preview) {
+            self.picker = None;
+        }
         if self.switch_to.take().is_some()
             || self.paths_editor.take().is_some()
+            || self.custom_model.take().is_some()
             || self.selection_change.take().is_some()
             || self.picker.take().is_some()
         {
@@ -723,6 +768,7 @@ impl State {
         use super::commands::Choice;
         if self.editing
             || self.paths_editor.is_some()
+            || self.custom_model.is_some()
             || self.quit_review
             || self.switch_to.is_some()
             || self.selection_change.is_some()
@@ -815,12 +861,19 @@ impl State {
             ("provider-opencode", "Choose OpenCode"),
             ("provider-gemini", "Choose Gemini"),
             ("provider-devin", "Choose Devin"),
+            ("provider-chatgpt", "Choose ChatGPT direct"),
+            ("provider-openai", "Choose OpenAI API"),
+            ("provider-anthropic", "Choose Anthropic API"),
+            ("provider-google", "Choose Google Gemini API"),
+            ("provider-compatible", "Choose custom/local API"),
             ("role-plan", "Planning role"),
             ("role-implement", "Implementation role"),
             ("role-review", "Independent review role"),
         ] {
             let reason = if !idle {
                 Some("Wait for pending local/provider work.".to_string())
+            } else if self.agent.is_direct() && matches!(command, "resume" | "sessions") {
+                Some("Direct API requests are fresh and stateless here; no owned provider session can be resumed or inspected. Choose /new.".into())
             } else if command == "resume"
                 && (self.operation == Operation::Review || self.thread_id.is_none())
             {
@@ -895,8 +948,13 @@ impl State {
                 } else {
                     Picker::Effort
                 });
-                self.notice = if self.catalogues.contains_key(&self.agent) {
-                    "Default means the provider's own configuration.".into()
+                self.notice = if self.catalogue_errors.contains_key(&self.agent) {
+                    self.auto_models = true;
+                    self.auto_picker = true;
+                    "Cached models are stale. Retrying provider metadata only…".into()
+                } else if self.catalogues.contains_key(&self.agent) {
+                    "Default means the provider's own configuration. Type to search; Ctrl+U clears."
+                        .into()
                 } else {
                     // Nothing cached yet: fetch the catalogue and reopen here.
                     self.auto_models = true;
@@ -920,6 +978,11 @@ impl State {
             _ if Agent::from_command(name).is_some() => {
                 let next = Agent::from_command(name).expect("provider command");
                 if next != self.agent {
+                    if self.thread_id.is_none() && self.items.is_empty() && self.handoff.is_none() {
+                        self.switch_to = Some(next);
+                        self.complete_switch();
+                        return true;
+                    }
                     if self.handoff.is_none() {
                         match crate::workspace::handoff::from_task(task, excerpts, &[]) {
                             Ok(document) => self.handoff = Some(document),

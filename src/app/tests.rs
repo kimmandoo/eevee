@@ -1288,6 +1288,7 @@ fn partner_status_tracks_live_request_and_approval_states() {
     let lead = app.lead().clone();
     // A provider preview awaiting the user's review is a waiting status.
     app.planning.preview = Some(crate::providers::Preview {
+        destination: None,
         generation: 1,
         task_id: 7,
         thread_id: None,
@@ -1519,6 +1520,7 @@ fn lead_switch_is_refused_while_the_lead_owns_live_work() {
     app.goal = "task".into();
     app.planning.reset(7);
     app.planning.preview = Some(crate::providers::Preview {
+        destination: None,
         generation: 1,
         task_id: 7,
         thread_id: None,
@@ -1684,6 +1686,7 @@ fn finish_catalogue(app: &mut App, task_id: i64, blockers: Vec<String>) {
     assert!(input.inspect_models && input.resume.is_none());
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
+            destination: None,
             generation: 3,
             task_id,
             thread_id: None,
@@ -1799,6 +1802,42 @@ fn fresh_model_picker_loads_without_saving_or_consuming_the_request_draft() {
     assert!(!app.planning.busy());
 }
 
+#[test]
+fn model_search_and_custom_ids_own_slashes_and_paste_without_opening_commands() {
+    let mut app = request_app();
+    app.command("model");
+    key(&mut app, KeyCode::Char('/'));
+    assert!(app.command_popup.is_none());
+    assert_eq!(app.planning.picker_query.text, "/");
+    app.update(Event::Paste("provider/model".into()));
+    assert_eq!(app.planning.picker_query.text, "/provider/model");
+    assert!(app.planning.selection.model.is_none());
+    modified_key(&mut app, KeyCode::Char('u'), KeyModifiers::CONTROL);
+    key(&mut app, KeyCode::End);
+    key(&mut app, KeyCode::Up);
+    key(&mut app, KeyCode::Enter);
+    assert!(app.planning.custom_model.is_some());
+    app.update(Event::Paste("/quit".into()));
+    assert!(!app.quit && app.command_popup.is_none());
+    assert_eq!(app.planning.custom_model.as_ref().unwrap().text, "/quit");
+    assert!(app.planning.selection.model.is_none() && app.planning.pending.is_none());
+}
+
+#[test]
+fn fresh_provider_selection_preserves_unsaved_request_without_task_or_network() {
+    let mut app = request_app();
+    app.update(Event::Paste("Unsaved future request".into()));
+    let draft = app.input.clone();
+    let cursor = app.cursor;
+    assert!(app.command_disabled_reason("provider-openai").is_none());
+    app.command("provider-openai");
+    assert_eq!(app.planning.agent, crate::providers::Agent::OpenAI);
+    assert_eq!(app.task_id, 0);
+    assert!(app.planning.pending.is_none() && !app.planning.busy());
+    assert_eq!(app.input, draft);
+    assert_eq!(app.cursor, cursor);
+}
+
 fn request_app() -> App {
     let mut app = App::new("/workspace".into(), 120, 36);
     app.storage = StorageState::Saved;
@@ -1824,6 +1863,7 @@ fn request_preview(app: &mut App) {
     ));
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
+            destination: None,
             generation: 12,
             task_id: app.task_id,
             thread_id: None,
@@ -1890,6 +1930,7 @@ fn running_request_preserves_real_store_admission_until_terminal_acknowledgement
     store::validate_planning_input(&directory.0, &input.task, &[]).unwrap();
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
+            destination: None,
             generation: 12,
             task_id: app.task_id,
             thread_id: None,

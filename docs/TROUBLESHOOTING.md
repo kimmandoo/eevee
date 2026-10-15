@@ -1,5 +1,26 @@
 # Troubleshooting
 
+### [2026-10-16] Native response was rejected despite valid streamed provider output
+
+- **Context / Symptom:** Native ChatGPT model discovery returned seven visible text models, including GPT-6.1/GPT-6, with an empty executable PATH. An explicitly reviewed GPT-6.1 request then ended with `Provider did not return an SSE stream; remote outcome unknown`.
+- **Root Cause:** The successful HTTP response omitted `Content-Type` even though its body contained semantic SSE frames. A MIME-header prerequisite rejected valid provider output before the bounded protocol parser could inspect it. The request had already been sent, so the unknown-outcome label was retained rather than claiming a harmless preflight failure.
+- **Solution:** Removed the MIME-header admission gate and used actual bounded SSE framing plus authoritative protocol completion to validate the response. JSON/HTML, truncated output and absent terminal events still cannot become successful responses. Removed the throwaway response-shape diagnostic without logging response values or credentials.
+- **Prevention / Reference:** The real-provider journey is recorded under `target/native-017-live`; the extended workbench fixture deliberately omits the SSE MIME header for actual approved HTTP requests. Its second-turn ownership, final refusal text, refresh failure and cancellation checks exercise the full native path rather than merely echoing parser inputs.
+
+### [2026-10-16] Native connection review found credential-mode and response ownership defects
+
+- **Context / Symptom:** Static review found that explicit keyless mode could still attach an inherited API key, Windows file sources lacked the Unix-equivalent owner/permission boundary, and repeated native responses reused one consumer item identity. Responses refusal events were also ignored.
+- **Root Cause:** Credential resolution consulted the environment before honoring keyless mode; file guards were Unix-only; native item IDs were constant across generations; text extraction handled only ordinary output text.
+- **Solution:** Resolved keyless mode before any key lookup, added handle-bound Windows owner/DACL/reparse/resolved-path checks, qualified native item identity by request generation, and reconciled final text/refusals without duplicate output. Native consent now shows a typed immutable HTTP destination rather than subprocess-only effects.
+- **Prevention / Reference:** Added key-audience/keyless, platform trust, cross-request identity, refusal/final-tail and actual two-request workbench regressions. Existing exact payload/configuration revalidation, no-redirect policy and authoritative cancellation/completion boundaries remain enforced.
+
+### [2026-10-16] Native follow-up was incorrectly routed to unavailable session resume
+
+- **Context / Symptom:** The actual TUI native-service fixture completed its first request, but Enter on the saved second request showed `Direct API requests are fresh and stateless here` instead of a Run review.
+- **Root Cause:** Observed-model metadata reused `Event::Thread` with an empty thread ID. The consumer retained `Some(\"\")`, so the request composer treated a stateless HTTP call as an owned resumable agent session.
+- **Solution:** Introduced a separate correlated `ModelObserved` event. Native streams report their actual model without manufacturing a provider thread; fresh follow-ups remain available and retain independent response/request ownership.
+- **Prevention / Reference:** The model-acknowledgment regression asserts no resumable thread and a fresh follow-up input. The extended native workbench journey approves two real HTTP/SSE requests, inspects both request owners, then exercises metadata failure and client cancellation.
+
 ### [2026-10-15] macOS self-update smoke lost its PTY before restoration inspection
 
 - **Context / Symptom:** Published v0.1.6 installation acceptance passed the first 15 checks, then `live-owned-binary-self-update` failed at `termios.tcgetattr(self.slave)` with `(25, 'Inappropriate ioctl for device')`.
