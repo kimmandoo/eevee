@@ -5,7 +5,7 @@ Open work only. Completed task specs and their evidence were removed on 2026-10-
 ## Status
 
 - **Released:** 0.1.2 (tags v0.1.0–v0.1.2). Local core, Codex, OpenCode ACP and Devin routes ship; Schema 6 store.
-- **Done:** 25 original tasks (index below). **Open:** 54 tasks in sections A–F. **Dropped:** T05 (per-task budgets/repeat stop, removed at the user's request on 2026-10-14).
+- **Done:** 25 original tasks (index below). **Open:** 65 tasks in sections A–G. **Dropped:** T05 (per-task budgets/repeat stop, removed at the user's request on 2026-10-14).
 - **Blocked:** A04/A06 need permitted Claude API/cloud credentials and completed Gemini authentication; A07 → Q01 → Q02 → P03 inherit that block. Never substitute subscription tokens or fake provider evidence.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters. Their unchecked acceptance is recorded under each task.
 
@@ -23,29 +23,124 @@ V01 sanctuary layout · P01 native terminal lifecycle · V02A/V02B species art a
 
 ### Cross-cutting watch-outs
 
-- **Schema:** The store is Schema 6. Every persisted addition (route events, pairings, dismissals, nickname, moves, dex, receipt identity) needs a migration plus the existing byte-preserving old-binary refusal test. Batch additions that ship together into one schema bump; never rewrite data to let an older binary start.
-- **Packets:** Partner flavor (nickname, move names, dialogue, ribbons, route) never enters provider packets or handoffs. Check the receipt: flavor bytes must be zero.
+- **Schema:** The store is Schema 6; PT02 introduces Schema 7 with partner records. Every persisted addition (partners, route events, pairings, dismissals, nickname, moves, dex, receipt identity) needs a migration plus the existing byte-preserving old-binary refusal test. Batch additions that ship together into one schema bump; never rewrite data to let an older binary start.
+- **Packets:** Partner flavor (nickname, partner names, move names, dialogue, ribbons, route) never enters provider packets or handoffs. Check the receipt: flavor bytes must be zero.
 - **Facts first:** Pokémon-style copy wraps a factual line (command, exit code, permission scope), never replaces it. Monochrome, ASCII and linear layouts keep the same information.
 - **No fake progression:** DESIGN_RULES forbids XP, levels, affection scores, streaks, hunger and random unlocks. Raising the partner means learned moves, a nickname and real records only. Update DESIGN_RULES' concept list when a new concept (Moves, nickname, Dex) ships.
 - **Rights:** Canonical move names are used as labels. Q01's naming/art-rights review must cover them before the next distribution.
+- **Party concurrency:** Partners never start work on their own or chain another partner's work. Every event, approval and journal entry carries its partner; each provider request keeps its own review and receipt, so cooperation never hides cost. One writer per task.
 - **Local only:** Detection, ranking and learning use local journal/store data. No optimizer or flavor feature makes a network or model call.
 
 ## Recommended order
 
 | Wave | Tasks (in order) | Why this order |
 |---|---|---|
-| 1. Partner basics | EV04 → EV03 → EV07 → PK01 → EV01 → EV02 | No open dependencies; small UI slices that every later wave reuses (owning-form redirect, suggestion, carry-over card, nickname in copy). |
-| 2. Form relays | EV10 → EV14 → EV12 → EV13 → EV15 → EV16 | Highest daily value; EV12/EV13 open EV02, EV10's location parser is reused by PK05. |
-| 3. Moves | MV01 → MV02 → MV03 → MV04 → MV05 → MV06 → MV07 | MV01 defines the model/schema; learning (MV03) needs the menu (MV02) to be useful; forgetting (MV04) needs learning. |
-| 4. Partner record | EV05 → EV06 → PK02 → EV08 → PK05 → EV09 → EV17 → EV11 | Uses evidence identities, moves and relays from waves 1–3. |
-| 5. Optional flavor | PK03 (after UX04) → PK04 (after C03) → PK06 | Pure polish; drop any item that starts to feel like gamification. |
-| Context/token track | C03 → T01 → T02 → T03 → T04 · TC01 → TC03 → TC04 · TC02 → TC05 · D01 · Q03 last | Independent of waves 1–5; can interleave. |
+| 1. Party foundation | PT01 → PT02 → PT03 → PT04 → PT05 → PT06 | Contract first, then the partner model (Schema 7), free switching, roster, per-partner drafts and request routing. Everything below assumes partners exist. |
+| 2. Partner basics | EV04 → EV03 → EV07 → PK01 → EV01 → EV02 | Small UI slices reused later (owning-form redirect, suggestion, carry-over strip, nickname). |
+| 3. Form relays | EV10 → EV14 → EV12 → EV13 → EV15 → EV16 → PT10 | Highest daily value; PT10 lets the same relays target a party member. |
+| 4. Cooperation | PT08 → PT07 → PT09 | Writer lease before concurrency; the board needs concurrent work to show. |
+| 5. Moves | MV01 → MV02 → MV03 → MV04 → MV05 → MV06 → MV07 | MV01 defines per-partner move storage; learning needs the menu; forgetting needs learning. |
+| 6. Partner record | EV05 → EV06 → PK02 → EV08 → PK05 → EV09 (after T01) → EV17 → EV11 | Uses evidence identities, partners and moves from earlier waves. |
+| 7. Optional flavor | PK03 (after UX04) → PK04 (after C03) → PK06 → PT11 | Polish; drop any item that starts to feel like gamification. |
+| Context/token track | C03 → T01 → T02 → T03 → T04 · TC01 → TC03 → TC04 · TC02 → TC05 · D01 · Q03 last | Independent of the waves; can interleave. |
 | UX/platform track | UX03, A08 (priority 1) → UX04 → S04 → MV08 → P04 | UX04 unblocks PK03; S04 and MV08 share one export path. |
 | Blocked | A04, A06 → A07 → Q01 → Q02 → P03 | Resume only after the user prepares permitted authentication. |
 
-## A — Partner basics and form suggestion
+## A — Party: free form switching and cooperating partners
 
-One partner keeps the task while changing form to fit the problem. These tasks make switching informed and cheap. All are local UI/state work.
+Each Eevee is an individual **partner** (nickname, current form, moves, met date). An idle partner changes form freely at any time, and several partners can work on the same task in different forms, e.g. Mizu (Vaporeon) gathers context while Bolt (Jolteon) runs tests and Aurora (Glaceon) reviews. Today the app has one `form` and one planning/request state per session, so this section first changes the contract, then the model, then routing, and only then concurrency.
+
+### PT01 — Party contract
+
+- [ ] Record the party model in the binding design contract before any code changes.
+- **Priority:** 1. **Needs:** —. **Builds on:** —.
+- **Change:** Update DESIGN_RULES (lines on "one partner", "one active form per task", running-request ownership) and the README tagline. Proposed decisions to confirm with the user: party of up to **6** partners; up to **3** partners working concurrently per task; exactly **one writer** (Flareon/Leafeon edit lease) per task; each partner owns its own requests, approvals and draft; partners never start work on their own or trigger another partner's work; idle partners cost nothing (still "not nine permanently running agents"); Glaceon review by a different partner than the patch author is preferred and labelled when not.
+- **Accept:** DESIGN_RULES and README describe partners, free switching and cooperation limits without contradicting the remaining contract (permissions, evidence, no fake progression). Documentation-only; the user confirms the limits.
+- **Watch out:** Until PT06/PT07 ship, the implementation still allows one running request; mark the concurrency rules as planned in DESIGN_RULES' status line.
+
+### PT02 — Partner identity model
+
+- [ ] Replace the single session form with stored partner records.
+- **Priority:** 1. **Needs:** PT01. **Builds on:** E02, V03.
+- **Change:** `partners` table (id, nickname, current form, met date, created project). Migrate the existing state as partner #1 with its current form; a task records its lead partner. Header shows the lead partner's form; behavior is otherwise unchanged.
+- **Accept:** Upgrade a Schema 6 store: one partner exists in the previous form, every task resumes unchanged, an old binary refuses the new store without changing bytes.
+- **Watch out:** This is the Schema 7 bump. Design the table so PK01, MV01, EV06 and EV17 add columns/tables in the same migration where they ship together. Replace `App.form: usize` through one accessor so later tasks touch one place.
+
+### PT03 — Free form switching
+
+- [ ] Change an idle partner's form instantly.
+- **Priority:** 1. **Needs:** PT02. **Builds on:** V03, UX01.
+- **Change:** Picker Enter switches immediately (no confirmation dialog). Add named commands (`/jolteon`, `/vaporeon`, …) and a `previous form` toggle. Switching preserves task, draft, focus and context. A working partner cannot change form (Stay or cancel-and-wait), but other partners stay switchable.
+- **Accept:** Cycle Vaporeon → Flareon → Jolteon → previous → previous in under a second of keystrokes; stored task/draft/context are byte-identical; no request, approval or grant appears.
+- **Watch out:** Numeric shortcuts stay removed (DESIGN_RULES). Free switching must not redraw native images repeatedly; clear and redraw once per switch.
+
+### PT04 — Party roster
+
+- [ ] See, add and release partners.
+- **Priority:** 1. **Needs:** PT02. **Builds on:** UX01.
+- **Change:** `/party` lists partners with nickname, current form, status (idle / working / waiting for approval) and current task. Add a new Eevee (up to the PT01 limit) starting in Eevee form; release a partner with a preview of what is deleted (its moves, pairings) and what stays (evidence, tasks).
+- **Accept:** Add two partners, restart, see three; the limit refuses a seventh with a reason; releasing an idle partner removes it and its moves; a working partner cannot be released.
+- **Watch out:** Evidence a released partner produced keeps its partner attribution as a name snapshot, never a dangling id.
+
+### PT05 — Lead switch and per-partner drafts
+
+- [ ] Bring a different partner to the front of a task.
+- **Priority:** 1. **Needs:** PT04. **Builds on:** UX01, E01.
+- **Change:** Choose the lead partner for the current task from the roster or `/lead <nickname>`. Drafts become per (task, partner); the composer shows whose draft it is. Existing drafts migrate to the lead partner.
+- **Accept:** Write different drafts for two partners on one task, switch leads and restart; each draft returns to its partner exactly, including CJK and caret position.
+- **Watch out:** Dirty-draft warnings and paste safety (never execute) apply per draft.
+
+### PT06 — Route requests by partner
+
+- [ ] Make every request, event and approval belong to a partner.
+- **Priority:** 1. **Needs:** PT05. **Builds on:** A02, A03, R01, R02.
+- **Change:** Replace the single planning/request state with a per-partner slot, still limited to one working partner per task. Journal entries, provider events, questions and approvals carry (task, partner, request id); approval dialogs name the partner: `Bolt (Jolteon) wants to run: cargo test`.
+- **Accept:** Start a request with one partner, switch the lead and back; events and the pending approval land on the original partner only. Late or stale events for a released/other partner are refused. All existing provider/run tests pass unchanged.
+- **Watch out:** Pure refactor plus labels; no concurrency yet. This is the riskiest step for regressions, so keep the existing approval tests as the gate.
+
+### PT07 — Cooperating partners
+
+- [ ] Let up to the PT01 limit of partners work on one task at the same time.
+- **Priority:** 2. **Needs:** PT06, PT08. **Builds on:** R02, UX02.
+- **Change:** Allow several per-partner slots to run concurrently. The header shows working partners; each approval is queued with its partner name and is answered one at a time. `Cancel` targets the lead's work; `Cancel all` lists every working partner first. Quit with working partners lists them all.
+- **Accept:** Mizu (Vaporeon) runs a provider planning request while Bolt (Jolteon) runs an approved command; both finish with correct attribution; cancelling one leaves the other running; a fourth partner is refused with a reason.
+- **Watch out:** Each provider request still has its own review and receipt; concurrent cost is shown per partner, never hidden. Bound output/journal memory per slot. Measure in Q02.
+
+### PT08 — Single-writer edit lease
+
+- [ ] Prevent cooperating partners from editing the same task concurrently.
+- **Priority:** 2. **Needs:** PT06. **Builds on:** A03, L01.
+- **Change:** Edit-capable work (Flareon, Leafeon) takes a per-task write lease shown in the header. Another partner's edit request shows `Bolt (Flareon) is editing` and waits or cancels. A run started while the lease is held records `revision moving` instead of a stable revision.
+- **Accept:** Two Flareon partners request edits: the second waits and starts nothing; a Jolteon run during the edit is marked `revision moving` and is not offered as fresh verification.
+- **Watch out:** The lease is released on completion, cancellation and crash recovery; never leave a stale lease that blocks the task forever.
+
+### PT09 — Party board
+
+- [ ] See what every partner on the task is doing at a glance.
+- **Priority:** 2. **Needs:** PT07. **Builds on:** UX02.
+- **Change:** A compact party HUD (one line per working/waiting partner: sprite, nickname, form, status, last event) above the composer, collapsing into a count at 60×18. Selecting a line focuses that partner.
+- **Accept:** With three working partners, each line updates from its own events only; at 60×18 the count opens the full board.
+- **Watch out:** No idle redraw timer; no HP bars or fake progress.
+
+### PT10 — Hand work to another partner
+
+- [ ] Pass a result to a party member instead of switching your own form.
+- **Priority:** 2. **Needs:** PT05. **Builds on:** S01, G01.
+- **Change:** Relays (EV12, EV13, EV14, EV15) offer both `Switch to <form>` and `Send to <partner> (<form>)` when an idle partner is in the target form. Sending pre-fills that partner's draft with references; nothing is sent to a provider.
+- **Accept:** Send a supported hypothesis to an idle Flareon partner; its draft cites the evidence; Umbreon's partner and state are unchanged. A Glaceon review requested from the patch author's own partner is labelled `same partner`.
+- **Watch out:** A handoff transfers references, not approvals or provider sessions.
+
+### PT11 — Formations
+
+- [ ] Save and reuse a party arrangement for a kind of task.
+- **Priority:** 3. **Needs:** PT07. **Builds on:** S03.
+- **Change:** Extend the S03 recipe schema with optional role slots (scout: Vaporeon, runner: Jolteon, reviewer: Glaceon); applying a recipe maps slots to party members and sets their forms. Plan-only: nothing runs.
+- **Accept:** Apply a formation to a task with three partners; forms are set and drafts pre-filled; no request starts. Missing partners show which slot is empty.
+- **Watch out:** Reuse the recipe parser and schema version rules; a formation never grants permissions.
+
+## B — Partner basics and form suggestion
+
+These tasks make each switch informed and each form immediately useful, for the lead partner and for party members. All are local UI/state work.
 
 ### EV04 — Form-specific empty states
 
@@ -59,43 +154,43 @@ One partner keeps the task while changing form to fit the problem. These tasks m
 
 - [ ] Show what the active form may do and route out-of-role actions to their owner.
 - **Priority:** 1. **Needs:** —. **Builds on:** UX01, R01, A03.
-- **Change:** Header chip with the active form's default capabilities from the role table (`read · run` for Jolteon, `read` for Glaceon). An out-of-role action shows a disabled reason naming the owning form and offers `Switch to <form>` (plain switch until EV02 lands, then the carry-over card).
+- **Change:** Header chip with the active form's default capabilities from the role table (`read · run` for Jolteon, `read` for Glaceon). An out-of-role action shows a disabled reason naming the owning form and offers `Switch to <form>`, plus `Send to <partner>` when an idle party member is already in that form (after PT10).
 - **Accept:** From Glaceon request an edit and from Espeon request a command: each names the owner and offers a working switch path without starting the action.
 - **Watch out:** The chip is descriptive. Enforcement stays in the existing approval flow; never widen or bypass a grant because a form is active. Header must still fit project/form names at 60×18.
 
 ### EV07 — Return to Eevee
 
-- [ ] Step back to intake from any form in one action.
-- **Priority:** 1. **Needs:** —. **Builds on:** V03.
-- **Change:** `/eevee` and a top picker entry return an idle form to Eevee with task, draft, focus and context unchanged. Show EV01's suggestion once EV01 exists.
+- [ ] Step a partner back to intake from any form in one action.
+- **Priority:** 1. **Needs:** PT03. **Builds on:** V03.
+- **Change:** `/eevee` and a top picker entry return the lead partner (if idle) to Eevee with task, draft, focus and context unchanged. Show EV01's suggestion once EV01 exists.
 - **Accept:** Return from Flareon, Umbreon and Sylveon; stored state is byte-identical before/after.
 - **Watch out:** During a running request, offer Stay or explicit cancel-and-wait (running-ownership rule). Never cancel implicitly or transfer the request.
 
 ### PK01 — Partner nickname
 
-- [ ] Let the user name their own Eevee.
-- **Priority:** 1. **Needs:** —. **Builds on:** UX01, E02.
-- **Change:** Personal-scope nickname (≤12 graphemes, Unicode) set from the partner card or `/nickname`; header and dialogue show `Nickname (Species)`, e.g. `Bolt (Jolteon)`. Clearing restores the species name. Record the date the partner was first created (`met on`) for PK02.
+- [ ] Let the user name each Eevee in the party.
+- **Priority:** 1. **Needs:** PT02. **Builds on:** UX01, E02.
+- **Change:** Personal-scope nickname (≤12 graphemes, Unicode) set from the partner card or `/nickname`; header and dialogue show `Nickname (Species)`, e.g. `Bolt (Jolteon)`. Clearing restores `Eevee #n`. Nicknames are unique within the party so approvals and the board stay unambiguous.
 - **Accept:** Set a CJK nickname, restart, see it in header/dialogue in every form at both sizes; species name and type stay visible. The receipt shows zero nickname bytes in an assembled provider packet.
-- **Watch out:** First Schema 7 field; plan the migration together with other wave-1/2 persistence. Width must use grapheme/cell width, not byte length.
+- **Watch out:** Column on PT02's partners table, shipped in the same Schema 7 migration if possible. Width must use grapheme/cell width, not byte length.
 
 ### EV01 — Evidence-based form suggestion
 
 - [ ] Suggest the form that fits the task's current evidence, with the fact that triggered it.
 - **Priority:** 1. **Needs:** —. **Builds on:** V03, E02, R02, U01, G01.
-- **Change:** Deterministic rules, first match wins: goal without criteria → Espeon; criteria without pinned context → Vaporeon; latest owned run failed → Umbreon; working diff without a run at its revision → Jolteon; passing current run without review → Glaceon; accepted review → Sylveon. Show in the task card and picker: `Suggested: Umbreon — cargo test exited 101`.
+- **Change:** Deterministic rules, first match wins: goal without criteria → Espeon; criteria without pinned context → Vaporeon; latest owned run failed → Umbreon; working diff without a run at its revision → Jolteon; passing current run without review → Glaceon; accepted review → Sylveon. Show in the task card and picker: `Suggested: Umbreon — cargo test exited 101`. When an idle party member is already in that form, name it: `Mizu (Umbreon) is free`.
 - **Accept:** Seed each state in a fixture task and observe the expected suggestion and reason; no match shows nothing. Editing a source after a passing run changes the suggestion. Dismiss hides it until the triggering evidence identity changes.
 - **Watch out:** Report the fixture results when rules change. A suggestion never self-activates (Enter in the picker previews only). Keep rules in one table so EV08/EV07 reuse them.
 
-### EV02 — Evolution carry-over card
+### EV02 — Evolution carry-over strip
 
-- [ ] Show what stays and what changes before a form switch is confirmed.
-- **Priority:** 1. **Needs:** —. **Builds on:** V03, C02, UX01.
-- **Change:** Confirming a different form opens one screen listing carried state (goal, criteria met/total, pinned captures, open hypotheses/findings, draft) and the capability difference (read/edit/run added/removed). State `No permission granted. Nothing sent.` once. Read existing task envelope fields; no state copy.
-- **Accept:** Vaporeon→Flareon, Flareon→Jolteon, Glaceon→Flareon show counts equal to stored state and the correct capability diff. Esc leaves form, focus and draft unchanged. Confirm/Cancel stay visible at 60×18; added/removed capabilities are distinguishable in monochrome/ASCII.
-- **Watch out:** Relays (EV12/EV13), held items (PK04) and the transition (PK03) all extend this card; keep its sections data-driven.
+- [ ] Show what stayed and what changed right after a free switch, without slowing it down.
+- **Priority:** 1. **Needs:** PT03. **Builds on:** C02, UX01.
+- **Change:** After any switch, a one-line non-blocking strip shows carried state (criteria met/total, pinned captures, open hypotheses/findings) and the capability diff (`+edit −run`). It fades on the next keystroke and is reopenable from the partner card. No confirmation step.
+- **Accept:** Vaporeon→Flareon, Flareon→Jolteon, Glaceon→Flareon show counts equal to stored state and the correct diff; typing immediately after a switch goes to the draft unchanged. Added/removed capabilities are distinguishable in monochrome/ASCII; fits 60×18.
+- **Watch out:** It must never steal focus or swallow keys; free switching (PT03) is the point. Relays (EV12/EV13), held items (PK04) and the transition (PK03) reuse its data, so keep it data-driven.
 
-## B — Form relays
+## C — Form relays
 
 One form's stored output pre-fills the next form's reviewed input. A relay only pre-fills: approval, execution and sending still go through the normal review, and every pre-filled item shows its source.
 
@@ -119,7 +214,7 @@ One form's stored output pre-fills the next form's reviewed input. A relay only 
 
 - [ ] Start a fix from Umbreon's conclusion instead of restating it.
 - **Priority:** 1. **Needs:** EV02. **Builds on:** U01, A03.
-- **Change:** On a supported hypothesis, `Fix with Flareon` opens EV02 and pre-fills the requirement with the hypothesis and evidence references and proposes editable paths from linked ranges.
+- **Change:** On a supported hypothesis, `Fix with Flareon` switches the lead partner to Flareon (or, after PT10, sends to an idle Flareon partner), shows the EV02 strip, and pre-fills the requirement with the hypothesis and evidence references and proposes editable paths from linked ranges.
 - **Accept:** The Flareon draft cites the hypothesis and evidence; editable paths still need normal approval; cancel leaves Umbreon state unchanged; unresolved/refuted hypotheses show a disabled reason.
 - **Watch out:** Proposed paths go through A03's limits (1–8 files ≤12 KiB, POSIX only for controlled writes). Show the limit instead of trimming silently.
 
@@ -127,9 +222,9 @@ One form's stored output pre-fills the next form's reviewed input. A relay only 
 
 - [ ] Close the review loop finding by finding.
 - **Priority:** 1. **Needs:** EV02. **Builds on:** G01, A03.
-- **Change:** From a request-changes finding, `Fix with Flareon` pre-fills requirement/scope. A later diff touching the finding's ranges marks it `addressed, needs re-review`, makes the verdict stale and offers returning to Glaceon with a fresh review context.
+- **Change:** From a request-changes finding, `Fix with Flareon` switches or sends to a Flareon partner and pre-fills requirement/scope. A later diff touching the finding's ranges marks it `addressed, needs re-review`, makes the verdict stale and offers returning to Glaceon with a fresh review context.
 - **Accept:** Relay two findings and change one; only that one becomes `addressed, needs re-review`. No finding closes without a new Glaceon verdict.
-- **Watch out:** The re-review context must stay independent of the implementation conversation (G01 contract).
+- **Watch out:** The re-review context must stay independent of the implementation conversation (G01 contract); with a party, prefer a Glaceon partner that did not author the patch.
 
 ### EV15 — Turn an Espeon decision into acceptance criteria
 
@@ -147,9 +242,9 @@ One form's stored output pre-fills the next form's reviewed input. A relay only 
 - **Accept:** Pick an existing run, refactor, compare with a new run of the same argv; the comparison names both runs. Mismatched revision/argv is excluded with a reason.
 - **Watch out:** Timing from different machine load is noisy; show both durations and never a single speedup claim from one sample.
 
-## C — Moves: teaching and learning skills
+## D — Moves: teaching and learning skills
 
-Raising your own partner means it learns your repeated work as named **moves**. A move is a single-form reusable action; an Evolution Stone (S03 recipe) remains a whole-task workflow. Moves reuse the S03 recipe step types and validation, carry no grants, and every use goes through the normal review.
+Raising your own partners means each one learns your repeated work as named **moves**. Moves belong to the individual partner, four per form: Bolt's Jolteon moves return whenever Bolt becomes Jolteon again, and another partner does not know them until taught (MV08). A move is a single-form reusable action; an Evolution Stone (S03 recipe) remains a whole-task workflow. Moves reuse the S03 recipe step types and validation, carry no grants, and every use goes through the normal review.
 
 | Form | Move kind | Example default name |
 |---|---|---|
@@ -161,10 +256,10 @@ Raising your own partner means it learns your repeated work as named **moves**. 
 
 ### MV01 — Move model and teaching a move
 
-- [ ] Let the user teach the current form a named move from a reviewed action.
-- **Priority:** 1. **Needs:** —. **Builds on:** S03, R02, C02, S02.
-- **Change:** Store moves (name, form, kind, steps, scope project/personal, provenance, created date) with at most **four per form** in the visible scope. After a reviewed action (approved run, pin set, sent request), offer `Teach as move`, preview the exact steps and save. Picker detail lists the form's moves. Add Moves to DESIGN_RULES' concept list.
-- **Accept:** Teach a Jolteon run and a Vaporeon pin set, restart, see both in picker detail. A fifth move is refused with a reason until MV04 exists. Project moves are invisible in another project.
+- [ ] Let the user teach a partner's current form a named move from a reviewed action.
+- **Priority:** 1. **Needs:** PT02. **Builds on:** S03, R02, C02, S02.
+- **Change:** Store moves (partner, name, form, kind, steps, scope project/personal, provenance, created date) with at most **four per partner per form** in the visible scope. After a reviewed action (approved run, pin set, sent request), offer `Teach as move`, preview the exact steps and save. Picker detail lists the form's moves. Add Moves to DESIGN_RULES' concept list.
+- **Accept:** Teach a Jolteon run and a Vaporeon pin set to one partner, restart, see both in picker detail; switch that partner away and back to Jolteon and the move is still there; another partner does not see it. A fifth move is refused with a reason until MV04 exists. Project moves are invisible in another project.
 - **Watch out:** Schema 7 migration. Reuse the `Recipe`/`RecipeStep` parser and validation; no second format. Steps must be exact argv (never shell text) and project-relative paths; refuse secrets (reuse `privacy.rs`) and out-of-root paths.
 
 ### MV02 — Move menu
@@ -179,7 +274,7 @@ Raising your own partner means it learns your repeated work as named **moves**. 
 
 - [ ] Notice repeated work and offer to learn it.
 - **Priority:** 1. **Needs:** MV01, MV02. **Builds on:** R02.
-- **Change:** Locally detect the same normalized argv+cwd approved ≥3 times in a project, or the same pin set used ≥3 times. Show `Jolteon wants to learn a move!` with the exact steps and the three sources: Learn (opens naming), Not now, Never for this.
+- **Change:** Locally detect the same normalized argv+cwd approved ≥3 times by the same partner in a project, or the same pin set used ≥3 times. Show `Jolteon wants to learn a move!` with the exact steps and the three sources: Learn (opens naming), Not now, Never for this.
 - **Accept:** Run `cargo test --workspace` three times in a fixture project; the prompt appears once with sources. Different arguments do not merge. `Never` survives restart; `Not now` returns after three more uses.
 - **Watch out:** Report the threshold behavior on fixtures. Never auto-learn. Exclude argv with secrets, env assignments or absolute paths outside the project. Prompt only at idle boundaries, never during a review or running request.
 
@@ -217,27 +312,27 @@ Raising your own partner means it learns your repeated work as named **moves**. 
 
 ### MV08 — TM export and import
 
-- [ ] Share moves between projects and people as reviewed files.
+- [ ] Share moves between party members, projects and people.
 - **Priority:** 2. **Needs:** MV01, S04. **Builds on:** S03.
-- **Change:** Export a move as a create-only TOML "TM" through S04's export path; import previews steps, target form and slot, then teaches it.
-- **Accept:** Export from one project, import into another; using it still requires review. Newer schema, out-of-root paths and secrets are refused; an existing file is never overwritten.
+- **Change:** Teach a move directly to another party member (choose partner and slot), or export it as a create-only TOML "TM" through S04's export path; import previews steps, target partner, form and slot, then teaches it.
+- **Accept:** Teach Bolt's move to Mizu; it appears in Mizu's moves with provenance. Export from one project, import into another; using it still requires review. Newer schema, out-of-root paths and secrets are refused; an existing file is never overwritten.
 - **Watch out:** Imported moves carry no approvals and never execute on import.
 
-## D — Partner record and flavor
+## E — Partner record and flavor
 
 ### EV05 — Party status from real exit evidence
 
 - [ ] Show in the picker what each form has actually produced for this task.
 - **Priority:** 2. **Needs:** —. **Builds on:** V03, R02, G01, S01.
-- **Change:** Mark each form's exit artifact as `produced`, `stale` or `none` with one fact (Vaporeon `4 captures`, Jolteon `exit 0 at a1b2c3, stale`, Glaceon `changes requested`). Derived from stored evidence identities only.
+- **Change:** Mark each form's exit artifact as `produced`, `stale` or `none` with one fact and the partner that produced it (Vaporeon `4 captures`, Jolteon `exit 0 at a1b2c3, stale`, Glaceon `changes requested`). Derived from stored evidence identities only.
 - **Accept:** Produce then invalidate artifacts for Vaporeon, Jolteon and Glaceon; markers follow after restart. Unused forms show `none`, not failure. Readable in monochrome/ASCII and the compact list.
 - **Watch out:** No HP, levels or completion percentages.
 
 ### EV06 — Form route in the field journal
 
-- [ ] Record how the task moved between forms without treating moves as evidence.
-- **Priority:** 2. **Needs:** EV05. **Builds on:** E02, R02.
-- **Change:** Store switches as route events (from, to, time, accepted suggestion, optional reason). Task card shows `Vaporeon → Flareon → Jolteon → Glaceon`, dimming visits without an exit artifact. Resume restores the last form.
+- [ ] Record how each partner moved between forms without treating switches as evidence.
+- **Priority:** 2. **Needs:** EV05, PT02. **Builds on:** E02, R02.
+- **Change:** Store switches as route events (partner, from, to, time, accepted suggestion, optional reason). Task card shows one route per partner, e.g. `Bolt: Eevee → Flareon → Jolteon`, dimming visits without an exit artifact. Resume restores each partner's last form.
 - **Accept:** Switch four times, restart, resume in the last form with the same route. Journal labels route events as non-evidence; provider packets and Sylveon handoffs contain none. Purge removes them.
 - **Watch out:** Schema change; batch with other wave-4 persistence.
 
@@ -245,9 +340,9 @@ Raising your own partner means it learns your repeated work as named **moves**. 
 
 - [ ] A Pokémon-style summary page built from real records.
 - **Priority:** 2. **Needs:** PK01, MV01, EV05. **Builds on:** S02.
-- **Change:** From the partner card: nickname, species/type, `Met on <date> in <project>`, the form's moves, approved Bond memories count, and per-form task counts with produced exit artifacts.
+- **Change:** From the partner card or roster, per partner: nickname, current form/type, `Met on <date> in <project>` (PT02's met date), moves per form, approved Bond memories count, and per-form task counts with produced exit artifacts.
 - **Accept:** Numbers equal store queries; a fresh install shows the met date and `No moves yet`. Fits 60×18 via paging.
-- **Watch out:** No level, XP or invented stats. `Met` is the first partner creation date, not install-time guesses.
+- **Watch out:** No level, XP or invented stats. The migrated first partner's met date is the earliest task date, labelled as derived.
 
 ### EV08 — Partner lines for real events
 
@@ -255,13 +350,13 @@ Raising your own partner means it learns your repeated work as named **moves**. 
 - **Priority:** 2. **Needs:** EV01. **Builds on:** V01, R02.
 - **Change:** For a fixed set (owned run passed/failed, review verdict, handoff ready, source changed after verification, move used) show one deterministic line in game style with the fact and suggestion: `Bolt used Thunderbolt! cargo test failed (exit 101). Umbreon can investigate.` A persistent preference turns lines off.
 - **Accept:** Each event shows exactly one line; journal replay or restart never repeats it. Lines off changes nothing else. Permission/error facts are never hidden; lines stay in the composer area at 60×18.
-- **Watch out:** No randomness, praise or emotion. Uses the nickname when set and the move name when a move was used.
+- **Watch out:** No randomness, praise or emotion. Uses the acting partner's nickname (not the lead's) and the move name when a move was used.
 
 ### PK05 — Bug Dex
 
 - [ ] Remember failures you have met before and how they were resolved.
 - **Priority:** 2. **Needs:** EV10. **Builds on:** R02, U01, A03.
-- **Change:** Locally derive signatures from owned failing runs (rustc error code + location, test name, panic location) and keep per-project entries: first seen, seen count, linked hypothesis/fix/run that resolved it. When a known signature reappears, show `Seen before: resolved in task #12 (hypothesis …)`.
+- **Change:** Locally derive signatures from owned failing runs (rustc error code + location, test name, panic location) and keep per-project entries shared by the whole party: first seen, seen count, linked hypothesis/fix/run that resolved it. When a known signature reappears, show `Seen before: resolved in task #12 (hypothesis …)`.
 - **Accept:** Fail, fix and fail the same test again in a fixture; the second failure links the first resolution. Another project never sees the entry. Purge removes it.
 - **Watch out:** A past resolution is a lead, not a current fix or verification. Signatures go through redaction; never store full output twice. Schema change.
 
@@ -273,12 +368,12 @@ Raising your own partner means it learns your repeated work as named **moves**. 
 - **Accept:** Three recorded planning requests with the same instruction produce one proposal; approving it makes the next receipt show the memory instead of repeated text; a dismissed proposal does not return.
 - **Watch out:** Never infer or save preferences automatically. Secret-filtered or excluded text never becomes a proposal. Moves (MV03) cover actions; this covers instructions.
 
-### EV17 — Per-form provider pairing
+### EV17 — Per-partner provider pairing
 
-- [ ] Remember which agent/model the user chose for a form in this project.
-- **Priority:** 2. **Needs:** —. **Builds on:** A01, A02, V03.
-- **Change:** After choosing an agent/model in a form, offer `Use for <form> in this project`; later switches preselect it labelled remembered. Unavailable pairings show the blocker and fall back to the task selection.
-- **Accept:** Pair Glaceon and Flareon with different agents; switching preselects each and the review shows it. Removing the pairing restores the default; a disconnected agent is labelled unavailable, never replaced.
+- [ ] Give each partner its own remembered agent/model per form.
+- **Priority:** 2. **Needs:** PT02. **Builds on:** A01, A02, V03.
+- **Change:** After choosing an agent/model, offer `Use for <partner> as <form> in this project`; later switches preselect it labelled remembered. Cooperating partners can therefore use different agents (Bolt on Codex, Mizu on OpenCode). Unavailable pairings show the blocker and fall back to the task selection.
+- **Accept:** Pair two partners' Glaceon and Flareon forms with different agents; switching preselects each and the review shows it. Removing the pairing restores the default; a disconnected agent is labelled unavailable, never replaced.
 - **Watch out:** Selection never connects, sends, or changes billing/authentication.
 
 ### EV11 — Rank `@` candidates by the active form
@@ -293,15 +388,15 @@ Raising your own partner means it learns your repeated work as named **moves**. 
 
 - [ ] A short evolution moment when a form switch is confirmed.
 - **Priority:** 3. **Needs:** EV02, UX04. **Builds on:** V02B.
-- **Change:** After EV02 confirm, a ≤600 ms silhouette flash from old to new sprite with `What? Bolt is evolving!` → `Bolt became Jolteon!`; text-only routes show the final line only.
-- **Accept:** Any key skips it; typed input during it lands in the draft unchanged. Reduced motion shows no frames. No idle redraw after it ends.
+- **Change:** On a picker switch only (never on `/form` commands or the previous-form toggle), a ≤300 ms silhouette flash from old to new sprite with `What? Bolt is evolving!` → `Bolt became Jolteon!`; text-only routes show the final line only.
+- **Accept:** Rapid switching never queues animations; any key skips it; typed input during it lands in the draft unchanged. Reduced motion shows no frames. No idle redraw after it ends.
 - **Watch out:** Forms are reversible (DESIGN_RULES); returning to Eevee uses neutral copy, not "de-evolution". Clear native images behind overlays.
 
 ### PK04 — Held items
 
 - [ ] Let a form always bring a chosen file or memory.
 - **Priority:** 3. **Needs:** C03, EV02. **Builds on:** S02.
-- **Change:** Assign one held item per form per project (e.g. Glaceon holds `CONTRIBUTING.md`). Entering the form proposes it as an attachment chip, shown in the carry-over card and receipt.
+- **Change:** Assign one held item per partner per form per project (e.g. Glaceon holds `CONTRIBUTING.md`). Entering the form proposes it as an attachment chip, shown in the carry-over card and receipt.
 - **Accept:** Glaceon's held file appears as a removable chip after switching and is revalidated before send; an excluded file cannot be held.
 - **Watch out:** Proposed, never silently included; its bytes count in the receipt.
 
@@ -309,11 +404,11 @@ Raising your own partner means it learns your repeated work as named **moves**. 
 
 - [ ] Commemorate real first milestones.
 - **Priority:** 3. **Needs:** PK02. **Builds on:** G01, S01.
-- **Change:** One-time, evidence-linked ribbons per project shown on the summary (first accepted review, first verified handoff, first learned move). Hideable.
+- **Change:** One-time, evidence-linked ribbons per project, attributed to the partner that produced the evidence and shown on its summary (first accepted review, first verified handoff, first learned move). Hideable.
 - **Accept:** Each ribbon links its evidence; deleting the evidence by purge removes it.
 - **Watch out:** Drop this task if it reads as gamification: no counts, no streaks, nothing gated behind a ribbon.
 
-## E — Context, token economy and tool calling
+## F — Context, token economy and tool calling
 
 Local deterministic optimizer only: no optimizer-initiated network, hosted summarization, embeddings, telemetry or tokenizer downloads. Distinguish exact Eevee-sent bytes, labelled estimates, provider-reported usage and billing; unknown stays unknown. Tool discovery/paging/caching applies only to documented adapter capabilities and Eevee-owned execution.
 
@@ -415,7 +510,7 @@ Local deterministic optimizer only: no optimizer-initiated network, hosted summa
 - **Accept:** ≥3 paired trials per journey on a qualified provider with raw samples, correctness, missed defects, time, turns, tools, available usage/cost; same functional/permission checks; publish regressions; no universal percentage.
 - **Watch out:** Live runs are paid and need explicit user approval; missing credentials block live results only.
 
-## F — UX, platform and release
+## G — UX, platform and release
 
 ### UX03 — Contextual, searchable actions
 
@@ -484,14 +579,14 @@ Local deterministic optimizer only: no optimizer-initiated network, hosted summa
 
 - [ ] Prove all nine workflows and the composed UX.
 - **Needs:** A04, A06, A07.
-- **Accept:** Empty/missing, ready/running, permission/question, cancellation/unknown, save failure, stale evidence and handoff states across sizes/themes/CJK; keyboard focus, no accidental execution, bounded streams, purge, image cleanup, restoration; every controlled action names its enforcement boundary; naming/art-rights review (including MV06 move names) before distribution.
+- **Accept:** Empty/missing, ready/running, permission/question, cancellation/unknown, save failure, stale evidence, handoff and party (concurrent partners, approval queue, writer lease) states across sizes/themes/CJK; keyboard focus, no accidental execution, bounded streams, purge, image cleanup, restoration; every controlled action names its enforcement boundary; naming/art-rights review (including MV06 move names) before distribution.
 - **Status:** Five native rows passed at `d198fa5`; specialist journeys pass in all themes/layouts; Codex and Codex→OpenCode live rows pass. Claude/Gemini rows missing.
 
 ### Q02 — Measured native and token efficiency (blocked by Q01)
 
 - [ ] Measure the performance contract.
 - **Needs:** Q01.
-- **Accept:** Observations against targets with method/sample size, core vs sidecar vs agent resources separate and aggregate; bounded queues; no model call on form selection; unknown provider usage shown as unknown.
+- **Accept:** Observations against targets with method/sample size, core vs sidecar vs agent resources separate and aggregate, including three concurrent partners; bounded queues; no model call on form selection; unknown provider usage shown as unknown.
 - **Status:** Local slice measured on M1 Pro (warm start p95 89.55 ms, idle 0.826% CPU / 7.44 MiB, streaming input p95 12.61 ms, 10 MiB stream bounded to 1 MiB, 10k-line diff 137.66 ms). Codex review resources measured; SDK and provider token totals unavailable.
 
 ### P03 — Native distribution, upgrade and support evidence (blocked by Q02)

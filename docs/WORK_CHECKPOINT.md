@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-15 — Party backlog: free switching and cooperating partners
+
+- **Requested:** Forms switch freely and different Eevees cooperate; revise PK and Eevee/evolution tasks accordingly.
+- **Delivered (docs only):** New section A (PT01–PT11) in `task.md`; former sections shift to B–G (65 open tasks). EV02 is now a non-blocking strip; EV07/PK01/EV01/EV03/EV12/EV13/EV05/EV06/EV08/EV17/PK02–PK06/MV01/MV03/MV08/Q01/Q02 are partner-aware. Current code has one `App.form` and one planning/request state, so PT02 (model) → PT06 (routing, still one working partner) precede PT08 (writer lease) → PT07 (concurrency).
+- **Open decision:** PT01 proposes party ≤6, ≤3 concurrently working partners per task, one writer per task; DESIGN_RULES still says one partner / one active form until PT01 is done and the user confirms the limits.
+- **Verification:** 65 unique open IDs; all Needs/Builds-on references resolve, no cycles, every task in the order table; only cross-track deps (EV09→T01, PK03→UX04, PK04→C03) are annotated. No code changed; no tests run.
+- **Next action:** PT01 after the user confirms the proposed limits.
+
 ## 2026-10-15 — Backlog reorganization and partner-raising tasks
 
 - **Requested:** More Pokémon-feel tasks (raising your own partner, named moves, learning repeated work as skills) and a cleanup: drop finished tasks, make open ones concrete with ordering and cautions.
