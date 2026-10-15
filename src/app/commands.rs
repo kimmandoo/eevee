@@ -120,6 +120,8 @@ impl App {
             ("new", "New provider session"),
             ("resume", "Resume owned provider session"),
             ("task-new", "Create local task"),
+            ("reset", "Fresh local task; keep old task and drafts"),
+            ("init", "Draft project guide request; review before sending"),
             ("model", "Choose provider model"),
             ("effort", "Choose reasoning effort"),
             ("role", "Choose Plan / Implement / Review role"),
@@ -229,7 +231,11 @@ impl App {
     }
 
     pub(crate) fn command_disabled_reason(&self, name: &str) -> Option<String> {
-        if self.transitioning || self.quit_after_save || self.confirmation.is_some() {
+        if self.transitioning
+            || self.quit_after_save
+            || self.reset_after_save
+            || self.confirmation.is_some()
+        {
             return Some("Finish the current confirmation or storage operation first.".into());
         }
         if (self.sources.confirmation.is_some()
@@ -291,10 +297,16 @@ impl App {
             && !local_picker_refresh
             && !matches!(
                 name,
-                "cancel" | "quit" | "provider" | "answer" | "answers-review" | "verbose"
+                "cancel" | "quit" | "provider" | "answer" | "answers-review" | "verbose" | "reset"
             )
         {
             return Some("Finish or cancel the active provider request first.".into());
+        }
+        if name == "init" && self.execution.busy() {
+            return Some(
+                "Finish or cancel the local command before preparing an initialization request."
+                    .into(),
+            );
         }
         if matches!(name, "new" | "resume") && self.overlay.is_none() {
             return None;
@@ -497,6 +509,18 @@ impl App {
                     .collect(),
                 scope: self.overlay,
             });
+            return true;
+        }
+        if name == "reset" {
+            self.confirmation_reviewed = false;
+            self.confirmation = Some(super::Confirmation {
+                kind: super::ConfirmationKind::ResetTask,
+                destructive: false,
+            });
+            return true;
+        }
+        if name == "init" {
+            self.prepare_init();
             return true;
         }
         if self.editing && name != "quit" {

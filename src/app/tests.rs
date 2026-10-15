@@ -2144,3 +2144,317 @@ fn restart_restores_overlay_before_its_underlying_request_and_fact_edits_replace
     restored.open_editor(store::EditorField::Request);
     assert_eq!(restored.input, "Retained request 漢字");
 }
+
+#[test]
+fn reset_review_is_neutral_and_paste_never_invokes_lifecycle_commands() {
+    for command in ["reset", "init"] {
+        let mut app = request_app();
+        app.update(Event::Paste(format!("/{command}\n")));
+        assert!(app.confirmation.is_none());
+        assert_eq!(app.input, format!("/{command}\n"));
+        assert!(app.planning.pending.is_none());
+    }
+    let mut app = request_app();
+    app.update(Event::Paste("keep draft suffix".into()));
+    key(&mut app, KeyCode::Left);
+    let before = (app.input.clone(), app.cursor, app.revision);
+    app.command("reset");
+    assert_eq!(app.confirmation.unwrap().kind, ConfirmationKind::ResetTask);
+    assert!(!app.confirmation.unwrap().destructive);
+    app.update(Event::Paste("y\n".into()));
+    key(&mut app, KeyCode::Enter);
+    assert!(app.confirmation.is_none());
+    assert_eq!((app.input.clone(), app.cursor, app.revision), before);
+    app.command("reset");
+    key(&mut app, KeyCode::Char('n'));
+    assert_eq!((app.input.clone(), app.cursor, app.revision), before);
+    assert!(app.planning.pending.is_none());
+}
+
+#[test]
+fn reset_waits_for_matching_durable_save_and_retains_old_facts_and_draft() {
+    let mut app = request_app();
+    app.goal = "Old task facts".into();
+    app.update(Event::Paste("old request suffix".into()));
+    key(&mut app, KeyCode::Left);
+    let cursor = app.cursor;
+    app.command("reset");
+    key(&mut app, KeyCode::Right);
+    key(&mut app, KeyCode::Enter);
+    assert!(app.reset_after_save);
+    assert_eq!(app.goal, "Old task facts");
+    assert!(app.save_due(std::time::Instant::now()));
+    let snapshot = committed(&app);
+    let mut stale = snapshot.clone();
+    stale.revision -= 1;
+    app.store_event(store::Event::Saved(stale));
+    assert!(app.reset_after_save);
+    app.save_submitted();
+    app.store_event(store::Event::Saved(snapshot.clone()));
+    assert!(!app.reset_after_save);
+    assert_eq!(app.task_id, 0);
+    assert!(app.goal.is_empty());
+    assert!(app.input.is_empty());
+    assert!(app.composer_is_request());
+    assert!(app.planning.pending.is_none());
+    let saved = app
+        .tasks
+        .iter()
+        .find(|task| task.id == snapshot.id)
+        .unwrap();
+    assert_eq!(saved.goal, "Old task facts");
+    let draft = &saved.partner_drafts[&app.lead().id].drafts[0];
+    assert_eq!(draft.text, "old request suffix");
+    assert_eq!(draft.cursor, cursor);
+    let saved = saved.clone();
+    app.load_task(saved);
+    assert_eq!(app.input, "old request suffix");
+    assert_eq!(app.cursor, cursor);
+}
+
+#[test]
+fn reset_clean_task_needs_no_save_and_save_failure_never_switches() {
+    let mut app = request_app();
+    app.command("reset");
+    key(&mut app, KeyCode::Right);
+    key(&mut app, KeyCode::Enter);
+    assert!(!app.reset_after_save);
+    assert!(app.composer_is_request());
+    assert!(app.planning.pending.is_none());
+    app.update(Event::Paste("retained despite failure".into()));
+    app.command("reset");
+    key(&mut app, KeyCode::Right);
+    key(&mut app, KeyCode::Enter);
+    assert!(app.reset_after_save);
+    app.store_event(store::Event::Failed {
+        revision: Some(app.revision),
+        message: "disk full".into(),
+    });
+    assert!(!app.reset_after_save);
+    assert!(
+        app.drafts
+            .iter()
+            .any(|draft| draft.text == "retained despite failure")
+    );
+    assert!(app.notice.contains("Reset stopped"));
+    assert!(app.planning.pending.is_none());
+}
+
+#[test]
+fn reset_save_wait_can_be_cancelled_without_late_ack_switching_tasks() {
+    let mut app = request_app();
+    app.update(Event::Paste("stay here".into()));
+    app.command("reset");
+    key(&mut app, KeyCode::Right);
+    key(&mut app, KeyCode::Enter);
+    let snapshot = committed(&app);
+    key(&mut app, KeyCode::Esc);
+    assert!(!app.reset_after_save);
+    app.store_event(store::Event::Saved(snapshot));
+    assert_ne!(app.task_id, 0);
+    assert!(app.drafts.iter().any(|draft| draft.text == "stay here"));
+}
+
+#[test]
+fn reset_busy_work_uses_existing_guards_without_dispatch_or_abandonment() {
+    let mut app = request_app();
+    app.task_id = 7;
+    assert!(
+        app.execution
+            .prepare_command(7, r#"["printf","not-dispatched"]"#)
+    );
+    app.command("reset");
+    key(&mut app, KeyCode::Right);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.task_id, 7);
+    assert!(app.execution.busy());
+    assert!(matches!(
+        app.execution.confirmation,
+        Some(execution::Confirmation::Navigate(
+            execution::Action::ResetTask
+        ))
+    ));
+    assert!(!app.execution.affirmative);
+    assert!(!app.reset_after_save);
+
+    let mut app = request_app();
+    app.update(Event::Paste("provider request".into()));
+    request_preview(&mut app);
+    let task_id = app.task_id;
+    app.command("reset");
+    key(&mut app, KeyCode::Right);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.task_id, task_id);
+    assert!(app.planning.preview.is_some());
+    assert!(!app.reset_after_save);
+    assert!(app.planning.pending.is_none());
+    assert!(app.notice.contains("cancel"));
+}
+
+#[test]
+fn init_prepares_editable_plan_request_without_sending_or_writing() {
+    let mut app = request_app();
+    app.set_form(3);
+    app.planning
+        .set_operation(crate::providers::Operation::Implement);
+    app.planning.edit_paths.push("AGENTS.md".into());
+    app.command("init");
+    assert!(app.composer_is_request());
+    assert_eq!(app.form(), 4);
+    assert_eq!(app.planning.operation, crate::providers::Operation::Plan);
+    assert!(app.planning.edit_paths.is_empty());
+    assert!(app.input.contains("/workspace"));
+    assert!(app.input.contains("including any AGENTS.md"));
+    assert!(
+        app.input
+            .contains("Do not create, overwrite or change AGENTS.md")
+    );
+    assert!(app.input.contains("later, separate explicit approval"));
+    assert!(app.input.contains("do not invent commands or results"));
+    assert!(app.goal.is_empty());
+    assert!(app.pending_request.is_none());
+    assert!(app.planning.pending.is_none());
+    assert!(!app.execution.busy());
+    assert!(app.management.is_none());
+    key(&mut app, KeyCode::Char('!'));
+    assert!(app.input.ends_with('!'));
+    request_preview(&mut app);
+    assert_eq!(app.planning.operation, crate::providers::Operation::Plan);
+    assert!(app.planning.preview.is_some());
+    assert!(app.planning.pending.is_none(), "review is not Run consent");
+}
+
+#[test]
+fn init_replacement_is_neutral_and_preserves_other_fact_drafts() {
+    let mut app = request_app();
+    app.update(Event::Paste("original request suffix".into()));
+    key(&mut app, KeyCode::Left);
+    let before = (app.input.clone(), app.cursor, app.revision);
+    app.command("init");
+    assert_eq!(
+        app.confirmation.unwrap().kind,
+        ConfirmationKind::ReplaceWithInit
+    );
+    key(&mut app, KeyCode::Enter);
+    assert_eq!((app.input.clone(), app.cursor, app.revision), before);
+    app.command("init");
+    key(&mut app, KeyCode::Char('n'));
+    assert_eq!((app.input.clone(), app.cursor, app.revision), before);
+    app.command("goal");
+    app.update(Event::Paste("old goal draft".into()));
+    app.command("init");
+    assert!(
+        app.confirmation.is_some(),
+        "retained Request also needs review"
+    );
+    key(&mut app, KeyCode::Right);
+    key(&mut app, KeyCode::Enter);
+    assert!(
+        app.input
+            .starts_with("Prepare a project-initialization proposal")
+    );
+    assert!(app.drafts.iter().any(|draft| {
+        draft.field == store::EditorField::Goal && draft.text == "old goal draft"
+    }));
+    assert!(app.pending_request.is_none());
+    assert!(app.planning.pending.is_none());
+
+    let mut app = request_app();
+    app.command("goal");
+    app.update(Event::Paste("only goal draft".into()));
+    app.command("init");
+    assert!(app.confirmation.is_none());
+    assert!(app.composer_is_request());
+    assert!(
+        app.drafts
+            .iter()
+            .any(|draft| draft.text == "only goal draft")
+    );
+}
+
+#[test]
+fn lifecycle_reviews_require_rendered_unmodified_consent_and_supported_size() {
+    for command in ["reset", "init"] {
+        let mut app = request_app();
+        app.update(Event::Paste("preserve me".into()));
+        app.command(command);
+        key(&mut app, KeyCode::Char('y'));
+        assert!(
+            app.confirmation.is_some(),
+            "unrendered review is not consent"
+        );
+        app.confirmation_reviewed = true;
+        for kind in [KeyEventKind::Repeat, KeyEventKind::Release] {
+            app.update(Event::Key(KeyEvent {
+                code: KeyCode::Char('y'),
+                modifiers: KeyModifiers::NONE,
+                kind,
+                state: crossterm::event::KeyEventState::NONE,
+            }));
+            assert!(app.confirmation.is_some());
+        }
+        modified_key(&mut app, KeyCode::Char('y'), KeyModifiers::ALT);
+        app.update(Event::Paste("y\n".into()));
+        assert_eq!(app.input, "preserve me");
+        app.update(Event::Resize(40, 10));
+        app.confirmation_reviewed = true;
+        key(&mut app, KeyCode::Char('y'));
+        assert!(app.confirmation.is_some());
+        assert_eq!(app.input, "preserve me");
+        key(&mut app, KeyCode::Char('n'));
+        app.command(command);
+        assert!(
+            app.confirmation.is_none(),
+            "small terminal refuses new review"
+        );
+        assert!(app.pending_request.is_none());
+        assert!(app.planning.pending.is_none());
+    }
+}
+
+#[test]
+fn init_oversized_project_identity_preserves_draft_caret_and_role() {
+    for field in [store::EditorField::Request, store::EditorField::Goal] {
+        let mut app = request_app();
+        app.set_form(3);
+        app.planning
+            .set_operation(crate::providers::Operation::Implement);
+        app.planning.edit_paths.push("existing.rs".into());
+        app.open_editor(field);
+        app.update(Event::Paste("keep this draft and suffix".into()));
+        key(&mut app, KeyCode::Left);
+        app.cwd = format!("/{}", "long-project/".repeat(MAX_GOAL_BYTES));
+        let input = app.input.clone();
+        let cursor = app.cursor;
+        let revision = app.revision;
+        let drafts = app.drafts.clone();
+        let navigation = app.navigation();
+        app.command("init");
+        if field == store::EditorField::Request {
+            key(&mut app, KeyCode::Right);
+            key(&mut app, KeyCode::Enter);
+        }
+        assert_eq!(app.input, input);
+        assert_eq!(app.cursor, cursor);
+        assert_eq!(app.revision, revision);
+        assert_eq!(app.drafts, drafts);
+        assert_eq!(app.navigation(), navigation);
+        assert_eq!(app.form(), 3);
+        assert_eq!(
+            app.planning.operation,
+            crate::providers::Operation::Implement
+        );
+        assert_eq!(
+            app.planning.edit_paths,
+            vec![std::path::PathBuf::from("existing.rs")]
+        );
+        assert!(!app.input_truncated);
+        assert!(app.pending_request.is_none());
+        assert!(app.planning.pending.is_none());
+        assert!(!app.execution.busy());
+        assert!(
+            app.notice
+                .contains("shorter initialization request manually")
+        );
+    }
+}

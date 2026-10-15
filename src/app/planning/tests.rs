@@ -165,6 +165,56 @@ fn advertised_effort_and_model_are_snapshotted_and_preview_change_revokes_consen
 }
 
 #[test]
+fn missing_retained_selection_is_never_marked_as_default_or_changed_on_open() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    state.selection = ModelSelection {
+        model: Some("previously-selected".into()),
+        effort: Some("previous-effort".into()),
+    };
+    let selected = state.selection.clone();
+    command(&mut state, "model", true);
+    assert_eq!(state.picker_current(), None);
+    assert_eq!(state.picker_selected, state.picker_len() - 1);
+    assert_eq!(state.selection, selected);
+    assert!(state.pending.is_none());
+    press(&mut state, KeyCode::Esc, true);
+    command(&mut state, "effort", true);
+    assert_eq!(state.picker_current(), None);
+    assert_eq!(state.selection, selected);
+    assert!(state.pending.is_none());
+}
+
+#[test]
+fn newer_catalogue_choices_keep_exact_model_and_effort_without_dispatch() {
+    let mut state = State::new();
+    state.reset(7);
+    let mut models = catalogue();
+    models.models.push(crate::providers::ModelOption {
+        id: "provider-next-generation".into(),
+        name: "New native model".into(),
+        description: "Native discovery response".into(),
+        efforts: vec!["max".into()],
+        default_effort: Some("max".into()),
+    });
+    state.catalogues.insert(Agent::Codex, models);
+    command(&mut state, "model", true);
+    press(&mut state, KeyCode::Down, true);
+    press(&mut state, KeyCode::Down, true);
+    press(&mut state, KeyCode::Enter, true);
+    assert_eq!(
+        state.selection.model.as_deref(),
+        Some("provider-next-generation")
+    );
+    assert!(state.picker == Some(Picker::Effort));
+    press(&mut state, KeyCode::Down, true);
+    press(&mut state, KeyCode::Enter, true);
+    assert_eq!(state.selection.effort.as_deref(), Some("max"));
+    assert!(state.pending.is_none() && state.thread_id.is_none());
+}
+
+#[test]
 fn active_model_change_is_refused_and_unsupported_effort_cannot_be_selected() {
     let mut state = active();
     command(&mut state, "model", true);

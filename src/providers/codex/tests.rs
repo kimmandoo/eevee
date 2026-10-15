@@ -80,6 +80,135 @@ fn complete_catalogue_pages_past_default_and_uses_exact_selected_model() {
 }
 
 #[test]
+fn configured_default_is_not_replaced_by_a_newer_catalogue_default() {
+    let mut listing = ModelListing::default();
+    listing
+        .configuration(&json!({"config":{
+            "model":"configured", "model_reasoning_effort":"high",
+            "model_provider":"custom-endpoint",
+            "unrelated_secret":"never retain this"
+        }}))
+        .unwrap();
+    listing
+        .page(&json!({"data":[model("new-default", true)],"nextCursor":"next"}))
+        .unwrap();
+    listing
+        .page(&json!({"data":[model("configured", false)]}))
+        .unwrap();
+    assert_eq!(
+        listing.select(&ModelSelection::default()).unwrap(),
+        ("configured".into(), "high".into())
+    );
+    assert_eq!(
+        listing
+            .select(&ModelSelection {
+                model: Some("new-default".into()),
+                effort: None,
+            })
+            .unwrap(),
+        ("new-default".into(), "medium".into())
+    );
+    listing.refresh();
+    listing
+        .page(&json!({"data":[model("new-default", true),model("configured", false)]}))
+        .unwrap();
+    listing
+        .revalidate(&ModelSelection::default(), "configured", "high")
+        .unwrap();
+    let catalogue = listing.into_catalogue(&ModelSelection::default());
+    catalogue.validate().unwrap();
+    assert_eq!(catalogue.current.as_deref(), Some("configured"));
+    assert!(catalogue.source.contains("configured model: configured"));
+    assert!(catalogue.source.contains("catalogue default: new-default"));
+    assert!(catalogue.source.contains("custom-endpoint"));
+    assert!(catalogue.source.contains("Update the same executable"));
+    assert!(!catalogue.source.contains("never retain"));
+}
+
+#[test]
+fn missing_configured_models_and_unsupported_configured_effort_never_fall_back() {
+    let mut listing = ModelListing::default();
+    listing
+        .configuration(&json!({"config":{"model":"missing"}}))
+        .unwrap();
+    listing
+        .page(&json!({"data":[model("available",true)]}))
+        .unwrap();
+    assert!(listing.select(&ModelSelection::default()).is_err());
+    let catalogue = listing.into_catalogue(&ModelSelection::default());
+    assert_eq!(catalogue.current.as_deref(), Some("missing"));
+    assert_eq!(catalogue.models.len(), 1);
+    assert_eq!(catalogue.models[0].id, "available");
+
+    let mut listing = ModelListing::default();
+    listing
+        .configuration(&json!({"config":{
+            "model":"available", "model_reasoning_effort":"not-advertised"
+        }}))
+        .unwrap();
+    listing
+        .page(&json!({"data":[model("available",true)]}))
+        .unwrap();
+    assert!(listing.select(&ModelSelection::default()).is_err());
+    assert_eq!(
+        listing
+            .select(&ModelSelection {
+                model: None,
+                effort: Some("low".into()),
+            })
+            .unwrap(),
+        ("available".into(), "low".into())
+    );
+}
+
+#[test]
+fn new_provider_model_names_and_max_effort_are_not_version_filtered() {
+    let mut listing = ModelListing::default();
+    let mut latest = model("provider-next-generation", false);
+    latest["supportedReasoningEfforts"] = json!([
+        {"reasoningEffort":"medium"}, {"reasoningEffort":"max"}
+    ]);
+    listing
+        .page(&json!({"data":[model("prior-generation",true)],"nextCursor":"newer"}))
+        .unwrap();
+    listing.page(&json!({"data":[latest]})).unwrap();
+    assert_eq!(
+        listing
+            .select(&ModelSelection {
+                model: Some("provider-next-generation".into()),
+                effort: Some("max".into()),
+            })
+            .unwrap(),
+        ("provider-next-generation".into(), "max".into())
+    );
+}
+
+#[test]
+fn model_configuration_requires_valid_allowlisted_identity_fields() {
+    for config in [
+        Value::Null,
+        json!([]),
+        json!({"model":123}),
+        json!({"model_provider":"bad\nprovider"}),
+    ] {
+        assert!(
+            ModelListing::default()
+                .configuration(&json!({"config":config}))
+                .is_err()
+        );
+    }
+    let mut listing = ModelListing::default();
+    listing.configuration(&json!({"config":{}})).unwrap();
+    listing
+        .page(&json!({"data":[model("advertised",true)]}))
+        .unwrap();
+    assert_eq!(
+        listing.select(&ModelSelection::default()).unwrap(),
+        ("advertised".into(), "medium".into())
+    );
+}
+
+#[test]
 fn unavailable_model_and_unsupported_effort_never_fall_back() {
     let mut listing = ModelListing::default();
     listing

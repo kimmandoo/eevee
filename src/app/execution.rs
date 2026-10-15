@@ -20,6 +20,7 @@ pub enum Action {
     SelectForm(usize),
     SwitchTask(i64),
     NewTask,
+    ResetTask,
     Quit,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -43,24 +43,27 @@ impl State {
         };
     }
 
-    /// Row of the current local selection; None when the model catalogue is uninspected.
+    /// Exact current row; never mark Default when a retained selection is missing.
     pub fn picker_current(&self) -> Option<usize> {
         match self.picker? {
             Picker::Model => {
                 let catalogue = self.catalogues.get(&self.agent)?;
-                Some(self.selection.model.as_ref().map_or(0, |id| {
-                    catalogue
+                match self.selection.model.as_ref() {
+                    None => Some(0),
+                    Some(id) => catalogue
                         .models
                         .iter()
                         .position(|model| &model.id == id)
-                        .map_or(0, |index| index + 1)
-                }))
+                        .map(|index| index + 1),
+                }
             }
-            Picker::Effort => Some(self.selection.effort.as_ref().map_or(0, |effort| {
-                self.effort_model()
+            Picker::Effort => match self.selection.effort.as_ref() {
+                None => Some(0),
+                Some(effort) => self
+                    .effort_model()
                     .and_then(|model| model.efforts.iter().position(|value| value == effort))
-                    .map_or(0, |index| index + 1)
-            })),
+                    .map(|index| index + 1),
+            },
         }
     }
 

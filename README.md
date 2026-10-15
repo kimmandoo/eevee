@@ -83,6 +83,8 @@ ev --help
 | `/role` / `/forms` | Plan, Implement or Review / choose an evolution |
 | `/goal` / `/next` / `/criteria` / `/criteria-edit` | Edit task facts, inspect criteria, or edit criteria directly |
 | `/tasks` / `/task-new` | Browse saved tasks / create one |
+| `/reset` | Review a fresh local task; save the old task and drafts for `/tasks`, without erasing files or history |
+| `/init` | Prepare an editable Plan request for a repository-specific `AGENTS.md` proposal; no automatic send or file write |
 | `/files` / `@` / `/range` | Source context / attach files / attach line ranges |
 | `/run` / `/command-edit` | Local execution / author argv or an explicit shell object |
 | `/diff` / `/history` / `/decision` | Worktree diff / provider journal / save a proposal as next action |
@@ -93,6 +95,10 @@ ev --help
 | `/quit` / Ctrl+C | Safe exit review |
 
 No command bypasses approval or executes pasted text. Model catalogues come from each provider's official interface; an empty model/effort picker fetches metadata automatically, even on a fresh home, without sending task content. Failures remain visible with a retry path. `/models-refresh` retains its explicit reviewed refresh. Selecting or cancelling a model, effort or provider returns directly to the invoking surface; `/role` opens its choices directly and form changes preserve the editable draft.
+
+`/reset` defaults to Stay and waits for old task/context saves before switching. A save failure keeps the current work; finish or explicitly cancel an active provider request first. `/init` selects Espeon / Plan, clears write paths and prepares a request to inspect repository conventions and propose a project guide. Replacing a nonempty Request requires confirmation; other drafts stay retained. **Enter** prepares the ordinary review, and **Run** remains separate. Existing `AGENTS.md` files are not overwritten; `/init` prepares a proposal, not a completed initialization.
+
+**Missing newer Codex models?** Eevee uses the installed Codex CLI's official app-server catalogue, not its own hardcoded model list. The picker shows the executable/version, configured model, catalogue default and advertised model count; PgUp/PgDn exposes complete source details on small screens. An older CLI can return a bundled/cached older catalogue. Update the same installation shown there (`brew upgrade --cask codex` for Homebrew, or `npm install -g @openai/codex@latest` for npm), then `/models-refresh`. `Default` preserves your configured model/effort; choose a newer model deliberately. Refreshing Eevee does not install or upgrade Codex, and unavailable selections never silently fall back.
 
 **Home and responses.** At 90 columns or wider, the partner card stays visible beside the response; smaller and linear layouts keep full-width output with `/companion` for the partner. Replies stream inline without an extra output window or artificial typing delay. The header shows the single live progress indicator; the response labels its own complete/streaming/partial state. Earlier output stays attributed to its earlier request. Completed words can appear before a newline; unfinished tokens and ambiguous credential prefixes remain withheld for best-effort redaction. PgUp/PgDn pause follow and Alt+End returns to the newest output without stealing ordinary draft input. Exact provenance and technical details remain optional. The spinner represents actual preparation/connection/response activity, not estimated progress; permission reviews and idle screens do not animate. `--no-animation` keeps the indicator static without slowing streamed text.
 
@@ -147,19 +153,19 @@ Sprites are nine original PokeAPI images that installers download and hash-verif
 
 | Machine | Package |
 | --- | --- |
-| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.5/ev-darwin-arm64.tar.gz) |
-| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.5/ev-darwin-x86_64.tar.gz) |
-| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.5/ev-linux-x86_64.tar.gz) |
-| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.5/ev-linux-arm64.tar.gz) |
-| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.5/ev-windows-x86_64.zip) |
+| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.6/ev-darwin-arm64.tar.gz) |
+| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.6/ev-darwin-x86_64.tar.gz) |
+| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.6/ev-linux-x86_64.tar.gz) |
+| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.6/ev-linux-arm64.tar.gz) |
+| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.6/ev-windows-x86_64.zip) |
 
 Installers verify SHA-256, refuse to overwrite commands they don't own, and never edit your shell profile or persistent PATH — the last step on each platform is yours.
 
 ### macOS
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.5/install.sh
-sh ./install-ev.sh --version v0.1.5          # installs to ~/.local/bin/ev
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.6/install.sh
+sh ./install-ev.sh --version v0.1.6          # installs to ~/.local/bin/ev
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && exec zsh
 ```
 
@@ -168,8 +174,8 @@ Builds are not notarized. The script installs via `curl`, which sets no quaranti
 ### Linux and WSL
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.5/install.sh
-sh ./install-ev.sh --version v0.1.5          # installs to ~/.local/bin/ev
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.6/install.sh
+sh ./install-ev.sh --version v0.1.6          # installs to ~/.local/bin/ev
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && exec bash
 ```
 
@@ -180,7 +186,7 @@ Inside WSL, use this Linux build, not the Windows one. For provider sign-in on W
 Run in **PowerShell** (5.1 or 7, no admin). Windows blocks downloaded `.ps1` files by default, so run the installer as a script block instead of `.\install.ps1`:
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.5/install.ps1))) -Version v0.1.5
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.6/install.ps1))) -Version v0.1.6
 ```
 
 It installs `%LOCALAPPDATA%\ev\bin\ev.exe`. Use it right away, and keep it on PATH for new terminals:
@@ -190,7 +196,7 @@ $env:PATH = "$env:LOCALAPPDATA\ev\bin;" + $env:PATH
 [Environment]::SetEnvironmentVariable('Path', "$env:LOCALAPPDATA\ev\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')
 ```
 
-Prefer a saved script? Run it with a process-only bypass: `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-ev.ps1 -Version v0.1.5`. Windows Terminal shows the sprites (Sixel); other consoles fall back to text.
+Prefer a saved script? Run it with a process-only bypass: `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-ev.ps1 -Version v0.1.6`. Windows Terminal shows the sprites (Sixel); other consoles fall back to text.
 
 ### Offline
 

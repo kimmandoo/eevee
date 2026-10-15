@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-15] Codex showed only GPT-5.6 instead of GPT-6 and GPT-6.1
+
+- **Context / Symptom:** `/model` showed only `gpt-5.6-sol`, `gpt-5.6-terra` and `gpt-5.6-luna`. Native inspection returned those exact three entries with no next page, so this was not an Eevee pagination or generation-name filter.
+- **Root Cause:** PATH selected Homebrew Codex 0.147.0. With the same ChatGPT account and model configuration, isolated official 0.162.1 returned seven entries including `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-sol` and `gpt-6-luna`. Native lists can be bundled/cache-backed; they are not a guarantee of live global model availability. Separately, Eevee had treated the catalogue's default as the provider configuration default, ignoring the configured `gpt-5.6-luna`/`high` selection.
+- **Solution:** Exposed actual executable/version and catalogue provenance, model count and compact scroll controls; added explicit same-installation update/refresh guidance. Read only the effective nonsecret model/provider/effort through official `config/read` and preserved that configured default through pre-dispatch catalogue revalidation. Kept complete pagination and exact advertised-model/effort validation; did not hardcode newer names, inject arbitrary models, silently substitute defaults or upgrade the host CLI.
+- **Prevention / Reference:** Update the installation shown in the picker (`brew upgrade --cask codex` for this Homebrew path), then `/models-refresh`; changing Eevee's version alone cannot update its external CLI. The isolated [official 0.162.1 archive](https://github.com/openai/codex/releases/tag/rust-v0.162.1) matched SHA-256 `b293a0fcdd871900a44c0a4f40a1aa401b31e02854f790ebdb8bd5d1177fd1fe`. Native release-candidate journeys observed seven models at 120×36 and 60×18, an explicit GPT-6.1-Sol response, and a separate Default response correctly retaining GPT-5.6-Luna (`target/release-016-live/results.json`). The user did not authorize a global Codex upgrade.
+
 ### [2026-10-15] Fresh-home model loading stalled or completed into a hidden picker
 
 - **Context / Symptom:** Published 0.1.5 stayed on `Loading models…` after `/model` on a fresh home. An integrated real-TUI smoke then found that the request-first settlement path closed the loading overlay, leaving a completed picker hidden behind the home screen and blocking another model action.

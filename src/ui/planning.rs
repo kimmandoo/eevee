@@ -718,30 +718,30 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         );
         return;
     } else {
-        let _ = writeln!(
-            value,
-            "{}",
-            super::brief(&format!(
-                "{}. Local only; nothing connects on open.\n\nDefault uses provider configuration, not a guessed value.",
-                if state.picker == Some(Picker::Model) {
-                    "MODELS"
-                } else {
-                    "REASONING EFFORT"
-                }
-            ))
-        );
+        if state.picker == Some(Picker::Model) {
+            let count = state
+                .catalogues
+                .get(&state.agent)
+                .map_or(0, |catalogue| catalogue.models.len());
+            let _ = writeln!(value, "MODELS · {count} advertised · local selection");
+        } else {
+            let _ = writeln!(value, "REASONING EFFORT · local selection");
+        }
         if let Some(catalogue) = state.catalogues.get(&state.agent) {
             let _ = writeln!(
                 value,
-                "{}",
-                super::brief(&format!(
-                    "Reported current/default: {}.\n\nCatalogue source: {} (not a turn acknowledgment)",
-                    catalogue.current.as_deref().unwrap_or("unobserved"),
-                    clipped(&catalogue.source, area.width as usize)
-                ))
+                "Provider default model: {} (not an active-turn acknowledgment).",
+                catalogue.current.as_deref().unwrap_or("unobserved"),
             );
-            if let Some(note) = &catalogue.effort_note {
-                let _ = writeln!(value, "{}\n", super::brief(note));
+            if catalogue
+                .current
+                .as_ref()
+                .is_some_and(|id| !catalogue.models.iter().any(|model| &model.id == id))
+            {
+                let _ = writeln!(
+                    value,
+                    "Retained model is not advertised; refresh or select another explicitly. No fallback."
+                );
             }
         }
         let visible = area.height.saturating_sub(11).max(1) as usize;
@@ -776,9 +776,17 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         {
             let _ = writeln!(value, "\nUnavailable: {reason}");
         }
-        value.push_str(&super::brief("\nUp/Down Choose / Enter Select / Esc Back.\n\nRefresh prepares a separate reviewed connection; Run consent remains required."));
+        if let Some(catalogue) = state.catalogues.get(&state.agent) {
+            // Provenance and remedies must remain inspectable, not sentence-
+            // shortened or permanently clipped to the terminal width.
+            let _ = writeln!(value, "\nCatalogue source: {}", catalogue.source);
+            if let Some(note) = &catalogue.effort_note {
+                let _ = writeln!(value, "{note}");
+            }
+        }
+        value.push_str("\nRefresh reviews the connection; selecting a model never sends content.");
     }
-    let details = row(area, 0, area.height.saturating_sub(3));
+    let details = row(area, 0, area.height.saturating_sub(4));
     state.scroll_max = selection_details(
         frame,
         details,
@@ -790,9 +798,15 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     state.scroll = state.scroll.min(state.scroll_max);
     text(
         frame,
-        row(area, area.height.saturating_sub(3), 3),
+        row(area, area.height.saturating_sub(4), 3),
         &super::brief(&state.notice),
         paint.muted,
+    );
+    text(
+        frame,
+        row(area, area.height.saturating_sub(1), 1),
+        "Arrows Choose / Enter / PgUp/Dn Details / Esc Back",
+        paint.accent,
     );
 }
 

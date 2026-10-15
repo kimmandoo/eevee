@@ -205,7 +205,7 @@ impl State {
 
     pub fn setup_hint(&self) -> String {
         match self.selected {
-            0 => "Install/update latest stable Codex on PATH: npm install -g @openai/codex@latest. Then Refresh installed providers; the reviewed executable and protocol are checked again.".into(),
+            0 => "Update the same Codex installation shown under Executable, not a second copy elsewhere on PATH. Homebrew: brew upgrade --cask codex. npm: npm install -g @openai/codex@latest. Then Refresh installed providers, check the observed path/version, and refresh /model. Eevee never upgrades it automatically.".into(),
             1 => crate::providers::auth::CLAUDE_POLICY.into(),
             2 => "Install/update latest stable OpenCode on PATH: npm install -g opencode-ai@latest. Then Refresh installed providers; ACP capabilities are negotiated before use.".into(),
             3 => "Install/update latest stable Gemini on PATH: npm install -g @google/gemini-cli@latest. Then Refresh installed providers; current Gemini uses --acp.".into(),
