@@ -303,6 +303,14 @@ impl App {
             }
             store::Event::Context { task_id, result } => {
                 self.sources.stored(self.task_id, task_id, result);
+                if self.sources.take_return_to_composer()
+                    && self.overlay == Some(Overlay::Sources)
+                    && self.composer_return.is_some()
+                {
+                    self.close_overlay();
+                    self.notice =
+                        "Attachment saved to this task locally. Nothing sent to a provider.".into();
+                }
                 if self.overlay == Some(Overlay::Workflows) {
                     self.workflow_refresh();
                 }

@@ -15,6 +15,48 @@ pub struct Menu {
     pub selected: usize,
 }
 
+fn subsequence(value: &str, query: &str) -> bool {
+    let mut wanted = query.chars().flat_map(char::to_lowercase);
+    let Some(mut next) = wanted.next() else {
+        return true;
+    };
+    for ch in value.chars().flat_map(char::to_lowercase) {
+        if ch == next {
+            let Some(following) = wanted.next() else {
+                return true;
+            };
+            next = following;
+        }
+    }
+    false
+}
+
+fn file_query_matches(path: &str, query: &str) -> bool {
+    query.split_whitespace().all(|term| {
+        let term = term
+            .strip_prefix("./")
+            .or_else(|| term.strip_prefix(".\\"))
+            .unwrap_or(term);
+        if let Some((directory, name)) = term.rsplit_once(['/', '\\']) {
+            let mut components = path.split(['/', '\\']);
+            if !directory.split(['/', '\\']).all(|part| {
+                components.next().is_some_and(|component| {
+                    component
+                        .chars()
+                        .flat_map(char::to_lowercase)
+                        .eq(part.chars().flat_map(char::to_lowercase))
+                })
+            }) || components.next().is_none()
+            {
+                return false;
+            }
+            subsequence(path.rsplit(['/', '\\']).next().unwrap_or(path), name)
+        } else {
+            subsequence(path, term)
+        }
+    })
+}
+
 impl App {
     pub fn composer_is_request(&self) -> bool {
         self.editing && self.editor_field == EditorField::Request
@@ -132,7 +174,7 @@ impl App {
                 source
                     .path
                     .to_str()
-                    .is_some_and(|path| path.contains(query))
+                    .is_some_and(|path| file_query_matches(path, query))
             }),
         }
     }
@@ -158,7 +200,9 @@ impl App {
                     .into();
             return;
         }
-        self.sources.query = self.composer_query().to_owned();
+        // Fetch once for this chooser; typed filtering stays local so it cannot
+        // repeatedly hide ready rows behind source validation.
+        self.sources.query.clear();
         self.sources
             .catalogue(self.task_id, self.repository.as_ref());
     }
@@ -191,7 +235,7 @@ impl App {
                     self.composer_menu.as_mut().expect("open menu").selected = selected;
                     return Some(true);
                 }
-                KeyCode::Enter => {
+                KeyCode::Enter | KeyCode::Delete => {
                     if self.width < 60 || self.height < 18 {
                         return Some(false);
                     }
@@ -204,7 +248,12 @@ impl App {
                         {
                             return Some(false);
                         }
-                        self.choose_composer_item(index);
+                        if key.code == KeyCode::Delete
+                            && self.sources.file_attachment(index).is_none()
+                        {
+                            return Some(false);
+                        }
+                        self.choose_composer_item(index, key.code == KeyCode::Delete);
                     }
                     return Some(true);
                 }
@@ -216,13 +265,8 @@ impl App {
                     self.composer_menu = None;
                     self.composer_catalogue = false;
                 }
-                KeyCode::Char(character) if character.is_whitespace() => {
-                    self.composer_menu = None;
-                    self.composer_catalogue = false;
-                }
-                KeyCode::Char(_) | KeyCode::Backspace | KeyCode::Delete => {
+                KeyCode::Char(_) | KeyCode::Backspace => {
                     self.composer_menu.as_mut().expect("open menu").selected = 0;
-                    self.composer_catalogue = menu.kind == Kind::Files;
                 }
                 _ => {}
             }
@@ -253,32 +297,34 @@ impl App {
         true
     }
 
-    fn choose_composer_item(&mut self, index: usize) {
-        let menu = self.composer_menu.take().expect("open menu");
+    fn choose_composer_item(&mut self, index: usize, remove: bool) {
+        self.composer_menu.take().expect("open menu");
         self.composer_catalogue = false;
         let field = self.editor_field;
-        let replacement = format!("@{} ", self.sources.files[index].path.to_string_lossy());
-        // Keep all text outside the trigger, including text after the caret.
-        self.input.replace_range(menu.start..self.cursor, "");
-        self.cursor = menu.start;
-        self.insert_input(&replacement);
+        // Picking context must not rewrite the user's draft or move its caret.
         self.retain_editor();
         self.composer_return = Some(field);
-        if menu.kind == Kind::Files {
-            // Reuse the validated catalogue and the ordinary inspection/pin
-            // workflow. Never bypass exclusions, capture review or persistence.
-            self.save_selection();
-            if let Some(previous) = self.overlay_frame() {
-                self.overlay_history.push(previous);
+        // Reuse the validated catalogue and capture/persistence boundary.
+        self.save_selection();
+        if let Some(previous) = self.overlay_frame() {
+            self.overlay_history.push(previous);
+        }
+        self.overlay = Some(Overlay::Sources);
+        self.sources.mode = super::sources::Mode::Files;
+        self.sources.file_selection = index;
+        if remove {
+            if let Some(attached) = self.sources.file_attachment(index) {
+                self.sources.mode = super::sources::Mode::Basket;
+                self.sources.basket_selection = attached;
+                self.sources
+                    .command("unpin", self.task_id, self.repository.as_ref());
             }
-            self.overlay = Some(Overlay::Sources);
-            self.sources.mode = super::sources::Mode::Files;
-            self.sources.file_selection = index;
+        } else {
             self.sources
                 .inspect_file(self.task_id, self.repository.as_ref());
-            self.notice =
-                "Inspect selected file; /range chooses lines, /attach attaches. Esc returns to your draft.".into();
         }
+        self.notice =
+            "Review local capture, then Enter attaches and returns to your draft. r chooses lines; Esc cancels. Nothing sent.".into();
     }
 }
 
@@ -290,6 +336,23 @@ mod tests {
 
     fn key(app: &mut App, code: KeyCode) {
         app.update(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+    }
+
+    #[test]
+    fn file_search_matches_case_abbreviations_spaces_and_directory_scope() {
+        for (path, query, expected) in [
+            ("src/app/composer.rs", "SRC/APP/CMP", true),
+            ("src/other/composer.rs", "src/app/cmp", false),
+            ("src/app", "src/app/", false),
+            ("src/app/parser.rs", "./src/app/prs", true),
+            ("src\\app\\changes.rs", "src/app/chg", true),
+            ("docs/Design Notes.md", "design notes", true),
+            ("docs/Architecture Draft.md", "architecture missing", false),
+            ("docs/ÉTUDE.md", "étude", true),
+            ("docs/Notes.md", "notse", false),
+        ] {
+            assert_eq!(file_query_matches(path, query), expected, "{path}: {query}");
+        }
     }
 
     #[test]
@@ -366,9 +429,6 @@ mod tests {
         app.task_id = 7;
         app.update(Event::Paste("Explain ".into()));
         key(&mut app, KeyCode::Char('@'));
-        for ch in "README".chars() {
-            key(&mut app, KeyCode::Char(ch));
-        }
         app.sources.files = vec![
             crate::workspace::context::Source {
                 path: "src/main.rs".into(),
@@ -382,16 +442,118 @@ mod tests {
             },
         ];
         app.composer_catalogue = false;
+        for ch in "README".chars() {
+            key(&mut app, KeyCode::Char(ch));
+        }
         assert_eq!(app.composer_candidates().collect::<Vec<_>>(), vec![1]);
         key(&mut app, KeyCode::Enter);
         assert_eq!(app.overlay, Some(Overlay::Sources));
         assert_eq!(app.sources.file_selection, 1);
-        assert_eq!(app.drafts[0].text, "Explain @README.md ");
+        assert_eq!(app.drafts[0].text, "Explain @README");
         assert!(app.sources.basket.is_empty());
         key(&mut app, KeyCode::Esc);
         assert!(app.editing);
-        assert_eq!(app.input, "Explain @README.md ");
+        assert_eq!(app.input, "Explain @README");
         assert!(app.planning.pending.is_none());
+    }
+
+    #[test]
+    fn attachment_path_search_owns_slashes_and_spaces_without_losing_the_suffix() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.task_id = 7;
+        app.update(Event::Paste("Explain suffix".into()));
+        app.cursor = "Explain ".len();
+        key(&mut app, KeyCode::Char('@'));
+        app.sources.files = vec![
+            crate::workspace::context::Source {
+                path: "src/other/Composer Notes.rs".into(),
+                bytes: 12,
+                sha256: [0; 32],
+            },
+            crate::workspace::context::Source {
+                path: "src/app/Composer Notes.rs".into(),
+                bytes: 20,
+                sha256: [0; 32],
+            },
+        ];
+        app.composer_catalogue = false;
+        for ch in "SRC/APP/CMP NTS".chars() {
+            key(&mut app, KeyCode::Char(ch));
+        }
+        assert!(app.command_popup.is_none());
+        assert_eq!(app.composer_query(), "SRC/APP/CMP NTS");
+        assert_eq!(app.composer_candidates().collect::<Vec<_>>(), vec![1]);
+        let draft = app.input.clone();
+        let caret = app.cursor;
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.overlay, Some(Overlay::Sources));
+        assert_eq!(app.sources.file_selection, 1);
+        key(&mut app, KeyCode::Esc);
+        assert_eq!((app.input, app.cursor), (draft, caret));
+        assert!(app.planning.pending.is_none());
+    }
+
+    #[test]
+    fn acknowledged_attachment_returns_to_exact_draft_and_caret_without_sending() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.task_id = 7;
+        app.update(Event::Paste("Explain @sample suffix".into()));
+        app.cursor = "Explain @sample".len();
+        let draft = app.input.clone();
+        let cursor = app.cursor;
+        app.sources.files.push(crate::workspace::context::Source {
+            path: "sample.rs".into(),
+            bytes: 6,
+            sha256: [7; 32],
+        });
+        app.composer_menu = Some(Menu {
+            kind: Kind::Files,
+            start: 8,
+            selected: 0,
+        });
+        key(&mut app, KeyCode::Enter);
+        let mut capture = crate::workspace::context::Excerpt {
+            id: 0,
+            task_id: 7,
+            root: "/workspace".into(),
+            path: "sample.rs".into(),
+            start_line: 1,
+            end_line: 1,
+            source_sha256: [7; 32],
+            text: "first\n".into(),
+            available: true,
+        };
+        app.sources.event(
+            7,
+            crate::workspace::context::Event {
+                task_id: 7,
+                result: Ok(crate::workspace::context::Response::Inspected(
+                    capture.clone(),
+                )),
+            },
+        );
+        app.sources.preview_reviewed = true;
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.overlay, Some(Overlay::Sources));
+        assert!(app.sources.basket.is_empty());
+        app.store_event(crate::store::Event::Context {
+            task_id: 7,
+            result: Err("disk full".into()),
+        });
+        assert_eq!(app.overlay, Some(Overlay::Sources));
+        app.sources.command("journal-retry", 7, None);
+        capture.id = 91;
+        app.store_event(crate::store::Event::Context {
+            task_id: 7,
+            result: Ok(vec![capture]),
+        });
+        assert!(app.overlay.is_none());
+        assert!(app.editing);
+        assert_eq!(app.input, draft);
+        assert_eq!(app.cursor, cursor);
+        assert_eq!(app.sources.basket.len(), 1);
+        assert!(app.planning.pending.is_none());
+        assert!(app.pending_request.is_none());
     }
 
     #[test]

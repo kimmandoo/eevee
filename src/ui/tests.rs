@@ -1,5 +1,6 @@
 use super::*;
 use crate::config::{ImageMode, LayoutMode};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 
 fn luminance(color: Color) -> f64 {
     let Color::Rgb(r, g, b) = color else {
@@ -253,59 +254,92 @@ fn screen_text(terminal: &ratatui::Terminal<ratatui::backend::TestBackend>) -> S
 }
 
 #[test]
-fn model_picker_keeps_complete_source_and_update_remedy_inspectable_without_verbose() {
+fn model_picker_keeps_focus_current_and_optional_provenance_distinct() {
     use ratatui::{Terminal, backend::TestBackend};
-    let config = home_config();
-    for (width, height) in [(120, 36), (60, 18)] {
-        let mut app = App::new("/workspace".into(), width, height);
-        app.planning.catalogues.insert(crate::providers::Agent::Codex, crate::providers::ModelCatalogue {
-            models: vec![crate::providers::ModelOption {
-                id: "native-new-model".into(), name: "Native model".into(),
-                description: String::new(), efforts: vec!["max".into()],
-                default_effort: Some("max".into()),
-            }],
-            current: Some("native-new-model".into()),
-            source: "CLI 0.162.1 at /official/bin/codex. Configured provider: native. Catalogue freshness unknown. Update Codex explicitly in Connect, then Refresh.".into(),
-            effort_note: None,
-        });
-        app.command("model");
-        VERBOSE.set(false);
-        let paint = Paint::new(&config, &FORMS[0], 0);
-        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-        terminal
-            .draw(|frame| {
-                let area = frame.area();
-                planning::render(frame, area, &mut app, &config, &paint);
-            })
-            .unwrap();
-        let max = app.planning.scroll_max;
-        let mut screens = screen_text(&terminal);
-        for scroll in 1..=max {
-            app.planning.scroll = scroll;
+    for color in [ColorMode::Mono, ColorMode::TrueColor] {
+        let mut config = home_config();
+        config.color = color;
+        for (width, height) in [(120, 36), (60, 18)] {
+            let mut app = App::new("/workspace".into(), width, height);
+            app.planning.catalogues.insert(
+                crate::providers::Agent::Codex,
+                crate::providers::ModelCatalogue {
+                    models: vec![crate::providers::ModelOption {
+                        id: "native-new-model".into(),
+                        name: "native-new-model".into(),
+                        description: String::new(),
+                        efforts: vec!["max".into()],
+                        default_effort: Some("max".into()),
+                    }],
+                    current: Some("native-new-model".into()),
+                    source: "SOURCE_SENTINEL · Update the provider explicitly, then Refresh."
+                        .into(),
+                    effort_note: None,
+                },
+            );
+            app.planning.selection = crate::providers::ModelSelection {
+                model: Some("native-new-model".into()),
+                effort: Some("max".into()),
+            };
+            app.command("model");
+            app.update(Event::Key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)));
+            let paint = Paint::new(&config, &FORMS[0], 0);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
             terminal
                 .draw(|frame| {
                     let area = frame.area();
                     planning::render(frame, area, &mut app, &config, &paint);
                 })
                 .unwrap();
-            screens.push_str(&screen_text(&terminal));
+            let rendered = screen_text(&terminal);
+            assert!(rendered.contains(">  Default"));
+            assert!(rendered.contains(" * native-new-model"));
+            assert!(rendered.contains("native-new-model / max"));
+            assert!(!rendered.contains("native-new-model · native-new-model"));
+            assert!(!rendered.contains("SOURCE_SENTINEL"));
+            let cells = &terminal.backend().buffer().content;
+            let focused = cells.iter().find(|cell| cell.symbol() == ">").unwrap();
+            let committed = cells.iter().find(|cell| cell.symbol() == "*").unwrap();
+            if color == ColorMode::Mono {
+                assert!(focused.modifier.contains(Modifier::REVERSED));
+                assert!(!committed.modifier.contains(Modifier::REVERSED));
+            } else {
+                assert_eq!(Some(focused.bg), paint.selected.bg);
+                assert_eq!(Some(committed.fg), paint.accent.fg);
+                assert_ne!(focused.bg, committed.bg);
+            }
+            app.update(Event::Key(KeyEvent::new(
+                KeyCode::Char('d'),
+                KeyModifiers::CONTROL,
+            )));
+            terminal
+                .draw(|frame| {
+                    let area = frame.area();
+                    planning::render(frame, area, &mut app, &config, &paint);
+                })
+                .unwrap();
+            let max = app.planning.scroll_max;
+            let mut inspected = screen_text(&terminal);
+            for scroll in 1..=max {
+                app.planning.scroll = scroll;
+                terminal
+                    .draw(|frame| {
+                        let area = frame.area();
+                        planning::render(frame, area, &mut app, &config, &paint);
+                    })
+                    .unwrap();
+                inspected.push_str(&screen_text(&terminal));
+            }
+            assert!(inspected.contains("SOURCE_SENTINEL"));
+            assert!(inspected.contains("explicitly"));
+            assert!(app.planning.pending.is_none());
+            assert_eq!(app.planning.selection.effort.as_deref(), Some("max"));
         }
-        for text in [
-            "native-new-model",
-            "0.162.1",
-            "/official/bin/codex",
-            "Configured",
-            "explicitly",
-            "Refresh",
-        ] {
-            assert!(screens.contains(text), "{width}x{height}: {text}");
-        }
-        assert!(app.planning.pending.is_none());
     }
 }
 
 #[test]
-fn centered_attachment_picker_keeps_scrolled_selection_and_help_visible() {
+fn attachment_picker_exposes_saved_state_and_direct_removal_without_mutating_draft() {
     use ratatui::{Terminal, backend::TestBackend};
     let config = home_config();
     for (width, height) in [(120, 36), (60, 18)] {
@@ -322,6 +356,17 @@ fn centered_attachment_picker_keeps_scrolled_selection_and_help_visible() {
                 sha256: [0; 32],
             })
             .collect();
+        app.sources.basket.push(crate::workspace::context::Excerpt {
+            id: 91,
+            task_id: 1,
+            root: "/workspace".into(),
+            path: "context-22.rs".into(),
+            start_line: 1,
+            end_line: 1,
+            source_sha256: [0; 32],
+            text: "saved capture".into(),
+            available: true,
+        });
         app.composer_menu = Some(crate::app::composer::Menu {
             kind: crate::app::composer::Kind::Files,
             start: 0,
@@ -336,17 +381,83 @@ fn centered_attachment_picker_keeps_scrolled_selection_and_help_visible() {
             })
             .unwrap();
         let rendered = screen_text(&terminal);
-        for expected in [
-            "> \"context-22.rs\"",
-            "/30 files",
-            "Enter Inspect",
-            "Esc Keep text",
-        ] {
-            assert!(rendered.contains(expected), "{width}x{height}: {expected}");
-        }
+        assert!(rendered.contains("[+] \"context-22.rs\""));
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Delete,
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.overlay, Some(Overlay::Sources));
+        assert_eq!(app.sources.confirmation.as_ref().unwrap().id, 91);
+        assert!(app.sources.pending_store.is_none());
+        // Opening removal never approves it; neutral Enter keeps the capture.
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+        assert!(app.sources.pending_store.is_none());
+        assert_eq!(app.sources.basket.len(), 1);
+        app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
         assert_eq!(app.input, "@");
-        assert_eq!(app.composer_menu.unwrap().selected, 22);
+        assert!(app.editing);
+        assert_eq!(app.cursor, 1);
+        assert!(app.planning.pending.is_none());
     }
+}
+
+#[test]
+fn attachment_capture_requires_visible_review_and_fresh_render_after_resize() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    let paint = Paint::new(&config, &FORMS[0], 0);
+    let mut app = App::new("/workspace".into(), 120, 36);
+    app.task_id = 7;
+    app.editing = false;
+    app.overlay = Some(Overlay::Sources);
+    app.sources.event(
+        7,
+        crate::workspace::context::Event {
+            task_id: 7,
+            result: Ok(crate::workspace::context::Response::Inspected(
+                crate::workspace::context::Excerpt {
+                    id: 0,
+                    task_id: 7,
+                    root: "/workspace".into(),
+                    path: "sample.rs".into(),
+                    start_line: 1,
+                    end_line: 1,
+                    source_sha256: [7; 32],
+                    text: "safe capture\n".into(),
+                    available: true,
+                },
+            )),
+        },
+    );
+    let enter = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    app.update(enter.clone());
+    assert!(app.sources.pending_store.is_none());
+    let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    terminal
+        .draw(|frame| sources::render(frame, frame.area(), &mut app, &config, &paint))
+        .unwrap();
+    assert!(app.sources.preview_reviewed);
+    app.update(Event::Resize(39, 10));
+    app.update(enter.clone());
+    assert!(app.sources.pending_store.is_none());
+    app.update(Event::Resize(60, 18));
+    app.update(enter.clone());
+    assert!(app.sources.pending_store.is_none());
+    let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
+    terminal
+        .draw(|frame| sources::render(frame, frame.area(), &mut app, &config, &paint))
+        .unwrap();
+    assert!(app.sources.preview_reviewed);
+    app.update(enter);
+    assert!(matches!(&app.sources.pending_store,
+        Some(crate::store::ContextRequest {
+            task_id: 7, operation: crate::store::ContextOperation::Pin(capture),
+        }) if capture.text == "safe capture\n"));
+    assert!(app.sources.basket.is_empty());
+    assert!(app.planning.pending.is_none());
 }
 
 #[test]
@@ -729,4 +840,32 @@ fn codex_connection_drawer_groups_routes_and_keeps_method_controls_visible() {
             }
         }
     }
+}
+
+#[test]
+fn compact_header_reserves_model_and_effort_space_with_long_project_names() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    let mut app = App::new(
+        "/workspace/a long project name with 東京 and additional context".into(),
+        60,
+        18,
+    );
+    app.task_id = 123456;
+    app.command("vaporeon");
+    app.planning.agent = crate::providers::Agent::ChatGPT;
+    app.planning.selection = crate::providers::ModelSelection {
+        model: Some("gpt-6.1-sol".into()),
+        effort: Some("high".into()),
+    };
+    let paint = Paint::new(&config, &FORMS[app.form()], app.form());
+    let mut terminal = Terminal::new(TestBackend::new(60, 2)).unwrap();
+    terminal
+        .draw(|frame| header(frame, frame.area(), &app, &config, &paint))
+        .unwrap();
+    let first_row: String = (0..60)
+        .map(|x| terminal.backend().buffer()[(x, 0)].symbol())
+        .collect();
+    assert!(first_row.contains("gpt-6.1-sol"), "{first_row}");
+    assert!(first_row.contains("high"), "{first_row}");
 }

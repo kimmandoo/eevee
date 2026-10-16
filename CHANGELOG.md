@@ -48,6 +48,12 @@
 
 ## 2026-10-16
 
+- fix(install): reused the installation animation during self-update release lookup and preserved UTF-8 locale settings, monochrome motion and static redirected output.
+- feat(models): compacted model selection into model → supported reasoning → retained editor, highlighted current choices separately from focus, retained model/effort in compact home headers, and moved complete metadata/errors behind optional details.
+- feat(models): ranked exact matches first, preserved search when returning from reasoning, and added direct exact-ID and supported-effort command arguments without sending drafts.
+- fix(ux): activated ready providers directly, retained explicit setup and owned-context reviews, and removed the intermediate connection drawer after local selection or cancellation.
+- feat(context): added direct bounded attachment review/save/return, visible saved-file markers and path/range summaries, and direct range, search and neutral removal controls.
+- fix(context): kept attachment filtering local, accepted scoped case-insensitive abbreviations and spaces, prevented path slashes from opening commands, and preserved compact error/status visibility.
 - chore(release): published v0.1.8 from `53f3fd0` after Check and all five native rows passed, verified eight public assets and seven hashes, and passed 23 installation checks, 34 installed terminal scenarios, 33 workbench journeys, real model/effort restart/responses and Schema 9→10 downgrade-refusal checks.
 - chore(release): published v0.1.7 from `0a43c0e` after Check and all five native build/test/install rows passed, verified eight public assets and seven checksums, and passed 23 installation checks, 34 installed terminal scenarios, 31 public workbench journeys and actual no-CLI GPT-6.1/default-model responses.
 - feat(ux): made composer Enter save and send qualified ordinary requests without a second popup, kept actual effect approvals, and prevented repeat/modified Enter from submitting.

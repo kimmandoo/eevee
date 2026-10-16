@@ -1,5 +1,33 @@
 # Troubleshooting
 
+### [2026-10-16] Update progress differed from installation before download
+
+- **Context / Symptom:** Self-update performed its initial release lookup before the installer's visible phases and did not preserve the user's UTF-8 locale when handing over to it.
+- **Root Cause:** Release discovery was owned by the updater while animation was owned by the embedded installer; the sanitized helper environment omitted `LANG`, `LC_ALL` and `LC_CTYPE`.
+- **Solution:** Reused the embedded installer's animated release lookup, retained locale variables alongside existing terminal settings, and kept read-only checks separate. Windows lookup used a private result file so both console handles remained attached; redirected/CI/dumb-terminal output stayed static.
+- **Prevention / Reference:** The actual POSIX install/update lifecycle passed lookup motion, resize/restoration, monochrome shape parity, checksum refusal and read-only checks; four visible drawing frames were shared between install and update. Native Windows syntax/type checks were separate from terminal-animation qualification.
+
+### [2026-10-16] Compact headers hid source failures and model selection
+
+- **Context / Symptom:** At 60×18, purged-context dispatch displayed the detailed refusal but hid its status line. A long project/partner prefix also displaced the selected model and reasoning level from the home header.
+- **Root Cause:** The source ownership sentence wrapped into the row reserved for status, while the home header concatenated context before selection without reserving selection width.
+- **Solution:** Used separate fixed source ownership/status rows and a bounded compact home header with explicit model/effort space. Complete source failures remained scrollable; long contextual labels retained visible truncation.
+- **Prevention / Reference:** The real source-context matrix exercised compact purge, missing/stale source and storage failures. A viewport regression retained model/effort with a long project name; targeted actual-TUI captures checked the selected values beside the draft.
+
+### [2026-10-16] Directory separators escaped the attachment query
+
+- **Context / Symptom:** Typing a scoped `@` query opened Commands at its first slash instead of filtering files, despite the query working in isolated matching tests.
+- **Root Cause:** Global slash dispatch ran before the composer submenu and did not classify the active attachment query as literal input. Repeated catalogue requests while typing also temporarily blocked selection of otherwise visible rows.
+- **Solution:** Gave the active file query character ownership, fetched one eligible catalogue per opening, and filtered its original indices locally. Case-insensitive scoped abbreviations and spaces never broadened source eligibility or bypassed capture review.
+- **Prevention / Reference:** The regression drove real slash/space key events with a retained suffix/caret. Actual terminal journeys inspected the intended scoped source and excluded the same basename in a different directory.
+
+### [2026-10-16] Local selection reviews kept an extra drawer or lost their visible owner
+
+- **Context / Symptom:** Keeping the current provider after its review returned to Connections instead of the invoking editor. A direct unlisted-model review could also disappear during ordinary planning settlement while its pending selection remained.
+- **Root Cause:** The connection launch frame was removed only after synchronous selection. The new direct-model review had no picker, but busy classification and automatic drawer settlement still relied on picker presence.
+- **Solution:** Removed the launch-only connection frame before waiting for local review completion, counted pending model changes as busy, and excluded them from automatic drawer closure. Neutral cancellation preserved the original provider/session and exact draft.
+- **Prevention / Reference:** App-level regressions exercised settlement and cancellation, not only the isolated picker. The direct-model regression failed before the ownership fix; actual wide/compact journeys exercised the provider review and retained editor.
+
 ### [2026-10-16] Cancelling metadata connection review left an invisible picker owning input
 
 - **Context / Symptom:** The real-TUI project-executable trust fixture correctly stopped before execution, but Escape returned home and `/quit` was subsequently typed as literal draft text. The interface reported an unfinished request although no modal was visible.
@@ -206,7 +234,7 @@
 - **Context / Symptom:** The real-PTY UX capture failed with `ModuleNotFoundError: No module named 'pyte'`; installing into the system interpreter was refused with `externally-managed-environment`.
 - **Root Cause:** This host uses a distribution-managed Python environment; the smoke harness requires its own pinned `pyte` and `wcwidth` dependencies.
 - **Solution:** Created `target/ux-venv` with `uv venv` and installed `pyte==0.8.2 wcwidth==0.2.13` using `uv pip install --python target/ux-venv/bin/python`. Ran terminal verification with that interpreter without changing system packages.
-- **Prevention / Reference:** Use an isolated smoke environment; do not override the distribution's externally-managed protection. Rust LSP reference lookup also exited before serving requests on this host; source inspection and compiler/runtime checks were used instead.
+- **Prevention / Reference:** Use an isolated smoke environment; do not override the distribution's externally-managed protection. Rust LSP reference lookup also exited before serving requests on this host; on 2026-10-16, `rust-analyzer --version` identified the resolving rustup shim's missing component (`Unknown binary 'rust-analyzer'`). Scoped source inspection and compiler/runtime checks were used without changing global tools.
 
 ### [2026-10-15] Reserved partner drafts could not preserve valid escaped text
 

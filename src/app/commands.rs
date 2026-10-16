@@ -39,17 +39,33 @@ pub struct Popup {
 }
 
 impl Popup {
+    pub fn argument(&self) -> Option<(&str, &str)> {
+        let query = self
+            .query
+            .trim()
+            .strip_prefix('/')
+            .unwrap_or(self.query.trim());
+        let (name, argument) = query.split_once(char::is_whitespace)?;
+        let argument = argument.trim();
+        (matches!(name, "lead" | "model" | "effort") && !argument.is_empty())
+            .then_some((name, argument))
+    }
+
     pub fn candidates(&self) -> impl Iterator<Item = &Choice> {
         let query = self
             .query
             .trim()
             .strip_prefix('/')
             .unwrap_or(self.query.trim());
+        let argument = self.argument().map(|(name, _)| name);
         let exact = self
             .choices
             .iter()
             .any(|choice| choice.command.eq_ignore_ascii_case(query));
         self.choices.iter().filter(move |choice| {
+            if let Some(name) = argument {
+                return choice.command == name;
+            }
             if exact {
                 return choice.command.eq_ignore_ascii_case(query);
             }
@@ -122,8 +138,8 @@ impl App {
             ("task-new", "Create local task"),
             ("reset", "Fresh local task; keep old task and drafts"),
             ("init", "Draft project guide request; review before sending"),
-            ("model", "Choose provider model"),
-            ("effort", "Choose reasoning effort"),
+            ("model", "Choose model / optional exact ID"),
+            ("effort", "Reasoning level / optional value"),
             ("role", "Choose Plan / Implement / Review role"),
             ("forms", "Choose evolution"),
             ("back-form", "Return to the previous form (Backspace)"),
@@ -423,10 +439,7 @@ impl App {
                     .trim()
                     .strip_prefix('/')
                     .unwrap_or(popup.query.trim());
-                if query
-                    .split_once(char::is_whitespace)
-                    .is_some_and(|(name, argument)| name == "lead" && !argument.trim().is_empty())
-                {
+                if popup.argument().is_some() {
                     let query = query.to_owned();
                     return self.command_with_argument(&query);
                 }
@@ -454,8 +467,8 @@ impl App {
         true
     }
 
-    /// Commands that take a literal typed argument rather than a catalogue
-    /// selection. Only `lead` accepts one today: `/lead <partner>`.
+    /// Literal local arguments share the same selection and permission gates
+    /// as their corresponding interactive controls.
     pub(super) fn command_with_argument(&mut self, query: &str) -> bool {
         let query = query.trim().strip_prefix('/').unwrap_or(query.trim());
         let (name, argument) = match query.split_once(char::is_whitespace) {
@@ -465,6 +478,35 @@ impl App {
         if name == "lead" {
             self.command_popup = None;
             return self.lead_command(argument);
+        }
+        if matches!(name, "model" | "effort") && !argument.is_empty() {
+            if let Some(reason) = self.command_disabled_reason(name) {
+                self.notice = reason;
+                return true;
+            }
+            self.command_popup = None;
+            if self.editing {
+                self.pending_request = None;
+                let field = self.editor_field;
+                self.retain_editor();
+                self.composer_return = Some(field);
+            }
+            self.open_overlay(Overlay::Planning);
+            if self.overlay != Some(Overlay::Planning) {
+                return true;
+            }
+            let accepted = if name == "model" {
+                self.planning.select_model_id(argument)
+            } else {
+                self.planning.select_effort_value(argument)
+            };
+            if !accepted
+                || (self.planning.picker.is_none() && self.planning.selection_change.is_none())
+            {
+                self.close_overlay();
+            }
+            self.notice.clone_from(&self.planning.notice);
+            return true;
         }
         false
     }
@@ -730,6 +772,70 @@ mod tests {
     }
 
     #[test]
+    fn direct_model_and_effort_arguments_preserve_drafts_and_do_not_send() {
+        for (width, height) in [(120, 36), (60, 18)] {
+            let mut app = App::new("/workspace".into(), width, height);
+            app.update(Event::Paste("before suffix".into()));
+            app.cursor = 6;
+            app.planning.catalogues.insert(
+                app.planning.agent,
+                crate::providers::ModelCatalogue {
+                    models: vec![crate::providers::ModelOption {
+                        id: "vendor/Exact:v1".into(),
+                        name: "Version 1".into(),
+                        description: String::new(),
+                        efforts: vec!["low".into(), "high".into()],
+                        default_effort: None,
+                    }],
+                    current: None,
+                    source: "local metadata".into(),
+                    effort_note: None,
+                },
+            );
+            key(&mut app, KeyCode::Char('/'));
+            query(&mut app, "model vendor/Exact:v1");
+            key(&mut app, KeyCode::Enter);
+            assert!(matches!(
+                app.planning.picker,
+                Some(super::super::planning::Picker::Effort)
+            ));
+            assert!(app.planning.selection.model.is_none());
+            key(&mut app, KeyCode::Down);
+            key(&mut app, KeyCode::Enter);
+            assert_eq!(
+                app.planning.selection.model.as_deref(),
+                Some("vendor/Exact:v1")
+            );
+            assert_eq!(app.planning.selection.effort.as_deref(), Some("low"));
+            assert!(app.editing && app.overlay.is_none());
+            assert_eq!((&*app.input, app.cursor), ("before suffix", 6));
+
+            key(&mut app, KeyCode::Char('/'));
+            query(&mut app, "effort high");
+            key(&mut app, KeyCode::Enter);
+            assert_eq!(app.planning.selection.effort.as_deref(), Some("high"));
+            assert!(app.editing && app.overlay.is_none());
+            assert_eq!((&*app.input, app.cursor), ("before suffix", 6));
+
+            key(&mut app, KeyCode::Char('/'));
+            query(&mut app, "effort unsupported");
+            key(&mut app, KeyCode::Enter);
+            assert_eq!(app.planning.selection.effort.as_deref(), Some("high"));
+            assert!(app.editing && app.overlay.is_none());
+
+            key(&mut app, KeyCode::Char('/'));
+            query(&mut app, "model provider");
+            key(&mut app, KeyCode::Enter);
+            assert_eq!(app.planning.selection.model.as_deref(), Some("provider"));
+            assert!(app.planning.selection.effort.is_none());
+            assert_eq!((&*app.input, app.cursor), ("before suffix", 6));
+            assert!(app.editing && app.overlay.is_none());
+            assert!(app.planning.pending.is_none());
+            assert!(app.pending_request.is_none());
+        }
+    }
+
+    #[test]
     fn command_search_is_isolated_from_draft_caret_and_suffix() {
         let mut app = App::new("/workspace".into(), 120, 36);
         app.update(Event::Paste("before suffix".into()));
@@ -981,6 +1087,52 @@ mod tests {
             Some(crate::providers::Request::Preview(input)) if input.inspect_models && input.resume.is_none()));
         app.command("models-refresh");
         assert!(app.notice.contains("active provider"));
+    }
+
+    #[test]
+    fn model_then_reasoning_returns_to_original_draft_and_caret_without_sending() {
+        for (width, height) in [(120, 36), (60, 18)] {
+            let mut app = App::new("/workspace".into(), width, height);
+            app.update(Event::Paste("before suffix".into()));
+            app.cursor = 6;
+            app.planning.catalogues.insert(
+                crate::providers::Agent::Codex,
+                crate::providers::ModelCatalogue {
+                    models: vec![crate::providers::ModelOption {
+                        id: "exact-model".into(),
+                        name: "exact-model".into(),
+                        description: String::new(),
+                        efforts: vec!["high".into()],
+                        default_effort: Some("high".into()),
+                    }],
+                    current: Some("exact-model".into()),
+                    source: "Test metadata".into(),
+                    effort_note: None,
+                },
+            );
+            app.command("model");
+            key(&mut app, KeyCode::Down);
+            key(&mut app, KeyCode::Enter);
+            assert!(app.planning.picker == Some(super::super::planning::Picker::Effort));
+            assert_eq!(app.overlay, Some(Overlay::Planning));
+            assert!(app.planning.selection.model.is_none());
+            key(&mut app, KeyCode::Down);
+            key(&mut app, KeyCode::Enter);
+            assert!(app.overlay.is_none() && app.editing);
+            assert_eq!(app.input, "before suffix");
+            assert_eq!(app.cursor, 6);
+            assert_eq!(app.planning.selection.model.as_deref(), Some("exact-model"));
+            assert_eq!(app.planning.selection.effort.as_deref(), Some("high"));
+            assert!(app.planning.pending.is_none());
+            assert!(app.pending_request.is_none());
+            app.command("effort");
+            key(&mut app, KeyCode::Home);
+            key(&mut app, KeyCode::Esc);
+            assert!(app.overlay.is_none() && app.editing);
+            assert_eq!(app.planning.selection.effort.as_deref(), Some("high"));
+            assert_eq!(app.input, "before suffix");
+            assert_eq!(app.cursor, 6);
+        }
     }
 
     #[test]

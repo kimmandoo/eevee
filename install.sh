@@ -44,6 +44,7 @@ dir_set=0
 selected_tag=${EV_VERSION:-}
 version_set=0
 uninstall=0
+resolve_release=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --archive)
@@ -62,6 +63,8 @@ while [ "$#" -gt 0 ]; do
             [ "$#" -ge 2 ] && [ -n "$2" ] || { usage >&2; fail '--version requires vX.Y.Z'; }
             [ "$version_set" -eq 0 ] || fail 'provide --version only once'
             selected_tag=$2; version_set=1; shift 2 ;;
+        --resolve-release)
+            resolve_release=1; shift ;;
         --uninstall)
             [ "$uninstall" -eq 0 ] || fail 'provide --uninstall only once'
             uninstall=1; shift ;;
@@ -70,6 +73,9 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 [ "$archive_set" -eq "$checksums_set" ] || fail 'provide both --archive PATH and --checksums PATH'
+if [ "$resolve_release" -eq 1 ]; then
+    [ "$archive_set" -eq 0 ] && [ "$uninstall" -eq 0 ] && [ "$version_set" -eq 0 ] || fail 'release lookup cannot install or uninstall'
+fi
 if [ "$uninstall" -eq 1 ]; then
     [ "$archive_set" -eq 0 ] && [ "$version_set" -eq 0 ] || fail '--uninstall cannot be combined with archive or version options'
     selected_tag=
@@ -425,6 +431,11 @@ if [ "$archive_set" -eq 0 ]; then
             *) fail 'latest release did not resolve to an exact GitHub release tag' ;;
         esac
         valid_tag "$selected_tag" || fail 'latest release has an unsupported tag; expected vX.Y.Z'
+    fi
+    if [ "$resolve_release" -eq 1 ]; then
+        stop_animation
+        printf '%s\n' "$selected_tag"
+        exit 0
     fi
     release_url=https://github.com/kimmandoo/eevee/releases/download/$selected_tag
     phase "Downloading Eevee $selected_tag for $os/$arch"

@@ -13,7 +13,9 @@ param(
     [string]$InstallDir,
     [string]$Version,
     [switch]$Uninstall,
-    [int]$OwnerProcessId = 0
+    [int]$OwnerProcessId = 0,
+    [switch]$ResolveRelease,
+    [string]$ResolveOutput
 )
 
 Set-StrictMode -Version 2.0
@@ -604,6 +606,15 @@ try {
     if (-not [string]::IsNullOrEmpty($releaseTag) -and
         ($releaseTag.Length -gt 64 -or $releaseTag -cnotmatch '\Av(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\z')) {
         throw 'Version must be an exact release tag such as v0.1.0.'
+    }
+    if ($ResolveRelease) {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Start-InstallAnimation 'Resolving latest Eevee release'
+        $releaseTag = Get-ReleaseResponse ([uri]'https://github.com/kimmandoo/eevee/releases/latest') ([Diagnostics.Stopwatch]::StartNew()) 'HEAD'
+        Stop-InstallAnimation
+        if ([string]::IsNullOrEmpty($ResolveOutput)) { throw 'Release lookup requires its private output path.' }
+        [IO.File]::WriteAllText($ResolveOutput, $releaseTag, [Text.UTF8Encoding]::new($false))
+        return
     }
     if ([string]::IsNullOrEmpty($InstallDir)) {
         if (-not [string]::IsNullOrEmpty($env:EV_INSTALL_DIR)) { $InstallDir = $env:EV_INSTALL_DIR }

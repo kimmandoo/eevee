@@ -257,8 +257,6 @@ fn command_search_matches_unordered_terms_and_keeps_exact_commands_first() {
             "{query}"
         );
     }
-    popup.query = "model impossible-word".into();
-    assert_eq!(popup.candidates().count(), 0);
     popup.query = " \t ".into();
     assert_eq!(popup.candidates().count(), popup.choices.len());
 }
@@ -1856,6 +1854,68 @@ fn codex_method_switch_changes_actual_route_and_returns_to_the_invoking_editor()
         assert_eq!(app.input, "keep this method-switch draft");
         assert!(app.planning.pending.is_none());
     }
+}
+
+#[test]
+fn provider_switch_review_cancellation_restores_the_invoking_editor_directly() {
+    for code in [KeyCode::Enter, KeyCode::Esc] {
+        let mut app = request_app();
+        app.goal = "Committed task".into();
+        app.update(Event::Paste("keep the original suffix".into()));
+        app.cursor = 5;
+        modified_key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+        save_request(&mut app);
+        app.planning.reset(app.task_id);
+        app.planning.thread_id = Some("owned-session".into());
+        let owner = app.planning.agent;
+        let next = if owner == crate::providers::Agent::Codex {
+            crate::providers::Agent::OpenAI
+        } else {
+            crate::providers::Agent::Codex
+        };
+        app.command("provider");
+        app.agents.use_for_task = Some(next.index());
+        app.use_selected_provider();
+        assert_eq!(app.overlay, Some(Overlay::Planning));
+        assert_eq!(app.planning.switch_to, Some(next));
+        key(&mut app, code);
+        assert!(app.overlay.is_none() && app.editing);
+        assert_eq!(
+            (app.input.as_str(), app.cursor),
+            ("keep the original suffix", 5)
+        );
+        assert_eq!(app.planning.agent, owner);
+        assert_eq!(app.planning.thread_id.as_deref(), Some("owned-session"));
+        assert!(app.planning.pending.is_none());
+    }
+}
+
+#[test]
+fn direct_custom_model_review_remains_owned_until_explicit_cancellation() {
+    let mut app = request_app();
+    app.goal = "Committed session".into();
+    app.update(Event::Paste("retained future request".into()));
+    modified_key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+    save_request(&mut app);
+    app.planning.reset(app.task_id);
+    app.planning.thread_id = Some("owned-session".into());
+    key(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "model vendor/Unlisted.Exact");
+    key(&mut app, KeyCode::Enter);
+    assert!(app.planning.selection_change.is_some());
+    assert!(app.planning.picker.is_none());
+    app.settle_planning();
+    assert_eq!(app.overlay, Some(Overlay::Planning));
+    assert!(app.planning.busy());
+    app.command("provider");
+    assert_eq!(app.overlay, Some(Overlay::Planning));
+    assert_eq!(app.planning.thread_id.as_deref(), Some("owned-session"));
+    assert!(app.planning.selection.model.is_none());
+    key(&mut app, KeyCode::Esc);
+    assert!(app.overlay.is_none() && app.editing);
+    assert_eq!(app.input, "retained future request");
+    assert!(app.planning.selection_change.is_none());
+    assert!(app.planning.pending.is_none());
 }
 
 fn request_app() -> App {

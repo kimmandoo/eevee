@@ -186,6 +186,24 @@ impl State {
         actions
     }
 
+    fn ready_for_task(&self) -> bool {
+        self.profiles.get(self.selected).is_some()
+            && matches!(
+                self.connection_status(self.selected),
+                "Connected" | "Connected (session credential)" | "Configured (unchecked)"
+            )
+    }
+
+    pub fn enter_hint(&self) -> &'static str {
+        if !self.ready_for_task() {
+            "Setup"
+        } else if self.selected == self.active {
+            "Choose model"
+        } else {
+            "Use provider"
+        }
+    }
+
     /// Most likely next step: connect, then use for task, then choose a model.
     fn default_action(&self) -> usize {
         let next = if self.selected == Agent::Codex.index()
@@ -193,10 +211,7 @@ impl State {
             && self.alternate_codex().is_some()
         {
             Action::ConnectionMethod
-        } else if !matches!(
-            self.connection_status(self.selected),
-            "Connected" | "Configured (unchecked)"
-        ) {
+        } else if !self.ready_for_task() {
             Action::Connect
         } else if self.selected == self.active {
             Action::Model
@@ -404,7 +419,8 @@ impl State {
                 self.selected = self.selected.min(self.profiles.len().saturating_sub(1));
                 self.method = crate::providers::auth::default_method(self.selected);
                 self.discovering = false;
-                self.notice = "Choose a provider, then Enter for actions.".into();
+                self.notice =
+                    "Enter chooses a ready provider; Right opens Actions and setup.".into();
             }
             Event::Probed {
                 profile,
@@ -718,8 +734,16 @@ impl State {
         match key.code {
             KeyCode::Enter if !self.busy() => match self.page {
                 Page::Providers => {
-                    self.page = Page::Actions;
-                    self.action = self.default_action();
+                    if self.ready_for_task() {
+                        self.activate(if self.selected == self.active {
+                            Action::Model
+                        } else {
+                            Action::UseForTask
+                        });
+                    } else {
+                        self.page = Page::Actions;
+                        self.action = self.default_action();
+                    }
                 }
                 Page::Actions => self.activate(self.actions()[self.action]),
                 Page::Methods => self.prepare_auth(
@@ -729,7 +753,11 @@ impl State {
                 ),
                 Page::Diagnostics => self.page = Page::Actions,
             },
-            KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right => {
+            KeyCode::Right => {
+                self.page = Page::Actions;
+                self.scroll = 0;
+            }
+            KeyCode::Tab | KeyCode::BackTab | KeyCode::Left => {
                 self.page = match self.page {
                     Page::Providers => Page::Actions,
                     _ => Page::Providers,
@@ -841,6 +869,57 @@ mod tests {
 
     fn press(state: &mut State, code: KeyCode) {
         state.key(KeyEvent::new(code, KeyModifiers::NONE), true);
+    }
+
+    #[test]
+    fn connected_enter_uses_existing_outputs_without_auth() {
+        let mut state = discovered();
+        state.outcomes[0] = Some(crate::providers::auth::Outcome::Authenticated);
+        state.active = 1;
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.use_for_task.take(), Some(0));
+        assert_eq!(state.page, Page::Providers);
+        assert!(state.pending.is_none());
+        assert!(state.pending_auth.is_none());
+        state.active = 0;
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.pick.take(), Some("model"));
+        assert!(state.pending.is_none());
+    }
+
+    #[test]
+    fn right_exposes_actions_without_switching_or_auth() {
+        for outcome in [
+            None,
+            Some(crate::providers::auth::Outcome::Authenticated),
+            Some(crate::providers::auth::Outcome::NotAuthenticated),
+        ] {
+            let mut state = discovered();
+            state.outcomes[0] = outcome;
+            press(&mut state, KeyCode::Right);
+            assert_eq!(state.page, Page::Actions);
+            press(&mut state, KeyCode::Right);
+            assert_eq!(state.page, Page::Actions);
+            assert!(state.use_for_task.is_none());
+            assert!(state.pick.is_none());
+            assert!(state.pending.is_none());
+        }
+    }
+
+    #[test]
+    fn ready_provider_repeat_and_navigation_are_passive() {
+        let mut state = discovered();
+        state.outcomes[0] = Some(crate::providers::auth::Outcome::Authenticated);
+        state.key(
+            KeyEvent::new_with_kind(KeyCode::Enter, KeyModifiers::NONE, KeyEventKind::Repeat),
+            true,
+        );
+        press(&mut state, KeyCode::Down);
+        press(&mut state, KeyCode::Up);
+        assert_eq!(state.page, Page::Providers);
+        assert!(state.use_for_task.is_none());
+        assert!(state.pick.is_none());
+        assert!(state.pending.is_none());
     }
 
     #[test]

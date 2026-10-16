@@ -82,7 +82,461 @@ fn unicode_display_search_is_case_insensitive_without_changing_exact_id() {
     state.paste("éclair");
     assert_eq!(state.picker_matches(), 1);
     press(&mut state, KeyCode::Enter, true);
+    assert!(state.picker == Some(Picker::Effort));
+    assert!(state.selection.model.is_none());
+    press(&mut state, KeyCode::Enter, true);
     assert_eq!(state.selection.model.as_deref(), Some("advertised-model"));
+}
+
+#[test]
+fn model_search_ranks_exact_then_prefix_then_contiguous_in_provider_order() {
+    let mut state = State::new();
+    state.reset(7);
+    let mut models = catalogue();
+    models.models.clear();
+    for (id, name) in [
+        ("suffix-first", "Other Target"),
+        ("prefix-first", "Target Alpha"),
+        ("suffix-second", "Another Target"),
+        ("vendor/TaRgEt", "Different name"),
+        ("exact-display", "vendor/target"),
+        ("prefix-second", "vendor/target Beta"),
+        ("prefix-third", "vendor/target Gamma"),
+        ("suffix-third", "Other vendor/target"),
+    ] {
+        let mut model = catalogue().models.remove(0);
+        model.id = id.into();
+        model.name = name.into();
+        models.models.push(model);
+    }
+    state.catalogues.insert(Agent::Codex, models);
+    state.selection.model = Some("prefix-second".into());
+    command(&mut state, "model", true);
+    state.paste("VENDOR/target");
+    let ids: Vec<_> = (1..=state.picker_matches())
+        .map(|index| state.picker_model(index).unwrap().id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            "vendor/TaRgEt",
+            "exact-display",
+            "prefix-second",
+            "prefix-third",
+            "suffix-third",
+        ]
+    );
+    assert_eq!(state.picker_current(), Some(3));
+    assert_eq!(state.picker_selected, 1);
+    press(&mut state, KeyCode::Enter, true);
+    assert_eq!(state.selection.model.as_deref(), Some("prefix-second"));
+    press(&mut state, KeyCode::Enter, true);
+    assert_eq!(state.selection.model.as_deref(), Some("vendor/TaRgEt"));
+    assert!(state.pending.is_none() && !state.auto_models);
+}
+
+#[test]
+fn unicode_model_search_uses_the_same_exact_and_prefix_ranking() {
+    let mut state = State::new();
+    state.reset(7);
+    let mut models = catalogue();
+    models.models.clear();
+    for (id, name) in [
+        ("suffix", "Un ÉCLAIR"),
+        ("prefix", "ÉCLAIR 模型"),
+        ("exact", "ÉCLAIR"),
+    ] {
+        let mut model = catalogue().models.remove(0);
+        model.id = id.into();
+        model.name = name.into();
+        models.models.push(model);
+    }
+    state.catalogues.insert(Agent::Codex, models);
+    command(&mut state, "model", true);
+    state.paste("éclair");
+    assert_eq!(
+        (1..=state.picker_matches())
+            .map(|index| state.picker_model(index).unwrap().id.as_str())
+            .collect::<Vec<_>>(),
+        ["exact", "prefix", "suffix"],
+    );
+}
+
+#[test]
+fn reasoning_back_restores_query_caret_and_candidate_before_atomic_reselection() {
+    let mut state = State::new();
+    state.reset(7);
+    let mut models = catalogue();
+    let mut second = models.models[0].clone();
+    second.id = "advertised-second".into();
+    models.models.push(second);
+    state.catalogues.insert(Agent::Codex, models);
+    state.selection = ModelSelection {
+        model: Some("retained/custom".into()),
+        effort: Some("retained-effort".into()),
+    };
+    let committed = state.selection.clone();
+    command(&mut state, "model", true);
+    state.paste("advertised");
+    press(&mut state, KeyCode::Left, true);
+    let query_cursor = state.picker_query.cursor;
+    press(&mut state, KeyCode::Down, true);
+    press(&mut state, KeyCode::Enter, true);
+    press(&mut state, KeyCode::Down, true);
+    assert!(state.can_back_to_models());
+    assert_eq!(state.selection, committed);
+    press(&mut state, KeyCode::Left, true);
+    assert!(state.picker == Some(Picker::Model));
+    assert!(state.pending_model.is_none() && !state.can_back_to_models());
+    assert_eq!(state.picker_query.text, "advertised");
+    assert_eq!(state.picker_query.cursor, query_cursor);
+    assert_eq!(
+        state.picker_model(state.picker_selected).unwrap().id,
+        "advertised-second",
+    );
+    assert_eq!(state.picker_current(), None);
+    press(&mut state, KeyCode::Up, true);
+    press(&mut state, KeyCode::Enter, true);
+    press(&mut state, KeyCode::Down, true);
+    assert_eq!(state.selection, committed);
+    press(&mut state, KeyCode::Enter, true);
+    assert_eq!(state.selection.model.as_deref(), Some("advertised-model"));
+    assert_eq!(state.selection.effort.as_deref(), Some("high"));
+    assert!(state.picker.is_none() && state.pending_model.is_none());
+    assert!(state.pending.is_none() && state.pending_journal.is_empty());
+    assert!(!state.auto_models && !state.auto_picker && !state.active);
+}
+
+#[test]
+fn reasoning_back_keeps_exact_candidate_identity_after_catalogue_reordering() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    command(&mut state, "model", true);
+    state.paste("advertised");
+    press(&mut state, KeyCode::Enter, true);
+    let mut refreshed = catalogue();
+    let mut first = refreshed.models[0].clone();
+    first.id = "advertised-first".into();
+    refreshed.models.insert(0, first);
+    state.publish_catalogue(refreshed);
+    press(&mut state, KeyCode::Left, true);
+    assert_eq!(state.picker_query.text, "advertised");
+    assert_eq!(
+        state.picker_model(state.picker_selected).unwrap().id,
+        "advertised-model",
+    );
+    assert_eq!(state.picker_selected, 2);
+    press(&mut state, KeyCode::Up, true);
+    press(&mut state, KeyCode::Enter, true);
+    press(&mut state, KeyCode::Down, true);
+    press(&mut state, KeyCode::Esc, true);
+    assert_eq!(state.selection, ModelSelection::default());
+    assert!(state.picker.is_none() && state.pending_model.is_none());
+    assert!(state.pending.is_none() && !state.auto_models);
+}
+
+#[test]
+fn reasoning_back_restores_default_and_custom_actions_without_committing() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    command(&mut state, "model", true);
+    press(&mut state, KeyCode::Enter, true);
+    press(&mut state, KeyCode::Left, true);
+    assert!(state.picker == Some(Picker::Model));
+    assert_eq!(state.picker_selected, 0);
+    state.paste("advertised");
+    custom_entry(&mut state);
+    state.paste("advertised-model");
+    press(&mut state, KeyCode::Enter, true);
+    press(&mut state, KeyCode::Left, true);
+    assert!(state.picker == Some(Picker::Model));
+    assert_eq!(state.picker_query.text, "advertised");
+    assert_eq!(
+        state.picker_choice(state.picker_selected).unwrap().command,
+        "model-custom",
+    );
+    assert!(state.custom_model.is_none());
+    assert_eq!(state.selection, ModelSelection::default());
+    assert!(state.pending.is_none());
+}
+
+#[test]
+fn standalone_effort_and_direct_model_reasoning_have_no_model_back_level() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    command(&mut state, "effort", true);
+    press(&mut state, KeyCode::Down, true);
+    press(&mut state, KeyCode::Left, true);
+    assert!(state.picker == Some(Picker::Effort));
+    assert_eq!(state.picker_selected, 1);
+    assert!(!state.can_back_to_models());
+    press(&mut state, KeyCode::Esc, true);
+    assert!(state.select_model_id("advertised-model"));
+    press(&mut state, KeyCode::Left, true);
+    assert!(state.picker == Some(Picker::Effort));
+    assert!(!state.can_back_to_models());
+    press(&mut state, KeyCode::Esc, true);
+    assert_eq!(state.selection, ModelSelection::default());
+    assert!(state.pending.is_none() && !state.auto_models);
+}
+
+#[test]
+fn direct_exact_model_and_effort_reuse_atomic_local_selection() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    assert!(state.select_model_id("advertised-model"));
+    assert!(state.picker == Some(Picker::Effort));
+    assert_eq!(state.selection, ModelSelection::default());
+    assert!(!state.select_effort_value("HIGH"));
+    assert_eq!(state.selection, ModelSelection::default());
+    assert!(state.select_effort_value("high"));
+    assert_eq!(state.selection.model.as_deref(), Some("advertised-model"));
+    assert_eq!(state.selection.effort.as_deref(), Some("high"));
+    assert!(state.select_effort_value("default"));
+    assert!(state.selection.effort.is_none() && state.picker.is_none());
+    state.auto_models = true;
+    state.auto_picker = true;
+    assert!(state.select_model_id("vendor/Exact.Model:2026"));
+    assert_eq!(
+        state.selection.model.as_deref(),
+        Some("vendor/Exact.Model:2026")
+    );
+    assert!(state.picker.is_none() && state.pending.is_none());
+    assert!(!state.auto_models && !state.auto_picker && state.catalogue_dismissed);
+    assert!(state.select_model_id("default"));
+    assert_eq!(state.selection.model.as_deref(), Some("default"));
+    assert!(!state.select_effort_value("high"));
+    assert!(state.pending.is_none() && !state.active);
+}
+
+#[test]
+fn direct_invalid_values_preserve_selection_and_session() {
+    let mut state = State::new();
+    state.reset(7);
+    state.selection = ModelSelection {
+        model: Some("retained/custom".into()),
+        effort: Some("retained-effort".into()),
+    };
+    state.thread_id = Some("owned-session".into());
+    let committed = state.selection.clone();
+    for id in ["", " model ", "model\n", "org/\u{202e}model"] {
+        assert!(!state.select_model_id(id));
+        assert_eq!(state.selection, committed);
+        assert!(state.picker.is_none() && state.selection_change.is_none());
+    }
+    assert!(!state.select_model_id(&"m".repeat(257)));
+    assert!(!state.select_effort_value("unsupported"));
+    assert_eq!(state.selection, committed);
+    assert_eq!(state.thread_id.as_deref(), Some("owned-session"));
+    assert!(state.pending.is_none() && !state.auto_models);
+}
+
+#[test]
+fn direct_unknown_model_keeps_existing_session_review_without_a_phantom_picker() {
+    let mut state = State::new();
+    state.reset(7);
+    state.thread_id = Some("owned-session".into());
+    assert!(state.select_model_id("vendor/Exact.Custom"));
+    assert!(state.picker.is_none() && state.selection_change.is_some());
+    assert_eq!(state.selection, ModelSelection::default());
+    press(&mut state, KeyCode::Esc, true);
+    assert!(state.picker.is_none() && state.selection_change.is_none());
+    assert_eq!(state.thread_id.as_deref(), Some("owned-session"));
+    assert!(state.select_model_id("vendor/Exact.Custom"));
+    state.reviewed = true;
+    press(&mut state, KeyCode::Tab, true);
+    press(&mut state, KeyCode::Enter, true);
+    assert_eq!(
+        state.selection.model.as_deref(),
+        Some("vendor/Exact.Custom")
+    );
+    assert!(state.thread_id.is_none() && state.pending.is_none());
+    assert!(state.picker.is_none() && state.selection_change.is_none());
+}
+
+#[test]
+fn reasoning_back_uses_neutral_custom_action_if_exact_candidate_disappeared() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    command(&mut state, "model", true);
+    state.paste("advertised");
+    press(&mut state, KeyCode::Enter, true);
+    let mut refreshed = catalogue();
+    refreshed.models.clear();
+    state.publish_catalogue(refreshed);
+    press(&mut state, KeyCode::Left, true);
+    assert!(state.picker == Some(Picker::Model));
+    assert_eq!(state.picker_query.text, "advertised");
+    assert_eq!(
+        state.picker_choice(state.picker_selected).unwrap().command,
+        "model-custom",
+    );
+    assert_eq!(state.selection, ModelSelection::default());
+    assert!(state.pending.is_none());
+}
+
+#[test]
+fn direct_known_model_reviews_complete_reasoning_before_replacing_a_session() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    state.thread_id = Some("owned-session".into());
+    assert!(state.select_model_id("advertised-model"));
+    assert!(state.select_effort_value("high"));
+    let change = state.selection_change.as_ref().unwrap();
+    assert_eq!(change.model.as_deref(), Some("advertised-model"));
+    assert_eq!(change.effort.as_deref(), Some("high"));
+    assert_eq!(state.selection, ModelSelection::default());
+    press(&mut state, KeyCode::Esc, true);
+    assert!(state.picker == Some(Picker::Effort) && state.selection_change.is_none());
+    assert!(!state.can_back_to_models());
+    assert!(state.select_effort_value("high"));
+    state.reviewed = true;
+    press(&mut state, KeyCode::Tab, true);
+    press(&mut state, KeyCode::Enter, true);
+    assert_eq!(state.selection.model.as_deref(), Some("advertised-model"));
+    assert_eq!(state.selection.effort.as_deref(), Some("high"));
+    assert!(state.thread_id.is_none() && state.pending.is_none());
+}
+
+#[test]
+fn advertised_default_effort_value_is_not_reinterpreted_as_reset() {
+    let mut state = State::new();
+    state.reset(7);
+    let mut models = catalogue();
+    models.models[0].efforts.push("default".into());
+    state.catalogues.insert(Agent::Codex, models);
+    assert!(state.select_model_id("advertised-model"));
+    assert!(state.select_effort_value("default"));
+    assert_eq!(state.selection.effort.as_deref(), Some("default"));
+    assert!(state.pending.is_none() && !state.auto_models);
+}
+
+#[test]
+fn model_reasoning_flow_is_atomic_and_default_enter_accepts() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    state.selection = ModelSelection {
+        model: Some("retained/custom".into()),
+        effort: Some("retained-effort".into()),
+    };
+    let committed = state.selection.clone();
+    command(&mut state, "model", true);
+    press(&mut state, KeyCode::Home, true);
+    press(&mut state, KeyCode::Down, true);
+    press(&mut state, KeyCode::Enter, true);
+    assert!(state.picker == Some(Picker::Effort));
+    assert_eq!(state.picker_selected, 0);
+    assert_eq!(
+        state.picker_current(),
+        None,
+        "candidate is not a committed current model"
+    );
+    press(&mut state, KeyCode::Down, true);
+    assert_eq!(state.selection, committed);
+    assert!(state.pending.is_none());
+    press(&mut state, KeyCode::Esc, true);
+    assert!(state.picker.is_none() && state.pending_model.is_none());
+    assert_eq!(state.selection, committed);
+    command(&mut state, "model", true);
+    press(&mut state, KeyCode::Home, true);
+    press(&mut state, KeyCode::Enter, true);
+    assert!(state.picker == Some(Picker::Effort));
+    assert!(state.picker_selection().model.is_none());
+    assert_eq!(state.selection, committed);
+    press(&mut state, KeyCode::Enter, true);
+    assert_eq!(state.selection, ModelSelection::default());
+    assert!(state.picker.is_none() && state.pending.is_none());
+}
+
+#[test]
+fn exact_custom_id_uses_advertised_reasoning_but_unknown_models_finish_locally() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    command(&mut state, "model", true);
+    custom_entry(&mut state);
+    state.paste("advertised-model");
+    press(&mut state, KeyCode::Enter, true);
+    assert!(state.picker == Some(Picker::Effort));
+    assert!(state.selection.model.is_none());
+    press(&mut state, KeyCode::Down, true);
+    press(&mut state, KeyCode::Enter, true);
+    assert_eq!(state.selection.effort.as_deref(), Some("high"));
+    command(&mut state, "model", true);
+    custom_entry(&mut state);
+    state.paste("org/Exact.Custom");
+    press(&mut state, KeyCode::Enter, true);
+    assert!(state.picker.is_none());
+    assert_eq!(state.selection.model.as_deref(), Some("org/Exact.Custom"));
+    assert!(state.selection.effort.is_none() && state.pending.is_none());
+}
+
+#[test]
+fn cached_rows_remain_selectable_after_refresh_failure_and_error_is_optional() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    state.inspect_models = true;
+    state.awaiting_preview = true;
+    state.event(Event::Error {
+        generation: None,
+        message: "Offline".into(),
+    });
+    assert!(state.picker == Some(Picker::Model));
+    assert!(!state.review_details);
+    state.key(
+        KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
+        true,
+        &task(),
+        &[],
+        None,
+    );
+    assert!(state.review_details);
+    press(&mut state, KeyCode::Enter, true);
+    assert_eq!(state.selection, ModelSelection::default());
+    press(&mut state, KeyCode::Esc, true);
+    assert!(!state.review_details && state.picker.is_some());
+    press(&mut state, KeyCode::Home, true);
+    press(&mut state, KeyCode::Down, true);
+    press(&mut state, KeyCode::Enter, true);
+    press(&mut state, KeyCode::Enter, true);
+    assert_eq!(state.selection.model.as_deref(), Some("advertised-model"));
+    assert!(state.picker.is_none() && state.pending.is_none());
+    assert_eq!(state.catalogue_error(), Some("Offline"));
+}
+
+#[test]
+fn catalogue_publication_keeps_focused_exact_model_or_neutral_custom_action() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    command(&mut state, "model", true);
+    press(&mut state, KeyCode::Down, true);
+    let mut refreshed = catalogue();
+    let mut first = refreshed.models[0].clone();
+    first.id = "new-first-model".into();
+    refreshed.models.insert(0, first);
+    state.publish_catalogue(refreshed);
+    assert_eq!(
+        state.picker_model(state.picker_selected).unwrap().id,
+        "advertised-model"
+    );
+    let mut removed = catalogue();
+    removed.models.clear();
+    state.publish_catalogue(removed);
+    assert_eq!(
+        state.picker_choice(state.picker_selected).unwrap().command,
+        "model-custom"
+    );
+    assert_eq!(state.selection, ModelSelection::default());
+    assert!(state.pending.is_none());
 }
 
 #[test]
@@ -558,7 +1012,7 @@ fn model_picker_is_local_and_refresh_requires_preview_run_without_journal() {
 }
 
 #[test]
-fn model_change_offers_keep_fresh_and_back_without_silent_resume() {
+fn model_change_reviews_complete_model_and_reasoning_without_silent_resume() {
     let mut state = State::new();
     state.reset(7);
     state.thread_id = Some("owned-session".into());
@@ -566,10 +1020,18 @@ fn model_change_offers_keep_fresh_and_back_without_silent_resume() {
     command(&mut state, "model", true);
     press(&mut state, KeyCode::Down, true);
     press(&mut state, KeyCode::Enter, true);
-    assert!(state.selection_change.is_some());
+    assert!(state.picker == Some(Picker::Effort));
+    assert!(state.selection_change.is_none());
+    press(&mut state, KeyCode::Down, true);
+    press(&mut state, KeyCode::Enter, true);
+    assert_eq!(
+        state.selection_change.as_ref().unwrap().effort.as_deref(),
+        Some("high")
+    );
     assert_eq!(state.selection, ModelSelection::default());
     press(&mut state, KeyCode::Esc, true);
-    assert!(state.picker.is_some() && state.selection_change.is_none());
+    assert!(state.picker == Some(Picker::Effort) && state.selection_change.is_none());
+    assert_eq!(state.effort_model().unwrap().id, "advertised-model");
     press(&mut state, KeyCode::Enter, true);
     press(&mut state, KeyCode::Enter, true);
     assert_eq!(state.thread_id.as_deref(), Some("owned-session"));
@@ -577,10 +1039,14 @@ fn model_change_offers_keep_fresh_and_back_without_silent_resume() {
     command(&mut state, "model", true);
     press(&mut state, KeyCode::Down, true);
     press(&mut state, KeyCode::Enter, true);
+    press(&mut state, KeyCode::Down, true);
+    press(&mut state, KeyCode::Enter, true);
+    state.reviewed = true;
     press(&mut state, KeyCode::Tab, true);
     press(&mut state, KeyCode::Enter, true);
     assert!(state.thread_id.is_none() && state.pending.is_none());
     assert_eq!(state.selection.model.as_deref(), Some("advertised-model"));
+    assert_eq!(state.selection.effort.as_deref(), Some("high"));
     command(&mut state, "resume", true);
     assert!(state.pending.is_none());
 }
@@ -593,11 +1059,9 @@ fn advertised_effort_and_model_are_snapshotted_and_preview_change_revokes_consen
     command(&mut state, "model", true);
     press(&mut state, KeyCode::Down, true);
     press(&mut state, KeyCode::Enter, true);
-    assert!(
-        state.picker.is_none(),
-        "model choice returns directly without a second picker"
-    );
-    command(&mut state, "effort", true);
+    assert!(state.picker == Some(Picker::Effort));
+    assert_eq!(state.selection, ModelSelection::default());
+    assert!(state.pending.is_none());
     press(&mut state, KeyCode::Down, true);
     press(&mut state, KeyCode::Enter, true);
     assert!(state.picker.is_none());
@@ -672,12 +1136,9 @@ fn newer_catalogue_choices_keep_exact_model_and_effort_without_dispatch() {
     press(&mut state, KeyCode::Down, true);
     press(&mut state, KeyCode::Down, true);
     press(&mut state, KeyCode::Enter, true);
-    assert_eq!(
-        state.selection.model.as_deref(),
-        Some("provider-next-generation")
-    );
-    assert!(state.picker.is_none());
-    command(&mut state, "effort", true);
+    assert_eq!(state.selection, ModelSelection::default());
+    assert!(state.picker == Some(Picker::Effort));
+    assert_eq!(state.effort_model().unwrap().id, "provider-next-generation");
     press(&mut state, KeyCode::Down, true);
     press(&mut state, KeyCode::Enter, true);
     assert_eq!(state.selection.effort.as_deref(), Some("max"));

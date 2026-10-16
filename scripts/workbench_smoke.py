@@ -89,7 +89,9 @@ class NativeFixture:
                 else:
                     self.reply(200, {"data": [
                         {"id": "fixture-alpha", "name": "fixture-alpha"},
-                        {"id": "fixture-beta", "name": "fixture-beta"},
+                        {"id": "fixture-beta-mini", "name": "fixture-beta-mini"},
+                        {"id": "fixture-beta", "name": "fixture-beta",
+                         "supported_reasoning_levels": ["low", "high"]},
                     ]})
 
             def do_POST(self):
@@ -433,7 +435,7 @@ def main():
                     native.send("\x13")
                     stored_when(native_data, lambda rows: saved_request(rows) == first_request)
                     native.command("model")
-                    wait_for(native, "Models loaded")
+                    wait_for(native, "fixture-beta")
                     assert len(fixture.snapshot("GET")) == 1
                     assert not fixture.snapshot("POST"), "model discovery performed inference"
                     native.send("fixture-beta")
@@ -442,16 +444,30 @@ def main():
                     assert "fixture-alpha" not in native.display(), "search retained a nonmatching model row"
                     native.capture("native-metadata-search")
                     native.send("\r")
+                    wait_for(native, "Reasoning")
+                    native.capture("native-model-then-reasoning")
+                    native.send("\x1b[B\r")  # Default -> low; commit model and effort together.
                     wait_for(native, first_request)
+                    deadline = time.monotonic() + 8
+                    while True:
+                        with closing(sqlite3.connect((native_data / "workbench.sqlite3").as_uri() + "?mode=ro", uri=True)) as db:
+                            preference = json.loads(db.execute("SELECT record FROM provider_preferences WHERE id=1").fetchone()[0])
+                        chosen = preference["selections"][preference["provider"]]
+                        if (chosen["model"], chosen["effort"]) == ("fixture-beta", "low"):
+                            break
+                        assert time.monotonic() < deadline, preference
+                        native.pump(0.05)
+                    assert not fixture.snapshot("POST"), "reasoning selection sent the retained draft"
+                    passed("native-model-then-reasoning-commits-without-sending-" + str(width))
                     native.command("model")
-                    wait_for(native, "Requested: fixture-beta")
+                    wait_for(native, "Current: fixture-beta / low")
                     native.send("\x1b[F\x1b[A\r")  # End: Refresh; previous row: Custom ID.
                     wait_for(native, "CUSTOM MODEL ID")
                     native.paste(custom_model)
                     native.send("\r")
                     wait_for(native, first_request)
                     native.command("model")
-                    wait_for(native, "Requested: " + custom_model)
+                    wait_for(native, "Current: " + custom_model)
                     native.capture("native-exact-custom-model")
                     native.send("\x1b")
                     assert saved_request(inspect_store(native_data)) == first_request
@@ -472,8 +488,8 @@ def main():
                     assert len(fixture.snapshot("GET")) == 1, "restart queried models without user intent"
                     assert not fixture.snapshot("POST"), "restart submitted an old draft"
                     native.command("model")
-                    wait_for(native, "Requested: " + custom_model)
-                    wait_for(native, "Models loaded")
+                    wait_for(native, "Current: " + custom_model)
+                    wait_for(native, "fixture-beta")
                     assert len(fixture.snapshot("GET")) == 2
                     native.capture("durable-model-restored-with-competing-provider")
                     native.send("\x1b")
@@ -513,17 +529,16 @@ def main():
                     before_refresh = inspect_store(native_data)
                     fixture.fail_models.set()
                     native.command("models-refresh")
-                    wait_for(native, "STALE / fetch failed")
+                    wait_for(native, "Refresh failed")
                     native.capture("native-failed-refresh-retains-snapshot")
                     for model in ("fixture-alpha", "fixture-beta"):
                         native.send("\x15")
                         native.send(model)
                         wait_for(native, "Search: " + model)
                         wait_for(native, model)
-                        assert "STALE / fetch failed" in native.display()
+                        assert "Refresh failed" in native.display()
                     native.send("\x15")
-                    # Compact view may scroll the retained rows/error. Inspect
-                    # the actual error rather than counting a failed HTTP call.
+                    native.send("\x04")  # Optional complete catalogue/error details.
                     deadline = time.monotonic() + 4
                     while "Fetch error:" not in native.display():
                         assert time.monotonic() < deadline, native.display()
@@ -532,6 +547,7 @@ def main():
                     assert len(fixture.snapshot("GET")) == 3
                     assert len(fixture.snapshot("POST")) == 2
                     native.send("\x1b")
+                    native.send("\x1b")  # Details -> picker -> retained editor.
                     assert lead_drafts(inspect_store(native_data)[0]) == lead_drafts(before_refresh[0])
                     wait_for(native, third_request)
                     passed("native-fixture-failed-metadata-refresh-retains-rows-error-and-draft-" + str(width))

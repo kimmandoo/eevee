@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use ratatui::{
     Frame,
     layout::Rect,
@@ -16,7 +18,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
         return;
     }
     frame.render_widget(Clear, area);
-    let block = panel(" @ Files / inspect before attaching ", config, paint, true);
+    let block = panel(
+        " @ Attach file / local capture review ",
+        config,
+        paint,
+        true,
+    );
     let content = block.inner(area);
     frame.render_widget(block, area);
     let rows = content.height.saturating_sub(2) as usize;
@@ -41,10 +48,20 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
             let selected = start + visible == menu.selected;
             let style = if selected {
                 paint.selected
+            } else if app.sources.file_attachment(index).is_some() {
+                paint.accent
             } else {
                 paint.surface
             };
-            let label = format!("{:?}", app.sources.files[index].path);
+            let label = format!(
+                "[{}] {:?}",
+                if app.sources.file_attachment(index).is_some() {
+                    "+"
+                } else {
+                    " "
+                },
+                app.sources.files[index].path
+            );
             frame.render_widget(
                 Paragraph::new(Line::from(vec![
                     Span::styled(if selected { "> " } else { "  " }, style),
@@ -70,8 +87,40 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
     text(
         frame,
         row(content, content.height.saturating_sub(1), 1),
-        "Arrows Choose / Enter Inspect / Esc Keep text",
+        "Enter Review/attach / Del Remove / Esc Keep draft",
         paint.muted,
+    );
+}
+
+pub(super) fn attachments(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
+    let mut value = String::with_capacity(area.width as usize + 32);
+    value.push_str("Files: ");
+    let path_width = (area.width as usize / 2).saturating_sub(12).max(8);
+    for (index, excerpt) in app.sources.basket.iter().take(2).enumerate() {
+        if index != 0 {
+            value.push_str(" · ");
+        }
+        let _ = write!(
+            value,
+            "{}{:?}:{}-{}",
+            if excerpt.available {
+                ""
+            } else {
+                "Unavailable "
+            },
+            clipped(&excerpt.path, path_width),
+            excerpt.start_line,
+            excerpt.end_line,
+        );
+    }
+    if app.sources.basket.len() > 2 {
+        let _ = write!(value, " · +{} more", app.sources.basket.len() - 2);
+    }
+    text(
+        frame,
+        area,
+        &clipped(&value, area.width as usize),
+        paint.accent,
     );
 }
 
@@ -94,8 +143,20 @@ pub(super) fn commands(frame: &mut Frame, area: Rect, app: &App, config: &Config
             .clone()
             .or_else(|| app.command_disabled_reason(choice.command))
     });
+    let argument_hint = popup.argument().map(|(name, argument)| {
+        format!(
+            "Enter {}: {}",
+            match name {
+                "model" => "Use exact model",
+                "effort" => "Set reasoning",
+                _ => "Choose partner",
+            },
+            clipped(argument, content.width.saturating_sub(24) as usize),
+        )
+    });
     let detail = reason
         .as_deref()
+        .or(argument_hint.as_deref())
         .or_else(|| selected.map(|choice| choice.label.as_str()))
         .unwrap_or("Search actions by name or description. Esc keeps your draft.");
     let detail = if reason.is_some() {

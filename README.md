@@ -54,16 +54,26 @@ ev update --check   # read-only release check
 ev update           # upgrade in place
 ev uninstall        # remove the binary; keep user data
 ```
+Install and `ev update` show the same animation from release lookup through installation, respecting UTF-8 and `NO_COLOR`. Redirected output, CI and dumb terminals use static phase messages; `ev update --check` remains read-only.
+
 
 Use a terminal of at least **60 × 18** (120 × 36 recommended).
 
 1. Type in the bottom composer. **Enter** saves and sends the request; **Ctrl+S** saves locally only. No separate Goal setup or routine approval popup.
-2. `/provider` chooses a service. **Codex** is one entry with native responses (no CLI/tools) or CLI agent (tools/edits) as connection methods. `/model` searches or accepts an exact ID; `/effort` is optional, not a forced next step.
+2. `/provider` chooses a service. **Codex** is one entry with native responses (no CLI/tools) or CLI agent (tools/edits) as connection methods. `/model` follows **model → reasoning level → editor** when reasoning is supported; `/effort` opens the level directly.
 3. Approve actual effects when needed: commands, file changes, write-enabled sessions, project-supplied executables, external credential helpers and unmanaged agent connections. Advanced `/new` or `/resume` keeps exact-payload review available.
 4. Read responses inline and type the next request. The last provider/method, model and effort are restored on restart; credentials, sessions and grants are not.
 5. Use `/run` → `/command-edit` for a separately reviewed local command such as `["cargo","test"]`.
 
-Type `@` to attach files, or `/` (Ctrl+K) to search actions by name or description. The centered chooser supports multiple search words in any order (`desk review`, `attach`), preserves the draft and shows unavailable reasons. Arrows/Tab/Enter/Esc navigate; repeated visits do not add extra Back steps. On confirmation surfaces, **y** confirms and **n** cancels; offered provider permission prompts also accept **a** for **allow once**, never a permanent grant. These letters remain ordinary text inside editors; paste and held-key repeats never approve.
+**Provider:** on a ready row, **Enter** uses the provider directly; on the active row it opens models. **Right** opens connection/setup actions. Unready rows keep the setup path, and switching an owned provider context still uses its existing review.
+
+**Models:** exact IDs/names rank first. From staged reasoning, **Left** returns to the same model search; **Esc** keeps both previous settings. **Ctrl+D** shows complete provenance/errors. `/model <exact-id>` skips model search; `/effort <supported-value>` sets a level directly (`/effort default` resets it unless the provider advertises that literal value). These controls never send the draft.
+
+**Files:** type `@`, filter a filename and press **Enter** for its bounded preview; **Enter** attaches locally and returns to the same draft after storage succeeds. **r** selects a line range instead; **Esc** cancels. Saved files have a `[+]` marker. In `/files`, **Tab** switches files/attachments and **Del** opens removal review; the `@` chooser also offers **Del** for an attached file.
+File search accepts case-insensitive abbreviations, scoped paths and spaces, for example `@SRC/APP/CMP NTS`. Saved paths and line ranges stay visible beside the draft. Attachment records are independent of draft text: deleting an `@` token does not silently unpin a saved capture.
+
+
+Use `/` (Ctrl+K) to search actions by name or description. The centered chooser supports multiple search words in any order (`desk review`, `attach`), preserves the draft and shows unavailable reasons. Arrows/Tab/Enter/Esc navigate; repeated visits do not add extra Back steps. On confirmation surfaces, **y** confirms and **n** cancels; offered provider permission prompts also accept **a** for **allow once**, never a permanent grant. These letters remain ordinary text inside editors; paste and held-key repeats never approve.
 
 ```sh
 ev --theme light            # cream palette
@@ -94,7 +104,7 @@ ev --help
 | `/images` / `/inspect` / `/companion` | Sprites / details / companion |
 | `/quit` / Ctrl+C | Safe exit review |
 
-Pasted text never sends a request or executes a command. Model/effort pickers and `/models-refresh` fetch metadata without a second popup for qualified connections, including on a fresh home, without task content. Risky executable/unmanaged connection effects still require review. Errors retain a retry path and stale rows. Selecting or cancelling a model, effort or provider returns directly to the invoking editor; choosing a model does not force an effort picker.
+Pasted text never sends a request or executes a command. Model/effort pickers and `/models-refresh` fetch metadata without a second popup for qualified connections, including on a fresh home, without task content. Risky executable/unmanaged connection effects still require review. Errors retain a retry path and stale rows. Pickers distinguish the saved choice from keyboard focus with color and text markers; catalogue provenance and errors remain available in details. After reasoning selection (or immediately for models without it), return to the original draft/caret without sending.
 
 `/reset` defaults to Stay and waits for durable task/context saves before switching, preserving old work in `/tasks`. Finish or explicitly cancel active work first. `/init` selects Espeon / Plan, clears write paths and prepares an editable project-guide proposal; replacing a nonempty Request requires confirmation. It sends nothing and overwrites no `AGENTS.md` by itself. **Enter** sends when you are ready; other drafts remain retained.
 
