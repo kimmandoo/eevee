@@ -41,7 +41,7 @@ impl Fixture {
         ));
         fs::create_dir_all(&path).unwrap();
         fs::write(path.join("check.rs"), "fn check() {}\n").unwrap();
-        Self(path)
+        Self(fs::canonicalize(path).unwrap())
     }
 
     fn pin(&self) -> context::Excerpt {
