@@ -1,5 +1,15 @@
 # Work Checkpoint
 
+## 2026-10-16 — Release wave 2, then EV10A (active)
+
+- **User scope:** Publish the completed work, then start the next task. The next ready task is wave 3 EV10A (failure location parser), not EV01C later in that wave.
+- **Starting state:** Clean main at `bba3c5e`, eight commits ahead of origin/main; public latest v0.1.9, Schema 10. Wave 2 source verification was 680 passed / 2 ignored plus actual TUI/execution evidence below.
+- **Release plan:** Prepare v0.1.10 / Schema 11; run local checks and real previous-binary migration/refusal; commit/push candidate; require exact-commit Check and five native rows; tag only qualified bytes; verify publication and downloaded public assets/binary. No implicit installed-binary replacement.
+- **Local verification:** Rust 1.90.0 fmt, 680 passed / 2 ignored, strict Clippy, Python release-script tests (14 passed / 3 skipped), release build and `ev 0.1.10` passed. Actual Schema 10 v0.1.9 binary → v0.1.10 migration/refusal/resume passed all three cases (`target/release-0110-schema-local/results.json`). Publication now includes the tagged version's changelog block so Schema 11 incompatibility appears in release notes.
+- **Publication-notes smoke:** Executed the actual workflow Python step: the v0.1.10 block included Schema 11/10 and downgrade warnings plus existing qualification/unsigned notices; a missing version block refused. Release-script tests stayed 14 passed / 3 skipped.
+- **Exact next action:** Commit/push the candidate and observe exact-commit native qualification. Do not begin EV10A code edits until publication has been verified. Active implementation plan is the final section of IMPLEMENTATION_PLAN.
+- **Blockers / environment:** `gh` is absent; existing public GitHub REST endpoints and authenticated SSH git transport are available. No credentials, strategies or user data have been changed.
+
 ## 2026-10-16 — EV02 carry-over strip (complete; wave 2 request complete)
 
 - **User scope / completion:** Completed the requested remaining wave 2 Partner basics tasks individually: EV07 `5d0962b`, PK01 `8e2f747`, EV01A `ce4c99e`, EV01B `0e1a71c`, and this EV02 change. The earlier resumed EV03B was committed as `4622f8f`. No implementation task remains active for this request; EV01C belongs to wave 3.

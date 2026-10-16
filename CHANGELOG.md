@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.10
+
+- feat(forms): added factual empty-state actions and capability labels, deliberate owning-form redirects, and guarded Return to Eevee without replaying work or moving permissions.
+- feat(party): added personal Unicode nicknames with local-only persistence, species-aware identity and zero automatically added flavor bytes.
+- feat(forms): recommended forms from ordered local evidence, marked them in the picker and remembered exact evidence-specific dismissal across restart without automatically switching or running.
+- feat(forms): showed carried state and capability differences after switches, preserved the next input and reopened exact records from Companion.
+- feat(storage)!: upgraded task-local navigation metadata to Schema 11 without rewriting existing rows; Schema 10 binaries refused upgraded data, so backups were required for downgrade recovery.
+
 ## 0.1.9
 
 - feat(party): attributed new command runs and provider journal records to the requesting partner with a name/form snapshot; older records read `partner unknown`.
@@ -57,6 +65,7 @@
 
 ## 2026-10-16
 
+- chore(release): prepared v0.1.10 and included version-specific changelog and Schema 11 downgrade warnings in publication notes without changing immutable artifact qualification.
 - feat(forms): showed carried criteria, pins, open hypotheses/findings and capability differences after form switches, preserved the next input, reopened exact records from Companion, and deferred counts until evidence hydration without persisting or dispatching work.
 - feat(forms): marked suggested forms without selecting them, persisted task-local evidence-specific dismissal across restart, resurfaced recommendations for new triggering runs, and migrated navigation metadata transactionally to Schema 11 with unchanged existing rows.
 - feat(forms): recommended the next form from ordered local task/run/source/review evidence, showed the triggering fact without replacing responses, and invalidated current-pass suggestions after refreshed source changes without automatically switching or running work.

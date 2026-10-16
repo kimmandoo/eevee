@@ -17,7 +17,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 ## Status
 
 - **Released:** 0.1.9 (tags v0.1.0–v0.1.9), adding PT06 partner attribution, per-partner request routing and partner-named approvals plus the compact model/attachment UX. Released store: Schema 10.
-- **Active user request:** Wave 2 Partner basics completed, one task per commit: EV07, PK01, EV01A, EV01B and EV02. No active implementation task, release or installed-command replacement; EV01C remains in wave 3.
+- **Active user request:** Release completed wave 2 as v0.1.10 using exact-commit native qualification and immutable artifact promotion, then implement the first ready wave 3 task, EV10A. Do not replace the installed binary implicitly.
 - **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV02 and the first code-structure pass (index below). **Open:** 85 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.

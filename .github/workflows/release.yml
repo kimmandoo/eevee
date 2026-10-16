@@ -82,7 +82,28 @@ jobs:
           QUALIFIED_RUN: ${{ needs.qualify.outputs.run-id }}
           QUALIFIED_ATTEMPT: ${{ needs.qualify.outputs.run-attempt }}
         run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          tag = os.environ["RELEASE_TAG"]
+          changes = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          notes = changes.split(f"## {tag[1:]}\n", 1)[1].split("\n## ", 1)[0].strip()
+          if not notes:
+              raise ValueError("The release must have version-specific changelog notes")
+          summary = (
+              "Standalone local-first workbench. These exact native packages passed tests, "
+              "an offline install check on all five native rows, and credential-free SDK policy "
+              f"in same-commit native run {os.environ['QUALIFIED_RUN']} "
+              f"(attempt {os.environ['QUALIFIED_ATTEMPT']}): "
+              f"https://github.com/{os.environ['GH_REPO']}/actions/runs/{os.environ['QUALIFIED_RUN']}. "
+              "Optional provider runtimes and accounts are separate; authenticated provider interoperability is not implied. "
+              "Online installers download hash-verified sprites to the user cache; packages do not bundle franchise image bytes "
+              "and offline installation stays offline. Packages are unsigned and macOS builds are not notarized. "
+              "See README for checksum-verified installation and support limits."
+          )
+          Path("target/release-notes.md").write_text(notes + "\n\n" + summary + "\n", encoding="utf-8")
+          PY
           gh release create "$RELEASE_TAG" target/release-assets/* --verify-tag --draft \
             --title "Eevee $RELEASE_TAG" --generate-notes \
-            --notes "Standalone local-first workbench. These exact native packages passed tests, an offline install check on all five native rows, and credential-free SDK policy in same-commit native run $QUALIFIED_RUN (attempt $QUALIFIED_ATTEMPT): https://github.com/$GH_REPO/actions/runs/$QUALIFIED_RUN. Optional provider runtimes and accounts are separate; authenticated provider interoperability is not implied. Online installers download hash-verified sprites to the user cache; packages do not bundle franchise image bytes and offline installation stays offline. Packages are unsigned and macOS builds are not notarized. See README for checksum-verified installation and support limits."
+            --notes-file target/release-notes.md
           gh release edit "$RELEASE_TAG" --draft=false --latest
