@@ -81,7 +81,7 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT06B — Per-partner request slot
 
-- [ ] Replace the single planning/request state with a slot keyed by partner.
+- [x] Replace the single planning/request state with a slot keyed by partner.
 - **Priority:** 1. **Needs:** PT06A. **Builds on:** A02, A03, R01.
 - **Change:** Move request state into a map keyed by partner, still limited to one working partner per task. Events, questions and approvals are routed by (task, partner, request id).
 - **Accept:** Start a request, switch the lead and back: the events and the pending approval stay on the original partner. Late events for another or released partner are refused. All existing provider/run tests pass unchanged.

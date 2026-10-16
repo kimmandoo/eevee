@@ -1,6 +1,6 @@
 //! Provider requests with durable nonsecret selection; provider text is never local execution evidence.
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     path::PathBuf,
     sync::Arc,
 };
@@ -68,6 +68,16 @@ enum ModelPickerFocus {
     Default,
     Model,
     Custom,
+}
+
+/// One partner's request slot (PT06B): the task and provider generation its
+/// events, questions and approvals are routed by. Requests stay limited to one
+/// working partner per task, so at most one slot is bound at a time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Slot {
+    pub owner: store::Attribution,
+    pub task: i64,
+    pub generation: Option<u64>,
 }
 
 pub struct State {
@@ -169,8 +179,8 @@ pub struct State {
     pub devin_credential: Option<crate::providers::auth::SessionCredential>,
     /// The partner in front of the task; a prepared request binds to it.
     pub front: Option<store::Attribution>,
-    /// The partner that owns the current request (PT06A); journal records carry it.
-    owner: Option<store::Attribution>,
+    /// Request slots keyed by partner id; journal records carry the owner (PT06A).
+    slots: BTreeMap<i64, Slot>,
 }
 
 impl Default for State {
@@ -214,7 +224,7 @@ impl State {
             observed_model: None,
             devin_credential: None,
             front: None,
-            owner: None,
+            slots: BTreeMap::new(),
         }
     }
 
@@ -354,7 +364,65 @@ impl State {
     }
 
     fn matches(&self, generation: u64, task: i64) -> bool {
-        self.generation == Some(generation) && self.task == task
+        self.generation == Some(generation)
+            && self.task == task
+            && (self.front.is_none()
+                || self
+                    .slots
+                    .values()
+                    .any(|slot| slot.task == task && slot.generation == Some(generation)))
+    }
+
+    /// Bind the next request to the partner in front; an unattributed state
+    /// (no lead known yet) routes by task and generation alone.
+    fn bind_slot(&mut self, task: i64) {
+        self.slots.clear();
+        if let Some(owner) = self.front.clone() {
+            self.slots.insert(
+                owner.partner,
+                Slot {
+                    owner,
+                    task,
+                    generation: None,
+                },
+            );
+        }
+    }
+
+    /// The partner whose slot holds the current or most recent request.
+    pub fn owner(&self) -> Option<&store::Attribution> {
+        self.slots.values().next().map(|slot| &slot.owner)
+    }
+
+    /// The partner doing provider work right now, if any. A model picker alone
+    /// is local navigation and belongs to whoever is in front.
+    pub fn working_partner(&self) -> Option<i64> {
+        if self.busy_except_picker() {
+            self.owner()
+                .or(self.front.as_ref())
+                .map(|owner| owner.partner)
+        } else if self.picker.is_some() {
+            self.front.as_ref().map(|front| front.partner)
+        } else {
+            None
+        }
+    }
+
+    /// Drop slots whose partner left the party: their late events no longer
+    /// match any slot and are refused instead of reaching another partner.
+    /// Live work keeps its slot so its own completion still settles; releasing
+    /// a working partner is refused before it reaches here.
+    pub fn retain_partners(&mut self, partners: &[i64]) {
+        if self.busy_except_picker() {
+            return;
+        }
+        let before = self.slots.len();
+        self.slots.retain(|id, _| partners.contains(id));
+        if self.slots.len() != before {
+            self.notice =
+                "The partner that owned this request left the party; its late events are refused."
+                    .into();
+        }
     }
 
     pub fn set_operation(&mut self, operation: Operation) {
@@ -463,6 +531,9 @@ impl State {
             Event::Preview(preview) if self.awaiting_preview && preview.task_id == self.task => {
                 self.awaiting_preview = false;
                 self.generation = Some(preview.generation);
+                for slot in self.slots.values_mut() {
+                    slot.generation = Some(preview.generation);
+                }
                 self.receipt = crate::workspace::receipt::receipt(&preview.payload).lines();
                 self.preview = Some(preview);
                 self.notice = "Review request scope and effects; Stay is the default. Details remain inspectable.".into();
@@ -642,7 +713,7 @@ impl State {
             Event::PromptClosed {
                 generation,
                 request_id,
-            } if self.generation == Some(generation)
+            } if self.matches(generation, self.task)
                 && self
                     .request
                     .as_ref()

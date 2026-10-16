@@ -33,7 +33,9 @@ impl App {
     }
 
     pub(super) fn open_overlay(&mut self, overlay: Overlay) {
-        if self.planning.busy() && overlay != Overlay::Planning {
+        // The roster is local navigation: fronting another partner leaves the
+        // request with its owner (PT06B).
+        if self.planning.busy() && !matches!(overlay, Overlay::Planning | Overlay::Party) {
             self.notice = "Resolve or cancel the active provider request first.".into();
             return;
         }

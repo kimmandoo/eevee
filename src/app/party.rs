@@ -3,9 +3,9 @@
 use super::*;
 
 /// A roster row's activity state, derived per frame from live ownership.
-/// Until PT06/PT07 land per-partner request slots, only the lead partner can
-/// own the single planning request or the execution flow, so other partners
-/// always derive to `Idle` here.
+/// Provider requests and local runs belong to the partner that started them
+/// (PT06B), not to whoever is in front now; until PT07 only one partner per
+/// task can be working.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PartnerStatus {
     Idle,
@@ -153,16 +153,8 @@ impl App {
             self.notice = "That partner is not in the party.".into();
             return;
         };
-        if self.partner_status(&partner) != PartnerStatus::Idle {
-            // Forward hook for PT06+ request slots: a partner that already owns
-            // live work cannot front this task at the same time.
-            self.notice = format!(
-                "{} is {}; it cannot lead this task yet.",
-                Self::partner_label(&partner),
-                self.partner_status(&partner).label()
-            );
-            return;
-        }
+        // Fronting another partner never transfers live work: the request
+        // slot, its events and any pending approval stay with their owner.
         let label = Self::partner_label(&partner);
         self.switch_lead(partner);
         self.notice = format!(
@@ -202,22 +194,55 @@ impl App {
         }
     }
 
-    /// Why a lead switch is refused right now: a party roster write is in
-    /// flight, or the current lead still owns the task's single request slot
-    /// (working / waiting). PT06 keeps this hook when requests gain per-partner
-    /// routing.
+    /// Why a lead switch is refused right now: only an in-flight roster write.
+    /// A working partner keeps its own request slot while another leads.
     fn lead_switch_blocked(&self) -> Option<String> {
-        if self.party_inflight || self.party_request.is_some() {
-            return Some("Finish the in-flight party change first.".into());
-        }
-        match self.partner_status(&self.lead) {
-            PartnerStatus::Idle => None,
-            status => Some(format!(
-                "{} is {}; finish or cancel its work before changing the lead.",
-                Self::partner_label(&self.lead),
-                status.label()
-            )),
-        }
+        (self.party_inflight || self.party_request.is_some())
+            .then(|| "Finish the in-flight party change first.".into())
+    }
+
+    /// The partner that owns this task's live provider request, if any.
+    fn provider_owner(&self) -> Option<i64> {
+        (self.planning.task_id() == self.task_id || self.task_id <= 0)
+            .then(|| self.planning.working_partner())
+            .flatten()
+    }
+
+    /// The partner that owns this task's command request or run, if any.
+    fn command_owner(&self) -> Option<i64> {
+        (self.execution.busy() && (self.execution.task_id == self.task_id || self.task_id <= 0))
+            .then(|| {
+                self.execution
+                    .owner
+                    .as_ref()
+                    .map_or(self.lead.id, |owner| owner.partner)
+            })
+    }
+
+    /// `Bolt (Jolteon) is working on this task…` when a partner other than the
+    /// lead holds the task's single working slot (PT06B); `None` otherwise.
+    pub(super) fn other_partner_working(&self) -> Option<String> {
+        let owner = self
+            .provider_owner()
+            .or_else(|| self.command_owner())
+            .filter(|owner| *owner != self.lead.id)?;
+        let name = self
+            .partners()
+            .into_iter()
+            .find(|partner| partner.id == owner)
+            .map_or_else(
+                || format!("Eevee #{owner}"),
+                |partner| {
+                    format!(
+                        "{} ({})",
+                        Self::partner_label(&partner),
+                        FORMS[partner.form.min(FORMS.len() - 1)].name
+                    )
+                },
+            );
+        Some(format!(
+            "{name} is working on this task; one partner works at a time, so lead it again or wait. Your draft is kept."
+        ))
     }
 
     /// Roster-scoped command dispatch (`/add` and `/lead` inside the party overlay).
@@ -278,19 +303,18 @@ impl App {
     /// provider prompt is open, working while it owns a live provider request
     /// or local run, and idle otherwise.
     pub fn partner_status(&self, partner: &store::Partner) -> PartnerStatus {
-        let owns_work = partner.id == self.lead.id
-            && (self.planning.task_id() == self.task_id || self.task_id <= 0)
-            && (self.planning.busy() || self.execution.busy());
-        if !owns_work {
+        let provider = self.provider_owner() == Some(partner.id);
+        let command = self.command_owner() == Some(partner.id);
+        if !provider && !command {
             return PartnerStatus::Idle;
         }
-        if self.planning.preview.is_some()
-            || self.planning.request.is_some()
-            || self
-                .execution
-                .confirmation
-                .as_ref()
-                .is_some_and(|c| matches!(c, execution::Confirmation::Approval))
+        if provider && (self.planning.preview.is_some() || self.planning.request.is_some())
+            || command
+                && self
+                    .execution
+                    .confirmation
+                    .as_ref()
+                    .is_some_and(|c| matches!(c, execution::Confirmation::Approval))
         {
             return PartnerStatus::Waiting;
         }
@@ -306,10 +330,50 @@ impl App {
             .unwrap_or_else(|| format!("Eevee #{}", partner.id))
     }
 
-    /// The task a partner is engaged with. Only a live status binds a partner
-    /// to a task; an idle non-lead shows `-`.
+    /// A failed request returns to its sender's own Request draft when that
+    /// draft is empty; another partner's composer is never touched.
+    pub(super) fn restore_partner_request(&mut self, owner: &store::Attribution) {
+        let drafts = self.partner_drafts.entry(owner.partner).or_default();
+        let empty = !drafts
+            .drafts
+            .iter()
+            .any(|draft| draft.field == store::EditorField::Request && !draft.text.is_empty());
+        if empty {
+            let text = self.planning.submitted_request.to_string();
+            drafts
+                .drafts
+                .retain(|draft| draft.field != store::EditorField::Request);
+            drafts.drafts.push(store::Draft {
+                field: store::EditorField::Request,
+                cursor: text.len(),
+                text,
+            });
+            self.changed_task();
+        }
+        self.notice = format!(
+            "{} {}'s request {}.",
+            self.planning.notice,
+            owner.name,
+            if empty {
+                "was restored to its draft"
+            } else {
+                "failed; its newer draft is kept"
+            }
+        );
+    }
+
+    /// Refuse late events for partners no longer in the party (PT06B).
+    pub(super) fn retain_slots(&mut self) {
+        let ids: Vec<i64> = self.partners().iter().map(|partner| partner.id).collect();
+        self.planning.retain_partners(&ids);
+    }
+
+    /// The task a partner is engaged with: the lead fronts it and a working
+    /// partner keeps it; an idle non-lead shows `-`.
     pub fn partner_task(&self, partner: &store::Partner) -> &str {
-        if partner.id == self.lead.id && self.task_id > 0 && !self.goal.is_empty() {
+        let engaged =
+            partner.id == self.lead.id || self.partner_status(partner) != PartnerStatus::Idle;
+        if engaged && self.task_id > 0 && !self.goal.is_empty() {
             self.goal.lines().next().unwrap_or("-")
         } else {
             "-"

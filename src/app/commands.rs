@@ -313,7 +313,15 @@ impl App {
             && !local_picker_refresh
             && !matches!(
                 name,
-                "cancel" | "quit" | "provider" | "answer" | "answers-review" | "verbose" | "reset"
+                "cancel"
+                    | "quit"
+                    | "provider"
+                    | "answer"
+                    | "answers-review"
+                    | "verbose"
+                    | "reset"
+                    | "lead"
+                    | "party"
             )
         {
             return Some("Finish or cancel the active provider request first.".into());

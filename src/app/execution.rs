@@ -514,7 +514,12 @@ impl State {
     pub fn runner_event(&mut self, event: runner::Event) {
         match event {
             runner::Event::Prepared(p) => {
-                if p.task_id == self.task_id && self.request_id.as_deref() == Some(&p.request_id) {
+                // Routed by (task, partner, request id): a preparation for
+                // another partner's request never becomes this approval.
+                if p.task_id == self.task_id
+                    && p.partner == self.owner
+                    && self.request_id.as_deref() == Some(&p.request_id)
+                {
                     self.prepared = Some(p);
                     self.notice = "Approval pending. Use /run to inspect; opening/dismissing the view never approves.".into();
                     // Do not open a view or move focus while the user is typing elsewhere.
