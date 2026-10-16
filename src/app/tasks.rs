@@ -126,6 +126,8 @@ impl App {
             });
         self.sync_front();
         self.set_form(snapshot.form);
+        // Loading/restoring a stored form is not an accepted form switch.
+        self.clear_carry_over();
         self.revision = snapshot.revision;
         self.saved_revision = snapshot.revision;
         self.criteria = snapshot.criteria;
@@ -375,6 +377,7 @@ impl App {
                     self.notice = "Finish or retry task/context saves before switching; the current task was retained.".into();
                 } else {
                     self.switch_task = Some(id);
+                    self.clear_carry_over();
                     self.transitioning = true;
                     self.storage = StorageState::Loading;
                 }

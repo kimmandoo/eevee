@@ -247,6 +247,10 @@ impl App {
         if overlay == Overlay::Party {
             return self.party_overlay_key(key);
         }
+        if overlay == Overlay::Companion && key == KeyCode::Char('c') {
+            self.reopen_carry_over();
+            return true;
+        }
         if overlay == Overlay::Companion && key == KeyCode::Char('n') {
             self.open_nickname(self.lead().id);
             return true;

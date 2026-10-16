@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod carryover;
 pub mod commands;
 pub mod composer;
 pub mod execution;
@@ -204,6 +205,7 @@ pub struct App {
     pub suggestion: Option<suggestions::Suggestion>,
     pub dismissed_suggestion: Option<String>,
     suggestion_cache: suggestions::Cache,
+    carry_over: carryover::State,
     pub agents: agents::State,
     pub planning: planning::State,
     pub handoff: handoff::State,
@@ -315,6 +317,7 @@ impl App {
             suggestion: None,
             dismissed_suggestion: None,
             suggestion_cache: suggestions::Cache::default(),
+            carry_over: carryover::State::default(),
             agents: agents::State::new(),
             planning: planning::State::new(),
             handoff: handoff::State::new(),
@@ -420,6 +423,8 @@ impl App {
     /// selection follows so it opens on the form that is actually active.
     pub(super) fn set_form(&mut self, form: usize) {
         if self.lead.form != form {
+            self.carry_over.pending = Some((self.lead.form, form));
+            self.carry_over.pending_visible = true;
             self.previous_form = Some(self.lead.form);
             self.form_selection = form;
         }

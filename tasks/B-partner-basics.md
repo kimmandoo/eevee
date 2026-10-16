@@ -71,8 +71,9 @@ These tasks make each switch informed and each form immediately useful, for the 
 
 ### EV02 — Carry-over strip
 
-- [ ] Show what stayed and changed right after a switch, without slowing it down.
+- [x] Show what stayed and changed right after a switch, without slowing it down.
 - **Priority:** 1. **Needs:** PT03A. **Builds on:** C02, UX01.
 - **Change:** After any switch, a one-line non-blocking strip shows carried state (criteria met/total, pins, open hypotheses/findings) and the capability diff (`+edit −run`). It fades on the next keystroke and can be reopened from the partner card.
 - **Accept:** Three switch pairs show counts that equal stored state and the correct diff. Typing right after a switch lands in the draft unchanged. Fits 60×18 in monochrome/ASCII.
 - **Watch out:** Never steal focus or swallow keys. Keep it data-driven: EV12, EV13, PK03 and PK04 reuse it.
+- **Verified:** Actual 120×36/60×18 × monochrome Unicode/ASCII fixtures passed all 16 journey groups. Jolteon→Flareon, Flareon→Espeon and Espeon→Sylveon showed stored C1/2 P1 H1 F1 with `+edit -run`, `+edit-plans -edit` and `+edit-docs -edit-plans`; the next Unicode key/paste preserved exact draft bytes/caret. Companion `c` reopened the same record. Captures and provider journals stayed byte-identical; each fixture made only its one explicit loopback request and no local run. Pending context/history and deliberate evidence refresh had behavioral regressions; the eight actual execution journeys also passed.

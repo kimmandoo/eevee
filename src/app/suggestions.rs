@@ -22,7 +22,7 @@ pub struct Suggestion {
 #[derive(Default)]
 pub(super) struct Cache {
     report: Option<Arc<repo::Report>>,
-    current: runner::InputSnapshot,
+    pub(super) current: runner::InputSnapshot,
     observed_diff: bool,
     inputs: Option<[u8; 32]>,
 }
@@ -30,6 +30,32 @@ pub(super) struct Cache {
 impl Cache {
     pub(super) fn invalidate(&mut self) {
         self.inputs = None;
+    }
+
+    /// Share one fingerprint per observed report across advisory consumers.
+    pub(super) fn observe(&mut self, report: Option<&Arc<repo::Report>>) -> bool {
+        let changed = match (self.report.as_ref(), report) {
+            (Some(previous), Some(current)) => !Arc::ptr_eq(previous, current),
+            (None, None) => false,
+            _ => true,
+        };
+        if !changed {
+            return false;
+        }
+        self.report = report.cloned();
+        self.current = report
+            .map(|report| execution::fingerprint(report))
+            .unwrap_or_default();
+        self.observed_diff = report.is_some_and(|report| {
+            !report.changes.is_empty()
+                || report
+                    .current
+                    .files
+                    .values()
+                    .any(|file| file.dirty == Some(true))
+        });
+        self.invalidate();
+        true
     }
 }
 
@@ -199,29 +225,7 @@ impl App {
     /// stored evidence, or execution are performed. A new report (including an
     /// explicit refresh with identical fingerprints) revalidates source references.
     pub fn refresh_suggestion(&mut self) -> bool {
-        let report_changed = match (&self.suggestion_cache.report, &self.repository) {
-            (Some(previous), Some(current)) => !Arc::ptr_eq(previous, current),
-            (None, None) => false,
-            _ => true,
-        };
-        if report_changed {
-            let cache = &mut self.suggestion_cache;
-            cache.report = self.repository.clone();
-            cache.current = self
-                .repository
-                .as_deref()
-                .map(execution::fingerprint)
-                .unwrap_or_default();
-            cache.observed_diff = self.repository.as_deref().is_some_and(|report| {
-                // `changes` alone can omit dirt already present at startup.
-                !report.changes.is_empty()
-                    || report
-                        .current
-                        .files
-                        .values()
-                        .any(|file| file.dirty == Some(true))
-            });
-        }
+        let report_changed = self.suggestion_cache.observe(self.repository.as_ref());
         let inputs = Inputs::capture(self);
         let key = inputs.key();
         if !report_changed && self.suggestion_cache.inputs == Some(key) {
@@ -387,7 +391,7 @@ impl io::Write for HashWriter<'_> {
     }
 }
 
-fn hash_json(hash: &mut Sha256, value: &impl Serialize) {
+pub(super) fn hash_json(hash: &mut Sha256, value: &impl Serialize) {
     hash.update([0]);
     serde_json::to_writer(HashWriter(hash), value).expect("serializable local suggestion evidence");
 }

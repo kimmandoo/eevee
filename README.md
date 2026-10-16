@@ -93,6 +93,7 @@ ev --help
 | `/role` / `/forms` | Plan, Implement or Review / choose an evolution |
 | `/nickname` | Set a local partner nickname (up to 12 graphemes); Enter saves, empty clears, Esc keeps the old name. Names never become automatic provider or handoff context. |
 | `/suggestion-dismiss` / Forms picker `d` | Hide the current task's exact evidence-based form suggestion, including after restart; a new triggering run can recommend again. Does not select a form or start work. |
+| `/carry-over` / Companion `c` | Reopen the last form switch's retained-state counts and capability difference. The one-line strip clears on the next key/paste without consuming it; Companion explains C/P/H/F. |
 | `/goal` / `/next` / `/criteria` / `/criteria-edit` | Edit task facts, inspect criteria, or edit criteria directly |
 | `/tasks` / `/task-new` | Browse saved tasks / create one |
 | `/reset` | Review a fresh local task; save the old task and drafts for `/tasks`, without erasing files or history |

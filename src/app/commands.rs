@@ -147,6 +147,7 @@ impl App {
                 "suggestion-dismiss",
                 "Dismiss this task's current suggestion; no work",
             ),
+            ("carry-over", "Reopen the last form carry-over; no work"),
             ("files", "Attach files / inspect source context"),
             ("tasks", "Saved tasks"),
             ("party", "Party roster"),
@@ -279,6 +280,9 @@ impl App {
         }
         if name == "suggestion-dismiss" && self.visible_suggestion().is_none() {
             return Some("No visible suggestion to dismiss.".into());
+        }
+        if name == "carry-over" && self.last_carry_over().is_none() {
+            return Some("No form carry-over yet; switch forms first.".into());
         }
         if name == "storage-retry" && !matches!(self.storage, StorageState::Failed(_)) {
             return Some("No failed task save to retry.".into());
@@ -578,6 +582,11 @@ impl App {
             return true;
         }
         self.command_popup = None;
+        if name == "carry-over" {
+            // A display-only action must not retain/hide the Request editor.
+            self.reopen_carry_over();
+            return true;
+        }
         if name == "suggestion-dismiss" {
             self.dismiss_suggestion();
             return true;

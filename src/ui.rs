@@ -747,6 +747,15 @@ fn suggestion_line<'a>(app: &'a App, paint: &Paint) -> Option<Line<'a>> {
 
 /// Descriptive local evidence only; rendering never evaluates or selects a form.
 fn suggestion_strip(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) -> Rect {
+    if let Some(carry_over) = app.carry_over() {
+        // The precomputed ASCII summary fits the minimum workspace width.
+        // Give this transient record the existing strip slot, not a second row.
+        frame.render_widget(
+            Paragraph::new(carry_over.summary.as_str()).style(paint.accent),
+            row(area, 0, 1),
+        );
+        return row(area, 1, area.height.saturating_sub(1));
+    }
     let Some(line) = suggestion_line(app, paint) else {
         return area;
     };
@@ -861,7 +870,9 @@ fn compact_companion(
     text(
         frame,
         row(content, content.height.saturating_sub(1), 1),
-        if focused {
+        if focused && app.last_carry_over().is_some() {
+            "c Carry-over / Enter"
+        } else if focused {
             "> Enter Form / n Nickname"
         } else {
             "/forms / /companion"
@@ -895,9 +906,13 @@ fn companion(
         row(content, 0, 1),
     );
     frame.render_widget(
-        Paragraph::new("/forms / /images / n Nickname")
-            .style(paint.accent)
-            .alignment(Alignment::Center),
+        Paragraph::new(if app.last_carry_over().is_some() {
+            "/forms /images  n Nickname  c Carry-over"
+        } else {
+            "/forms / /images / n Nickname"
+        })
+        .style(paint.accent)
+        .alignment(Alignment::Center),
         row(content, 1, 1),
     );
     let image = portrait(area);
@@ -909,12 +924,19 @@ fn companion(
         2 + image.height,
         content.height.saturating_sub(2 + image.height),
     );
-    let lines = vec![
+    let mut lines = Vec::new();
+    if app.last_carry_over().is_some() {
+        lines.extend([
+            Line::styled("C=criteria met/total P=committed pins", paint.muted),
+            Line::styled("H=open hypotheses F=open findings", paint.muted),
+        ]);
+    }
+    lines.extend([
         Line::styled(form.element, paint.muted),
         Line::from(form.role),
         Line::styled(artwork.status(app.form()), paint.muted),
         Line::styled("/party Roster / /lead Front a partner", paint.accent),
-    ];
+    ]);
     scroll_text(
         frame,
         details,
