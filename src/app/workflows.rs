@@ -423,6 +423,7 @@ impl App {
     /// Refresh only on deliberate interaction or a new repository observation,
     /// never from rendering: resolving sources performs bounded read-only I/O.
     pub fn workflow_refresh(&mut self) {
+        self.suggestion_cache.invalidate();
         let current = self.workflow_fingerprint();
         if current.fingerprint != self.workflow.comparison_fingerprint
             || !current.complete

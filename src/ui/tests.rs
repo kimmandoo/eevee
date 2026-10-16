@@ -542,6 +542,104 @@ fn provider_response_and_request_share_home_at_supported_sizes() {
 }
 
 #[test]
+fn suggestion_wraps_without_replacing_response_or_composer() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    let reason = "Latest local run failed with exit code 127; inspect its owned output.";
+    for (width, height) in [(120, 36), (60, 18)] {
+        for with_response in [false, true] {
+            let mut app = App::new("/workspace".into(), width, height);
+            app.goal = "Current task".into();
+            app.input = "Follow-up draft stays editable".into();
+            app.cursor = app.input.len();
+            app.editing = true;
+            app.suggestion = Some(crate::app::suggestions::Suggestion {
+                form: 5,
+                reason: reason.into(),
+                trigger: "task:7:failed:12".into(),
+            });
+            if with_response {
+                app.planning.items.push(crate::app::planning::Item {
+                    thread_id: "thread".into(),
+                    turn_id: "turn".into(),
+                    item_id: "item".into(),
+                    kind: crate::providers::ItemKind::Message,
+                    text: "Actual provider response stays visible.".into(),
+                    complete: true,
+                    request: "Original request".into(),
+                });
+            }
+            let mut artwork = Artwork::load(&config);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            let rendered = screen_text(&terminal);
+            assert_eq!(rendered.matches("Suggested:").count(), 1);
+            assert!(rendered.contains("Follow-up draft stays editable"));
+            if with_response {
+                assert!(rendered.contains("Actual provider response stays visible."));
+            } else {
+                assert!(rendered.contains("Task: Current task"));
+            }
+            let area = shell(Rect::new(0, 0, width, height), false, Pane::Workspace).workspace;
+            let buffer = terminal.backend().buffer();
+            let strip = (area.y..area.y + 2)
+                .flat_map(|y| (area.x..area.right()).map(move |x| buffer[(x, y)].symbol()))
+                .collect::<String>();
+            let normalized = strip.split_whitespace().collect::<Vec<_>>().join(" ");
+            assert!(
+                normalized.contains(&format!("Suggested: Umbreon — {reason}")),
+                "{width}x{height}: {normalized}"
+            );
+            assert_eq!(app.form(), 0, "suggestion never selects a form");
+            assert!(app.planning.pending.is_none(), "suggestion never sends");
+            assert_eq!(app.input, "Follow-up draft stays editable");
+        }
+    }
+}
+
+#[test]
+fn task_card_suggestion_belongs_only_to_active_task() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = App::new("/workspace".into(), width, height);
+        app.task_id = 7;
+        app.goal = "Active task".into();
+        app.tasks.push(app.snapshot("/workspace"));
+        let mut other = app.snapshot("/workspace");
+        other.id = 8;
+        other.goal = "Other task".into();
+        app.tasks.push(other);
+        app.suggestion = Some(crate::app::suggestions::Suggestion {
+            form: 4,
+            reason: "Goal has no acceptance criteria.".into(),
+            trigger: "task:7:criteria".into(),
+        });
+        app.overlay = Some(Overlay::Tasks);
+        let mut artwork = Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        for selected in [0, 1] {
+            app.task_selection = selected;
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            let rendered = screen_text(&terminal);
+            assert_eq!(
+                rendered.matches("Suggested:").count(),
+                usize::from(selected == 0),
+                "{width}x{height}: selected {selected}"
+            );
+            if selected == 0 {
+                assert!(rendered.contains("Suggested: Espeon"));
+                assert!(rendered.contains("acceptance criteria."));
+            }
+        }
+    }
+}
+
+#[test]
 fn image_review_has_immediate_neutral_actions_and_visible_effects() {
     use ratatui::{Terminal, backend::TestBackend};
     let config = home_config();

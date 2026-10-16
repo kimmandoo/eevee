@@ -47,11 +47,12 @@ These tasks make each switch informed and each form immediately useful, for the 
 
 ### EV01A — Suggestion rules
 
-- [ ] Suggest the form that fits the current evidence, with the triggering fact.
+- [x] Suggest the form that fits the current evidence, with the triggering fact.
 - **Priority:** 1. **Needs:** —. **Builds on:** V03, E02, R02, U01, G01.
 - **Change:** One rule table, first match wins: goal without criteria → Espeon; criteria without pins → Vaporeon; latest owned run failed → Umbreon; diff without a run at its revision → Jolteon; passing current run without review → Glaceon; accepted review → Sylveon. Show it in the task card: `Suggested: Umbreon — cargo test exited 101`.
 - **Accept:** Fixture tasks for each state show the expected suggestion; no match shows nothing; editing a source after a passing run changes the suggestion.
 - **Watch out:** Report fixture results whenever a rule changes. A suggestion never self-activates.
+- **Verified:** Both sizes' actual fixtures showed goal→Espeon, criteria without pins→Vaporeon, actual exit 3→Umbreon, current pass→Glaceon, source edit + `/refresh`→Jolteon, guarded Accept→Sylveon, and no match on empty/clean pinned state. Source/read guards stayed off render; newer unknown/partial results never reused an older pass. Provider output and current-task cards kept the recommendation, with no auto form/send/run or recommendation bytes in the actual fixture request.
 
 ### EV01B — Suggestion in the picker and dismissal
 

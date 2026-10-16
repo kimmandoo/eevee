@@ -90,6 +90,23 @@ Status: PT02–PT05 shipped the party store, roster/add, direct lead selection, 
 - **Nicknames:** `/nickname`, Companion `n`, or roster `n` edits a personal-scope name through the existing single store worker and reserved nickname column. Trim outer whitespace; empty clears to `Eevee #n`. New names are bounded by 12 Unicode graphemes and 512 UTF-8 bytes, reject unsafe controls, and are unique among party nicknames using Unicode lowercase comparison without rewriting Unicode normalization. Enter saves locally; Escape cancels; storage refusal retains the candidate for correction/retry and identity changes only after committed acknowledgement.
 - Header/composer identify `Nickname (Species)`; species/type remain visible or in the companion surface. Compact headers retain route/model/effort and species, clipping only overlong nickname/project display with a continuation marker; the composer/editor retain the full name. Renaming never changes task text, grants, prepared provider input or existing attribution snapshots. The request receipt reports **0 B of automatically added partner flavor**: this is not redaction of a name the user deliberately typed into task/source content.
 
+### Evidence-based form recommendations
+
+The current task may show one local `Suggested: <form> — <fact>` line on home and its task card. First match wins in this order:
+
+| Observed task/evidence condition | Suggested form |
+| --- | --- |
+| Nonempty goal without acceptance criteria | Espeon |
+| Acceptance criteria without committed task pins | Vaporeon |
+| Latest task-owned local run failed | Umbreon |
+| Observed source changes without a complete run at the current source identity | Jolteon |
+| Complete passing current local run without a recorded review | Glaceon |
+| Effective current accepted review | Sylveon |
+
+No match shows nothing. Only Eevee-owned local run records count; provider observations and imported statements are not local runs. Newer unknown/cancelled/partial runs do not reuse an older pass. Accepted review is checked through the existing guarded evidence view, not its stored requested verdict. Suggestions are advisory and never select, send, execute, approve or enter provider packets.
+
+Freshness follows the latest bounded repository observation; `/refresh` observes external source edits, not a claimed live file watch. Report fingerprints and relevant evidence metadata are cached outside rendering; draft/form/nickname/provider-only changes do not reread review sources or change a trigger identity. Deliberate review refresh invalidates the cached verdict even when stored metadata is identical. Captured source text and run journals are borrowed rather than duplicated into the cache.
+
 ### Signature interactions
 
 | Form | Selected object -> deliberate action | Result shown to the user |
