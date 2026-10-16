@@ -116,28 +116,54 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         && (state.switch_to.is_some()
             || state.selection_change.is_some()
             || (state.picker.is_none() && is_review));
-    let height = if compact {
+    let local_picker = state.picker.is_some()
+        && state.selection_change.is_none()
+        && state.custom_model.is_none()
+        && state.paths_editor.is_none()
+        && state.switch_to.is_none()
+        && !state.editing
+        && !state.quit_review
+        && !state.journal_mode;
+    let compact_picker = local_picker && !state.review_details;
+    let height = if compact_picker {
+        u16::try_from(state.picker_len())
+            .unwrap_or(u16::MAX)
+            .saturating_add(7)
+            .min(18)
+    } else if compact {
         18
     } else {
         area.height.saturating_sub(2)
     };
-    let area = centered(area, 112, height);
+    let area = centered(area, if compact_picker { 80 } else { 112 }, height);
     frame.render_widget(Clear, area);
     let state = &mut app.planning;
-    let title = format!(
-        " {} / {} {} ",
-        match state.operation {
-            Operation::Plan => "Espeon",
-            Operation::Implement => "Flareon",
-            Operation::Review => "Glaceon",
-        },
-        state.agent.label(),
-        match state.operation {
-            Operation::Plan => "planning",
-            Operation::Implement => "implementation",
-            Operation::Review => "independent review",
-        },
-    );
+    let title = if local_picker {
+        format!(
+            " {} / {} ",
+            if state.picker == Some(Picker::Model) {
+                "Model"
+            } else {
+                "Reasoning level"
+            },
+            state.agent.label()
+        )
+    } else {
+        format!(
+            " {} / {} {} ",
+            match state.operation {
+                Operation::Plan => "Espeon",
+                Operation::Implement => "Flareon",
+                Operation::Review => "Glaceon",
+            },
+            state.agent.label(),
+            match state.operation {
+                Operation::Plan => "planning",
+                Operation::Implement => "implementation",
+                Operation::Review => "independent review",
+            },
+        )
+    };
     let block = panel(&title, config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
@@ -157,7 +183,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         paths_editor(frame, content, state, paint);
         return;
     }
-    if state.picker.is_some() {
+    if state.picker.is_some() || state.selection_change.is_some() {
         picker(frame, content, state, paint);
         return;
     }
@@ -744,6 +770,11 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                 state.selection.model.as_deref().unwrap_or("Default"),
                 selection.model.as_deref().unwrap_or("Default")
             ),
+            format!(
+                "Reasoning: {} → {}",
+                state.selection.effort.as_deref().unwrap_or("Default"),
+                selection.effort.as_deref().unwrap_or("Default")
+            ),
             "New session clears this role's local resume selection.".into(),
             "Provider history is not erased; no network starts.".into(),
             "Keep preserves the current model and owned session.".into(),
@@ -765,88 +796,60 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             paint.accent,
         );
         return;
+    }
+    let current_model = state.selection.model.as_deref().unwrap_or("Default");
+    let current_effort = state.selection.effort.as_deref().unwrap_or("Default");
+    let model = state.picker == Some(Picker::Model);
+    let header = if model {
+        format!("Model · {} matches", state.picker_matches())
     } else {
-        if state.picker == Some(Picker::Model) {
-            let count = state
-                .catalogues
-                .get(&state.agent)
-                .map_or(0, |catalogue| catalogue.models.len());
-            let _ = writeln!(
-                value,
-                "MODELS · {} / {count} listed · local only",
-                state.picker_matches()
-            );
-            let _ = writeln!(
-                value,
-                "Search: {}",
-                clipped(
-                    &state.picker_query.text,
-                    area.width.saturating_sub(9) as usize
-                )
-            );
-        } else {
-            let _ = writeln!(value, "REASONING EFFORT · local selection");
-        }
+        format!(
+            "Reasoning · {}",
+            state
+                .picker_selection()
+                .model
+                .as_deref()
+                .unwrap_or("Default")
+        )
+    };
+    text(
+        frame,
+        row(area, 0, 1),
+        &clipped(&header, area.width as usize),
+        paint.accent,
+    );
+    let model_width = area.width.saturating_sub(24) as usize;
+    text(
+        frame,
+        row(area, 1, 1),
+        &clipped(
+            &format!(
+                "Current: {} / {}",
+                clipped(current_model, model_width),
+                current_effort
+            ),
+            area.width as usize,
+        ),
+        paint.accent,
+    );
+    if state.review_details {
         let _ = writeln!(
             value,
-            "Requested: {}",
-            clipped(
-                state
-                    .selection
-                    .model
-                    .as_deref()
-                    .unwrap_or("Default (provider configuration)"),
-                area.width.saturating_sub(12) as usize,
-            )
+            "Current model: {current_model}\nCurrent reasoning: {current_effort}"
         );
-        if state.catalogue_loading() {
-            let _ = writeln!(value, "Loading metadata only; no request text or tools.");
-        } else if state.catalogue_error().is_some() {
-            let _ = writeln!(
-                value,
-                "{}",
-                if state.catalogues.contains_key(&state.agent) {
-                    "STALE / fetch failed · cached rows retained · Refresh retries"
-                } else {
-                    "FETCH FAILED · Refresh retries / Custom ID is local"
-                }
-            );
-        }
-        let visible = area.height.saturating_sub(9).max(1) as usize;
-        let start = state
-            .picker_selected
-            .saturating_sub(visible.saturating_sub(1) / 2);
-        let current = state.picker_current();
-        for index in start..(start + visible).min(state.picker_len()) {
-            let Some(choice) = state.picker_choice(index) else {
-                continue;
-            };
-            let _ = writeln!(
-                value,
-                "{} {}{}",
-                if index == state.picker_selected {
-                    ">"
-                } else {
-                    " "
-                },
-                clipped(&choice.label, area.width.saturating_sub(16) as usize),
-                if choice.reason.is_some() {
-                    " [unavailable]"
-                } else if current == Some(index) {
-                    " (current)"
-                } else {
-                    ""
-                }
-            );
-        }
+        let candidate = state.picker_selection();
+        let _ = writeln!(
+            value,
+            "Candidate: {} / {}\nDefault uses provider configuration.",
+            candidate.model.as_deref().unwrap_or("Default"),
+            candidate.effort.as_deref().unwrap_or("Default")
+        );
         if let Some(choice) = state.picker_choice(state.picker_selected)
             && let Some(reason) = choice.reason
         {
             let _ = writeln!(value, "\nUnavailable: {reason}");
         }
         if let Some(catalogue) = state.catalogues.get(&state.agent) {
-            // Provenance and remedies must remain inspectable, not sentence-
-            // shortened or permanently clipped to the terminal width.
             let _ = writeln!(value, "\nCatalogue source: {}", catalogue.source);
             let _ = writeln!(
                 value,
@@ -860,33 +863,104 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         if let Some(reason) = state.catalogue_error() {
             let _ = writeln!(value, "\nFetch error: {reason}");
         }
-        value.push_str(
-            "\nCustom IDs are local choices, not access grants. Refresh reviews the connection.",
+        value.push_str("\nCatalogue entries and custom IDs are not access grants. Refresh fetches metadata only; risky connections still require review.");
+        state.scroll_max = selection_details(
+            frame,
+            row(area, 2, area.height.saturating_sub(3)),
+            Paragraph::new(value)
+                .style(paint.surface)
+                .wrap(Wrap { trim: false }),
+            state.scroll,
         );
+        state.scroll = state.scroll.min(state.scroll_max);
+        text(
+            frame,
+            row(area, area.height.saturating_sub(1), 1),
+            "↑↓ PgUp/Dn Scroll · Ctrl+D / Esc Back",
+            paint.accent,
+        );
+        return;
     }
-    let details = row(area, 0, area.height.saturating_sub(4));
-    state.scroll_max = selection_details(
-        frame,
-        details,
-        Paragraph::new(value)
-            .style(paint.surface)
-            .wrap(Wrap { trim: false }),
-        state.scroll,
-    );
-    state.scroll = state.scroll.min(state.scroll_max);
     text(
         frame,
-        row(area, area.height.saturating_sub(4), 3),
-        &super::brief(&state.notice),
+        row(area, 2, 1),
+        &if model {
+            format!(
+                "Search: {}",
+                clipped(
+                    &state.picker_query.text,
+                    area.width.saturating_sub(8) as usize
+                )
+            )
+        } else {
+            "Default uses provider settings · Esc keeps current".into()
+        },
+        paint.muted,
+    );
+    let visible = area.height.saturating_sub(5).max(1) as usize;
+    let start = state
+        .picker_selected
+        .saturating_sub(visible.saturating_sub(1) / 2)
+        .min(state.picker_len().saturating_sub(visible));
+    let current = state.picker_current();
+    for (offset, index) in (start..(start + visible).min(state.picker_len())).enumerate() {
+        let Some(choice) = state.picker_choice(index) else {
+            continue;
+        };
+        let focused = index == state.picker_selected;
+        let committed = current == Some(index);
+        let label = format!(
+            "{}{} {}{}",
+            if focused { ">" } else { " " },
+            if committed { "*" } else { " " },
+            choice.label,
+            if choice.reason.is_some() {
+                " [unavailable]"
+            } else {
+                ""
+            },
+        );
+        text(
+            frame,
+            row(area, 3 + offset as u16, 1),
+            &clipped(&label, area.width as usize),
+            if focused {
+                paint.selected
+            } else if committed {
+                paint.accent
+            } else if choice.reason.is_some() {
+                paint.muted
+            } else {
+                paint.surface
+            },
+        );
+    }
+    let status = if state.catalogue_loading() {
+        "Loading metadata… · Ctrl+D Details"
+    } else if state.catalogue_error().is_some() {
+        if state.catalogues.contains_key(&state.agent) {
+            "Refresh failed · cached rows usable · Ctrl+D Error"
+        } else {
+            "Fetch failed · Refresh to retry · Ctrl+D Error"
+        }
+    } else {
+        "> Focus · * Current · Ctrl+D Details"
+    };
+    text(
+        frame,
+        row(area, area.height.saturating_sub(2), 1),
+        status,
         paint.muted,
     );
     text(
         frame,
         row(area, area.height.saturating_sub(1), 1),
-        if state.picker == Some(Picker::Model) {
-            "Type Search / Ctrl+U Clear / ↑↓ Enter / End Actions"
+        if model {
+            "↑↓ Choose · Enter Next · Esc Keep · Ctrl+U Clear"
+        } else if state.can_back_to_models() {
+            "↑↓ Choose · Enter Accept · ← Models · Esc Keep"
         } else {
-            "Arrows Choose / Enter / Esc Keep / PgUp/Dn Details"
+            "↑↓ Choose · Enter Accept · Esc Keep"
         },
         paint.accent,
     );
@@ -899,7 +973,7 @@ fn switch(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             format!("Switch {} → {}", state.agent.label(), next.label()),
             "Old provider sessions stay with their original agent.".into(),
             "No credentials, permissions or transcripts transferred.".into(),
-            "All grants reset; next provider request needs Run.".into(),
+            "Grants reset; sending rechecks the connection.".into(),
             if state.handoff.is_some() {
                 "Transfers selected portable context (unverified).".into()
             } else {
@@ -1303,12 +1377,6 @@ mod tests {
             assert!(visible.contains("Ctrl+U Clear"), "{visible}");
             key(&mut app, &task, KeyCode::End);
             key(&mut app, &task, KeyCode::Up);
-            let buffer = draw(&mut app);
-            let visible = (0..height)
-                .map(|y| rendered_row(&buffer, buffer.area, y))
-                .collect::<Vec<_>>()
-                .join("\n");
-            assert!(visible.contains("Enter custom model ID"), "{visible}");
             key(&mut app, &task, KeyCode::Enter);
             app.planning.paste("vendor/Exact:2026");
             let buffer = draw(&mut app);
@@ -1316,10 +1384,6 @@ mod tests {
                 .map(|y| rendered_row(&buffer, buffer.area, y))
                 .collect::<Vec<_>>()
                 .join("\n");
-            assert!(
-                visible.contains("CUSTOM MODEL ID / LOCAL ONLY"),
-                "{visible}"
-            );
             assert!(visible.contains("vendor/Exact:2026"), "{visible}");
             assert!(app.planning.pending.is_none(), "typing never dispatches");
         }
@@ -1359,7 +1423,6 @@ mod tests {
             .map(|y| rendered_row(&buffer, buffer.area, y))
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(visible.contains("Loading metadata only"), "{visible}");
         assert!(visible.contains("Cached model"), "{visible}");
         app.planning.pending.take();
         app.planning.event(Event::Error {
@@ -1371,7 +1434,6 @@ mod tests {
             .map(|y| rendered_row(&buffer, buffer.area, y))
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(visible.contains("STALE / fetch failed"), "{visible}");
         assert!(visible.contains("Cached model"), "{visible}");
     }
 

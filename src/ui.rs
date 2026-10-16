@@ -590,17 +590,73 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or(&app.cwd);
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(" EEVEE ", paint.selected),
-            Span::styled(format!("  {project}"), paint.base),
-            Span::styled(
-                format!("  /  {}  /  {}", app.lead_label(), selection_line(app)),
-                paint.muted,
+    if area.width < 90 {
+        use crate::providers::Agent;
+        let route = match app.planning.agent {
+            Agent::Codex => "Codex/CLI",
+            Agent::ChatGPT => "Codex/native",
+            Agent::Claude => "Claude/SDK",
+            Agent::OpenCode => "OpenCode/ACP",
+            Agent::Gemini => "Gemini/ACP",
+            Agent::Devin => "Devin/ACP",
+            Agent::OpenAI => "OpenAI",
+            Agent::Anthropic => "Anthropic",
+            Agent::Google => "Gemini/API",
+            Agent::Compatible => "Custom",
+        };
+        let task = if app.task_id > 0 {
+            Cow::Owned(format!("#{}", app.task_id))
+        } else {
+            Cow::Borrowed("new")
+        };
+        let context = Span::styled(
+            format!(
+                "{} {} {} · {route} · ",
+                clipped(project, 8),
+                clipped(&task, 6),
+                FORMS[app.form()].name
             ),
-        ])),
-        row(area, 0, 1),
-    );
+            paint.muted,
+        );
+        let effort = Span::styled(
+            format!(
+                "/{}",
+                clipped(
+                    app.planning
+                        .selection
+                        .effort
+                        .as_deref()
+                        .unwrap_or("default"),
+                    8
+                )
+            ),
+            paint.muted,
+        );
+        let model_width = usize::from(area.width).saturating_sub(context.width() + effort.width());
+        let model = Span::styled(
+            clipped(
+                app.planning.selection.model.as_deref().unwrap_or("default"),
+                model_width,
+            ),
+            paint.accent,
+        );
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![context, model, effort])),
+            row(area, 0, 1),
+        );
+    } else {
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(" EEVEE ", paint.selected),
+                Span::styled(format!("  {project}"), paint.base),
+                Span::styled(
+                    format!("  /  {}  /  {}", app.lead_label(), selection_line(app)),
+                    paint.muted,
+                ),
+            ])),
+            row(area, 0, 1),
+        );
+    }
     let activity = if app.planning.request.is_some() {
         "Approval needed / /provider Review"
     } else if app.planning.cancelling {
@@ -1617,8 +1673,15 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
     } else {
         " Task fact / local "
     };
+    let attachment_status = if app.sources.store_failed {
+        " · save failed"
+    } else if app.sources.persistence_pending() {
+        " · saving"
+    } else {
+        ""
+    };
     let title = format!(
-        "{title}/ {} / {} attached ",
+        "{title}/ {} / {} attached{attachment_status} ",
         App::partner_label(app.lead()),
         app.sources.basket.len()
     );
@@ -1636,7 +1699,15 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
     } else {
         1
     };
-    let input = row(content, 0, content.height.saturating_sub(hint_rows));
+    let attachment_rows = u16::from(!app.sources.basket.is_empty() && content.height >= 3);
+    if attachment_rows != 0 {
+        composer::attachments(frame, row(content, 0, 1), app, paint);
+    }
+    let input = row(
+        content,
+        attachment_rows,
+        content.height.saturating_sub(hint_rows + attachment_rows),
+    );
     let value = if editing { app.input.as_str() } else { "" };
     let cursor = if editing { app.cursor } else { 0 };
     let (lines, (caret_row, caret_column)) =

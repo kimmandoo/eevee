@@ -171,20 +171,17 @@ def main():
                 session.close()
 
             def files(session):
-                if session.context_mode == "payload":
-                    session.send(ESC)
+                if session.context_mode in ("payload", "preview"):
+                    session.send("\t")
                     session.context_mode = "basket"
-                if session.context_mode == "preview":
-                    session.send(ESC)
-                    session.context_mode = "files"
                 if session.context_mode == "basket":
-                    session.command("basket")
+                    session.send("\t")
                     session.context_mode = "files"
                 assert session.context_mode == "files"
 
             def search(session, value, count):
                 files(session)
-                session.command("search")
+                session.send("s")
                 wait_for(session, "Filename filter")
                 session.send(HOME + DELETE * len(session.context_query))
                 session.paste(value)
@@ -192,36 +189,40 @@ def main():
                 session.context_query = value
                 wait_for(session, str(count) + " eligible files /", timeout=35)
 
-            def pin(session, task_id, filename, lines="1:1"):
+            def pin(session, task_id, filename, lines=None):
                 before = len(basket(task_id))
                 search(session, filename, 1)
                 session.send("\r")
-                wait_for(session, "Inspected capture /")
+                wait_for(session, "Review local capture /")
                 session.context_mode = "preview"
-                if lines != "1:1":
-                    session.command("range")
+                if lines is not None:
+                    session.send("r")
                     wait_for(session, "Source range / inclusive")
                     session.send(HOME + DELETE * 3)
                     session.paste(lines)
                     session.send("\r")
                     wait_for(session, "Lines " + lines + " inclusive")
-                session.command("attach")
-                session.context_mode = "basket"
+                session.send("\r")
                 settled(session, lambda rows: sum(row["task_id"] == task_id for row in rows[1]) == before + 1,
-                        "pin was not committed")
-                wait_for(session, str(before + 1) + " task-owned basket references / stored")
+                        "attachment was not committed")
+                session.pump(0.1)
+                if SOURCE_TITLE not in session.display():
+                    session.context_mode = "closed"
+                    open_sources(session)
+                    session.send("\t")
+                session.context_mode = "basket"
                 return basket(task_id)[-1]
 
             def show_basket(session, task_id):
                 files(session)
-                session.command("basket")
+                session.send("\t")
                 session.send(HOME)
                 session.context_mode = "basket"
                 rows = basket(task_id)
                 if rows:
                     wait_for(session, "#" + str(rows[0]["id"]) + (" stored" if rows[0]["available"] else " UNAVAILABLE"))
                 else:
-                    wait_for(session, "No pinned source excerpts")
+                    wait_for(session, "No saved attachments")
 
             def panel_text(session):
                 # Read actual terminal cells inside the source overlay. Do not mix
@@ -297,13 +298,13 @@ def main():
             def remove(session, task_id, excerpt_id, neutral_check=False):
                 choose_basket(session, task_id, excerpt_id)
                 before = basket(task_id)
-                session.command("unpin")
+                session.send(DELETE)
                 wait_for(session, "Review local excerpt removal")
                 if neutral_check:
                     session.capture("neutral-remove")
                     session.send("\r")
                     assert basket(task_id) == before, "neutral Enter removed an excerpt"
-                    session.command("unpin")
+                    session.send(DELETE)
                     wait_for(session, "Review local excerpt removal")
                 session.send(RIGHT + "\r")
                 settled(session, lambda rows: all(row["id"] != excerpt_id for row in rows[1]), "reference was not removed")

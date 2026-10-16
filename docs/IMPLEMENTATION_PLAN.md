@@ -213,3 +213,12 @@ All five steps completed at immutable v0.1.8 source `53f3fd0`: exact-commit nati
 3. Persist only nonsecret last-used provider/method and per-route exact model/effort. Migrate Schema 9→10 transactionally, respect explicit `EV_PROVIDER`, block fallback dispatch during failed/pending hydration, preserve drafts on failure and await preference commit on quit.
 4. Exercise actual TUI direct sends, real connection/permission boundaries, no forced effort popup, immediate-quit/restart preferences, competing startup providers and old-binary refusal. Keep API/account qualification limits truthful.
 5. Commit the complete v0.1.8 source; qualify Check plus five native build/test/install rows at that exact commit. Publish only their immutable artifacts, verify all public hashes and installed runtime, and record completion. Do not retag v0.1.7 or advance PT06A.
+
+## Completed request — shallower model and attachment UX (not released)
+
+All four steps completed: final-source Rust checks and six targeted actual-TUI journeys passed, with additional workbench/context/terminal and isolated install/update evidence recorded in `WORK_CHECKPOINT.md`. No release was requested or published; PT06A remained unstarted.
+
+1. Reuse install animation for self-update release lookup and downloads; preserve locale, static redirected output and read-only checks.
+2. Compact model setup into model → supported reasoning level → retained editor, with distinct current/focus styling and optional complete metadata/error details. Add exact-first search, non-destructive return to the originating model search, direct exact-ID/effort arguments and direct ready-provider activation through existing reviews.
+3. Give `@` and source browsing direct bounded preview/attach/remove controls; filter paths locally with case-insensitive scoped abbreviations and keep saved identities/ranges visible beside the draft. Return after durable attachment acknowledgment without losing the draft or weakening exclusions, secret review or permission boundaries.
+4. Exercise actual wide/compact terminal workflows and install/update animation, then run integrated Rust checks and update session evidence. Do not advance PT06A or publish a release.

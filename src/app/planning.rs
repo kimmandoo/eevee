@@ -64,6 +64,12 @@ pub enum Picker {
     Effort,
 }
 
+enum ModelPickerFocus {
+    Default,
+    Model,
+    Custom,
+}
+
 pub struct State {
     pub pending: Option<Request>,
     pub decision: Option<String>,
@@ -134,6 +140,10 @@ pub struct State {
     pub picker_selected: usize,
     pub picker_query: Answer,
     pub custom_model: Option<Answer>,
+    /// Candidate model stays uncommitted until its reasoning choice is accepted.
+    pending_model: Option<ModelSelection>,
+    /// Query/caret remain in picker_query while reasoning owns the picker.
+    model_picker_return: Option<ModelPickerFocus>,
     picker_models: Vec<usize>,
     catalogue_pending: Option<ModelCatalogue>,
     pub selection_change: Option<ModelSelection>,
@@ -192,7 +202,7 @@ impl State {
             selection: ModelSelection::default(), selections: HashMap::new(),
             preferences: preferences::Preferences::default(),
             catalogues: HashMap::new(), catalogue_errors: HashMap::new(), picker: None, picker_selected: 0,
-            picker_query: Answer::default(), custom_model: None, picker_models: Vec::new(),
+            picker_query: Answer::default(), custom_model: None, pending_model: None, model_picker_return: None, picker_models: Vec::new(),
             catalogue_pending: None,
             selection_change: None, inspect_models: false,
             auto_models: false, auto_run: false, auto_picker: false, catalogue_dismissed: false, auto_blocked: None, send_after_prepare: false,
@@ -245,6 +255,7 @@ impl State {
             || self.pending.is_some()
             || self.quit_review
             || self.switch_to.is_some()
+            || self.selection_change.is_some()
             || self.paths_editor.is_some()
             || self.custom_model.is_some()
             || !self.pending_journal.is_empty()
@@ -299,6 +310,8 @@ impl State {
         self.picker = None;
         self.custom_model = None;
         self.selection_change = None;
+        self.pending_model = None;
+        self.model_picker_return = None;
         self.catalogues.clear();
         self.catalogue_errors.clear();
         self.catalogue_pending = None;
@@ -666,8 +679,7 @@ impl State {
                     if let Some(catalogue) = self.catalogue_pending.take()
                         && !self.catalogue_errors.contains_key(&self.agent)
                     {
-                        self.catalogues.insert(self.agent, catalogue);
-                        self.filter_picker();
+                        self.publish_catalogue(catalogue);
                     }
                     if let Some(reason) = self.catalogue_errors.get(&self.agent) {
                         self.notice = format!(
@@ -749,6 +761,8 @@ impl State {
         // Closing the metadata surface must not swallow owned-request cancellation.
         if self.inspect_models && (self.active || self.awaiting_preview) {
             self.picker = None;
+            self.pending_model = None;
+            self.model_picker_return = None;
         }
         if self.switch_to.take().is_some()
             || self.paths_editor.take().is_some()
@@ -756,6 +770,10 @@ impl State {
             || self.selection_change.take().is_some()
             || self.picker.take().is_some()
         {
+            if self.picker.is_none() {
+                self.pending_model = None;
+                self.model_picker_return = None;
+            }
             return true;
         }
         if self.cancelling {
@@ -970,8 +988,7 @@ impl State {
                     self.auto_picker = true;
                     "Cached models are stale. Retrying provider metadata only…".into()
                 } else if self.catalogues.contains_key(&self.agent) {
-                    "Default means the provider's own configuration. Type to search; Ctrl+U clears."
-                        .into()
+                    "Choose a model, then reasoning level. Esc keeps current settings.".into()
                 } else {
                     // Nothing cached yet: fetch the catalogue and reopen here.
                     self.auto_models = true;

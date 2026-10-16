@@ -80,31 +80,37 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                             .is_some_and(crate::providers::Agent::is_codex));
                 text(
                     frame,
-                    row(providers, 1 + offset as u16 * 2, 2),
+                    row(providers, 1 + offset as u16 * 2, 1),
                     &format!(
-                        "{} {}{}\n  {}",
+                        "{} {}{}",
                         if index == state.selected { ">" } else { " " },
                         agent.map_or(provider.name.as_str(), |agent| agent.provider_label()),
                         if active { " ●" } else { "" },
-                        if codex {
-                            format!(
-                                "{} · {}",
-                                if index == crate::providers::Agent::ChatGPT.index() {
-                                    "Native/no tools"
-                                } else {
-                                    "CLI/tools"
-                                },
-                                state.connection_status(index)
-                            )
-                        } else {
-                            state.connection_status(index).into()
-                        }
                     ),
                     if index == state.selected && state.page == Page::Providers {
                         paint.accent
                     } else {
                         paint.surface
                     },
+                );
+                let status = if codex {
+                    format!(
+                        "{} · {}",
+                        if index == crate::providers::Agent::ChatGPT.index() {
+                            "Native/no tools"
+                        } else {
+                            "CLI/tools"
+                        },
+                        state.connection_status(index)
+                    )
+                } else {
+                    state.connection_status(index).into()
+                };
+                text(
+                    frame,
+                    row(providers, 2 + offset as u16 * 2, 1),
+                    &format!("  {}{}", if active { "task · " } else { "" }, status),
+                    if active { paint.accent } else { paint.muted },
                 );
             }
         }
@@ -278,14 +284,23 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             );
             state.scroll = state.scroll.min(state.scroll_max);
         }
+        let footer = match state.page {
+            Page::Providers => format!(
+                "Up/Down Select · Enter {} · Right Actions\n● task provider · / choices · Esc Back",
+                state.enter_hint()
+            ),
+            Page::Diagnostics => "Up/Down Scroll · Enter Back · Right Actions · Esc Back".into(),
+            Page::Methods => {
+                "Up/Down Select · Enter Review method\nTab Providers · / choices · Esc Back".into()
+            }
+            Page::Actions => {
+                "Up/Down Select · Enter Open action\nTab Providers · / choices · Esc Back".into()
+            }
+        };
         text(
             frame,
             row(content, content.height.saturating_sub(2), 2),
-            if state.page == Page::Diagnostics {
-                "Up/Down Scroll · Enter Back · / choices · Esc Back"
-            } else {
-                "Arrows Select · Tab Switch pane · Enter Open\n● task provider · / choices · Esc Back"
-            },
+            &footer,
             paint.accent,
         );
         return;

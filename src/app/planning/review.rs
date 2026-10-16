@@ -77,23 +77,10 @@ impl State {
             return true;
         }
         if key.code == KeyCode::Enter {
-            let id = &self.custom_model.as_ref().expect("model editor").text;
-            if id.is_empty() || id.len() > 256
-                || id.chars().any(|ch| ch.is_whitespace() || ch.is_control()
-                    || matches!(ch, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
-                || crate::workspace::privacy::redact(id) != *id
-            {
-                self.notice = "Use an exact model ID: 1–256 UTF-8 bytes, no whitespace, control, bidi or credential-like text. Nothing was changed.".into();
-                return true;
+            let answer = self.custom_model.take().expect("model editor");
+            if !self.select_model_id(&answer.text) {
+                self.custom_model = Some(answer);
             }
-            let model = Some(id.clone());
-            let effort = if model == self.selection.model {
-                self.selection.effort.clone()
-            } else {
-                None
-            };
-            self.custom_model = None;
-            self.choose_selection(ModelSelection { model, effort });
             return true;
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('u') {
@@ -421,6 +408,9 @@ impl State {
             answer.insert_line(text);
             return true;
         }
+        if self.picker.is_some() && self.review_details {
+            return true;
+        }
         if self.picker == Some(Picker::Model) && self.selection_change.is_none() {
             let remaining = 256usize.saturating_sub(self.picker_query.text.len());
             let mut end = 0;
@@ -655,11 +645,22 @@ impl State {
         }
         if self.picker == Some(Picker::Model)
             && self.selection_change.is_none()
+            && !self.review_details
             && key.modifiers.contains(KeyModifiers::CONTROL)
             && key.code == KeyCode::Char('u')
         {
             self.picker_query = super::Answer::default();
             self.filter_picker();
+            return true;
+        }
+        if self.picker.is_some()
+            && self.selection_change.is_none()
+            && large_enough
+            && key.modifiers == KeyModifiers::CONTROL
+            && key.code == KeyCode::Char('d')
+        {
+            self.review_details = !self.review_details;
+            self.scroll = 0;
             return true;
         }
         if key
@@ -668,10 +669,16 @@ impl State {
         {
             return false;
         }
-        if self.picker.is_some() {
+        if self.picker.is_some() || self.selection_change.is_some() {
             if key.code == KeyCode::Esc {
-                if self.selection_change.take().is_none() {
+                if self.review_details && self.selection_change.is_none() {
+                    self.review_details = false;
+                    self.scroll = 0;
+                } else if self.selection_change.take().is_none() {
                     self.picker = None;
+                    self.pending_model = None;
+                    self.model_picker_return = None;
+                    self.notice = "Kept current model and reasoning.".into();
                 }
                 self.affirmative = false;
                 return true;
@@ -698,11 +705,34 @@ impl State {
                             self.apply_selection(selection, true);
                         } else {
                             self.picker = None;
+                            self.pending_model = None;
+                            self.model_picker_return = None;
+                            self.notice = "Kept current model and session.".into();
                         }
                         self.affirmative = false;
                     }
                     _ => return false,
                 }
+                return true;
+            }
+            if self.review_details {
+                match key.code {
+                    KeyCode::Up => self.scroll = self.scroll.saturating_sub(1),
+                    KeyCode::Down => {
+                        self.scroll = self.scroll.saturating_add(1).min(self.scroll_max)
+                    }
+                    KeyCode::PageUp => self.scroll = self.scroll.saturating_sub(5),
+                    KeyCode::PageDown => {
+                        self.scroll = self.scroll.saturating_add(5).min(self.scroll_max)
+                    }
+                    KeyCode::Home => self.scroll = 0,
+                    KeyCode::End => self.scroll = self.scroll_max,
+                    _ => return false,
+                }
+                return true;
+            }
+            if key.code == KeyCode::Left && self.can_back_to_models() {
+                self.back_to_models();
                 return true;
             }
             if self.picker == Some(Picker::Model) {
@@ -755,10 +785,10 @@ impl State {
                     }
                     if row.command == "model-custom" {
                         self.custom_model = Some(super::Answer::default());
-                        self.notice = "Enter an exact model ID locally. Availability is not entitlement; the next request still needs fresh review.".into();
+                        self.notice = "Exact model ID · Enter Next / Esc Back".into();
                         return true;
                     }
-                    let mut selection = self.selection.clone();
+                    let mut selection = self.picker_selection().clone();
                     match self.picker {
                         Some(Picker::Model) => {
                             selection.model = if self.picker_selected == 0 {
@@ -770,6 +800,8 @@ impl State {
                             if selection.model != self.selection.model {
                                 selection.effort = None;
                             }
+                            self.choose_model(selection);
+                            return true;
                         }
                         Some(Picker::Effort) => {
                             selection.effort = if self.picker_selected == 0 {

@@ -24,13 +24,31 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let state = &app.sources;
     text(
         frame,
-        row(content, 0, 2),
-        if state.busy() {
-            "Context: working / existing capture retained"
-        } else {
-            &state.status
-        },
+        row(content, 0, 1),
+        &clipped(
+            &format!(
+                "Task #{} · {} attached · {}",
+                app.task_id,
+                state.basket.len(),
+                if state.persistence_pending() {
+                    "saving"
+                } else if state.store_failed {
+                    "save failed"
+                } else if state.busy() {
+                    "validating"
+                } else {
+                    "local only"
+                },
+            ),
+            content.width as usize,
+        ),
         paint.accent,
+    );
+    text(
+        frame,
+        row(content, 1, 1),
+        &clipped(&state.status, content.width as usize),
+        paint.muted,
     );
     let list_rows = if matches!(state.mode, Mode::Files | Mode::Basket) {
         (content.height / 3).clamp(1, 7)
@@ -47,8 +65,13 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         for index in start..(start + list_rows as usize).min(count) {
             let label = if state.mode == Mode::Files {
                 format!(
-                    "{} {:?}",
+                    "{} [{}] {:?}",
                     if index == selection { ">" } else { " " },
+                    if state.file_attachment(index).is_some() {
+                        "+"
+                    } else {
+                        " "
+                    },
                     state.files[index].path
                 )
             } else {
@@ -73,6 +96,8 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 &clipped(&label, content.width as usize),
                 if index == selection {
                     paint.selected
+                } else if state.mode == Mode::Files && state.file_attachment(index).is_some() {
+                    paint.accent
                 } else {
                     paint.surface
                 },
@@ -90,6 +115,16 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         .map(|line| Line::styled(line, paint.accent))
         .chain(state.detail.lines().map(Line::from))
         .collect();
+    let preview_reviewed = state.mode == Mode::Preview
+        && state.editor.is_none()
+        && state.confirmation.is_none()
+        && state.preview.as_ref().is_some_and(|excerpt| {
+            excerpt.task_id == app.task_id
+                && excerpt.available
+                && frame.area().width >= 60
+                && frame.area().height >= 18
+                && details.height >= 4
+        });
     let max = selection_details(
         frame,
         details,
@@ -102,9 +137,27 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     text(
         frame,
         row(content, content.height.saturating_sub(2), 2),
-        "/ choices: search, range, attach, basket, assemble\nArrows select · Enter inspect · PgUp/Dn details · Esc Back",
+        if app.sources.store_failed {
+            "Enter Retry retained local save · Esc Draft\nCapture kept; nothing sent to a provider"
+        } else if app.sources.busy() {
+            "Saving/validating locally; attachment not committed\nPgUp/Dn Details · Esc Draft"
+        } else {
+            match app.sources.mode {
+                Mode::Files => {
+                    "Enter Review/attach · s Search · r Range · Del Remove\nTab Attachments · PgUp/Dn Details · Esc Draft"
+                }
+                Mode::Preview => {
+                    "Enter Attach locally & return · r Range\nTab Attachments · PgUp/Dn Review · Esc Cancel"
+                }
+                Mode::Basket => {
+                    "Del Remove (review) · Tab Files · / More\nPgUp/Dn Details · Esc Draft"
+                }
+                Mode::Payload => "/ More · Tab Files · PgUp/Dn Details · Esc Draft",
+            }
+        },
         paint.muted,
     );
+    app.sources.preview_reviewed = preview_reviewed;
     if app.sources.editor.is_some() {
         editor(frame, area, app, config, paint);
     }

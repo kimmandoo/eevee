@@ -452,6 +452,7 @@ impl App {
             && self.planning.preview.is_none()
             && self.planning.request.is_none()
             && self.planning.picker.is_none()
+            && self.planning.selection_change.is_none()
             && self.planning.paths_editor.is_none()
             && self.planning.switch_to.is_none()
             && self.planning.inspection.is_none()
@@ -513,7 +514,8 @@ impl App {
     }
 
     pub(super) fn command_surface_editing(&self) -> bool {
-        self.sources.editor.is_some()
+        self.composer_menu.is_some()
+            || self.sources.editor.is_some()
             || self.execution.searching
             || self.planning.paths_editor.is_some()
             || self.planning.picker.is_some()
@@ -706,9 +708,11 @@ impl App {
             self.open_overlay(Overlay::Planning);
             if self.overlay == Some(Overlay::Planning) {
                 self.planning_command(name);
+                // The hub is only a launch point for local selection/review,
+                // not another Back step after either accepting or keeping it.
+                self.overlay_history
+                    .retain(|frame| frame.overlay != Overlay::Agents);
                 if !self.planning.busy() {
-                    self.overlay_history
-                        .retain(|frame| frame.overlay != Overlay::Agents);
                     self.close_overlay();
                     self.notice.clone_from(&self.planning.notice);
                 }

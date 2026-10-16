@@ -102,6 +102,8 @@ class ReleaseFixture:
             def respond(self, body):
                 fixture.requests.append(self.path)
                 if self.path == "/releases/latest":
+                    if fixture.throttle:
+                        fixture.animation_observed.wait(timeout=10)
                     self.send_response(302)
                     self.send_header("Location", fixture.base + "/tag/" + tag)
                     self.send_header("Content-Length", "0")
@@ -311,6 +313,8 @@ def main():
             assert result.returncode == 0, "real upgrade source build failed; see upgrade-build.log"
             upgrade_binary = cargo_target / "release" / ("ev-lifecycle-fixture.exe" if os.name == "nt" else "ev-lifecycle-fixture")
 
+            animation_drawings = {}
+
             def animated_install(command, environment, capture_name, retired_directory=None):
                 release.throttle = True
                 release.animation_observed.clear()
@@ -367,6 +371,13 @@ def main():
                         "no meaningful visible motion within a stable phase"
                     assert restored, "animation did not remain visible after a narrow resize"
                     assert len(restored_frames) >= 3, "animation did not resume at the restored width"
+                    resolution_frames = set()
+                    for phase, seen in frames.items():
+                        if any("Resolving latest Eevee release" in line for line in phase):
+                            resolution_frames.update(seen)
+                    assert len(resolution_frames) >= 3, \
+                        "release lookup did not show the install animation"
+                    animation_drawings[capture_name] = set().union(*frames.values())
                     for parameters in re.findall(r"\x1b\[([0-9;:]*)m", session.text):
                         assert not any(30 <= int(code) <= 49 or 90 <= int(code) <= 107
                                        for code in re.split("[;:]", parameters) if code), \
@@ -517,6 +528,11 @@ def main():
                     animated_install([str(destination / binary_name), "update"],
                                      environment, "self-update-animation",
                                      retired_directory=destination if os.name == "nt" else None)
+                    shared_frames = (animation_drawings["installer-animation"]
+                                     & animation_drawings["self-update-animation"])
+                    assert len(shared_frames) >= 3, \
+                        "self-update did not preserve the install artwork and motion"
+                    evidence["shared_install_update_frames"] = len(shared_frames)
                     assert subprocess.check_output([str(destination / binary_name), "--version"], text=True).strip() == version
                     assert sha(destination / binary_name) == original_hash
                     assert not list(destination.glob(".ev-stage*")), "retired self-update files were not cleaned"

@@ -65,6 +65,9 @@ pub struct State {
     pub store_busy: bool,
     pub store_failed: bool,
     pub await_refresh: bool,
+    pub preview_reviewed: bool,
+    pub return_after_attach: bool,
+    return_to_composer: bool,
     pending_payload: Option<context::Payload>,
     store_mutation: bool,
     last_mutation: Option<Mutation>,
@@ -79,6 +82,7 @@ impl State {
         }
     }
     pub fn invalidate_review(&mut self) {
+        self.preview_reviewed = false;
         if let Some(confirmation) = &mut self.confirmation {
             confirmation.reviewed = false;
             confirmation.destructive = false;
@@ -90,10 +94,19 @@ impl State {
     pub fn persistence_pending(&self) -> bool {
         self.store_busy && self.store_mutation
     }
+    pub fn take_return_to_composer(&mut self) -> bool {
+        std::mem::take(&mut self.return_to_composer)
+    }
+    pub fn file_attachment(&self, index: usize) -> Option<usize> {
+        let source = self.files.get(index)?;
+        self.basket
+            .iter()
+            .position(|excerpt| std::path::Path::new(&excerpt.path) == source.path)
+    }
     pub fn catalogue(&mut self, task_id: i64, report: Option<&Arc<repo::Report>>) {
         if self.store_failed {
             self.error =
-                "Context save failed. Open /files and use /journal-retry for the retained operation."
+                "Context save failed. Open /files and press Enter to retry the retained operation."
                     .into();
             return;
         }
@@ -106,10 +119,13 @@ impl State {
             self.status = "Waiting for repository evidence; /repo shows its error layer.".into();
             return;
         };
-        if self.source_busy {
+        if self.source_busy || self.persistence_pending() {
             return;
         }
         self.preview = None;
+        self.preview_reviewed = false;
+        self.return_after_attach = false;
+        self.return_to_composer = false;
         self.payload = None;
         self.detail.clear();
         self.mode = Mode::Files;
@@ -174,10 +190,12 @@ impl State {
                 self.file_detail();
             }
             Ok(context::Response::Inspected(excerpt)) => {
+                self.preview_reviewed = false;
                 self.detail = excerpt_detail(&excerpt);
                 self.preview = Some(excerpt);
                 self.mode = Mode::Preview;
-                self.status = "Inspected capture /attach pins after persistence validation".into();
+                self.status =
+                    "Review local capture / Enter attaches / nothing sent to provider".into();
             }
             Ok(context::Response::Assembled(payload)) => {
                 self.pending_payload = Some(payload);
@@ -213,6 +231,14 @@ impl State {
                     .basket_selection
                     .min(self.basket.len().saturating_sub(1));
                 if self.store_mutation {
+                    if matches!(self.last_mutation, Some(Mutation::Pin)) {
+                        self.mode = Mode::Basket;
+                    }
+                    if matches!(self.last_mutation, Some(Mutation::Pin)) && self.return_after_attach
+                    {
+                        self.return_to_composer = true;
+                        self.return_after_attach = false;
+                    }
                     self.store_failed = false;
                     self.last_mutation = None;
                 }
@@ -262,6 +288,8 @@ impl State {
             self.error = "No eligible source selected.".into();
             return;
         };
+        self.preview = None;
+        self.preview_reviewed = false;
         self.queue(
             task_id,
             context::Operation::InspectFile {
@@ -286,6 +314,8 @@ impl State {
             self.error = "No eligible source selected.".into();
             return;
         };
+        self.preview = None;
+        self.preview_reviewed = false;
         self.queue(
             task_id,
             context::Operation::Inspect {
@@ -377,7 +407,7 @@ impl State {
             ),
             choice(
                 "inspect",
-                "Inspect selected file's first line",
+                "Inspect selected whole file before attaching",
                 blocked.or_else(|| {
                     (self.mode != Mode::Files || self.files.get(self.file_selection).is_none())
                         .then_some("Select an eligible file first.")
@@ -385,10 +415,14 @@ impl State {
             ),
             choice(
                 "attach",
-                "Pin inspected source excerpt to task",
+                "Attach reviewed local capture to this task",
                 blocked.or_else(|| {
-                    (self.mode != Mode::Preview || self.preview.is_none())
-                        .then_some("Inspect an eligible source range first.")
+                    if self.mode != Mode::Preview || self.preview.is_none() {
+                        Some("Inspect an eligible source first.")
+                    } else {
+                        (!self.preview_reviewed)
+                            .then_some("Review the visible capture before attaching.")
+                    }
                 }),
             ),
             choice(
@@ -470,6 +504,8 @@ impl State {
             return Action::Changed;
         }
         if name == "close" {
+            self.return_after_attach = false;
+            self.return_to_composer = false;
             return Action::Close;
         }
         if self.busy() {
@@ -524,12 +560,18 @@ impl State {
                     cursor: 3,
                 });
             }
-            "inspect" if self.mode == Mode::Files => self.inspect(task_id, report, 1, 1),
+            "inspect" if self.mode == Mode::Files => self.inspect_file(task_id, report),
             "attach" if self.mode == Mode::Preview => {
-                if let Some(excerpt) = self.preview.clone() {
-                    self.mode = Mode::Basket;
+                if !self.preview_reviewed {
+                    self.error =
+                        "Review the visible capture before attaching; nothing saved or sent."
+                            .into();
+                } else if let Some(excerpt) = self.preview.clone() {
                     self.payload = None;
+                    self.return_after_attach = true;
                     self.queue_store(task_id, store::ContextOperation::Pin(excerpt));
+                    self.status =
+                        "Saving local attachment; not attached until storage confirms…".into();
                 }
             }
             "assemble" => self.assemble(task_id, report, false),
@@ -625,18 +667,9 @@ impl State {
             return Action::Changed;
         }
         if key.code == KeyCode::Esc {
-            match self.mode {
-                Mode::Preview => {
-                    self.mode = Mode::Files;
-                    self.file_detail();
-                }
-                Mode::Payload => {
-                    self.mode = Mode::Basket;
-                    self.basket_detail();
-                }
-                _ => return Action::Close,
-            }
-            return Action::Changed;
+            self.return_after_attach = false;
+            self.return_to_composer = false;
+            return Action::Close;
         }
         if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown) {
             return Action::Scroll(key.code);
@@ -646,10 +679,36 @@ impl State {
             return Action::Changed;
         }
         if self.store_failed {
+            if key.code == KeyCode::Enter {
+                return self.command("journal-retry", task_id, report);
+            }
             return Action::Changed;
         }
         match key.code {
-            KeyCode::Enter if self.mode == Mode::Files => self.inspect(task_id, report, 1, 1),
+            KeyCode::Enter if self.mode == Mode::Files => self.inspect_file(task_id, report),
+            KeyCode::Enter if self.mode == Mode::Preview => {
+                return self.command("attach", task_id, report);
+            }
+            KeyCode::Tab | KeyCode::BackTab => return self.command("basket", task_id, report),
+            KeyCode::Char('s') => return self.command("search", task_id, report),
+            KeyCode::Char('r') if self.mode != Mode::Basket => {
+                return self.command("range", task_id, report);
+            }
+            KeyCode::Char('i') if self.mode == Mode::Files => {
+                self.inspect(task_id, report, 1, 1);
+            }
+            KeyCode::Delete | KeyCode::Backspace => {
+                if self.mode == Mode::Files
+                    && let Some(index) = self.file_attachment(self.file_selection)
+                {
+                    self.basket_selection = index;
+                    self.mode = Mode::Basket;
+                    self.basket_detail();
+                }
+                if self.mode == Mode::Basket {
+                    return self.command("unpin", task_id, report);
+                }
+            }
             code if matches!(self.mode, Mode::Files | Mode::Basket) => {
                 let (selected, count) = if self.mode == Mode::Files {
                     (&mut self.file_selection, self.files.len())
@@ -762,8 +821,8 @@ impl State {
     }
     fn file_detail(&mut self) {
         self.detail = self.files.get(self.file_selection).map(|source|
-            format!("Repository-relative path: {:?}\n{} bytes / SHA-256 bytes: {:02x?}\nEnter inspects line 1; /range chooses a range. Binary, oversized, credential and excluded paths are not eligible.", source.path, source.bytes, source.sha256))
-            .unwrap_or_else(|| "No eligible files match this filename filter. /search edits the filter; /refresh refreshes repository evidence.".into());
+            format!("Repository-relative path: {:?}\n{} bytes / SHA-256 bytes: {:02x?}\nEnter reviews the whole file before attaching; r chooses bounded lines; i inspects line 1. Binary, oversized, credential and excluded paths remain ineligible.", source.path, source.bytes, source.sha256))
+            .unwrap_or_else(|| "No eligible files match this filename filter. s edits the filter; /refresh refreshes repository evidence.".into());
     }
     fn basket_detail(&mut self) {
         self.detail = self
@@ -771,7 +830,8 @@ impl State {
             .get(self.basket_selection)
             .map(excerpt_detail)
             .unwrap_or_else(|| {
-                "No pinned source excerpts. Inspect a file/range, then /attach pins it.".into()
+                "No saved attachments. Tab opens files; Enter reviews a file before attaching."
+                    .into()
             });
     }
     fn payload_detail(&mut self) {
@@ -811,16 +871,16 @@ impl State {
 
 fn excerpt_detail(excerpt: &context::Excerpt) -> String {
     let mut value = format!(
-        "#{} / {:?}\nRoot: {:?}\nLines {}:{} inclusive / {} bytes\nSHA-256 bytes: {:02x?}\n{}\n\n{}",
+        "#{} / {:?}\nTask {} / root {:?}\nLines {}:{} inclusive / {} bytes\n{}\n\n{}",
         excerpt.id,
         excerpt.path,
+        excerpt.task_id,
         excerpt.root,
         excerpt.start_line,
         excerpt.end_line,
         excerpt.text.len(),
-        excerpt.source_sha256,
         if excerpt.available {
-            "Captured source / best-effort masked / display strips controls"
+            "Captured source / best-effort secret masking"
         } else {
             "UNAVAILABLE: retained identity only; assembly must refuse"
         },
@@ -837,6 +897,80 @@ fn safe_error(mut error: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn capture() -> context::Excerpt {
+        context::Excerpt {
+            id: 0,
+            task_id: 7,
+            root: "/workspace".into(),
+            path: "sample.rs".into(),
+            start_line: 1,
+            end_line: 2,
+            source_sha256: [7; 32],
+            text: "first\npassword=[REDACTED]\n".into(),
+            available: true,
+        }
+    }
+
+    #[test]
+    fn direct_attachment_requires_capture_review_and_acknowledged_owner() {
+        let mut state = State::default();
+        let excerpt = capture();
+        state.event(
+            7,
+            context::Event {
+                task_id: 7,
+                result: Ok(context::Response::Inspected(excerpt.clone())),
+            },
+        );
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        state.key(enter, 7, None);
+        assert!(state.pending_store.is_none());
+        state.preview_reviewed = true;
+        state.key(enter, 7, None);
+        assert!(matches!(
+            &state.pending_store,
+            Some(store::ContextRequest { task_id: 7, operation: store::ContextOperation::Pin(saved) })
+                if saved == &excerpt
+        ));
+        assert!(state.basket.is_empty());
+        assert!(state.persistence_pending());
+        state.stored(7, 8, Ok(vec![excerpt.clone()]));
+        assert!(state.basket.is_empty());
+        assert!(!state.take_return_to_composer());
+        state.stored(7, 7, Err("disk full".into()));
+        assert!(state.store_failed);
+        assert_eq!(state.preview.as_ref(), Some(&excerpt));
+        assert!(!state.take_return_to_composer());
+        state.command("journal-retry", 7, None);
+        assert!(matches!(&state.pending_store,
+            Some(store::ContextRequest { operation: store::ContextOperation::Pin(saved), .. })
+                if saved == &excerpt));
+        let mut stored = excerpt;
+        stored.id = 91;
+        state.stored(7, 7, Ok(vec![stored.clone()]));
+        assert_eq!(state.basket, vec![stored]);
+        assert!(state.take_return_to_composer());
+        assert!(!state.take_return_to_composer());
+    }
+
+    #[test]
+    fn escape_during_attachment_save_retains_mutation_without_late_navigation() {
+        let mut state = State {
+            mode: Mode::Preview,
+            preview: Some(capture()),
+            preview_reviewed: true,
+            ..State::default()
+        };
+        state.command("attach", 7, None);
+        assert!(matches!(
+            state.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), 7, None),
+            Action::Close
+        ));
+        assert!(state.pending_store.is_some());
+        state.stored(7, 7, Ok(vec![capture()]));
+        assert_eq!(state.basket.len(), 1);
+        assert!(!state.take_return_to_composer());
+    }
 
     #[test]
     fn source_commands_preserve_literal_search_and_cancel_without_work() {

@@ -280,13 +280,16 @@ fn bounded_resolve(address: &str) -> std::io::Result<Vec<std::net::SocketAddr>> 
     })?
 }
 
-fn release_tag() -> Result<(String, bool), String> {
+fn release_tag(animate: bool) -> Result<(String, bool), String> {
     if let Some(value) = std::env::var_os("EV_VERSION") {
         let tag = value
             .into_string()
             .map_err(|_| "EV_VERSION must contain a UTF-8 release tag")?;
         Version::tag(&tag)?;
         return Ok((tag, true));
+    }
+    if animate {
+        return animated_release_tag().map(|tag| (tag, false));
     }
     // Do not follow redirects: validate the exact HTTPS repository/tag before
     // passing it to the embedded installer. No response body is needed or read.
@@ -316,10 +319,125 @@ fn release_tag() -> Result<(String, bool), String> {
     Ok((tag_from_location(location)?, false))
 }
 
+#[cfg(windows)]
+struct ReleaseLookup(PathBuf);
+
+#[cfg(windows)]
+impl ReleaseLookup {
+    fn new() -> Result<Self, String> {
+        let mut random = [0u8; 16];
+        getrandom::getrandom(&mut random)
+            .map_err(|error| format!("Cannot create private release lookup: {error}"))?;
+        let path =
+            std::env::temp_dir().join(format!("ev-release-{:032x}", u128::from_le_bytes(random)));
+        fs::create_dir(&path).map_err(|error| format!("Cannot stage release lookup: {error}"))?;
+        Ok(Self(path))
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ReleaseLookup {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(self.0.join("tag"));
+        let _ = fs::remove_dir(&self.0);
+    }
+}
+
+fn animated_release_tag() -> Result<String, String> {
+    #[cfg(windows)]
+    use std::io::Write;
+    use std::process::Stdio;
+
+    // Reuse the installer's exact artwork, timing, terminal checks and cleanup
+    // during the initial release lookup as well as the subsequent download.
+    #[cfg(unix)]
+    let mut command = {
+        let mut command = Command::new("/bin/sh");
+        command.args([
+            "-c",
+            include_str!("../../install.sh"),
+            "ev-installer",
+            "--resolve-release",
+        ]);
+        command
+    };
+    #[cfg(windows)]
+    let lookup = ReleaseLookup::new()?;
+    #[cfg(windows)]
+    let mut command = {
+        let root = std::env::var_os("SystemRoot").ok_or("SystemRoot is not set")?;
+        let powershell = PathBuf::from(root).join("System32/WindowsPowerShell/v1.0/powershell.exe");
+        inspect(&powershell, false)?;
+        let mut command = Command::new(powershell);
+        let output = lookup.0.join("tag");
+        let output = output
+            .to_str()
+            .ok_or("Release lookup path is not valid Unicode")?;
+        let expression = format!(
+            "[Console]::InputEncoding=[Text.UTF8Encoding]::new($false); & ([scriptblock]::Create([Console]::In.ReadToEnd())) -ResolveRelease -ResolveOutput '{}'",
+            output.replace('\'', "''")
+        );
+        command.args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &expression,
+        ]);
+        command.stdin(Stdio::piped());
+        command
+    };
+    #[cfg(not(any(unix, windows)))]
+    return Err("Native installation lifecycle is unsupported on this platform".into());
+
+    installer_environment(&mut command);
+    #[cfg(unix)]
+    command.stdout(Stdio::piped());
+    let mut child = command
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|error| format!("Cannot start release lookup: {error}"))?;
+    #[cfg(windows)]
+    {
+        let result = child
+            .stdin
+            .take()
+            .ok_or_else(|| std::io::Error::other("Installer stdin unavailable"))
+            .and_then(|mut input| input.write_all(include_str!("../../install.ps1").as_bytes()));
+        if let Err(error) = result {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("Cannot supply release lookup: {error}"));
+        }
+    }
+    let mut output = String::new();
+    #[cfg(unix)]
+    let read = child
+        .stdout
+        .take()
+        .ok_or_else(|| std::io::Error::other("Release lookup stdout unavailable"))
+        .and_then(|pipe| pipe.take(1024).read_to_string(&mut output));
+    let status = child
+        .wait()
+        .map_err(|error| format!("Cannot wait for release lookup: {error}"))?;
+    #[cfg(unix)]
+    read.map_err(|error| format!("Cannot read release lookup: {error}"))?;
+    if !status.success() {
+        return Err("Could not resolve the latest Eevee release; no changes made".into());
+    }
+    #[cfg(windows)]
+    File::open(lookup.0.join("tag"))
+        .and_then(|file| file.take(1024).read_to_string(&mut output))
+        .map_err(|error| format!("Cannot read release lookup: {error}"))?;
+    let tag = output.trim();
+    Version::tag(tag)?;
+    Ok(tag.to_owned())
+}
+
 /// Check or explicitly update the original native installation, never task data.
 pub fn update(check_only: bool) -> Result<(), String> {
     let installation = current_installation()?;
-    let (tag, explicit) = release_tag()?;
+    let (tag, explicit) = release_tag(!check_only)?;
     let target = Version::tag(&tag)?;
     if target == installation.version {
         println!(
@@ -373,6 +491,9 @@ fn installer_environment(command: &mut Command) {
         "COMSPEC",
         "TERM",
         "COLORTERM",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
         "NO_COLOR",
         "CI",
         "HTTPS_PROXY",
