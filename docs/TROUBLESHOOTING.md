@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-16] Carry-over evidence fixtures failed native canonical-root validation
+
+- **Context / Symptom:** v0.1.10 qualification run `38866630609` failed tests on macOS and Windows. Native Windows diagnosis reproduced three carry-over assertions reporting one open hypothesis instead of zero for otherwise supported evidence.
+- **Root Cause:** The new fixture stored the raw temporary directory as its source root. `repo::read_source` correctly requires the already-canonical identity used by real captures; macOS system aliases and Windows canonical/verbatim path prefixes made the raw fixture root invalid. Existing workflow/recommendation fixtures already canonicalized their roots.
+- **Solution:** Canonicalized the carry-over fixture root after creating it, reusing the existing fixture convention. Did not weaken source identity checks, change expected hypothesis status, skip platform tests or reuse packages from the failed run. Qualification must restart for the corrected commit across Check and all five native rows.
+- **Prevention / Reference:** Keep diagnostic build output on local Windows storage and clear inherited WSL `TERM`. Public Actions log download required authentication unavailable on this host, so diagnosis used the installed native Windows Rust 1.90.0 toolchain instead. Separate local parallel store timeouts were investigated with serial diagnostic execution; CI's normal parallel test command and assertions remained unchanged.
+
 ### [2026-10-16] Carry-over snapshots treated pending context as empty evidence
 
 - **Context / Symptom:** A regression switched forms while the stored pin load was pending; the initial implementation immediately published a zero-pin record. Hiding that pending record with the next key also discarded the switch before its counts settled.
