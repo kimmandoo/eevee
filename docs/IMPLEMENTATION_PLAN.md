@@ -247,11 +247,18 @@ All four steps completed: final-source Rust checks and six targeted actual-TUI j
 
 Each task was implemented in existing modules, verified with relevant tests and actual TUI, documented and committed independently. This request is complete; no next implementation step is active. EV01C remains in wave 3; publication and replacement of the installed command remain unrequested.
 
-## Active request — release wave 2, then EV10A
+## Suspended request — release completed; EV10A deferred
 
 1. Prepare v0.1.10 with Schema 11 compatibility notes, retain the released v0.1.9 schema fixture and locally verify the candidate.
 2. Commit/push the candidate to main; require same-commit Check and all five native build/test/offline-install rows to succeed in one attempt. Tag only that qualified commit; promote its exact immutable packages through the existing publication workflow.
 3. Verify the public version/assets/checksums and exercise the published Linux binary using disposable data, including Schema 10→11 compatibility. Record publication before changing feature code.
 4. Implement EV10A: a reusable pure retained-output location parser for Rust/cargo, Python tracebacks, Node/TypeScript and generic path:line[:column], exposed in the existing run view without reading extra spool bytes or opening/pinning files.
 5. Prove real failing cargo test and pytest locations plus no-match behavior, actual TUI at 120×36/60×18, update contracts/task/changelog/checkpoint and commit EV10A independently. EV10B remains the next task, not part of this request.
+
+## Active request — ordinary conversation and provider architecture
+
+1. Trace actual first/follow-up payloads and compare application-owned history, separate system context and native tool-loop behavior with the supplied local reference without copying source or introducing reference branding.
+2. Resolve the material product boundary: native-only replaces external tool/session/auth integrations; native-first can preserve them as explicit advanced integrations. Removing a transport alone must not silently remove coding capabilities or imply different credentials are interchangeable.
+3. Implement the selected complete path: preserve ordinary user intent and role-separated prior turns, isolate task/partner/review ownership, maintain committed-input/admission/receipt correctness, and preserve command/write approvals and cancellation. Do not dump display-only items into a request as a substitute for canonical conversation state.
+4. Prove first and follow-up ordinary conversation through actual serialized requests and the active runtime, distinguish local protocol-fixture evidence from live model semantics, update behavioral contracts/tests/docs and commit. EV10A stays deferred until the user's higher-priority request is satisfied.
 
