@@ -81,3 +81,54 @@ pub const FORMS: [Form; 9] = [
         indexed: 218,
     },
 ];
+
+/// Empty-surface guidance per form (EV04): the signature `object → action`
+/// from DESIGN_RULES, then one primary action that opens an existing flow.
+/// `None` means the composer itself is the flow. Opening never executes.
+pub const FIRST_ACTIONS: [(&str, Option<&str>, &str); 9] = [
+    (
+        "Task card → edit criteria, choose next form",
+        Some("criteria-edit"),
+        "Edit criteria",
+    ),
+    (
+        "File/range → inspect, pin, exclude",
+        Some("files"),
+        "Attach a file",
+    ),
+    (
+        "Command request → inspect, approve/deny, cancel",
+        Some("run"),
+        "Review a command",
+    ),
+    (
+        "Requirement + approved paths → request a change",
+        Some("paths"),
+        "Choose write paths",
+    ),
+    (
+        "Design question → compare alternatives, choose approach",
+        None,
+        "Type the design question below",
+    ),
+    (
+        "Failure → add hypothesis, request diagnostic run",
+        Some("workflow-diagnosis"),
+        "Add a hypothesis",
+    ),
+    (
+        "Bounded hotspot → compare baseline, refactor, measure",
+        Some("workflow-refactor"),
+        "Choose a hotspot",
+    ),
+    (
+        "Change set → inspect criteria, findings, verification age",
+        Some("workflow-review"),
+        "Open the review desk",
+    ),
+    (
+        "Verified task facts → preview handoff, propose a memory",
+        Some("handoff"),
+        "Preview the handoff",
+    ),
+];

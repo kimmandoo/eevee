@@ -4,7 +4,7 @@ These tasks make each switch informed and each form immediately useful, for the 
 
 ### EV04 — Form-specific empty states
 
-- [ ] Give each form one obvious first action when its surface is empty.
+- [x] Give each form one obvious first action when its surface is empty.
 - **Priority:** 1. **Needs:** —. **Builds on:** V01, UX01.
 - **Change:** Show the form's `object → action` line from the DESIGN_RULES interaction table plus one primary action that opens the existing flow (Vaporeon `@` attach, Jolteon `/run` review, Umbreon add hypothesis, Glaceon review desk, Sylveon handoff preview, Eevee edit criteria).
 - **Accept:** Open all nine forms on an empty task at both sizes; each primary action opens its flow and executes nothing. Non-empty surfaces are unchanged.

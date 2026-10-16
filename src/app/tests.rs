@@ -2795,3 +2795,47 @@ fn lead_and_roster_stay_reachable_while_another_partner_requests() {
         "navigation never sends or cancels"
     );
 }
+
+#[test]
+fn each_forms_primary_empty_action_opens_its_flow_and_executes_nothing() {
+    for (index, form) in crate::domain::FORMS.iter().enumerate() {
+        let mut app = app();
+        app.command(&form.name.to_lowercase());
+        assert_eq!(app.form(), index);
+        let (_, action, _) = crate::domain::FIRST_ACTIONS[index];
+        match action {
+            Some(command) => {
+                key(&mut app, KeyCode::Char('/'));
+                type_text(&mut app, command);
+                key(&mut app, KeyCode::Enter);
+                let opened = match command {
+                    "criteria-edit" => {
+                        app.editing && app.editor_field == store::EditorField::Criteria
+                    }
+                    "files" => app.overlay == Some(Overlay::Sources),
+                    "run" => app.overlay == Some(Overlay::Execution),
+                    "paths" => {
+                        app.overlay == Some(Overlay::Planning)
+                            && app.planning.paths_editor.is_some()
+                    }
+                    "handoff" => app.overlay == Some(Overlay::Handoff),
+                    _ => app.overlay == Some(Overlay::Workflows),
+                };
+                assert!(
+                    opened,
+                    "{}: /{command} did not open; {}",
+                    form.name, app.notice
+                );
+            }
+            None => {
+                // The composer is the flow: typing stays a local draft.
+                app.open_editor(store::EditorField::Request);
+                type_text(&mut app, "which approach?");
+                assert_eq!(app.input, "which approach?");
+            }
+        }
+        assert!(app.planning.pending.is_none(), "{}", form.name);
+        assert!(!app.execution.busy(), "{}", form.name);
+        assert!(app.execution.history.is_empty(), "{}", form.name);
+    }
+}

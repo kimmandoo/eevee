@@ -57,6 +57,7 @@
 
 ## 2026-10-16
 
+- feat(forms): showed each form's `object → action` line and one primary action (criteria edit, file attach, command review, write paths, design question, diagnosis/refactor/review desks, handoff preview) on the empty home surface.
 - chore(release): published v0.1.9 from `c4b8cd9` after Check and all five native rows passed (run `38841536756`), verified eight public assets and seven checksums, and passed the PT06 partner-attribution TUI journey on the published Linux binary at 120×36 and 60×18.
 - feat(party): named the asking partner in run approval/cancel, provider permission/command approval and question dialogs (`Bolt (Jolteon) wants to run: …`) while keeping their choices visible at 60×18.
 - feat(party): keyed provider request state by partner so requests, events and approvals stayed with their owner across lead switches, refused late events for other or released partners, returned failed requests only to the sender's draft, and kept `/lead` and `/party` usable during a request.

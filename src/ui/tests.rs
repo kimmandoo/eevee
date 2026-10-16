@@ -869,3 +869,38 @@ fn compact_header_reserves_model_and_effort_space_with_long_project_names() {
     assert!(first_row.contains("gpt-6.1-sol"), "{first_row}");
     assert!(first_row.contains("high"), "{first_row}");
 }
+
+#[test]
+fn every_form_shows_its_signature_and_one_primary_action_when_empty() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height) in [(120, 36), (60, 18)] {
+        for (index, form) in FORMS.iter().enumerate() {
+            let name = form.name.to_lowercase();
+            let mut app = App::new("/workspace".into(), width, height);
+            app.command(&name);
+            assert_eq!(app.form(), index);
+            let mut artwork = Artwork::load(&config);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let rows: Vec<String> = (0..height)
+                .map(|y| (0..width).map(|x| buffer[(x, y)].symbol()).collect())
+                .collect();
+            let (signature, action, label) = crate::domain::FIRST_ACTIONS[index];
+            let form = form.name;
+            let first = format!("{form}: {}", signature.split(' ').next().unwrap());
+            assert!(
+                rows.iter().any(|row| row.contains(&first)),
+                "{width}x{height} {form}: {rows:#?}"
+            );
+            let action = action.map_or(label.to_owned(), |command| format!("/{command} {label}"));
+            assert!(
+                rows.iter().any(|row| row.contains(&action)),
+                "{width}x{height} {form}: {rows:#?}"
+            );
+        }
+    }
+}
