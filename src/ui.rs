@@ -714,12 +714,19 @@ fn workspace(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &
             ),
         ])
     };
+    let (signature, action, label) = crate::domain::FIRST_ACTIONS[app.form().min(8)];
     let mut lines = vec![
         heading,
-        Line::from("Write a request below. Enter sends it."),
+        Line::from(format!(
+            "{}: {signature}",
+            crate::domain::FORMS[app.form().min(8)].name
+        )),
         Line::styled(
-            "Responses appear here. Tool actions require separate approval.",
-            paint.muted,
+            match action {
+                Some(command) => format!("/{command} {label}"),
+                None => label.to_owned(),
+            },
+            paint.accent,
         ),
         Line::from(""),
         Line::styled("@ Attach context / /connect Choose provider", paint.muted),

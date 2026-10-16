@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-16 — EV04 form-specific empty states (complete; not released)
+
+- **User scope:** Implement the next task in recommended order (wave 2 starts with EV04).
+- **Change:** `domain::FIRST_ACTIONS` holds each form's signature `object → action` (from DESIGN_RULES § Signature interactions) and one primary action reusing existing root commands: Eevee `/criteria-edit`, Vaporeon `/files`, Jolteon `/run`, Flareon `/paths`, Espeon the composer itself, Umbreon `/workflow-diagnosis`, Leafeon `/workflow-refactor`, Glaceon `/workflow-review`, Sylveon `/handoff`. The empty home workspace shows them in place of the two generic lines; the response view (non-empty) is unchanged.
+- **Verification:** `cargo +1.90.0 test --locked --all-targets` 626 passed / 2 ignored; strict Clippy and fmt clean. Unit tests render all nine forms at 120×36 and 60×18 and open each action without a provider request or run. Actual-TUI throwaway driver passed 18 cases (nine forms × both sizes): each signature/action visible, each action opened its flow, zero executions and provider records (`target/ev04-tui/results.json`). At 60×18 the longest signature wraps to two rows and remains complete.
+- **Changed files:** `src/domain.rs`, `src/ui.rs`, `src/ui/tests.rs`, `src/app/tests.rs`, CHANGELOG, task.md, tasks/B-partner-basics.md and this checkpoint.
+- **Exact next action:** EV03A (form capability chip) is next in wave 2. No release requested for EV04.
+
 ## 2026-10-16 — PT06A–PT06C party routing and v0.1.9 release (released; v0.1.9)
 
 - **User scope:** Implement tasks through PT06 (PT06A, PT06B, PT06C) and release. Commit without a Claude co-author trailer.
