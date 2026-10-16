@@ -672,23 +672,37 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
     } else {
         app.execution.activity_label()
     };
+    let status = format!(
+        "{} {activity}  /  {}",
+        if app.planning.activity_label().is_some() {
+            activity_marker(app.activity_frame, config)
+        } else {
+            ""
+        },
+        app.storage_label()
+    );
+    let line = row(area, 1, 1);
     text(
         frame,
-        row(area, 1, 1),
-        &clipped(
-            &format!(
-                "{} {activity}  /  {}",
-                if app.planning.activity_label().is_some() {
-                    activity_marker(app.activity_frame, config)
-                } else {
-                    ""
-                },
-                app.storage_label()
-            ),
-            area.width as usize,
-        ),
+        line,
+        &clipped(&status, area.width as usize),
         paint.muted,
     );
+    // Capability chip (EV03A): lowest header priority, so it appears only in
+    // space the activity/storage text leaves free and never clips it.
+    let chip = format!("[{}] ", crate::domain::CAPABILITIES[app.form().min(8)]);
+    let (chip_width, used) = (
+        Span::raw(chip.as_str()).width() as u16,
+        Span::raw(status.as_str()).width() as u16,
+    );
+    if used + 2 + chip_width <= line.width {
+        text(
+            frame,
+            Rect::new(line.right() - chip_width, line.y, chip_width, 1),
+            &chip,
+            paint.accent,
+        );
+    }
 }
 
 fn workspace(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {

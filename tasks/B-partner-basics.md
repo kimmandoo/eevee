@@ -12,7 +12,7 @@ These tasks make each switch informed and each form immediately useful, for the 
 
 ### EV03A — Form capability chip
 
-- [ ] Show what the active form may do.
+- [x] Show what the active form may do.
 - **Priority:** 1. **Needs:** —. **Builds on:** UX01.
 - **Change:** Add a header chip with the form's default capabilities from the role table (`read · run`, `read · edit`, `read`).
 - **Accept:** All nine forms show the chip matching the role table, and it fits at 60×18 without truncating project/form names.

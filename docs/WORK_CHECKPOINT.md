@@ -1,5 +1,14 @@
 # Work Checkpoint
 
+## 2026-10-16 — EV03A form capability chip (complete; not released)
+
+- **User scope:** Implement the next task in recommended order.
+- **Change:** `domain::CAPABILITIES` condenses the DESIGN_RULES role table: Eevee/Vaporeon/Umbreon/Glaceon `read`, Jolteon `read · run`, Flareon/Leafeon `read · edit`, Espeon `read · edit plans`, Sylveon `read · edit docs`. The header status row renders `[chip]` right-aligned at every width, only when it fits after the activity/storage text (lowest header priority), so row 0 project/form/model text is unchanged. Descriptive only; no enforcement changed.
+- **Verification:** `cargo +1.90.0 test --locked --all-targets` 627 passed / 2 ignored; strict Clippy and fmt clean. Unit test covers all nine forms at 120×36 and 60×18 plus chip yielding to a long storage-failure status. Actual-TUI throwaway driver passed 18 cases (`target/ev03a-tui/results.json`); the longest chip fits at 60×18 beside `Local work idle / Storage: saved`.
+- **Limit:** During transient longer status text (e.g. `Storage: saving`, failures, approvals) the chip is hidden at narrow widths by design.
+- **Changed files:** `src/domain.rs`, `src/ui.rs`, `src/ui/tests.rs`, DESIGN_RULES, CHANGELOG, task.md, tasks/B-partner-basics.md and this checkpoint.
+- **Exact next action:** EV03B (owning-form redirect). No release requested.
+
 ## 2026-10-16 — EV04 form-specific empty states (complete; not released)
 
 - **User scope:** Implement the next task in recommended order (wave 2 starts with EV04).

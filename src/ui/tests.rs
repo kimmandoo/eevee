@@ -904,3 +904,64 @@ fn every_form_shows_its_signature_and_one_primary_action_when_empty() {
         }
     }
 }
+
+#[test]
+fn header_chip_matches_the_role_table_without_hiding_names_or_status() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    let expected = [
+        "read",
+        "read",
+        "read · run",
+        "read · edit",
+        "read · edit plans",
+        "read",
+        "read · edit",
+        "read",
+        "read · edit docs",
+    ];
+    for (width, height) in [(120, 36), (60, 18)] {
+        for (index, form) in FORMS.iter().enumerate() {
+            let mut app = App::new("/workspace".into(), width, height);
+            app.store_event(crate::store::Event::Loaded(crate::store::Project {
+                tasks: Vec::new(),
+                partners: vec![crate::store::Partner::default()],
+                active_id: None,
+                usage_bytes: 0,
+            }));
+            app.command(&form.name.to_lowercase());
+            app.storage = crate::app::StorageState::Saved;
+            let mut artwork = Artwork::load(&config);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let line = |y: u16| -> String { (0..width).map(|x| buffer[(x, y)].symbol()).collect() };
+            let (names, status) = (line(0), line(1));
+            assert!(names.contains(form.name), "{width}: {names}");
+            assert!(names.contains("workspa"), "{width}: {names}");
+            assert!(
+                status
+                    .trim_end()
+                    .ends_with(&format!("[{}]", expected[index])),
+                "{width} {}: {status}",
+                form.name
+            );
+            assert!(status.contains("Storage: saved"), "{status}");
+        }
+    }
+    // Higher-priority activity text keeps its full width; the chip yields.
+    let mut app = App::new("/workspace".into(), 60, 18);
+    app.command("jolteon");
+    app.planning.request = None;
+    app.storage = crate::app::StorageState::Failed("disk".into());
+    let mut artwork = Artwork::load(&config);
+    let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
+    terminal
+        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let status: String = (0..60).map(|x| buffer[(x, 1)].symbol()).collect();
+    assert!(!status.contains("[read"), "{status}");
+}
