@@ -87,6 +87,8 @@ Status: PT02–PT05 shipped the party store, roster/add, direct lead selection, 
 - **Visible cost:** each provider request keeps its own explicit send intent and receipt; cooperation never merges grants or hides per-partner cost.
 - **Review independence:** a Glaceon review by a partner other than the patch author is preferred; the same partner is allowed and labelled `same partner`.
 - **Flavor stays local:** nicknames, partner names and dialogue never enter provider packets or handoffs.
+- **Nicknames:** `/nickname`, Companion `n`, or roster `n` edits a personal-scope name through the existing single store worker and reserved nickname column. Trim outer whitespace; empty clears to `Eevee #n`. New names are bounded by 12 Unicode graphemes and 512 UTF-8 bytes, reject unsafe controls, and are unique among party nicknames using Unicode lowercase comparison without rewriting Unicode normalization. Enter saves locally; Escape cancels; storage refusal retains the candidate for correction/retry and identity changes only after committed acknowledgement.
+- Header/composer identify `Nickname (Species)`; species/type remain visible or in the companion surface. Compact headers retain route/model/effort and species, clipping only overlong nickname/project display with a continuation marker; the composer/editor retain the full name. Renaming never changes task text, grants, prepared provider input or existing attribution snapshots. The request receipt reports **0 B of automatically added partner flavor**: this is not redaction of a name the user deliberately typed into task/source content.
 
 ### Signature interactions
 

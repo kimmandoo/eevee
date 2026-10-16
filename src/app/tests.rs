@@ -425,7 +425,7 @@ fn restart_restores_the_lead_partners_stored_form() {
     assert_eq!(resumed.lead().id, 1);
     assert_eq!(resumed.lead().met_at, 172800000);
     assert_eq!(resumed.form(), 5);
-    assert_eq!(resumed.lead_label(), "Eevee #1 · Umbreon");
+    assert_eq!(resumed.lead_label(), "Eevee #1 (Umbreon)");
 }
 
 #[test]
@@ -1380,7 +1380,7 @@ fn roster_enter_fronts_the_selected_partner_and_the_picker_follows() {
     assert_eq!(app.lead().id, 2);
     assert_eq!(app.lead().nickname.as_deref(), Some("Bolt"));
     assert_eq!(app.form(), 1, "the new lead's own form is active");
-    assert_eq!(app.lead_label(), "Bolt · Vaporeon");
+    assert_eq!(app.lead_label(), "Bolt (Vaporeon)");
     // The picker follows the lead.
     app.command("forms");
     assert_eq!(app.selected, 1);
@@ -1393,7 +1393,7 @@ fn roster_enter_fronts_the_selected_partner_and_the_picker_follows() {
     key(&mut app, KeyCode::Enter);
     assert_eq!(app.lead().id, 1, "notice={}", app.notice);
     assert_eq!(app.form(), 2);
-    assert_eq!(app.lead_label(), "Eevee #1 · Jolteon");
+    assert_eq!(app.lead_label(), "Eevee #1 (Jolteon)");
 }
 
 #[test]
@@ -1487,7 +1487,7 @@ fn lead_switch_persists_through_save_and_restart() {
     assert_eq!(resumed.lead().id, 2);
     assert_eq!(resumed.lead().met_at, 99);
     assert_eq!(resumed.form(), 1);
-    assert_eq!(resumed.lead_label(), "Eevee #2 · Vaporeon");
+    assert_eq!(resumed.lead_label(), "Eevee #2 (Vaporeon)");
 }
 
 #[test]
@@ -1513,7 +1513,7 @@ fn lead_switch_keeps_live_work_and_its_approval_on_the_owning_partner() {
     ])));
     app.request_lead(2);
     app.request_lead(1);
-    assert_eq!(app.lead_label(), "Bolt · Jolteon");
+    assert_eq!(app.lead_label(), "Bolt (Jolteon)");
     let mut task = committed(&app);
     task.id = 7;
     app.planning.command("new", true, &task, &[], None);
@@ -3087,5 +3087,212 @@ fn return_to_eevee_does_not_cancel_another_partners_request() {
     assert!(matches!(
         app.planning.pending,
         Some(crate::providers::Request::Preview(_))
+    ));
+}
+
+#[test]
+fn nickname_editor_is_local_grapheme_safe_and_cancel_keeps_composer() {
+    let mut app = app();
+    app.open_editor(store::EditorField::Request);
+    app.update(Event::Paste("Request 界e\u{301}".into()));
+    key(&mut app, KeyCode::Left);
+    let draft = (
+        app.input.clone(),
+        app.cursor,
+        app.editor_field,
+        app.goal.clone(),
+    );
+    app.command("nickname");
+    assert_eq!(app.nickname_editor.as_ref().unwrap().text, "");
+    app.update(Event::Paste("界e\u{301}👩‍💻".into()));
+    key(&mut app, KeyCode::Left);
+    key(&mut app, KeyCode::Backspace);
+    assert_eq!(app.nickname_editor.as_ref().unwrap().text, "界👩‍💻");
+    app.update(Event::Paste("界".repeat(13)));
+    assert!(!app.nickname_editor.as_ref().unwrap().error.is_empty());
+    assert_eq!(app.nickname_editor.as_ref().unwrap().text, "界👩‍💻");
+    key(&mut app, KeyCode::Esc);
+    assert!(app.nickname_editor.is_none());
+    assert_eq!(
+        (
+            app.input.clone(),
+            app.cursor,
+            app.editor_field,
+            app.goal.clone()
+        ),
+        draft
+    );
+    assert!(app.party_request.is_none());
+    assert!(app.planning.pending.is_none());
+    assert!(!app.execution.busy());
+}
+
+#[test]
+fn nickname_commit_failure_retry_and_clear_preserve_live_task_and_roster() {
+    let mut app = app();
+    app.open_editor(store::EditorField::Request);
+    app.update(Event::Paste("task draft".into()));
+    key(&mut app, KeyCode::Left);
+    let draft = (app.input.clone(), app.cursor);
+    app.set_form(7);
+    let old_owner = app.attribution();
+    app.planning.front = Some(old_owner.clone());
+    app.command("nickname");
+    app.update(Event::Paste("  月  ".into()));
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(
+        app.party_request.take(),
+        Some(store::PartyRequest::Nickname {
+            partner: 1,
+            nickname: Some("月".into()),
+        })
+    );
+    assert!(app.lead().nickname.is_none());
+    assert_eq!(app.planning.front.as_ref(), Some(&old_owner));
+    app.store_event(store::Event::Party(Err("Duplicate nickname".into())));
+    assert_eq!(app.nickname_editor.as_ref().unwrap().text, "  月  ");
+    assert!(!app.nickname_editor.as_ref().unwrap().error.is_empty());
+    assert!(app.lead().nickname.is_none());
+    key(&mut app, KeyCode::Enter);
+    app.party_request.take();
+    app.store_event(store::Event::Party(Ok(vec![
+        store::Partner {
+            nickname: Some("月".into()),
+            form: 0,
+            ..store::Partner::default()
+        },
+        store::Partner {
+            id: 2,
+            nickname: Some("星".into()),
+            form: 3,
+            ..store::Partner::default()
+        },
+    ])));
+    assert!(app.nickname_editor.is_none());
+    assert_eq!(app.lead_label(), "月 (Glaceon)");
+    assert_eq!(
+        app.form(),
+        7,
+        "a stale committed form must not replace the live form"
+    );
+    assert_eq!(app.partners()[1].nickname.as_deref(), Some("星"));
+    assert_eq!(old_owner.name, "Eevee #1");
+    assert_eq!(app.planning.front.as_ref().unwrap().name, "月");
+    assert_eq!((app.input.clone(), app.cursor), draft);
+    assert!(app.planning.pending.is_none());
+    assert!(!app.execution.busy());
+    app.command("nickname");
+    key(&mut app, KeyCode::Backspace);
+    app.update(Event::Paste(String::new()));
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(
+        app.party_request.take(),
+        Some(store::PartyRequest::Nickname {
+            partner: 1,
+            nickname: None,
+        })
+    );
+    app.store_event(store::Event::Party(Ok(vec![
+        store::Partner::default(),
+        store::Partner {
+            id: 2,
+            nickname: Some("星".into()),
+            ..store::Partner::default()
+        },
+    ])));
+    assert_eq!(app.lead_label(), "Eevee #1 (Glaceon)");
+    assert_eq!((app.input.clone(), app.cursor), draft);
+}
+
+#[test]
+fn nickname_party_action_targets_selected_partner_without_fronting_it() {
+    let mut app = app();
+    app.editing = false;
+    app.store_event(store::Event::Party(Ok(vec![
+        store::Partner::default(),
+        store::Partner {
+            id: 2,
+            ..store::Partner::default()
+        },
+    ])));
+    app.command("party");
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Char('n'));
+    assert_eq!(app.nickname_editor.as_ref().unwrap().partner, 2);
+    assert_eq!(app.lead().id, 1);
+    app.update(Event::Paste("星".into()));
+    key(&mut app, KeyCode::Enter);
+    app.party_request.take();
+    app.store_event(store::Event::Party(Ok(vec![
+        store::Partner::default(),
+        store::Partner {
+            id: 2,
+            nickname: Some("星".into()),
+            ..store::Partner::default()
+        },
+    ])));
+    assert_eq!(app.lead().id, 1);
+    assert!(app.lead().nickname.is_none());
+    assert_eq!(app.partners()[1].nickname.as_deref(), Some("星"));
+}
+
+#[test]
+fn nickname_ack_does_not_rewrite_prepared_input_or_request_ownership() {
+    let mut app = app();
+    app.goal = "Only the task goal".into();
+    app.set_form(2);
+    app.command("nickname");
+    app.update(Event::Paste("LocalOnly月".into()));
+    key(&mut app, KeyCode::Enter);
+    app.party_request.take();
+    // A request can finish binding while the independent store write is pending.
+    let task = committed(&app);
+    app.planning.command("new", true, &task, &[], None);
+    let Some(crate::providers::Request::Preview(input)) = app.planning.pending.as_ref() else {
+        panic!("request must be prepared");
+    };
+    let before = serde_json::to_value(&input.task).unwrap();
+    let owner = app.planning.owner().cloned();
+    app.store_event(store::Event::Party(Ok(vec![store::Partner {
+        nickname: Some("LocalOnly月".into()),
+        ..store::Partner::default()
+    }])));
+    let Some(crate::providers::Request::Preview(input)) = app.planning.pending.as_ref() else {
+        panic!("nickname acknowledgement must not replace the request");
+    };
+    assert_eq!(serde_json::to_value(&input.task).unwrap(), before);
+    assert!(!before.to_string().contains("LocalOnly"));
+    assert_eq!(app.planning.owner(), owner.as_ref());
+    assert_eq!(owner.unwrap().name, "Eevee #1");
+    assert_eq!(app.planning.front.as_ref().unwrap().name, "LocalOnly月");
+    assert!(!app.execution.busy());
+}
+
+#[test]
+fn rejected_nickname_paste_cannot_clear_or_save_a_different_name() {
+    let mut app = app();
+    app.store_event(store::Event::Loaded(store::Project {
+        tasks: vec![],
+        partners: vec![store::Partner {
+            nickname: Some("前".into()),
+            ..store::Partner::default()
+        }],
+        active_id: None,
+        usage_bytes: 0,
+    }));
+    app.command("nickname");
+    key(&mut app, KeyCode::Home);
+    key(&mut app, KeyCode::Delete);
+    app.update(Event::Paste("界".repeat(13)));
+    key(&mut app, KeyCode::Enter);
+    assert!(app.party_request.is_none());
+    assert!(app.nickname_editor.is_some());
+    assert_eq!(app.lead().nickname.as_deref(), Some("前"));
+    // Editing explicitly corrects the refused insertion; a valid name can save.
+    app.update(Event::Paste("月".into()));
+    key(&mut app, KeyCode::Enter);
+    assert!(matches!(
+        app.party_request.take(),
+        Some(store::PartyRequest::Nickname { nickname: Some(name), .. }) if name == "月"
     ));
 }

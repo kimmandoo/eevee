@@ -3676,6 +3676,213 @@ fn added_partner_ids_are_never_reused_after_a_release() {
     }
 }
 
+fn party_mutation(worker: &Worker, request: PartyRequest) -> Result<Vec<Partner>, String> {
+    let mut pending = Some(request);
+    assert!(worker.try_party(&mut pending));
+    assert!(pending.is_none());
+    match event(worker) {
+        Event::Party(result) => result,
+        other => panic!("expected party mutation result: {other:?}"),
+    }
+}
+
+#[test]
+fn nickname_validation_counts_graphemes_and_refuses_unsafe_or_oversized_text() {
+    for unit in ["e\u{301}", "👩‍💻", "界"] {
+        assert!(validate_nickname(&unit.repeat(12)).is_ok());
+        assert!(validate_nickname(&unit.repeat(13)).is_err());
+    }
+    // Combining marks can exceed the byte bound inside a single grapheme.
+    let at_byte_limit = format!("ab{}", "\u{301}".repeat(255));
+    assert_eq!(at_byte_limit.len(), 512);
+    assert!(validate_nickname(&at_byte_limit).is_ok());
+    assert!(validate_nickname(&format!("{at_byte_limit}\u{301}")).is_err());
+    for invalid in [
+        "",
+        "a\nb",
+        "a\tb",
+        "a\rb",
+        "a\0b",
+        "a\x1bb",
+        "a\u{7f}b",
+        "a\u{85}b",
+        "a\u{061c}b",
+        "a\u{200e}b",
+        "a\u{200f}b",
+        "a\u{202a}b",
+        "a\u{202e}b",
+        "a\u{2066}b",
+        "a\u{2069}b",
+    ] {
+        assert!(validate_nickname(invalid).is_err(), "{invalid:?}");
+    }
+}
+
+#[test]
+fn nicknames_commit_refuse_duplicates_clear_and_reopen_without_changing_task_or_evidence() {
+    let directory = Directory::new();
+    let store = worker(&directory, "nickname-project");
+    loaded(&store);
+    let task = create(&store, snapshot("nickname-project", 7));
+    let record = ProviderRecord {
+        id: "nickname-evidence".into(),
+        agent: crate::providers::Agent::Codex,
+        generation: 1,
+        thread_id: "thread".into(),
+        turn_id: "turn".into(),
+        item_id: "item".into(),
+        origin: "Codex provider-native".into(),
+        coverage: "Public observed result only".into(),
+        text: "Original evidence".into(),
+        complete: true,
+        partner: Some(attribution(1, "Eevee #1", task.form)),
+    };
+    let mut pending = Some(JournalRequest {
+        task_id: task.id,
+        operation: JournalOperation::Put(Box::new(record.clone())),
+    });
+    assert!(store.try_journal(&mut pending));
+    assert!(
+        matches!(event(&store), Event::Journal { result: Ok(JournalResponse::Saved(back)), .. } if back == record)
+    );
+    party_mutation(&store, PartyRequest::Add).unwrap();
+    let rename = |partner, nickname: Option<&str>| PartyRequest::Nickname {
+        partner,
+        nickname: nickname.map(str::to_owned),
+    };
+    let mut expected = return_full_check(&directory);
+    expected[0].nickname = Some("Éclair".into());
+    assert_eq!(
+        party_mutation(&store, rename(1, Some("Éclair"))).unwrap(),
+        expected
+    );
+    expected[1].nickname = Some("Mizu".into());
+    assert_eq!(
+        party_mutation(&store, rename(2, Some("Mizu"))).unwrap(),
+        expected
+    );
+    // Unicode case comparison applies across partners, not to one's own name.
+    assert!(
+        party_mutation(&store, rename(2, Some("éCLAIR")))
+            .unwrap_err()
+            .contains("already uses")
+    );
+    assert_eq!(return_full_check(&directory), expected);
+    for invalid in [Some("thirteenchars"), Some("Bad\nname"), Some("")] {
+        assert!(party_mutation(&store, rename(1, invalid)).is_err());
+        assert_eq!(return_full_check(&directory), expected);
+    }
+    for missing in [0, -1, 999] {
+        for nickname in [None, Some("Other")] {
+            assert!(
+                party_mutation(&store, rename(missing, nickname))
+                    .unwrap_err()
+                    .contains("does not exist")
+            );
+            assert_eq!(return_full_check(&directory), expected);
+        }
+    }
+    expected[0].nickname = Some("éCLAIR".into());
+    assert_eq!(
+        party_mutation(&store, rename(1, Some("éCLAIR"))).unwrap(),
+        expected
+    );
+    drop(store);
+    let reopened = worker(&directory, "nickname-project");
+    let project = loaded(&reopened);
+    assert_eq!(project.partners, expected);
+    assert_eq!(project.tasks, vec![task.clone()]);
+    expected[0].nickname = None;
+    assert_eq!(
+        party_mutation(&reopened, rename(1, None)).unwrap(),
+        expected
+    );
+    drop(reopened);
+    let reopened = worker(&directory, "nickname-project");
+    let project = loaded(&reopened);
+    assert_eq!(project.partners, expected);
+    assert_eq!(project.tasks, vec![task.clone()]);
+    let mut pending = Some(JournalRequest {
+        task_id: task.id,
+        operation: JournalOperation::List,
+    });
+    assert!(reopened.try_journal(&mut pending));
+    assert!(
+        matches!(event(&reopened), Event::Journal { result: Ok(JournalResponse::Records(records)), .. } if records == vec![record])
+    );
+}
+
+#[test]
+fn reserved_long_nicknames_remain_readable_and_can_be_cleared() {
+    let directory = Directory::new();
+    drop(state(&directory, "project", Policy::default()));
+    let legacy = "Reserved nickname predating PK01";
+    {
+        let connection = Connection::open(directory.0.join(DATABASE)).unwrap();
+        connection
+            .execute("UPDATE partners SET nickname=?1 WHERE id=1", [legacy])
+            .unwrap();
+    }
+    let store = worker(&directory, "project");
+    assert_eq!(loaded(&store).partners[0].nickname.as_deref(), Some(legacy));
+    assert!(
+        party_mutation(
+            &store,
+            PartyRequest::Nickname {
+                partner: 1,
+                nickname: None,
+            },
+        )
+        .unwrap()[0]
+            .nickname
+            .is_none()
+    );
+}
+
+#[test]
+fn nickname_queue_retains_owned_text_on_backpressure_and_disconnect() {
+    let (commands, incoming) = mpsc::sync_channel(1);
+    let mut worker = Worker {
+        commands: Some(commands),
+        events: None,
+        thread: None,
+    };
+    let request = PartyRequest::Nickname {
+        partner: 1,
+        nickname: Some("Eevee".into()),
+    };
+    let mut pending = Some(request.clone());
+    assert!(worker.try_party(&mut pending));
+    assert!(pending.is_none());
+    assert!(!worker.try_party(&mut pending));
+    pending = Some(request.clone());
+    assert!(!worker.try_party(&mut pending));
+    assert_eq!(pending, Some(request.clone()));
+    drop(incoming);
+    assert!(!worker.try_party(&mut pending));
+    assert_eq!(pending, Some(request.clone()));
+    worker.commands.take();
+    assert!(!worker.try_party(&mut pending));
+    assert_eq!(pending, Some(request));
+}
+
+#[test]
+fn nickname_store_enforces_unicode_write_boundaries_without_losing_the_original() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let accepted = "👩‍💻e\u{301}".repeat(6);
+    let roster = store.nickname_partner(1, Some(accepted.clone())).unwrap();
+    assert_eq!(roster[0].nickname.as_deref(), Some(accepted.as_str()));
+    for refused in [
+        format!("{accepted}界"),
+        format!("a{}", "\u{301}".repeat(256)),
+        "Unsafe\u{202e}".into(),
+    ] {
+        assert!(store.nickname_partner(1, Some(refused)).is_err());
+        assert_eq!(return_full_check(&directory), roster);
+    }
+}
+
 #[test]
 fn schema_eight_migrates_request_drafts_without_changing_task_facts() {
     let mut connection = Connection::open_in_memory().unwrap();

@@ -240,7 +240,7 @@ All four steps completed: final-source Rust checks and six targeted actual-TUI j
 ## Active request — complete wave 2 Partner basics, one task per commit
 
 1. EV07 — **Done:** top Return to Eevee picker action and guarded `/eevee`, byte-preserved task/draft/evidence payloads, explicit cancellation before switching, unknown-outcome holds. Rust 1.90.0: 632 passed / 2 ignored, fmt/strict Clippy/release build passed; actual TUI passed 16 cases at 120×36/60×18 and the execution regression passed 8.
-2. PK01 — Partner nickname: bounded, unique Unicode names, clearing, restart persistence, local-only attribution and zero nickname bytes in provider packets.
+2. PK01 — **Done:** personal Unicode nickname editor, transactional reserved-column uniqueness/bounds/clear, personal-only and task-backed restart, committed identity snapshots and zero automatic packet flavor. Rust 1.90.0: 644 passed / 2 ignored, fmt/strict Clippy/release build passed; actual TUI passed eight journey groups including all nine forms at both sizes, boundary/duplicate/clear and real loopback payload/receipt isolation.
 3. EV01A — Suggestion rules: implement the first-match evidence table, current source/run freshness and observed fixtures without automatic selection.
 4. EV01B — Picker suggestion and dismissal: mark the recommendation, persist dismissal until the triggering evidence identity changes, and prove restart behavior.
 5. EV02 — Carry-over strip: report stored evidence counts and capability differences after switches without taking input focus; support reopening and narrow monochrome/ASCII layouts.

@@ -153,6 +153,7 @@ impl Receipt {
             "Total sent by Eevee: {} B ≈ {} tok",
             self.bytes, self.tokens
         ));
+        lines.push("Partner flavor added by Eevee: 0 B (nicknames stay local).".into());
         lines.push("Not counted: provider instructions, tool schemas, resumed history and cache hits. Provider usage and billing are unknown unless the provider reports them; unknown is not zero.".into());
         lines
     }

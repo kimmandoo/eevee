@@ -41,6 +41,7 @@ impl App {
                 true
             }
             Event::Paste(_) if self.reset_after_save || self.confirmation.is_some() => false,
+            Event::Paste(text) if self.nickname_editor.is_some() => self.nickname_paste(&text),
             Event::Paste(text)
                 if self.command_popup.is_some()
                     && self.editing
@@ -593,6 +594,9 @@ impl App {
         if self.command_popup.is_some() {
             return self.command_popup_key(key);
         }
+        if self.nickname_editor.is_some() {
+            return self.nickname_key(key);
+        }
         // Backspace is the previous-form toggle on every non-text surface;
         // inside any text field it stays a plain delete. Held repeats are
         // consumed once so the toggle never flips twice from one keydown.
@@ -705,6 +709,9 @@ impl App {
         match key.code {
             KeyCode::Tab | KeyCode::BackTab => {
                 return self.cycle_focus(key.code == KeyCode::BackTab);
+            }
+            KeyCode::Char('n') if self.effective_focus() == Pane::Companion => {
+                self.open_nickname(self.lead().id);
             }
             KeyCode::Enter => match self.effective_focus() {
                 Pane::Companion => self.open_overlay(Overlay::Forms),

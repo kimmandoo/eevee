@@ -1,5 +1,20 @@
 # Troubleshooting
 
+### [2026-10-16] Empty-project startup skipped personal partner identity restoration
+
+- **Context / Symptom:** A PK01 regression loaded a committed partner nickname with an empty task list, but the lead still had the default name. Task-backed restarts already restored the nickname.
+- **Root Cause:** The Loaded handler refreshed the lead partner only inside its selected-task branch; the no-task path copied the roster without updating the lead.
+- **Solution:** Restored the lead from the committed roster even without a selected task, preserving an unsaved live form when local edits existed. The runtime proof also renames before creating any task, exits, and restarts.
+
+
+### [2026-10-16] Rejected nickname paste could turn Enter into an unintended clear
+
+- **Context / Symptom:** The PK01 actual-TUI boundary case deleted the old candidate, pasted 13 CJK graphemes, and pressed Enter. Paste was visibly refused, but Enter saved the remaining empty editor and cleared the committed nickname.
+- **Root Cause:** Insertion rejection retained the previous editor text but its error did not participate in save admission. Empty text was independently valid as the clear action.
+- **Solution:** Retained an insertion-rejected flag until an explicit valid edit/correction. Enter after refused input queued no mutation; store-failure errors remained separately retryable. Added a regression starting from a committed nonempty nickname.
+- **Prevention / Reference:** The actual terminal proof covers 13-grapheme refusal, the 12-CJK boundary, duplicate rejection and explicit clearing; display clipping never becomes a different saved value.
+
+
 ### [2026-10-16] Neutral intake-return review hid a retained provider draft
 
 - **Context / Symptom:** The EV07 actual-TUI provider cancellation journey kept the stored follow-up draft but showed the empty composer placeholder after Stay or an unknown cancellation outcome.
