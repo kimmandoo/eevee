@@ -16,8 +16,8 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 
 ## Status
 
-- **Released:** 0.1.8 (tags v0.1.0–v0.1.8), including direct ordinary sending, one Codex provider with distinct connection methods, durable last-used model/effort, verified public installation/runtime and actual GPT-6.1 restart/responses. Released store: Schema 10.
-- **Active user request:** Implement PT06A–PT06C and release v0.1.9. PT06A/B/C are implemented and verified in source; publication of v0.1.9 is in progress (see `docs/WORK_CHECKPOINT.md`).
+- **Released:** 0.1.9 (tags v0.1.0–v0.1.9), adding PT06 partner attribution, per-partner request routing and partner-named approvals plus the compact model/attachment UX. Released store: Schema 10.
+- **Active user request:** None. PT06A–PT06C shipped in v0.1.9; await new scope.
 - **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B, PT05A/PT05B, RF05, PT06A/PT06B/PT06C and the first code-structure pass (index below). **Open:** 93 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.
