@@ -1,5 +1,17 @@
 # Work Checkpoint
 
+## 2026-10-16 — EV03B owning-form redirect (complete; not released)
+
+- **User scope:** Resume the interrupted EV03B task, preserving its existing uncommitted changes.
+- **Change:** `App::role_owner` identifies Jolteon for `/command-edit` and Flareon for `/paths` and `/role-implement` outside Flareon/Leafeon. The disabled reason names the owner; Enter offers `Switch to <form>`, Escape stays, and a second deliberate Enter reuses the normal guarded form-switch path. Switching never replays the refused action or grants permissions. Existing neutral reviews retain input ownership; `/run` evidence browsing remains available to every form.
+- **Regression coverage:** Refusal and switching start neither provider work nor command/write editors; cancellation retains the Unicode draft/caret and selected paths; both implementation forms retain explicit path editing. An existing command/navigation review is not covered by a redirect popup or invalidated.
+- **Verification:** `cargo +1.90.0 fmt --check`; `cargo +1.90.0 test --locked --all-targets` — 629 passed / 2 ignored; `cargo +1.90.0 clippy --locked --all-targets -- -D warnings`; `cargo +1.90.0 build --locked --release` all passed.
+- **Actual TUI proof:** Six cases (Glaceon `/paths`, Glaceon `/role-implement`, Espeon `/run` → `/command-edit`, each at 120×36 and 60×18) passed disabled-owner reason, Escape, deliberate switch and explicit local retry. Source bytes stayed unchanged and execution/provider journals stayed empty. Captures/results: `target/ev03b-tui/results.json`. At 60×18 the disabled reason wraps fully into two rows. The throwaway driver was removed.
+- **Integration proof:** `target/ux-venv/bin/python scripts/execution_smoke.py --binary target/release/ev --output target/ev03b-final-execution` passed 8 cases; the corresponding `execution_recovery_smoke.py` run at `target/ev03b-final-recovery` passed 6; `workflow_smoke.py` at `target/ev03b-final-workflow` passed 15. All six modified Python smoke scripts passed `py_compile`. Live provider planning/implementation and the performance suite were not rerun.
+- **Resolved issues:** Compact history kept state/time separate from partner attribution so freshness remained visible. Smoke fixtures selected owning forms and stopped pinning obsolete capture/provider titles. The configured rust-analyzer exited on reference inspection; scoped inspection, compiler and runtime verification were used without global-tool changes. See TROUBLESHOOTING.
+- **Changed files:** `src/app/commands.rs`, `src/app/tests.rs`, `src/ui/execution.rs`; six execution/recovery/implementation/performance/planning/workflow smoke scripts; DESIGN_RULES, IMPLEMENTATION_PLAN, TROUBLESHOOTING, CHANGELOG, task.md, tasks/B-partner-basics.md and this checkpoint.
+- **Exact next action / limits:** EV03B is complete. EV07 is next in wave 2 when requested. No release, push or installed-command replacement was requested/performed; version stays 0.1.9. Partner forwarding remains PT10's dependency, not an implemented control. No schema, strategy or credentials changed; no backtest applied.
+
 ## 2026-10-16 — EV03A form capability chip (complete; not released)
 
 - **User scope:** Implement the next task in recommended order.

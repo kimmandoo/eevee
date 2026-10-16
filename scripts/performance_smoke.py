@@ -382,6 +382,7 @@ def prepare_command(session, fixture, mode, state):
     session.paste(GOAL)
     session.send("\r")
     wait_for(session, "Storage: saved")
+    session.command("jolteon")  # Jolteon owns command preparation.
     session.command("run")
     wait_for(session, "local command evidence")
     session.command("command-edit")

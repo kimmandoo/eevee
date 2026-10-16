@@ -380,7 +380,48 @@ impl App {
         {
             return Some("Save task/context first and wait for storage acknowledgement; no request was prepared.".into());
         }
-        None
+        self.role_owner(name).map(|owner| {
+            let form = crate::domain::FORMS[owner].name;
+            format!(
+                "{form} {} Choose Switch to {form}; nothing was started.",
+                if owner == 2 {
+                    "runs commands."
+                } else {
+                    "edits source."
+                }
+            )
+        })
+    }
+
+    /// The form that owns `name` when the active form may not start it (EV03B):
+    /// commands belong to Jolteon, source edits to Flareon (Leafeon also edits
+    /// its refactor scope). Descriptive routing only; grants are unchanged.
+    fn role_owner(&self, name: &str) -> Option<usize> {
+        match name {
+            "command-edit" if self.form() != 2 => Some(2),
+            "paths" | "role-implement" if !matches!(self.form(), 3 | 6) => Some(3),
+            _ => None,
+        }
+    }
+
+    /// After an out-of-role refusal, offer exactly one working choice: switch
+    /// the lead to the owning form. Switching never starts the action.
+    fn offer_owner(&mut self, name: &str) {
+        if let Some(owner) = self.role_owner(name)
+            && self
+                .command_disabled_reason(FORM_COMMANDS[owner].0)
+                .is_none()
+        {
+            self.command_popup = Some(Popup {
+                query: String::new(),
+                selected: Some(0),
+                choices: vec![Choice::new(
+                    FORM_COMMANDS[owner].0,
+                    format!("Switch to {}", crate::domain::FORMS[owner].name),
+                )],
+                scope: self.overlay,
+            });
+        }
     }
 
     pub(super) fn open_commands(&mut self) {
@@ -464,6 +505,7 @@ impl App {
                     .or_else(|| self.command_disabled_reason(choice.command))
                 {
                     self.notice = reason;
+                    self.offer_owner(choice.command);
                     return true;
                 }
                 let name = choice.command;
@@ -522,6 +564,7 @@ impl App {
     pub fn command(&mut self, name: &str) -> bool {
         if let Some(reason) = self.command_disabled_reason(name) {
             self.notice = reason;
+            self.offer_owner(name);
             return true;
         }
         self.command_popup = None;

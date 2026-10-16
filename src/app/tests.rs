@@ -2839,3 +2839,96 @@ fn each_forms_primary_empty_action_opens_its_flow_and_executes_nothing() {
         assert!(app.execution.history.is_empty(), "{}", form.name);
     }
 }
+
+#[test]
+fn out_of_role_actions_name_the_owner_and_offer_a_working_switch() {
+    for (form, command, owner, owner_index) in [
+        ("glaceon", "role-implement", "Flareon", 3),
+        ("glaceon", "paths", "Flareon", 3),
+        ("espeon", "command-edit", "Jolteon", 2),
+    ] {
+        let mut app = app();
+        app.command(form);
+        if command == "command-edit" {
+            // Command preparation lives in the evidence view, open to every form.
+            app.command("run");
+            assert_eq!(app.overlay, Some(Overlay::Execution));
+        }
+        let before = app.form();
+        let operation = app.planning.operation;
+        let reason = app.command_disabled_reason(command).expect(command);
+        assert!(reason.contains(&format!("Switch to {owner}")), "{reason}");
+        // Typed through the palette like a user: nothing starts.
+        key(&mut app, KeyCode::Char('/'));
+        type_text(&mut app, command);
+        key(&mut app, KeyCode::Enter);
+        assert!(app.notice.contains(owner), "{}", app.notice);
+        assert_eq!(app.form(), before);
+        assert_eq!(app.planning.operation, operation);
+        assert!(app.planning.paths_editor.is_none());
+        assert!(!app.editing || app.editor_field != store::EditorField::Command);
+        assert!(app.planning.pending.is_none() && !app.execution.busy());
+        let popup = app.command_popup.as_ref().expect("switch offered");
+        assert_eq!(popup.choices[0].label, format!("Switch to {owner}"));
+        // The offer works and only switches the form.
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.form(), owner_index, "{}", app.notice);
+        assert!(app.planning.paths_editor.is_none());
+        assert!(!app.editing || app.editor_field != store::EditorField::Command);
+        assert!(app.planning.pending.is_none() && !app.execution.busy());
+        assert!(app.command_disabled_reason(command).is_none());
+    }
+    // An existing neutral review retains sole input ownership.
+    let mut app = app();
+    app.command("espeon");
+    assert!(app.execution.prepare_command(1, r#"["printf","kept"]"#));
+    app.command("jolteon");
+    assert!(app.execution.confirmation.is_some());
+    app.command("command-edit");
+    assert!(app.command_popup.is_none());
+    assert_eq!(app.form(), 4);
+    assert!(app.execution.confirmation.is_some());
+    assert!(
+        app.execution.busy(),
+        "refusal must not invalidate the request"
+    );
+}
+
+#[test]
+fn cancelling_an_owner_switch_keeps_the_draft_and_editing_scope() {
+    let mut app = app();
+    app.command("glaceon");
+    app.open_editor(store::EditorField::Request);
+    type_text(&mut app, "review only 漢字");
+    let draft = (app.input.clone(), app.cursor);
+    app.planning.edit_paths.push("selected.rs".into());
+    key(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "paths");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.form(), 7);
+    assert_eq!((app.input.clone(), app.cursor), draft);
+    assert!(app.editing);
+    assert_eq!(
+        app.planning.edit_paths,
+        vec![std::path::PathBuf::from("selected.rs")]
+    );
+    assert!(app.planning.paths_editor.is_none());
+    assert!(app.planning.pending.is_none() && !app.execution.busy());
+
+    // Both implementation forms may explicitly open scope selection.
+    for form in ["flareon", "leafeon"] {
+        app.command(form);
+        app.command("paths");
+        assert!(
+            app.planning.paths_editor.is_some(),
+            "{form}: {}",
+            app.notice
+        );
+        assert_eq!(
+            app.planning.edit_paths,
+            vec![std::path::PathBuf::from("selected.rs")]
+        );
+        key(&mut app, KeyCode::Esc);
+    }
+}

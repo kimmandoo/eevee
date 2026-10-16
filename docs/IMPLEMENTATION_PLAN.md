@@ -229,3 +229,10 @@ All four steps completed: final-source Rust checks and six targeted actual-TUI j
 2. Compact model setup into model → supported reasoning level → retained editor, with distinct current/focus styling and optional complete metadata/error details. Add exact-first search, non-destructive return to the originating model search, direct exact-ID/effort arguments and direct ready-provider activation through existing reviews.
 3. Give `@` and source browsing direct bounded preview/attach/remove controls; filter paths locally with case-insensitive scoped abbreviations and keep saved identities/ranges visible beside the draft. Return after durable attachment acknowledgment without losing the draft or weakening exclusions, secret review or permission boundaries.
 4. Exercise actual wide/compact terminal workflows and install/update animation, then run integrated Rust checks and update session evidence. Do not advance PT06A or publish a release.
+
+## Completed request — EV03B owning-form redirect (not released)
+
+1. Resumed the uncommitted EV03B command routing, tests, compact history layout and smoke-driver migrations rather than skipping to EV07.
+2. Kept command preparation with Jolteon and source-edit setup with Flareon/Leafeon. Offered the existing deliberate form-switch path after refusal without replaying the action, changing grants or covering an existing neutral review.
+3. Passed Rust 1.90.0 all-target tests (629 passed, 2 ignored), fmt, strict Clippy and release build. Passed six actual-TUI redirect cases at 120×36/60×18, eight execution cases, six recovery cases and fifteen workflow cases.
+4. Updated DESIGN_RULES, task status, changelog, troubleshooting and checkpoint. No schema/strategy change or release; EV07 is next when requested.

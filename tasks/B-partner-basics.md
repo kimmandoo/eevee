@@ -20,11 +20,12 @@ These tasks make each switch informed and each form immediately useful, for the 
 
 ### EV03B — Owning-form redirect
 
-- [ ] Route an out-of-role action to the form that owns it.
+- [x] Route an out-of-role action to the form that owns it.
 - **Priority:** 1. **Needs:** EV03A. **Builds on:** R01, A03.
 - **Change:** An out-of-role action shows a disabled reason naming the owning form and offers `Switch to <form>`. After PT10, it also offers `Send to <partner>` when an idle party member is in that form.
 - **Accept:** Requesting an edit from Glaceon and a command from Espeon each name the owner and offer a working switch, without starting the action.
 - **Watch out:** Never widen or bypass a grant.
+- **Verified:** Glaceon `/paths` and `/role-implement` offered Flareon; Espeon `/run` → `/command-edit` offered Jolteon. Actual TUI passed all three routes at 120×36 and 60×18, including Escape, deliberate switching and explicit retry, with zero execution/provider records and unchanged source. The switch did not replay the action. Leafeon retained explicit scope editing; existing neutral reviews kept priority. `Send to <partner>` remains dependent on PT10.
 
 ### EV07 — Return to Eevee
 
