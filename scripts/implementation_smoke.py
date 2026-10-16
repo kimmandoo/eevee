@@ -107,6 +107,7 @@ def main():
                           'I will verify through the local runner afterward. Ask approval for the exact patch and stop if denied.')
             session.send('\r')
             wait_for(session, 'Storage: saved')
+            session.command('flareon')  # Flareon owns source edits.
             session.command('role-implement')
             wait_for(session, TITLE)
             session.command('paths')
@@ -155,6 +156,7 @@ def main():
             wait_for(session, 'Repository', timeout=30)
             session.capture('working-diff-review')
             session.send('\x1b')
+            session.command('jolteon')  # Jolteon owns command preparation.
             session.command('run')
             session.command('command-edit')
             wait_for(session, 'Command / explicit JSON argv or shell')
@@ -173,6 +175,7 @@ def main():
             passed('working patch reviewed and deliberately checked through separate local runner')
 
             resumed = launch('journal-restart')
+            resumed.command('flareon')
             resumed.command('role-implement')
             wait_for(resumed, TITLE)
             resumed.command('provider-journal')

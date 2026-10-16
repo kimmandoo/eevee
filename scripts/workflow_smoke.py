@@ -114,7 +114,7 @@ def main():
                 session.send("\r")
                 wait_for(session, "1 eligible files /", timeout=35)
                 session.send("\r")
-                wait_for(session, "Inspected capture /")
+                wait_for(session, "Review local capture /")
                 session.command("range")
                 wait_for(session, "Source range / inclusive")
                 session.send(HOME + DELETE * 3)
@@ -126,6 +126,7 @@ def main():
                 wait_for(session, "Storage: saved")
 
             def execute_check(session, expected, state="Succeeded"):
+                session.command("jolteon")  # Jolteon owns command preparation.
                 session.command("run")
                 wait_for(session, "local command evidence")
                 session.command("command-edit")
@@ -297,7 +298,7 @@ def main():
             resumed.capture("diagnosis-linked-observations")
             passed("Actual source and command links distinguish refuted and supported hypotheses")
             menu(resumed, 7)
-            wait_for(resumed, "Flareon / Codex implementation")
+            wait_for(resumed, "Flareon /")
             until(resumed, lambda: diagnosis in rows()[0]["next_action"], "diagnosis handoff save")
             assert "source:" in rows()[0]["next_action"] and "run:" in rows()[0]["next_action"]
             assert "overflow" not in rows()[0]["next_action"]
@@ -318,7 +319,7 @@ def main():
             menu(resumed, 3)
             until(resumed, lambda: rows()[0]["workflows"]["refactor"] is not None, "bounded baseline save")
             menu(resumed, 4)
-            wait_for(resumed, "Flareon / Codex implementation")
+            wait_for(resumed, "Flareon /")
             assert rows()[3] == 0
             resumed.send(ESC)
             resumed.send(ESC)

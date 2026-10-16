@@ -57,6 +57,8 @@
 
 ## 2026-10-16
 
+- feat(forms): routed out-of-role command preparation to Jolteon and source-edit setup to Flareon with a disabled reason and deliberate switch, without replaying the action or granting permissions.
+- fix(execution): kept run state and freshness visible in compact history after partner attribution was added.
 - feat(forms): added a header capability chip per form from the role table (`read`, `read · run`, `read · edit`, `read · edit plans`, `read · edit docs`) that yields to higher-priority status text and leaves project/form names untouched.
 - feat(forms): showed each form's `object → action` line and one primary action (criteria edit, file attach, command review, write paths, design question, diagnosis/refactor/review desks, handoff preview) on the empty home surface.
 - chore(release): published v0.1.9 from `c4b8cd9` after Check and all five native rows passed (run `38841536756`), verified eight public assets and seven checksums, and passed the PT06 partner-attribution TUI journey on the published Linux binary at 120×36 and 60×18.

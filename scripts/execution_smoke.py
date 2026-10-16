@@ -235,6 +235,7 @@ def main():
                 wait_for(session, "Storage: saved")
 
             def open_execution(session):
+                session.command("jolteon")  # Jolteon owns command preparation.
                 session.command("run")
                 wait_for(session, TITLE)
 

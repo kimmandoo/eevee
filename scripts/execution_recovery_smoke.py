@@ -84,6 +84,7 @@ def main():
 
             def prepare(session, value):
                 session.send('\x1b')
+                session.command('jolteon')  # Jolteon owns command preparation.
                 session.command('run')
                 wait_for(session, TITLE)
                 old = task()[0]

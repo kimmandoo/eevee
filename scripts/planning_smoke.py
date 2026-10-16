@@ -133,7 +133,7 @@ def main():
             stale.send('\r')
             wait_for(stale, '1 eligible files /')
             stale.send('\r')
-            wait_for(stale, 'Inspected capture /')
+            wait_for(stale, 'Review local capture /')
             stale.command('attach')
             wait_for(stale, '1 task-owned basket references / stored')
             stale.command('close')

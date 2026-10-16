@@ -275,7 +275,7 @@ fn history(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         .enumerate()
     {
         let line = format!(
-            "{} {:?} · task {} · {} · ended {:?}\n{}\n{}",
+            "{} {:?} · task {} · ended {:?}\n{} · {}\n{}",
             if index == state.history_index {
                 ">"
             } else {
@@ -283,9 +283,9 @@ fn history(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             },
             record.state,
             record.prepared.task_id,
-            crate::store::Attribution::label(record.prepared.partner.as_ref()),
             record.ended_at_ms,
             record.prepared.run_id,
+            crate::store::Attribution::label(record.prepared.partner.as_ref()),
             execution::evidence_label(record, &state.latest)
         );
         text(

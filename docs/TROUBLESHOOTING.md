@@ -1,5 +1,19 @@
 # Troubleshooting
 
+### [2026-10-16] Partner attribution displaced compact run evidence and smoke routes
+
+- **Context / Symptom:** The resumed EV03B recovery evidence showed `Failed` in the 60×18 history but lost the `Failed command` freshness line. Local workflow acceptance also waited for the obsolete `Flareon / Codex implementation` title while the actual native route displayed `Flareon / Codex · native (no tools) implementation`.
+- **Root Cause:** Partner attribution lengthened the first history line beyond the fixed three-row slot. Smoke drivers also assumed any form could prepare commands or source edits, and pinned older capture/provider display copy.
+- **Solution:** Kept state/task/end time on the first history row and moved partner attribution beside the run id on the second. Migrated command-preparation fixtures to Jolteon and implementation fixtures to Flareon. Used the current capture review boundary and provider-independent Flareon title prefix while retaining stored-evidence, no-send and unchanged-source assertions.
+- **Prevention / Reference:** `scripts/execution_smoke.py`, `scripts/execution_recovery_smoke.py` and `scripts/workflow_smoke.py`; owning-form switches never replay the blocked action.
+
+### [2026-10-16] Rust language server exited during resumed EV03B inspection
+
+- **Context / Symptom:** The configured rust-analyzer failed the command-gate reference request with `LSP server exited unexpectedly (code 0)`.
+- **Root Cause:** The configured server was not usable in this session; no symbol response was available.
+- **Solution:** Used scoped source/caller inspection and Rust 1.90.0 compiler, test and Clippy verification without changing global tooling. No exported symbol was changed.
+
+
 ### [2026-10-16] Update progress differed from installation before download
 
 - **Context / Symptom:** Self-update performed its initial release lookup before the installer's visible phases and did not preserve the user's UTF-8 locale when handing over to it.
