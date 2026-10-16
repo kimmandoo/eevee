@@ -29,11 +29,12 @@ These tasks make each switch informed and each form immediately useful, for the 
 
 ### EV07 — Return to Eevee
 
-- [ ] Step the lead partner back to intake in one action.
+- [x] Step the lead partner back to intake in one action.
 - **Priority:** 1. **Needs:** PT03A. **Builds on:** V03.
 - **Change:** `/eevee` (from PT03A) plus a top picker entry; also show EV01's suggestion once EV01A exists.
-- **Accept:** Return from Flareon, Umbreon and Sylveon; stored state is byte-identical before and after.
+- **Accept:** Return from Flareon, Umbreon and Sylveon; stored task payload, draft text/carets and evidence are byte-identical before and after. Form/previous-form navigation, revision and save time change as required by a persisted switch.
 - **Watch out:** A working partner offers Stay or cancel-and-wait; never cancel implicitly.
+- **Verified:** 16 actual-TUI cases at 120×36 and 60×18 passed named/picker returns from all three forms with a real capture/run and retained Unicode draft, owned-command Stay then cancel-and-wait, and native cancellation holding the form on unknown remote outcome. Provider cancellation retained the visible draft/caret. No implicit execution/send; EV01A's future recommendation remains separate.
 
 ### PK01 — Partner nickname
 

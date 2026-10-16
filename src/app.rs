@@ -64,6 +64,7 @@ pub enum ConfirmationKind {
     DeleteTasks,
     ResetTask,
     ReplaceWithInit,
+    ReturnToEevee,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,6 +101,7 @@ struct OverlayFrame {
     selected: usize,
     focus: Pane,
     preview_form: usize,
+    form_return_selected: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -175,6 +177,7 @@ pub struct App {
     pub task_selection: usize,
     pub criterion_selection: usize,
     pub notice: String,
+    pub form_return_selected: bool,
     pub transitioning: bool,
     pub switch_task: Option<i64>,
     pub policy: store::Policy,
@@ -210,6 +213,8 @@ pub struct App {
     pending_command: Option<(String, store::Attribution)>,
     /// Enter's save barrier. Never restored from disk or triggered by autosave.
     pending_request: Option<(u64, bool)>,
+    /// Explicit cancellation intent, bound to the task and lead that requested it.
+    return_after_cancel: Option<(i64, i64)>,
     edit_original: String,
     form_selection: usize,
     overlay_history: Vec<OverlayFrame>,
@@ -278,6 +283,7 @@ impl App {
             task_selection: 0,
             criterion_selection: 0,
             notice: String::new(),
+            form_return_selected: false,
             transitioning: false,
             switch_task: None,
             policy: store::Policy::default(),
@@ -311,6 +317,7 @@ impl App {
             deletion_preview_pending: false,
             pending_command: None,
             pending_request: None,
+            return_after_cancel: None,
             edit_original: String::new(),
             form_selection: 0,
             overlay_history: Vec::new(),

@@ -1,5 +1,13 @@
 # Troubleshooting
 
+### [2026-10-16] Neutral intake-return review hid a retained provider draft
+
+- **Context / Symptom:** The EV07 actual-TUI provider cancellation journey kept the stored follow-up draft but showed the empty composer placeholder after Stay or an unknown cancellation outcome.
+- **Root Cause:** Generic slash dispatch retained and closed the composer before opening the local Return to Eevee confirmation. The review did not open an overlay whose closure would restore the editor.
+- **Solution:** Handled the busy `/eevee` and `/normal` review before generic editor retention, so neutral Stay and cancelled/unknown outcomes kept the original input, caret and editing state. Regression coverage checks both known and unknown cancellation outcomes.
+- **Prevention / Reference:** The native HTTP fixture correctly reported a locally closed reader with remote outcome unknown; intake return remained blocked rather than relabeling it safe cancellation. The owned-command fixture separately verified actual process-tree exit before returning.
+
+
 ### [2026-10-16] Partner attribution displaced compact run evidence and smoke routes
 
 - **Context / Symptom:** The resumed EV03B recovery evidence showed `Failed` in the 60×18 history but lost the `Failed command` freshness line. Local workflow acceptance also waited for the obsolete `Flareon / Codex implementation` title while the actual native route displayed `Flareon / Codex · native (no tools) implementation`.

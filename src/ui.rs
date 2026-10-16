@@ -989,18 +989,29 @@ fn forms(
     text(
         frame,
         row(content, 1, 1),
-        &format!(
-            "Enter Select / Esc Back / /images ({}/9)",
-            artwork.available()
-        ),
-        paint.accent,
+        if app.form_return_selected {
+            "> Return to Eevee / intake"
+        } else {
+            "  Return to Eevee / intake"
+        },
+        if app.form_return_selected {
+            paint.selected
+        } else {
+            paint.accent
+        },
     );
     let selected = app.selected.min(8);
+    let form_selected = !app.form_return_selected;
     if grid {
         for (index, form) in FORMS.iter().enumerate() {
             let cell = grid_cell(content, index);
             let cell_paint = Paint::new(config, form, index);
-            let block = panel(form.name, config, &cell_paint, index == selected);
+            let block = panel(
+                form.name,
+                config,
+                &cell_paint,
+                form_selected && index == selected,
+            );
             let inside = block.inner(cell);
             frame.render_widget(block, cell);
             text(
@@ -1008,11 +1019,15 @@ fn forms(
                 row(inside, 0, 1),
                 &format!(
                     "{} {}{}",
-                    if index == selected { ">" } else { " " },
+                    if form_selected && index == selected {
+                        ">"
+                    } else {
+                        " "
+                    },
                     index + 1,
                     if index == app.form() { " current" } else { "" }
                 ),
-                if index == selected {
+                if form_selected && index == selected {
                     cell_paint.selected
                 } else {
                     cell_paint.muted
@@ -1037,7 +1052,11 @@ fn forms(
             let item = Rect::new(content.x, content.y + 2 + row_index as u16, list_width, 1);
             let label = format!(
                 "{} {} {:<9}{}",
-                if index == selected { ">" } else { " " },
+                if form_selected && index == selected {
+                    ">"
+                } else {
+                    " "
+                },
                 index + 1,
                 form.name,
                 if index == app.form() { " *" } else { "" }
@@ -1046,7 +1065,7 @@ fn forms(
                 frame,
                 item,
                 &label,
-                if index == selected {
+                if form_selected && index == selected {
                     paint.selected
                 } else {
                     paint.surface
@@ -1516,7 +1535,7 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
         }
     } else {
         match app.overlay {
-            Some(Overlay::Forms) => "Arrows Preview / Enter Select / /preview Details / Esc Back",
+            Some(Overlay::Forms) => "Arrows Preview / Home Intake / Enter Select / Esc Back",
             Some(Overlay::Criteria) => {
                 "Enter Toggle / /criteria-edit / /complete / Arrows Choose / Esc Back"
             }
@@ -1901,6 +1920,7 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
             ConfirmationKind::Quit => " Confirm exit ",
             ConfirmationKind::ResetTask => " Reset local task ",
             ConfirmationKind::ReplaceWithInit => " Prepare /init request ",
+            ConfirmationKind::ReturnToEevee => " Return to Eevee ",
             ConfirmationKind::DeleteTasks => unreachable!("separate deletion preview"),
         },
         config,
@@ -1953,6 +1973,11 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
             "Replace Request draft with /init proposal? Other drafts stay. Select Espeon / Plan, clear write paths. No send/write; review then Run.",
             "Keep draft",
             "Replace with /init",
+        ),
+        ConfirmationKind::ReturnToEevee => (
+            "Return to intake? Cancel provider work and wait for it to finish first. Drafts and evidence stay; cancellation does not roll back effects.",
+            "Stay",
+            "Cancel and wait",
         ),
         ConfirmationKind::DeleteTasks => unreachable!("separate deletion preview"),
     };

@@ -1,5 +1,17 @@
 # Work Checkpoint
 
+## 2026-10-16 — EV07 intake return (complete; wave 2 request continues)
+
+- **User scope:** Implement the next task, then complete the remaining wave 2 Partner basics tasks one-by-one with separate commits: PK01 → EV01A → EV01B → EV02. EV01C belongs to wave 3.
+- **Change:** The form picker has a top `Return to Eevee / intake` action, reached by Home or Up from the first row; Down resumes the nine-form preview. `/eevee` and `/normal` use the same guarded switch. Returning unwinds to intake without replaying an action. Active provider work offers neutral Stay or explicit cancellation; switching waits for completion and journal settlement, and unknown outcomes/journal failures prevent automatic return. Another partner's work is never cancelled by this action.
+- **Preservation:** Actual persisted task payloads, Unicode drafts/carets, source capture and completed-run records stayed byte-identical. Form identity, previous-form navigation, revision and save timestamps intentionally changed; whole-database byte equality would contradict a persisted form change.
+- **Verification:** `cargo +1.90.0 fmt --check`, all-target tests (632 passed / 2 ignored), strict Clippy and release build passed. Four behavioral regressions cover payload preservation across both sizes/routes, nested focus/preview, known versus unknown provider cancellation with visible draft preservation, and another partner's request ownership. Removed the obsolete wrapping-only picker test rather than pinning a new incidental wrap order.
+- **Actual TUI:** `target/ev07-tui/results.json` passed 16 cases: Flareon/Umbreon/Sylveon × named/picker × 120×36/60×18, two owned-process Stay/cancel/wait returns with `OwnedTreeExited`, and two native HTTP cancellation cases that closed the reader but correctly kept Espeon on unknown remote outcome, retaining the unsent draft and making no resend. Native unknown-outcome exit used its separate explicit acknowledgement. The throwaway driver was removed.
+- **Regression runtime:** `target/ux-venv/bin/python scripts/execution_smoke.py --binary target/release/ev --output target/ev07-execution` passed all 8 journeys on the integrated candidate before the final composer-review retention fix; that fix was then exercised in the final two native TUI cases and Rust regressions.
+- **Resolved issue:** Generic command retention hid a draft during the neutral intake-return review; the busy return confirmation now preserves the active composer. TROUBLESHOOTING records the actual failure and fix. Rust language-server inspection remained unavailable (server exited code 0); scoped caller inspection plus compiler/runtime checks were used.
+- **Changed files:** app state/commands/keys/overlays/tasks/tests, UI picker/confirmation/footer, DESIGN_RULES, IMPLEMENTATION_PLAN, TROUBLESHOOTING, CHANGELOG, task.md, tasks/B-partner-basics.md and checkpoint.
+- **Exact next action:** PK01 nickname implementation, following the active wave 2 section of IMPLEMENTATION_PLAN. The overall user request is still active; do not stop after this commit or advance to wave 3. No release/push/install/schema/strategy change; no backtest applied.
+
 ## 2026-10-16 — EV03B owning-form redirect (complete; not released)
 
 - **User scope:** Resume the interrupted EV03B task, preserving its existing uncommitted changes.
