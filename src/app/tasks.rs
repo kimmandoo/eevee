@@ -51,6 +51,7 @@ impl App {
             },
             editing: self.editing,
             editor_field: self.editor_field,
+            dismissed_suggestion: self.dismissed_suggestion.clone(),
         }
     }
 
@@ -164,6 +165,7 @@ impl App {
         self.editing = false;
         self.cursor = 0;
         let navigation = snapshot.navigation;
+        self.dismissed_suggestion = navigation.dismissed_suggestion;
         self.focus = match navigation.focus {
             0 => Pane::Companion,
             2 => Pane::Inspector,

@@ -519,3 +519,134 @@ fn failure_takes_precedence_over_an_accepted_review() {
         .insert(0, failed(&app, "new-failure", 2));
     assert_form(&mut app, Some(5));
 }
+
+#[test]
+fn dismissal_is_deliberate_local_and_stable_until_a_new_failure() {
+    let mut app = app();
+    app.execution.history = vec![failed(&app, "failure-one", 1)];
+    assert_form(&mut app, Some(5));
+    let cached = app.suggestion.clone();
+    let evidence = serde_json::to_value(&app.workflows).unwrap();
+    let history = serde_json::to_value(&app.execution.history).unwrap();
+    app.input = "Unsent draft 한글".into();
+    app.cursor = 7;
+    app.editing = true;
+    app.pending_request = Some((app.revision, false));
+    let pending = app.pending_request;
+    let revision = app.revision;
+    assert!(app.command("suggestion-dismiss"));
+    assert!(app.visible_suggestion().is_none());
+    assert_eq!(
+        app.suggestion, cached,
+        "dismissal must not change the cache"
+    );
+    assert_eq!(app.revision, revision + 1);
+    assert_eq!(app.input, "Unsent draft 한글");
+    assert_eq!(app.cursor, 7);
+    assert!(app.editing);
+    assert_eq!(app.pending_request, pending);
+    assert_eq!(app.form(), 0);
+    assert!(app.pending_command.is_none());
+    assert!(app.planning.pending.is_none());
+    assert_eq!(serde_json::to_value(&app.workflows).unwrap(), evidence);
+    assert_eq!(
+        serde_json::to_value(&app.execution.history).unwrap(),
+        history
+    );
+    app.lead.nickname = Some("Night".into());
+    app.set_form(8);
+    app.input = "Different unsent draft".into();
+    assert!(!app.refresh_suggestion());
+    assert!(app.visible_suggestion().is_none());
+    app.execution
+        .history
+        .insert(0, failed(&app, "failure-two", 2));
+    assert!(app.refresh_suggestion());
+    assert_eq!(app.visible_suggestion().unwrap().form, 5);
+    assert_ne!(
+        app.visible_suggestion().unwrap().trigger,
+        app.dismissed_suggestion.as_deref().unwrap()
+    );
+}
+
+#[test]
+fn dismissal_restores_only_with_its_task_and_new_task_clears_it() {
+    let mut original = app();
+    original.execution.history = vec![failed(&original, "failure-one", 1)];
+    original.refresh_suggestion();
+    assert!(original.dismiss_suggestion());
+    let snapshot = original.snapshot("/fixture");
+    let navigation = serde_json::to_string(&snapshot.navigation).unwrap();
+    assert!(navigation.contains("dismissed_suggestion"));
+    let mut restored = app();
+    restored.load_task(snapshot.clone());
+    restored.execution.history = original.execution.history.clone();
+    restored.refresh_suggestion();
+    assert!(restored.visible_suggestion().is_none());
+    assert_eq!(restored.dismissed_suggestion, original.dismissed_suggestion);
+    let mut other = snapshot.clone();
+    other.id = 8;
+    other.navigation.dismissed_suggestion = None;
+    restored.load_task(other);
+    restored.execution.history = vec![failed(&restored, "failure-one", 1)];
+    restored.refresh_suggestion();
+    assert!(restored.visible_suggestion().is_some());
+    restored.load_task(snapshot);
+    restored.execution.history = original.execution.history.clone();
+    restored.refresh_suggestion();
+    assert!(restored.visible_suggestion().is_none());
+    restored.finish_new_task();
+    assert_eq!(restored.task_id, 0);
+    assert!(restored.dismissed_suggestion.is_none());
+    restored.refresh_suggestion();
+    assert!(restored.visible_suggestion().is_none());
+}
+
+#[test]
+fn dismissal_controls_respect_cancel_editor_review_size_and_empty_state() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    let key = |app: &mut App, code| {
+        app.update(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+    };
+    let mut app = app();
+    app.execution.history = vec![failed(&app, "failure-one", 1)];
+    app.refresh_suggestion();
+    app.command("forms");
+    app.selected = 4;
+    key(&mut app, KeyCode::Esc);
+    assert!(
+        app.dismissed_suggestion.is_none(),
+        "closing picker is neutral"
+    );
+    app.command("forms");
+    app.execution.confirmation = Some(execution::Confirmation::Approval);
+    assert!(!app.dismiss_suggestion());
+    assert!(app.execution.confirmation.is_some());
+    assert!(app.dismissed_suggestion.is_none());
+    app.execution.confirmation = None;
+    app.width = 59;
+    key(&mut app, KeyCode::Char('d'));
+    assert!(app.dismissed_suggestion.is_none());
+    app.width = 120;
+    app.editing = true;
+    app.input.clear();
+    app.cursor = 0;
+    key(&mut app, KeyCode::Char('d'));
+    assert_eq!(app.input, "d");
+    assert!(app.dismissed_suggestion.is_none());
+    app.editing = false;
+    app.form_return_selected = true;
+    key(&mut app, KeyCode::Char('d'));
+    assert!(app.visible_suggestion().is_none());
+    assert!(app.form_return_selected);
+    assert_eq!(app.selected, 4);
+    assert_eq!(app.form(), 0);
+    let revision = app.revision;
+    assert!(!app.dismiss_suggestion());
+    assert_eq!(app.revision, revision);
+    app.suggestion = None;
+    app.dismissed_suggestion = None;
+    assert!(!app.dismiss_suggestion());
+    assert!(app.dismissed_suggestion.is_none());
+    assert_eq!(app.revision, revision);
+}

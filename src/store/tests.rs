@@ -523,7 +523,7 @@ fn migrates_documented_schema_zero_and_one_atomically() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            10
+            11
         );
         assert!(connection.prepare("SELECT * FROM goals").is_err());
         assert!(connection.prepare("SELECT * FROM projects").is_err());
@@ -540,7 +540,7 @@ fn newer_foreign_and_corrupt_databases_are_untouched() {
         } else {
             let connection = Connection::open(&path).unwrap();
             connection.execute_batch(if fixture == 0 {
-                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=11;"
+                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=12;"
                 } else {
                     "CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('keep');"
                 }).unwrap();
@@ -1032,7 +1032,7 @@ fn crash_during_migration(directory: &Directory, kind: &str) {
         )
         .unwrap();
     match kind {
-            "newer" => connection.execute_batch("PRAGMA user_version=11;").unwrap(),
+            "newer" => connection.execute_batch("PRAGMA user_version=12;").unwrap(),
             "foreign" => connection.execute_batch("CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('preserve');").unwrap(),
             "one" => connection.execute_batch(
                 "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL);
@@ -1095,7 +1095,7 @@ fn process_interruption_recovers_legacy_and_current_committed_tasks() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            10
+            11
         );
     }
 }
@@ -1198,6 +1198,7 @@ fn two_tasks_preserve_drafts_navigation_selection_and_timestamps_across_restart(
                 scroll: [1, 2, 3, 4, u16::MAX],
                 overlay: Some(5),
                 previous_form: Some(1),
+                dismissed_suggestion: None,
                 editing: true,
                 editor_field: EditorField::NextAction,
             },
@@ -3596,6 +3597,14 @@ fn old_palette_navigation_preserves_remaining_navigation() {
     assert_eq!(navigation.editor_field, EditorField::NextAction);
     // Stores written before PT03B carry no previous form.
     assert_eq!(navigation.previous_form, None);
+    assert_eq!(navigation.dismissed_suggestion, None);
+    assert_eq!(Navigation::default().dismissed_suggestion, None);
+    assert!(
+        serde_json::to_value(navigation)
+            .unwrap()
+            .get("dismissed_suggestion")
+            .is_none()
+    );
 }
 
 #[test]
@@ -3895,7 +3904,7 @@ fn schema_eight_migrates_request_drafts_without_changing_task_facts() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        10
+        11
     );
     let mut task = Snapshot::empty("/workspace".into());
     task.goal = "Stable task identity".into();
@@ -4048,6 +4057,262 @@ fn schema_nine_preference_migration_is_atomic_and_preserves_existing_data() {
             .unwrap()
             .is_none()
     );
+}
+
+fn stored_table_rows(connection: &Connection, table: &str) -> Vec<Vec<rusqlite::types::Value>> {
+    let mut statement = connection
+        .prepare(&format!("SELECT * FROM {table} ORDER BY rowid"))
+        .unwrap();
+    let columns = statement.column_count();
+    statement
+        .query_map([], |row| {
+            (0..columns)
+                .map(|index| row.get(index))
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
+}
+
+#[test]
+fn schema_ten_dismissal_migration_only_changes_version_and_rolls_back_atomically() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let task = store.save(snapshot("project", 1)).unwrap();
+    store.select(task.id).unwrap();
+    store
+        .context(ContextRequest {
+            task_id: task.id,
+            operation: ContextOperation::Pin(captured_excerpt(
+                task.id,
+                &directory.0.join("source.txt"),
+                "unchanged source evidence",
+            )),
+        })
+        .unwrap();
+    let prepared = prepared_run(task.id, &store.data_dir, "schema-ten");
+    drop(store.reserve_run(task.id, prepared.clone(), 1024).unwrap());
+    let mut record = crate::workspace::runner::RunRecord::awaiting(&prepared);
+    record.state = crate::workspace::runner::RunState::Failed;
+    record.tree = crate::workspace::runner::TreeOutcome::NotStarted;
+    record.ended_at_ms = Some(timestamp().unwrap() as u64);
+    store.update_run(task.id, record).unwrap();
+    store
+        .journal_request(JournalRequest {
+            task_id: task.id,
+            operation: JournalOperation::Put(Box::new(ProviderRecord {
+                id: "schema-ten-provider-item".into(),
+                agent: crate::providers::Agent::Codex,
+                generation: 1,
+                thread_id: "thread".into(),
+                turn_id: "turn".into(),
+                item_id: "item".into(),
+                origin: "Codex provider-native".into(),
+                coverage: "Public observed result only; not a local check".into(),
+                text: "Unchanged provider evidence".into(),
+                complete: true,
+                partner: None,
+            })),
+        })
+        .unwrap();
+    let preferences = ProviderPreferences {
+        provider: crate::providers::Agent::Codex,
+        selections: [(
+            crate::providers::Agent::Codex,
+            crate::providers::ModelSelection {
+                model: Some("exact/schema-ten".into()),
+                effort: Some("high".into()),
+            },
+        )]
+        .into_iter()
+        .collect(),
+    };
+    store
+        .preference_request(PreferenceRequest::Save(preferences.clone()))
+        .unwrap();
+    drop(store);
+
+    let mut connection = Connection::open(directory.0.join(DATABASE)).unwrap();
+    // Whitespace and the obsolete palette field must survive without JSON reserialization.
+    let navigation = r#"{ "focus":1, "linear":false, "form_selection":0,
+        "palette_selection":21, "criterion_selection":0, "scroll":[0,0,0,0,0],
+        "overlay":null, "editing":false, "editor_field":"Goal" }"#;
+    connection
+        .execute("UPDATE tasks SET navigation=?1", [navigation])
+        .unwrap();
+    connection.execute_batch("PRAGMA user_version=10;").unwrap();
+    let tables = [
+        "tasks",
+        "excerpts",
+        "executions",
+        "provider_journal",
+        "provider_preferences",
+        "selections",
+        "partners",
+        "memories",
+        "sqlite_sequence",
+        "sqlite_schema",
+    ];
+    // SQLite values retain each original TEXT/BLOB byte, not a parsed JSON representation.
+    let before: Vec<_> = tables
+        .iter()
+        .map(|table| stored_table_rows(&connection, table))
+        .collect();
+    assert!(matches!(inspect(&connection).unwrap(), Schema::Current));
+    {
+        let transaction = connection.transaction().unwrap();
+        migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
+        assert_eq!(
+            transaction
+                .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
+                .unwrap(),
+            11
+        );
+        assert!(matches!(inspect(&transaction).unwrap(), Schema::Current));
+        for (table, rows) in tables.iter().zip(&before) {
+            assert_eq!(stored_table_rows(&transaction, table), *rows, "{table}");
+        }
+        // Aborting this actual migration transaction also rolls back the version fence.
+    }
+    assert_eq!(
+        connection
+            .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
+            .unwrap(),
+        10
+    );
+    for (table, rows) in tables.iter().zip(&before) {
+        assert_eq!(stored_table_rows(&connection, table), *rows, "{table}");
+    }
+    initialize(&mut connection).unwrap();
+    assert_eq!(
+        connection
+            .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
+            .unwrap(),
+        11
+    );
+    for (table, rows) in tables.iter().zip(&before) {
+        assert_eq!(stored_table_rows(&connection, table), *rows, "{table}");
+    }
+    let restored = load_task(&connection, "project", task.id).unwrap().unwrap();
+    assert_eq!(restored, task);
+    assert_eq!(restored.navigation.dismissed_suggestion, None);
+    assert_eq!(
+        super::preferences::load_preferences(&connection).unwrap(),
+        Some(preferences)
+    );
+}
+
+#[test]
+fn task_local_dismissal_persists_and_clears_through_ordinary_save() {
+    let directory = Directory::new();
+    let worker = worker(&directory, "project");
+    loaded(&worker);
+    let mut task = create(&worker, snapshot("project", 1));
+    let other = create(&worker, snapshot("project", 1));
+    let trigger = format!("task:{}/latest-run-failed:{}", task.id, "a".repeat(64));
+    task.navigation.dismissed_suggestion = Some(trigger.clone());
+    task.revision += 1;
+    let task = create(&worker, task);
+    drop(worker);
+    let reopened =
+        super::Worker::start(directory.0.clone(), "project".into(), Policy::default()).unwrap();
+    let project = loaded(&reopened);
+    assert_eq!(project.tasks, vec![task.clone(), other]);
+    assert_eq!(
+        task.navigation.dismissed_suggestion.as_deref(),
+        Some(trigger.as_str())
+    );
+    let mut cleared = task;
+    cleared.revision += 1;
+    cleared.navigation.dismissed_suggestion = None;
+    let cleared = create(&reopened, cleared);
+    drop(reopened);
+    let restarted =
+        super::Worker::start(directory.0.clone(), "project".into(), Policy::default()).unwrap();
+    assert_eq!(loaded(&restarted).tasks[0], cleared);
+    let connection = open_readonly(&directory.0.join(DATABASE)).unwrap();
+    let navigation: String = connection
+        .query_row(
+            "SELECT navigation FROM tasks WHERE id=?1",
+            [cleared.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(!navigation.contains("dismissed_suggestion"));
+}
+
+#[test]
+fn malformed_foreign_and_oversized_dismissals_refuse_save_and_open_without_mutation() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let mut task = store.save(snapshot("project", 1)).unwrap();
+    let prefix = format!("task:{}/", task.id);
+    let hash = "a".repeat(64);
+    let longest_rule = "r".repeat(160 - prefix.len() - 1 - hash.len());
+    let longest = format!("{prefix}{longest_rule}:{hash}");
+    assert_eq!(longest.len(), 160);
+    task.revision += 1;
+    task.navigation.dismissed_suggestion = Some(longest.clone());
+    task = store.save(task).unwrap();
+    let invalid = [
+        String::new(),
+        format!("task:{}/latest-run-failed:{hash}", task.id + 1),
+        format!("task:0{}/latest-run-failed:{hash}", task.id),
+        format!("task:+{}/latest-run-failed:{hash}", task.id),
+        format!("task:0/latest-run-failed:{hash}"),
+        format!("{prefix}:{hash}"),
+        format!("{prefix}Latest-run-failed:{hash}"),
+        format!("{prefix}latest_run_failed:{hash}"),
+        format!("{prefix}-latest-run-failed:{hash}"),
+        format!("{prefix}latest--run-failed:{hash}"),
+        format!("{prefix}latest-run-failed-:{hash}"),
+        format!("{prefix}latest/run-failed:{hash}"),
+        format!("{prefix}règle:{hash}"),
+        format!("{prefix}rule:\n{hash}"),
+        format!("{prefix}rule:{}", "A".repeat(64)),
+        format!("{prefix}rule:{}", "g".repeat(64)),
+        format!("{prefix}rule:{}", "a".repeat(63)),
+        format!("{prefix}rule:{}", "a".repeat(65)),
+        format!("{prefix}{longest_rule}r:{hash}"),
+    ];
+    let before = stored_table_rows(store.connection.as_ref().unwrap(), "tasks");
+    for trigger in &invalid {
+        let mut changed = task.clone();
+        changed.revision += 1;
+        changed.navigation.dismissed_suggestion = Some(trigger.clone());
+        assert!(store.save(changed).is_err(), "{trigger:?}");
+        assert_eq!(
+            stored_table_rows(store.connection.as_ref().unwrap(), "tasks"),
+            before
+        );
+    }
+    let mut unsaved = Snapshot::empty("project".into());
+    unsaved.navigation.dismissed_suggestion = Some(format!("task:0/rule:{hash}"));
+    assert!(store.save(unsaved).is_err());
+    drop(store);
+
+    let path = directory.0.join(DATABASE);
+    for trigger in invalid {
+        let connection = Connection::open(&path).unwrap();
+        let mut navigation = task.navigation.clone();
+        navigation.dismissed_suggestion = Some(trigger.clone());
+        connection
+            .execute(
+                "UPDATE tasks SET navigation=?1 WHERE id=?2",
+                params![serde_json::to_string(&navigation).unwrap(), task.id],
+            )
+            .unwrap();
+        drop(connection);
+        let before = fs::read(&path).unwrap();
+        let refused = worker(&directory, "project");
+        assert!(
+            matches!(event(&refused), Event::Failed { revision: None, message } if message.contains("suggestion dismissal")),
+            "{trigger:?}"
+        );
+        drop(refused);
+        assert_eq!(fs::read(&path).unwrap(), before);
+    }
 }
 
 fn attribution(partner: i64, name: &str, form: usize) -> Attribution {

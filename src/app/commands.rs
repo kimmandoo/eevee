@@ -143,6 +143,10 @@ impl App {
             ("role", "Choose Plan / Implement / Review role"),
             ("forms", "Choose evolution"),
             ("back-form", "Return to the previous form (Backspace)"),
+            (
+                "suggestion-dismiss",
+                "Dismiss this task's current suggestion; no work",
+            ),
             ("files", "Attach files / inspect source context"),
             ("tasks", "Saved tasks"),
             ("party", "Party roster"),
@@ -272,6 +276,9 @@ impl App {
             )
         {
             return Some("Enlarge the terminal to review this action.".into());
+        }
+        if name == "suggestion-dismiss" && self.visible_suggestion().is_none() {
+            return Some("No visible suggestion to dismiss.".into());
         }
         if name == "storage-retry" && !matches!(self.storage, StorageState::Failed(_)) {
             return Some("No failed task save to retry.".into());
@@ -571,6 +578,10 @@ impl App {
             return true;
         }
         self.command_popup = None;
+        if name == "suggestion-dismiss" {
+            self.dismiss_suggestion();
+            return true;
+        }
         if name == "nickname" {
             let partner = if self.overlay == Some(Overlay::Party) {
                 self.partners()

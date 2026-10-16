@@ -700,6 +700,34 @@ pub(super) fn validate(snapshot: &Snapshot) -> Result<(), String> {
     {
         return Err("Stored navigation indices are out of bounds".into());
     }
+    if let Some(trigger) = &nav.dismissed_suggestion {
+        let valid = trigger.len() <= 160
+            && snapshot.id > 0
+            && trigger
+                .strip_prefix("task:")
+                .and_then(|identity| identity.split_once('/'))
+                .is_some_and(|(task, identity)| {
+                    task.parse::<i64>().ok() == Some(snapshot.id)
+                        && !task.starts_with('0')
+                        && task.bytes().all(|byte| byte.is_ascii_digit())
+                        && identity.split_once(':').is_some_and(|(rule, hash)| {
+                            rule.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+                                && rule.split('-').all(|part| {
+                                    !part.is_empty()
+                                        && part.bytes().all(|byte| {
+                                            byte.is_ascii_lowercase() || byte.is_ascii_digit()
+                                        })
+                                })
+                                && hash.len() == 64
+                                && hash.bytes().all(|byte| {
+                                    byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
+                                })
+                        })
+                });
+        if !valid {
+            return Err("Stored suggestion dismissal has invalid task ownership or trigger shape (maximum 160 bytes)".into());
+        }
+    }
     Ok(())
 }
 

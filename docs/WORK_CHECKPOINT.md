@@ -1,5 +1,17 @@
 # Work Checkpoint
 
+## 2026-10-16 — EV01B picker suggestions and durable dismissal (complete; wave 2 request continues)
+
+- **User scope:** Finish wave 2 Partner basics individually. EV07 `5d0962b`, PK01 `8e2f747` and EV01A `ce4c99e` were committed; EV01B is complete and EV02 remains. EV01C stays in wave 3.
+- **Change:** Forms marks the recommendation without auto-focus/activation; compact headings name an off-screen recommendation. Picker `d`, including its top intake row, and `/suggestion-dismiss` save only the exact current task/evidence identity. Home/task cards/picker filter it; raw evidence evaluation stays derived. The invoking request text/caret and approvals/work state stay untouched; new evidence identities can recommend again.
+- **Persistence:** Optional `Navigation.dismissed_suggestion` uses the existing JSON column; malformed, oversized and foreign-task identities refuse without mutation. Version-only transactional Schema 10→11 migration preserves every existing row/navigation/provider-preference value. Released v0.1.9 remains Schema 10; this source candidate is Schema 11. No installed/user data was migrated.
+- **Verification:** Rust 1.90.0 fmt, all-target tests (665 passed / 2 ignored), strict Clippy and release build passed. Store fixtures cover migration/rollback bytes, ordinary save/reopen/clear and refused identities; app/UI fixtures cover task isolation, editor/review/size guards, fresh-task reset, selection and monochrome/linear surfaces.
+- **Actual TUI:** `target/ev01b-tui/results.json` passed eight journey groups at 120×36 and 60×18: real exit-7 recommendation with unchanged current/selected Jolteon; Enter without a new run/send; top-row dismissal with Unicode draft/caret and evidence byte preservation; restart/form-only persistence; second real failed run resurfacing; deliberate Umbreon switch only. Each width recorded exactly two explicitly approved local runs and zero provider requests.
+- **Actual schema qualification:** `target/ev01b-schema-final/results.json` passed previous-binary fixture migration, real Schema 10 writer refusal with byte-identical Schema 11 database, and current-binary resume. Previous executable SHA256 was `df105a3adf892364acc2bcddb7ccf885f42c52408d8a6c811b5769823211ac8b`; current was `d655d7fc0bfe5fd6632c06df8ac51815d30bb410c157898fafc354232e6895d4`.
+- **Resolved issue / tools:** Narrow off-screen recommendation identity was fixed and recorded in TROUBLESHOOTING. Rust language-server references remained unavailable (server exited code 0); scoped integration inspection and compiler/runtime qualification were used. No strategy change/backtest applied.
+- **Changed files:** store mod/schema/tasks/tests; app state/tasks/suggestions/tests/commands/overlays; UI and UI tests; README, DESIGN_RULES, IMPLEMENTATION_PLAN, TROUBLESHOOTING, CHANGELOG, task index/spec and checkpoint. Throwaway driver removed; capture/result artifacts retained.
+- **Exact next action:** Commit EV01B, then implement EV02 carry-over strip with stored-state counts, data-driven capability differences, next-key input preservation and partner-card reopening at both sizes including ASCII. Do not stop at this commit. No release/push/installed-command replacement.
+
 ## 2026-10-16 — EV01A evidence-based suggestions (complete; wave 2 request continues)
 
 - **User scope:** Finish the remaining wave 2 Partner basics tasks individually. EV07 and PK01 were committed as `5d0962b` / `8e2f747`; EV01A is complete; EV01B → EV02 remain.

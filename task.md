@@ -5,7 +5,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 | File | Section | Open |
 |---|---|---|
 | [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 10 |
-| [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 3 |
+| [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 2 |
 | [C-relays.md](tasks/C-relays.md) | Form relays | 8 |
 | [D-moves.md](tasks/D-moves.md) | Moves: teaching and learning skills | 14 |
 | [E-partner-record.md](tasks/E-partner-record.md) | Partner record and flavor | 13 |
@@ -17,8 +17,8 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 ## Status
 
 - **Released:** 0.1.9 (tags v0.1.0–v0.1.9), adding PT06 partner attribution, per-partner request routing and partner-named approvals plus the compact model/attachment UX. Released store: Schema 10.
-- **Active user request:** Finish wave 2 Partner basics one task per commit. EV07, PK01 and EV01A are complete in source; continue EV01B → EV02. No release requested.
-- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, EV04, EV03A, EV03B, EV07, PK01, EV01A and the first code-structure pass (index below). **Open:** 87 small tasks. **Dropped:** T05.
+- **Active user request:** Finish wave 2 Partner basics one task per commit. EV07, PK01, EV01A and EV01B are complete in source; continue EV02. No release requested.
+- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B and the first code-structure pass (index below). **Open:** 86 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.
 
@@ -26,7 +26,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 
 V01 sanctuary layout · P01 native terminal lifecycle · V02A/V02B species art and native graphics · V03 evolution picker · UX01 focus/editing · E01 durable goal · E02 task cards/resume · E03 task lifecycle/privacy/quota · C01 repository baseline/diff · C02 Vaporeon source map/basket · R01 Jolteon approve/run/cancel · R02 execution journal/freshness · UX02 interruption/recovery · P02 filesystem/process parity · A01 agent preflight · A02 Espeon planning request · A03 Flareon implementation · A05 OpenCode ACP · U01 Umbreon hypotheses · L01 Leafeon refactor comparison · G01 Glaceon review desk · S01 Sylveon handoff · S02 curated memory (Bond) · S03 Evolution Stone recipes · PT01 party contract (DESIGN_RULES § Party: ≤6 partners, ≤3 working per task, one writer) · PT02A/PT02B partner table and lead accessor · PT03A/PT03B named form commands and previous-form toggle · PT04A/PT04B party roster and add partner · PT06A partner attribution · PT06B per-partner request slot · PT06C partner-named approvals · EV04 form empty states · EV03A capability chip · EV03B owning-form redirect · RF03 `app.rs` split.
 
-EV07 guarded return to Eevee · PK01 personal partner nicknames · EV01A evidence-based form suggestions.
+EV07 guarded return to Eevee · PK01 personal partner nicknames · EV01A evidence-based form suggestions · EV01B picker recommendation and durable dismissal.
 
 ## How to pick work
 
@@ -38,7 +38,7 @@ EV07 guarded return to Eevee · PK01 personal partner nicknames · EV01A evidenc
 
 ### Cross-cutting watch-outs
 
-- **Schema:** Released v0.1.7 uses Schema 9; the v0.1.8 candidate adds bounded nonsecret provider preferences through transactional Schema 10 migration. Older writers must refuse before any rewrite; tasks, partner drafts and evidence remain unchanged. Every persisted addition needs migration and byte-preserving old-binary refusal.
+- **Schema:** Released v0.1.9 uses Schema 10; the source candidate adds task-local suggestion dismissal through version-only transactional Schema 11 migration. Older writers refuse before any rewrite; tasks, partner drafts, evidence and provider preferences remain unchanged. Every persisted addition needs migration and byte-preserving old-binary refusal.
 - **Packets:** Partner flavor (nicknames, partner names, move names, dialogue, ribbons, routes) never enters provider packets or handoffs. The receipt must show zero flavor bytes.
 - **Facts first:** Pokémon-style copy wraps a factual line (command, exit code, permission scope), never replaces it. Monochrome, ASCII and linear layouts keep the same information.
 - **No fake progression:** No XP, levels, affection, streaks, hunger or random unlocks. Raising partners means learned moves, nicknames and real records. Add each new concept (Moves, Dex) to DESIGN_RULES when it ships.

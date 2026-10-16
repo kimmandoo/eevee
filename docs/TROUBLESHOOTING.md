@@ -1,5 +1,11 @@
 # Troubleshooting
 
+### [2026-10-16] Compact picker hid the identity of an off-screen recommendation
+
+- **Context / Symptom:** EV01B's actual 60×18 fixture offered `d Dismiss suggestion`, but Umbreon was outside the five visible rows while Jolteon remained selected, so the user could not identify the recommendation.
+- **Root Cause:** The picker only marked visible form cells; its heading named the current form but not the off-screen recommendation. The home recommendation could also remain as an unintended background status.
+- **Solution:** Included the recommended form in the compact heading without moving selection or portrait rectangles, and suppressed the background home recommendation under Forms. Both actual sizes passed dismissal/restart/new-run journeys; `target/ev01b-tui/60-dismiss/marked-with-current-selection.txt` shows current Jolteon and suggested Umbreon together.
+
 ### [2026-10-16] Equivalent review metadata kept a stale recommendation cache result
 
 - **Context / Symptom:** The EV01A source-review fixture restored source bytes and explicitly recorded the same accepted-review metadata again, but the cached recommendation remained absent.

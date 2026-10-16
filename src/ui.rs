@@ -495,7 +495,7 @@ pub fn render(
                         )),
             );
         }
-        let workspace_area = if app.overlay == Some(Overlay::Tasks) {
+        let workspace_area = if matches!(app.overlay, Some(Overlay::Tasks | Overlay::Forms)) {
             shell.workspace
         } else {
             suggestion_strip(frame, shell.workspace, app, &paint)
@@ -734,7 +734,7 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
 }
 
 fn suggestion_line<'a>(app: &'a App, paint: &Paint) -> Option<Line<'a>> {
-    app.suggestion.as_ref().map(|suggestion| {
+    app.visible_suggestion().map(|suggestion| {
         Line::from(vec![
             Span::raw("Suggested: "),
             Span::raw(FORMS[suggestion.form.min(FORMS.len() - 1)].name),
@@ -1029,12 +1029,16 @@ fn forms(
     let block = panel(" Choose evolution / PARTY ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    text(
-        frame,
-        row(content, 0, 1),
-        &format!("Current: {}", FORMS[app.form()].name),
-        paint.muted,
-    );
+    let current = FORMS[app.form()].name;
+    let heading = match (app.visible_suggestion(), grid) {
+        (Some(suggestion), false) => format!(
+            "Current: {current} / Suggested: {} / d Dismiss",
+            FORMS[suggestion.form].name
+        ),
+        (Some(_), true) => format!("Current: {current} / d Dismiss suggestion"),
+        (None, _) => format!("Current: {current}"),
+    };
+    text(frame, row(content, 0, 1), &heading, paint.muted);
     text(
         frame,
         row(content, 1, 1),
@@ -1051,6 +1055,7 @@ fn forms(
     );
     let selected = app.selected.min(8);
     let form_selected = !app.form_return_selected;
+    let suggested = app.visible_suggestion().map(|suggestion| suggestion.form);
     if grid {
         for (index, form) in FORMS.iter().enumerate() {
             let cell = grid_cell(content, index);
@@ -1067,14 +1072,19 @@ fn forms(
                 frame,
                 row(inside, 0, 1),
                 &format!(
-                    "{} {}{}",
+                    "{} {}{}{}",
                     if form_selected && index == selected {
                         ">"
                     } else {
                         " "
                     },
                     index + 1,
-                    if index == app.form() { " current" } else { "" }
+                    if index == app.form() { " *" } else { "" },
+                    if suggested == Some(index) {
+                        " suggested"
+                    } else {
+                        ""
+                    }
                 ),
                 if form_selected && index == selected {
                     cell_paint.selected
@@ -1100,7 +1110,7 @@ fn forms(
             let form = &FORMS[index];
             let item = Rect::new(content.x, content.y + 2 + row_index as u16, list_width, 1);
             let label = format!(
-                "{} {} {:<9}{}",
+                "{} {} {:<9}{}{}",
                 if form_selected && index == selected {
                     ">"
                 } else {
@@ -1108,7 +1118,12 @@ fn forms(
                 },
                 index + 1,
                 form.name,
-                if index == app.form() { " *" } else { "" }
+                if index == app.form() { " *" } else { "" },
+                if suggested == Some(index) {
+                    " suggested"
+                } else {
+                    ""
+                }
             );
             text(
                 frame,

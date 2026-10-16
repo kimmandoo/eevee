@@ -595,6 +595,13 @@ fn suggestion_wraps_without_replacing_response_or_composer() {
             assert_eq!(app.form(), 0, "suggestion never selects a form");
             assert!(app.planning.pending.is_none(), "suggestion never sends");
             assert_eq!(app.input, "Follow-up draft stays editable");
+            app.dismissed_suggestion = app.suggestion.as_ref().map(|value| value.trigger.clone());
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            let dismissed = screen_text(&terminal);
+            assert!(!dismissed.contains("Suggested:"));
+            assert!(dismissed.contains("Follow-up draft stays editable"));
         }
     }
 }
@@ -636,6 +643,12 @@ fn task_card_suggestion_belongs_only_to_active_task() {
                 assert!(rendered.contains("acceptance criteria."));
             }
         }
+        app.task_selection = 0;
+        app.dismissed_suggestion = app.suggestion.as_ref().map(|value| value.trigger.clone());
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        assert!(!screen_text(&terminal).contains("Suggested:"));
     }
 }
 
@@ -1162,6 +1175,80 @@ fn nickname_editor_exposes_local_scope_candidate_and_rejection() {
             "Esc Cancel",
         ] {
             assert!(rendered.contains(boundary), "{width}: {rendered}");
+        }
+    }
+}
+
+#[test]
+fn picker_marks_suggestion_textually_without_changing_selection_or_geometry() {
+    use ratatui::{Terminal, backend::TestBackend};
+    for color in [ColorMode::Mono, ColorMode::TrueColor] {
+        let mut config = home_config();
+        config.color = color;
+        for (width, height, linear) in [
+            (120, 36, false),
+            (90, 30, false),
+            (80, 24, false),
+            (60, 18, false),
+            (120, 36, true),
+        ] {
+            let mut app = App::new("/workspace".into(), width, height);
+            app.editing = false;
+            app.overlay = Some(Overlay::Forms);
+            app.selected = 4;
+            app.linear = linear;
+            app.suggestion = Some(crate::app::suggestions::Suggestion {
+                form: 5,
+                reason: "Latest local run failed.".into(),
+                trigger: format!("task:0/failed:{}", "a".repeat(64)),
+            });
+            let area = Rect::new(0, 0, width, height);
+            let mut targets_before = Vec::new();
+            portrait_targets(&app, area, &mut targets_before);
+            let mut artwork = Artwork::load(&config);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            let rendered = screen_text(&terminal);
+            assert!(
+                rendered.to_ascii_lowercase().contains("suggested"),
+                "{rendered}"
+            );
+            assert!(rendered.contains("Umbreon"), "{rendered}");
+            assert!(!rendered.contains("Latest local run failed."));
+            assert!(rendered.contains("Current: Eevee"));
+            assert!(rendered.contains("Return to Eevee / intake"));
+            assert_eq!(app.selected, 4);
+            assert_eq!(app.form(), 0);
+            app.form_return_selected = true;
+            app.update(Event::Key(KeyEvent::new(
+                KeyCode::Char('d'),
+                KeyModifiers::NONE,
+            )));
+            assert_eq!(app.selected, 4);
+            assert!(app.form_return_selected);
+            assert_eq!(app.form(), 0);
+            let mut targets_after = Vec::new();
+            portrait_targets(&app, area, &mut targets_after);
+            assert_eq!(
+                targets_before, targets_after,
+                "native portraits retain their rectangles"
+            );
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            let dismissed = screen_text(&terminal);
+            assert!(!dismissed.contains("suggested"));
+            assert!(!dismissed.contains("d Dismiss"));
+            app.form_return_selected = false;
+            app.update(Event::Key(KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::NONE,
+            )));
+            assert_eq!(app.form(), 4, "Enter selects only the explicit selection");
+            assert!(app.planning.pending.is_none());
+            assert!(app.execution.history.is_empty());
         }
     }
 }
