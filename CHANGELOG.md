@@ -57,6 +57,7 @@
 
 ## 2026-10-16
 
+- chore(release): published v0.1.9 from `c4b8cd9` after Check and all five native rows passed (run `38841536756`), verified eight public assets and seven checksums, and passed the PT06 partner-attribution TUI journey on the published Linux binary at 120×36 and 60×18.
 - feat(party): named the asking partner in run approval/cancel, provider permission/command approval and question dialogs (`Bolt (Jolteon) wants to run: …`) while keeping their choices visible at 60×18.
 - feat(party): keyed provider request state by partner so requests, events and approvals stayed with their owner across lead switches, refused late events for other or released partners, returned failed requests only to the sender's draft, and kept `/lead` and `/party` usable during a request.
 - feat(party): attributed new command runs and provider journal records to the requesting partner with an id plus name/form snapshot, showed it in approval, run history and journal views, and kept older records byte-identical as `partner unknown`.
