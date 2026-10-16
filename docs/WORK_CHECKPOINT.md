@@ -1,5 +1,16 @@
 # Work Checkpoint
 
+## 2026-10-16 — PT06A–PT06C party routing and v0.1.9 release (source complete; publication in progress)
+
+- **User scope:** Implement tasks through PT06 (PT06A, PT06B, PT06C) and release. Commit without a Claude co-author trailer.
+- **PT06A (`43c7834`):** `store::Attribution` (partner id, name snapshot, form) is stamped on `runner::Prepared` and `ProviderRecord` via optional serde fields, so older records keep exact bytes and read `partner unknown`. Store validation rejects invalid ids/forms/control-character names. Approval details, run history and the provider journal display it. No packet/handoff path serializes these records.
+- **PT06B (`797edab`):** Planning request state is keyed by partner (`Slot { owner, task, generation }`), bound at preparation from the lead (`front`). Events route only when task + generation match the bound slot; a different partner's later request refuses earlier late events; an idle released owner's slot is dropped. Lead switching is allowed during work (`/lead`, `/party` stay reachable); the request/approval stay with the owner; the second partner's send is refused with the owner's name and its draft kept. A failed request returns only to the sender's draft. Command preparation is routed by (task, owner, request id).
+- **PT06C (`9863913`):** `Bolt (Jolteon) wants to run: …` / `wants permission` / `asks · QUESTION` and `Stop …'s command` in run approval/cancel and provider permission/approval/question dialogs; row counts unchanged so 60×18 still shows choices.
+- **Verification:** Rust 1.90.0 `cargo test --locked --all-targets` 624 passed / 2 ignored; strict Clippy and fmt clean; release build. Actual-TUI PT06 driver (throwaway, scratchpad) passed at 120×36 and 60×18: two partners each prepared/approved a real command, approvals named `Eevee #1 (Jolteon)` / `Eevee #2 (Vaporeon)` with Stay/Approve visible, stored run records carried the partner snapshots, and history showed them (`target/pt06-tui/results.json`). Workbench regression suite passed all 35 journeys (`target/pt06-workbench/results.json`) using `target/ux-venv` (pyte 0.8.2).
+- **Release step:** Version 0.1.9 committed; next push main, wait for native Check + five rows on that exact commit, then push tag `v0.1.9` and verify the published assets/checksums.
+- **Changed files:** store mod/journal/runs/tests; runner and tests; app, app execution/editing/events/party/planning/review/journal/keys/composer/commands/overlays/tasks and tests; providers (record initializers); ui execution/planning; CHANGELOG, DESIGN_RULES, IMPLEMENTATION_PLAN, task.md, tasks/A-party.md, Cargo version and this checkpoint.
+- **Blockers / limits:** Nicknames (PK01) are not yet settable, so live labels read `Eevee #n`. Concurrency remains one working partner per task until PT07. No schema change (attribution lives inside existing JSON records).
+
 ## 2026-10-16 — Compact selectors and direct attachment UX (complete; not released)
 
 - **User scope:** Matched update/install animation; shortened model selection into model → reasoning; made current choices unmistakable; simplified attachment and unnecessary navigation depth. Additional interaction improvements were independently implemented without source branding in code, comments or the session commit.
