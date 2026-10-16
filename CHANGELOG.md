@@ -65,6 +65,7 @@
 
 ## 2026-10-16
 
+- chore(release): published v0.1.10 from `48ab06b` after exact-commit Check and all five native rows passed (`38868170636`), promoted those immutable packages (`38869187969`), verified eight public assets/seven checksums and included Schema 11 downgrade warnings.
 - fix(tests): canonicalized carry-over source fixture roots so native canonical-identity guards accepted valid evidence on Windows and macOS without weakening production checks.
 - chore(release): prepared v0.1.10 and included version-specific changelog and Schema 11 downgrade warnings in publication notes without changing immutable artifact qualification.
 - feat(forms): showed carried criteria, pins, open hypotheses/findings and capability differences after form switches, preserved the next input, reopened exact records from Companion, and deferred counts until evidence hydration without persisting or dispatching work.

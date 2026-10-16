@@ -16,8 +16,8 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 
 ## Status
 
-- **Released:** 0.1.9 (tags v0.1.0–v0.1.9), adding PT06 partner attribution, per-partner request routing and partner-named approvals plus the compact model/attachment UX. Released store: Schema 10.
-- **Active user request:** Release completed wave 2 as v0.1.10 using exact-commit native qualification and immutable artifact promotion, then implement the first ready wave 3 task, EV10A. Do not replace the installed binary implicitly.
+- **Released:** 0.1.10 (tags v0.1.0–v0.1.10), adding wave 2 form guidance, guarded intake return, local nicknames, evidence-based recommendations/dismissal and carry-over records. Released store: Schema 11; v0.1.9 used Schema 10.
+- **Active user request:** Prioritize ordinary conversation and provider architecture repair; defer EV10A. Actual native requests omit prior role-tagged turns and wrap ordinary text as planning JSON. Decide native-only cutover versus preserving explicit external-agent integrations before changing their tool/auth support. v0.1.10 publication/runtime qualification is complete.
 - **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV02 and the first code-structure pass (index below). **Open:** 85 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.
@@ -38,7 +38,7 @@ EV07 guarded return to Eevee · PK01 personal partner nicknames · EV01A evidenc
 
 ### Cross-cutting watch-outs
 
-- **Schema:** Released v0.1.9 uses Schema 10; the source candidate adds task-local suggestion dismissal through version-only transactional Schema 11 migration. Older writers refuse before any rewrite; tasks, partner drafts, evidence and provider preferences remain unchanged. Every persisted addition needs migration and byte-preserving old-binary refusal.
+- **Schema:** Released v0.1.10 uses Schema 11; v0.1.9 uses Schema 10. Task-local suggestion dismissal migrated transactionally by version only. Older writers refuse before any rewrite; tasks, partner drafts, evidence and provider preferences remain unchanged. Every persisted addition needs migration and byte-preserving old-binary refusal.
 - **Packets:** Partner flavor (nicknames, partner names, move names, dialogue, ribbons, routes) never enters provider packets or handoffs. The receipt must show zero flavor bytes.
 - **Facts first:** Pokémon-style copy wraps a factual line (command, exit code, permission scope), never replaces it. Monochrome, ASCII and linear layouts keep the same information.
 - **No fake progression:** No XP, levels, affection, streaks, hunger or random unlocks. Raising partners means learned moves, nicknames and real records. Add each new concept (Moves, Dex) to DESIGN_RULES when it ships.
