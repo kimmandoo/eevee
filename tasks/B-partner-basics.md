@@ -38,11 +38,12 @@ These tasks make each switch informed and each form immediately useful, for the 
 
 ### PK01 — Partner nickname
 
-- [ ] Let the user name each Eevee.
+- [x] Let the user name each Eevee.
 - **Priority:** 1. **Needs:** PT02A. **Builds on:** UX01.
 - **Change:** Set a personal-scope nickname (≤12 graphemes, Unicode, unique in the party) from the partner card or `/nickname`. The header and dialogue show `Nickname (Species)`; clearing it restores `Eevee #n`.
 - **Accept:** Set a CJK nickname, restart, and see it in the header and dialogue in every form at both sizes; species and type stay visible. The receipt shows zero nickname bytes in a provider packet.
 - **Watch out:** Measure width by grapheme/cell width, not bytes. Use the column reserved in PT02A.
+- **Verified:** `/nickname`, Companion/roster `n`, committed rename/clear and refusal/retry use the reserved column with no schema change. Actual TUI passed both sizes' personal-only and task-backed restart, all nine forms' header/dialogue/species/type, duplicate and 13-grapheme refusal, 12-CJK display and clear. Exact loopback request bodies omitted the nickname and the visible receipt showed 0 B of automatically added partner flavor.
 
 ### EV01A — Suggestion rules
 

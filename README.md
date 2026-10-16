@@ -91,6 +91,7 @@ ev --help
 | `/model` / `/effort` / `/models-refresh` | Local model and reasoning pickers / reviewed catalogue refresh |
 | `/new` / `/resume` | Review a fresh request / resume an owned same-task session |
 | `/role` / `/forms` | Plan, Implement or Review / choose an evolution |
+| `/nickname` | Set a local partner nickname (up to 12 graphemes); Enter saves, empty clears, Esc keeps the old name. Names never become automatic provider or handoff context. |
 | `/goal` / `/next` / `/criteria` / `/criteria-edit` | Edit task facts, inspect criteria, or edit criteria directly |
 | `/tasks` / `/task-new` | Browse saved tasks / create one |
 | `/reset` | Review a fresh local task; save the old task and drafts for `/tasks`, without erasing files or history |

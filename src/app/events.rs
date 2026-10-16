@@ -120,9 +120,24 @@ impl App {
             }
             store::Event::Party(result) => {
                 self.party_inflight = false;
+                let renamed = self.nickname_pending.take();
                 match result {
                     Ok(partners) => {
-                        if let Some(partner) = partners.last() {
+                        if renamed.is_some() {
+                            if let Some(committed) = partners.iter().find(|p| p.id == self.lead.id)
+                            {
+                                self.lead.nickname.clone_from(&committed.nickname);
+                            }
+                            self.sync_front();
+                            if self
+                                .nickname_editor
+                                .as_ref()
+                                .is_some_and(|editor| Some(editor.partner) == renamed)
+                            {
+                                self.nickname_editor = None;
+                            }
+                            self.notice = "Partner nickname saved locally; nothing sent.".into();
+                        } else if let Some(partner) = partners.last() {
                             self.notice = format!(
                                 "{} joined the party in Eevee form ({} of {}).",
                                 Self::partner_label(partner),
@@ -134,6 +149,11 @@ impl App {
                         self.retain_slots();
                     }
                     Err(message) => {
+                        if let Some(editor) = &mut self.nickname_editor
+                            && Some(editor.partner) == renamed
+                        {
+                            editor.error.clone_from(&message);
+                        }
                         self.notice = message;
                     }
                 }
@@ -175,6 +195,20 @@ impl App {
                         self.saved_revision = snapshot.revision;
                         self.revision = self.revision.max(snapshot.revision.saturating_add(1));
                     }
+                } else if let Some(partner) = project
+                    .partners
+                    .iter()
+                    .find(|partner| partner.id == self.lead.id)
+                    .or_else(|| project.partners.first())
+                {
+                    let live_form = self.lead.form;
+                    self.lead = partner.clone();
+                    if local_changes {
+                        self.lead.form = live_form;
+                    } else {
+                        self.form_selection = self.lead.form;
+                    }
+                    self.sync_front();
                 }
                 self.save_requested = self.revision != self.saved_revision;
                 self.save_inflight = None;

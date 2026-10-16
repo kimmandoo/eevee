@@ -57,6 +57,7 @@
 
 ## 2026-10-16
 
+- feat(party): added personal Unicode nicknames with grapheme-safe local editing, unique bounded store writes, clearing/restart persistence, species-aware identity labels and zero automatically added nickname bytes in request receipts.
 - feat(forms): added a top Return to Eevee picker action and guarded intake return, preserved task/draft/evidence bytes, and waited for explicitly cancelled owned work without treating unknown provider outcomes as completion.
 - feat(forms): routed out-of-role command preparation to Jolteon and source-edit setup to Flareon with a disabled reason and deliberate switch, without replaying the action or granting permissions.
 - fix(execution): kept run state and freshness visible in compact history after partner attribution was added.

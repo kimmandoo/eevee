@@ -31,6 +31,7 @@ use spool::*;
 use tasks::*;
 
 pub use admission::{review_run_observations, validate_planning_input};
+pub use partners::validate_nickname;
 pub use preferences::{PreferenceRequest, ProviderPreferences};
 pub use recovery::export_readable;
 pub(crate) use runs::valid_run_id;
@@ -235,8 +236,8 @@ fn default_lead_partner() -> i64 {
 }
 
 /// One individual Eevee in the user's party (Schema 7 `partners` table).
-/// Nickname is PK01-reserved flavor: it never leaves this store and never
-/// enters provider packets or handoffs.
+/// Nickname is local display flavor: it never enters provider packets or
+/// portable handoffs.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Partner {
     pub id: i64,
@@ -449,10 +450,14 @@ pub struct MemoryRequest {
     pub mutation: Option<crate::workspace::memory::Mutation>,
 }
 
-/// Party roster mutations (PT04B). Results report the committed roster.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Party roster mutations. Results report the committed roster.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PartyRequest {
     Add,
+    Nickname {
+        partner: i64,
+        nickname: Option<String>,
+    },
 }
 #[derive(Debug)]
 pub enum Event {
@@ -755,6 +760,9 @@ fn run(
             },
             Command::Party(request) => Event::Party(match request {
                 PartyRequest::Add => state.add_partner().map_err(actionable),
+                PartyRequest::Nickname { partner, nickname } => state
+                    .nickname_partner(partner, nickname)
+                    .map_err(actionable),
             }),
             Command::Run(request) => {
                 let task_id = request.task_id;

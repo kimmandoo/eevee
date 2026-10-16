@@ -1,5 +1,6 @@
-//! Party partner rows: loading, validation and the lead partner's form write.
+//! Party partner rows: loading, nickname mutations and the lead partner's form write.
 use super::*;
+use unicode_segmentation::UnicodeSegmentation;
 
 const PARTNER_COLUMNS: &[ColumnSpec] = &[
     ("id", "INTEGER", false, 1),
@@ -9,6 +10,27 @@ const PARTNER_COLUMNS: &[ColumnSpec] = &[
     ("met_derived", "INTEGER", true, 0),
     ("created_project", "TEXT", true, 0),
 ];
+
+/// Validate a nonempty nickname before writing; legacy rows retain their
+/// existing storage-only admission bounds.
+pub fn validate_nickname(nickname: &str) -> Result<(), String> {
+    if nickname.is_empty() {
+        return Err("Use a nonempty nickname, or clear it to restore the default name".into());
+    }
+    if nickname.len() > MAX_NICKNAME_BYTES {
+        return Err("A partner nickname must fit within 512 UTF-8 bytes".into());
+    }
+    if nickname.graphemes(true).count() > 12 {
+        return Err("A partner nickname must contain at most 12 graphemes".into());
+    }
+    if nickname.chars().any(|character| {
+        character.is_control()
+            || matches!(character, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+    }) {
+        return Err("A partner nickname cannot contain control or unsafe terminal characters".into());
+    }
+    Ok(())
+}
 
 pub(super) fn validate_partner(partner: &Partner) -> Result<(), String> {
     // Ids are AUTOINCREMENT and never reused, so they grow past the six-seat
@@ -36,6 +58,54 @@ pub(super) fn validate_partner(partner: &Partner) -> Result<(), String> {
 }
 
 impl State {
+    pub(super) fn nickname_partner(
+        &mut self,
+        partner: i64,
+        nickname: Option<String>,
+    ) -> Result<Vec<Partner>, String> {
+        if let Some(nickname) = nickname.as_deref() {
+            validate_nickname(nickname)?;
+        }
+        let connection = self
+            .connection
+            .as_mut()
+            .ok_or("Storage is unavailable; retry opening it")?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("Cannot begin partner rename: {error}"))?;
+        let roster = partners(&transaction)?;
+        if !roster.iter().any(|member| member.id == partner) {
+            return Err(
+                "The partner to rename does not exist; refresh the party and try again".into(),
+            );
+        }
+        if let Some(candidate) = nickname.as_deref()
+            && roster.iter().any(|member| {
+                member.id != partner
+                    && member.nickname.as_deref().is_some_and(|existing| {
+                        existing
+                            .chars()
+                            .flat_map(char::to_lowercase)
+                            .eq(candidate.chars().flat_map(char::to_lowercase))
+                    })
+            })
+        {
+            return Err("Another partner already uses that nickname; choose a unique name".into());
+        }
+        transaction
+            .execute(
+                "UPDATE partners SET nickname=?1 WHERE id=?2",
+                params![nickname, partner],
+            )
+            .map_err(|error| format!("Cannot persist the partner nickname: {error}"))?;
+        enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
+        let roster = partners(&transaction)?;
+        transaction
+            .commit()
+            .map_err(|error| format!("Cannot commit the partner nickname: {error}"))?;
+        Ok(roster)
+    }
+
     /// Welcome a new partner: starts in Eevee form with today's met date on the
     /// current project. The six-seat party capacity is enforced inside the
     /// transaction, and AUTOINCREMENT never reuses a released partner's id.

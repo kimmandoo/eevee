@@ -383,7 +383,12 @@ pub fn portrait_targets(app: &App, area: Rect, targets: &mut Vec<(usize, Rect)>)
             app.editor_field,
             EditorField::Criteria | EditorField::Command
         );
-    if area.width < 60 || area.height < 18 || modal_editor || app.confirmation.is_some() {
+    if area.width < 60
+        || area.height < 18
+        || modal_editor
+        || app.confirmation.is_some()
+        || app.nickname_editor.is_some()
+    {
         return;
     }
     match app.overlay {
@@ -421,6 +426,9 @@ fn composer_menu_area(area: Rect, app: &App) -> Option<Rect> {
 
 /// Native images draw above cells, so only portraits under a popup are withheld.
 fn occluded(area: Rect, app: &App, target: Rect) -> bool {
+    if app.nickname_editor.is_some() {
+        return true;
+    }
     app.command_popup.is_some() && command_popup_area(area, app).intersects(target)
         || composer_menu_area(area, app).is_some_and(|menu| menu.intersects(target))
 }
@@ -545,6 +553,9 @@ pub fn render(
     {
         editor(frame, area, app, config, &paint);
     }
+    if app.nickname_editor.is_some() {
+        nickname(frame, area, app, config, &paint);
+    }
     if app.command_popup.is_some() {
         composer::commands(frame, area, app, config, &paint);
     }
@@ -604,20 +615,6 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
             Agent::Google => "Gemini/API",
             Agent::Compatible => "Custom",
         };
-        let task = if app.task_id > 0 {
-            Cow::Owned(format!("#{}", app.task_id))
-        } else {
-            Cow::Borrowed("new")
-        };
-        let context = Span::styled(
-            format!(
-                "{} {} {} · {route} · ",
-                clipped(project, 8),
-                clipped(&task, 6),
-                FORMS[app.form()].name
-            ),
-            paint.muted,
-        );
         let effort = Span::styled(
             format!(
                 "/{}",
@@ -632,6 +629,32 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
             ),
             paint.muted,
         );
+        let model_name = app.planning.selection.model.as_deref().unwrap_or("default");
+        let model_hint_width = Span::raw(model_name).width().min(20);
+        let identity_budget = usize::from(area.width)
+            .saturating_sub(Span::raw(route).width() + effort.width() + model_hint_width + 6);
+        let suffix = format!(" ({})", FORMS[app.form()].name);
+        let name = App::partner_label(app.lead());
+        let identity = format!(
+            "{}{suffix}",
+            clipped(
+                &name,
+                identity_budget.saturating_sub(Span::raw(suffix.as_str()).width())
+            )
+        );
+        let spare = usize::from(area.width).saturating_sub(
+            Span::raw(identity.as_str()).width()
+                + Span::raw(route).width()
+                + effort.width()
+                + model_hint_width
+                + 6,
+        );
+        let context = if spare >= 7 {
+            format!("{identity} · {} · {route} · ", clipped(project, spare - 3))
+        } else {
+            format!("{identity} · {route} · ")
+        };
+        let context = Span::styled(context, paint.muted);
         let model_width = usize::from(area.width).saturating_sub(context.width() + effort.width());
         let model = Span::styled(
             clipped(
@@ -648,11 +671,11 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         frame.render_widget(
             Paragraph::new(Line::from(vec![
                 Span::styled(" EEVEE ", paint.selected),
-                Span::styled(format!("  {project}"), paint.base),
                 Span::styled(
-                    format!("  /  {}  /  {}", app.lead_label(), selection_line(app)),
-                    paint.muted,
+                    format!("  {} / {}", app.lead_label(), clipped(project, 16)),
+                    paint.base,
                 ),
+                Span::styled(format!("  /  {}", selection_line(app)), paint.muted),
             ])),
             row(area, 0, 1),
         );
@@ -732,8 +755,9 @@ fn workspace(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &
     let mut lines = vec![
         heading,
         Line::from(format!(
-            "{}: {signature}",
-            crate::domain::FORMS[app.form().min(8)].name
+            "{} / {}: {signature}",
+            crate::domain::FORMS[app.form().min(8)].name,
+            crate::domain::FORMS[app.form().min(8)].element
         )),
         Line::styled(
             match action {
@@ -777,12 +801,7 @@ fn compact_companion(
     let block = panel(" PARTNER ", config, paint, focused);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    text(
-        frame,
-        row(content, 0, 1),
-        FORMS[app.form()].name,
-        paint.accent,
-    );
+    text(frame, row(content, 0, 1), &app.lead_label(), paint.accent);
     text(
         frame,
         row(content, 1, 1),
@@ -790,7 +809,7 @@ fn compact_companion(
         paint.muted,
     );
     let image = companion_portrait(area);
-    if show_image {
+    if show_image && app.nickname_editor.is_none() {
         artwork.render(app.form(), image, frame.buffer_mut());
     }
     let status = if app.criteria.is_empty() {
@@ -813,7 +832,7 @@ fn compact_companion(
         frame,
         row(content, content.height.saturating_sub(1), 1),
         if focused {
-            "> Enter Choose form"
+            "> Enter Form / n Nickname"
         } else {
             "/forms / /companion"
         },
@@ -840,19 +859,19 @@ fn companion(
     frame.render_widget(block, area);
     let form = &FORMS[app.form()];
     frame.render_widget(
-        Paragraph::new(form.name)
+        Paragraph::new(app.lead_label())
             .style(paint.accent)
             .alignment(Alignment::Center),
         row(content, 0, 1),
     );
     frame.render_widget(
-        Paragraph::new("/forms / /images")
+        Paragraph::new("/forms / /images / n Nickname")
             .style(paint.accent)
             .alignment(Alignment::Center),
         row(content, 1, 1),
     );
     let image = portrait(area);
-    if show_image {
+    if show_image && app.nickname_editor.is_none() {
         artwork.render(app.form(), image, frame.buffer_mut());
     }
     let details = row(
@@ -1390,6 +1409,49 @@ fn criteria(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint
     app.set_scroll_max(ScrollSurface::Preview, max);
 }
 
+fn nickname(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
+    let Some(editor) = &app.nickname_editor else {
+        return;
+    };
+    let area = centered(area, 58, 13);
+    frame.render_widget(Clear, area);
+    let block = panel(" Nickname / local only ", config, paint, true);
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    text(
+        frame,
+        row(content, 0, 2),
+        "Local only: provider / handoff nickname bytes 0 B.\n12 graphemes; empty clears. No send, run or grant.",
+        paint.muted,
+    );
+    let input = row(content, 3, 2);
+    let (lines, (caret_row, caret_column)) = editor_rows(
+        &editor.text,
+        editor.cursor,
+        input.width.saturating_sub(1) as usize,
+    );
+    frame.render_widget(Paragraph::new(lines.join("\n")).style(paint.surface), input);
+    if caret_row < input.height as usize && caret_column < input.width as usize {
+        frame.set_cursor_position((input.x + caret_column as u16, input.y + caret_row as u16));
+    }
+    frame.render_widget(
+        Paragraph::new(editor.error.as_str())
+            .style(paint.accent)
+            .wrap(Wrap { trim: false }),
+        row(content, 6, 2),
+    );
+    text(
+        frame,
+        row(content, content.height.saturating_sub(1), 1),
+        if app.party_inflight || app.party_request.is_some() {
+            "Saving locally / Esc Back"
+        } else {
+            "Enter Save locally / Esc Cancel"
+        },
+        paint.muted,
+    );
+}
+
 /// Party roster (PT04A/PT05A): every partner with its form, a derived status
 /// and the task it is engaged with. Status is recomputed from live
 /// request/approval state each frame; Enter/`l` fronts the highlighted partner.
@@ -1439,9 +1501,9 @@ fn party(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
         frame,
         row(content, partners.len() as u16 + 3, 1),
         if partners.len() >= store::MAX_PARTNERS {
-            "Up/Down Select / Enter Lead / Party full (6) / Esc Back"
+            "Arrows Select / Enter Lead / n Nickname / Esc Back"
         } else {
-            "Up/Down Select / Enter Lead / a Add / Esc Back"
+            "Arrows Select / Enter Lead / n Nickname / a Add"
         },
         paint.muted,
     );
@@ -1722,7 +1784,7 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
     };
     let title = format!(
         "{title}/ {} / {} attached{attachment_status} ",
-        App::partner_label(app.lead()),
+        app.lead_label(),
         app.sources.basket.len()
     );
     let mut block = panel(&title, config, paint, editing && app.overlay.is_none());

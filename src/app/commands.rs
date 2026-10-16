@@ -146,6 +146,7 @@ impl App {
             ("files", "Attach files / inspect source context"),
             ("tasks", "Saved tasks"),
             ("party", "Party roster"),
+            ("nickname", "Edit a local-only partner nickname"),
             (
                 "lead",
                 "Front a partner: /lead <name> or pick in the roster",
@@ -570,6 +571,17 @@ impl App {
             return true;
         }
         self.command_popup = None;
+        if name == "nickname" {
+            let partner = if self.overlay == Some(Overlay::Party) {
+                self.partners()
+                    .get(self.selected)
+                    .map_or(self.lead().id, |p| p.id)
+            } else {
+                self.lead().id
+            };
+            self.open_nickname(partner);
+            return true;
+        }
         if matches!(name, "new" | "resume") && self.overlay.is_none() {
             if !self.composer_is_request() {
                 if self.editing {

@@ -2,6 +2,16 @@
 //! Status is computed from live request/approval state, never stored.
 use super::*;
 
+/// Local-only text and caret, independent of every partner's task draft.
+pub struct NicknameEditor {
+    pub partner: i64,
+    pub text: String,
+    pub cursor: usize,
+    pub error: String,
+    /// A refused insertion must not turn Enter into a save of the old/empty text.
+    insertion_rejected: bool,
+}
+
 /// A roster row's activity state, derived per frame from live ownership.
 /// Provider requests and local runs belong to the partner that started them
 /// (PT06B), not to whoever is in front now; until PT07 only one partner per
@@ -24,9 +34,147 @@ impl PartnerStatus {
 }
 
 impl App {
+    pub(super) fn open_nickname(&mut self, partner: i64) {
+        if self.party_request.is_some() || self.party_inflight {
+            self.notice = "Wait for the current party change to finish.".into();
+            return;
+        }
+        if self.planning.busy() || self.confirmation.is_some() || self.transitioning {
+            self.notice = "Finish the current request or review before editing a nickname.".into();
+            return;
+        }
+        let Some(partner) = self.partners().into_iter().find(|p| p.id == partner) else {
+            return;
+        };
+        let text = partner.nickname.unwrap_or_default();
+        self.nickname_editor = Some(NicknameEditor {
+            partner: partner.id,
+            cursor: text.len(),
+            text,
+            error: String::new(),
+            insertion_rejected: false,
+        });
+    }
+
+    pub(super) fn nickname_paste(&mut self, text: &str) -> bool {
+        if text.is_empty() || self.nickname_pending.is_some() {
+            return false;
+        }
+        let Some(editor) = &mut self.nickname_editor else {
+            return false;
+        };
+        // Refuse the complete insertion rather than silently saving a clipped name.
+        if text.len() > 512 {
+            editor.error = "Nickname exceeds the 512-byte storage limit.".into();
+            editor.insertion_rejected = true;
+            return true;
+        }
+        let mut candidate = editor.text.clone();
+        candidate.insert_str(editor.cursor, text);
+        if let Err(error) = store::validate_nickname(&candidate) {
+            editor.error = error;
+            editor.insertion_rejected = true;
+            return true;
+        }
+        editor.text = candidate;
+        editor.cursor = editor
+            .text
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .find(|index| *index >= editor.cursor + text.len())
+            .unwrap_or(editor.text.len());
+        editor.error.clear();
+        editor.insertion_rejected = false;
+        true
+    }
+
+    pub(super) fn nickname_key(&mut self, key: KeyEvent) -> bool {
+        if key.code == KeyCode::Esc {
+            self.nickname_editor = None;
+            return true;
+        }
+        if self.nickname_pending.is_some()
+            || key.kind == KeyEventKind::Repeat && key.code == KeyCode::Enter
+        {
+            return true;
+        }
+        let Some(editor) = &mut self.nickname_editor else {
+            return false;
+        };
+        let before = editor.text[..editor.cursor]
+            .grapheme_indices(true)
+            .next_back()
+            .map_or(0, |(index, _)| index);
+        let after = editor
+            .text
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .find(|index| *index > editor.cursor)
+            .unwrap_or(editor.text.len());
+        match key.code {
+            KeyCode::Enter => {
+                if editor.insertion_rejected {
+                    return true;
+                }
+                let candidate = editor.text.trim();
+                if !candidate.is_empty()
+                    && let Err(error) = store::validate_nickname(candidate)
+                {
+                    editor.error = error;
+                    return true;
+                }
+                self.party_request = Some(store::PartyRequest::Nickname {
+                    partner: editor.partner,
+                    nickname: (!candidate.is_empty()).then(|| candidate.to_owned()),
+                });
+                self.nickname_pending = Some(editor.partner);
+                editor.error.clear();
+            }
+            KeyCode::Left => editor.cursor = before,
+            KeyCode::Right => editor.cursor = after,
+            KeyCode::Home => editor.cursor = 0,
+            KeyCode::End => editor.cursor = editor.text.len(),
+            KeyCode::Backspace | KeyCode::Delete => {
+                let range = if key.code == KeyCode::Backspace {
+                    before..editor.cursor
+                } else {
+                    editor.cursor..after
+                };
+                editor.text.replace_range(range, "");
+                editor.cursor = editor
+                    .text
+                    .grapheme_indices(true)
+                    .map(|(index, _)| index)
+                    .chain(std::iter::once(editor.text.len()))
+                    .take_while(|index| {
+                        *index
+                            <= if key.code == KeyCode::Backspace {
+                                before
+                            } else {
+                                editor.cursor
+                            }
+                    })
+                    .last()
+                    .unwrap_or(0);
+                editor.error.clear();
+                editor.insertion_rejected = false;
+            }
+            KeyCode::Char(value)
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                let mut bytes = [0; 4];
+                return self.nickname_paste(value.encode_utf8(&mut bytes));
+            }
+            _ => {}
+        }
+        true
+    }
+
     /// The party roster in id order. The lead partner row shows its live form:
-    /// `set_form` mutates `self.lead` before a save lands, and identity fields
-    /// (nickname, met date) are immutable store data so the row keeps them.
+    /// `set_form` mutates `self.lead` before a save lands; committed identity
+    /// fields are refreshed separately by party acknowledgements.
     pub fn partners(&self) -> Vec<store::Partner> {
         let mut partners = self.party.clone();
         match partners.iter_mut().find(|p| p.id == self.lead.id) {
@@ -67,6 +215,10 @@ impl App {
             }
             KeyCode::Char('a') => {
                 self.request_add_partner();
+                true
+            }
+            KeyCode::Char('n') => {
+                self.open_nickname(partners[self.selected.min(count - 1)].id);
                 true
             }
             KeyCode::Up => {

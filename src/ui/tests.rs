@@ -890,8 +890,13 @@ fn every_form_shows_its_signature_and_one_primary_action_when_empty() {
                 .map(|y| (0..width).map(|x| buffer[(x, y)].symbol()).collect())
                 .collect();
             let (signature, action, label) = crate::domain::FIRST_ACTIONS[index];
+            let first = format!(
+                "{} / {}: {}",
+                form.name,
+                form.element,
+                signature.split(' ').next().unwrap()
+            );
             let form = form.name;
-            let first = format!("{form}: {}", signature.split(' ').next().unwrap());
             assert!(
                 rows.iter().any(|row| row.contains(&first)),
                 "{width}x{height} {form}: {rows:#?}"
@@ -940,7 +945,6 @@ fn header_chip_matches_the_role_table_without_hiding_names_or_status() {
             let line = |y: u16| -> String { (0..width).map(|x| buffer[(x, y)].symbol()).collect() };
             let (names, status) = (line(0), line(1));
             assert!(names.contains(form.name), "{width}: {names}");
-            assert!(names.contains("workspa"), "{width}: {names}");
             assert!(
                 status
                     .trim_end()
@@ -964,4 +968,102 @@ fn header_chip_matches_the_role_table_without_hiding_names_or_status() {
     let buffer = terminal.backend().buffer();
     let status: String = (0..60).map(|x| buffer[(x, 1)].symbol()).collect();
     assert!(!status.contains("[read"), "{status}");
+}
+
+#[test]
+fn nicknames_keep_species_visible_in_header_and_composer_at_both_sizes() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height) in [(120, 36), (60, 18)] {
+        for form in FORMS {
+            for nickname_value in ["月", "界界界界界界界界界界界界"] {
+                let mut app = App::new("/workspace".into(), width, height);
+                app.command(&form.name.to_lowercase());
+                app.command("nickname");
+                app.update(Event::Paste(nickname_value.into()));
+                app.update(Event::Key(KeyEvent::new(
+                    KeyCode::Enter,
+                    KeyModifiers::NONE,
+                )));
+                app.party_request.take();
+                app.store_event(store::Event::Party(Ok(vec![store::Partner {
+                    nickname: Some(nickname_value.into()),
+                    ..store::Partner::default()
+                }])));
+                app.planning.selection.model = Some("model-sentinel".into());
+                app.planning.selection.effort = Some("high".into());
+                let mut artwork = Artwork::load(&config);
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal
+                    .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                    .unwrap();
+                let buffer = terminal.backend().buffer();
+                let line =
+                    |y: u16| -> String { (0..width).map(|x| buffer[(x, y)].symbol()).collect() };
+                let header = line(0);
+                assert!(header.contains("model-sentinel"), "{width}: {header}");
+                assert!(header.contains("high"), "{width}: {header}");
+                if width < 90 {
+                    assert!(header.contains("Codex/CLI"), "{width}: {header}");
+                }
+                let composer = line(
+                    shell(
+                        Rect::new(0, 0, width, height),
+                        app.linear,
+                        app.effective_focus(),
+                    )
+                    .composer
+                    .y,
+                );
+                for visible in [&header, &composer] {
+                    assert!(
+                        visible.contains(&format!("({})", form.name)),
+                        "{width}: {visible}"
+                    );
+                    assert!(
+                        visible.contains(nickname_value.chars().next().unwrap()),
+                        "{width}: {visible}"
+                    );
+                }
+                assert!(
+                    screen_text(&terminal).contains(form.element),
+                    "{width}: {}",
+                    form.name
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn nickname_editor_exposes_local_scope_candidate_and_rejection() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = App::new("/workspace".into(), width, height);
+        app.command("nickname");
+        app.update(Event::Paste("月".into()));
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+        app.party_request.take();
+        app.store_event(store::Event::Party(Err("Duplicate nickname".into())));
+        let mut artwork = Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        let rendered = screen_text(&terminal);
+        for boundary in [
+            "local only",
+            "0 B",
+            "月",
+            "Duplicate",
+            "Enter Save",
+            "Esc Cancel",
+        ] {
+            assert!(rendered.contains(boundary), "{width}: {rendered}");
+        }
+    }
 }

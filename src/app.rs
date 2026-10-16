@@ -124,6 +124,9 @@ pub struct App {
     pub party_request: Option<store::PartyRequest>,
     /// A party mutation was handed to the store and awaits its committed roster.
     pub party_inflight: bool,
+    /// Independent local identity editor; never borrows the task composer.
+    pub nickname_editor: Option<party::NicknameEditor>,
+    nickname_pending: Option<i64>,
     pub selected: usize,
     /// Preferred focus, retained even when its pane is temporarily hidden.
     pub focus: Pane,
@@ -235,6 +238,8 @@ impl App {
             party: Vec::new(),
             party_request: None,
             party_inflight: false,
+            nickname_editor: None,
+            nickname_pending: None,
             selected: 0,
             focus: Pane::Workspace,
             overlay: None,
@@ -396,7 +401,7 @@ impl App {
     /// Header identity: nickname when set (PK01), else `Eevee #<id>`.
     pub fn lead_label(&self) -> String {
         format!(
-            "{} · {}",
+            "{} ({})",
             Self::partner_label(&self.lead),
             crate::domain::FORMS[self.form().min(8)].name
         )
