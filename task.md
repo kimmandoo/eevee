@@ -4,7 +4,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 
 | File | Section | Open |
 |---|---|---|
-| [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 13 |
+| [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 10 |
 | [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 9 |
 | [C-relays.md](tasks/C-relays.md) | Form relays | 8 |
 | [D-moves.md](tasks/D-moves.md) | Moves: teaching and learning skills | 14 |
@@ -17,14 +17,14 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 ## Status
 
 - **Released:** 0.1.8 (tags v0.1.0–v0.1.8), including direct ordinary sending, one Codex provider with distinct connection methods, durable last-used model/effort, verified public installation/runtime and actual GPT-6.1 restart/responses. Released store: Schema 10.
-- **Active user request:** None. Compact model → reasoning selection, direct provider controls, attachment UX and shared install/update animation completed and verified in source; these UX changes were not released. PT06A remains unstarted; await new scope.
-- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B, PT05A/PT05B, RF05 and the first code-structure pass (index below). **Open:** 96 small tasks. **Dropped:** T05.
+- **Active user request:** Implement PT06A–PT06C and release v0.1.9. PT06A/B/C are implemented and verified in source; publication of v0.1.9 is in progress (see `docs/WORK_CHECKPOINT.md`).
+- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B, PT05A/PT05B, RF05, PT06A/PT06B/PT06C and the first code-structure pass (index below). **Open:** 93 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.
 
 ### Completed index (referenced by "Builds on")
 
-V01 sanctuary layout · P01 native terminal lifecycle · V02A/V02B species art and native graphics · V03 evolution picker · UX01 focus/editing · E01 durable goal · E02 task cards/resume · E03 task lifecycle/privacy/quota · C01 repository baseline/diff · C02 Vaporeon source map/basket · R01 Jolteon approve/run/cancel · R02 execution journal/freshness · UX02 interruption/recovery · P02 filesystem/process parity · A01 agent preflight · A02 Espeon planning request · A03 Flareon implementation · A05 OpenCode ACP · U01 Umbreon hypotheses · L01 Leafeon refactor comparison · G01 Glaceon review desk · S01 Sylveon handoff · S02 curated memory (Bond) · S03 Evolution Stone recipes · PT01 party contract (DESIGN_RULES § Party: ≤6 partners, ≤3 working per task, one writer) · PT02A/PT02B partner table and lead accessor · PT03A/PT03B named form commands and previous-form toggle · PT04A/PT04B party roster and add partner · RF03 `app.rs` split.
+V01 sanctuary layout · P01 native terminal lifecycle · V02A/V02B species art and native graphics · V03 evolution picker · UX01 focus/editing · E01 durable goal · E02 task cards/resume · E03 task lifecycle/privacy/quota · C01 repository baseline/diff · C02 Vaporeon source map/basket · R01 Jolteon approve/run/cancel · R02 execution journal/freshness · UX02 interruption/recovery · P02 filesystem/process parity · A01 agent preflight · A02 Espeon planning request · A03 Flareon implementation · A05 OpenCode ACP · U01 Umbreon hypotheses · L01 Leafeon refactor comparison · G01 Glaceon review desk · S01 Sylveon handoff · S02 curated memory (Bond) · S03 Evolution Stone recipes · PT01 party contract (DESIGN_RULES § Party: ≤6 partners, ≤3 working per task, one writer) · PT02A/PT02B partner table and lead accessor · PT03A/PT03B named form commands and previous-form toggle · PT04A/PT04B party roster and add partner · PT06A partner attribution · PT06B per-partner request slot · PT06C partner-named approvals · RF03 `app.rs` split.
 
 ## How to pick work
 

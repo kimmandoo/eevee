@@ -214,7 +214,14 @@ All five steps completed at immutable v0.1.8 source `53f3fd0`: exact-commit nati
 4. Exercise actual TUI direct sends, real connection/permission boundaries, no forced effort popup, immediate-quit/restart preferences, competing startup providers and old-binary refusal. Keep API/account qualification limits truthful.
 5. Commit the complete v0.1.8 source; qualify Check plus five native build/test/install rows at that exact commit. Publish only their immutable artifacts, verify all public hashes and installed runtime, and record completion. Do not retag v0.1.7 or advance PT06A.
 
-## Completed request — shallower model and attachment UX (not released)
+## Active request — PT06 party routing and v0.1.9 release
+
+1. PT06A: attribute new runs and provider journal records with a partner id plus name/form snapshot; older records display `partner unknown`; attribution never enters packets or handoffs. (done `43c7834`)
+2. PT06B: key provider request state by partner; route events/questions/approvals by (task, partner, generation); keep work with its owner across lead switches; refuse late events for other or released partners. (done `797edab`)
+3. PT06C: name the asking partner in run approval/cancel, permission/approval and question dialogs without hiding choices at 60×18. (done `9863913`)
+4. Bump to 0.1.9, push main, require Check plus five native build/test/install rows at that exact commit, tag `v0.1.9`, verify public assets and checksums, and record completion.
+
+## Completed request — shallower model and attachment UX (released in v0.1.9)
 
 All four steps completed: final-source Rust checks and six targeted actual-TUI journeys passed, with additional workbench/context/terminal and isolated install/update evidence recorded in `WORK_CHECKPOINT.md`. No release was requested or published; PT06A remained unstarted.
 

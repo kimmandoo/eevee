@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.9
+
+- feat(party): attributed new command runs and provider journal records to the requesting partner with a name/form snapshot; older records read `partner unknown`.
+- feat(party): kept provider requests, events and approvals with the partner that started them across lead switches, refused late events for other or released partners, and kept `/lead` and `/party` usable during a request.
+- feat(party): named the asking partner in run approval/cancel, provider permission/approval and question dialogs at every supported size.
+- feat(models): compacted model selection into model → reasoning with exact-first search, direct exact-ID/effort arguments and distinct current/focus markers.
+- feat(context): added direct bounded attachment review/save/return with visible saved-file markers and local scoped path filtering.
+- fix(install): reused the installation animation during self-update release lookup and preserved UTF-8 locale settings.
+
 ## 0.1.8
 
 - feat(ux): sent ordinary requests directly from Enter after durable preparation, while retaining scoped approval for commands, writes and risky connections.
