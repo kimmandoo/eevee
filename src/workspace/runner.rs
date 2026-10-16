@@ -68,6 +68,9 @@ pub struct Prepared {
     pub prepared_at_ms: u64,
     pub expires_at_ms: u64,
     pub before: InputSnapshot,
+    /// Requesting partner (PT06A); absent on runs recorded before attribution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partner: Option<crate::store::Attribution>,
 }
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum RunState {
@@ -223,6 +226,7 @@ enum Command {
         spec: CommandSpec,
         cwd: PathBuf,
         before: InputSnapshot,
+        partner: Option<crate::store::Attribution>,
     },
     Dispatch {
         request_id: String,
@@ -262,6 +266,7 @@ impl Worker {
         })
     }
     /// Queues filesystem/executable discovery, never an execution. Replaces any pending grant.
+    #[cfg(test)]
     pub fn prepare(
         &self,
         task_id: i64,
@@ -269,7 +274,21 @@ impl Worker {
         cwd: PathBuf,
         before: InputSnapshot,
     ) -> Result<String, String> {
+        self.prepare_for(task_id, None, spec, cwd, before)
+    }
+    /// `prepare` on behalf of a partner, whose snapshot the run record keeps (PT06A).
+    pub fn prepare_for(
+        &self,
+        task_id: i64,
+        partner: Option<crate::store::Attribution>,
+        spec: CommandSpec,
+        cwd: PathBuf,
+        before: InputSnapshot,
+    ) -> Result<String, String> {
         validate_spec(&spec)?;
+        if let Some(partner) = &partner {
+            partner.validate()?;
+        }
         if task_id <= 0 {
             return Err("A saved task is required".into());
         }
@@ -300,6 +319,7 @@ impl Worker {
                 spec,
                 cwd,
                 before,
+                partner,
             })
             .map_err(|_| "Runner queue is full or disconnected")?;
         gate.pending = Some(request_id.clone());
@@ -396,8 +416,13 @@ fn worker(
                 spec,
                 cwd,
                 before,
+                partner,
             } => {
-                let result = prepare(request_id.clone(), task_id, spec, cwd, before);
+                let result =
+                    prepare(request_id.clone(), task_id, spec, cwd, before).map(|mut prepared| {
+                        prepared.partner = partner;
+                        prepared
+                    });
                 let current = gate.lock().pending.as_deref() == Some(&request_id);
                 if !current {
                     continue;
@@ -560,6 +585,7 @@ fn prepare(
         prepared_at_ms,
         expires_at_ms: prepared_at_ms.saturating_add(APPROVAL_LIFETIME_MS),
         before,
+        partner: None,
     };
     if serde_json::to_vec(&prepared)
         .map_err(|e| e.to_string())?

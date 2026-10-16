@@ -2042,6 +2042,7 @@ impl Engine<'_> {
                         ),
                         text: safe(&item.text),
                         complete: item.complete,
+                        partner: None,
                     },
                 },
             )?;

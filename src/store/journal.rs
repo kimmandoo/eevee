@@ -16,7 +16,8 @@ impl State {
         let task = load_task(&transaction, &self.project, request.task_id)?
             .ok_or("Provider journal task is missing or belongs to another project")?;
         let response = match request.operation {
-            JournalOperation::Put(mut record) => {
+            JournalOperation::Put(record) => {
+                let mut record = *record;
                 if task.archived {
                     return Err("Archived tasks cannot accept provider evidence".into());
                 }
@@ -126,6 +127,9 @@ pub(super) fn validate_provider_record(record: &ProviderRecord) -> Result<(), St
         {
             return Err("Provider journal identity is invalid or credential-bearing".into());
         }
+    }
+    if let Some(partner) = &record.partner {
+        partner.validate()?;
     }
     if record.origin.trim().is_empty()
         || record.coverage.trim().is_empty()

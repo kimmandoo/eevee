@@ -264,7 +264,7 @@ impl App {
             store::EditorField::NextAction => self.next_action = std::mem::take(&mut self.input),
             store::EditorField::Command => {
                 self.command = std::mem::take(&mut self.input);
-                self.pending_command = Some(self.command.clone());
+                self.pending_command = Some((self.command.clone(), self.attribution()));
             }
             store::EditorField::Criteria => {
                 let lines: Vec<&str> = self

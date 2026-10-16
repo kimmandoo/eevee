@@ -1941,6 +1941,7 @@ impl Engine<'_> {
                     coverage: coverage.into(),
                     text: text.into(),
                     complete,
+                    partner: None,
                 },
             },
         )

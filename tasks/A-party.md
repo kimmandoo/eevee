@@ -73,7 +73,7 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT06A — Partner attribution on journal entries
 
-- [ ] Record which partner produced each run, request and review.
+- [x] Record which partner produced each run, request and review.
 - **Priority:** 1. **Needs:** PT05A. **Builds on:** R02.
 - **Change:** New journal/run/provider records carry a partner id plus a name snapshot; old records show `partner unknown`. Evidence views display it.
 - **Accept:** Run a command with each of two partners; each record names its partner, and old fixture records show `partner unknown`.

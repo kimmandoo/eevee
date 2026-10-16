@@ -82,7 +82,8 @@ impl State {
             "Retrying retained journal operation only; no provider request.".into();
     }
 
-    pub(super) fn queue_record(&mut self, task_id: i64, record: store::ProviderRecord) {
+    pub(super) fn queue_record(&mut self, task_id: i64, mut record: store::ProviderRecord) {
+        record.partner = self.owner.clone();
         if self.pending_journal.len() + self.journal_inflight.len() + self.failed_journal.len()
             >= 128
         {
@@ -91,7 +92,7 @@ impl State {
         }
         self.pending_journal.push_back(store::JournalRequest {
             task_id,
-            operation: store::JournalOperation::Put(record),
+            operation: store::JournalOperation::Put(Box::new(record)),
         });
     }
 }

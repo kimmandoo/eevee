@@ -123,6 +123,7 @@ impl App {
                 id: snapshot.lead_partner,
                 ..store::Partner::default()
             });
+        self.sync_front();
         self.set_form(snapshot.form);
         self.revision = snapshot.revision;
         self.saved_revision = snapshot.revision;

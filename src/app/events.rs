@@ -168,6 +168,7 @@ impl App {
                             let form = self.lead.form;
                             self.lead = partner.clone();
                             self.lead.form = form;
+                            self.sync_front();
                         }
                         self.saved_revision = snapshot.revision;
                         self.revision = self.revision.max(snapshot.revision.saturating_add(1));
@@ -221,8 +222,9 @@ impl App {
                         self.storage = StorageState::Saved;
                         self.save_requested = false;
                         self.autosave = None;
-                        if let Some(command) = self.pending_command.take() {
-                            self.execution.prepare_command(self.task_id, &command);
+                        if let Some((command, owner)) = self.pending_command.take() {
+                            self.execution
+                                .prepare_command_for(self.task_id, Some(owner), &command);
                         }
                     }
                     self.refresh_save_state();

@@ -1060,10 +1060,13 @@ fn journal(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     }
     let value = if let Some(record) = state.journal_records.get(state.journal_selected) {
         format!(
-            "PROVIDER JOURNAL / {}/{} / {}\nOrigin: {}\nCoverage: {}\nThread {} / turn {} / item {}\nComplete capture: {}\n\n{}\n\nProvider-native observation, never a local runner verification. Missing/purged evidence cannot substantiate a result.",
+            "PROVIDER JOURNAL / {}/{} / {}\nPartner: {}\nOrigin: {}\nCoverage: {}\nThread {} / turn {} / item {}\nComplete capture: {}\n\n{}\n\nProvider-native observation, never a local runner verification. Missing/purged evidence cannot substantiate a result.",
             state.journal_selected + 1,
             state.journal_records.len(),
             record.agent.label(),
+            crate::workspace::handoff::sanitize(&crate::store::Attribution::label(
+                record.partner.as_ref()
+            )),
             record.origin,
             record.coverage,
             record.thread_id,
