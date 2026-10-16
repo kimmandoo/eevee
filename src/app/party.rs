@@ -319,6 +319,7 @@ impl App {
     /// Retain the outgoing partner's composer and restore only the incoming
     /// partner's draft, caret and previous-form memory.
     fn switch_lead(&mut self, partner: store::Partner) {
+        self.clear_carry_over();
         self.partner_drafts
             .insert(self.lead.id, self.partner_draft());
         self.lead = partner;

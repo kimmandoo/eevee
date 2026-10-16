@@ -223,6 +223,7 @@ fn run(config: Config) -> io::Result<()> {
                 dirty = true;
             }
             dirty |= app.refresh_suggestion();
+            dirty |= app.refresh_carry_over();
             if dirty || animation_dirty {
                 ui::portrait_targets(
                     &app,

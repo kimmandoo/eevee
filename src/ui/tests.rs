@@ -606,6 +606,189 @@ fn suggestion_wraps_without_replacing_response_or_composer() {
     }
 }
 
+fn carry_over_home(width: u16, height: u16) -> App {
+    use crate::workspace::{
+        context::Excerpt,
+        workflows::{Finding, Hypothesis},
+    };
+
+    let mut app = App::new("/workspace".into(), width, height);
+    app.task_id = 7;
+    app.command("jolteon");
+    app.refresh_carry_over();
+    app.criteria = (0..64)
+        .map(|index| store::Criterion {
+            text: format!("Criterion {index}"),
+            met: index < 32,
+        })
+        .collect();
+    app.sources.basket = (1..=16)
+        .map(|id| Excerpt {
+            id,
+            task_id: 7,
+            root: "/workspace".into(),
+            path: format!("source-{id}.rs"),
+            start_line: 1,
+            end_line: 1,
+            source_sha256: [0; 32],
+            text: "Committed evidence".into(),
+            available: true,
+        })
+        .collect();
+    app.workflows.hypotheses = (1..=32)
+        .map(|id| Hypothesis {
+            id,
+            explanation: format!("Open explanation {id}"),
+            evidence: Vec::new(),
+        })
+        .collect();
+    app.workflows.findings = (1..=32)
+        .map(|id| Finding {
+            id,
+            criterion: "Criterion 0".into(),
+            detail: format!("Open finding {id}"),
+            next_action: "Inspect".into(),
+            evidence: Vec::new(),
+            resolution: None,
+        })
+        .collect();
+    app.input = "Retained follow-up draft".into();
+    app.cursor = 8;
+    app.editing = true;
+    app.editor_field = EditorField::Request;
+    app.planning.items.push(crate::app::planning::Item {
+        thread_id: "thread".into(),
+        turn_id: "turn".into(),
+        item_id: "item".into(),
+        kind: crate::providers::ItemKind::Message,
+        text: "Retained provider response.".into(),
+        complete: true,
+        request: "Original request".into(),
+    });
+    app.planning.following = false;
+    app.planning.new_output = true;
+    app.command("sylveon");
+    app.refresh_carry_over();
+    app
+}
+
+#[test]
+fn carry_over_counts_and_capabilities_share_one_row_with_response_and_draft() {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    for (width, height) in [(60, 18), (120, 36)] {
+        for (ascii, color, linear) in [
+            (false, ColorMode::TrueColor, false),
+            (true, ColorMode::Mono, false),
+            (true, ColorMode::Mono, true),
+        ] {
+            let mut config = home_config();
+            config.ascii = ascii;
+            config.color = color;
+            let mut app = carry_over_home(width, height);
+            app.linear = linear;
+            let focus = app.effective_focus();
+            let mut artwork = Artwork::load(&config);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            let area = shell(Rect::new(0, 0, width, height), linear, focus).workspace;
+            for _ in 0..2 {
+                terminal
+                    .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                    .unwrap();
+                let buffer = terminal.backend().buffer();
+                let strip = (area.x..area.right())
+                    .map(|x| buffer[(x, area.y)].symbol())
+                    .collect::<String>();
+                for expected in ["Carry", "C32/64", "P16", "H32", "F32", "+edit-docs", "-run"] {
+                    assert!(strip.contains(expected), "{width}x{height}: {strip}");
+                }
+                let rendered = screen_text(&terminal);
+                assert!(rendered.contains("Retained provider response."));
+                assert!(rendered.contains("Retained follow-up draft"));
+                assert_eq!(app.effective_focus(), focus);
+                assert!(app.editing);
+                assert_eq!(app.editor_field, EditorField::Request);
+                assert_eq!(app.input, "Retained follow-up draft");
+                assert_eq!(app.cursor, 8);
+                assert!(!app.planning.following);
+                assert!(app.planning.new_output);
+                assert!(app.planning.pending.is_none());
+                assert!(app.sources.pending_store.is_none());
+                assert!(app.carry_over().is_some(), "render must not dismiss");
+            }
+
+            let paint = Paint::new(&config, &FORMS[app.form()], app.form());
+            let mut visible_area = area;
+            terminal
+                .draw(|frame| visible_area = suggestion_strip(frame, area, &app, &paint))
+                .unwrap();
+            assert_eq!(visible_area.y, area.y + 1);
+            assert_eq!(visible_area.bottom(), area.bottom());
+            app.update(Event::Key(KeyEvent::new(
+                KeyCode::Right,
+                KeyModifiers::NONE,
+            )));
+            assert!(app.carry_over().is_none());
+            assert_eq!(app.cursor, 9, "dismissal must deliver the original key");
+            let mut restored_area = visible_area;
+            terminal
+                .draw(|frame| restored_area = suggestion_strip(frame, area, &app, &paint))
+                .unwrap();
+            assert_eq!(restored_area, area, "hidden strip reserves no row");
+        }
+    }
+}
+
+#[test]
+fn companion_explains_and_reopens_carry_over_without_replacing_request() {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let config = home_config();
+    for (width, height) in [(60, 18), (120, 36)] {
+        let mut app = carry_over_home(width, height);
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Right,
+            KeyModifiers::NONE,
+        )));
+        app.command("companion");
+        let mut artwork = Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        let rendered = screen_text(&terminal);
+        for expected in [
+            "c Carry-over",
+            "C=criteria met/total",
+            "P=committed pins",
+            "H=open hypotheses",
+            "F=open findings",
+        ] {
+            assert!(rendered.contains(expected), "{width}x{height}: {expected}");
+        }
+        assert!(app.carry_over().is_none());
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::NONE,
+        )));
+        assert!(app.overlay.is_none());
+        assert!(app.carry_over().is_some());
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        let rendered = screen_text(&terminal);
+        assert!(rendered.contains("Carry C32/64"));
+        assert!(rendered.contains("Retained provider response."));
+        assert!(rendered.contains("Retained follow-up draft"));
+        assert_eq!(app.input, "Retained follow-up draft");
+        assert_eq!(app.cursor, 9);
+        assert!(app.editing);
+        assert_eq!(app.editor_field, EditorField::Request);
+        assert!(app.planning.pending.is_none());
+        assert!(app.sources.pending_store.is_none());
+    }
+}
+
 #[test]
 fn task_card_suggestion_belongs_only_to_active_task() {
     use ratatui::{Terminal, backend::TestBackend};

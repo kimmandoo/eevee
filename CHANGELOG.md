@@ -57,6 +57,7 @@
 
 ## 2026-10-16
 
+- feat(forms): showed carried criteria, pins, open hypotheses/findings and capability differences after form switches, preserved the next input, reopened exact records from Companion, and deferred counts until evidence hydration without persisting or dispatching work.
 - feat(forms): marked suggested forms without selecting them, persisted task-local evidence-specific dismissal across restart, resurfaced recommendations for new triggering runs, and migrated navigation metadata transactionally to Schema 11 with unchanged existing rows.
 - feat(forms): recommended the next form from ordered local task/run/source/review evidence, showed the triggering fact without replacing responses, and invalidated current-pass suggestions after refreshed source changes without automatically switching or running work.
 - feat(party): added personal Unicode nicknames with grapheme-safe local editing, unique bounded store writes, clearing/restart persistence, species-aware identity labels and zero automatically added nickname bytes in request receipts.

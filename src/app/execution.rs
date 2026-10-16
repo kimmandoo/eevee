@@ -337,6 +337,15 @@ impl State {
             self.optional(StoreJob::Load(task_id));
         }
     }
+    /// Initial/reloaded journal rows are not evidence of an empty run history.
+    pub(super) fn history_pending(&self, task_id: i64) -> bool {
+        self.queue
+            .iter()
+            .chain(self.inflight.iter())
+            .chain(self.failed.iter())
+            .any(|job| matches!(job, StoreJob::Load(owner) if *owner == task_id))
+    }
+
     pub fn busy(&self) -> bool {
         self.pending_spec.is_some()
             || self.request_id.is_some()

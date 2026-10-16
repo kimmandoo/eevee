@@ -1,5 +1,17 @@
 # Troubleshooting
 
+### [2026-10-16] Carry-over snapshots treated pending context as empty evidence
+
+- **Context / Symptom:** A regression switched forms while the stored pin load was pending; the initial implementation immediately published a zero-pin record. Hiding that pending record with the next key also discarded the switch before its counts settled.
+- **Root Cause:** Empty in-memory source/history collections were indistinguishable from completed empty loads at the snapshot boundary, and dismissal erased the pending transition instead of only its future visibility.
+- **Solution:** Deferred snapshot settlement through pending source/run-history loads, retained the transition independently of visibility, and recorded late settlement without redisplaying it after input. Reopening then used the settled record. Behavioral regressions covered queued/in-flight run history, delayed pin acknowledgement, the first Unicode insertion/caret and later reopening.
+
+### [2026-10-16] Explicit specialist refresh left carry-over hypothesis counts cached
+
+- **Context / Symptom:** After a supporting source changed with otherwise identical stored metadata, deliberate specialist refresh showed unresolved proof while the next carry-over still counted zero open hypotheses. The failing regression observed 0 instead of 1.
+- **Root Cause:** The carry-over metadata cache did not observe the deliberate source-revalidation boundary; unchanged serialized references did not prove the underlying bytes were unchanged.
+- **Solution:** Invalidated carry-over hypothesis counts alongside recommendations on explicit workflow refresh. Source restoration was covered by the same regression. Recommendation and carry-over consumers shared one repository fingerprint, while ordinary form/draft/nickname changes remained cache hits.
+
 ### [2026-10-16] Compact picker hid the identity of an off-screen recommendation
 
 - **Context / Symptom:** EV01B's actual 60×18 fixture offered `d Dismiss suggestion`, but Umbreon was outside the five visible rows while Jolteon remained selected, so the user could not identify the recommendation.

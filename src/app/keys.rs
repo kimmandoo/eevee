@@ -9,6 +9,9 @@ impl App {
 
     /// Inject the event clock for deterministic autosave scheduling.
     pub fn update_at(&mut self, event: Event, now: std::time::Instant) -> bool {
+        let hide_carry_over = matches!(&event, Event::Paste(_))
+            || matches!(&event, Event::Key(key) if key.kind != KeyEventKind::Release);
+        let carry_over_hidden = hide_carry_over && self.carry_over.hide();
         let resized = matches!(event, Event::Resize(_, _));
         let command_action = self.command_popup.is_some()
             && matches!(&event, Event::Key(key) if key.code == KeyCode::Enter);
@@ -107,7 +110,7 @@ impl App {
         {
             self.changed_implicitly(now);
         }
-        changed
+        changed || carry_over_hidden
     }
 
     pub(super) fn handoff_key(&mut self, key: KeyEvent) -> bool {
@@ -709,6 +712,9 @@ impl App {
         match key.code {
             KeyCode::Tab | KeyCode::BackTab => {
                 return self.cycle_focus(key.code == KeyCode::BackTab);
+            }
+            KeyCode::Char('c') if self.effective_focus() == Pane::Companion => {
+                self.reopen_carry_over();
             }
             KeyCode::Char('n') if self.effective_focus() == Pane::Companion => {
                 self.open_nickname(self.lead().id);
