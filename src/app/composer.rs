@@ -73,7 +73,9 @@ impl App {
             return true;
         }
         if self.pending_request.is_some() || self.planning.busy() || self.execution.busy() {
-            self.notice = "Finish or cancel the current request before sending another.".into();
+            self.notice = self.other_partner_working().unwrap_or_else(|| {
+                "Finish or cancel the current request before sending another.".into()
+            });
             return true;
         }
         if self.archived {

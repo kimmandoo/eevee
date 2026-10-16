@@ -131,6 +131,7 @@ impl App {
                             );
                         }
                         self.party = partners;
+                        self.retain_slots();
                     }
                     Err(message) => {
                         self.notice = message;
@@ -142,6 +143,7 @@ impl App {
                 self.usage_bytes = project.usage_bytes;
                 self.tasks = project.tasks;
                 self.party = project.partners.clone();
+                self.retain_slots();
                 let target = if self.task_id > 0 {
                     Some(self.task_id)
                 } else {

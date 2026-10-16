@@ -1512,43 +1512,115 @@ fn lead_switch_persists_through_save_and_restart() {
 }
 
 #[test]
-fn lead_switch_is_refused_while_the_lead_owns_live_work() {
+fn lead_switch_keeps_live_work_and_its_approval_on_the_owning_partner() {
     let mut app = app();
     app.editing = false;
     app.task_id = 7;
     app.goal = "task".into();
     app.planning.reset(7);
-    app.planning.preview = Some(crate::providers::Preview {
-        destination: None,
-        requires_connection_review: true,
-        generation: 1,
-        task_id: 7,
-        thread_id: None,
-        trust: Vec::new(),
-        payload: "{}".into(),
-        blockers: Vec::new(),
-    });
     app.store_event(store::Event::Party(Ok(vec![
-        store::Partner::default(),
+        store::Partner {
+            id: 1,
+            nickname: Some("Bolt".into()),
+            form: 2,
+            ..store::Partner::default()
+        },
         store::Partner {
             id: 2,
+            nickname: Some("Mizu".into()),
+            form: 1,
             ..store::Partner::default()
         },
     ])));
     app.request_lead(2);
-    assert_eq!(app.lead().id, 1);
+    app.request_lead(1);
+    assert_eq!(app.lead_label(), "Bolt · Jolteon");
+    let mut task = committed(&app);
+    task.id = 7;
+    app.planning.command("new", true, &task, &[], None);
+    app.planning.pending.take();
+    app.planning.event(crate::providers::Event::Preview(
+        crate::providers::Preview {
+            destination: None,
+            requires_connection_review: true,
+            generation: 11,
+            task_id: 7,
+            thread_id: None,
+            trust: Vec::new(),
+            payload: "{}".into(),
+            blockers: Vec::new(),
+        },
+    ));
+    let bolt = app.lead().clone();
+    assert_eq!(app.partner_status(&bolt), party::PartnerStatus::Waiting);
+    // Switching the lead away and back never moves the request or approval.
+    app.request_lead(2);
+    assert_eq!(app.lead().id, 2, "{}", app.notice);
+    let mizu = app.lead().clone();
+    assert_eq!(app.partner_status(&bolt), party::PartnerStatus::Waiting);
+    assert_eq!(app.partner_status(&mizu), party::PartnerStatus::Idle);
+    assert_eq!(app.partner_task(&bolt), "task");
+    assert_eq!(app.planning.owner().map(|owner| owner.partner), Some(1));
+    assert!(app.planning.preview.is_some());
+    // The second partner cannot start a request while the first one works.
+    app.open_editor(store::EditorField::Request);
+    type_text(&mut app, "second request");
+    key(&mut app, KeyCode::Enter);
+    assert!(app.pending_request.is_none());
     assert!(
-        app.notice.contains("waiting for approval"),
+        app.notice
+            .contains("Bolt (Jolteon) is working on this task"),
         "{}",
         app.notice
     );
-    // A roster write in flight also blocks the switch.
-    app.planning.preview = None;
+    assert_eq!(app.input, "second request", "the draft is kept");
+    app.request_lead(1);
+    assert_eq!(app.lead().id, 1);
+    assert_eq!(app.partner_status(&bolt), party::PartnerStatus::Waiting);
+    assert_eq!(app.planning.owner().map(|owner| owner.partner), Some(1));
+    // A roster write in flight still blocks the switch.
     app.party_inflight = true;
     app.request_lead(2);
     assert_eq!(app.lead().id, 1);
     assert!(
         app.notice.contains("in-flight party change"),
+        "{}",
+        app.notice
+    );
+}
+
+#[test]
+fn failed_request_returns_to_its_senders_draft_not_the_current_lead() {
+    let mut app = app();
+    app.editing = false;
+    app.task_id = 7;
+    app.goal = "task".into();
+    app.planning.reset(7);
+    app.store_event(store::Event::Party(Ok(vec![
+        store::Partner::default(),
+        store::Partner {
+            id: 2,
+            nickname: Some("Mizu".into()),
+            form: 1,
+            ..store::Partner::default()
+        },
+    ])));
+    let mut task = committed(&app);
+    task.id = 7;
+    app.planning.command("new", true, &task, &[], None);
+    app.planning.submitted_request = "original request".into();
+    app.request_lead(2);
+    app.open_editor(store::EditorField::Request);
+    type_text(&mut app, "mizu draft");
+    app.planning.failed_request = true;
+    assert!(app.settle_planning());
+    assert_eq!(app.input, "mizu draft", "the lead's composer is untouched");
+    let restored = &app.partner_drafts[&1].drafts;
+    assert!(restored.iter().any(|draft| {
+        draft.field == store::EditorField::Request && draft.text == "original request"
+    }));
+    assert!(
+        app.notice.contains("Eevee #1's request was restored"),
         "{}",
         app.notice
     );
@@ -2690,4 +2762,36 @@ fn init_oversized_project_identity_preserves_draft_caret_and_role() {
                 .contains("shorter initialization request manually")
         );
     }
+}
+
+#[test]
+fn lead_and_roster_stay_reachable_while_another_partner_requests() {
+    let mut app = app();
+    app.editing = false;
+    app.task_id = 7;
+    app.goal = "task".into();
+    app.planning.reset(7);
+    app.store_event(store::Event::Party(Ok(vec![
+        store::Partner::default(),
+        store::Partner {
+            id: 2,
+            ..store::Partner::default()
+        },
+    ])));
+    let mut task = committed(&app);
+    task.id = 7;
+    app.planning.command("new", true, &task, &[], None);
+    assert!(app.planning.busy());
+    app.command_with_argument("/lead 2");
+    assert_eq!(app.lead().id, 2, "{}", app.notice);
+    app.command("party");
+    assert_eq!(app.overlay, Some(Overlay::Party));
+    key(&mut app, KeyCode::Up);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.lead().id, 1, "{}", app.notice);
+    assert_eq!(app.planning.owner().map(|owner| owner.partner), Some(1));
+    assert!(
+        app.planning.pending.is_some(),
+        "navigation never sends or cancels"
+    );
 }

@@ -83,7 +83,7 @@ impl State {
     }
 
     pub(super) fn queue_record(&mut self, task_id: i64, mut record: store::ProviderRecord) {
-        record.partner = self.owner.clone();
+        record.partner = self.owner().cloned();
         if self.pending_journal.len() + self.journal_inflight.len() + self.failed_journal.len()
             >= 128
         {

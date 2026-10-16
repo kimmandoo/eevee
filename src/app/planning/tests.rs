@@ -2567,3 +2567,71 @@ fn journal_records_carry_the_partner_bound_when_the_request_was_prepared() {
     };
     assert_eq!(record.partner, Some(partner(1, "Bolt", 2)));
 }
+
+fn journal_event(generation: u64, id: &str) -> Event {
+    Event::Journal {
+        generation,
+        task_id: 7,
+        record: store::ProviderRecord {
+            id: id.into(),
+            agent: Agent::Codex,
+            generation,
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: id.into(),
+            origin: "Codex provider-native".into(),
+            coverage: "Public observed result only".into(),
+            text: "output".into(),
+            complete: true,
+            partner: None,
+        },
+    }
+}
+
+fn prepared_at(state: &mut State, generation: u64) {
+    state.pending.take();
+    state.event(Event::Preview(Preview {
+        destination: None,
+        requires_connection_review: true,
+        generation,
+        task_id: 7,
+        thread_id: None,
+        trust: vec![],
+        payload: "{}".into(),
+        blockers: vec![],
+    }));
+}
+
+#[test]
+fn late_events_for_another_or_released_partner_are_refused() {
+    let mut state = State::new();
+    state.reset(7);
+    state.front = Some(partner(1, "Bolt", 2));
+    command(&mut state, "new", true);
+    prepared_at(&mut state, 11);
+    assert_eq!(state.working_partner(), Some(1));
+    state.event(journal_event(11, "bolt-item"));
+    assert_eq!(state.pending_journal.len(), 1);
+    // Bolt's review closes; Mizu then owns the next request slot.
+    state.preview = None;
+    state.pending_journal.clear();
+    state.front = Some(partner(2, "Mizu", 1));
+    command(&mut state, "new", true);
+    prepared_at(&mut state, 12);
+    assert_eq!(state.owner().map(|owner| owner.partner), Some(2));
+    state.event(journal_event(11, "late-bolt-item"));
+    assert!(state.pending_journal.is_empty(), "late event reached Mizu");
+    state.event(journal_event(12, "mizu-item"));
+    assert_eq!(state.pending_journal.len(), 1);
+    // Live work keeps its slot even if the roster changes underneath it.
+    state.retain_partners(&[1]);
+    assert_eq!(state.owner().map(|owner| owner.partner), Some(2));
+    // Once idle, a released owner's slot is dropped and its events refused.
+    state.preview = None;
+    state.pending_journal.clear();
+    state.retain_partners(&[1]);
+    assert!(state.owner().is_none());
+    assert!(state.notice.contains("left the party"));
+    state.event(journal_event(12, "released-item"));
+    assert!(state.pending_journal.is_empty());
+}

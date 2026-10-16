@@ -391,6 +391,16 @@ impl App {
 
     pub fn settle_planning(&mut self) -> bool {
         if std::mem::take(&mut self.planning.failed_request) {
+            if let Some(owner) = self
+                .planning
+                .owner()
+                .filter(|owner| owner.partner != self.lead.id)
+                .cloned()
+            {
+                // The request belongs to the partner that sent it, not the one in front.
+                self.restore_partner_request(&owner);
+                return true;
+            }
             if self.composer_is_request() && self.input.is_empty() {
                 self.input = self.planning.submitted_request.to_string();
                 self.cursor = self.input.len();
