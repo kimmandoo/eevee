@@ -246,3 +246,12 @@ All four steps completed: final-source Rust checks and six targeted actual-TUI j
 5. EV02 — **Done:** transient stored-state/capability record, normal next-key/paste delivery, exact Companion reopening and cached guarded hypothesis counts after context settlement. Rust 1.90.0: 680 passed / 2 ignored, fmt/strict Clippy/release build passed. Actual TUI passed 16 journey groups at 120×36/60×18 in monochrome Unicode/ASCII: three switch pairs matched stored counts/diffs, input/carets stayed exact, and four deliberately requested loopback responses produced no automatic extra send/run. Actual execution regression passed all eight journeys.
 
 Each task was implemented in existing modules, verified with relevant tests and actual TUI, documented and committed independently. This request is complete; no next implementation step is active. EV01C remains in wave 3; publication and replacement of the installed command remain unrequested.
+
+## Active request — release wave 2, then EV10A
+
+1. Prepare v0.1.10 with Schema 11 compatibility notes, retain the released v0.1.9 schema fixture and locally verify the candidate.
+2. Commit/push the candidate to main; require same-commit Check and all five native build/test/offline-install rows to succeed in one attempt. Tag only that qualified commit; promote its exact immutable packages through the existing publication workflow.
+3. Verify the public version/assets/checksums and exercise the published Linux binary using disposable data, including Schema 10→11 compatibility. Record publication before changing feature code.
+4. Implement EV10A: a reusable pure retained-output location parser for Rust/cargo, Python tracebacks, Node/TypeScript and generic path:line[:column], exposed in the existing run view without reading extra spool bytes or opening/pinning files.
+5. Prove real failing cargo test and pytest locations plus no-match behavior, actual TUI at 120×36/60×18, update contracts/task/changelog/checkpoint and commit EV10A independently. EV10B remains the next task, not part of this request.
+

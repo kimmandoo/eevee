@@ -112,7 +112,7 @@ Freshness follows the latest bounded repository observation; `/refresh` observes
 
 The Forms picker marks the recommended form textually without moving its selected/current form or changing Enter's explicit switch-only behavior. Picker `d` (including the Return-to-Eevee row) or `/suggestion-dismiss` hides only the exact current trigger. The task-local dismissal survives restart and form/draft/nickname changes; a different evidence identity, such as a new failing run, can recommend again. Dismissal preserves the invoking draft/caret, never starts work, and is not provider/handoff context.
 
-Schema 11 adds this optional dismissal identity to the existing task navigation JSON. The Schema 10→11 transaction changes only the version: existing task, evidence, journal, roster and provider-preference rows are not rewritten. Schema 10 binaries refuse the migrated database without mutation. The released v0.1.9 store remains Schema 10; this source candidate is Schema 11.
+Schema 11 adds this optional dismissal identity to the existing task navigation JSON. The Schema 10→11 transaction changes only the version: existing task, evidence, journal, roster and provider-preference rows are not rewritten. Schema 10 binaries refuse the migrated database without mutation. Version 0.1.10 uses Schema 11; v0.1.9 uses Schema 10.
 
 ### Signature interactions
 
