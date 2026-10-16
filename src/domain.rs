@@ -132,3 +132,17 @@ pub const FIRST_ACTIONS: [(&str, Option<&str>, &str); 9] = [
         "Preview the handoff",
     ),
 ];
+
+/// Default capabilities per form (EV03A), condensed from the DESIGN_RULES role
+/// table. Descriptive only: enforcement stays in the approval flows.
+pub const CAPABILITIES: [&str; 9] = [
+    "read",
+    "read",
+    "read · run",
+    "read · edit",
+    "read · edit plans",
+    "read",
+    "read · edit",
+    "read",
+    "read · edit docs",
+];
