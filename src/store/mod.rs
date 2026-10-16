@@ -211,6 +211,9 @@ pub struct Navigation {
     /// stores written before this field as `None`.
     #[serde(default)]
     pub previous_form: Option<usize>,
+    /// Exact task-local recommendation identity dismissed by the user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dismissed_suggestion: Option<String>,
     pub editing: bool,
     pub editor_field: EditorField,
 }
@@ -225,6 +228,7 @@ impl Default for Navigation {
             scroll: [0; 5],
             overlay: None,
             previous_form: None,
+            dismissed_suggestion: None,
             editing: false,
             editor_field: EditorField::Goal,
         }

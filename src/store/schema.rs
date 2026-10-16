@@ -230,9 +230,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=10).contains(&version) {
+    if !(0..=11).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0 through 10"
+            "Unsupported database schema version {version}; this ev supports versions 0 through 11"
         ));
     }
     let mut statement = connection
@@ -324,7 +324,7 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
                 Schema::Current
             }
         }
-        (10, objects)
+        (10 | 11, objects)
             if objects.len() == 8
                 && objects
                     .iter()
@@ -581,6 +581,14 @@ pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), Str
              PRAGMA user_version=10;",
             )
             .map_err(|error| format!("Cannot migrate provider preferences: {error}"))?;
+    }
+    if version < 11 {
+        // Schema 11 adds dismissal metadata to navigation's JSON contract. Only
+        // bump the version: legacy JSON and all task/evidence bytes stay intact,
+        // while Schema 10 binaries refuse before they can drop the new field.
+        connection
+            .execute_batch("PRAGMA user_version=11;")
+            .map_err(|error| format!("Cannot migrate suggestion dismissals: {error}"))?;
     }
     Ok(())
 }

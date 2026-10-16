@@ -56,10 +56,11 @@ These tasks make each switch informed and each form immediately useful, for the 
 
 ### EV01B — Suggestion in the picker and dismissal
 
-- [ ] Show the suggestion where forms are chosen, and let the user dismiss it.
+- [x] Show the suggestion where forms are chosen, and let the user dismiss it.
 - **Priority:** 1. **Needs:** EV01A. **Builds on:** V03.
 - **Change:** The picker marks the suggested form. Dismissing hides the suggestion until the triggering evidence identity changes.
 - **Accept:** Dismiss survives a restart and reappears after a new failing run. Enter in the picker still only previews or switches.
+- **Verified:** Both 120×36 and 60×18 actual TUI fixtures marked Umbreon after exit 7 while keeping Jolteon current/selected; immediate Enter started nothing. Picker `d` from the top intake row persisted the exact trigger, hid it across restart/form changes, preserved Unicode request/caret and evidence bytes, and a second actual failed run resurfaced it. Schema 10→11 preserved existing rows; the actual Schema 10 binary refused the migrated database byte-for-byte.
 
 ### EV01C — Suggest a free party member
 

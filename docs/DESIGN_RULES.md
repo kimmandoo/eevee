@@ -107,6 +107,10 @@ No match shows nothing. Only Eevee-owned local run records count; provider obser
 
 Freshness follows the latest bounded repository observation; `/refresh` observes external source edits, not a claimed live file watch. Report fingerprints and relevant evidence metadata are cached outside rendering; draft/form/nickname/provider-only changes do not reread review sources or change a trigger identity. Deliberate review refresh invalidates the cached verdict even when stored metadata is identical. Captured source text and run journals are borrowed rather than duplicated into the cache.
 
+The Forms picker marks the recommended form textually without moving its selected/current form or changing Enter's explicit switch-only behavior. Picker `d` (including the Return-to-Eevee row) or `/suggestion-dismiss` hides only the exact current trigger. The task-local dismissal survives restart and form/draft/nickname changes; a different evidence identity, such as a new failing run, can recommend again. Dismissal preserves the invoking draft/caret, never starts work, and is not provider/handoff context.
+
+Schema 11 adds this optional dismissal identity to the existing task navigation JSON. The Schema 10→11 transaction changes only the version: existing task, evidence, journal, roster and provider-preference rows are not rewritten. Schema 10 binaries refuse the migrated database without mutation. The released v0.1.9 store remains Schema 10; this source candidate is Schema 11.
+
 ### Signature interactions
 
 | Form | Selected object -> deliberate action | Result shown to the user |

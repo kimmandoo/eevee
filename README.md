@@ -92,6 +92,7 @@ ev --help
 | `/new` / `/resume` | Review a fresh request / resume an owned same-task session |
 | `/role` / `/forms` | Plan, Implement or Review / choose an evolution |
 | `/nickname` | Set a local partner nickname (up to 12 graphemes); Enter saves, empty clears, Esc keeps the old name. Names never become automatic provider or handoff context. |
+| `/suggestion-dismiss` / Forms picker `d` | Hide the current task's exact evidence-based form suggestion, including after restart; a new triggering run can recommend again. Does not select a form or start work. |
 | `/goal` / `/next` / `/criteria` / `/criteria-edit` | Edit task facts, inspect criteria, or edit criteria directly |
 | `/tasks` / `/task-new` | Browse saved tasks / create one |
 | `/reset` | Review a fresh local task; save the old task and drafts for `/tasks`, without erasing files or history |
@@ -131,7 +132,9 @@ Native services do not require a provider CLI, Node or an SDK sidecar. Keys are 
 
 Native routes stream text without tools, hooks, implicit project reads or local writes; Implement replies are proposals, not applied edits. Use the CLI/controlled-agent method for tool-driven edits. Native calls are fresh, stateless requests. Enter sends the committed request without a second Run popup; cancellation closes the client but cannot prove remote work/billing stopped. Custom endpoints require HTTPS except loopback HTTP; redirects are refused.
 
-The local Schema 10 store remembers last-used provider/method and per-route model/effort, including exact custom IDs without a successful catalogue. `EV_PROVIDER` explicitly overrides the startup route (`chatgpt` for Codex native, `codex` for CLI, or another service/agent name); that route's own stored model remains available. With no stored preference, configured native routes are preferred, then CLI Codex. Default model selection follows provider configuration rather than inventing an observed ID. Preference failures stay visible with `/storage-retry`; exit waits for commit. No credentials, sessions or permissions are restored, and older binaries refuse the migrated store rather than rewriting it.
+Since Schema 10, the local store has remembered last-used provider/method and per-route model/effort, including exact custom IDs without a successful catalogue. `EV_PROVIDER` explicitly overrides the startup route (`chatgpt` for Codex native, `codex` for CLI, or another service/agent name); that route's own stored model remains available. With no stored preference, configured native routes are preferred, then CLI Codex. Default model selection follows provider configuration rather than inventing an observed ID. Preference failures stay visible with `/storage-retry`; exit waits for commit. No credentials, sessions or permissions are restored, and older binaries refuse the migrated store rather than rewriting it.
+
+The current source candidate uses **Schema 11** for task-local suggestion dismissal; released v0.1.9 uses Schema 10. Opening an existing store upgrades its version transactionally without rewriting its rows. Schema 10 binaries then refuse it; use a backed-up disposable data directory when qualifying the candidate rather than expecting a downgrade.
 
 For persistent **nonsecret** settings, use `$XDG_CONFIG_HOME/eevee/providers.toml` (Linux; default `~/.config/eevee/providers.toml`), `~/Library/Application Support/eevee/providers.toml` (macOS), or `%APPDATA%\eevee\providers.toml` (Windows). `EV_PROVIDERS_CONFIG` selects an absolute user-owned file outside the project. Environment settings override the file:
 

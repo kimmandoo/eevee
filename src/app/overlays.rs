@@ -263,6 +263,9 @@ impl App {
             Overlay::Forms => FORMS.len(),
             _ => return self.scroll_key(key),
         };
+        if key == KeyCode::Char('d') {
+            return self.command("suggestion-dismiss");
+        }
         let previous = self.selected;
         let grid =
             overlay == Overlay::Forms && self.width >= 90 && self.height >= 30 && !self.linear;

@@ -172,6 +172,29 @@ impl<'a> Inputs<'a> {
 }
 
 impl App {
+    /// Borrow the advisory cache without exposing a dismissed identity.
+    pub fn visible_suggestion(&self) -> Option<&Suggestion> {
+        self.suggestion.as_ref().filter(|suggestion| {
+            self.dismissed_suggestion.as_deref() != Some(suggestion.trigger.as_str())
+        })
+    }
+
+    /// Save only a task-local display preference, never an evidence or work action.
+    pub fn dismiss_suggestion(&mut self) -> bool {
+        if let Some(reason) = self.command_disabled_reason("suggestion-dismiss") {
+            self.notice = reason;
+            return false;
+        }
+        let Some(suggestion) = self.visible_suggestion() else {
+            self.notice = "No visible suggestion to dismiss.".into();
+            return false;
+        };
+        self.dismissed_suggestion = Some(suggestion.trigger.clone());
+        self.changed_task();
+        self.notice = "Suggestion dismissed for this task and evidence; no work started.".into();
+        true
+    }
+
     /// Returns whether the visible recommendation changed. No grants, mutations of
     /// stored evidence, or execution are performed. A new report (including an
     /// explicit refresh with identical fingerprints) revalidates source references.
