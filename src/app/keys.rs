@@ -390,6 +390,22 @@ impl App {
     }
 
     pub fn settle_planning(&mut self) -> bool {
+        if let Some((task, partner)) = self.return_after_cancel {
+            if task != self.task_id || partner != self.lead.id {
+                self.return_after_cancel = None;
+                self.notice = "Return to Eevee cancelled: the task or lead changed.".into();
+                return true;
+            }
+            if !self.planning.busy() {
+                self.return_after_cancel = None;
+                if self.planning.outcome_unknown() || self.planning.journal_failed() {
+                    self.notice = "Return to Eevee stopped: inspect the provider outcome or retained journal first.".into();
+                } else {
+                    self.request_navigation(execution::Action::SelectForm(0));
+                }
+                return true;
+            }
+        }
         if std::mem::take(&mut self.planning.failed_request) {
             if let Some(owner) = self
                 .planning
@@ -974,6 +990,10 @@ impl App {
                             self.request_navigation(execution::Action::ResetTask);
                         }
                         ConfirmationKind::ReplaceWithInit => self.apply_init(),
+                        ConfirmationKind::ReturnToEevee => {
+                            self.return_after_cancel = Some((self.task_id, self.lead.id));
+                            self.planning.cancel();
+                        }
                         ConfirmationKind::DiscardDraft => {
                             self.drafts.retain(|draft| draft.field != self.editor_field);
                             self.input.clear();

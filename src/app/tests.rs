@@ -494,27 +494,6 @@ fn previous_form_survives_a_restart() {
 }
 
 #[test]
-fn grid_arrows_wrap_by_column_and_row_while_list_moves_one_item() {
-    let mut app = app();
-    app.command("forms");
-    key(&mut app, KeyCode::Up);
-    assert_eq!(app.selected, 6);
-    key(&mut app, KeyCode::Down);
-    assert_eq!(app.selected, 0);
-    key(&mut app, KeyCode::Left);
-    assert_eq!(app.selected, 8);
-    key(&mut app, KeyCode::Right);
-    assert_eq!(app.selected, 0);
-    app.update(Event::Resize(89, 30));
-    key(&mut app, KeyCode::Up);
-    assert_eq!(app.selected, 8);
-    app.update(Event::Resize(120, 36));
-    app.command("layout");
-    key(&mut app, KeyCode::Down);
-    assert_eq!(app.selected, 0);
-}
-
-#[test]
 fn editing_is_modal_and_cancel_keeps_the_committed_goal() {
     let mut app = app();
     app.goal = "original".into();
@@ -2931,4 +2910,182 @@ fn cancelling_an_owner_switch_keeps_the_draft_and_editing_scope() {
         );
         key(&mut app, KeyCode::Esc);
     }
+}
+
+#[test]
+fn returning_to_eevee_preserves_task_content_and_drafts() {
+    for (width, height) in [(120, 36), (60, 18)] {
+        for form in ["flareon", "umbreon", "sylveon"] {
+            for picker in [false, true] {
+                let mut app = app();
+                app.width = width;
+                app.height = height;
+                app.command(form);
+                let prior_form = app.form();
+                app.goal = "Keep task facts 漢字".into();
+                app.criteria.push(store::Criterion {
+                    text: "Keep this checked criterion".into(),
+                    met: true,
+                });
+                app.next_action = "Inspect the existing evidence".into();
+                app.command = r#"["printf","never replay"]"#.into();
+                app.drafts.push(store::Draft {
+                    field: store::EditorField::Request,
+                    text: "retained e\u{301} draft".into(),
+                    cursor: 4,
+                });
+                app.planning.edit_paths.push("kept.rs".into());
+                let mut expected = app.snapshot("/workspace");
+                if picker {
+                    app.command("forms");
+                    key(&mut app, KeyCode::Home);
+                    assert!(app.form_return_selected);
+                    app.update(Event::Resize(height * 2, height));
+                    assert!(app.form_return_selected);
+                    // Restore a supported size before selecting the local action.
+                    app.update(Event::Resize(width, height));
+                    key(&mut app, KeyCode::Enter);
+                } else {
+                    app.command("eevee");
+                }
+                assert_eq!(app.form(), 0, "{form}: {}", app.notice);
+                assert!(app.overlay.is_none());
+                let actual = app.snapshot("/workspace");
+                // Form identity, previous-form memory and save bookkeeping must
+                // change; all task payload bytes must remain identical.
+                expected.form = 0;
+                expected.revision = actual.revision;
+                expected.updated_at = actual.updated_at;
+                expected.navigation.form_selection = 0;
+                expected.navigation.previous_form = Some(prior_form);
+                expected
+                    .partner_drafts
+                    .get_mut(&app.lead.id)
+                    .unwrap()
+                    .previous_form = Some(prior_form);
+                assert_eq!(
+                    serde_json::to_vec(&actual).unwrap(),
+                    serde_json::to_vec(&expected).unwrap(),
+                    "{form}, picker={picker}, {width}x{height}"
+                );
+                assert_eq!(
+                    app.planning.edit_paths,
+                    vec![std::path::PathBuf::from("kept.rs")]
+                );
+                assert!(app.planning.pending.is_none() && !app.execution.busy());
+            }
+        }
+    }
+}
+
+#[test]
+fn return_picker_entry_preserves_form_preview_and_nested_focus() {
+    let mut app = app();
+    app.command("sylveon");
+    app.command("forms");
+    key(&mut app, KeyCode::Home);
+    assert_eq!(app.form(), 8, "preview is not a switch");
+    app.command("help");
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.overlay, Some(Overlay::Forms));
+    assert!(app.form_return_selected);
+    key(&mut app, KeyCode::Down);
+    assert!(!app.form_return_selected);
+    key(&mut app, KeyCode::Up);
+    assert!(app.form_return_selected);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.form(), 8);
+    assert!(app.planning.pending.is_none() && !app.execution.busy());
+}
+
+#[test]
+fn return_to_eevee_waits_for_explicit_provider_cancellation_and_known_outcome() {
+    use crate::providers::{Outcome, Preview, Request};
+    for unknown in [false, true] {
+        let mut app = app();
+        app.command("espeon");
+        app.task_id = 7;
+        app.goal = "Keep the current request".into();
+        app.planning.reset(7);
+        let task = committed(&app);
+        app.planning.command("new", true, &task, &[], None);
+        app.planning.pending.take();
+        app.planning
+            .event(crate::providers::Event::Preview(Preview {
+                destination: None,
+                requires_connection_review: false,
+                generation: 12,
+                task_id: 7,
+                thread_id: None,
+                trust: vec![],
+                payload: "{}".into(),
+                blockers: vec![],
+            }));
+        assert!(app.planning.dispatch_prepared());
+        app.planning.pending.take();
+        app.open_editor(store::EditorField::Request);
+        type_text(&mut app, "Keep this unsent follow-up 漢字");
+        let draft = (app.input.clone(), app.cursor);
+        app.command("eevee");
+        assert!(app.confirmation.is_some());
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.form(), 4);
+        assert!(!app.planning.cancelling, "neutral Enter must stay");
+        assert_eq!((app.input.clone(), app.cursor), draft);
+        assert!(app.editing);
+        app.command("eevee");
+        key(&mut app, KeyCode::Right);
+        key(&mut app, KeyCode::Enter);
+        assert!(matches!(
+            app.planning.pending.take(),
+            Some(Request::Cancel { generation: 12 })
+        ));
+        app.settle_planning();
+        assert_eq!(app.form(), 4, "a cancellation request is not completion");
+        app.planning.event(crate::providers::Event::Finished {
+            generation: 12,
+            task_id: 7,
+            outcome: if unknown {
+                Outcome::Unknown
+            } else {
+                Outcome::Cancelled
+            },
+            message: "Fixture cancellation outcome".into(),
+        });
+        app.settle_planning();
+        assert_eq!(app.form(), if unknown { 4 } else { 0 });
+        assert!(app.return_after_cancel.is_none());
+        assert!(app.planning.pending.is_none());
+        assert_eq!((app.input.clone(), app.cursor), draft);
+        assert!(app.editing);
+    }
+}
+
+#[test]
+fn return_to_eevee_does_not_cancel_another_partners_request() {
+    let mut app = app();
+    app.task_id = 7;
+    app.goal = "Partner-owned work".into();
+    app.planning.reset(7);
+    app.store_event(store::Event::Party(Ok(vec![
+        store::Partner::default(),
+        store::Partner {
+            id: 2,
+            form: 5,
+            ..store::Partner::default()
+        },
+    ])));
+    let task = committed(&app);
+    app.planning.command("new", true, &task, &[], None);
+    app.command_with_argument("/lead 2");
+    assert_eq!(app.lead.id, 2);
+    app.command("eevee");
+    assert_eq!(app.form(), 5);
+    assert!(app.confirmation.is_none());
+    assert!(app.return_after_cancel.is_none());
+    assert!(!app.planning.cancelling);
+    assert!(matches!(
+        app.planning.pending,
+        Some(crate::providers::Request::Preview(_))
+    ));
 }

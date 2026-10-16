@@ -322,6 +322,8 @@ impl App {
                     | "reset"
                     | "lead"
                     | "party"
+                    | "eevee"
+                    | "normal"
             )
         {
             return Some("Finish or cancel the active provider request first.".into());
@@ -616,6 +618,10 @@ impl App {
             self.prepare_init();
             return true;
         }
+        if matches!(name, "eevee" | "normal") && self.planning.busy() {
+            self.request_return_to_eevee();
+            return true;
+        }
         if self.editing && name != "quit" {
             self.pending_request = None;
             // Opening an action retains the actual draft without applying it.
@@ -672,7 +678,11 @@ impl App {
             };
         }
         if let Some(index) = form_command_index(name) {
-            self.request_navigation(super::execution::Action::SelectForm(index));
+            if index == 0 {
+                self.request_return_to_eevee();
+            } else {
+                self.request_navigation(super::execution::Action::SelectForm(index));
+            }
             return true;
         }
         if let Some(index) = [

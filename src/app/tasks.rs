@@ -248,6 +248,22 @@ impl App {
         }
     }
 
+    pub(super) fn request_return_to_eevee(&mut self) {
+        if let Some(reason) = self.other_partner_working() {
+            self.notice = reason;
+            return;
+        }
+        if self.planning.busy() {
+            self.confirmation_reviewed = false;
+            self.confirmation = Some(Confirmation {
+                kind: ConfirmationKind::ReturnToEevee,
+                destructive: false,
+            });
+        } else {
+            self.request_navigation(execution::Action::SelectForm(0));
+        }
+    }
+
     pub(super) fn request_navigation(&mut self, action: execution::Action) {
         if self.memory.saving
             || self
@@ -327,6 +343,10 @@ impl App {
                         });
                     }
                     self.changed_task();
+                }
+                if index == 0 {
+                    self.overlay = None;
+                    self.overlay_history.clear();
                 }
                 if self.overlay == Some(Overlay::Execution) {
                     self.close_overlay();

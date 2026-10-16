@@ -20,6 +20,7 @@ impl App {
             selected: self.selected,
             focus: self.focus,
             preview_form: self.preview_form,
+            form_return_selected: self.form_return_selected,
         })
     }
 
@@ -29,6 +30,7 @@ impl App {
             self.selected = frame.selected;
             self.focus = frame.focus;
             self.preview_form = frame.preview_form;
+            self.form_return_selected = frame.form_return_selected;
         }
     }
 
@@ -103,6 +105,9 @@ impl App {
         }
         self.overlay = Some(overlay);
         self.restore_selection();
+        if overlay == Overlay::Forms {
+            self.form_return_selected = false;
+        }
         if overlay == Overlay::Party {
             self.selected = self
                 .party
@@ -258,8 +263,28 @@ impl App {
         let grid =
             overlay == Overlay::Forms && self.width >= 90 && self.height >= 30 && !self.linear;
         let vertical_step = if grid { 3 } else { 1 };
+        if self.form_return_selected {
+            match key {
+                KeyCode::Enter => {
+                    self.request_return_to_eevee();
+                    return true;
+                }
+                KeyCode::Down | KeyCode::Left | KeyCode::Right => {
+                    self.form_return_selected = false;
+                    self.selected = 0;
+                    self.save_selection();
+                    return true;
+                }
+                KeyCode::End => self.form_return_selected = false,
+                _ => return false,
+            }
+        }
         match key {
-            KeyCode::Up => self.selected = (self.selected + count - vertical_step) % count,
+            KeyCode::Up if self.selected < vertical_step => {
+                self.form_return_selected = true;
+                return true;
+            }
+            KeyCode::Up => self.selected -= vertical_step,
             KeyCode::Down => self.selected = (self.selected + vertical_step) % count,
             KeyCode::Left if overlay == Overlay::Forms => {
                 self.selected = (self.selected + count - 1) % count
@@ -267,7 +292,10 @@ impl App {
             KeyCode::Right if overlay == Overlay::Forms => {
                 self.selected = (self.selected + 1) % count
             }
-            KeyCode::Home => self.selected = 0,
+            KeyCode::Home => {
+                self.form_return_selected = true;
+                return true;
+            }
             KeyCode::End => self.selected = count - 1,
             KeyCode::Enter => {
                 self.request_navigation(execution::Action::SelectForm(self.selected));
