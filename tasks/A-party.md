@@ -89,7 +89,7 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT06C — Partner-named approvals
 
-- [ ] Make every approval say who is asking.
+- [x] Make every approval say who is asking.
 - **Priority:** 1. **Needs:** PT06B. **Builds on:** R01.
 - **Change:** Approval, question and cancel dialogs show `Bolt (Jolteon) wants to run: cargo test`.
 - **Accept:** The run, provider-question and permission dialogs each name the partner at 60×18 without hiding Approve/Deny.

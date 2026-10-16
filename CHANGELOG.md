@@ -48,6 +48,7 @@
 
 ## 2026-10-16
 
+- feat(party): named the asking partner in run approval/cancel, provider permission/command approval and question dialogs (`Bolt (Jolteon) wants to run: …`) while keeping their choices visible at 60×18.
 - feat(party): keyed provider request state by partner so requests, events and approvals stayed with their owner across lead switches, refused late events for other or released partners, returned failed requests only to the sender's draft, and kept `/lead` and `/party` usable during a request.
 - feat(party): attributed new command runs and provider journal records to the requesting partner with an id plus name/form snapshot, showed it in approval, run history and journal views, and kept older records byte-identical as `partner unknown`.
 - fix(install): reused the installation animation during self-update release lookup and preserved UTF-8 locale settings, monochrome motion and static redirected output.

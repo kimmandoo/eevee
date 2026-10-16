@@ -179,7 +179,11 @@ fn confirmation(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint)
             || vec!["BLOCKED: prepared command no longer exists.".into()],
             |prepared| {
                 vec![
-                    format!("Command: {:?}", prepared.spec),
+                    format!(
+                        "{} wants to run: {}",
+                        execution::requester(prepared.partner.as_ref()),
+                        execution::command_summary(&prepared.spec)
+                    ),
                     format!("Directory: {}", prepared.cwd.display()),
                     format!("Executable: {}", prepared.executable.path.display()),
                     "One local command; may write files and use network.".into(),
@@ -189,7 +193,10 @@ fn confirmation(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint)
             },
         ),
         Confirmation::Cancel | Confirmation::Navigate(_) => vec![
-            "Deny unstarted work or cancel the owned process tree.".into(),
+            format!(
+                "Stop {}'s command: deny it or cancel its tree.",
+                execution::requester(state.owner.as_ref())
+            ),
             "Wait for bounded teardown and journal acknowledgement.".into(),
             "Cancellation is NOT rollback; edits/network may remain.".into(),
             "Partial output and task drafts are retained.".into(),
@@ -439,6 +446,58 @@ mod tests {
             before: crate::workspace::runner::InputSnapshot::default(),
             partner: None,
         }
+    }
+
+    #[test]
+    fn compact_run_approval_and_cancel_name_the_requesting_partner() {
+        let bolt = crate::store::Attribution {
+            partner: 1,
+            name: "Bolt".into(),
+            form: 2,
+        };
+        let mut p = prepared();
+        p.spec = crate::workspace::runner::CommandSpec::Direct {
+            program: "cargo".into(),
+            args: vec!["test".into()],
+        };
+        p.partner = Some(bolt.clone());
+        let mut state = State::default();
+        state.prepared = Some(p);
+        state.owner = Some(bolt);
+        for confirmation in [Confirmation::Approval, Confirmation::Cancel] {
+            state.confirmation = Some(confirmation);
+            let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
+            terminal
+                .draw(|frame| {
+                    let area = frame.area();
+                    confirmation_frame(frame, area, &mut state);
+                })
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let text: String = (0..18)
+                .map(|y| (0..60).map(|x| buffer[(x, y)].symbol()).collect::<String>())
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(state.confirmation_visible, "{text}");
+            assert!(text.contains("Stay / return"), "{text}");
+            match state.confirmation {
+                Some(Confirmation::Approval) => {
+                    assert!(
+                        text.contains(r#"Bolt (Jolteon) wants to run: ["cargo","test"]"#),
+                        "{text}"
+                    );
+                    assert!(text.contains("Approve this exact command"), "{text}");
+                }
+                _ => {
+                    assert!(text.contains("Stop Bolt (Jolteon)'s command"), "{text}");
+                    assert!(text.contains("Cancel and wait"), "{text}");
+                }
+            }
+        }
+    }
+
+    fn confirmation_frame(frame: &mut ratatui::Frame, area: Rect, state: &mut State) {
+        confirmation(frame, area, state, &paint());
     }
 
     #[test]

@@ -357,7 +357,10 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 if let Some(question) = questions.get(state.question) {
                     let _ = writeln!(
                         value,
-                        "QUESTION {}/{} / {}\n{}\n",
+                        "{} asks · QUESTION {}/{} / {}\n{}\n",
+                        crate::workspace::handoff::sanitize(&crate::store::Attribution::label(
+                            state.owner()
+                        )),
                         state.question + 1,
                         questions.len(),
                         question.header,
@@ -528,8 +531,9 @@ fn review_summary(state: &State) -> Vec<String> {
     let Some(request) = &state.request else {
         return Vec::new();
     };
+    let who = crate::workspace::handoff::sanitize(&crate::store::Attribution::label(state.owner()));
     let mut lines = vec![format!(
-        "{} · current provider request only",
+        "{who} asks · {} · this provider request only",
         state.agent.label()
     )];
     match &request.kind {
@@ -537,7 +541,7 @@ fn review_summary(state: &State) -> Vec<String> {
             description,
             options,
         } => {
-            lines.push(format!("Permission: {description}"));
+            lines.push(format!("{who} wants permission: {description}"));
             if let Some(option) = options.get(state.option) {
                 lines.push(format!("Selected: {}", option.label));
                 lines.push(format!("Effect: {}", option.description));
@@ -556,7 +560,7 @@ fn review_summary(state: &State) -> Vec<String> {
             deny_decision,
             ..
         } => {
-            lines.push(format!("Command: {command}"));
+            lines.push(format!("{who} wants to run: {command}"));
             lines.push(format!("Directory: {cwd}"));
             lines.push(format!("Reason: {reason}"));
             lines.push("Allow once: this command; effects are not rolled back.".into());
@@ -1964,5 +1968,102 @@ mod tests {
                 "switch grants no process/network consent"
             );
         }
+    }
+
+    fn bolt_prompt(kind: PromptKind) -> (App, store::Snapshot) {
+        let mut app = App::new("/workspace".into(), 60, 18);
+        app.planning.front = Some(store::Attribution {
+            partner: 1,
+            name: "Bolt".into(),
+            form: 2,
+        });
+        let mut task = store::Snapshot::empty("project".into());
+        task.id = 7;
+        task.goal = "A request".into();
+        app.planning.command("new", true, &task, &[], None);
+        app.planning.pending.take();
+        app.planning.event(Event::Preview(Preview {
+            destination: None,
+            requires_connection_review: true,
+            generation: 11,
+            task_id: 7,
+            thread_id: None,
+            trust: vec![],
+            payload: "{}".into(),
+            blockers: vec![],
+        }));
+        draw(&mut app);
+        key(&mut app, &task, KeyCode::Char('y'));
+        app.planning.pending.take();
+        app.planning.event(Event::Prompt {
+            generation: 11,
+            task_id: 7,
+            request: Prompt {
+                request_id: serde_json::json!(44),
+                thread_id: "thread".into(),
+                turn_id: "turn".into(),
+                item_id: "item".into(),
+                kind,
+            },
+        });
+        (app, task)
+    }
+
+    fn screen(buffer: &ratatui::buffer::Buffer) -> String {
+        (0..buffer.area.height)
+            .map(|y| rendered_row(buffer, buffer.area, y))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn compact_provider_dialogs_name_the_asking_partner_and_keep_choices() {
+        let options = vec![
+            PermissionOption {
+                label: "Deny".into(),
+                description: "No grant".into(),
+                answer: serde_json::json!({"permission":"deny"}),
+            },
+            PermissionOption {
+                label: "Allow once".into(),
+                description: "One request only".into(),
+                answer: serde_json::json!({"permission":"once"}),
+            },
+        ];
+        let (mut app, _) = bolt_prompt(PromptKind::Permission {
+            description: "write src/lib.rs".into(),
+            options,
+        });
+        let text = screen(&draw(&mut app));
+        assert!(app.planning.reviewed, "summary fits 60x18:\n{text}");
+        assert!(text.contains("Bolt (Jolteon) wants permission"), "{text}");
+        assert!(text.contains("Deny") && text.contains("Allow"), "{text}");
+
+        let (mut app, _) = bolt_prompt(PromptKind::Approval {
+            command: "cargo test".into(),
+            cwd: "/workspace".into(),
+            reason: "verify".into(),
+            allow_once: true,
+            deny_decision: "decline".into(),
+        });
+        let text = screen(&draw(&mut app));
+        assert!(app.planning.reviewed, "summary fits 60x18:\n{text}");
+        assert!(
+            text.contains("Bolt (Jolteon) wants to run: cargo test"),
+            "{text}"
+        );
+
+        let (mut app, _) = bolt_prompt(PromptKind::Questions(vec![crate::providers::Question {
+            id: "q".into(),
+            header: "Scope".into(),
+            question: "Which module?".into(),
+            options: vec![],
+            other: true,
+            secret: false,
+        }]));
+        let text = screen(&draw(&mut app));
+        assert!(text.contains("Bolt (Jolteon) asks"), "{text}");
+        assert!(text.contains("Which module?"), "{text}");
+        assert!(text.contains("Cancel turn"), "{text}");
     }
 }

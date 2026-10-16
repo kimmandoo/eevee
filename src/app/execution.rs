@@ -1598,6 +1598,26 @@ pub fn safe_text(text: &str) -> String {
     }
     result
 }
+/// Exact, escaped one-line command form for dialogs: a JSON argv array for
+/// direct commands, or the JSON-quoted text for an explicit shell.
+pub fn command_summary(spec: &runner::CommandSpec) -> String {
+    match spec {
+        runner::CommandSpec::Direct { program, args } => {
+            serde_json::to_string(&std::iter::once(program).chain(args).collect::<Vec<_>>())
+                .unwrap_or_else(|_| "[unavailable command]".into())
+        }
+        runner::CommandSpec::Shell { text, dialect, .. } => format!(
+            "{dialect:?} shell {}",
+            serde_json::to_string(text).unwrap_or_else(|_| "[unavailable command]".into())
+        ),
+    }
+}
+
+/// `Bolt (Jolteon)` for the partner that asked (PT06C).
+pub fn requester(partner: Option<&store::Attribution>) -> String {
+    safe_text(&store::Attribution::label(partner))
+}
+
 pub fn approval_details(p: &runner::Prepared, capacity: u64) -> String {
     let mut text = format!(
         "Partner: {}\nTask {}\nRequest {}\nRun {}\nCanonical cwd: {}\nCanonical executable: {}\nExecutable SHA-256: {}\nExecutable identity: {} · {} bytes\nPrepared {} ms; approval expires {} ms\n",
