@@ -7,6 +7,7 @@ pub mod memory;
 pub mod party;
 pub mod planning;
 pub mod sources;
+pub mod suggestions;
 pub mod workflows;
 
 mod autosave;
@@ -200,6 +201,8 @@ pub struct App {
     pub repo_refresh: bool,
     pub sources: sources::State,
     pub execution: execution::State,
+    pub suggestion: Option<suggestions::Suggestion>,
+    suggestion_cache: suggestions::Cache,
     pub agents: agents::State,
     pub planning: planning::State,
     pub handoff: handoff::State,
@@ -308,6 +311,8 @@ impl App {
             repo_refresh: false,
             sources: sources::State::default(),
             execution: execution::State::default(),
+            suggestion: None,
+            suggestion_cache: suggestions::Cache::default(),
             agents: agents::State::new(),
             planning: planning::State::new(),
             handoff: handoff::State::new(),

@@ -495,10 +495,15 @@ pub fn render(
                         )),
             );
         }
-        if app.response_on_home() {
-            planning::render_workspace(frame, shell.workspace, app, config, &paint);
+        let workspace_area = if app.overlay == Some(Overlay::Tasks) {
+            shell.workspace
         } else {
-            workspace(frame, shell.workspace, app, config, &paint);
+            suggestion_strip(frame, shell.workspace, app, &paint)
+        };
+        if app.response_on_home() {
+            planning::render_workspace(frame, workspace_area, app, config, &paint);
+        } else {
+            workspace(frame, workspace_area, app, config, &paint);
         }
         composer_input(frame, shell.composer, app, config, &paint);
         if let Some(inspector) = shell.inspector {
@@ -726,6 +731,31 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
             paint.accent,
         );
     }
+}
+
+fn suggestion_line<'a>(app: &'a App, paint: &Paint) -> Option<Line<'a>> {
+    app.suggestion.as_ref().map(|suggestion| {
+        Line::from(vec![
+            Span::raw("Suggested: "),
+            Span::raw(FORMS[suggestion.form.min(FORMS.len() - 1)].name),
+            Span::raw(" — "),
+            Span::raw(suggestion.reason.as_str()),
+        ])
+        .style(paint.accent)
+    })
+}
+
+/// Descriptive local evidence only; rendering never evaluates or selects a form.
+fn suggestion_strip(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) -> Rect {
+    let Some(line) = suggestion_line(app, paint) else {
+        return area;
+    };
+    let paragraph = Paragraph::new(line).wrap(Wrap { trim: false });
+    let height = paragraph
+        .line_count(area.width.max(1))
+        .min(usize::from(area.height.saturating_sub(5))) as u16;
+    frame.render_widget(paragraph, row(area, 0, height));
+    row(area, height, area.height.saturating_sub(height))
 }
 
 fn workspace(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
@@ -1285,6 +1315,11 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
         )),
         Line::styled("GOAL", paint.muted),
     ];
+    if task.id == app.task_id
+        && let Some(line) = suggestion_line(app, paint)
+    {
+        lines.insert(1, line);
+    }
     if task.goal.is_empty() {
         lines.push(Line::from("No goal applied."));
     } else {

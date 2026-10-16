@@ -222,6 +222,7 @@ fn run(config: Config) -> io::Result<()> {
                 app.handoff.process_pending();
                 dirty = true;
             }
+            dirty |= app.refresh_suggestion();
             if dirty || animation_dirty {
                 ui::portrait_targets(
                     &app,

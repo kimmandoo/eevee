@@ -1,5 +1,17 @@
 # Work Checkpoint
 
+## 2026-10-16 — EV01A evidence-based suggestions (complete; wave 2 request continues)
+
+- **User scope:** Finish the remaining wave 2 Partner basics tasks individually. EV07 and PK01 were committed as `5d0962b` / `8e2f747`; EV01A is complete; EV01B → EV02 remain.
+- **Change:** `app::suggestions` contains one first-match table and a short factual reason plus stable task/evidence trigger identity. Home (including streamed/retained responses) and the current task card show one descriptive line. It never changes form, grants, sends or runs. Only task-owned local run records count; newest unknown/partial records cannot promote an older pass; accepted review uses the existing evidence guard. No persisted addition or schema change.
+- **Observed fixture matrix (both 120×36 and 60×18):** goal/no criteria → Espeon; criteria/no pins → Vaporeon; actual local exit 3 → Umbreon; current complete pass/no review → Glaceon; editing source then explicit `/refresh` → Jolteon; fresh guarded Accept → Sylveon; empty and clean/pinned/no-run states → no suggestion. The active form stayed Jolteon after run/review recommendations and the task did not become Complete.
+- **Verification:** Rust 1.90.0 fmt, all-target tests (658 passed / 2 ignored), strict Clippy and release build passed. Twelve engine fixtures cover all rules, precedence, ownership, invalid/partial/unknown/stale evidence, source changes, accepted review source revalidation and stable/change-sensitive trigger identities; two UI regressions cover both widths, response/draft preservation and current-task-only cards.
+- **Actual TUI:** `target/ev01a-tui/results.json` passed 18 cases with real source capture, three approved local runs per width (one failed, two passed), source mutation/refresh and coverage-guarded review. Each width additionally completed one deliberately sent loopback HTTP response while keeping the recommendation/output visible; actual packets contained no `Suggested:` insertion. Navigation/rules created no execution or provider request. Captures/results remain; the throwaway driver was removed.
+- **Cache / limits:** Fingerprints update on new repository reports; relevant metadata is hashed without copying capture text or run journals. Source guards run only on relevant settlement/deliberate refresh, never render. There is no new file watcher; freshness is explicitly last-observed. Long command/error display is bounded while observed exit/signal facts remain visible.
+- **Resolved issue:** Deliberate review refresh now invalidates an otherwise identical metadata cache entry after source restoration. TROUBLESHOOTING records it. No global tools/providers/credentials or strategy changed; no backtest applied.
+- **Changed files:** new app suggestions module/tests; app state/workflow refresh; main settlement; UI and UI tests; DESIGN_RULES, IMPLEMENTATION_PLAN, TROUBLESHOOTING, CHANGELOG, task.md, tasks/B-partner-basics.md and checkpoint.
+- **Exact next action:** EV01B picker recommendation marking and durable dismissal keyed by the existing trigger identity, with restart/new-failure proof. Commit EV01A before starting it; then EV02. No release, push or installed-command replacement.
+
 ## 2026-10-16 — PK01 partner nicknames (complete; wave 2 request continues)
 
 - **User scope:** Complete the remaining wave 2 Partner basics tasks one-by-one, committing each. EV07 was committed as `5d0962b`; PK01 is complete in source; EV01A → EV01B → EV02 remain active.

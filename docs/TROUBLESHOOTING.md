@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-16] Equivalent review metadata kept a stale recommendation cache result
+
+- **Context / Symptom:** The EV01A source-review fixture restored source bytes and explicitly recorded the same accepted-review metadata again, but the cached recommendation remained absent.
+- **Root Cause:** Comparing only stored input values could not distinguish a deliberate evidence refresh with identical serialized values from an unchanged frame.
+- **Solution:** Invalidated the suggestion verdict cache at the existing deliberate workflow-refresh boundary, keeping source revalidation outside rendering. Unchanged draft/animation frames still did not reread source files. Replaced copied capture/run cache contents with borrowed views and a bounded metadata digest.
+
+
 ### [2026-10-16] Empty-project startup skipped personal partner identity restoration
 
 - **Context / Symptom:** A PK01 regression loaded a committed partner nickname with an empty task list, but the lead still had the default name. Task-backed restarts already restored the nickname.
