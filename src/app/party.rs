@@ -178,6 +178,7 @@ impl App {
         self.partner_drafts
             .insert(self.lead.id, self.partner_draft());
         self.lead = partner;
+        self.sync_front();
         self.form_selection = self.lead.form;
         self.preview_form = self.lead.form;
         let draft = self

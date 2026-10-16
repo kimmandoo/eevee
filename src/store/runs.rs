@@ -103,6 +103,9 @@ pub(super) fn run_json(record: &crate::workspace::runner::RunRecord) -> Result<S
     {
         return Err("Invalid run/request/task correlation".into());
     }
+    if let Some(partner) = &prepared.partner {
+        partner.validate()?;
+    }
     if matches!(record.state, RunState::Running | RunState::Cancelling)
         && record.started_at_ms.is_none()
         || active_state(&record.state) && record.ended_at_ms.is_some()

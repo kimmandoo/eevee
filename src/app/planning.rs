@@ -167,6 +167,10 @@ pub struct State {
     pub observed_model: Option<String>,
     /// Website-OAuth session credential for Devin ACP launches; memory only.
     pub devin_credential: Option<crate::providers::auth::SessionCredential>,
+    /// The partner in front of the task; a prepared request binds to it.
+    pub front: Option<store::Attribution>,
+    /// The partner that owns the current request (PT06A); journal records carry it.
+    owner: Option<store::Attribution>,
 }
 
 impl Default for State {
@@ -209,6 +213,8 @@ impl State {
             request_selection: ModelSelection::default(), session_selection: ModelSelection::default(),
             observed_model: None,
             devin_credential: None,
+            front: None,
+            owner: None,
         }
     }
 
@@ -278,6 +284,7 @@ impl State {
             let catalogue_errors = std::mem::take(&mut self.catalogue_errors);
             let selection = self.selection.clone();
             let credential = self.devin_credential.take();
+            let front = self.front.take();
             let agent = self.agent;
             let (auto_models, auto_picker) = (self.auto_models, self.auto_picker);
             *self = Self::new();
@@ -291,6 +298,7 @@ impl State {
             self.catalogues = catalogues;
             self.catalogue_errors = catalogue_errors;
             self.devin_credential = credential;
+            self.front = front;
         }
     }
 

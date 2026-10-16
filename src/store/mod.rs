@@ -263,6 +263,49 @@ impl Default for Partner {
     }
 }
 
+/// Who produced a run or provider observation (PT06A): the partner id plus a
+/// name/form snapshot taken at write time, so evidence never dangles after a
+/// release. Display metadata only; it never enters provider packets or handoffs.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Attribution {
+    pub partner: i64,
+    pub name: String,
+    pub form: usize,
+}
+
+impl Attribution {
+    pub fn of(partner: &Partner) -> Self {
+        Self {
+            partner: partner.id,
+            name: partner
+                .nickname
+                .clone()
+                .unwrap_or_else(|| format!("Eevee #{}", partner.id)),
+            form: partner.form,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.partner < 1
+            || self.form >= crate::domain::FORMS.len()
+            || self.name.is_empty()
+            || self.name.len() > MAX_NICKNAME_BYTES
+            || self.name.chars().any(char::is_control)
+        {
+            return Err("Invalid partner attribution".into());
+        }
+        Ok(())
+    }
+
+    /// `Bolt (Jolteon)`; records written before PT06A carry no attribution.
+    pub fn label(attribution: Option<&Self>) -> String {
+        attribution.map_or_else(
+            || "partner unknown".into(),
+            |a| format!("{} ({})", a.name, crate::domain::FORMS[a.form.min(8)].name),
+        )
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Project {
     pub tasks: Vec<Snapshot>,
@@ -380,6 +423,9 @@ pub struct ProviderRecord {
     pub coverage: String,
     pub text: String,
     pub complete: bool,
+    /// Absent on records written before PT06A, which keep their exact bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partner: Option<Attribution>,
 }
 #[derive(Clone)]
 pub struct JournalRequest {
@@ -388,7 +434,7 @@ pub struct JournalRequest {
 }
 #[derive(Clone)]
 pub enum JournalOperation {
-    Put(ProviderRecord),
+    Put(Box<ProviderRecord>),
     List,
     Purge,
 }

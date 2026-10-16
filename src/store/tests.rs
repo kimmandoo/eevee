@@ -124,10 +124,11 @@ fn provider_journal_survives_restart_with_owner_origin_and_explicit_purge() {
         coverage: "Public observed result only; not a local check".into(),
         text: "Final public output".into(),
         complete: true,
+        partner: None,
     };
     let mut pending = Some(JournalRequest {
         task_id: task.id,
-        operation: JournalOperation::Put(record.clone()),
+        operation: JournalOperation::Put(Box::new(record.clone())),
     });
     assert!(worker.try_journal(&mut pending));
     assert!(
@@ -153,7 +154,7 @@ fn provider_journal_survives_restart_with_owner_origin_and_explicit_purge() {
     changed.text = "A later process must not overwrite".into();
     let mut pending = Some(JournalRequest {
         task_id: task.id,
-        operation: JournalOperation::Put(changed),
+        operation: JournalOperation::Put(Box::new(changed)),
     });
     assert!(reopened.try_journal(&mut pending));
     assert!(matches!(
@@ -215,13 +216,14 @@ fn provider_journal_migrates_v4_and_enforces_quota_without_partial_record() {
         coverage: "observed only".into(),
         text: "bounded result".into(),
         complete: true,
+        partner: None,
     };
     store.policy.quota_bytes = 0;
     assert!(
         store
             .journal_request(JournalRequest {
                 task_id: task.id,
-                operation: JournalOperation::Put(record)
+                operation: JournalOperation::Put(Box::new(record))
             })
             .is_err()
     );
@@ -255,11 +257,12 @@ fn provider_journal_masks_after_normalization_and_rejects_empty_provenance() {
         coverage: "observed only".into(),
         text: "pass\u{0008}word=journal-private-value\nsafe".into(),
         complete: true,
+        partner: None,
     };
     let response = store
         .journal_request(JournalRequest {
             task_id: task.id,
-            operation: JournalOperation::Put(record.clone()),
+            operation: JournalOperation::Put(Box::new(record.clone())),
         })
         .unwrap();
     let JournalResponse::Saved(saved) = response else {
@@ -271,7 +274,7 @@ fn provider_journal_masks_after_normalization_and_rejects_empty_provenance() {
     assert!(matches!(
         store.journal_request(JournalRequest {
             task_id: task.id,
-            operation: JournalOperation::Put(record.clone()),
+            operation: JournalOperation::Put(Box::new(record.clone())),
         }).unwrap(),
         JournalResponse::Saved(retried) if retried == saved
     ));
@@ -283,7 +286,7 @@ fn provider_journal_masks_after_normalization_and_rejects_empty_provenance() {
             store
                 .journal_request(JournalRequest {
                     task_id: task.id,
-                    operation: JournalOperation::Put(invalid),
+                    operation: JournalOperation::Put(Box::new(invalid)),
                 })
                 .is_err()
         );
@@ -294,7 +297,7 @@ fn provider_journal_masks_after_normalization_and_rejects_empty_provenance() {
         store
             .journal_request(JournalRequest {
                 task_id: task.id,
-                operation: JournalOperation::Put(invalid),
+                operation: JournalOperation::Put(Box::new(invalid)),
             })
             .is_err()
     );
@@ -2068,6 +2071,7 @@ fn prepared_run(task_id: i64, root: &Path, suffix: &str) -> crate::workspace::ru
         prepared_at_ms: timestamp().unwrap() as u64,
         expires_at_ms: timestamp().unwrap() as u64 + 60_000,
         before: crate::workspace::runner::InputSnapshot::default(),
+        partner: None,
     }
 }
 
@@ -3837,4 +3841,135 @@ fn schema_nine_preference_migration_is_atomic_and_preserves_existing_data() {
             .unwrap()
             .is_none()
     );
+}
+
+fn attribution(partner: i64, name: &str, form: usize) -> Attribution {
+    Attribution {
+        partner,
+        name: name.into(),
+        form,
+    }
+}
+
+#[test]
+fn runs_name_their_partner_and_older_records_stay_partner_unknown() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let task = store.save(snapshot("project", 1)).unwrap();
+    store.select(task.id).unwrap();
+    let mut finish = |suffix: &str, partner: Option<Attribution>| {
+        let mut prepared = prepared_run(task.id, &store.data_dir, suffix);
+        prepared.partner = partner;
+        let permit = store.reserve_run(task.id, prepared.clone(), 1024).unwrap();
+        drop(permit);
+        let mut record = crate::workspace::runner::RunRecord::awaiting(&prepared);
+        record.state = crate::workspace::runner::RunState::Failed;
+        record.tree = crate::workspace::runner::TreeOutcome::NotStarted;
+        record.ended_at_ms = Some(timestamp().unwrap() as u64);
+        store.update_run(task.id, record).unwrap();
+    };
+    finish("old", None);
+    finish("bolt", Some(attribution(1, "Bolt", 2)));
+    finish("mizu", Some(attribution(2, "Eevee #2", 1)));
+    let connection = store.connection.as_ref().unwrap();
+    let raw: String = connection
+        .query_row(
+            "SELECT record FROM executions WHERE run_id='run-old'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        !raw.contains("partner"),
+        "older records keep their exact shape"
+    );
+    let labels: Vec<_> = store
+        .load_runs(task.id)
+        .unwrap()
+        .iter()
+        .map(|run| Attribution::label(run.prepared.partner.as_ref()))
+        .collect();
+    assert_eq!(
+        labels,
+        ["Eevee #2 (Vaporeon)", "Bolt (Jolteon)", "partner unknown"]
+    );
+    let mut invalid = prepared_run(task.id, &store.data_dir, "invalid");
+    invalid.partner = Some(attribution(0, "", 99));
+    assert!(store.reserve_run(task.id, invalid, 1024).is_err());
+}
+
+#[test]
+fn provider_records_carry_a_partner_snapshot_and_fixture_records_read_unknown() {
+    let directory = Directory::new();
+    let worker = worker(&directory, "journal-partner");
+    loaded(&worker);
+    let task = create(&worker, Snapshot::empty("journal-partner".into()));
+    let record = |id: &str, partner: Option<Attribution>| ProviderRecord {
+        id: id.into(),
+        agent: crate::providers::Agent::Codex,
+        generation: 1,
+        thread_id: "thread".into(),
+        turn_id: "turn".into(),
+        item_id: id.into(),
+        origin: "Codex provider-native".into(),
+        coverage: "Public observed result only".into(),
+        text: "output".into(),
+        complete: true,
+        partner,
+    };
+    let old = record("fixture-old", None);
+    {
+        let connection = Connection::open(directory.0.join(DATABASE)).unwrap();
+        connection
+            .execute(
+                "INSERT INTO provider_journal(id,task_id,record) VALUES(?1,?2,?3)",
+                params![old.id, task.id, serde_json::to_string(&old).unwrap()],
+            )
+            .unwrap();
+    }
+    for saved in [
+        record("bolt", Some(attribution(1, "Bolt", 2))),
+        record("mizu", Some(attribution(2, "Mizu", 1))),
+    ] {
+        let mut pending = Some(JournalRequest {
+            task_id: task.id,
+            operation: JournalOperation::Put(Box::new(saved.clone())),
+        });
+        assert!(worker.try_journal(&mut pending));
+        assert!(
+            matches!(event(&worker), Event::Journal { result: Ok(JournalResponse::Saved(back)), .. } if back == saved)
+        );
+    }
+    let mut pending = Some(JournalRequest {
+        task_id: task.id,
+        operation: JournalOperation::List,
+    });
+    assert!(worker.try_journal(&mut pending));
+    let Event::Journal {
+        result: Ok(JournalResponse::Records(records)),
+        ..
+    } = event(&worker)
+    else {
+        panic!("journal list failed");
+    };
+    let labels: Vec<_> = records
+        .iter()
+        .map(|record| Attribution::label(record.partner.as_ref()))
+        .collect();
+    assert_eq!(
+        labels,
+        ["partner unknown", "Bolt (Jolteon)", "Mizu (Vaporeon)"]
+    );
+    let mut pending = Some(JournalRequest {
+        task_id: task.id,
+        operation: JournalOperation::Put(Box::new(record(
+            "control",
+            Some(attribution(1, "Bo\u{7}lt", 2)),
+        ))),
+    });
+    assert!(worker.try_journal(&mut pending));
+    assert!(matches!(
+        event(&worker),
+        Event::Journal { result: Err(_), .. }
+    ));
 }

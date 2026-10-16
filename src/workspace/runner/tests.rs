@@ -754,3 +754,54 @@ fn escaped_pipe_owner_is_unknown_not_a_sandboxed_success() {
     // The runtime correctly refuses to claim that a process group was an OS sandbox.
     drop(escaped);
 }
+
+#[test]
+fn each_partners_prepared_run_records_its_own_attribution() {
+    let temp = Temp::new();
+    temp.fixture("literal");
+    let worker = Worker::start().unwrap();
+    for (id, name, form) in [(1, "Bolt", 2), (2, "Mizu", 1)] {
+        let partner = crate::store::Attribution {
+            partner: id,
+            name: name.into(),
+            form,
+        };
+        worker
+            .prepare_for(
+                1,
+                Some(partner.clone()),
+                fixture_spec(&[]),
+                temp.0.clone(),
+                InputSnapshot::default(),
+            )
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let p = loop {
+            if let Some(Event::Prepared(p)) = worker.try_event() {
+                break p;
+            }
+            assert!(Instant::now() < deadline, "prepare timed out");
+            thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(p.partner.as_ref(), Some(&partner));
+        let (record, _, _) = execute(&temp, p, 4096, None);
+        assert_eq!(record.prepared.partner, Some(partner));
+        worker.invalidate();
+    }
+    let invalid = crate::store::Attribution {
+        partner: 1,
+        name: "line\nbreak".into(),
+        form: 2,
+    };
+    assert!(
+        worker
+            .prepare_for(
+                1,
+                Some(invalid),
+                fixture_spec(&[]),
+                temp.0.clone(),
+                InputSnapshot::default(),
+            )
+            .is_err()
+    );
+}

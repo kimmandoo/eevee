@@ -48,6 +48,7 @@
 
 ## 2026-10-16
 
+- feat(party): attributed new command runs and provider journal records to the requesting partner with an id plus name/form snapshot, showed it in approval, run history and journal views, and kept older records byte-identical as `partner unknown`.
 - fix(install): reused the installation animation during self-update release lookup and preserved UTF-8 locale settings, monochrome motion and static redirected output.
 - feat(models): compacted model selection into model → supported reasoning → retained editor, highlighted current choices separately from focus, retained model/effort in compact home headers, and moved complete metadata/errors behind optional details.
 - feat(models): ranked exact matches first, preserved search when returning from reasoning, and added direct exact-ID and supported-effort command arguments without sending drafts.

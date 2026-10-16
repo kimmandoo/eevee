@@ -291,6 +291,7 @@ impl State {
                 None
             },
         })));
+        self.owner = self.front.clone();
         self.awaiting_preview = true;
         self.notice =
             "Preparing local preview. No provider executable or connection is authorized.".into();

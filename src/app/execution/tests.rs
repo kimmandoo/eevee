@@ -26,6 +26,7 @@ fn prepared() -> runner::Prepared {
         prepared_at_ms: 1,
         expires_at_ms: u64::MAX,
         before: identity("same"),
+        partner: None,
     }
 }
 fn identity(value: &str) -> runner::InputSnapshot {
@@ -523,4 +524,19 @@ fn global_activity_never_claims_no_work_during_approval_or_owned_execution() {
     assert_ne!(state.activity_label(), idle);
     state.set_capture_capacity(1024);
     assert!(approval_details(&prepared(), state.capture_capacity).contains("1024 bytes"));
+}
+
+#[test]
+fn approval_and_evidence_details_name_the_requesting_partner() {
+    let mut p = prepared();
+    assert!(approval_details(&p, 4096).starts_with("Partner: partner unknown\n"));
+    p.partner = Some(store::Attribution {
+        partner: 1,
+        name: "Bolt".into(),
+        form: 2,
+    });
+    assert!(approval_details(&p, 4096).starts_with("Partner: Bolt (Jolteon)\n"));
+    let mut state = State::default();
+    assert!(state.prepare_command_for(1, p.partner.clone(), r#"["tool","first"]"#));
+    assert_eq!(state.owner, p.partner);
 }

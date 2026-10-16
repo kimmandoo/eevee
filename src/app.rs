@@ -206,7 +206,8 @@ pub struct App {
     pub delete_preview: Vec<store::DeletionTarget>,
     pub delete_page: usize,
     deletion_preview_pending: bool,
-    pending_command: Option<String>,
+    /// Saved command text plus the partner that asked for it (PT06A).
+    pending_command: Option<(String, store::Attribution)>,
     /// Enter's save barrier. Never restored from disk or triggered by autosave.
     pending_request: Option<(u64, bool)>,
     edit_original: String,
@@ -224,7 +225,7 @@ pub struct App {
 
 impl App {
     pub fn new(cwd: String, width: u16, height: u16) -> Self {
-        Self {
+        let mut app = Self {
             lead: store::Partner::default(),
             party: Vec::new(),
             party_request: None,
@@ -320,7 +321,9 @@ impl App {
             preferred_column: None,
             surface_scroll: [0; 5],
             surface_scroll_max: [0; 5],
-        }
+        };
+        app.sync_front();
+        app
     }
 
     pub fn storage_label(&self) -> &str {
@@ -378,6 +381,11 @@ impl App {
         &self.lead
     }
 
+    /// The lead's evidence attribution as of now (PT06A).
+    pub fn attribution(&self) -> store::Attribution {
+        store::Attribution::of(&self.lead)
+    }
+
     /// Header identity: nickname when set (PK01), else `Eevee #<id>`.
     pub fn lead_label(&self) -> String {
         format!(
@@ -404,6 +412,13 @@ impl App {
         {
             partner.form = form;
         }
+        self.sync_front();
+    }
+
+    /// Point the planning slot binder at the current lead; a request that is
+    /// already prepared keeps the owner it bound (PT06A).
+    pub(super) fn sync_front(&mut self) {
+        self.planning.front = Some(self.attribution());
     }
 
     /// Flip the lead partner back to the form it left (Backspace / `/back-form`).

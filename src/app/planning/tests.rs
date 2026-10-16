@@ -2513,3 +2513,57 @@ fn cancelling_connection_review_does_not_reopen_a_hidden_model_picker() {
     assert!(state.picker.is_none() && !state.busy());
     assert!(state.pending.is_none());
 }
+
+fn partner(id: i64, name: &str, form: usize) -> store::Attribution {
+    store::Attribution {
+        partner: id,
+        name: name.into(),
+        form,
+    }
+}
+
+#[test]
+fn journal_records_carry_the_partner_bound_when_the_request_was_prepared() {
+    let mut state = State::new();
+    state.reset(7);
+    state.front = Some(partner(1, "Bolt", 2));
+    command(&mut state, "new", true);
+    state.pending.take();
+    state.event(Event::Preview(Preview {
+        destination: None,
+        requires_connection_review: true,
+        generation: 11,
+        task_id: 7,
+        thread_id: None,
+        trust: vec![],
+        payload: "{}".into(),
+        blockers: vec![],
+    }));
+    // A later lead change never re-attributes the prepared request.
+    state.front = Some(partner(2, "Mizu", 1));
+    state.event(Event::Journal {
+        generation: 11,
+        task_id: 7,
+        record: store::ProviderRecord {
+            id: "nonce-11-item".into(),
+            agent: Agent::Codex,
+            generation: 11,
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "item".into(),
+            origin: "Codex provider-native".into(),
+            coverage: "Public observed result only".into(),
+            text: "output".into(),
+            complete: true,
+            partner: None,
+        },
+    });
+    let Some(store::JournalRequest {
+        operation: store::JournalOperation::Put(record),
+        ..
+    }) = state.pending_journal.back()
+    else {
+        panic!("journal record was not queued");
+    };
+    assert_eq!(record.partner, Some(partner(1, "Bolt", 2)));
+}

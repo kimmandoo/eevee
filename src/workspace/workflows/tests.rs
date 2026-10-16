@@ -86,6 +86,7 @@ fn record(id: &str, identity: &str, start: u64) -> runner::RunRecord {
         prepared_at_ms: start,
         expires_at_ms: start + 1000,
         before: snapshot(identity),
+        partner: None,
     };
     let mut run = runner::RunRecord::awaiting(&prepared);
     run.state = runner::RunState::Succeeded;

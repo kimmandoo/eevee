@@ -646,6 +646,7 @@ fn trust(project: &Path, data_dir: &Path) -> Result<Trust, String> {
         prepared_at_ms: 0,
         expires_at_ms: 0,
         before: crate::workspace::runner::InputSnapshot::default(),
+        partner: None,
     };
     Ok(Trust {
         launch,
@@ -1287,6 +1288,7 @@ impl SdkItems {
                         ),
                         text: item.text.clone(),
                         complete: item.complete,
+                        partner: None,
                     },
                 },
             )?;

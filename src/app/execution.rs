@@ -194,6 +194,8 @@ pub struct State {
     pub latest: runner::InputSnapshot,
     pub repo_waiting: bool,
     pub journal_saving: bool,
+    /// Partner whose command request this is (PT06A); stamped into the run record.
+    pub owner: Option<store::Attribution>,
     request_id: Option<String>,
     pending_spec: Option<runner::CommandSpec>,
     before_ready: Option<runner::InputSnapshot>,
@@ -250,6 +252,7 @@ impl Default for State {
             latest: runner::InputSnapshot::default(),
             repo_waiting: false,
             journal_saving: false,
+            owner: None,
             request_id: None,
             pending_spec: None,
             before_ready: None,
@@ -368,7 +371,17 @@ impl State {
             self.repo_request = false;
         }
     }
+    #[cfg(test)]
     pub fn prepare_command(&mut self, task_id: i64, command_text: &str) -> bool {
+        self.prepare_command_for(task_id, None, command_text)
+    }
+    /// `prepare_command` on behalf of `owner`; a refusal leaves the current owner intact.
+    pub fn prepare_command_for(
+        &mut self,
+        task_id: i64,
+        owner: Option<store::Attribution>,
+        command_text: &str,
+    ) -> bool {
         if task_id != self.task_id && self.busy() {
             self.fail(
                 "Ownership",
@@ -397,6 +410,7 @@ impl State {
         match parse_command(command_text) {
             Ok(spec) => {
                 self.task_id = task_id;
+                self.owner = owner;
                 self.pending_spec = Some(spec);
                 self.before_ready = None;
                 self.error = None;
@@ -489,7 +503,7 @@ impl State {
         if let Some(before) = self.before_ready.take()
             && let Some(spec) = self.pending_spec.take()
         {
-            match worker.prepare(task_id, spec, cwd.to_path_buf(), before) {
+            match worker.prepare_for(task_id, self.owner.clone(), spec, cwd.to_path_buf(), before) {
                 Ok(id) => { self.request_id = Some(id); self.notice = "Preparing exact command identity; approval remains pending, not granted.".into(); }
                 Err(error) => self.fail("Command", error, "Keep the draft and prepare again deliberately after resolving the prerequisite."),
             }
@@ -1581,7 +1595,8 @@ pub fn safe_text(text: &str) -> String {
 }
 pub fn approval_details(p: &runner::Prepared, capacity: u64) -> String {
     let mut text = format!(
-        "Task {}\nRequest {}\nRun {}\nCanonical cwd: {}\nCanonical executable: {}\nExecutable SHA-256: {}\nExecutable identity: {} · {} bytes\nPrepared {} ms; approval expires {} ms\n",
+        "Partner: {}\nTask {}\nRequest {}\nRun {}\nCanonical cwd: {}\nCanonical executable: {}\nExecutable SHA-256: {}\nExecutable identity: {} · {} bytes\nPrepared {} ms; approval expires {} ms\n",
+        safe_text(&store::Attribution::label(p.partner.as_ref())),
         p.task_id,
         p.request_id,
         p.run_id,
