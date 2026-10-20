@@ -90,7 +90,7 @@ def main():
                 until(lambda: task() is not None and task()[0] == text, 'goal commit', 20)
 
             def preview(resume=False):
-                session.command('resume' if resume else 'new')
+                session.command('session-resume' if resume else 'session-new')
                 wait_for(session, 'LOCAL PREVIEW', timeout=40)
                 wait_for(session, 'y Run', timeout=40)
                 session.capture('preview-' + str(len(result['cases'])))
@@ -213,7 +213,7 @@ def main():
             passed('real ACP explicit session load and pending-permission cancellation reject stale response')
 
             select_agent('claude', 'Claude Agent')
-            session.command('new')
+            session.command('session-new')
             until(lambda: 'Run blocked' in session.display() or 'requires a permitted' in session.display(), 'SDK credential blocker', 40)
             session.send('d')
             session.send(HOME)

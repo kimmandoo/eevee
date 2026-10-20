@@ -281,13 +281,18 @@ fn centered(area: Rect, width: u16, height: u16) -> Rect {
     )
 }
 
+/// Temporary sheets leave the real status header and safe-return footer visible.
+fn sheet(area: Rect, width: u16, height: u16) -> Rect {
+    centered(area, width, height.min(area.height.saturating_sub(4)))
+}
+
 fn drawer(area: Rect) -> Rect {
     let width = 46.min(area.width.saturating_sub(2));
     Rect::new(
         area.right().saturating_sub(width + 1),
-        area.y + 1,
+        area.y + 2,
         width,
-        area.height.saturating_sub(3),
+        area.height.saturating_sub(4),
     )
 }
 
@@ -327,7 +332,7 @@ fn portrait(area: Rect) -> Rect {
 fn picker(area: Rect, app: &App) -> (Rect, bool) {
     let grid = area.width >= 90 && area.height >= 30 && !app.linear;
     (
-        centered(
+        sheet(
             area,
             if grid { 108 } else { 84 },
             if grid { 32 } else { 25 },
@@ -640,17 +645,6 @@ pub fn render(
     if app.confirmation.is_some() {
         confirmation(frame, area, app, config, &paint);
     }
-    if matches!(
-        app.overlay,
-        Some(Overlay::Planning | Overlay::Execution | Overlay::PartyBoard)
-    ) {
-        text(
-            frame,
-            row(area, area.height.saturating_sub(1), 1),
-            app.storage_label(),
-            paint.muted,
-        );
-    }
 }
 
 fn text(frame: &mut Frame, area: Rect, value: &str, style: Style) {
@@ -663,7 +657,11 @@ fn text(frame: &mut Frame, area: Rect, value: &str, style: Style) {
 }
 
 fn selection_line(app: &App) -> String {
-    selection_text(&app.planning)
+    format!(
+        "{} · {}",
+        app.planning.agent.label(),
+        app.planning.selection.summary()
+    )
 }
 
 /// Provider, model and effort at a glance; `/verbose` adds observation caveats.
@@ -770,17 +768,25 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         );
     }
     let activity = if app.planning.request.is_some() {
-        "Approval needed / /provider Review"
+        "Approval needed / /approvals Review"
     } else if app.planning.cancelling {
-        "Cancelling provider / /provider Status"
-    } else if app.planning.preview.is_some() {
-        "Request prepared / /provider Details"
+        "Cancelling provider / /response Status"
+    } else if let Some(preview) = app.planning.preview.as_ref() {
+        if preview.blockers.is_empty() {
+            "Request prepared / /approvals Details"
+        } else {
+            "Request blocked / /approvals Details"
+        }
     } else if app.planning.preference_error().is_some() {
         "Model preference not saved / /storage-retry"
     } else if let Some(activity) = app.planning.activity_label() {
         activity
     } else if app.planning.outcome_unknown() {
-        "Provider outcome unknown / /provider Inspect"
+        if area.width < 90 {
+            "Outcome unknown / /response"
+        } else {
+            "Provider outcome unknown / /response Inspect"
+        }
     } else {
         app.execution.activity_label()
     };
@@ -1078,7 +1084,7 @@ fn inspect(
         let sampled = app.usage_bytes;
         let retention = app.policy.retention_days;
         format!(
-            "TASK\n{task} / {}\nUpdated: {updated}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete means user-reviewed criteria, not verified command evidence.\n\nPROJECT DIRECTORY\n{}\n\nSTORAGE\n{}\nRevision {} / committed {}\nDirectory: {}\n{}\nRecovery: /storage-retry; --export-data FILE exports readable local records, not provider history.\nQuota: {quota} bytes. Last sample: {sampled} live SQLite, retained output and committed reservations; not physical database size.\nRetention: archived at least {retention} days; explicit purge only, no automatic eviction.\nSecret detection is best-effort. Volatile editor text may remain unmasked.\nArchive is reversible. Deletion affects selected local records and owned artifacts, not repository files, exports or provider sessions. Not forensic secure erasure.\n\nEXECUTION\n/provider opens reviewed planning. /run opens local command approval/evidence. /handoff opens portable handoff. Cancellation does not roll back files; approval is not a sandbox.\n\nARTWORK\n{}\n{}\n{}\n\nUp/Down scroll / Esc back",
+            "TASK\n{task} / {}\nUpdated: {updated}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete means user-reviewed criteria, not verified command evidence.\n\nPROJECT DIRECTORY\n{}\n\nSTORAGE\n{}\nRevision {} / committed {}\nDirectory: {}\n{}\nRecovery: /storage-retry; --export-data FILE exports readable local records, not provider history.\nQuota: {quota} bytes. Last sample: {sampled} live SQLite, retained output and committed reservations; not physical database size.\nRetention: archived at least {retention} days; explicit purge only, no automatic eviction.\nSecret detection is best-effort. Volatile editor text may remain unmasked.\nArchive is reversible. Deletion affects selected local records and owned artifacts, not repository files, exports or provider sessions. Not forensic secure erasure.\n\nEXECUTION\n/provider opens connection selection. /run inspects local command evidence; /execute reviews a prepared command. /handoff opens portable handoff. Cancellation does not roll back files; approval is not a sandbox.\n\nARTWORK\n{}\n{}\n{}\n\nUp/Down scroll / Esc back",
             if app.complete { "Complete" } else { "Open" },
             app.criteria
                 .iter()
@@ -1291,7 +1297,7 @@ fn form_details(frame: &mut Frame, area: Rect, index: usize, config: &Config, ar
 }
 
 fn repository(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
-    let area = centered(area, 106, area.height.saturating_sub(2));
+    let area = sheet(area, 106, area.height);
     frame.render_widget(Clear, area);
     let block = panel(" Repository / read-only evidence ", config, paint, true);
     let content = block.inner(area);
@@ -1325,7 +1331,7 @@ fn repository(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, pai
 }
 
 fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
-    let area = centered(area, 88, 28);
+    let area = sheet(area, 88, 28);
     frame.render_widget(Clear, area);
     let block = panel(
         if app.show_archived {
@@ -1483,7 +1489,7 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
 }
 
 fn criteria(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
-    let area = centered(area, 88, 26);
+    let area = sheet(area, 88, 26);
     frame.render_widget(Clear, area);
     let block = panel(" Acceptance checklist / your review ", config, paint, true);
     let content = block.inner(area);
@@ -1576,7 +1582,7 @@ fn nickname(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &P
     let Some(editor) = &app.nickname_editor else {
         return;
     };
-    let area = centered(area, 58, 13);
+    let area = sheet(area, 58, 13);
     frame.render_widget(Clear, area);
     let block = panel(" Nickname / local only ", config, paint, true);
     let content = block.inner(area);
@@ -1619,7 +1625,7 @@ fn nickname(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &P
 /// and the task it is engaged with. Status is recomputed from live
 /// request/approval state each frame; Enter/`l` fronts the highlighted partner.
 fn party(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
-    let area = centered(area, 88, 24);
+    let area = sheet(area, 88, 24);
     frame.render_widget(Clear, area);
     let block = panel(" Party roster ", config, paint, true);
     let content = block.inner(area);
@@ -1689,12 +1695,12 @@ fn selection_details(frame: &mut Frame, area: Rect, paragraph: Paragraph<'_>, of
 }
 
 fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
-    let area = centered(area, 78, 24);
+    let area = sheet(area, 78, 24);
     frame.render_widget(Clear, area);
     let block = panel(" Help / PgUp/Dn Scroll / Esc Back ", config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let value = "KEYS\n / Ctrl+K   Commands (type to search)\n Enter      Send request / select / confirm\n Esc        Back (drafts are kept)\n Tab        Switch pane\n PgUp/PgDn  Scroll response or details\n Shift+Enter, Ctrl+N  Newline\n Ctrl+S     Keep draft locally\n @          Attach files\n Backspace  Previous form (outside text)\n Ctrl+C     Exit\n\nCOMMANDS\n /connect /provider  Provider and connection method\n /model /effort      Model and reasoning effort\n /new /resume        Advanced session request review\n /task-new /tasks    Local tasks\n /reset              Fresh task; old task/draft in /tasks\n /init               Draft project guide request; not sent\n /goal /criteria     Optional task facts\n /party /lead NAME   Partners and the lead\n /forms /role        Evolution and role\n /files /run         Source context, local commands\n /complete           Mark acceptance checklist complete\n /verbose            Brief / full explanations\n\nSAFETY\n Enter sends the saved request to the selected provider.\n Commands, file changes and privilege grants require approval.\n Project-supplied runtimes and unmanaged tool routes still need connection review.\n Full technical details remain inspectable.\n Pasted text never sends a request or runs commands.\n Provider output and handoffs are unverified context.";
+    let value = "KEYS\n / Ctrl+K   Commands (type to search)\n Enter      Send request / select / confirm\n Esc        Back (drafts are kept)\n Tab        Switch pane\n PgUp/PgDn  Scroll response or details\n Shift+Enter, Ctrl+N  Newline\n Ctrl+S     Keep draft locally\n @          Attach files\n Backspace  Previous form (outside text)\n Ctrl+C     Exit\n\nCOMMANDS\n /connect /provider  Provider and connection method\n /model /effort      Model and reasoning effort\n /new /resume        Send ordinary Request: fresh / owned conversation\n /session-new /session-resume\n                     Advanced: review exact session payload\n /task-new /tasks    Local tasks\n /reset              Fresh task; old task/draft in /tasks\n /init               Draft project guide request; not sent\n /goal /criteria     Optional task facts\n /party /lead NAME   Partners and the lead\n /forms /role        Evolution and role\n /files /search      Source context and filename search\n /run /execute       Command evidence / prepared command review\n /output-search      Search retained command output\n /complete           Mark acceptance checklist complete\n /verbose            Brief / full explanations\n\nSAFETY\n Enter sends your Request to the selected provider.\n Commands, file changes and privilege grants require approval.\n Project-supplied runtimes and unmanaged tool routes still need connection review.\n Full technical details remain inspectable.\n Pasted text never sends a request or runs commands.\n Provider output and handoffs are unverified context.";
     scroll_text(
         frame,
         content,
@@ -1707,7 +1713,7 @@ fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &P
 }
 
 fn preview(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
-    let area = centered(area, 82, 24);
+    let area = sheet(area, 82, 24);
     frame.render_widget(Clear, area);
     let block = panel(
         " Local handoff preview / nothing is sent ",
@@ -1719,7 +1725,7 @@ fn preview(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint:
     frame.render_widget(block, area);
     let form = &FORMS[app.preview_form()];
     let value = format!(
-        "GOAL\n{}\n\nROLE\n{} / {}\n\nEXPECTED ARTIFACT\n{}\n\nCONTEXT\n{} captured references loaded. /files opens envelope preview and source revalidation. Provider-added history or reads are not governed by this basket.\n\nEXECUTION / CONTROL\nThis local preview sends nothing. /provider opens separately reviewed planning. Command approval is separate in /run.\nThis preview performs no operation and sends nothing.\n\nEsc returns to the invoking control.",
+        "GOAL\n{}\n\nROLE\n{} / {}\n\nEXPECTED ARTIFACT\n{}\n\nCONTEXT\n{} captured references loaded. /files opens envelope preview and source revalidation. Provider-added history or reads are not governed by this basket.\n\nEXECUTION / CONTROL\nThis local preview sends nothing. /provider selects a connection; /session-new opens exact session review. /run inspects local command evidence; /execute reviews a prepared command.\nThis preview performs no operation.\n\nEsc returns to the invoking control.",
         if app.goal.is_empty() {
             "No task goal set"
         } else {
@@ -1756,7 +1762,7 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
         "Arrows Choose file / Enter Inspect / Esc Keep text"
     } else if app.editing && app.overlay.is_none() {
         if app.composer_is_request() && app.planning.busy() {
-            "Draft only / PgUp/Dn Response / /provider / /cancel"
+            "Draft only / PgUp/Dn Response / /response / /cancel"
         } else if app.composer_is_request() && app.response_on_home() {
             "Enter Send / PgUp/Dn Response / / Commands"
         } else if app.composer_is_request() {
@@ -1767,14 +1773,26 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
     } else {
         match app.overlay {
             Some(Overlay::Forms) => "Arrows Preview / Home Intake / Enter Select / Esc Back",
+            Some(Overlay::Criteria) if area.width < 70 => {
+                "Enter Toggle / /criteria-edit / /complete / Esc Back"
+            }
             Some(Overlay::Criteria) => {
                 "Enter Toggle / /criteria-edit / /complete / Arrows Choose / Esc Back"
             }
+            Some(Overlay::Tasks) if area.width < 70 => "Enter Resume / / Commands / Esc Back",
             Some(Overlay::Tasks) => {
                 "Enter Resume / /archived / /archive / /restore / /delete / Esc Back"
             }
+            Some(Overlay::Planning)
+                if app.planning.request.is_some() || app.planning.preview.is_some() =>
+            {
+                "/ Commands / Esc Defer / /approvals Return"
+            }
             Some(Overlay::Planning) if app.planning.activity_label().is_some() => {
                 "/ Commands / Esc Cancel request / Ctrl+C Safe exit"
+            }
+            Some(Overlay::Sources) if app.sources.editor.is_some() => {
+                "Enter Apply filter/range / Esc Back / Ctrl+C Exit"
             }
             Some(
                 Overlay::Execution
@@ -1855,7 +1873,7 @@ fn images(
     artwork: &Artwork,
     graphics_status: &str,
 ) {
-    let area = centered(area, 84, 24.min(area.height.saturating_sub(2)));
+    let area = sheet(area, 84, 24);
     frame.render_widget(Clear, area);
     let block = panel(" Images / Eevee and evolutions ", config, paint, true);
     let content = block.inner(area);
@@ -2109,7 +2127,7 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         frame,
         row(content, content.height.saturating_sub(2), 2),
         &format!(
-            "{} / 4096 bytes{}\nEnter Apply / Ctrl+S Save draft/back / Esc Review",
+            "{} / 4096 bytes{}\nEnter Apply / Ctrl+S Save draft/back / Esc Back",
             app.input.len(),
             warning
         ),
@@ -2143,7 +2161,7 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
     let area = if area.width < 30 || area.height < 10 {
         area
     } else {
-        centered(area, 62, 10)
+        sheet(area, 62, 10)
     };
     frame.render_widget(Clear, area);
     let block = panel(
@@ -2257,7 +2275,7 @@ fn delete_confirmation(
     config: &Config,
     paint: &Paint,
 ) {
-    let area = centered(area, 78, 26);
+    let area = sheet(area, 78, 26);
     frame.render_widget(Clear, area);
     let block = panel(" Review local task deletion ", config, paint, true);
     let content = block.inner(area);

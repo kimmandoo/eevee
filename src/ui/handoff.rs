@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Clear, Paragraph, Wrap},
 };
 
-use super::{Paint, centered, clipped, editor_rows, panel, row, selection_details, text};
+use super::{Paint, clipped, editor_rows, panel, row, selection_details, text};
 use crate::{
     app::{
         App,
@@ -39,7 +39,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     } else {
         area.height.saturating_sub(2)
     };
-    let area = centered(area, 110, height);
+    let area = super::sheet(area, 110, height);
     frame.render_widget(Clear, area);
     let block = panel(" Portable task handoff / local-only ", config, paint, true);
     let content = block.inner(area);
@@ -57,7 +57,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     text(frame, row(content, 0, 1), header, paint.accent);
     text(
         frame,
-        row(content, 1, 3),
+        row(content, 1, if compact { 2 } else { 3 }),
         &super::brief(&state.notice),
         paint.muted,
     );
@@ -89,7 +89,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         text(
             frame,
             row(content, content.height.saturating_sub(2), 2),
-            "Enter Read/Preview / Esc Stay. New export file only; symlink/reparse paths refused.",
+            "Enter Read/Preview / Esc Back\nNew export only; symlink/reparse paths refused.",
             paint.accent,
         );
         return;
@@ -101,11 +101,17 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     };
     text(
         frame,
-        row(content, 4, 1),
+        row(content, if compact { 3 } else { 4 }, 1),
         &clipped(&path, content.width as usize),
         paint.surface,
     );
-    let body = row(content, 6, content.height.saturating_sub(10));
+    let footer_rows = if compact { 2 } else { 3 };
+    let body_start = if compact { 4 } else { 6 };
+    let body = row(
+        content,
+        body_start,
+        content.height.saturating_sub(body_start + footer_rows),
+    );
     let empty = "/export-json /export-markdown /import-handoff\n\nOnly committed task facts, criteria, approved source references/excerpt bytes, selected decisions, and unresolved work are portable. No provider session IDs, permissions, credentials, or private reasoning. Imported claims are user-supplied/unverified and never become execution evidence.\n\nReview recognizable-secret redaction before sharing; detection is best-effort, not proof of secret absence. Deleting local data cannot erase prior exports, copies, provider-owned history, or backups. JSON and Markdown require the version-1 strict schema. No automatic task completion or provider request.";
     let empty = super::brief(empty);
     let value = if state.mode != Mode::Idle && state.candidate.is_some() {
@@ -194,7 +200,11 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     };
     text(
         frame,
-        row(content, content.height.saturating_sub(3), 3),
+        row(
+            content,
+            content.height.saturating_sub(footer_rows),
+            footer_rows,
+        ),
         &footer,
         paint.accent,
     );

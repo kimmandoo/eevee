@@ -72,6 +72,11 @@ impl App {
             Event::Paste(_) if self.reset_after_save || self.confirmation.is_some() => false,
             Event::Paste(text) if self.nickname_editor.is_some() => self.nickname_paste(&text),
             Event::Paste(text)
+                if self.overlay == Some(Overlay::Agents) && self.agents.connection_editing() =>
+            {
+                self.agents.paste_connection(&text)
+            }
+            Event::Paste(text)
                 if self.command_popup.is_some()
                     && self.editing
                     && self.confirmation.is_none()
@@ -116,7 +121,11 @@ impl App {
                 if self.confirmation.is_none() {
                     self.confirmation_reviewed = false;
                 }
-                self.key(key, now)
+                let was_specialist_editor =
+                    self.overlay == Some(Overlay::Workflows) && self.workflow.editor.is_some();
+                let changed = self.key(key, now);
+                let settled = self.settle_direct_action(key, was_specialist_editor);
+                changed || settled
             }
             _ => false,
         };
@@ -244,6 +253,7 @@ impl App {
             &self.sources.basket,
             self.repository.as_ref(),
         );
+        self.settle_provider_picker();
         self.refresh_approvals();
         if matches!(
             self.planning.pending,
@@ -414,12 +424,26 @@ impl App {
         outcome: crate::providers::auth::Outcome,
     ) {
         self.agents.auth_returned(profile, outcome);
+        self.connection_settings_changed();
         if outcome == crate::providers::auth::Outcome::Authenticated
             && profile == self.agents.active
             && !self.planning.catalogues.contains_key(&self.planning.agent)
         {
             self.planning.want_catalogue();
         }
+    }
+
+    /// Successful local connection edits invalidate only their future route state.
+    pub fn connection_settings_changed(&mut self) -> bool {
+        let mut changed = false;
+        while let Some(agent) = self.agents.take_connection_change() {
+            self.planning.invalidate_connection(agent);
+            for state in self.cooperation.parked.values_mut() {
+                state.invalidate_connection(agent);
+            }
+            changed = true;
+        }
+        changed
     }
 
     /// Fetch provider metadata without requiring a saved task or draft.
@@ -454,7 +478,55 @@ impl App {
         self.repo_refresh = true;
     }
 
+    fn settle_source_action(&mut self) -> bool {
+        let Some((task, partner, action)) = self.pending_source_action else {
+            return false;
+        };
+        if task != self.task_id
+            || partner != self.lead.id
+            || self.overlay != Some(Overlay::Sources)
+            || self.confirmation.is_some()
+            || self.has_focused_approval()
+            || self.sources.confirmation.is_some()
+            || self.sources.editor.is_some()
+        {
+            self.pending_source_action = None;
+            return false;
+        }
+        if self.sources.store_failed {
+            self.pending_source_action = None;
+            return false;
+        }
+        if self.sources.busy() || self.width < 60 || self.height < 18 {
+            return false;
+        }
+        if !self.sources.error.is_empty() {
+            self.pending_source_action = None;
+            return false;
+        }
+        self.pending_source_action = None;
+        if let Some(reason) = self
+            .sources
+            .command_choices()
+            .into_iter()
+            .find(|choice| choice.command == action)
+            .and_then(|choice| choice.reason)
+        {
+            self.sources.error = reason;
+            return true;
+        }
+        let action = self
+            .sources
+            .command(action, self.task_id, self.repository.as_ref());
+        self.apply_source_action(action)
+    }
+
     pub fn settle_planning(&mut self) -> bool {
+        let source_action = self.settle_source_action();
+        let provider_picker = self.settle_provider_picker();
+        if source_action || provider_picker {
+            return true;
+        }
         if let Some((task, partner)) = self.return_after_cancel {
             if task != self.task_id || partner != self.lead.id {
                 self.return_after_cancel = None;
@@ -463,7 +535,7 @@ impl App {
             }
             if !self.planning.busy() {
                 self.return_after_cancel = None;
-                if self.planning.outcome_unknown() || self.planning.journal_failed() {
+                if self.planning.unknown_effects() || self.planning.journal_failed() {
                     self.notice = "Return to Eevee stopped: inspect the provider outcome or retained journal first.".into();
                 } else {
                     self.request_navigation(execution::Action::SelectForm(0));
@@ -515,8 +587,12 @@ impl App {
             self.refresh_approvals();
             let preview = self.planning.preview.as_ref().expect("prepared request");
             if !preview.blockers.is_empty() {
-                let reason = preview.blockers.join(" ");
-                self.planning.cancel();
+                let reason = format!(
+                    "Request blocked: {} /approvals Details",
+                    preview.blockers.join(" ")
+                );
+                self.planning.failed_request = true;
+                self.planning.notice.clone_from(&reason);
                 self.notice = reason;
                 return true;
             }
@@ -609,12 +685,42 @@ impl App {
             || self.workflow.editor.is_some()
             || self.memory.editing()
             || self.handoff.editing
+            || self.agents.connection_editing()
     }
 
     pub(super) fn key(&mut self, key: KeyEvent, now: std::time::Instant) -> bool {
         if self.journal_discard_key(key) || self.cancellation_key(key) || self.cooperation_key(key)
         {
             return true;
+        }
+        if self.overlay == Some(Overlay::Agents) && self.agents.connection_editing() {
+            if key.code == KeyCode::Char('c')
+                && key.modifiers == KeyModifiers::CONTROL
+                && key.kind == KeyEventKind::Press
+            {
+                self.request_quit();
+                return true;
+            }
+            if self.agents.connection_needs_idle(&key) && !self.authentication_ready() {
+                self.agents.notice =
+                    "Finish or retry saves and active work before saving or forgetting a connection.".into();
+                return true;
+            }
+            let changed = self.agents.key(key, self.width >= 60 && self.height >= 18);
+            let connection_changed = self.connection_settings_changed();
+            if !self.agents.connection_editing()
+                && (key.code == KeyCode::Esc
+                    || key.code == KeyCode::Char('s') && key.modifiers == KeyModifiers::CONTROL
+                    || connection_changed
+                        && self.agents.use_for_task.is_none()
+                        && self.agents.pick.is_none())
+            {
+                self.close_overlay();
+                self.notice.clone_from(&self.agents.notice);
+            } else {
+                self.use_selected_provider();
+            }
+            return changed || connection_changed;
         }
         if self.transitioning {
             if self.deletion_preview_pending && key.code == KeyCode::Esc {
@@ -795,26 +901,69 @@ impl App {
         true
     }
 
-    /// Hands hub requests (use for task, model, effort) to the planning drawer.
-    pub(super) fn use_selected_provider(&mut self) {
-        let name = if let Some(profile) = self.agents.use_for_task.take() {
-            crate::providers::Agent::from_index(profile).map(crate::providers::Agent::command)
-        } else {
-            self.agents.pick.take()
+    /// Resume only the explicit task/partner/route selection that requested it.
+    fn settle_provider_picker(&mut self) -> bool {
+        let Some((task, partner, source, target, picker)) = self.pending_provider_picker else {
+            return false;
         };
-        if let Some(name) = name {
-            self.open_overlay(Overlay::Planning);
-            if self.overlay == Some(Overlay::Planning) {
-                self.planning_command(name);
-                // The hub is only a launch point for local selection/review,
-                // not another Back step after either accepting or keeping it.
-                self.overlay_history
-                    .retain(|frame| frame.overlay != Overlay::Agents);
-                if !self.planning.busy() {
-                    self.close_overlay();
-                    self.notice.clone_from(&self.planning.notice);
-                }
-            }
+        if task != self.task_id
+            || partner != self.lead.id
+            || self.overlay != Some(Overlay::Planning)
+            || self.planning.switch_to.is_some_and(|route| route != target)
+            || self.planning.agent != source && self.planning.agent != target
+        {
+            self.pending_provider_picker = None;
+            return false;
+        }
+        if self.planning.switch_to == Some(target) {
+            return false;
+        }
+        if self.planning.agent != target {
+            self.pending_provider_picker = None;
+            return false;
+        }
+        if self.planning.busy_except_picker()
+            || self.confirmation.is_some()
+            || self.has_focused_approval()
+        {
+            return false;
+        }
+        self.pending_provider_picker = None;
+        self.planning_command(picker)
+    }
+
+    /// Drain paired provider/picker intent without dropping a mandatory switch review.
+    pub(super) fn use_selected_provider(&mut self) {
+        let profile = self.agents.use_for_task.take();
+        let target = profile.and_then(crate::providers::Agent::from_index);
+        let picker = self.agents.pick.take();
+        if target.is_none() && picker.is_none() {
+            return;
+        }
+        self.pending_provider_picker = None;
+        self.open_overlay(Overlay::Planning);
+        if self.overlay != Some(Overlay::Planning) {
+            return;
+        }
+        let source = self.planning.agent;
+        if let Some(target) = target {
+            self.planning_command(target.command());
+        }
+        if let Some(picker) = picker {
+            self.pending_provider_picker = Some((
+                self.task_id,
+                self.lead.id,
+                source,
+                target.unwrap_or(source),
+                picker,
+            ));
+            self.settle_provider_picker();
+        }
+        self.overlay_history
+            .retain(|frame| frame.overlay != Overlay::Agents);
+        if !self.planning.busy() {
+            self.close_overlay();
+            self.notice.clone_from(&self.planning.notice);
         }
     }
 

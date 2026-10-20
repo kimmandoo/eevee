@@ -133,15 +133,12 @@ def main():
 
             def execute_check(session, expected, state="Succeeded"):
                 session.command("jolteon")  # Jolteon owns command preparation.
-                session.command("run")
-                wait_for(session, "local command evidence")
                 session.command("command-edit")
                 wait_for(session, "Command / explicit JSON argv or shell")
                 if not rows()[0]["command"]:
                     session.paste(json.dumps([str(Path(sys.executable).resolve()), "-B", str(project / "check.py")]))
                 session.send("\r")
-                wait_for(session, "Approval pending", timeout=35)
-                session.command("run")
+                session.command("execute")
                 wait_for(session, "Review one-shot execution permission")
                 session.send(RIGHT + "\r")
                 until(session, lambda: len(rows()[1]) == expected and rows()[1][-1]["state"] == state,

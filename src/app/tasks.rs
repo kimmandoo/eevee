@@ -178,6 +178,12 @@ impl App {
         self.command_popup = None;
         self.composer_catalogue = false;
         self.composer_return = None;
+        self.composer_return_owner = None;
+        self.temporary_editor_return = None;
+        self.direct_sheet_return = None;
+        self.pending_memory_action = None;
+        self.pending_source_action = None;
+        self.pending_provider_picker = None;
         self.editing = false;
         self.cursor = 0;
         let navigation = snapshot.navigation;
@@ -210,6 +216,7 @@ impl App {
         self.editor_field = draft.editor_field;
         if draft.editing && self.overlay.is_some() {
             self.composer_return = Some(draft.editor_field);
+            self.composer_return_owner = Some((self.task_id, self.lead.id));
         } else if draft.editing {
             self.open_editor(draft.editor_field);
         } else if self.overlay.is_none() {
@@ -310,7 +317,7 @@ impl App {
         if blocked
             || !form_only
                 && (self.planning_any_journal_failed()
-                    || self.planning_any_unknown()
+                    || self.planning_any_unknown_effects()
                     || self.execution_any_unknown())
         {
             self.notice = "Finish or explicitly cancel owned work, and inspect retained journal/outcome before changing tasks; /party-board lists every owner.".into();

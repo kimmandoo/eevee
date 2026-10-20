@@ -1,5 +1,93 @@
 # Troubleshooting
 
+### [2026-10-21] Native response identities collided after transport recreation
+
+- **Context / Symptom:** Exact follow-up HTTP payloads were correct, but the current partial/complete answer appeared under the first request's label and replaced its retained display item.
+- **Root Cause:** Tool-free transports were recreated between turns, resetting their local generation. Display turn/item IDs used only that generation, so separate owned requests reused the same identity.
+- **Solution:** Correlated native display turn/items with the immutable durable work request ID; streaming updates within that request still replace the same item. Provider generation remains transport-local, and no provider session or remote turn is invented.
+
+### [2026-10-21] Automatic refusal disposal hid native scope recovery
+
+- **Context / Symptom:** External credential/endpoint drift correctly sent no HTTP request, but the worker's subsequent “Native preview discarded” message replaced the actionable refusal and `/chat-new` recovery detail.
+- **Root Cause:** Both foreground and parked ordinary-send admission canceled a blocked preview automatically, discarding its inspectable blockers.
+- **Solution:** Retained the exact blocked preview without dispatch/retry, exposed blocked status and `/approvals` details, and allowed explicit local reset/cancel to dispose of it. Compact unknown-outcome status now retains the complete uncertainty phrase rather than clipping “unknown”.
+- **Prevention / Reference:** Keep ordinary-send blocker regressions, exact frozen input, zero inference requests and explicit reset/cancel checks. Navigation metadata revisions are not credential effects; probes compare unchanged task facts, exact drafts/carets, claims and evidence instead of incidental timestamps.
+
+### [2026-10-21] Direct memory selection reopened its own loading gate
+
+- **Context / Symptom:** After explicit memory approval, `/select-memory` left zero selected notes and displayed “Loading approved memories; wait before editing.” The loaded record remained visible.
+- **Root Cause:** Global direct actions called `open_overlay(Memory)` even when already in Memory; its load side effect ran before the existing same-overlay return, and the intended action was then rejected as loading.
+- **Solution:** Started memory loading only when entering from another surface. Repeated selection/editing acts on the visible loaded record without new reads; ordinary entry still reloads and first-use authoring still waits for owned loading completion.
+- **Prevention / Reference:** Regression covers actual selection/unselection and editing at both sizes, exact outgoing selected records, no implicit approval and no new load request.
+
+### [2026-10-21] Terminal native uncertainty incorrectly retained live ownership
+
+- **Context / Symptom:** Every native protocol closed its actual response socket on cancellation and displayed saved partial/unverified output, but explicit follow-ups remained blocked by the earlier unknown outcome.
+- **Root Cause:** One sticky flag represented both unknown remote completion/billing and unresolved tool-capable effects. Ownership treated both as ongoing work even after the tool-free local transport and durable claim had settled. The runtime probe also incorrectly demanded the idle label instead of the truthful unknown-outcome status.
+- **Solution:** Classified effect uncertainty from the immutable submitted request at terminal handling. Preserved remote-unknown disclosure, informed quit and canonical exclusion while allowing later explicit native sends/task changes after normal settlement. Kept CLI/tool effects blocking across route changes; fixed the probe to require actual socket closure, released claims, saved storage and partial/unknown status.
+- **Prevention / Reference:** Never infer uncertainty kind from the currently selected provider, clear it through login, manufacture tool-journal rows, or treat local reader cancellation as proof of remote cancellation.
+
+### [2026-10-21] Authentication fixture lost terminal restoration evidence after exit
+
+- **Context / Symptom:** Both-size foreground login/callback/cancel/no-replay groups passed, but final `Session.wait_exit()` raised `termios.error: (25, 'Inappropriate ioctl for device')` after the application exited.
+- **Root Cause:** The fixture exec'd Eevee as the controlling-session leader; macOS revoked the slave before the harness could sample restored termios. Fixed-count Escapes had also returned through a retained-Request review instead of reliably requesting exit.
+- **Solution:** Requested structural safe exit with Ctrl+C and added an opt-in POSIX controlling-TTY supervisor for auth fixtures. It execs/reaps the actual application child, retains its real PID/status and keeps the controlling session alive until terminal attributes are sampled and acknowledged. Resize reaches the application group; cleanup reaps the supervisor.
+- **Prevention / Reference:** Do not suppress ioctl errors or infer restoration from exit alone. Keep termios, cursor, bracketed-paste, alternate-screen and exit-status assertions alongside real foreground child/socket cleanup.
+
+### [2026-10-21] Stable command cutover left contradictory surface guidance
+
+- **Context / Symptom:** Actual surface audit found Help advertising ordinary sends as advanced reviews, execution recommending source-owned `/search`, Jolteon advertising inspection as approval and compact footers hiding Escape. An execution probe entered Sources instead of output search.
+- **Root Cause:** Context-dependent commands had been replaced centrally, but some shared first-action text, footer branches and one smoke consumer still described the old workspace semantics.
+- **Solution:** Made Jolteon's primary action direct command authoring, distinguished `/run` inspection from `/execute` permission review and `/search` source filtering from `/output-search`. Updated advanced session guidance and the affected consumer; bounded compact footer variants retained navigation and exact draft/caret return.
+- **Prevention / Reference:** Inspect actual wide/compact surfaces as well as command dispatch. Label-copy assertions do not prove that the visible action reaches the right behavior.
+
+### [2026-10-21] Native follow-ups lost conversational roles and ordinary intent
+
+- **Context / Symptom:** Native setup exposed instructions rather than a private credential editor, and ordinary follow-ups were serialized as isolated planning input instead of the preceding user/assistant conversation.
+- **Root Cause:** Configuration discovery was the only connection path; request construction reused display-oriented planning text without a canonical successful-turn history.
+- **Solution:** Added explicit masked setup and route/model selection. Captured authoritative completed public responses in bounded process-local role-bearing history, froze it with each input and serialized it separately from system/task/source context. Kept ordinary answers distinct from requested plans and managed reviews; excluded partial, reasoning and display text.
+- **Prevention / Reference:** Verify exact roles and raw content on real HTTP requests, including cancellation, incomplete output, scope drift, local chat reset and task/partner isolation. Never rebuild conversations from provider-tool journals or UI items.
+
+### [2026-10-21] Private connection navigation lost keys during background saves
+
+- **Context / Symptom:** Actual native setup occasionally skipped private fields after Tab/Ctrl+U; the endpoint contained the model value and the model was blank. The TUI reported that saves or active work had to finish.
+- **Root Cause:** The application applied global idle admission to every private-form key, including harmless edits and navigation, while task autosaves briefly remained pending.
+- **Solution:** Kept all private typing, paste, navigation and neutral cancellation inside the private editor. Applied saved/idle admission only to deliberate Save or reviewed affirmative Forget; repeats/releases still cannot approve effects.
+- **Prevention / Reference:** Retain pending-save input regressions and actual field-focus assertions at both supported terminal sizes. Do not hide lost input with sleeps or retries.
+
+### [2026-10-21] Neutral authentication cancellation returned to the wrong page
+
+- **Context / Symptom:** Reopening the same sign-in method after neutral Back appeared stuck at “Preparing connection review…”, despite a functioning preparation worker.
+- **Root Cause:** Cancellation reset Methods to Providers. The next Enter reopened Methods instead of preparing the selected method, while the previous preparing notice remained visible.
+- **Solution:** Retained the originating page and selected method, invalidated the canceled generation and cleared its preparing notice. Late worker completion remains unable to authorize or reopen canceled work.
+- **Prevention / Reference:** Exercise prepare, cancel, stale completion, fresh preparation and neutral Back before any explicit authorization; never compensate with an extra hidden Enter.
+
+### [2026-10-21] Credential privacy required anchored paths and native ACL checks
+
+- **Context / Symptom:** Review found that a checked credential path could be redirected through a replaced parent link, and POSIX mode checks alone did not establish privacy on macOS ACL-bearing objects.
+- **Root Cause:** Path validation and opening were separate operations, and Darwin ACL permissions were not included in the handle-bound privacy snapshot.
+- **Solution:** Anchored no-follow reads to the verified destination, checked owner/mode/native ACL through the opened handle and failed closed on unsupported inspection. Removed inherited ACLs only from newly created app-owned objects; never repaired HOME or provider-owned files. Kept failed-create cleanup from deleting existing Windows targets.
+- **Prevention / Reference:** Keep credential/link/ACL fixtures isolated from real accounts. Plaintext persistence is explicit, not encryption or keychain storage; cleanup failures must disclose retained bytes.
+
+### [2026-10-21] Saving connection defaults discarded configured reasoning effort
+
+- **Context / Symptom:** Editing native connection settings could drop a previously configured reasoning effort or carry it onto a different model without explaining that association.
+- **Root Cause:** The new saved profile was reconstructed from visible fields without preserving the original model/effort binding.
+- **Solution:** Preserved the configured binding when the model stayed unchanged, visibly reset it on deliberate model changes and refused mismatched associations at dispatch.
+
+### [2026-10-21] Direct actions lost asynchronous intent and editor return ownership
+
+- **Context / Symptom:** First source actions disappeared while catalogues loaded, specialist launch failures immediately closed, restored tasks returned to another composer's context and model selection disappeared behind required provider-switch review.
+- **Root Cause:** Direct navigation reused synchronous workspace assumptions, interpreted the initiating Enter as editor completion and did not bind deferred return/picker intent to its exact task/partner/route.
+- **Solution:** Retained owned source actions until catalogue/context readiness, canceled stale intent, captured pre-key specialist editing state, rebound restored-task returns and carried route-bound picker intent only through an accepted matching switch review.
+- **Prevention / Reference:** Keep exact Request draft/caret and unchanged-effects assertions; direct entry removes optional navigation, not required approvals.
+
+### [2026-10-21] Compact sheets obscured live context and question content
+
+- **Context / Symptom:** Modal entry covered storage/refusal feedback; long technical correlation IDs appeared before the actual question/options at the minimum terminal size.
+- **Root Cause:** Independent sheets did not consistently reserve live header/footer rows, and metadata was ordered ahead of the user's decision.
+- **Solution:** Used shared two-header/two-footer sheet bounds, retained actual storage state rather than a stale stamp and moved technical IDs after question/options/answer content. Full details remain keyboard-inspectable without weakening visible-summary approval gates.
+
 ### [2026-10-21] Bounded fixture version probe expired during runtime qualification
 
 - **Context / Symptom:** The first E execution-relay run stopped after 10 of 14 groups: the deterministic peer's version probe exceeded the application's three-second deadline at 60×18 (`target/wave4-accepted-execution-relays-e`).

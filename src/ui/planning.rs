@@ -147,7 +147,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     } else {
         area.height.saturating_sub(2)
     };
-    let area = centered(area, if compact_picker { 80 } else { 112 }, height);
+    let area = super::sheet(area, if compact_picker { 80 } else { 112 }, height);
     frame.render_widget(Clear, area);
     let state = &mut app.planning;
     let title = if local_picker {
@@ -308,15 +308,6 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         });
         review = true;
     } else if let Some(request) = &state.request {
-        let _ = writeln!(
-            value,
-            "Source: {} / thread {}\nTurn {} / item {}\nRequest {}\n",
-            state.agent.label(),
-            request.thread_id,
-            request.turn_id,
-            request.item_id,
-            request.request_id
-        );
         match &request.kind {
             PromptKind::Permission {
                 description,
@@ -417,6 +408,15 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 }
             }
         }
+        let _ = writeln!(
+            value,
+            "Source: {} / thread {}\nTurn {} / item {}\nRequest {}\n",
+            state.agent.label(),
+            request.thread_id,
+            request.turn_id,
+            request.item_id,
+            request.request_id
+        );
     } else if let Some(inspection) = &state.inspection {
         value.push_str(inspection);
     }
@@ -771,14 +771,14 @@ fn controls(state: &State) -> &'static str {
                 }
             }
             PromptKind::Questions(_) => {
-                "Up/Down Option / Enter Choose / /answer Type\nTab Question / /answers-review Review send / Esc Cancel turn"
+                "Up/Down Option / Enter Choose / /answer Type\nTab Question / /answers-review Review send / Esc Defer"
             }
         };
     }
     if state.busy() {
         "PgUp/Dn Scroll session metadata\nEsc Cancel / /quit Safe exit"
     } else {
-        "PgUp/Dn Scroll session metadata / Esc Messages\n/new /resume /provider /history"
+        "PgUp/Dn Scroll session metadata / Esc Messages\n/session-new /session-resume /provider /history"
     }
 }
 
@@ -1538,7 +1538,9 @@ mod tests {
             }
         }
         let bounds = Rect::new(left, top, right - left, bottom - top);
-        assert!((16..=20).contains(&bounds.height), "{bounds:?}");
+        let shell = super::super::shell(screen, false, crate::app::Pane::Workspace);
+        assert!(!bounds.intersects(shell.header), "{bounds:?}");
+        assert!(!bounds.intersects(shell.footer), "{bounds:?}");
         assert!((left - screen.x).abs_diff(screen.right() - right) <= 1);
         assert!((top - screen.y).abs_diff(screen.bottom() - bottom) <= 1);
         bounds
@@ -2102,7 +2104,6 @@ mod tests {
         let text = screen(&draw(&mut app));
         assert!(text.contains("Bolt (Jolteon) asks"), "{text}");
         assert!(text.contains("Which module?"), "{text}");
-        assert!(text.contains("Cancel turn"), "{text}");
     }
 
     #[test]

@@ -53,11 +53,7 @@ pub(super) fn render(
     if !state.visible() {
         return;
     }
-    let area = if state.confirmation.is_some() {
-        super::centered(area, 104, area.height.saturating_sub(2))
-    } else {
-        area
-    };
+    let area = super::sheet(area, 104, area.height);
     let paint = Paint::new(config, &FORMS[2], 2);
     frame.render_widget(Clear, area);
     let block = panel(
@@ -123,13 +119,13 @@ pub(super) fn render(
         footer_rows,
     );
     let hints = if state.view == View::History {
-        "Up/Down select · Enter inspect retained output\n/ choices: purge, command-edit, run, cancel, refresh\nEsc output · Ctrl+C/quit: Stay or Cancel-and-wait"
+        "Up/Down select · Enter inspect retained output\n/ choices: purge, command-edit, execute, cancel, refresh\nEsc output · Ctrl+C/quit: Stay or Cancel-and-wait"
     } else if state.view == View::Locations {
         "Up/Down select · Enter Pin range (review)\nRetained window/page only · Esc output"
     } else if state.view == View::Details {
-        "Up/Down/PgUp/PgDn/Home/End inspect full details\n/ choices: journal-retry, run, cancel · Esc output\nNo command is retried automatically; task drafts stay"
+        "Up/Down/PgUp/PgDn/Home/End inspect full details\n/ choices: journal-retry, execute, cancel · Esc output\nNo command is retried automatically; task drafts stay"
     } else {
-        "/ choices: command-edit, run, locations, artifacts\nArrows scroll · /search edits a literal output query\n/page-next, /page-previous · /refresh · Esc close"
+        "/ choices: command-edit, execute, locations, artifacts\nArrows scroll · /output-search Literal query\n/page-next, /page-previous · /refresh · Esc close"
     };
     text(frame, footer, hints, paint.muted);
 }
@@ -333,7 +329,7 @@ fn history(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         text(
             frame,
             area,
-            "No retained executions for this task. /command-edit edits a command; /run reviews a prepared request. Loading history never executes a saved command. Interrupted startup records are evidence, not live process ownership.",
+            "No retained executions for this task. /command-edit edits a command; /execute reviews a prepared request. /run only inspects command evidence. Loading history never executes a saved command. Interrupted startup records are evidence, not live process ownership.",
             paint.muted,
         );
         return;
@@ -447,7 +443,7 @@ fn output(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         text(
             frame,
             body,
-            "No output yet.\n/command-edit writes a command, e.g. [\"cargo\",\"test\"]; /run reviews it before anything runs.",
+            "No output yet.\n/command-edit writes a command, e.g. [\"cargo\",\"test\"]; /execute reviews it before anything runs.",
             paint.muted,
         );
         return;

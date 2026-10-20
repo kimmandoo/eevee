@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Clear, Paragraph, Wrap},
 };
 
-use super::{Paint, centered, clipped, editor_rows, panel, row, selection_details, text};
+use super::{Paint, clipped, editor_rows, panel, row, selection_details, text};
 use crate::{
     app::memory::{Mode, State},
     config::Config,
@@ -40,7 +40,7 @@ pub(super) fn render(
     } else {
         area.height.saturating_sub(2)
     };
-    let area = centered(area, 110, height);
+    let area = super::sheet(area, 110, height);
     frame.render_widget(Clear, area);
     let block = panel(
         " Approved memories / explicit local curation ",
@@ -86,7 +86,8 @@ pub(super) fn render(
         ),
     };
     text(frame, row(content, 3, 1), &label, paint.accent);
-    let mut body = row(content, 4, content.height.saturating_sub(7));
+    let footer_rows = if compact { 2 } else { 3 };
+    let mut body = row(content, 4, content.height.saturating_sub(4 + footer_rows));
     if state.editing() {
         editor(frame, body, state, paint);
     } else {
@@ -235,7 +236,11 @@ pub(super) fn render(
     };
     text(
         frame,
-        row(content, content.height.saturating_sub(3), 3),
+        row(
+            content,
+            content.height.saturating_sub(footer_rows),
+            footer_rows,
+        ),
         &footer,
         paint.accent,
     );
@@ -248,7 +253,7 @@ fn summary(proposal: &Proposal, deleting: bool) -> String {
         memory::Scope::Personal => "All projects",
     };
     format!(
-        "{scope}\n{}\n\n{}\n{} bytes / /verbose Full note and source",
+        "{scope}\n{}\n{}\n{} bytes / /verbose Full note and source",
         if deleting {
             "Delete locally; prior exports remain."
         } else {

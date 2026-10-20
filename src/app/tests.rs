@@ -172,18 +172,10 @@ fn root_criteria_edit_opens_the_editor_without_the_list() {
 }
 
 #[test]
-fn command_search_matches_unordered_terms_and_keeps_exact_commands_first() {
+fn command_search_keeps_exact_commands_first_and_blank_query_lists_all() {
     let mut app = app();
     app.open_commands();
     let popup = app.command_popup.as_mut().unwrap();
-    popup.query = "  DESK review  ".into();
-    assert_eq!(
-        popup
-            .candidates()
-            .map(|choice| choice.command)
-            .collect::<Vec<_>>(),
-        vec!["workflow-review"]
-    );
     popup.query = "/ROLE-REVIEW".into();
     assert_eq!(
         popup
@@ -192,20 +184,6 @@ fn command_search_matches_unordered_terms_and_keeps_exact_commands_first() {
             .collect::<Vec<_>>(),
         vec!["role-review"]
     );
-    popup.query = "model provider".into();
-    assert!(popup.candidates().any(|choice| choice.command == "model"));
-    for (query, command) in [
-        ("attach", "files"),
-        ("cancel provider", "provider"),
-        ("evidence", "history"),
-        ("evidence", "diff"),
-    ] {
-        popup.query = query.into();
-        assert!(
-            popup.candidates().any(|choice| choice.command == command),
-            "{query}"
-        );
-    }
     popup.query = " \t ".into();
     assert_eq!(popup.candidates().count(), popup.choices.len());
 }
@@ -1923,7 +1901,7 @@ fn direct_custom_model_review_remains_owned_until_explicit_cancellation() {
     app.settle_planning();
     assert_eq!(app.overlay, Some(Overlay::Planning));
     assert!(app.planning.busy());
-    app.command("provider");
+    app.command("response");
     assert_eq!(app.overlay, Some(Overlay::Planning));
     assert_eq!(app.planning.thread_id.as_deref(), Some("owned-session"));
     assert!(app.planning.selection.model.is_none());
@@ -2051,6 +2029,153 @@ fn composer_enter_dispatches_the_committed_request_once_without_a_popup() {
 }
 
 #[test]
+fn terminal_native_unknown_allows_explicit_followup_and_task_switch_but_cli_unknown_does_not() {
+    use crate::providers::{Agent, Event as ProviderEvent, ItemKind, Outcome, Preview, Request};
+    for agent in [Agent::Compatible, Agent::Codex] {
+        let mut app = request_app();
+        app.planning.agent = agent;
+        app.planning
+            .preference_event(Ok(Some(store::ProviderPreferences {
+                provider: agent,
+                selections: std::collections::HashMap::new(),
+            })));
+        app.update(Event::Paste("Interrupted request".into()));
+        key(&mut app, KeyCode::Enter);
+        save_request(&mut app);
+        app.settle_planning();
+        acknowledge_work(&mut app);
+        assert!(matches!(
+            app.planning.pending.take(),
+            Some(Request::Preview(_))
+        ));
+        app.provider_event(
+            1,
+            ProviderEvent::Preview(Preview {
+                arrival: crate::providers::approval_arrival(),
+                generation: 91,
+                task_id: app.task_id,
+                thread_id: None,
+                destination: None,
+                requires_connection_review: false,
+                trust: Vec::new(),
+                payload: "{}".into(),
+                blockers: Vec::new(),
+            }),
+        );
+        app.settle_planning();
+        assert!(matches!(
+            app.planning.pending.take(),
+            Some(Request::Run { generation: 91 })
+        ));
+        app.provider_event(
+            1,
+            ProviderEvent::Item {
+                generation: 91,
+                task_id: app.task_id,
+                thread_id: String::new(),
+                turn_id: "partial".into(),
+                item_id: "partial".into(),
+                kind: ItemKind::Plan,
+                text: "Unverified partial answer".into(),
+                complete: false,
+            },
+        );
+        let claim = app.planning.work.clone().unwrap();
+        app.provider_event(
+            1,
+            ProviderEvent::Finished {
+                generation: 91,
+                task_id: app.task_id,
+                outcome: Outcome::Unknown,
+                message: "Local reader closed; remote outcome unknown".into(),
+            },
+        );
+        assert!(app.planning.outcome_unknown());
+        assert!(
+            app.planning.owns_work(),
+            "release acknowledgement is still required"
+        );
+        assert_eq!(app.planning.work.as_ref(), Some(&claim));
+        acknowledge_work(&mut app);
+        assert!(app.planning.work.is_none());
+        assert!(app.planning.items.iter().any(|item| !item.complete));
+        assert!(app.planning.pending.is_none(), "settlement never resends");
+
+        if !agent.is_direct() {
+            assert!(app.planning.unknown_effects() && app.partner_busy(1));
+            assert!(app.work_capacity_reason(1).is_some());
+            app.request_navigation(execution::Action::SwitchTask(8));
+            assert!(app.switch_task.is_none());
+            // Selected route is mutable; it cannot change an earlier effect's
+            // uncertainty kind or permit its owner to escape the safety gate.
+            app.planning.agent = Agent::Compatible;
+            assert!(app.planning.unknown_effects() && app.partner_busy(1));
+            app.request_navigation(execution::Action::SwitchTask(8));
+            assert!(app.switch_task.is_none());
+            continue;
+        }
+
+        assert!(!app.planning.unknown_effects() && !app.partner_busy(1));
+        assert!(app.work_rows().is_empty());
+        assert!(app.work_capacity_reason(1).is_none());
+        assert!(
+            app.cancel_all_summary()
+                .contains("provider outcome unknown")
+        );
+        app.update(Event::Paste("Explicit follow-up only".into()));
+        key(&mut app, KeyCode::Enter);
+        save_request(&mut app);
+        app.settle_planning();
+        acknowledge_work(&mut app);
+        let Some(Request::Preview(input)) = app.planning.pending.take() else {
+            panic!("terminal native uncertainty must not block an explicit follow-up");
+        };
+        assert_eq!(input.task.request_text(), "Explicit follow-up only");
+        assert!(
+            input.conversation.is_none(),
+            "partial output is not canonical history"
+        );
+        app.provider_event(
+            1,
+            ProviderEvent::Preview(Preview {
+                arrival: crate::providers::approval_arrival(),
+                generation: 92,
+                task_id: app.task_id,
+                thread_id: None,
+                destination: None,
+                requires_connection_review: false,
+                trust: Vec::new(),
+                payload: "{}".into(),
+                blockers: Vec::new(),
+            }),
+        );
+        app.settle_planning();
+        assert!(matches!(
+            app.planning.pending.take(),
+            Some(Request::Run { generation: 92 })
+        ));
+        assert_eq!(app.work_rows()[0].status, "working");
+        app.provider_event(
+            1,
+            ProviderEvent::Finished {
+                generation: 92,
+                task_id: app.task_id,
+                outcome: Outcome::Completed,
+                message: "Explicit follow-up complete".into(),
+            },
+        );
+        acknowledge_work(&mut app);
+        assert!(
+            app.planning.outcome_unknown(),
+            "later success does not erase uncertainty"
+        );
+        save_request(&mut app);
+        app.request_navigation(execution::Action::SwitchTask(8));
+        assert_eq!(app.switch_task, Some(8), "{}", app.notice);
+    }
+}
+
+#[test]
 fn followup_draft_isolated_and_blocked_preparation_never_sends() {
     for changed in [false, true] {
         let mut app = request_app();
@@ -2093,6 +2218,17 @@ fn followup_draft_isolated_and_blocked_preparation_never_sends() {
             assert_eq!(app.planning.submitted_request.as_ref(), "original");
             assert_eq!(app.input, "original edited before dispatch");
         } else {
+            assert!(app.planning.pending.is_none() && app.planning.preview.is_some());
+            assert_eq!(
+                app.planning.immutable_task().unwrap().request_text(),
+                "original"
+            );
+            app.settle_planning();
+            assert!(
+                app.planning.pending.is_none(),
+                "a blocker never retries or sends"
+            );
+            app.command("cancel");
             assert!(matches!(
                 app.planning.pending.take(),
                 Some(crate::providers::Request::Cancel { generation: 92 })
@@ -2401,7 +2537,7 @@ fn global_confirmation_shortcuts_need_visible_summary_and_unmodified_press() {
 }
 
 #[test]
-fn restart_restores_overlay_before_its_underlying_request_and_fact_edits_replace_return_owner() {
+fn restart_restores_overlay_and_temporary_fact_editor_returns_to_request() {
     let mut original = app();
     original.open_editor(store::EditorField::Request);
     original.update(Event::Paste("Retained request 漢字".into()));
@@ -2424,13 +2560,12 @@ fn restart_restores_overlay_before_its_underlying_request_and_fact_edits_replace
     restored.update(Event::Paste("Local task identity".into()));
     key(&mut restored, KeyCode::Enter);
     assert_eq!(restored.goal, "Local task identity");
-    assert!(!restored.editing);
+    assert!(restored.composer_is_request());
+    assert_eq!(restored.input, "Retained request 漢字");
     restored.command("help");
     key(&mut restored, KeyCode::Esc);
-    assert!(
-        !restored.editing,
-        "closed details must not resurrect the completed Goal editor"
-    );
+    assert!(restored.composer_is_request());
+    assert_eq!(restored.input, "Retained request 漢字");
     restored.open_editor(store::EditorField::Request);
     assert_eq!(restored.input, "Retained request 漢字");
 }
@@ -2842,7 +2977,9 @@ fn each_forms_primary_empty_action_opens_its_flow_and_executes_nothing() {
                         app.editing && app.editor_field == store::EditorField::Criteria
                     }
                     "files" => app.overlay == Some(Overlay::Sources),
-                    "run" => app.overlay == Some(Overlay::Execution),
+                    "command-edit" => {
+                        app.editing && app.editor_field == store::EditorField::Command
+                    }
                     "paths" => {
                         app.overlay == Some(Overlay::Planning)
                             && app.planning.paths_editor.is_some()
@@ -2878,11 +3015,6 @@ fn out_of_role_actions_name_the_owner_and_offer_a_working_switch() {
     ] {
         let mut app = app();
         app.command(form);
-        if command == "command-edit" {
-            // Command preparation lives in the evidence view, open to every form.
-            app.command("run");
-            assert_eq!(app.overlay, Some(Overlay::Execution));
-        }
         let before = app.form();
         let operation = app.planning.operation;
         let reason = app.command_disabled_reason(command).expect(command);

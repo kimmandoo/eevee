@@ -14,14 +14,15 @@ use serde_json::json;
 
 use crate::{
     providers::{
-        Agent, Event, ItemKind, ModelCatalogue, ModelSelection, Operation, Outcome, Preview,
-        Prompt, PromptKind, Request,
+        Agent, Event, ItemKind, ModelCatalogue, ModelSelection, NativeConversation, Operation,
+        Outcome, Preview, Prompt, PromptKind, Request,
     },
     store,
     workspace::context,
     workspace::repo,
 };
 
+mod conversation;
 mod cooperation;
 pub(crate) mod journal;
 mod picker;
@@ -125,6 +126,9 @@ pub struct State {
     cancel_when_ready: bool,
     quit_after_cancel: bool,
     unknown: bool,
+    // Tool-capable uncertainty retains ownership; tool-free native uncertainty
+    // remains disclosed but cannot keep a terminated local transport alive.
+    unknown_effects: bool,
     saved_scroll: u16,
     pub agent: Agent,
     pub operation: Operation,
@@ -133,6 +137,12 @@ pub struct State {
     pub switch_to: Option<Agent>,
     pub handoff: Option<crate::workspace::handoff::Document>,
     sessions: HashMap<(Agent, Operation), Session>,
+    /// Canonical native history is separate from display/provider sessions;
+    /// unexpected scope changes refuse it until an explicit local reset.
+    native_histories: HashMap<(Agent, Operation), Arc<NativeConversation>>,
+    native_candidate: Option<Arc<NativeConversation>>,
+    native_request_partner: Option<i64>,
+    connection_invalidated: bool,
     pub journal_mode: bool,
     pub journal_purge: bool,
     pub journal_records: Vec<store::ProviderRecord>,
@@ -207,7 +217,7 @@ impl State {
         Self {
             pending: None, decision: None, edit_goal: false, preview: None, request: None,
             items: Vec::new(), selected: 0, thread_id: None,
-            notice: "No model session yet. /new and /resume prepare an outgoing-payload review; /connect manages provider login separately.".into(),
+            notice: "No response yet. Send from Request; /session-new and /session-resume prepare an exact outgoing-payload review. /connect manages provider connections separately.".into(),
             scroll: 0, scroll_max: 0, reviewed: false, affirmative: false,
             review_details: false,
             submitted_request: Arc::default(),
@@ -220,8 +230,12 @@ impl State {
             task: 0, revision: 0, generation: None, awaiting_preview: false, active: false,
             authentication_invalidated: false,
             cancel_when_ready: false, quit_after_cancel: false, unknown: false, saved_scroll: 0,
+            unknown_effects: false,
             agent: Agent::Codex, operation: Operation::Plan, edit_paths: Vec::new(),
             paths_editor: None, switch_to: None, handoff: None, sessions: HashMap::new(),
+            native_histories: HashMap::new(), native_candidate: None,
+            native_request_partner: None,
+            connection_invalidated: false,
             journal_mode: false, journal_purge: false, journal_records: Vec::new(), journal_selected: 0,
             pending_journal: VecDeque::new(), journal_inflight: VecDeque::new(),
             failed_journal: VecDeque::new(), journal_notice: String::new(),
@@ -309,6 +323,10 @@ impl State {
         self.unknown
     }
 
+    pub fn unknown_effects(&self) -> bool {
+        self.unknown_effects
+    }
+
     pub fn reset(&mut self, task_id: i64) {
         if !self.busy() && !self.journal_failed() {
             let selections = std::mem::take(&mut self.selections);
@@ -369,6 +387,8 @@ impl State {
         self.catalogue_dismissed = true;
         self.send_after_prepare = false;
         self.invalidate_review();
+        self.native_candidate = None;
+        self.native_histories.clear();
         self.sessions.clear();
         if self.inspect_models && self.transport_pending() {
             self.catalogue_errors.insert(
@@ -523,8 +543,12 @@ impl State {
         self.selected = session.selected;
         self.omitted = session.omitted;
         self.submitted_request = session.submitted_request;
-        self.notice = if operation == Operation::Review {
+        self.notice = if self.agent.is_direct() && operation == Operation::Review {
+            "Independent native Review selected locally. Each request constructs fresh requirements/patch/evidence context without prior chat. No tools, source writes or resumable provider session; fixes require a deliberate implementation handoff.".into()
+        } else if operation == Operation::Review {
             "Independent Review selected locally. New always constructs fresh requirements/patch/evidence context and a separate provider session. Resume and source writes are unavailable; fixes require a deliberate implementation handoff.".into()
+        } else if self.agent.is_direct() {
+            "Native role selected locally. Canonical chat is task/partner/role-scoped process memory only, not restart resumable. Send from Request or use /chat-new to reset local history; no tools or local writes.".into()
         } else {
             "Role policy selected locally. New/Resume requires fresh scope and executable consent; no permission carried.".into()
         };
@@ -580,6 +604,20 @@ impl State {
 
     pub fn event(&mut self, event: Event) {
         match event {
+            Event::NativeCompleted {
+                generation,
+                task_id,
+                conversation,
+            } if self.matches(generation, task_id)
+                && self.active
+                && !self.cancelling
+                && !self.authentication_invalidated
+                && !self.connection_invalidated
+                && !self.inspect_models
+                && !self.inspect_sessions =>
+            {
+                self.capture_native(conversation);
+            }
             Event::Journal {
                 generation,
                 task_id,
@@ -625,7 +663,8 @@ impl State {
                 && self.active
                 && self.inspect_models
                 && !self.cancelling
-                && !self.authentication_invalidated =>
+                && !self.authentication_invalidated
+                && !self.connection_invalidated =>
             {
                 match catalogue.validate() {
                     Ok(()) => {
@@ -659,7 +698,8 @@ impl State {
             } if self.matches(generation, task_id)
                 && self.active
                 && !self.inspect_sessions
-                && !self.inspect_models =>
+                && !self.inspect_models
+                && !self.connection_invalidated =>
             {
                 self.activity = "Waiting for response";
                 self.observed_model = Some(model.clone());
@@ -676,7 +716,8 @@ impl State {
             } if self.matches(generation, task_id)
                 && self.active
                 && !self.inspect_sessions
-                && !self.inspect_models =>
+                && !self.inspect_models
+                && !self.connection_invalidated =>
             {
                 self.thread_id = Some(thread_id);
                 self.activity = "Waiting for response";
@@ -804,6 +845,11 @@ impl State {
                 outcome,
                 message,
             } if self.matches(generation, task_id) => {
+                // This identity was frozen for the submitted inference, unlike
+                // the locally selected provider, and survives until Finished.
+                let unknown_effects =
+                    matches!(outcome, Outcome::Unknown) && self.native_request_partner.is_none();
+                self.finish_native(matches!(outcome, Outcome::Completed));
                 self.failed_request = self.active
                     && !self.inspect_models
                     && !self.inspect_sessions
@@ -858,6 +904,7 @@ impl State {
                 }
                 self.cancel_when_ready = false;
                 self.unknown |= matches!(outcome, Outcome::Unknown);
+                self.unknown_effects |= unknown_effects;
                 if self.quit_after_cancel {
                     self.quit_after_cancel = false;
                     if self.unknown {
@@ -868,6 +915,13 @@ impl State {
                     }
                 }
                 self.finish_authentication_invalidation();
+                if self.connection_invalidated {
+                    self.connection_invalidated = false;
+                    self.thread_id = None;
+                    self.native_candidate = None;
+                    self.observed_model = None;
+                    self.notice.push_str(" Connection changed; new local chat. Future requests require fresh consent; nothing was replayed.");
+                }
             }
             Event::Error {
                 generation,
@@ -1035,7 +1089,7 @@ impl State {
             ];
         }
         if self.preview.is_some() {
-            return vec![
+            let mut choices = vec![
                 Choice::new("model", "Choose model / invalidate payload review"),
                 Choice::new(
                     "effort",
@@ -1043,6 +1097,13 @@ impl State {
                 ),
                 Choice::new("cancel", "Stay / cancel preview"),
             ];
+            if self.agent.is_direct() && !self.inspect_models {
+                choices.push(Choice::new(
+                    "chat-new",
+                    "Reset local chat / discard this preview",
+                ));
+            }
+            return choices;
         }
         if self.picker.is_some() {
             return vec![
@@ -1057,6 +1118,7 @@ impl State {
         for (command, label) in [
             ("new", "New provider session"),
             ("resume", "Resume owned same-task session"),
+            ("chat-new", "Reset process-local native chat history"),
             ("goal", "Edit saved goal"),
             ("decision", "Copy selected proposal into NextAction"),
             ("model", "Choose model"),
@@ -1085,8 +1147,10 @@ impl State {
         ] {
             let reason = if !idle {
                 Some("Wait for pending local/provider work.".to_string())
+            } else if command == "chat-new" && !self.agent.is_direct() {
+                Some("Only native API routes have process-local canonical chat history; choose a native route first.".into())
             } else if self.agent.is_direct() && matches!(command, "resume" | "sessions") {
-                Some("Direct API requests are fresh and stateless here; no owned provider session can be resumed or inspected. Choose /new.".into())
+                Some("Native history exists only in this process, not in a resumable provider session. Send the next Request normally, or use /chat-new to reset local context.".into())
             } else if command == "resume"
                 && (self.operation == Operation::Review || self.thread_id.is_none())
             {
@@ -1106,6 +1170,11 @@ impl State {
                 Some("Select a complete provider message or plan; metadata/tool output is not a decision.".into())
             } else {
                 None
+            };
+            let label = if command == "new" && self.agent.is_direct() {
+                "Prepare native request / keep local chat"
+            } else {
+                label
             };
             rows.push(match reason {
                 Some(reason) => Choice::disabled(command, label, reason),
@@ -1196,6 +1265,7 @@ impl State {
                     self.start_automatic_catalogue(task, excerpts, report);
                 }
             }
+            "chat-new" => self.reset_native_chat(),
             "new" => self.prepare(false, false, false, task, excerpts, report),
             "resume" => self.prepare(true, false, false, task, excerpts, report),
             "sessions" => self.prepare(false, true, false, task, excerpts, report),

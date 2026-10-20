@@ -35,6 +35,21 @@ impl App {
     }
 
     pub(super) fn open_overlay(&mut self, overlay: Overlay) {
+        if overlay != Overlay::Sources {
+            self.pending_source_action = None;
+        }
+        if overlay != Overlay::Planning {
+            self.pending_provider_picker = None;
+        }
+        if self
+            .direct_sheet_return
+            .is_some_and(|(_, _, sheet)| sheet != overlay)
+        {
+            self.direct_sheet_return = None;
+        }
+        if overlay != Overlay::Memory {
+            self.pending_memory_action = None;
+        }
         if self.overlay != Some(overlay) {
             self.clear_approval_focus();
         }
@@ -49,6 +64,7 @@ impl App {
             self.workflow_open();
         }
         if overlay == Overlay::Memory
+            && self.overlay != Some(Overlay::Memory)
             && !self.memory.saving
             && !self.memory_loading
             && self.task_id > 0
@@ -117,6 +133,10 @@ impl App {
     }
 
     pub(super) fn close_overlay(&mut self) {
+        self.pending_source_action = None;
+        self.pending_provider_picker = None;
+        self.direct_sheet_return = None;
+        self.pending_memory_action = None;
         self.clear_approval_focus();
         if self.overlay == Some(Overlay::Agents) {
             self.agents.cancel_preview();
@@ -127,15 +147,69 @@ impl App {
         if self.overlay == Some(Overlay::Execution) {
             self.execution.open(self.task_id);
         }
-        if self.overlay.is_none()
-            && let Some(field) = self.composer_return.take()
-        {
-            if field == store::EditorField::Request {
-                self.open_editor(field);
-            } else {
-                self.begin_edit_field(field);
+        if self.overlay.is_none() {
+            let owner = self.composer_return_owner.take();
+            if let Some(field) = self.composer_return.take()
+                && owner.is_none_or(|owner| owner == (self.task_id, self.lead.id))
+                && self.confirmation.is_none()
+            {
+                if field == store::EditorField::Request {
+                    self.open_editor(field);
+                } else {
+                    self.begin_edit_field(field);
+                }
             }
         }
+    }
+
+    /// Called after the owning domain handles a key, never before its reviews.
+    pub(super) fn settle_direct_action(
+        &mut self,
+        key: KeyEvent,
+        was_specialist_editor: bool,
+    ) -> bool {
+        let Some((task, partner, sheet)) = self.direct_sheet_return else {
+            return false;
+        };
+        if task != self.task_id || partner != self.lead.id || self.overlay != Some(sheet) {
+            self.direct_sheet_return = None;
+            return false;
+        }
+        if key.kind != KeyEventKind::Press
+            || !key.modifiers.is_empty()
+            || self.confirmation.is_some()
+            || self.has_focused_approval()
+        {
+            return false;
+        }
+        let back = key.code == KeyCode::Esc;
+        let finished = match sheet {
+            Overlay::Sources => {
+                back && self.sources.editor.is_none() && self.sources.confirmation.is_none()
+            }
+            Overlay::Execution => {
+                back && self.execution.confirmation.is_none() && !self.execution.searching
+            }
+            Overlay::Handoff => back && !self.handoff.busy(),
+            Overlay::Memory => {
+                back && self.memory.mode == memory::Mode::Browse
+                    && !self.memory.saving
+                    && self.memory.pending.is_none()
+            }
+            Overlay::Workflows => {
+                (back || key.code == KeyCode::Enter && was_specialist_editor)
+                    && self.workflow.editor.is_none()
+                    && self.workflow.chooser.is_none()
+                    && !self.workflow.preview
+                    && self.workflow.relay.is_none()
+                    && !self.workflow.criteria_preview
+            }
+            _ => false,
+        };
+        if finished {
+            self.close_overlay();
+        }
+        finished
     }
 
     pub(super) fn images_key(&mut self, key: KeyEvent) -> bool {

@@ -383,15 +383,12 @@ def prepare_command(session, fixture, mode, state):
     session.send("\r")
     wait_for(session, "Storage: saved")
     session.command("jolteon")  # Jolteon owns command preparation.
-    session.command("run")
-    wait_for(session, "local command evidence")
     session.command("command-edit")
     wait_for(session, "Command / explicit JSON argv or shell")
     argv = [sys.executable, "-X", "utf8", "-u", str(fixture), mode, str(state)]
     session.paste(json.dumps(argv))
     session.send("\r")
-    wait_for(session, "Approval pending", timeout=35)
-    session.command("run")
+    session.command("execute")
     wait_for(session, "Review one-shot execution permission")
     session.capture("neutral-approval")
     if (state / "state.json").exists():

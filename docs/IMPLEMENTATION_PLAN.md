@@ -257,7 +257,7 @@ Each task was implemented in existing modules, verified with relevant tests and 
 
 ## Suspended request — ordinary conversation and provider architecture
 
-1. Trace actual first/follow-up payloads and compare application-owned history, separate system context and native tool-loop behavior with the supplied local reference without copying source or introducing reference branding.
+1. Trace actual first/follow-up payloads and establish canonical application-owned history, separate system context and explicit native tool boundaries.
 2. Resolve the material product boundary: native-only replaces external tool/session/auth integrations; native-first can preserve them as explicit advanced integrations. Removing a transport alone must not silently remove coding capabilities or imply different credentials are interchangeable.
 3. Implement the selected complete path: preserve ordinary user intent and role-separated prior turns, isolate task/partner/review ownership, maintain committed-input/admission/receipt correctness, and preserve command/write approvals and cancellation. Do not dump display-only items into a request as a substitute for canonical conversation state.
 4. Prove first and follow-up ordinary conversation through actual serialized requests and the active runtime, distinguish local protocol-fixture evidence from live model semantics, update behavioral contracts/tests/docs and commit. EV10A stays deferred until the user's higher-priority request is satisfied.
@@ -297,3 +297,6 @@ Wave 4 completed on immutable candidate E: all seven task acceptances passed 24 
 5. Migrate every affected caller and behavioral contract without dormant aliases or fake fallback routes. Preserve all wave 4 concurrency, write-lease, approval FIFO, cancellation, recovery and evidence invariants.
 6. Exercise actual first-use/authentication/account-change/model/send and all revised common UX journeys at 120×36 and 60×18/ASCII. Measure avoidable step depth before/after from real interactions; distinguish credential-free protocol proof from unavailable live-account qualification.
 7. Update product-native design/changelog/troubleshooting/checkpoint evidence and commit the completed connection/UX repair. Prepare v0.1.12, require fresh exact-commit Check and all five native rows, publish immutable qualified artifacts, then verify public checksums/install/runtime and any required real old-schema refusal. Do not replace the installed user command implicitly.
+
+Implementation and captured-surface audit completed in primary. Common command authoring/source search/memory authoring/handoff export/hypothesis editing each measured one entry command and one Escape at both sizes, versus two/two before. Immutable D passed 849 Rust tests/two ignored, strict Clippy/build, 24 cooperation, eight execution, 15 workflow, both-size foreground-auth recovery, five graphics modes and real older-schema refusal. Full native/private-source and final migrated relay acceptance, exact-commit five-native qualification, publication and public runtime remain required before completion.
+

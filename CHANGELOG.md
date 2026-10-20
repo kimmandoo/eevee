@@ -2,6 +2,23 @@
 
 ## 2026-10-21
 
+## 0.1.12
+
+- feat(providers): added masked native credential, endpoint, protocol and model setup with explicit session-only or owner-private plaintext storage, identity-bound forgetting and ten separately selectable native/CLI/SDK/ACP routes.
+- fix(providers): retained canonical user/assistant conversation roles across native follow-ups, isolated history by task, partner, account and endpoint, and excluded reasoning, incomplete output and rendered UI text from replay.
+- fix(providers): answered ordinary native requests without forcing planning output and retained fresh isolated managed reviews and explicit local chat reset.
+- fix(security): anchored credential reads against parent-link replacement, enforced owner/mode/ACL privacy and preserved model-associated configured reasoning effort without silently reusing it for another model.
+- feat(ux): added direct source, command, specialist, memory and handoff entry, reduced common editor entry/return depth and preserved exact Request drafts and carets after temporary editing.
+- fix(ux): made connection, response, execution, source-search and history commands retain one meaning across surfaces; kept advanced session reviews separate from ordinary sends.
+- fix(ux): preserved owned asynchronous actions and deferred model selection through required reviews without replaying requests or bypassing effects consent.
+- fix(ui): reserved visible storage and return context around compact sheets, prioritized questions over technical correlation IDs and kept global command navigation available from the working-party board.
+- fix(auth): retained the selected sign-in method after neutral cancellation and kept private typing/navigation responsive during saves while guarding deliberate connection mutations.
+- fix(providers): released settled tool-free native work without erasing unknown remote completion or billing, while keeping unresolved tool-capable effects blocking across provider changes.
+- fix(ui): aligned first actions, search and advanced-session guidance with their actual commands, retained compact Escape controls and kept model/effort visible in verbose headers.
+- fix(providers): kept native responses distinct across recreated transports and retained blocked payload details for explicit inspection or local reset without dispatch.
+- fix(memory): selected and edited already loaded approved notes without reopening their loading gate or implicitly approving changes.
+- docs(storage): retained Schema 13 from v0.1.11 without an additional migration and warned that Schema 11/12 upgrades required backups because their older writers refused Schema 13.
+
 ## 0.1.11
 
 - feat(party): isolated concurrent request state and transports by partner, bounded work to three participants per task and preserved each owner's draft, receipt and cancellation.

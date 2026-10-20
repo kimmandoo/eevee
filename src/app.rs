@@ -113,6 +113,13 @@ struct OverlayFrame {
     form_return_selected: bool,
 }
 
+#[derive(Clone, Copy)]
+struct EditorReturn {
+    task: i64,
+    partner: i64,
+    field: store::EditorField,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum StorageState {
     Loading,
@@ -156,6 +163,18 @@ pub struct App {
     pub activity_frame: u8,
     composer_catalogue: bool,
     composer_return: Option<store::EditorField>,
+    composer_return_owner: Option<(i64, i64)>,
+    temporary_editor_return: Option<EditorReturn>,
+    pending_memory_action: Option<(i64, i64, &'static str)>,
+    pending_source_action: Option<(i64, i64, &'static str)>,
+    pending_provider_picker: Option<(
+        i64,
+        i64,
+        crate::providers::Agent,
+        crate::providers::Agent,
+        &'static str,
+    )>,
+    direct_sheet_return: Option<(i64, i64, Overlay)>,
     pub images_pending: Option<crate::ui::artwork::Request>,
     pub images_busy: bool,
     pub images_cancel: bool,
@@ -272,6 +291,12 @@ impl App {
             activity_frame: 0,
             composer_catalogue: false,
             composer_return: None,
+            composer_return_owner: None,
+            temporary_editor_return: None,
+            pending_memory_action: None,
+            pending_source_action: None,
+            pending_provider_picker: None,
+            direct_sheet_return: None,
             images_pending: None,
             images_busy: false,
             images_cancel: false,

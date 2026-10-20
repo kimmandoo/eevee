@@ -90,7 +90,7 @@ def main():
                 return records, local_runs, task
 
             def turn(number):
-                session.command("new")
+                session.command("session-new")
                 wait_for(session, "LOCAL PREVIEW", timeout=35)
                 wait_for(session, "y Run")
                 session.send("d")
@@ -134,7 +134,7 @@ def main():
             first = turn(1)
             passed("Actual independent Codex review omitted implementation-only context and preserved all project bytes")
             before_resume = journal()[0]
-            session.command("resume")
+            session.command("session-resume")
             wait_for(session, "Review requires a fresh session")
             assert journal()[0] == before_resume, "Resume created or replayed review observations"
             second = turn(2)

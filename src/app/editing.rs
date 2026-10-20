@@ -35,7 +35,7 @@ impl App {
                 .is_some_and(|request| request.mutation.is_some())
             || self.planning_any_journal_failed()
             || self.execution_any_journal_failed()
-            || self.planning_any_unknown()
+            || self.planning_any_unknown_effects()
             || self.execution_any_unknown()
         {
             self.notice = "Resolve retained operations or provider outcome before preparing /init; drafts kept.".into();
@@ -241,6 +241,17 @@ impl App {
         self.open_editor(field);
     }
 
+    pub(super) fn retain_action_editor(&mut self) {
+        let field = self
+            .temporary_editor_return
+            .take()
+            .filter(|owner| owner.task == self.task_id && owner.partner == self.lead.id)
+            .map_or(self.editor_field, |owner| owner.field);
+        self.retain_editor();
+        self.composer_return = Some(field);
+        self.composer_return_owner = Some((self.task_id, self.lead.id));
+    }
+
     pub(super) fn open_editor(&mut self, field: store::EditorField) {
         if field == store::EditorField::NextAction {
             self.workflow.pending_decision = None;
@@ -250,7 +261,20 @@ impl App {
             self.pending_command = None;
         }
         self.save_selection();
-        self.composer_return = None;
+        self.temporary_editor_return = self
+            .composer_return
+            .take()
+            .filter(|return_field| *return_field != field)
+            .filter(|_| {
+                self.composer_return_owner
+                    .is_none_or(|owner| owner == (self.task_id, self.lead.id))
+            })
+            .map(|field| EditorReturn {
+                task: self.task_id,
+                partner: self.lead.id,
+                field,
+            });
+        self.composer_return_owner = None;
         self.edit_return = self.overlay_frame();
         self.overlay = None;
         self.editor_field = field;
@@ -274,6 +298,7 @@ impl App {
             self.notice = "Enlarge the terminal before applying this draft.".into();
             return false;
         }
+        let applied_field = self.editor_field;
         match self.editor_field {
             store::EditorField::Request => return self.submit_request(),
             store::EditorField::Goal => self.goal = std::mem::take(&mut self.input),
@@ -323,13 +348,13 @@ impl App {
                     .min(self.criteria.len().saturating_sub(1));
             }
         }
-        self.drafts.retain(|draft| draft.field != self.editor_field);
+        self.drafts.retain(|draft| draft.field != applied_field);
         self.finish_edit();
         self.changed_task();
-        if self.editor_field == store::EditorField::Command {
+        if applied_field == store::EditorField::Command {
             self.track_pending_command();
         }
-        if self.editor_field == store::EditorField::Goal {
+        if applied_field == store::EditorField::Goal {
             self.notice = "Goal applied; / or Ctrl+K opens actions.".into();
         }
         true
@@ -343,6 +368,19 @@ impl App {
         self.input_truncated = false;
         self.preferred_column = None;
         let frame = self.edit_return.take();
-        self.restore_frame(frame);
+        let owner = self.temporary_editor_return.take();
+        // An approval focused after the editor opened owns the visible surface.
+        // Saving or retaining an older editor must not dismiss it.
+        if self.overlay.is_none() {
+            self.restore_frame(frame);
+            if self.overlay.is_none()
+                && let Some(owner) = owner
+                && owner.task == self.task_id
+                && owner.partner == self.lead.id
+                && self.confirmation.is_none()
+            {
+                self.open_editor(owner.field);
+            }
+        }
     }
 }

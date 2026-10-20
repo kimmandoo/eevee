@@ -98,8 +98,8 @@ pub const FIRST_ACTIONS: [(&str, Option<&str>, &str); 9] = [
     ),
     (
         "Command request → inspect, approve/deny, cancel",
-        Some("run"),
-        "Review a command",
+        Some("command-edit"),
+        "Author a command",
     ),
     (
         "Requirement + approved paths → request a change",

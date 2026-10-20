@@ -106,15 +106,16 @@ def main():
 
                 def execute(argv, expected):
                     session.command("jolteon")
-                    session.command("run")
                     session.command("command-edit")
                     wait_for(session, "Command / explicit JSON argv or shell", timeout=30)
                     current = rows()[0]["command"]
                     session.send(HOME + DELETE * len(current))
-                    session.paste(json.dumps([str(value) for value in argv], ensure_ascii=False))
+                    prepared = json.dumps([str(value) for value in argv], ensure_ascii=False)
+                    session.paste(prepared)
                     session.send("\r")
-                    wait_for(session, "Approval pending", timeout=40)
-                    session.command("run")
+                    until(lambda: rows()[0]["command"] == prepared and "Storage: saved" in session.display(),
+                          "exact command did not commit before review")
+                    session.command("execute")
                     wait_for(session, "Review one-shot execution permission", timeout=30)
                     session.send(RIGHT + "\r")
                     until(lambda: len(rows()[1]) == expected and rows()[1][-1]["ended_at_ms"] is not None,
@@ -123,7 +124,7 @@ def main():
                     return rows()[1][-1]
 
                 def locations():
-                    session.command("history")
+                    session.command("runs")
                     session.send(UP * 256 + "\r")
                     until(lambda: "Retained bytes" in session.display(), "retained output did not open")
                     session.command("locations")
@@ -232,11 +233,10 @@ def main():
                     changed.write("// deliberately changed after the passing run\n")
                 session.command("refresh")
                 session.command("run")
-                session.command("history")
+                session.command("runs")
                 session.send(UP * 256)
                 until(lambda: "Stale" in session.display(), "source edit did not stale the retained check")
                 session.command("rerun")
-                wait_for(session, "Approval pending")
                 session.command("approvals")
                 wait_for(session, "Review one-shot execution permission", timeout=40)
                 session.send(ESC)
@@ -245,7 +245,6 @@ def main():
                 session.command("deny")
                 assert len(rows()[1]) == 5, "denied rerun executed a command"
                 session.command("rerun")
-                wait_for(session, "Approval pending")
                 session.command("approvals")
                 wait_for(session, "Review one-shot execution permission")
                 session.send(RIGHT + "\r")

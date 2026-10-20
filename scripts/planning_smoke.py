@@ -72,6 +72,12 @@ def main():
                 with closing(sqlite3.connect((session.workbench_data / 'workbench.sqlite3').as_uri() + '?mode=ro', uri=True)) as db:
                     return db.execute('SELECT goal,next_action FROM tasks ORDER BY id LIMIT 1').fetchone()
 
+            def source_attached(session):
+                with closing(sqlite3.connect((session.workbench_data / 'workbench.sqlite3').as_uri() + '?mode=ro', uri=True)) as db:
+                    return any(record['path'] == 'note.txt' and record['text'] == source.read_text()
+                               for row in db.execute('SELECT record FROM excerpts')
+                               for record in [json.loads(row[0])])
+
             def until(session, predicate, explanation, seconds=150):
                 deadline = time.monotonic() + seconds
                 while not predicate():
@@ -93,7 +99,7 @@ def main():
                     wait_for(session, 'Storage: saved')
 
             def preview(session, resume=False):
-                session.command('resume' if resume else 'new')
+                session.command('session-resume' if resume else 'session-new')
                 wait_for(session, 'LOCAL PREVIEW', timeout=20)
                 wait_for(session, 'y Run', timeout=20)
                 session.capture('resume-preview' if resume else 'new-preview')
@@ -135,8 +141,9 @@ def main():
             stale.send('\r')
             wait_for(stale, 'Review local capture /')
             stale.command('attach')
-            wait_for(stale, '1 task-owned basket references / stored')
-            stale.command('close')
+            until(stale, lambda: source_attached(stale), 'exact source capture committed')
+            if not stale.display().rstrip().splitlines()[-1].strip().startswith(('Type Request /', 'Enter Send /')):
+                stale.command('close')
             wait_for(stale, 'Storage: saved')
             stale.command('role-plan')
             wait_for(stale, TITLE)
@@ -146,7 +153,7 @@ def main():
             wait_for(stale, IDLE, timeout=30)
             stale.capture('changed-source-refused')
             assert any(word in stale.display().lower() for word in ('changed', 'stale', 'identity', 'mismatch')), stale.display()
-            stale.command('resume')
+            stale.command('session-resume')
             wait_for(stale, 'Resume requires an explicitly selected same-task thread')
             passed('changed source after preview refuses provider dispatch')
             if os.name == 'posix':
@@ -160,7 +167,7 @@ def main():
                 run_preview(stale)
                 wait_for(stale, IDLE, timeout=30)
                 stale.capture('substituted-source-link-refused')
-                stale.command('resume')
+                stale.command('session-resume')
                 wait_for(stale, 'Resume requires an explicitly selected same-task thread')
                 assert outside.read_text() == original
                 source.unlink()
@@ -185,7 +192,7 @@ def main():
                 malformed.capture('fatal-transport-refusal')
                 assert 'Thread:' not in malformed.display()
                 assert any(word in malformed.display().lower() for word in ('malformed', 'protocol', 'transport', 'json')), malformed.display()
-                malformed.command('resume')
+                malformed.command('session-resume')
                 wait_for(malformed, 'Resume requires an explicitly selected same-task thread')
                 quit_app(malformed)
                 passed('malformed owned transport fails visibly without completion or automatic resend')
@@ -200,7 +207,7 @@ def main():
             preview(session)
             session.send('\r')
             wait_for(session, IDLE)
-            session.command('resume')
+            session.command('session-resume')
             wait_for(session, 'Resume requires an explicitly selected same-task thread')
             preview(session)
             run_preview(session)
@@ -289,7 +296,7 @@ def main():
             assert task(reopened)[1] == decision, 'decision changed or disappeared after restart'
             reopened.command('role-plan')
             wait_for(reopened, TITLE)
-            reopened.command('resume')
+            reopened.command('session-resume')
             wait_for(reopened, 'Resume requires an explicitly selected same-task thread')
             quit_app(reopened)
             passed('restart retains user-selected decision without provider replay')

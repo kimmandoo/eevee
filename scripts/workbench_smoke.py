@@ -271,20 +271,14 @@ def main():
                 wait_for(fresh, "Connections")
                 wait_for(fresh, "Not installed")
                 fresh.capture("command-provider-list")
-                fresh.send("\r")  # Provider -> visible actions.
-                wait_for(fresh, "Use native responses")
-                fresh.capture("command-provider-actions")
-                fresh.send("\r")  # Missing CLI: choose the native connection locally.
-                wait_for(fresh, "Codex")
-                assert "Review connection" not in fresh.display()
-                assert "Connections" not in fresh.display(), "method selection left an unnecessary provider drawer"
-                fresh.command("provider")
-                wait_for(fresh, "PROVIDERS")
-                fresh.send("\r")
-                wait_for(fresh, "Use CLI agent")
-                fresh.capture("unified-codex-native-method")
+                fresh.command("connect chatgpt")
+                assert not fresh.screen.cursor.hidden, "native setup did not open its private credential editor"
+                assert "Review connection" not in fresh.display(), "opening setup requested authorization"
+                fresh.capture("direct-native-connection-setup")
                 fresh.send("\x1b")
-                wait_for(fresh, "PROVIDERS")
+                fresh.command("provider")
+                wait_for(fresh, "Connections")
+                fresh.capture("provider-selector")
                 fresh.send("\x1b")
                 wait_for(fresh, "Storage: saved")
                 fresh.command("goal")

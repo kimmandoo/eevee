@@ -48,6 +48,27 @@ fn pending() -> State {
         ..State::default()
     }
 }
+
+#[test]
+fn global_execute_from_help_reviews_the_same_prepared_request_without_dispatch() {
+    let mut app = crate::app::App::new("/project".into(), 120, 36);
+    app.task_id = 1;
+    app.lead.form = 2;
+    app.editing = false;
+    app.execution = pending();
+    let expected = app.execution.prepared.clone().unwrap();
+    app.command("help");
+    app.command("execute");
+    assert_eq!(app.overlay, Some(crate::app::Overlay::Execution));
+    assert_eq!(app.execution.approval_review.as_ref(), Some(&expected));
+    assert!(matches!(
+        app.execution.confirmation,
+        Some(Confirmation::Approval)
+    ));
+    assert!(!app.execution.affirmative);
+    assert!(app.execution.active.is_none());
+    assert!(app.execution.permit.is_none());
+}
 fn record(state: runner::RunState) -> runner::RunRecord {
     let mut record = runner::RunRecord::awaiting(&prepared());
     record.state = state;
@@ -134,12 +155,12 @@ fn approval_is_neutral_dismissible_one_shot_and_never_focus_stealing() {
     state.runner_event(runner::Event::Prepared(p));
     assert!(!state.visible());
     assert!(state.confirmation.is_none());
-    state.command("run");
+    state.command("execute");
     assert!(!state.affirmative);
     state.key(key(KeyCode::Enter));
     assert!(state.queue.is_empty());
     assert!(state.prepared.is_some());
-    state.command("run");
+    state.command("execute");
     state.key(key(KeyCode::Right));
     state.shown = true;
     state.confirmation_visible = true;
@@ -147,14 +168,14 @@ fn approval_is_neutral_dismissible_one_shot_and_never_focus_stealing() {
     assert!(matches!(state.queue.front(), Some(StoreJob::Reserve(..))));
     assert_eq!(state.queue.len(), 1);
     state.key(key(KeyCode::Enter));
-    state.command("run");
+    state.command("execute");
     assert_eq!(state.queue.len(), 1);
 }
 
 #[test]
 fn confirmation_shortcuts_require_visible_scope_press_and_matching_request() {
     let mut state = pending();
-    state.command("run");
+    state.command("execute");
     state.key(key(KeyCode::Char('y')));
     assert!(state.queue.is_empty());
     state.confirmation_visible = true;
@@ -175,7 +196,7 @@ fn confirmation_shortcuts_require_visible_scope_press_and_matching_request() {
     state.key(key(KeyCode::Char('n')));
     assert!(state.confirmation.is_none() && state.queue.is_empty());
     assert!(state.prepared.is_some(), "Stay does not discard command");
-    state.command("run");
+    state.command("execute");
     state.confirmation_visible = true;
     state.key(key(KeyCode::Char('y')));
     assert!(matches!(state.queue.front(), Some(StoreJob::Reserve(..))));
@@ -184,7 +205,7 @@ fn confirmation_shortcuts_require_visible_scope_press_and_matching_request() {
 
     for change_task in [false, true] {
         let mut state = pending();
-        state.command("run");
+        state.command("execute");
         state.confirmation_visible = true;
         if change_task {
             state.prepared.as_mut().unwrap().task_id += 1;
@@ -207,10 +228,10 @@ fn confirmation_shortcuts_require_visible_scope_press_and_matching_request() {
 #[test]
 fn edit_and_explicit_denial_invalidate_grants_but_dismissal_does_not() {
     let mut state = pending();
-    state.command("run");
+    state.command("execute");
     state.key(key(KeyCode::Esc));
     assert!(state.request_id.is_some());
-    state.command("run");
+    state.command("execute");
     state.shown = true;
     state.command("deny");
     assert!(state.invalidation && state.request_id.is_none() && state.prepared.is_none());
@@ -679,7 +700,7 @@ fn deferred_command_consent_requires_exact_owner_request_run_and_new_visibility(
         .partner
         .clone_from(&state.owner);
     let original = state.prepared.clone().unwrap();
-    state.command("run");
+    state.command("execute");
     state.confirmation_visible = true;
     state.key(key(KeyCode::Right));
     state.key(key(KeyCode::Esc));
@@ -726,7 +747,7 @@ fn replacement_owner_and_mutated_review_cannot_take_over_command_consent() {
     assert_eq!(state.prepared, original);
     for mutation in 0..3 {
         let mut state = pending();
-        state.command("run");
+        state.command("execute");
         state.confirmation_visible = true;
         match mutation {
             0 => state.prepared.as_mut().unwrap().run_id.push_str("-changed"),
@@ -883,7 +904,7 @@ fn real_reserve_capacity_race_retains_command_then_runs_beside_provider_and_rele
     }
     let original = state.prepared.clone().unwrap();
     state.shown = true;
-    state.command("run");
+    state.command("execute");
     state.confirmation_visible = true;
     state.key(key(KeyCode::Char('y')));
     assert!(settle_run_request(&mut state, &storage));
@@ -1069,7 +1090,7 @@ fn independent_partner_states_share_evidence_without_transferring_work_or_consen
     owner.set_capture_capacity(8192);
     let retained = record(runner::RunState::Succeeded);
     owner.history.push(retained.clone());
-    owner.command("run");
+    owner.command("execute");
     owner.confirmation_visible = true;
     let mut other = owner.new_partner_state(1);
     assert_eq!(other.latest, owner.latest);
