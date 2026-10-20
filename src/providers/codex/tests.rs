@@ -456,6 +456,7 @@ fn model_inspection_has_no_task_prompt_or_source_or_edit_lookup() {
             model: Some("selected".into()),
             effort: Some("high".into()),
         },
+        conversation: None,
         credential: None,
     };
     input.task.goal = "private-task-goal-canary".into();
@@ -490,6 +491,7 @@ fn review_has_no_edit_baseline_and_refuses_selected_write_paths() {
         inspect_sessions: false,
         inspect_models: false,
         selection: ModelSelection::default(),
+        conversation: None,
         credential: None,
     };
     let root = Path::new(&input.task.project);
@@ -844,6 +846,7 @@ fn outbound_task_facts_do_not_leak_generated_provider_session_provenance() {
         inspect_sessions: false,
         inspect_models: false,
         selection: ModelSelection::default(),
+        conversation: None,
         credential: None,
     };
     let text = payload(&data, &input, &[]).unwrap();

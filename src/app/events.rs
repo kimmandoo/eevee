@@ -207,10 +207,22 @@ impl App {
                 if task_id == self.task_id {
                     let before = self.memory.draft_snapshot();
                     let saving = self.memory.saving;
+                    let loaded = result.is_ok();
                     self.memory_loading = false;
                     self.memory.finish(result);
                     if saving || before != self.memory.draft_snapshot() {
                         self.changed_task();
+                    }
+                    if let Some((task, partner, action)) = self.pending_memory_action.take()
+                        && loaded
+                        && task == self.task_id
+                        && partner == self.lead.id
+                        && self.overlay == Some(Overlay::Memory)
+                        && self.confirmation.is_none()
+                        && !self.has_focused_approval()
+                        && self.command_disabled_reason(action).is_none()
+                    {
+                        self.memory_command(action);
                     }
                 }
             }
@@ -335,6 +347,32 @@ impl App {
             }
             store::Event::Saved(snapshot) => {
                 if self.task_id == 0 {
+                    // The first save assigns an identity to this same local task.
+                    if let Some(owner) = &mut self.temporary_editor_return
+                        && owner.task == 0
+                    {
+                        owner.task = snapshot.id;
+                    }
+                    if let Some((task, _)) = &mut self.composer_return_owner
+                        && *task == 0
+                    {
+                        *task = snapshot.id;
+                    }
+                    if let Some((task, _, _)) = &mut self.direct_sheet_return
+                        && *task == 0
+                    {
+                        *task = snapshot.id;
+                    }
+                    if let Some((task, _, _)) = &mut self.pending_source_action
+                        && *task == 0
+                    {
+                        *task = snapshot.id;
+                    }
+                    if let Some((task, _, _, _, _)) = &mut self.pending_provider_picker
+                        && *task == 0
+                    {
+                        *task = snapshot.id;
+                    }
                     self.task_id = snapshot.id;
                     self.memory.reset(snapshot.id, snapshot.project.clone());
                     self.memory_loading = true;

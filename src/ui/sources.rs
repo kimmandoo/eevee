@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Clear, Paragraph, Wrap},
 };
 
-use super::{Paint, centered, clipped, editor_rows, panel, row, selection_details, text};
+use super::{Paint, clipped, editor_rows, panel, row, selection_details, sheet, text};
 use crate::{
     app::{
         App, ScrollSurface,
@@ -15,8 +15,15 @@ use crate::{
 };
 
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
-    let area = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(2));
-    let area = centered(area, 104, area.height.saturating_sub(2));
+    if app.sources.editor.is_some() {
+        editor(frame, area, app, config, paint);
+        return;
+    }
+    if app.sources.confirmation.is_some() {
+        confirmation(frame, area, app, config, paint);
+        return;
+    }
+    let area = sheet(area, 104, area.height);
     frame.render_widget(Clear, area);
     let block = panel(" Sources / task-owned context ", config, paint, true);
     let content = block.inner(area);
@@ -158,19 +165,13 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         paint.muted,
     );
     app.sources.preview_reviewed = preview_reviewed;
-    if app.sources.editor.is_some() {
-        editor(frame, area, app, config, paint);
-    }
-    if app.sources.confirmation.is_some() {
-        confirmation(frame, area, app, config, paint);
-    }
 }
 
 fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
     let Some(editor) = &app.sources.editor else {
         return;
     };
-    let area = centered(area, 82, 12);
+    let area = sheet(area, 82, 12);
     frame.render_widget(Clear, area);
     let block = panel(
         match editor.kind {
@@ -222,7 +223,7 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
     let Some(confirmation) = app.sources.confirmation else {
         return;
     };
-    let area = centered(area, 76, if app.verbose { 20 } else { 14 });
+    let area = sheet(area, 76, if app.verbose { 20 } else { 14 });
     frame.render_widget(Clear, area);
     let block = panel(" Review local excerpt removal ", config, paint, true);
     let content = block.inner(area);

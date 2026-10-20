@@ -446,6 +446,7 @@ fn managed_review_is_refused_before_loading_or_dispatching_an_acp_session() {
             inspect_sessions: false,
             inspect_models: false,
             selection: ModelSelection::default(),
+            conversation: None,
             credential: None,
         };
         assert!(
@@ -478,6 +479,7 @@ fn model_metadata_needs_no_saved_task_or_managed_role_and_retains_identity_check
                 inspect_sessions: false,
                 inspect_models: true,
                 selection: ModelSelection::default(),
+                conversation: None,
                 credential: None,
             };
             input.task.goal = "private-goal-canary".into();

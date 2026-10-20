@@ -242,8 +242,36 @@ class WindowsJob:
             self.handle = None
 
 
+def posix_terminal_child(argv):
+    """Keep the controlling session alive until its owner samples restored modes."""
+    import fcntl
+    import termios
+    evidence, acknowledgement, *command = argv
+    acknowledgement = int(acknowledgement)
+    fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGQUIT, signal.SIG_IGN)
+    child = os.fork()
+    if child == 0:
+        os.close(acknowledgement)
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        signal.signal(signal.SIGQUIT, signal.SIG_DFL)
+        os.execvpe(command[0], command, os.environ)
+    _, status = os.waitpid(child, 0)
+    status = os.waitstatus_to_exitcode(status)
+    destination = Path(evidence)
+    temporary = destination.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"child_pid": child, "child_status": status}), encoding="utf-8")
+    temporary.replace(destination)
+    # A session leader exiting revokes the slave on macOS, even while the
+    # harness holds it open. Do not exit until the harness has read termios.
+    os.read(acknowledgement, 1)
+    os.close(acknowledgement)
+    return status if status >= 0 else 128 - status
+
+
 class Session:
-    def __init__(self, argv, cwd, environment, size, directory):
+    def __init__(self, argv, cwd, environment, size, directory, *, controlling_tty=False):
         import pyte
         self.directory = directory
         directory.mkdir(parents=True, exist_ok=True)
@@ -277,6 +305,8 @@ class Session:
         self.eof = False
         self.job = None
         self.master = self.slave = None
+        self.posix_evidence = None
+        self.posix_acknowledgement = None
         self.data = queue.Queue()
         if WINDOWS:
             from windows_conpty import ConPTYProcess
@@ -299,9 +329,23 @@ class Session:
             self.master, self.slave = pty.openpty()
             fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", size[1], size[0], 0, 0))
             self.mode_before = termios.tcgetattr(self.slave)
-            self.process = subprocess.Popen(argv, cwd=cwd, env=environment,
-                                            stdin=self.slave, stdout=self.slave, stderr=self.slave,
-                                            start_new_session=True)
+            if controlling_tty:
+                self.posix_evidence = directory / "posix-child.json"
+                self.posix_evidence.unlink(missing_ok=True)
+                acknowledgement, self.posix_acknowledgement = os.pipe()
+                wrapper = [sys.executable, str(Path(__file__).resolve()), "--posix-terminal-child",
+                           "--", str(self.posix_evidence.resolve()), str(acknowledgement), *argv]
+                try:
+                    self.process = subprocess.Popen(
+                        wrapper, cwd=cwd, env=environment, stdin=self.slave,
+                        stdout=self.slave, stderr=self.slave, start_new_session=True,
+                        pass_fds=(acknowledgement,))
+                finally:
+                    os.close(acknowledgement)
+            else:
+                self.process = subprocess.Popen(argv, cwd=cwd, env=environment,
+                                                stdin=self.slave, stdout=self.slave, stderr=self.slave,
+                                                start_new_session=True)
         self.reader = threading.Thread(target=self._reader, daemon=True)
         self.reader.start()
 
@@ -353,6 +397,8 @@ class Session:
                 self.mode_raw = modes
 
     def alive(self):
+        if self.posix_evidence is not None and self.posix_evidence.is_file():
+            return False
         return self.process.isalive() if WINDOWS else self.process.poll() is None
 
     def send(self, keys):
@@ -385,7 +431,10 @@ class Session:
             import struct
             import termios
             fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", size[1], size[0], 0, 0))
-            os.kill(self.process.pid, signal.SIGWINCH)
+            if self.posix_evidence is not None:
+                os.killpg(self.process.pid, signal.SIGWINCH)
+            else:
+                os.kill(self.process.pid, signal.SIGWINCH)
         # The terminal owns its dimensions. ConPTY does not emit CSI 8 on
         # every growth; drain the old frame first, then apply the requested size.
         self.screen.resize(lines=size[1], columns=size[0])
@@ -447,7 +496,13 @@ class Session:
                     "native primary screen contents were not restored"
         else:
             import termios
-            self.status = self.process.wait(timeout=2)
+            if self.posix_evidence is not None:
+                assert self.posix_evidence.is_file(), "POSIX child exit evidence missing"
+                child = json.loads(self.posix_evidence.read_text(encoding="utf-8"))
+                self.status = child["child_status"]
+                self.events.append({"posix_child_exit": child})
+            else:
+                self.status = self.process.wait(timeout=2)
             after = termios.tcgetattr(self.slave)
             native = {"before": repr(self.mode_before), "raw": repr(self.mode_raw), "after": repr(after)}
             self.events.append({"termios_restoration": native})
@@ -460,6 +515,13 @@ class Session:
             before_flags[3] &= ~pending
             after_flags[3] &= ~pending
             assert after_flags == before_flags, "POSIX termios not restored"
+            if self.posix_acknowledgement is not None:
+                os.write(self.posix_acknowledgement, b"\n")
+                os.close(self.posix_acknowledgement)
+                self.posix_acknowledgement = None
+                supervisor_status = self.process.wait(timeout=2)
+                assert supervisor_status == (self.status if self.status >= 0 else 128 - self.status), \
+                    "POSIX supervisor did not preserve child exit status"
         modes = {}
         for sequence in re.finditer(r"\x1b\[\?([0-9;]+)([hl])", self.text):
             for number in sequence.group(1).split(";"):
@@ -482,11 +544,14 @@ class Session:
                     self.job.close()
                 self.process.close()
             else:
-                if self.alive():
+                if self.process.poll() is None:
                     os.killpg(self.process.pid, signal.SIGKILL)
                 self.process.wait(timeout=3)
         finally:
             if not WINDOWS:
+                if self.posix_acknowledgement is not None:
+                    os.close(self.posix_acknowledgement)
+                    self.posix_acknowledgement = None
                 os.close(self.slave)
                 os.close(self.master)
             self.reader.join(timeout=2)
@@ -790,4 +855,6 @@ if __name__ == "__main__":
         raise SystemExit(subprocess.run(command, stdin=subprocess.DEVNULL).returncode)
     if "--console-child" in sys.argv:
         raise SystemExit(console_child(sys.argv[sys.argv.index("--") + 1:]))
+    if "--posix-terminal-child" in sys.argv:
+        raise SystemExit(posix_terminal_child(sys.argv[sys.argv.index("--") + 1:]))
     raise SystemExit(main())

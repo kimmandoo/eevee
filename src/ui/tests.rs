@@ -1058,154 +1058,37 @@ fn reset_and_init_reviews_keep_scope_and_neutral_actions_visible() {
 }
 
 #[test]
-fn codex_connection_drawer_groups_routes_and_keeps_method_controls_visible() {
-    use crate::app::agents::Page;
-    use crate::providers::{
-        Agent,
-        agent::{Event as AgentEvent, Profile},
-    };
+fn header_reserves_model_and_effort_space_in_brief_and_verbose_modes() {
     use ratatui::{Terminal, backend::TestBackend};
     let config = home_config();
-    let paint = Paint::new(&config, &FORMS[0], 0);
-    for (width, height) in [(120, 36), (60, 18)] {
-        for agent in [Agent::Codex, Agent::ChatGPT] {
-            let mut app = App::new("/workspace".into(), width, height);
-            app.planning.agent = agent;
-            app.agents.pending.take();
-            app.agents.event(AgentEvent::Discovered(
-                Agent::ALL
-                    .into_iter()
-                    .map(|provider| Profile {
-                        name: provider.label().into(),
-                        executable: None,
-                        argv: Vec::new(),
-                        installed: "absent".into(),
-                        version: "unknown".into(),
-                        authentication: "unknown".into(),
-                        configuration: "no credentials read".into(),
-                        os: "test".into(),
-                        adapter: "test".into(),
-                        action: "test".into(),
-                        probe_allowed: false,
-                        trust_preview: Vec::new(),
-                        revision: 1,
-                        architecture: "test".into(),
-                        billing: "unknown".into(),
-                        blockers: Vec::new(),
-                        capabilities: Vec::new(),
-                    })
-                    .collect(),
-            ));
-            app.agents.active = agent.index();
-            app.agents.focus_active();
-            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-            terminal
-                .draw(|frame| {
-                    agents::render(frame, frame.area(), &mut app, &config, &paint);
-                })
-                .unwrap();
-            let rendered = screen_text(&terminal);
-            assert_eq!(app.agents.provider_indices().count(), Agent::ALL.len() - 1);
-            assert!(!rendered.contains("ChatGPT / direct"));
-            assert!(rendered.contains("Codex"), "{width}x{height}");
-            assert!(
-                rendered.contains(if agent == Agent::ChatGPT {
-                    "Native/no tools"
-                } else {
-                    "CLI/tools"
-                }),
-                "{width}x{height}"
+    for width in [60, 120] {
+        for verbose in [false, true] {
+            VERBOSE.set(verbose);
+            let mut app = App::new(
+                "/workspace/a long project name with 東京 and additional context".into(),
+                width,
+                18,
             );
-            app.agents.page = Page::Actions;
+            app.task_id = 123456;
+            app.command("vaporeon");
+            app.planning.agent = crate::providers::Agent::ChatGPT;
+            app.planning.selection = crate::providers::ModelSelection {
+                model: Some("gpt-6.1-sol".into()),
+                effort: Some("high".into()),
+            };
+            let paint = Paint::new(&config, &FORMS[app.form()], app.form());
+            let mut terminal = Terminal::new(TestBackend::new(width, 2)).unwrap();
             terminal
-                .draw(|frame| {
-                    agents::render(frame, frame.area(), &mut app, &config, &paint);
-                })
+                .draw(|frame| header(frame, frame.area(), &app, &config, &paint))
                 .unwrap();
-            let rendered = screen_text(&terminal);
-            assert!(rendered.contains(agent.label()), "{width}x{height}");
-            assert!(
-                rendered.contains(if agent == Agent::ChatGPT {
-                    "Use CLI agent (tools / edits)"
-                } else {
-                    "Use native responses (no tools; no CLI)"
-                }),
-                "{width}x{height}"
-            );
-            if agent == Agent::ChatGPT {
-                assert!(!rendered.contains("Check installed version"));
-                assert!(!rendered.contains("Check connection status"));
-            }
-        }
-    }
-}
-
-#[test]
-fn compact_header_reserves_model_and_effort_space_with_long_project_names() {
-    use ratatui::{Terminal, backend::TestBackend};
-    let config = home_config();
-    let mut app = App::new(
-        "/workspace/a long project name with 東京 and additional context".into(),
-        60,
-        18,
-    );
-    app.task_id = 123456;
-    app.command("vaporeon");
-    app.planning.agent = crate::providers::Agent::ChatGPT;
-    app.planning.selection = crate::providers::ModelSelection {
-        model: Some("gpt-6.1-sol".into()),
-        effort: Some("high".into()),
-    };
-    let paint = Paint::new(&config, &FORMS[app.form()], app.form());
-    let mut terminal = Terminal::new(TestBackend::new(60, 2)).unwrap();
-    terminal
-        .draw(|frame| header(frame, frame.area(), &app, &config, &paint))
-        .unwrap();
-    let first_row: String = (0..60)
-        .map(|x| terminal.backend().buffer()[(x, 0)].symbol())
-        .collect();
-    assert!(first_row.contains("gpt-6.1-sol"), "{first_row}");
-    assert!(first_row.contains("high"), "{first_row}");
-}
-
-#[test]
-fn every_form_shows_its_signature_and_one_primary_action_when_empty() {
-    use ratatui::{Terminal, backend::TestBackend};
-    let config = home_config();
-    for (width, height) in [(120, 36), (60, 18)] {
-        for (index, form) in FORMS.iter().enumerate() {
-            let name = form.name.to_lowercase();
-            let mut app = App::new("/workspace".into(), width, height);
-            app.command(&name);
-            assert_eq!(app.form(), index);
-            let mut artwork = Artwork::load(&config);
-            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-            terminal
-                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
-                .unwrap();
-            let buffer = terminal.backend().buffer();
-            let rows: Vec<String> = (0..height)
-                .map(|y| (0..width).map(|x| buffer[(x, y)].symbol()).collect())
+            let first_row: String = (0..width)
+                .map(|x| terminal.backend().buffer()[(x, 0)].symbol())
                 .collect();
-            let (signature, action, label) = crate::domain::FIRST_ACTIONS[index];
-            let first = format!(
-                "{} / {}: {}",
-                form.name,
-                form.element,
-                signature.split(' ').next().unwrap()
-            );
-            let form = form.name;
-            assert!(
-                rows.iter().any(|row| row.contains(&first)),
-                "{width}x{height} {form}: {rows:#?}"
-            );
-            let action = action.map_or(label.to_owned(), |command| format!("/{command} {label}"));
-            assert!(
-                rows.iter().any(|row| row.contains(&action)),
-                "{width}x{height} {form}: {rows:#?}"
-            );
+            assert!(first_row.contains("gpt-6.1-sol"), "{first_row}");
+            assert!(first_row.contains("high"), "{first_row}");
         }
     }
+    VERBOSE.set(false);
 }
 
 #[test]
@@ -1851,5 +1734,112 @@ fn journal_discard_review_keeps_exact_scope_inspectable_without_hidden_consent()
         app.command("journal-discard");
         assert_eq!(app.cooperation.journal_discard.as_ref().unwrap().ids, ids);
         app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+    }
+}
+
+#[test]
+fn temporary_sheets_preserve_live_status_and_return_context() {
+    use ratatui::{Terminal, backend::TestBackend};
+    for (width, height) in [(60, 18), (120, 36)] {
+        for linear in [false, true] {
+            for overlay in [
+                Overlay::Sources,
+                Overlay::Memory,
+                Overlay::Handoff,
+                Overlay::Planning,
+                Overlay::Execution,
+                Overlay::Tasks,
+                Overlay::Criteria,
+                Overlay::Forms,
+                Overlay::Party,
+                Overlay::Companion,
+                Overlay::Inspector,
+                Overlay::Help,
+                Overlay::Images,
+                Overlay::Repository,
+                Overlay::Preview,
+            ] {
+                let config = home_config();
+                let mut app = App::new("/workspace".into(), width, height);
+                app.linear = linear;
+                app.editing = false;
+                app.overlay = Some(overlay);
+                app.storage = crate::app::StorageState::Failed("disk unavailable".into());
+                let paint = Paint::new(&config, &FORMS[app.form()], app.form());
+                let mut artwork = Artwork::load(&config);
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal
+                    .draw(|frame| {
+                        render(frame, &mut app, &config, &mut artwork, "off");
+                    })
+                    .unwrap();
+                let layout = shell(
+                    Rect::new(0, 0, width, height),
+                    linear,
+                    app.effective_focus(),
+                );
+                let mut expected = Terminal::new(TestBackend::new(width, height)).unwrap();
+                expected
+                    .draw(|frame| {
+                        header(frame, layout.header, &app, &config, &paint);
+                        footer(frame, layout.footer, &app, &paint);
+                    })
+                    .unwrap();
+                for protected in [layout.header, layout.footer] {
+                    for y in protected.y..protected.bottom() {
+                        for x in protected.x..protected.right() {
+                            assert_eq!(
+                                terminal.backend().buffer()[(x, y)].symbol(),
+                                expected.backend().buffer()[(x, y)].symbol(),
+                                "{overlay:?} {width}x{height} linear={linear}: live shell context obscured",
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn task_and_criteria_navigation_remains_visible_in_the_reserved_footer() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height) in [(60, 18), (120, 36)] {
+        for command in ["tasks", "criteria"] {
+            let mut app = App::new("/workspace".into(), width, height);
+            app.input = "retained request".into();
+            app.cursor = 4;
+            app.editing = true;
+            app.command(command);
+            let layout = shell(Rect::new(0, 0, width, height), false, app.effective_focus());
+            let paint = Paint::new(&config, &FORMS[app.form()], app.form());
+            for notice in ["", "Local notice remains visible"] {
+                app.notice = notice.into();
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal
+                    .draw(|frame| footer(frame, layout.footer, &app, &paint))
+                    .unwrap();
+                let buffer = terminal.backend().buffer();
+                let hint: String = (layout.footer.x..layout.footer.right())
+                    .map(|x| buffer[(x, layout.footer.bottom() - 1)].symbol())
+                    .collect();
+                assert!(hint.contains("Enter"), "{command}: {hint}");
+                assert!(hint.contains("Esc Back"), "{command}: {hint}");
+                if !notice.is_empty() {
+                    let status: String = (layout.footer.x..layout.footer.right())
+                        .map(|x| buffer[(x, layout.footer.y)].symbol())
+                        .collect();
+                    assert!(status.contains(notice), "{status}");
+                }
+            }
+            app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+            assert!(app.overlay.is_none());
+            assert!(app.editing);
+            assert_eq!(app.input, "retained request");
+            assert_eq!(app.cursor, 4);
+            assert!(app.planning.pending.is_none());
+            assert!(!app.execution.busy());
+        }
     }
 }

@@ -17,7 +17,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 ## Status
 
 - **Released:** 0.1.11 (tags v0.1.0–v0.1.11), adding wave 3 evidence/relays and wave 4 three-owner cooperation, one writer, permanent moving-run evidence, FIFO approvals, scoped/all cancellation, working board and reviewed idle release. Released store: Schema 13; public v0.1.10 used Schema 11. Public assets, installed runtime, cooperation and both older-schema refusal journeys passed.
-- **Active user request:** Wave 4 is published and verified. Repair provider connections and comprehensively audit/simplify implemented UX to avoid deep navigation. Existing internals may be replaced without removing coding capabilities or safety/ownership boundaries. Complete and release the combined connection/UX improvement as v0.1.12; implementation and actual before/after audit are active.
+- **Active user request:** Wave 4 is published and verified. Provider connections and the comprehensive shallow-UX repair are implemented for v0.1.12; the measured before/after audit is complete and final runtime/native-release qualification is active. Existing coding capabilities and safety/ownership boundaries remain intact. Publish only after the complete connection/UX acceptance passes.
 - **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B/PT04C, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, PT07A/PT07B/PT07C, PT08A/PT08B, PT09, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV01C, EV02, EV10A, EV10B, EV14, EV12, EV13A, EV13B, EV15, EV16, PT10 and the first code-structure pass (index below). **Open:** 67 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.
@@ -40,7 +40,7 @@ EV10A retained failure locations · EV10B run-linked guarded captures · EV14 fr
 
 ### Cross-cutting watch-outs
 
-- **Schema:** Published v0.1.10 uses Schema 11; completed unreleased wave 3 used Schema 12. The v0.1.11 cooperation candidate uses Schema 13 for durable request ownership and write leases, with transactional upgrades preserving existing rows. Real Schema 11 and 12 writers must refuse without mutation; back up data before upgrading because in-place downgrade is unsupported.
+- **Schema:** Published v0.1.10 uses Schema 11; completed wave 3 used Schema 12. v0.1.11 and the v0.1.12 connection/UX release use Schema 13 for durable request ownership and write leases, with transactional older-store upgrades preserving existing rows. Schema 11/12 writers must refuse without mutation; back up before upgrading because in-place downgrade is unsupported. v0.1.12 adds no database migration.
 - **Packets:** Partner flavor (nicknames, partner names, move names, dialogue, ribbons, routes) never enters provider packets or handoffs. The receipt must show zero flavor bytes.
 - **Facts first:** Pokémon-style copy wraps a factual line (command, exit code, permission scope), never replaces it. Monochrome, ASCII and linear layouts keep the same information.
 - **No fake progression:** No XP, levels, affection, streaks, hunger or random unlocks. Raising partners means learned moves, nicknames and real records. Add each new concept (Moves, Dex) to DESIGN_RULES when it ships.

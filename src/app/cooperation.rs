@@ -58,6 +58,10 @@ pub struct State {
 }
 
 impl App {
+    pub(super) fn has_focused_approval(&self) -> bool {
+        self.cooperation.focused.is_some()
+    }
+
     /// Replace only future launch credentials; submitted inputs own independent copies.
     pub fn set_devin_credential(
         &mut self,
@@ -139,6 +143,12 @@ impl App {
                 .any(planning::State::outcome_unknown)
     }
 
+    pub fn planning_any_unknown_effects(&self) -> bool {
+        std::iter::once(&self.planning)
+            .chain(self.cooperation.parked.values())
+            .any(planning::State::unknown_effects)
+    }
+
     pub fn planning_any_journal_failed(&self) -> bool {
         self.planning.journal_failed()
             || self
@@ -169,7 +179,7 @@ impl App {
             let waiting = state.preview.is_some() || state.request.is_some();
             rows.push(WorkRow {
                 owner,
-                status: if state.outcome_unknown() {
+                status: if state.unknown_effects() {
                     "outcome unknown"
                 } else if state.journal_failed() {
                     "journal failed"

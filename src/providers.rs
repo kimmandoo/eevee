@@ -84,16 +84,6 @@ impl Agent {
     pub fn from_command(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|agent| agent.command() == name)
     }
-    pub fn is_codex(self) -> bool {
-        matches!(self, Self::Codex | Self::ChatGPT)
-    }
-    pub fn provider_label(self) -> &'static str {
-        if self.is_codex() {
-            "Codex"
-        } else {
-            self.label()
-        }
-    }
     pub fn is_direct(self) -> bool {
         matches!(
             self,
@@ -184,6 +174,36 @@ impl ModelCatalogue {
         Ok(())
     }
 }
+/// Native conversation data is process-local, never a resumable provider session.
+/// Only complete public user/assistant messages belong here, not rendered Items.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConversationRole {
+    User,
+    Assistant,
+}
+
+#[derive(Clone, Debug)]
+pub struct ConversationMessage {
+    pub role: ConversationRole,
+    pub text: Arc<str>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConversationOwner {
+    pub task_id: i64,
+    pub partner: i64,
+    pub agent: Agent,
+    pub operation: Operation,
+    /// Opaque account/credential/endpoint identity; never serialized into prompts.
+    pub connection_scope: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct NativeConversation {
+    pub owner: ConversationOwner,
+    pub messages: Arc<[ConversationMessage]>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Input {
     pub task: crate::store::Snapshot,
@@ -202,9 +222,21 @@ pub struct Input {
     pub inspect_sessions: bool,
     pub inspect_models: bool,
     pub selection: ModelSelection,
+    /// Frozen canonical native history, independent of display/journal retention.
+    pub conversation: Option<Arc<NativeConversation>>,
     /// Eevee-owned website login result, injected into the launched provider
     /// process environment at Run time. Memory only; never serialized or logged.
     pub credential: Option<crate::providers::auth::SessionCredential>,
+}
+
+/// Advanced native requests may target saved task facts without a Request draft.
+pub(crate) fn native_request_text(task: &crate::store::Snapshot) -> &str {
+    let request = task.request_text();
+    if request.trim().is_empty() {
+        &task.goal
+    } else {
+        request
+    }
 }
 
 impl Input {
@@ -242,6 +274,11 @@ impl Input {
 
     pub fn validate_selection(&self) -> Result<(), String> {
         self.validate_work()?;
+        if self.conversation.is_some()
+            && (!self.agent.is_direct() || self.inspect_models || self.inspect_sessions)
+        {
+            return Err("Canonical native chat history cannot accompany CLI routes or metadata inspection; use /chat-new to reset local context".into());
+        }
         if self.inspect_models && (self.inspect_sessions || self.resume.is_some()) {
             return Err(
                 "Model inspection cannot resume a session or inspect session history".into(),
@@ -268,6 +305,12 @@ impl Input {
         }
         if self.resume.is_some() {
             return Err("Review requires a fresh provider session; Resume is unavailable".into());
+        }
+        if self.conversation.is_some() {
+            return Err(
+                "Independent Review requires fresh context without native conversation history"
+                    .into(),
+            );
         }
         if !self.edit_paths.is_empty() {
             return Err("Review cannot carry source-writing paths or grants".into());
@@ -429,6 +472,13 @@ pub enum Event {
         task_id: i64,
         model: String,
     },
+    /// Complete native parser output, emitted before any proposal/display formatting.
+    /// Promoted by the owner only after the matching successful terminal event.
+    NativeCompleted {
+        generation: u64,
+        task_id: i64,
+        conversation: Arc<NativeConversation>,
+    },
     Item {
         generation: u64,
         task_id: i64,
@@ -561,6 +611,7 @@ mod tests {
             inspect_sessions: false,
             inspect_models: false,
             selection: ModelSelection::default(),
+            conversation: None,
             credential: None,
         }
     }
@@ -841,5 +892,57 @@ mod tests {
         assert!(input.validate_selection().is_ok());
         input.inspect_sessions = true;
         assert!(input.validate_selection().is_err());
+    }
+    #[test]
+    fn native_history_is_not_a_cli_session_or_metadata_or_independent_review_input() {
+        let mut input = review(Agent::Compatible);
+        input.operation = Operation::Plan;
+        input.conversation = Some(Arc::new(NativeConversation {
+            owner: ConversationOwner {
+                task_id: input.task.id,
+                partner: input.task.lead_partner,
+                agent: Agent::Compatible,
+                operation: Operation::Plan,
+                connection_scope: "opaque".into(),
+            },
+            messages: vec![
+                ConversationMessage {
+                    role: ConversationRole::User,
+                    text: "raw request".into(),
+                },
+                ConversationMessage {
+                    role: ConversationRole::Assistant,
+                    text: "public answer".into(),
+                },
+            ]
+            .into(),
+        }));
+        assert!(input.validate_selection().is_ok());
+        for agent in [
+            Agent::Codex,
+            Agent::Claude,
+            Agent::OpenCode,
+            Agent::Gemini,
+            Agent::Devin,
+        ] {
+            input.agent = agent;
+            assert!(
+                input
+                    .validate_selection()
+                    .unwrap_err()
+                    .contains("/chat-new")
+            );
+        }
+        input.agent = Agent::Compatible;
+        input.inspect_models = true;
+        assert!(input.validate_selection().is_err());
+        input.inspect_models = false;
+        input.operation = Operation::Review;
+        assert!(
+            input
+                .validate_review()
+                .unwrap_err()
+                .contains("fresh context")
+        );
     }
 }

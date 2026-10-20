@@ -1,12 +1,15 @@
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::Rect,
     widgets::{Clear, Paragraph, Wrap},
 };
 
-use super::{Paint, centered, panel, row, selection_details, text};
+use super::{Paint, panel, row, selection_details, sheet, text};
 use crate::{
-    app::{App, agents::Page},
+    app::{
+        App,
+        agents::{ConnectionField, Page},
+    },
     config::Config,
 };
 
@@ -18,10 +21,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     } else {
         area.height.saturating_sub(2)
     };
-    let area = centered(area, 104, height);
+    let area = sheet(area, 104, height);
     frame.render_widget(Clear, area);
     let auth_room = app.width >= 60 && app.height >= 18;
-    let in_use = format!("in use · {}", app.planning.selection.summary());
     let state = &mut app.agents;
     state.active = app.planning.agent.index();
     if state.auth_preview.is_some() && !auth_room {
@@ -30,7 +32,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         state.review_choice = 0;
     }
     let block = panel(
-        if state.auth_preview.is_some() {
+        if state.forget_preview.is_some() {
+            " Forget app connection "
+        } else if state.auth_preview.is_some() {
             " Review connection "
         } else if state.preview {
             " Review version check "
@@ -43,6 +47,10 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     );
     let content = block.inner(area);
     frame.render_widget(block, area);
+    if state.connection_editing() {
+        render_connection(frame, content, state, paint);
+        return;
+    }
     let Some(profile) = state.profiles.get(state.selected) else {
         text(
             frame,
@@ -53,249 +61,184 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         return;
     };
     if !state.preview && state.auth_preview.is_none() {
-        let narrow = content.width < 72;
-        let body_area = row(content, 0, content.height.saturating_sub(2));
-        let columns = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(25), Constraint::Min(20)])
-            .split(body_area);
-        let show_providers = !narrow || state.page == Page::Providers;
-        if show_providers {
-            let providers = if narrow { body_area } else { columns[0] };
-            text(frame, row(providers, 0, 1), "PROVIDERS", paint.accent);
-            let capacity = usize::from(providers.height.saturating_sub(1) / 2).max(1);
-            let indices = state.provider_indices();
-            let selected = indices
-                .clone()
-                .position(|index| index == state.selected)
-                .unwrap_or(0);
-            let first = selected.saturating_sub(capacity.saturating_sub(1));
-            for (offset, index) in indices.skip(first).take(capacity).enumerate() {
-                let provider = &state.profiles[index];
-                let agent = crate::providers::Agent::from_index(index);
-                let codex = agent.is_some_and(crate::providers::Agent::is_codex);
-                let active = index == state.active
-                    || (codex
-                        && crate::providers::Agent::from_index(state.active)
-                            .is_some_and(crate::providers::Agent::is_codex));
+        let body = row(content, 0, content.height.saturating_sub(4));
+        let capacity = usize::from(body.height.saturating_sub(1)).max(1);
+        match state.page {
+            Page::Providers => {
                 text(
                     frame,
-                    row(providers, 1 + offset as u16 * 2, 1),
-                    &format!(
-                        "{} {}{}",
-                        if index == state.selected { ">" } else { " " },
-                        agent.map_or(provider.name.as_str(), |agent| agent.provider_label()),
-                        if active { " ●" } else { "" },
-                    ),
-                    if index == state.selected && state.page == Page::Providers {
-                        paint.accent
-                    } else {
-                        paint.surface
-                    },
-                );
-                let status = if codex {
-                    format!(
-                        "{} · {}",
-                        if index == crate::providers::Agent::ChatGPT.index() {
-                            "Native/no tools"
-                        } else {
-                            "CLI/tools"
-                        },
-                        state.connection_status(index)
-                    )
-                } else {
-                    state.connection_status(index).into()
-                };
-                text(
-                    frame,
-                    row(providers, 2 + offset as u16 * 2, 1),
-                    &format!("  {}{}", if active { "task · " } else { "" }, status),
-                    if active { paint.accent } else { paint.muted },
-                );
-            }
-        }
-        let body = if narrow { body_area } else { columns[1] };
-        let provider_list = narrow && state.page == Page::Providers;
-        if !provider_list {
-            text(
-                frame,
-                row(body, 0, 2),
-                &format!(
-                    "{}{}\n{} · {}",
-                    crate::providers::Agent::from_index(state.selected)
-                        .map_or(profile.name.as_str(), |agent| agent.label()),
-                    if state.selected == state.active {
-                        " · in use"
-                    } else {
-                        ""
-                    },
-                    state.connection_status(state.selected),
-                    if state.selected == state.active {
-                        in_use.as_str()
-                    } else {
-                        "not selected for task"
-                    },
-                ),
-                paint.accent,
-            );
-        }
-        if state.page == Page::Diagnostics {
-            let mut value = format!(
-                "{}\n\nInstalled: {}\nExecutable: {:?}\nArguments: {:?}\nVersion: {}\nAuthentication: {}\nBilling: {}\nAdapter: {}\nAction: {}\nHost: {}/{}\nContract revision: {}\n\n{}\n\n",
-                state.setup_hint(),
-                profile.installed,
-                profile.executable,
-                profile.argv,
-                profile.version,
-                profile.authentication,
-                profile.billing,
-                profile.adapter,
-                profile.action,
-                profile.os,
-                profile.architecture,
-                profile.revision,
-                profile.configuration
-            );
-            for blocker in &profile.blockers {
-                value.push_str(&format!("Blocker / remedy: {blocker}\n"));
-            }
-            for capability in &profile.capabilities {
-                value.push_str(&format!(
-                    "\n{}: {}\nEvidence: {}\nRestriction: {}\n",
-                    capability.action, capability.boundary, capability.evidence, capability.blocker
-                ));
-            }
-            state.scroll_max = selection_details(
-                frame,
-                row(body, 2, body.height.saturating_sub(2)),
-                Paragraph::new(crate::workspace::privacy::redact(&value))
-                    .style(paint.surface)
-                    .wrap(Wrap { trim: false }),
-                state.scroll,
-            );
-            state.scroll = state.scroll.min(state.scroll_max);
-        } else {
-            let start = if provider_list {
-                body.height
-            } else {
-                let methods = state.page == Page::Methods;
-                text(
-                    frame,
-                    row(body, 2, 1),
-                    if methods {
-                        "CHOOSE SIGN-IN METHOD"
-                    } else {
-                        "ACTIONS"
-                    },
+                    row(body, 0, 1),
+                    &format!("Search providers: {}_", state.search),
                     paint.accent,
                 );
-                let count = if methods {
-                    for (index, method) in crate::providers::auth::methods(state.selected)
-                        .iter()
-                        .enumerate()
-                    {
-                        text(
-                            frame,
-                            row(body, 3 + index as u16, 1),
-                            &format!(
-                                "{} {}{}",
-                                if index == state.method { ">" } else { " " },
-                                method.label(),
-                                if index == crate::providers::auth::default_method(state.selected) {
-                                    " (default)"
-                                } else {
-                                    ""
-                                }
-                            ),
-                            if index == state.method {
-                                paint.accent
-                            } else {
-                                paint.surface
-                            },
-                        );
-                    }
-                    crate::providers::auth::methods(state.selected).len() as u16
-                } else {
-                    let actions = state.actions();
-                    let capacity = usize::from(body.height.saturating_sub(4)).max(1);
-                    let first = state.action.saturating_sub(capacity.saturating_sub(1));
-                    for (offset, (index, action)) in actions
-                        .iter()
-                        .enumerate()
-                        .skip(first)
-                        .take(capacity)
-                        .enumerate()
-                    {
-                        text(
-                            frame,
-                            row(body, 3 + offset as u16, 1),
-                            &format!(
-                                "{} {}",
-                                if index == state.action { ">" } else { " " },
-                                state.action_label(*action)
-                            ),
-                            if index == state.action && state.page == Page::Actions {
-                                paint.accent
-                            } else {
-                                paint.surface
-                            },
-                        );
-                    }
-                    actions.len().min(capacity) as u16
-                };
-                4 + count
-            };
-            let methods = state.page == Page::Methods;
-            // Claude's executable row is the Claude CLI; its connection uses ant instead.
-            let hint = if !crate::providers::Agent::from_index(state.selected)
-                .is_some_and(crate::providers::Agent::is_direct)
-                && state.selected != crate::providers::Agent::Claude.index()
-                && profile.executable.is_none()
-            {
-                super::brief(&state.setup_hint()).into_owned()
-            } else if state.auth_busy() {
-                "Preparing review... Esc cancels.".into()
-            } else if methods {
-                let guidance = crate::providers::auth::methods(state.selected)
+                let indices = state.provider_indices();
+                let selected = indices
+                    .clone()
+                    .position(|index| index == state.selected)
+                    .unwrap_or(0);
+                let first = selected.saturating_sub(capacity.saturating_sub(1));
+                if indices.clone().next().is_none() {
+                    text(
+                        frame,
+                        row(body, 1, 1),
+                        "No matching route. Backspace edits; Esc clears.",
+                        paint.muted,
+                    );
+                }
+                for (offset, index) in indices.skip(first).take(capacity).enumerate() {
+                    let agent = crate::providers::Agent::from_index(index);
+                    let name =
+                        agent.map_or(state.profiles[index].name.as_str(), |agent| agent.label());
+                    text(
+                        frame,
+                        row(body, 1 + offset as u16, 1),
+                        &format!(
+                            "{}{} {} | {}",
+                            if index == state.selected { ">" } else { " " },
+                            if index == state.active { "*" } else { " " },
+                            name,
+                            state.connection_status(index)
+                        ),
+                        if index == state.selected {
+                            paint.accent
+                        } else {
+                            paint.surface
+                        },
+                    );
+                }
+            }
+            Page::Methods => {
+                text(
+                    frame,
+                    row(body, 0, 1),
+                    &format!("{} | sign-in method", profile.name),
+                    paint.accent,
+                );
+                let methods = crate::providers::auth::methods(state.selected);
+                for (index, method) in methods.iter().enumerate() {
+                    text(
+                        frame,
+                        row(body, 1 + index as u16, 1),
+                        &format!(
+                            "{} {}",
+                            if index == state.method { ">" } else { " " },
+                            method.label()
+                        ),
+                        if index == state.method {
+                            paint.accent
+                        } else {
+                            paint.surface
+                        },
+                    );
+                }
+                let start = 2 + methods.len() as u16;
+                if let Some(guidance) = methods
                     .get(state.method)
                     .and_then(|method| method.guidance())
-                    .unwrap_or("Enter reviews this method; nothing launches.");
-                format!(
-                    "{}\n\n{}",
-                    super::brief(&state.notice),
-                    super::brief(guidance)
-                )
-            } else if state.selected == crate::providers::Agent::Claude.index() {
-                format!(
-                    "{}\n\n{}",
-                    super::brief(&state.notice),
-                    super::brief(&state.setup_hint())
-                )
-            } else {
-                super::brief(&state.notice).into_owned()
-            };
-            state.scroll_max = selection_details(
-                frame,
-                row(body, start, body.height.saturating_sub(start)),
-                Paragraph::new(crate::workspace::privacy::redact(&hint))
-                    .style(paint.surface)
-                    .wrap(Wrap { trim: false }),
-                state.scroll,
-            );
-            state.scroll = state.scroll.min(state.scroll_max);
-        }
-        let footer = match state.page {
-            Page::Providers => format!(
-                "Up/Down Select · Enter {} · Right Actions\n● task provider · / choices · Esc Back",
-                state.enter_hint()
-            ),
-            Page::Diagnostics => "Up/Down Scroll · Enter Back · Right Actions · Esc Back".into(),
-            Page::Methods => {
-                "Up/Down Select · Enter Review method\nTab Providers · / choices · Esc Back".into()
+                {
+                    state.scroll_max = selection_details(
+                        frame,
+                        row(body, start, body.height.saturating_sub(start)),
+                        Paragraph::new(guidance)
+                            .style(paint.muted)
+                            .wrap(Wrap { trim: false }),
+                        state.scroll,
+                    );
+                }
             }
             Page::Actions => {
-                "Up/Down Select · Enter Open action\nTab Providers · / choices · Esc Back".into()
+                text(
+                    frame,
+                    row(body, 0, 1),
+                    &format!(
+                        "{} | {}",
+                        profile.name,
+                        state.connection_status(state.selected)
+                    ),
+                    paint.accent,
+                );
+                let actions = state.actions();
+                let first = state.action.saturating_sub(capacity.saturating_sub(1));
+                for (offset, (index, action)) in actions
+                    .iter()
+                    .enumerate()
+                    .skip(first)
+                    .take(capacity)
+                    .enumerate()
+                {
+                    text(
+                        frame,
+                        row(body, 1 + offset as u16, 1),
+                        &format!(
+                            "{} {}",
+                            if index == state.action { ">" } else { " " },
+                            state.action_label(*action)
+                        ),
+                        if index == state.action {
+                            paint.accent
+                        } else {
+                            paint.surface
+                        },
+                    );
+                }
             }
+            Page::Diagnostics => {
+                let mut value = format!(
+                    "{}\n{}\n\n{}\nInstalled: {}\nExecutable: {:?}\nArguments: {:?}\nVersion: {}\nAuthentication: {}\nBilling: {}\nAdapter: {}\nAdapter revision: {}\nProfile action: {}\n",
+                    profile.name,
+                    state.setup_hint(),
+                    profile.configuration,
+                    profile.installed,
+                    profile.executable,
+                    profile.argv,
+                    profile.version,
+                    profile.authentication,
+                    profile.billing,
+                    profile.adapter,
+                    profile.revision,
+                    profile.action
+                );
+                for blocker in &profile.blockers {
+                    value.push_str(&format!("\nBlocker / remedy: {blocker}"));
+                }
+                for capability in &profile.capabilities {
+                    value.push_str(&format!(
+                        "\n{}: {}\nEvidence: {}\nRestriction: {}\n",
+                        capability.action,
+                        capability.boundary,
+                        capability.evidence,
+                        capability.blocker
+                    ));
+                }
+                state.scroll_max = selection_details(
+                    frame,
+                    body,
+                    Paragraph::new(crate::workspace::privacy::redact(&value))
+                        .style(paint.surface)
+                        .wrap(Wrap { trim: false }),
+                    state.scroll,
+                );
+                state.scroll = state.scroll.min(state.scroll_max);
+            }
+        }
+        text(
+            frame,
+            row(content, content.height.saturating_sub(4), 2),
+            &crate::workspace::privacy::redact(&state.notice),
+            paint.muted,
+        );
+        let footer = match state.page {
+            Page::Providers => format!(
+                "Type Search | Up/Down Select | Enter {}\nRight Options | * task route | Esc Back",
+                state.enter_hint()
+            ),
+            Page::Methods => {
+                "Up/Down Select | Enter Review method\nTab Providers | / choices | Esc Back".into()
+            }
+            Page::Actions => {
+                "Up/Down Select | Enter Open action\nTab Providers | / choices | Esc Back".into()
+            }
+            Page::Diagnostics => "Up/Down Scroll | Tab Providers\n/ choices | Esc Back".into(),
         };
         text(
             frame,
@@ -305,7 +248,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         );
         return;
     }
-    let details = row(content, 0, content.height.saturating_sub(3));
+    let details = row(content, 0, content.height.saturating_sub(1));
     if state.auth_details {
         let value = if let Some(plan) = &state.auth_preview {
             plan.lines.join("\n\n")
@@ -347,60 +290,456 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         state.scroll = 0;
         state.scroll_max = 0;
     }
-    let footer = if let Some(plan) = &state.auth_preview {
-        if !auth_room {
-            "Resize to 60 × 18 to review. Esc Back; nothing launches.".into()
-        } else if state.auth_details {
-            "d Summary / PgUp/Dn Details / Esc Cancel\nReturn to summary to choose; nothing launches.".into()
-        } else {
-            let approve = if plan.method.is_status() {
-                "Check status"
-            } else {
-                "Connect"
-            };
-            let choice = if state.affirmative {
-                1
-            } else if state.review_choice == 2 {
-                2
-            } else {
-                0
-            };
-            let labels = ["Back", approve, "Details"];
-            let buttons = labels
-                .iter()
-                .enumerate()
-                .map(|(index, label)| {
-                    if index == choice {
-                        format!("[{label}]")
-                    } else {
-                        (*label).to_owned()
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("   ");
-            format!(
-                "{buttons}\n{}",
-                if state.reviewed {
-                    "y Confirm / n Back / d Details · Tab / Enter"
-                } else {
-                    "Resize to show scope · d Details · Esc Back"
-                }
-            )
-        }
+    let footer = if !auth_room || !state.reviewed && !state.auth_details {
+        "Scope not fully visible | d Details | Esc Back".into()
     } else if state.auth_details {
-        "d Summary / PgUp/Dn Details / Esc Back\nReturn to summary to choose; nothing launches."
-            .into()
-    } else if !state.reviewed {
-        "[Back]   Check version unavailable until summary fits\nResize / Esc Back".into()
+        "d Summary | PgUp/Dn Scroll | Esc Cancel".into()
+    } else if let Some(plan) = &state.auth_preview {
+        let approve = if plan.method.is_status() {
+            "Check status"
+        } else {
+            "Connect"
+        };
+        let choice = if state.affirmative {
+            1
+        } else if state.review_choice == 2 {
+            2
+        } else {
+            0
+        };
+        let labels = ["Back", approve, "Details"];
+        let buttons = labels
+            .iter()
+            .enumerate()
+            .map(|(index, label)| {
+                if index == choice {
+                    format!("[{label}]")
+                } else {
+                    (*label).to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!("{buttons} | y/n d Tab Enter")
     } else if state.affirmative {
-        "Back   [Check version] · y Check / n Back\nTab Choose · Enter Confirm · d Details · Esc Back".into()
+        "Back [Check version] | y/n d Tab Enter".into()
     } else {
-        "[Back]   Check version · y Check / n Back\nTab Choose · Enter Confirm · d Details · Esc Back".into()
+        "[Back] Check version | y/n d Tab Enter".into()
     };
     text(
         frame,
-        row(content, content.height.saturating_sub(3), 3),
+        row(content, content.height.saturating_sub(1), 1),
         &footer,
         paint.accent,
     );
+}
+
+fn render_connection(
+    frame: &mut Frame,
+    content: Rect,
+    state: &mut crate::app::agents::State,
+    paint: &Paint,
+) {
+    if state.forget_preview.is_some() {
+        render_forget(frame, content, state, paint);
+        return;
+    }
+    let Some(agent) = crate::providers::Agent::from_index(state.selected) else {
+        return;
+    };
+    let fields = state.connection_fields();
+    let notice = &state.notice;
+    let editor = state
+        .connection
+        .as_mut()
+        .expect("private connection editor");
+    let title = if agent == crate::providers::Agent::ChatGPT {
+        "Codex native | official ChatGPT only | no tools".into()
+    } else {
+        format!("{} | native; no tools", agent.label())
+    };
+    text(frame, row(content, 0, 1), &title, paint.accent);
+    let room = content.width >= 54 && content.height >= 12;
+    editor.visible = room;
+    let has_effort = editor.form.effort.is_some();
+    let capacity = usize::from(
+        content
+            .height
+            .saturating_sub(if has_effort { 7 } else { 6 }),
+    )
+    .max(1);
+    let first = editor.field.saturating_sub(capacity.saturating_sub(1));
+    for (offset, (index, field)) in fields
+        .iter()
+        .enumerate()
+        .skip(first)
+        .take(capacity)
+        .enumerate()
+    {
+        let (label, value, private) = match field {
+            ConnectionField::Credential => (
+                if agent == crate::providers::Agent::ChatGPT {
+                    "Access token"
+                } else {
+                    "API key"
+                },
+                if editor.form.credential.is_empty() {
+                    "(blank keeps selected source)".into()
+                } else {
+                    "********".into()
+                },
+                true,
+            ),
+            ConnectionField::Endpoint => (
+                "Endpoint",
+                crate::workspace::privacy::redact(&editor.form.base_url),
+                false,
+            ),
+            ConnectionField::Model => (
+                "Default model",
+                if editor.form.model.is_empty() {
+                    "(explicit choice later)".into()
+                } else {
+                    crate::workspace::privacy::redact(&editor.form.model)
+                },
+                false,
+            ),
+            ConnectionField::Account => (
+                "Account ID",
+                if editor.form.account_id.is_empty() {
+                    "(token/source account)".into()
+                } else {
+                    "********".into()
+                },
+                true,
+            ),
+            ConnectionField::Protocol => (
+                "Protocol",
+                if editor.form.responses {
+                    "responses"
+                } else {
+                    "chat_completions"
+                }
+                .into(),
+                false,
+            ),
+            ConnectionField::Keyless => (
+                "Authentication",
+                if editor.form.keyless {
+                    "KEYLESS: no authentication header"
+                } else {
+                    "API key (separate from endpoint/model)"
+                }
+                .into(),
+                false,
+            ),
+            ConnectionField::Storage => (
+                "Storage",
+                if editor.form.persist {
+                    "SAVE private local plaintext"
+                } else {
+                    "SESSION (older saved profile unchanged)"
+                }
+                .into(),
+                false,
+            ),
+            ConnectionField::Save => (
+                "Save & choose model",
+                "Select route; metadata only".into(),
+                false,
+            ),
+            ConnectionField::Browser => (
+                "Browser login",
+                "Own token stays; official Codex CLI".into(),
+                false,
+            ),
+            ConnectionField::Device => (
+                "Device login",
+                "Own token stays; official Codex CLI".into(),
+                false,
+            ),
+            ConnectionField::LoadCli => (
+                "Load CLI token",
+                "Read-only auth.json into draft; then Save".into(),
+                false,
+            ),
+            ConnectionField::Forget => (
+                "Forget app connection",
+                "Review own override deletion only".into(),
+                false,
+            ),
+        };
+        let prefix = format!(
+            "{} {label}: ",
+            if editor.field == index { ">" } else { " " }
+        );
+        let text_field = matches!(
+            field,
+            ConnectionField::Credential
+                | ConnectionField::Endpoint
+                | ConnectionField::Model
+                | ConnectionField::Account
+        );
+        let capacity = usize::from(content.width)
+            .saturating_sub(prefix.len())
+            .max(1);
+        let displayed = if private || value.chars().count() <= capacity {
+            value.clone()
+        } else {
+            let prefix_chars = value
+                .char_indices()
+                .take_while(|(index, _)| *index < editor.cursor)
+                .count();
+            let start = if editor.field == index {
+                prefix_chars.saturating_sub(capacity.saturating_sub(1))
+            } else {
+                0
+            };
+            value.chars().skip(start).take(capacity).collect()
+        };
+        text(
+            frame,
+            row(content, 1 + offset as u16, 1),
+            &format!("{prefix}{displayed}"),
+            if editor.field == index {
+                paint.accent
+            } else {
+                paint.surface
+            },
+        );
+        if text_field && editor.field == index {
+            let caret_column = if private {
+                if editor.form.credential.is_empty() && *field == ConnectionField::Credential
+                    || editor.form.account_id.is_empty() && *field == ConnectionField::Account
+                {
+                    0
+                } else {
+                    8
+                }
+            } else {
+                editor.cursor.min(capacity.saturating_sub(1))
+            };
+            if 1 + (offset as u16) < content.height && content.width > 0 {
+                frame.set_cursor_position((
+                    content.x
+                        + (prefix.len() + caret_column)
+                            .min(content.width.saturating_sub(1) as usize)
+                            as u16,
+                    content.y + 1 + offset as u16,
+                ));
+            }
+        }
+    }
+    if has_effort {
+        let effort = if editor.form.effort_resets() {
+            "Model changed: Save resets default effort; choose anew.".into()
+        } else {
+            format!(
+                "Default effort: {} (same model only)",
+                crate::workspace::privacy::redact(
+                    editor.form.effort.as_deref().unwrap_or_default()
+                )
+            )
+        };
+        text(
+            frame,
+            row(content, content.height.saturating_sub(6), 1),
+            &effort,
+            paint.accent,
+        );
+    }
+    let disclosure = "Save+model: select route + metadata; NEVER send task.\nSaved plaintext; NOT encrypted/keychain. Ctrl+S local.";
+    text(
+        frame,
+        row(content, content.height.saturating_sub(5), 2),
+        disclosure,
+        paint.muted,
+    );
+    state.scroll_max = selection_details(
+        frame,
+        row(content, content.height.saturating_sub(3), 2),
+        Paragraph::new(crate::workspace::privacy::redact(notice))
+            .style(paint.muted)
+            .wrap(Wrap { trim: false }),
+        state.scroll,
+    );
+    state.scroll = state.scroll.min(state.scroll_max);
+    text(
+        frame,
+        row(content, content.height.saturating_sub(1), 1),
+        if room {
+            "Tab Fields | Enter | Ctrl+S Local | PgUp/Dn | Esc"
+        } else {
+            "Resize to 60x18 | Esc Cancel; nothing saved"
+        },
+        paint.accent,
+    );
+}
+
+fn render_forget(
+    frame: &mut Frame,
+    content: Rect,
+    state: &mut crate::app::agents::State,
+    paint: &Paint,
+) {
+    let summary = state
+        .forget_preview
+        .as_ref()
+        .expect("private deletion review")
+        .summary();
+    state.reviewed = content.width >= 54
+        && content.height >= 10
+        && super::planning::render_summary(
+            frame,
+            row(content, 0, content.height.saturating_sub(3)),
+            &summary,
+            paint,
+        );
+    if !state.reviewed {
+        state.affirmative = false;
+    }
+    text(
+        frame,
+        row(content, content.height.saturating_sub(3), 2),
+        &crate::workspace::privacy::redact(&state.notice),
+        paint.muted,
+    );
+    let footer = if !state.reviewed {
+        "Resize to 60x18 for full scope | Esc Cancel"
+    } else if state.affirmative {
+        "Back [Forget local] | Tab Enter | y/n | Esc"
+    } else {
+        "[Back] Forget local | Tab Enter | y/n | Esc"
+    };
+    text(
+        frame,
+        row(content, content.height.saturating_sub(1), 1),
+        footer,
+        paint.accent,
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{Terminal, backend::TestBackend, style::Style};
+
+    #[test]
+    fn private_setup_masks_paste_and_shows_storage_scope_at_supported_sizes() {
+        let style = Style::default();
+        let paint = Paint {
+            base: style,
+            surface: style,
+            muted: style,
+            border: style,
+            accent: style,
+            selected: style,
+        };
+        for (width, height) in [(60, 18), (120, 36)] {
+            for agent in [
+                crate::providers::Agent::ChatGPT,
+                crate::providers::Agent::Compatible,
+            ] {
+                let mut state = crate::app::agents::State::new();
+                state.selected = agent.index();
+                state.connection = Some(crate::app::agents::ConnectionEditor {
+                    form: crate::providers::direct::config::Setup {
+                        credential: String::new(),
+                        base_url: "https://api.example/v1".into(),
+                        model: "chosen-model".into(),
+                        effort: None,
+                        effort_model: None,
+                        account_id: "private-account-sentinel".into(),
+                        responses: true,
+                        keyless: false,
+                        persist: false,
+                        source_notice: None,
+                    },
+                    field: 0,
+                    cursor: 0,
+                    visible: false,
+                });
+                assert!(state.paste_connection("private-credential-sentinel"));
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal
+                    .draw(|frame| {
+                        render_connection(
+                            frame,
+                            Rect::new(2, 3, width - 4, height - 6),
+                            &mut state,
+                            &paint,
+                        )
+                    })
+                    .unwrap();
+                let display: String = terminal
+                    .backend()
+                    .buffer()
+                    .content
+                    .iter()
+                    .map(|cell| cell.symbol())
+                    .collect();
+                assert!(!display.contains("private-credential-sentinel"));
+                assert!(!display.contains("private-account-sentinel"));
+                assert!(display.contains("********"));
+                assert!(display.contains("SESSION"));
+                assert!(display.contains("NOT encrypted/keychain"));
+                assert!(state.connection.as_ref().unwrap().visible);
+                state.connection.as_mut().unwrap().field = state
+                    .connection_fields()
+                    .iter()
+                    .position(|field| *field == ConnectionField::Save)
+                    .unwrap();
+                terminal
+                    .draw(|frame| {
+                        render_connection(
+                            frame,
+                            Rect::new(2, 3, width - 4, height - 6),
+                            &mut state,
+                            &paint,
+                        )
+                    })
+                    .unwrap();
+                let display: String = terminal
+                    .backend()
+                    .buffer()
+                    .content
+                    .iter()
+                    .map(|cell| cell.symbol())
+                    .collect();
+                assert!(display.contains("Save & choose model"));
+                assert!(display.contains("NEVER send task"));
+                assert!(!display.contains("private-credential-sentinel"));
+                if agent == crate::providers::Agent::ChatGPT {
+                    let editor = state.connection.as_mut().unwrap();
+                    editor.form.effort = Some("high".into());
+                    editor.form.effort_model = Some("chosen-model".into());
+                    editor.form.model = "different-model".into();
+                    terminal
+                        .draw(|frame| {
+                            render_connection(
+                                frame,
+                                Rect::new(2, 3, width - 4, height - 6),
+                                &mut state,
+                                &paint,
+                            )
+                        })
+                        .unwrap();
+                    let display: String = terminal
+                        .backend()
+                        .buffer()
+                        .content
+                        .iter()
+                        .map(|cell| cell.symbol())
+                        .collect();
+                    assert!(display.contains("Save resets default effort"));
+                    assert!(display.contains("Save & choose model"));
+                    assert!(display.contains("NOT encrypted/keychain"));
+                    assert_eq!(
+                        state.connection.as_ref().unwrap().form.effort.as_deref(),
+                        Some("high")
+                    );
+                }
+            }
+        }
+    }
 }

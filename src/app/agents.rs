@@ -7,6 +7,30 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConnectionField {
+    Credential,
+    Endpoint,
+    Model,
+    Account,
+    Protocol,
+    Keyless,
+    Storage,
+    Save,
+    Browser,
+    Device,
+    LoadCli,
+    Forget,
+}
+
+pub(crate) struct ConnectionEditor {
+    pub form: crate::providers::direct::config::Setup,
+    pub field: usize,
+    pub cursor: usize,
+    /// Set only when the complete local effect/storage disclosure is on screen.
+    pub visible: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
     Providers,
     Actions,
@@ -58,6 +82,11 @@ pub struct State {
     pub scroll: u16,
     pub scroll_max: u16,
     pub notice: String,
+    pub search: String,
+    pub(crate) connection: Option<ConnectionEditor>,
+    pub(crate) forget_preview: Option<crate::providers::direct::config::ForgetPlan>,
+    connection_changes: std::collections::VecDeque<Agent>,
+    deferred_connection: Option<Agent>,
     discovering: bool,
     generation: u64,
     inflight: Option<(usize, u64)>,
@@ -96,6 +125,11 @@ impl State {
             scroll: 0,
             scroll_max: 0,
             notice: "Finding installed providers...".into(),
+            search: String::new(),
+            connection: None,
+            forget_preview: None,
+            connection_changes: std::collections::VecDeque::new(),
+            deferred_connection: None,
             discovering: true,
             generation: 0,
             inflight: None,
@@ -121,34 +155,30 @@ impl State {
     }
 
     pub fn at_root(&self) -> bool {
-        self.page == Page::Providers
+        self.page == Page::Providers && self.connection.is_none() && self.search.is_empty()
     }
-    /// Public provider rows; Codex's two routes retain their distinct profile indices.
+
+    /// Every route remains separately selectable, including native and CLI Codex.
     pub fn provider_indices(&self) -> impl Iterator<Item = usize> + Clone + use<> {
-        let codex = if Agent::from_index(self.selected).is_some_and(Agent::is_codex) {
-            self.selected
-        } else if Agent::from_index(self.active).is_some_and(Agent::is_codex) {
-            self.active
-        } else {
-            Agent::Codex.index()
-        };
+        let query = self.search.to_lowercase();
         (0..self.profiles.len())
-            .filter(|index| *index != Agent::ChatGPT.index())
-            .map(move |index| {
-                if index == Agent::Codex.index() {
-                    codex
-                } else {
-                    index
-                }
+            .filter(|index| {
+                Agent::from_index(*index).is_some_and(|agent| {
+                    query.is_empty()
+                        || agent.label().to_lowercase().contains(&query)
+                        || agent.command().contains(&query)
+                })
             })
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     pub fn action_label(&self, action: Action) -> &'static str {
         if action == Action::ConnectionMethod {
             if self.selected == Agent::Codex.index() {
-                "Use native responses (no tools; no CLI)"
+                "Set up native responses (no tools)"
             } else {
-                "Use CLI agent (tools / edits)"
+                "Set up CLI agent (tools / edits)"
             }
         } else {
             action.label()
@@ -197,21 +227,14 @@ impl State {
     pub fn enter_hint(&self) -> &'static str {
         if !self.ready_for_task() {
             "Setup"
-        } else if self.selected == self.active {
-            "Choose model"
         } else {
-            "Use provider"
+            "Choose model"
         }
     }
 
     /// Most likely next step: connect, then use for task, then choose a model.
     fn default_action(&self) -> usize {
-        let next = if self.selected == Agent::Codex.index()
-            && !self.connectable(self.selected)
-            && self.alternate_codex().is_some()
-        {
-            Action::ConnectionMethod
-        } else if !self.ready_for_task() {
+        let next = if !self.ready_for_task() {
             Action::Connect
         } else if self.selected == self.active {
             Action::Model
@@ -236,12 +259,464 @@ impl State {
 
     /// Opens the hub on the task provider, as `/provider` does.
     pub fn focus_active(&mut self) {
-        if !self.busy() && self.auth_preview.is_none() && !self.preview {
+        if self.discovering {
+            self.selected = self.active;
+            self.page = Page::Providers;
+            self.search.clear();
+            return;
+        }
+        if !self.connection_editing()
+            && !self.busy()
+            && self.auth_preview.is_none()
+            && !self.preview
+        {
             self.selected = self.active.min(self.profiles.len().saturating_sub(1));
             self.method = crate::providers::auth::default_method(self.selected);
             self.page = Page::Providers;
+            self.search.clear();
             self.scroll = 0;
         }
+    }
+
+    /// Explicit setup entry: never changes the task provider or starts inference.
+    pub fn begin_connection(&mut self, agent: Agent) {
+        if self.connection_editing()
+            || self.preview
+            || self.auth_preview.is_some()
+            || self.auth_busy()
+        {
+            self.notice = "Finish or cancel the current connection review first.".into();
+            return;
+        }
+        if self.discovering {
+            self.deferred_connection = Some(agent);
+            self.selected = agent.index();
+            return;
+        }
+        if self.busy() {
+            return;
+        }
+        self.selected = agent.index();
+        self.search.clear();
+        self.method = crate::providers::auth::default_method(self.selected);
+        self.action = 0;
+        self.scroll = 0;
+        self.activate(Action::Connect);
+    }
+
+    pub fn connection_editing(&self) -> bool {
+        self.connection.is_some() || self.forget_preview.is_some()
+    }
+
+    /// Only committed connection mutations need the app's saved-and-idle gate.
+    /// All other keys remain owned by the private editor while task saves settle.
+    pub fn connection_needs_idle(&self, key: &KeyEvent) -> bool {
+        if key.kind != KeyEventKind::Press {
+            return false;
+        }
+        if self.forget_preview.is_some() {
+            return self.reviewed
+                && !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                && (key.code == KeyCode::Char('y')
+                    || key.code == KeyCode::Enter && self.affirmative);
+        }
+        let Some(editor) = &self.connection else {
+            return false;
+        };
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && !key.modifiers.contains(KeyModifiers::ALT)
+        {
+            return matches!(key.code, KeyCode::Char('s' | 'S'));
+        }
+        !key.modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            && key.code == KeyCode::Enter
+            && self.connection_fields().get(editor.field) == Some(&ConnectionField::Save)
+    }
+
+    /// Consume all paste owned by this private form, including option/save rows.
+    pub fn paste_connection(&mut self, text: &str) -> bool {
+        if !self.connection_editing() {
+            return false;
+        }
+        if self.forget_preview.is_some() {
+            return true;
+        }
+        self.insert_connection(text.trim_matches(['\r', '\n']));
+        true
+    }
+
+    pub fn take_connection_change(&mut self) -> Option<Agent> {
+        self.connection_changes.pop_front()
+    }
+
+    pub fn connection_fields(&self) -> &'static [ConnectionField] {
+        use ConnectionField::*;
+        match Agent::from_index(self.selected) {
+            Some(Agent::ChatGPT) => &[
+                Credential, Model, Account, Storage, Save, Browser, Device, LoadCli, Forget,
+            ],
+            Some(Agent::Compatible) => &[
+                Credential, Endpoint, Model, Protocol, Keyless, Storage, Save, Forget,
+            ],
+            _ => &[Credential, Endpoint, Model, Storage, Save, Forget],
+        }
+    }
+
+    fn connection_text(&mut self) -> Option<&mut String> {
+        let field = *self
+            .connection_fields()
+            .get(self.connection.as_ref()?.field)?;
+        let form = &mut self.connection.as_mut()?.form;
+        match field {
+            ConnectionField::Credential => Some(&mut form.credential),
+            ConnectionField::Endpoint => Some(&mut form.base_url),
+            ConnectionField::Model => Some(&mut form.model),
+            ConnectionField::Account => Some(&mut form.account_id),
+            _ => None,
+        }
+    }
+
+    fn insert_connection(&mut self, value: &str) {
+        let Some(editor) = self.connection.as_ref() else {
+            return;
+        };
+        let cursor = editor.cursor;
+        let field = self.connection_fields()[editor.field];
+        let limit = match field {
+            ConnectionField::Endpoint => 2048,
+            ConnectionField::Model => 256,
+            _ => 64 * 1024,
+        };
+        if value.chars().any(|c| c.is_control() || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')) {
+            self.notice = "Private paste refused: use a single value without control characters.".into();
+            return;
+        }
+        let Some(text) = self.connection_text() else {
+            return;
+        };
+        if text.len().saturating_add(value.len()) > limit {
+            self.notice = "Private field exceeds its bounded input size.".into();
+            return;
+        }
+        let cursor = cursor.min(text.len());
+        text.insert_str(cursor, value);
+        if let Some(editor) = self.connection.as_mut() {
+            editor.cursor = cursor + value.len();
+            editor.visible = false;
+        }
+    }
+
+    fn save_connection(&mut self, choose_model: bool) {
+        if !self
+            .connection
+            .as_ref()
+            .is_some_and(|editor| editor.visible)
+        {
+            self.notice = "Show the full endpoint/storage disclosure before saving.".into();
+            return;
+        }
+        let Some(agent) = Agent::from_index(self.selected) else {
+            return;
+        };
+        match crate::providers::direct::config::apply_setup(
+            agent,
+            &self.connection.as_ref().expect("private editor").form,
+        ) {
+            Ok(applied) => {
+                if applied.changed {
+                    self.connection_changes.push_back(agent);
+                }
+                self.connection = None;
+                self.page = Page::Providers;
+                self.notice = if !applied.durable {
+                    "Settings replaced but disk durability is unconfirmed. Inspect setup; no model metadata or inference sent."
+                } else if choose_model {
+                    "Native settings saved; choosing this route's model metadata only. No task inference or replay."
+                } else {
+                    "Native settings saved locally, not authenticated. No route switch, model metadata or inference."
+                }.into();
+                if applied.effort_reset {
+                    self.notice
+                        .push_str(" Configured effort explicitly reset for the changed model.");
+                }
+                if let Some(profile) = self.profiles.get_mut(self.selected) {
+                    *profile = crate::providers::direct::config::profile(agent);
+                }
+                if choose_model && applied.durable {
+                    self.use_for_task = Some(self.selected);
+                    self.pick = Some("model");
+                }
+            }
+            Err(reason) => self.notice = reason,
+        }
+    }
+
+    fn forget_key(&mut self, key: KeyEvent, large_enough: bool) -> bool {
+        if key.kind != KeyEventKind::Press {
+            return true;
+        }
+        if key.code == KeyCode::Esc {
+            self.forget_preview = None;
+            self.connection = None;
+            self.reviewed = false;
+            self.affirmative = false;
+            self.notice =
+                "Forget cancelled; private draft discarded. No connection changed.".into();
+            return true;
+        }
+        if !large_enough
+            || key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            if !large_enough {
+                self.reviewed = false;
+                self.affirmative = false;
+            }
+            return true;
+        }
+        let approve = match key.code {
+            KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right if self.reviewed => {
+                self.affirmative = !self.affirmative;
+                return true;
+            }
+            KeyCode::Char('n') => false,
+            KeyCode::Enter if !self.affirmative => false,
+            KeyCode::Char('y') | KeyCode::Enter if self.reviewed => true,
+            _ => return true,
+        };
+        if !approve {
+            self.forget_preview = None;
+            self.reviewed = false;
+            self.affirmative = false;
+            if let Some(editor) = self.connection.as_mut() {
+                editor.visible = false;
+            }
+            self.notice =
+                "Forget cancelled. Existing app/environment/provider sources are unchanged.".into();
+            return true;
+        }
+        if self.busy() {
+            return true;
+        }
+        let plan = self
+            .forget_preview
+            .take()
+            .expect("reviewed private deletion");
+        let agent = plan.agent();
+        self.reviewed = false;
+        self.affirmative = false;
+        match crate::providers::direct::config::forget_connection(plan) {
+            Ok(applied) => {
+                if applied.changed {
+                    self.connection_changes.push_back(agent);
+                }
+                self.connection = None;
+                self.use_for_task = None;
+                self.pick = None;
+                self.page = Page::Providers;
+                self.notice = if applied.durable {
+                    "App override forgotten for this route. Future requests may use existing env/provider sources; no network or remote revocation."
+                } else {
+                    "App override removed locally; disk durability unconfirmed. Future requests may use env/provider sources. No network or remote revocation."
+                }.into();
+                if let Some(profile) = self.profiles.get_mut(agent.index()) {
+                    *profile = crate::providers::direct::config::profile(agent);
+                }
+            }
+            Err(reason) => {
+                if let Some(editor) = self.connection.as_mut() {
+                    editor.visible = false;
+                }
+                self.notice = reason;
+            }
+        }
+        true
+    }
+
+    fn connection_key(&mut self, key: KeyEvent, large_enough: bool) -> bool {
+        if self.forget_preview.is_some() {
+            return self.forget_key(key, large_enough);
+        }
+        if key.kind == KeyEventKind::Release {
+            return true;
+        }
+        if key.code == KeyCode::Esc {
+            self.connection = None;
+            self.page = Page::Providers;
+            self.notice = "Private setup cancelled; no connection settings changed.".into();
+            return true;
+        }
+        if large_enough
+            && key.kind == KeyEventKind::Press
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && !key.modifiers.contains(KeyModifiers::ALT)
+            && matches!(key.code, KeyCode::Char('a' | 'A' | 'e' | 'E' | 'u' | 'U'))
+        {
+            if let Some(text) = self.connection_text() {
+                let cursor = match key.code {
+                    KeyCode::Char('e' | 'E') => text.len(),
+                    KeyCode::Char('u' | 'U') => {
+                        text.clear();
+                        0
+                    }
+                    _ => 0,
+                };
+                let editor = self.connection.as_mut().expect("private editor");
+                editor.cursor = cursor;
+                editor.visible = false;
+            }
+            self.scroll = 0;
+            return true;
+        }
+        if large_enough
+            && key.kind == KeyEventKind::Press
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && !key.modifiers.contains(KeyModifiers::ALT)
+            && matches!(key.code, KeyCode::Char('s' | 'S'))
+        {
+            self.scroll = 0;
+            self.save_connection(false);
+            return true;
+        }
+        if !large_enough
+            || key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            return true;
+        }
+        if key.kind == KeyEventKind::Repeat
+            && !matches!(
+                key.code,
+                KeyCode::Left
+                    | KeyCode::Right
+                    | KeyCode::Backspace
+                    | KeyCode::Delete
+                    | KeyCode::PageUp
+                    | KeyCode::PageDown
+            )
+        {
+            return true;
+        }
+        if !matches!(key.code, KeyCode::PageUp | KeyCode::PageDown) {
+            self.scroll = 0;
+        }
+        let fields = self.connection_fields();
+        let field = fields[self.connection.as_ref().expect("private editor").field];
+        match key.code {
+            KeyCode::Tab | KeyCode::BackTab | KeyCode::Up | KeyCode::Down => {
+                let backwards = matches!(key.code, KeyCode::BackTab | KeyCode::Up);
+                let editor = self.connection.as_mut().expect("private editor");
+                editor.field =
+                    (editor.field + if backwards { fields.len() - 1 } else { 1 }) % fields.len();
+                let cursor = self.connection_text().map_or(0, |text| text.len());
+                self.connection.as_mut().expect("private editor").cursor = cursor;
+            }
+            KeyCode::Char(' ') | KeyCode::Enter
+                if matches!(
+                    field,
+                    ConnectionField::Protocol | ConnectionField::Keyless | ConnectionField::Storage
+                ) =>
+            {
+                let editor = self.connection.as_mut().expect("private editor");
+                match field {
+                    ConnectionField::Protocol => editor.form.responses = !editor.form.responses,
+                    ConnectionField::Keyless => editor.form.keyless = !editor.form.keyless,
+                    ConnectionField::Storage => editor.form.persist = !editor.form.persist,
+                    _ => {}
+                }
+                editor.visible = false;
+            }
+            KeyCode::Enter if field == ConnectionField::Save => self.save_connection(true),
+            KeyCode::Enter
+                if matches!(field, ConnectionField::Browser | ConnectionField::Device) =>
+            {
+                let method = if field == ConnectionField::Browser {
+                    crate::providers::auth::Method::CodexBrowser
+                } else {
+                    crate::providers::auth::Method::CodexDevice
+                };
+                self.connection = None;
+                self.prepare_auth_for(Agent::Codex.index(), Some(method));
+            }
+            KeyCode::Enter if field == ConnectionField::LoadCli => {
+                let editor = self.connection.as_mut().expect("private editor");
+                match crate::providers::direct::config::load_cli_credential(&mut editor.form) {
+                    Ok(()) => {
+                        editor.field = 0;
+                        editor.cursor = editor.form.credential.len();
+                        editor.visible = false;
+                        self.notice = "CLI token loaded into masked draft only. Save explicitly selects it; no request or persistence yet.".into();
+                    }
+                    Err(reason) => self.notice = reason,
+                }
+            }
+            KeyCode::Enter if field == ConnectionField::Forget => {
+                let Some(agent) = Agent::from_index(self.selected) else {
+                    return true;
+                };
+                match crate::providers::direct::config::prepare_forget(agent) {
+                    Ok(plan) => {
+                        self.forget_preview = Some(plan);
+                        self.reviewed = false;
+                        self.affirmative = false;
+                        self.notice = "Review exact local deletion. Back is selected; nothing removed or sent.".into();
+                    }
+                    Err(reason) => self.notice = reason,
+                }
+            }
+            KeyCode::Enter => {
+                let editor = self.connection.as_mut().expect("private editor");
+                editor.field = (editor.field + 1) % fields.len();
+                let cursor = self.connection_text().map_or(0, |text| text.len());
+                self.connection.as_mut().expect("private editor").cursor = cursor;
+            }
+            KeyCode::Char(c) => self.insert_connection(&c.to_string()),
+            KeyCode::Left
+            | KeyCode::Right
+            | KeyCode::Home
+            | KeyCode::End
+            | KeyCode::Backspace
+            | KeyCode::Delete => {
+                let cursor = self.connection.as_ref().expect("private editor").cursor;
+                if let Some(text) = self.connection_text() {
+                    let cursor = cursor.min(text.len());
+                    let previous = text[..cursor]
+                        .char_indices()
+                        .next_back()
+                        .map_or(0, |(index, _)| index);
+                    let next = text[cursor..]
+                        .chars()
+                        .next()
+                        .map_or(cursor, |c| cursor + c.len_utf8());
+                    let position = match key.code {
+                        KeyCode::Home => 0,
+                        KeyCode::End => text.len(),
+                        KeyCode::Left => previous,
+                        KeyCode::Right => next,
+                        KeyCode::Backspace => {
+                            text.replace_range(previous..cursor, "");
+                            previous
+                        }
+                        KeyCode::Delete => {
+                            text.replace_range(cursor..next, "");
+                            cursor
+                        }
+                        _ => cursor,
+                    };
+                    let editor = self.connection.as_mut().expect("private editor");
+                    editor.cursor = position;
+                    editor.visible = false;
+                }
+            }
+            KeyCode::PageUp | KeyCode::PageDown => self.scroll_key(key.code),
+            _ => {}
+        }
+        true
     }
 
     pub fn connection_status(&self, index: usize) -> &'static str {
@@ -299,11 +774,15 @@ impl State {
     }
 
     fn prepare_auth(&mut self, method: Option<crate::providers::auth::Method>) {
+        self.prepare_auth_for(self.selected, method);
+    }
+
+    fn prepare_auth_for(&mut self, profile: usize, method: Option<crate::providers::auth::Method>) {
         if let Some(method) = method {
             self.generation += 1;
-            self.auth_preparing = Some((self.selected, self.generation));
+            self.auth_preparing = Some((profile, self.generation));
             self.pending = Some(Request::PrepareAuth {
-                profile: self.selected,
+                profile,
                 generation: self.generation,
                 method,
             });
@@ -323,12 +802,22 @@ impl State {
                 if let Some(agent) =
                     Agent::from_index(self.selected).filter(|agent| agent.is_direct())
                 {
-                    self.notice = crate::providers::direct::config::guidance(agent);
-                    self.page = Page::Diagnostics;
-                    self.scroll = 0;
+                    match crate::providers::direct::config::setup(agent) {
+                        Ok(form) => {
+                            self.connection = Some(ConnectionEditor {
+                                form,
+                                field: 0,
+                                cursor: 0,
+                                visible: false,
+                            });
+                            self.notice = self.connection.as_ref().and_then(|editor| editor.form.source_notice.clone()).unwrap_or_else(|| "Blank key keeps source. Ctrl+U clears a field; Ctrl+S saves locally without model metadata.".into());
+                        }
+                        Err(reason) => self.notice = reason,
+                    }
                     return;
                 }
                 if !self.connectable(self.selected) {
+                    self.page = Page::Actions;
                     self.notice = self.setup_hint();
                 } else if crate::providers::auth::methods(self.selected).len() > 1 {
                     self.page = Page::Methods;
@@ -373,13 +862,15 @@ impl State {
                 if let Some(alternate) = self.alternate_codex() {
                     self.selected = alternate;
                     self.method = crate::providers::auth::default_method(alternate);
-                    // The app's normal explicit provider switch owns persistence
-                    // and any session/handoff boundary; never transfer state here.
-                    self.use_for_task = Some(alternate);
+                    // Changing setup route does not select a task provider.
+                    self.activate(Action::Connect);
                     self.action = self.default_action();
                 }
             }
-            Action::UseForTask => self.use_for_task = Some(self.selected),
+            Action::UseForTask => {
+                self.use_for_task = Some(self.selected);
+                self.pick = Some("model");
+            }
             Action::Model => self.pick = Some("model"),
             Action::Effort => self.pick = Some("effort"),
         }
@@ -387,11 +878,17 @@ impl State {
 
     pub fn auth_returned(&mut self, profile: usize, outcome: crate::providers::auth::Outcome) {
         self.notice = outcome.label().into();
+        if profile == Agent::Codex.index() && self.selected == Agent::ChatGPT.index() {
+            self.notice = format!(
+                "{} Any own token override stays until Load CLI token then Save; keychain-only auth is unreadable.",
+                outcome.label()
+            );
+        }
         if let Some(current) = self.outcomes.get_mut(profile) {
             *current = Some(outcome);
         }
         if let Some(profile) = self.profiles.get_mut(profile) {
-            profile.authentication = self.notice.clone();
+            profile.authentication = outcome.label().into();
         }
         if outcome == crate::providers::auth::Outcome::Authenticated && profile == self.selected {
             self.page = Page::Actions;
@@ -421,6 +918,9 @@ impl State {
                 self.discovering = false;
                 self.notice =
                     "Enter chooses a ready provider; Right opens Actions and setup.".into();
+                if let Some(agent) = self.deferred_connection.take() {
+                    self.begin_connection(agent);
+                }
             }
             Event::Probed {
                 profile,
@@ -457,6 +957,8 @@ impl State {
     }
 
     pub fn cancel_preview(&mut self) {
+        self.connection = None;
+        self.forget_preview = None;
         self.preview = false;
         self.auth_preview = None;
         self.pending_auth = None;
@@ -470,11 +972,21 @@ impl State {
         self.scroll_max = 0;
         self.auth_details = false;
         self.review_choice = 0;
+        self.page = Page::Providers;
+    }
+
+    fn cancel_auth_review(&mut self) {
+        let page = self.page;
+        self.cancel_preview();
+        self.page = page;
+        self.notice = "Connection review cancelled; no provider program launched.".into();
     }
 
     pub fn command_choices(&self) -> Vec<super::commands::Choice> {
         use super::commands::Choice;
-        let blocked = if self.preview || self.auth_preview.is_some() {
+        let blocked = if self.connection_editing() {
+            Some("Finish or cancel the private native setup first.")
+        } else if self.preview || self.auth_preview.is_some() {
             Some("Finish or cancel the current consent review first.")
         } else if self.busy() {
             Some("A provider operation is pending.")
@@ -498,7 +1010,7 @@ impl State {
         };
         vec![
             choice(
-                "connect",
+                "connection-setup",
                 "Set up selected connection",
                 blocked.or(missing).or_else(|| {
                     if Agent::from_index(self.selected).is_some_and(Agent::is_direct) {
@@ -584,11 +1096,11 @@ impl State {
             self.scroll = 0;
             return true;
         }
-        if self.preview || self.auth_preview.is_some() || self.busy() {
+        if self.connection_editing() || self.preview || self.auth_preview.is_some() || self.busy() {
             return false;
         }
         match name {
-            "connect" => self.activate(Action::Connect),
+            "connection-setup" => self.activate(Action::Connect),
             "connect-method" => self.prepare_auth(
                 crate::providers::auth::methods(self.selected)
                     .get(self.method)
@@ -616,6 +1128,9 @@ impl State {
     }
 
     pub fn key(&mut self, mut key: KeyEvent, large_enough: bool) -> bool {
+        if self.connection_editing() {
+            return self.connection_key(key, large_enough);
+        }
         if key.kind == KeyEventKind::Release
             || key
                 .modifiers
@@ -637,13 +1152,13 @@ impl State {
             return false;
         }
         if key.code == KeyCode::Esc {
-            if self.preview || self.auth_preview.is_some() || self.auth_busy() {
+            if self.auth_preview.is_some() || self.auth_busy() {
+                self.cancel_auth_review();
+            } else if self.preview {
                 self.cancel_preview();
             } else {
-                self.page = match self.page {
-                    Page::Methods | Page::Diagnostics => Page::Actions,
-                    _ => Page::Providers,
-                };
+                self.page = Page::Providers;
+                self.search.clear();
             }
             self.scroll = 0;
             return true;
@@ -681,7 +1196,11 @@ impl State {
                         self.review_choice = 0;
                         self.scroll = 0;
                     } else if !self.affirmative {
-                        self.cancel_preview();
+                        if self.auth_preview.is_some() {
+                            self.cancel_auth_review();
+                        } else {
+                            self.cancel_preview();
+                        }
                     } else if self.reviewed && !self.busy() {
                         if self.auth_preview.is_some() {
                             self.pending_auth = self.auth_preview.take();
@@ -733,6 +1252,8 @@ impl State {
         }
         match key.code {
             KeyCode::Enter if !self.busy() => match self.page {
+                Page::Providers if !self.provider_indices().any(|index| index == self.selected) => {
+                }
                 Page::Providers => {
                     if self.ready_for_task() {
                         self.activate(if self.selected == self.active {
@@ -741,8 +1262,7 @@ impl State {
                             Action::UseForTask
                         });
                     } else {
-                        self.page = Page::Actions;
-                        self.action = self.default_action();
+                        self.activate(Action::Connect);
                     }
                 }
                 Page::Actions => self.activate(self.actions()[self.action]),
@@ -801,6 +1321,26 @@ impl State {
                     (*selected + 1) % count
                 };
                 self.scroll = 0;
+            }
+            KeyCode::Char(c)
+                if self.page == Page::Providers && !c.is_control() && self.search.len() < 128 =>
+            {
+                self.search.push(c);
+                if !self.provider_indices().any(|index| index == self.selected)
+                    && let Some(index) = self.provider_indices().next()
+                {
+                    self.selected = index;
+                    self.method = crate::providers::auth::default_method(index);
+                }
+            }
+            KeyCode::Backspace if self.page == Page::Providers => {
+                self.search.pop();
+                if !self.provider_indices().any(|index| index == self.selected)
+                    && let Some(index) = self.provider_indices().next()
+                {
+                    self.selected = index;
+                    self.method = crate::providers::auth::default_method(index);
+                }
             }
             KeyCode::Up
             | KeyCode::Down
@@ -959,35 +1499,26 @@ mod tests {
     }
 
     #[test]
-    fn provider_and_method_navigation_is_passive() {
+    fn provider_enter_opens_method_choice_without_optional_action_page() {
         let mut state = discovered();
         press(&mut state, KeyCode::Down);
         assert_eq!(state.selected, 1);
         press(&mut state, KeyCode::Up);
-        press(&mut state, KeyCode::Enter);
-        assert_eq!(state.page, Page::Actions);
-        assert!(state.pending.is_none());
         press(&mut state, KeyCode::Enter);
         assert_eq!(state.page, Page::Methods);
         assert!(state.pending.is_none());
         press(&mut state, KeyCode::Down);
         let expected = crate::providers::auth::methods(0)[state.method];
         press(&mut state, KeyCode::Enter);
-        assert!(matches!(
-            state.pending,
-            Some(Request::PrepareAuth {
-                profile: 0,
-                method,
-                ..
-            }) if method == expected
-        ));
+        assert!(
+            matches!(state.pending, Some(Request::PrepareAuth { profile: 0, method, .. }) if method == expected)
+        );
         assert!(state.pending_auth.is_none());
         press(&mut state, KeyCode::Esc);
         assert!(!state.auth_busy());
         press(&mut state, KeyCode::Esc);
-        assert_eq!(state.page, Page::Actions);
-        press(&mut state, KeyCode::Esc);
         assert!(state.at_root());
+        assert!(state.use_for_task.is_none());
     }
 
     #[test]
@@ -1107,6 +1638,114 @@ mod tests {
     }
 
     #[test]
+    fn cancelled_auth_preparation_and_neutral_back_allow_fresh_worker_reviews() {
+        use crate::app::{App, Overlay, StorageState};
+        use crossterm::event::Event as InputEvent;
+
+        let worker = crate::providers::agent::Worker::start(std::env::temp_dir()).unwrap();
+        let receive = || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                if let Some(event) = worker.try_event() {
+                    break event;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "auth preparation did not finish"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        };
+        let mut app = App::new("/workspace".into(), 60, 18);
+        app.storage = StorageState::Saved;
+        app.overlay = Some(Overlay::Agents);
+        app.input = "retained request".into();
+        app.cursor = 8;
+        app.agents = discovered();
+        app.agents.selected = Agent::Devin.index();
+        app.agents.method = 0;
+        app.agents.page = Page::Methods;
+        let enter = InputEvent::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        app.update(enter.clone());
+        let mut cancelled = app.agents.pending.take();
+        assert!(matches!(
+            cancelled,
+            Some(Request::PrepareAuth { generation: 1, .. })
+        ));
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.agents.page, Page::Methods);
+        app.update(enter.clone());
+        assert!(matches!(
+            app.agents.pending,
+            Some(Request::PrepareAuth { generation: 2, .. })
+        ));
+
+        // Use real passive preparation, not a synthetic completion or a login.
+        assert!(worker.try_request(&mut cancelled));
+        let stale = receive();
+        assert!(matches!(stale, Event::AuthPrepared { generation: 1, .. }));
+        app.agent_event(stale);
+        assert!(app.agents.auth_busy() && app.agents.auth_preview.is_none());
+        assert!(worker.try_request(&mut app.agents.pending));
+        let current = receive();
+        assert!(matches!(current, Event::AuthPrepared { generation: 2, .. }));
+        app.agent_event(current);
+        let plan = app
+            .agents
+            .auth_preview
+            .as_ref()
+            .expect("second generation review");
+        assert_eq!(
+            (plan.profile, plan.method),
+            (
+                Agent::Devin.index(),
+                crate::providers::auth::Method::DevinWeb
+            )
+        );
+        assert!(app.agents.pending_auth.is_none());
+
+        app.update(enter.clone());
+        assert_eq!(app.agents.page, Page::Methods);
+        assert!(!app.agents.auth_busy() && app.agents.auth_preview.is_none());
+        assert!(app.agents.pending.is_none() && app.agents.pending_auth.is_none());
+        app.update(enter.clone());
+        assert!(matches!(
+            app.agents.pending,
+            Some(Request::PrepareAuth { generation: 3, .. })
+        ));
+        assert!(worker.try_request(&mut app.agents.pending));
+        let next = receive();
+        assert!(matches!(next, Event::AuthPrepared { generation: 3, .. }));
+        app.agent_event(next);
+        assert!(app.agents.auth_preview.is_some());
+        assert!(app.agents.pending_auth.is_none());
+        assert_eq!((&*app.input, app.cursor), ("retained request", 8));
+        assert!(app.planning.pending.is_none());
+        app.agents.reviewed = true;
+        app.update(InputEvent::Key(KeyEvent::new(
+            KeyCode::Tab,
+            KeyModifiers::NONE,
+        )));
+        app.update(enter);
+        let approved = app
+            .agents
+            .pending_auth
+            .as_ref()
+            .expect("explicit approval only");
+        assert_eq!(
+            (approved.profile, approved.method),
+            (
+                Agent::Devin.index(),
+                crate::providers::auth::Method::DevinWeb
+            )
+        );
+        assert!(app.agents.pending.is_none() && app.planning.pending.is_none());
+    }
+
+    #[test]
     fn undersized_commands_and_repeated_navigation_never_prepare_or_change_method() {
         let mut state = discovered();
         for name in ["connect-method", "status", "method-next"] {
@@ -1136,7 +1775,6 @@ mod tests {
         press(&mut state, KeyCode::Up);
         assert_eq!(state.method, crate::providers::auth::default_method(1));
         press(&mut state, KeyCode::Enter);
-        press(&mut state, KeyCode::Enter);
         assert_eq!(state.page, Page::Methods);
         assert!(state.pending.is_none());
         state.command("connect-method", true);
@@ -1164,10 +1802,8 @@ mod tests {
         assert_eq!(state.connection_status(0), "Not connected");
         press(&mut state, KeyCode::Esc);
         assert!(state.at_root());
-        press(&mut state, KeyCode::Enter);
-        press(&mut state, KeyCode::Down);
         assert!(state.pending.is_none());
-        press(&mut state, KeyCode::Enter);
+        state.command("status", true);
         assert_eq!(state.connection_status(0), "Checking");
         assert!(matches!(
             state.pending,
@@ -1182,28 +1818,20 @@ mod tests {
     }
 
     #[test]
-    fn hub_suggests_next_step_and_requests_local_pickers_only() {
+    fn ready_selection_switches_explicit_route_and_requests_model_picker_together() {
         let mut state = discovered();
         state.active = 0;
-        press(&mut state, KeyCode::Down);
+        state.selected = 1;
+        state.outcomes[1] = Some(crate::providers::auth::Outcome::Authenticated);
         press(&mut state, KeyCode::Enter);
-        assert_eq!(state.actions()[state.action], Action::Connect);
-        assert!(!state.actions().contains(&Action::Model));
-        state.auth_returned(1, crate::providers::auth::Outcome::Authenticated);
-        assert_eq!(state.page, Page::Actions);
-        assert_eq!(state.actions()[state.action], Action::UseForTask);
-        press(&mut state, KeyCode::Enter);
-        assert_eq!(state.use_for_task, Some(1));
+        assert_eq!(state.use_for_task.take(), Some(1));
+        assert_eq!(state.pick.take(), Some("model"));
+        assert_eq!(state.active, 0);
         assert!(state.pending.is_none() && state.pending_auth.is_none());
-
         state.active = 1;
-        state.use_for_task = None;
-        press(&mut state, KeyCode::Esc);
         press(&mut state, KeyCode::Enter);
-        assert_eq!(state.actions()[state.action], Action::Model);
-        press(&mut state, KeyCode::Enter);
-        assert_eq!(state.pick, Some("model"));
-        assert!(state.pending.is_none() && state.pending_auth.is_none());
+        assert_eq!(state.pick.take(), Some("model"));
+        assert!(state.use_for_task.is_none());
     }
 
     #[test]
@@ -1247,56 +1875,280 @@ mod tests {
     }
 
     #[test]
-    fn codex_has_one_public_row_and_native_route_is_not_a_second_provider() {
+    fn all_ten_routes_are_distinct_and_search_never_switches_the_task() {
         let mut state = discovered();
         state.profiles = Agent::ALL.iter().map(|_| profile()).collect();
-        assert_eq!(state.provider_indices().count(), Agent::ALL.len() - 1);
-        assert!(
-            !state
-                .provider_indices()
-                .any(|index| index == Agent::ChatGPT.index())
+        assert_eq!(
+            state.provider_indices().collect::<Vec<_>>(),
+            (0..Agent::ALL.len()).collect::<Vec<_>>()
         );
         state.active = Agent::ChatGPT.index();
         state.focus_active();
         assert_eq!(state.selected, Agent::ChatGPT.index());
+        for c in "openai".chars() {
+            press(&mut state, KeyCode::Char(c));
+        }
         assert_eq!(
-            state.provider_indices().next(),
-            Some(Agent::ChatGPT.index())
+            state.provider_indices().collect::<Vec<_>>(),
+            vec![Agent::OpenAI.index()]
         );
-        press(&mut state, KeyCode::Down);
-        assert_eq!(state.selected, Agent::Claude.index());
-        press(&mut state, KeyCode::Up);
-        assert_eq!(state.selected, Agent::ChatGPT.index());
+        assert_eq!(state.selected, Agent::OpenAI.index());
+        assert_eq!(state.active, Agent::ChatGPT.index());
         assert!(state.pending.is_none() && state.use_for_task.is_none());
+        press(&mut state, KeyCode::Esc);
+        assert!(state.search.is_empty());
     }
 
     #[test]
-    fn native_method_without_cli_uses_explicit_provider_switch_hook_only() {
+    fn missing_cli_never_silently_selects_native_or_launches() {
         let mut state = discovered();
         state.profiles = Agent::ALL.iter().map(|_| profile()).collect();
         state.profiles[Agent::Codex.index()].executable = None;
         state.active = Agent::Codex.index();
+        state.begin_connection(Agent::Codex);
+        assert_eq!(state.selected, Agent::Codex.index());
+        assert_eq!(
+            state.connection_status(Agent::Codex.index()),
+            "Not installed"
+        );
+        assert!(state.use_for_task.is_none() && state.pending.is_none());
+        assert_eq!(state.active, Agent::Codex.index());
+    }
+
+    fn private_editor(agent: Agent) -> State {
+        let mut state = discovered();
+        state.profiles = Agent::ALL.iter().map(|_| profile()).collect();
+        state.selected = agent.index();
+        state.connection = Some(ConnectionEditor {
+            form: crate::providers::direct::config::Setup {
+                credential: String::new(),
+                base_url: "https://api.example/v1".into(),
+                model: String::new(),
+                effort: None,
+                effort_model: None,
+                account_id: String::new(),
+                responses: false,
+                keyless: false,
+                persist: false,
+                source_notice: None,
+            },
+            field: 0,
+            cursor: 0,
+            visible: false,
+        });
+        state
+    }
+
+    #[test]
+    fn private_paste_and_shortcuts_cannot_enter_request_or_commands() {
+        let mut state = private_editor(Agent::Compatible);
+        assert!(state.connection_editing());
+        assert!(state.paste_connection("private-sentinel\r\n"));
+        assert_eq!(
+            state.connection.as_ref().unwrap().form.credential,
+            "private-sentinel"
+        );
+        assert!(!state.notice.contains("private-sentinel"));
+        state.key(
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL),
+            true,
+        );
+        assert_eq!(
+            state.connection.as_ref().unwrap().form.credential,
+            "private-sentinel"
+        );
+        assert!(!state.command("version", true));
+        assert!(state.pending.is_none());
+        state.connection.as_mut().unwrap().field = 6;
+        assert!(state.paste_connection("must-not-enter-another-editor"));
+        press(&mut state, KeyCode::Esc);
+        assert!(!state.connection_editing());
+        assert!(!state.paste_connection("not-owned"));
+        assert!(state.take_connection_change().is_none());
+    }
+
+    #[test]
+    fn private_setup_bounds_and_resize_cannot_save_or_change_source() {
+        let mut state = private_editor(Agent::Compatible);
+        assert!(state.paste_connection("first\nsecond"));
+        assert!(
+            state
+                .connection
+                .as_ref()
+                .unwrap()
+                .form
+                .credential
+                .is_empty()
+        );
+        state.connection.as_mut().unwrap().field = 1;
+        assert!(state.paste_connection(&"x".repeat(2049)));
+        assert_eq!(
+            state.connection.as_ref().unwrap().form.base_url,
+            "https://api.example/v1"
+        );
+        state.connection.as_mut().unwrap().field = 6;
         press(&mut state, KeyCode::Enter);
-        assert_eq!(state.actions()[state.action], Action::ConnectionMethod);
+        assert!(state.connection_editing());
+        state.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), false);
+        assert!(state.take_connection_change().is_none());
+        assert!(state.pending.is_none() && state.pending_auth.is_none());
+    }
+
+    #[test]
+    fn native_browser_choice_only_prepares_reviewed_official_cli_login() {
+        let mut state = private_editor(Agent::ChatGPT);
+        state.connection.as_mut().unwrap().field = 5;
         press(&mut state, KeyCode::Enter);
+        assert!(!state.connection_editing());
         assert_eq!(state.selected, Agent::ChatGPT.index());
-        assert_eq!(state.use_for_task.take(), Some(Agent::ChatGPT.index()));
-        assert_eq!(
-            state.active,
-            Agent::Codex.index(),
-            "only app may change task ownership"
-        );
-        assert!(state.connectable(Agent::ChatGPT.index()));
-        assert!(!state.actions().contains(&Action::Version));
-        assert!(!state.actions().contains(&Action::Status));
+        assert!(state.use_for_task.is_none() && state.pending_auth.is_none());
+        assert!(matches!(
+            state.pending,
+            Some(Request::PrepareAuth {
+                profile: 0,
+                method: crate::providers::auth::Method::CodexBrowser,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn status_return_is_not_a_configuration_mutation() {
+        let mut state = discovered();
+        state.auth_returned(0, crate::providers::auth::Outcome::Authenticated);
+        assert!(state.take_connection_change().is_none());
+    }
+
+    #[test]
+    fn shallow_form_edits_protocol_keyless_storage_and_model_without_network() {
+        let mut state = private_editor(Agent::Compatible);
+        state.connection.as_mut().unwrap().field = 2;
+        assert!(state.paste_connection("explicit-model"));
+        for field in [3, 4, 5] {
+            state.connection.as_mut().unwrap().field = field;
+            press(&mut state, KeyCode::Enter);
+        }
+        let form = &state.connection.as_ref().unwrap().form;
+        assert_eq!(form.model, "explicit-model");
+        assert!(form.responses && form.keyless && form.persist);
         assert!(state.pending.is_none() && state.pending_auth.is_none());
-        assert!(state.command("connection-method", true));
-        assert_eq!(state.use_for_task, Some(Agent::Codex.index()));
-        assert!(state.pending.is_none() && state.pending_auth.is_none());
-        assert_eq!(Agent::from_command("provider-codex"), Some(Agent::Codex));
-        assert_eq!(
-            Agent::from_command("provider-chatgpt"),
-            Some(Agent::ChatGPT)
+        assert!(state.take_connection_change().is_none());
+        assert!(state.use_for_task.is_none() && state.pick.is_none());
+    }
+
+    #[test]
+    fn pending_task_save_preserves_private_edits_but_blocks_connection_mutation() {
+        use crate::app::{App, Overlay, StorageState};
+        use crossterm::event::Event as InputEvent;
+
+        for (width, height) in [(60, 18), (120, 36)] {
+            let mut app = App::new("/workspace".into(), width, height);
+            app.storage = StorageState::Saving;
+            app.revision = 2;
+            app.saved_revision = 1;
+            app.save_requested = true;
+            app.overlay = Some(Overlay::Agents);
+            app.input = "untouched request".into();
+            app.cursor = 4;
+            app.agents = private_editor(Agent::Compatible);
+            app.update(InputEvent::Paste("private-sentinel".into()));
+            for code in [KeyCode::Left, KeyCode::Right, KeyCode::Tab] {
+                app.update(InputEvent::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+            }
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Char('u'),
+                KeyModifiers::CONTROL,
+            )));
+            app.update(InputEvent::Paste("https://private.example/v1".into()));
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Tab,
+                KeyModifiers::NONE,
+            )));
+            app.update(InputEvent::Paste("explicit-model".into()));
+            for _ in 0..4 {
+                app.update(InputEvent::Key(KeyEvent::new(
+                    KeyCode::Tab,
+                    KeyModifiers::NONE,
+                )));
+            }
+            let editor = app.agents.connection.as_mut().unwrap();
+            assert_eq!(editor.field, 6);
+            assert_eq!(editor.form.credential, "private-sentinel");
+            assert_eq!(editor.form.base_url, "https://private.example/v1");
+            assert_eq!(editor.form.model, "explicit-model");
+            editor.visible = true;
+            for key in [
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+            ] {
+                assert!(app.agents.connection_needs_idle(&key));
+                app.update(InputEvent::Key(key));
+                assert!(app.agents.connection_editing());
+                assert!(app.agents.take_connection_change().is_none());
+                assert!(app.agents.use_for_task.is_none() && app.agents.pick.is_none());
+            }
+            assert_eq!((&*app.input, app.cursor), ("untouched request", 4));
+            assert!(app.agents.search.is_empty() && app.command_popup.is_none());
+            assert!(app.agents.pending.is_none() && app.agents.pending_auth.is_none());
+            app.update(InputEvent::Key(KeyEvent::new(
+                KeyCode::Esc,
+                KeyModifiers::NONE,
+            )));
+            assert!(!app.agents.connection_editing());
+            assert!(app.agents.take_connection_change().is_none());
+        }
+    }
+
+    #[test]
+    fn private_idle_admission_classifies_only_deliberate_save_keys() {
+        let mut state = private_editor(Agent::Compatible);
+        for (field, _) in state.connection_fields().iter().enumerate() {
+            state.connection.as_mut().unwrap().field = field;
+            for kind in [
+                KeyEventKind::Press,
+                KeyEventKind::Repeat,
+                KeyEventKind::Release,
+            ] {
+                for code in [
+                    KeyCode::Enter,
+                    KeyCode::Tab,
+                    KeyCode::Esc,
+                    KeyCode::Char('x'),
+                ] {
+                    let key = KeyEvent::new_with_kind(code, KeyModifiers::NONE, kind);
+                    assert_eq!(
+                        state.connection_needs_idle(&key),
+                        field == 6 && kind == KeyEventKind::Press && code == KeyCode::Enter
+                    );
+                }
+                let save = KeyEvent::new_with_kind(KeyCode::Char('s'), KeyModifiers::CONTROL, kind);
+                assert_eq!(
+                    state.connection_needs_idle(&save),
+                    kind == KeyEventKind::Press
+                );
+            }
+        }
+        assert!(!state.connection_needs_idle(&KeyEvent::new(
+            KeyCode::Char('s'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT
+        )));
+        press(&mut state, KeyCode::Esc);
+        assert!(
+            !state.connection_needs_idle(&KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL))
         );
+    }
+
+    #[test]
+    fn save_only_shortcut_still_requires_visible_scope_and_never_repeats() {
+        let mut state = private_editor(Agent::Compatible);
+        for kind in [KeyEventKind::Press, KeyEventKind::Repeat] {
+            state.key(
+                KeyEvent::new_with_kind(KeyCode::Char('s'), KeyModifiers::CONTROL, kind),
+                true,
+            );
+        }
+        assert!(state.connection_editing());
+        assert!(state.use_for_task.is_none() && state.pick.is_none());
+        assert!(state.take_connection_change().is_none());
     }
 }

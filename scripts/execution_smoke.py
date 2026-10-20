@@ -262,7 +262,6 @@ def main():
                                               for entry in lead_drafts(task(task_id))), "command draft was not saved")
                 else:
                     until(session, lambda: task(task_id)["command"] == value, "command was not saved before approval")
-                    wait_for(session, "Approval pending", timeout=35)
 
             def approve(session):
                 session.command("approvals")
@@ -306,15 +305,15 @@ def main():
             first.send("\x13")
             retained_goal = "execution task A retained draft 漢字"
             until(first, lambda: any(entry["text"] == retained_goal for entry in lead_drafts(task(task_a))), "goal draft save")
-            open_execution(first)
+            first.command("jolteon")
             denied = root / "denied.json"
             denied_command = command("once", denied)
             edit_command(first, task_a, denied_command, draft=True)
             assert task(task_a)["command"] == "" and not rows()["runs"] and not denied.exists()
             first.command("command-edit")
             first.send("\r")
-            wait_for(first, "Approval pending", timeout=35)
-            first.command("run")
+            until(first, lambda: task(task_a)["command"] == denied_command, "applied command did not commit before review")
+            first.command("execute")
             wait_for(first, REVIEW)
             first.capture("neutral-approval")
             first.send("\r")
@@ -346,7 +345,7 @@ def main():
             assert not shell_marker.exists() and not denied.exists()
             first.send(HOME)
             wait_for(first, "Follow paused")
-            first.command("search")
+            first.command("output-search")
             first.send("needle")
             search_surface = first.display()
             first.send("\x0b")
@@ -376,7 +375,7 @@ def main():
             passed("direct-literal-cjk-metachar-argv-search-next-previous-pause-follow-and-real-output")
 
             switch(first, 1, task_b)
-            open_execution(first)
+            first.command("jolteon")
             other_marker = root / "other.json"
             edit_command(first, task_b, command("once", other_marker, "independent task evidence"))
             approve(first)
@@ -390,7 +389,7 @@ def main():
             assert literal_marker.read_bytes() == marker_before and len(rows()["runs"]) == 2
             open_execution(resumed)
             wait_for(resumed, IDLE)
-            resumed.command("history")
+            resumed.command("runs")
             wait_for(resumed, "Succeeded")
             resumed.send("\r")
             wait_for(resumed, "Retained bytes")
@@ -416,7 +415,7 @@ def main():
             switch(resumed, 1, task_b)
             other_spool.unlink()
             open_execution(resumed)
-            resumed.command("history")
+            resumed.command("runs")
             wait_for(resumed, "Output unavailable")
             resumed.send("\r")
             wait_for(resumed, "Output unavailable (purged, missing, or replaced)")
@@ -424,7 +423,7 @@ def main():
             resumed.capture("missing-output-unavailable")
             passed("missing-spool-is-unavailable-not-empty-success-or-automatic-retry")
             switch(resumed, 0, task_a)
-            open_execution(resumed)
+            resumed.command("jolteon")
 
             def start_tree(session, name, count):
                 location = root / name
@@ -479,7 +478,7 @@ def main():
             assert any(entry["text"] == retained_goal for entry in lead_drafts(task(task_a)))
             passed("task-switch-neutral-stay-then-cancel-wait-retains-owning-task-drafts")
             switch(resumed, 0, task_a)
-            open_execution(resumed)
+            resumed.command("jolteon")
             owned, quit_command = start_tree(resumed, "quit tree", 5)
             resumed.command("quit")
             wait_for(resumed, "ALL owned work")

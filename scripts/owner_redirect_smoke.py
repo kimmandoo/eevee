@@ -67,6 +67,12 @@ def main():
                         task[field] = json.loads(task[field])
                     return task, partners, runs, journals
 
+                def captured_source():
+                    with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)) as connection:
+                        return any(record["path"] == "note.txt" and record["text"].encode() == original
+                                   for row in connection.execute("SELECT record FROM excerpts")
+                                   for record in [json.loads(row[0])])
+
                 def until(predicate, why, timeout=20):
                     deadline = time.monotonic() + timeout
                     while not predicate():
@@ -103,8 +109,6 @@ def main():
                     assert source.read_bytes() == original, "redirect wrote source"
 
                 def offer(action, owner):
-                    if action == "command-edit":
-                        session.command("run")
                     session.command(action)
                     wait_for(session, "Switch to " + owner)
                     no_effects()
@@ -129,8 +133,8 @@ def main():
                 session.send("\r")
                 wait_for(session, "Review local capture /")
                 session.command("attach")
-                wait_for(session, "1 task-owned basket references / stored")
-                session.command("close")
+                until(captured_source, "exact owning-role source capture did not commit")
+                back_to_workspace()
                 saved()
                 session.command("party")
                 for count in (2, 3, 4):

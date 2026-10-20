@@ -1281,7 +1281,7 @@ impl State {
                 },
             ),
             choice(
-                "run",
+                "execute",
                 "Review prepared command for one-shot execution",
                 reason.or_else(|| {
                     (self.prepared.is_none() || self.reserving || self.dispatching)
@@ -1298,7 +1298,7 @@ impl State {
                 "Review cancellation of owned work",
                 reason.or_else(|| (!self.busy()).then_some("No owned work is pending.")),
             ),
-            choice("history", "Inspect retained run history", reason),
+            choice("runs", "Inspect retained run history", reason),
             choice(
                 "open",
                 "Open selected retained run",
@@ -1440,7 +1440,7 @@ impl State {
                         "Cancel and wait before editing; the existing command draft remains available.");
                 }
             }
-            "run" => {
+            "execute" => {
                 if self.open_approval() {
                     self.notice =
                         "Review this command's exact immutable request before allowing it once."
@@ -1454,7 +1454,7 @@ impl State {
                 self.affirmative = false;
                 self.detail_scroll = 0;
             }
-            "history" => {
+            "runs" => {
                 self.view = View::History;
                 self.optional(StoreJob::Load(self.task_id));
             }
@@ -1920,7 +1920,7 @@ impl State {
             return "Reserving capture before dispatch".into();
         }
         if self.prepared.is_some() {
-            return "Approval pending (/run reviews; no automatic execution)".into();
+            return "Approval pending (/execute reviews; no automatic execution)".into();
         }
         if self.request_id.is_some() || self.pending_spec.is_some() {
             return "Preparing command/source identities; not executed".into();

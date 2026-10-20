@@ -194,14 +194,15 @@ class Journey:
     def approve_command(self, token, partner=2):
         self.lead(partner)
         self.session.command("jolteon")
-        self.session.command("run")
         self.session.command("command-edit")
         wait_for(self.session, "Command / explicit JSON argv or shell")
         self.session.send(UP * 100 + HOME + DELETE * 4096)
-        self.session.paste(json.dumps([str(Path(sys.executable).resolve()), "-B", str(self.process_script), str(token)]))
+        command = json.dumps([str(Path(sys.executable).resolve()), "-B", str(self.process_script), str(token)])
+        self.session.paste(command)
         self.session.send("\r")
-        wait_for(self.session, "Approval pending", timeout=40)
-        self.session.command("run")
+        self.until(lambda: self.snapshot()[0]["command"] == command and "Storage: saved" in self.session.display(),
+                   "exact owned command did not commit before execution review")
+        self.session.command("execute")
         wait_for(self.session, "Review one-shot execution permission")
         self.session.send(RIGHT + "\r")
         self.until(lambda: token.with_suffix(".started").exists(), "actual owned command did not start")
@@ -460,7 +461,7 @@ def main():
             j.quit()
             j.session = j.launch("restart"); j.sessions.append(j.session)
             assert len(j.snapshot()[1]) == 1 and j.snapshot()[3] == evidence and not j.claims()
-            j.session.command("run"); j.session.command("history")
+            j.session.command("runs")
             wait_for(j.session, "Bolt")
             j.session.capture("released-owner-snapshot-retained")
             j.quit()
@@ -477,7 +478,6 @@ def main():
             j.session.capture("three-independent-owned-commands")
             j.lead(4)
             j.session.command("jolteon")
-            j.session.command("run")
             j.session.command("command-edit")
             wait_for(j.session, "Command / explicit JSON argv or shell")
             j.session.send(UP * 100 + HOME + DELETE * 4096)
@@ -493,7 +493,6 @@ def main():
                                 for row in j.snapshot()[0]["partner_drafts"].get("4", {}).get("drafts", [])),
                     "capacity refusal lost the fourth local command draft")
             fourth_drafts = j.snapshot()[0]["partner_drafts"]["4"]["drafts"]
-            j.session.command("run")
             j.session.command("command-edit")
             wait_for(j.session, "Command / explicit JSON argv or shell")
             assert "local-4" in "".join(line.strip(" |║") for line in j.session.display().splitlines()), "refused local command was not retained in the editor"
@@ -538,7 +537,7 @@ def main():
             j.session.capture("journal-discard-refused-before-terminal")
             j.workspace()
             j.finish(quota_marker)
-            j.session.command("provider")
+            j.session.command("response")
             j.session.command("history")
             j.until(lambda: len(j.snapshot()[4]) == 256 and any(word in j.session.display().lower() for word in ("limit", "full", "failed")), "real journal capacity failure was not visible")
             assert j.claims() == {1}, "unsaved observation silently freed ownership"

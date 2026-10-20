@@ -6,7 +6,9 @@ use ratatui::{
     widgets::{Clear, Paragraph, Wrap},
 };
 
-use super::{Paint, artwork::Artwork, centered, clipped, panel, row, selection_details, text};
+use super::{
+    Paint, artwork::Artwork, centered, clipped, panel, row, selection_details, sheet, text,
+};
 use crate::{app::App, config::Config, store};
 
 /// Extend the factual header without moving the composer or native portrait.
@@ -132,7 +134,7 @@ pub(super) fn sprite_targets(app: &App, area: Rect, targets: &mut Vec<(usize, Re
 }
 
 pub(super) fn board(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
-    let area = centered(area, 106, 26);
+    let area = sheet(area, 106, 26);
     frame.render_widget(Clear, area);
     let block = panel(
         " Party board / working and waiting only ",

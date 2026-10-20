@@ -11,6 +11,7 @@ No OAuth URL, device code or live native transcript is retained; BROWSER=/bin/tr
 """
 import argparse
 from contextlib import closing
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,7 @@ import sqlite3
 import sys
 import tempfile
 import time
+import traceback
 
 from terminal_smoke import Session, confirm_exit, run_owned, terminal_environment
 from workbench_smoke import wait_for
@@ -78,8 +80,11 @@ sys.exit(0)
 '''
 
 
-def fixture_journey(binary, output):
-    results = {'status': 'failed', 'cases': [], 'limits': [
+def fixture_size(binary, output, size, ascii_mode):
+    results = {'status': 'failed', 'cases': [], 'size': list(size),
+               'glyphs': 'ascii' if ascii_mode else 'unicode',
+               'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
+               'limits': [
         'Local POSIX fixture, not provider authentication or WSL host-browser forwarding',
         'No OAuth consent, token exchange, or model request',
     ]}
@@ -92,20 +97,21 @@ def fixture_journey(binary, output):
         executable = tools / 'codex'
         executable.write_text('#!' + sys.executable + '\n' + FIXTURE)
         executable.chmod(0o700)
-        launcher = root / 'controlling_tty.py'
-        launcher.write_text('import fcntl,os,sys,termios\nfcntl.ioctl(0,termios.TIOCSCTTY,0)\nos.execv(sys.argv[1],sys.argv[1:])\n')
         environment = terminal_environment('mono')
         for key in list(environment):
-            if key.startswith(('OPENAI_', 'CODEX_', 'ANTHROPIC_', 'CLAUDE_', 'GEMINI_', 'GOOGLE_', 'AWS_', 'OPENCODE_')):
+            if key.startswith(('EV_', 'OPENAI_', 'CODEX_', 'ANTHROPIC_', 'CLAUDE_', 'GEMINI_', 'GOOGLE_', 'AWS_', 'OPENCODE_')) or key.lower().endswith('_proxy'):
                 environment.pop(key, None)
-        environment.update(HOME=str(home), CODEX_HOME=str(home / '.codex'),
+        environment.update(HOME=str(home), USERPROFILE=str(home), CODEX_HOME=str(home / '.codex'),
+                           GEMINI_CLI_HOME=str(home / '.gemini'),
                            XDG_CONFIG_HOME=str(home / '.config'), XDG_DATA_HOME=str(home / '.local/share'),
-                           XDG_CACHE_HOME=str(home / '.cache'), BROWSER='/bin/true',
+                           XDG_CACHE_HOME=str(home / '.cache'), APPDATA=str(home / '.config'),
+                           LOCALAPPDATA=str(home / '.cache'), BROWSER='/bin/true',
                            EEVEE_AUTH_FIXTURE=str(root), SSH_CONNECTION='fixture remote terminal',
                            EEVEE_AUTH_WSL_FIXTURE='0',
                            PATH=os.pathsep.join([str(tools), environment.get('PATH', '')]))
-        session = Session([sys.executable, str(launcher), str(binary), '--data-dir', str(data),
-                           '--images', 'off', '--color', 'mono'], project, environment, (120, 36), output / 'fixture')
+        session = Session([str(binary), '--data-dir', str(data),
+                           '--images', 'off', '--color', 'mono', *(['--ascii'] if ascii_mode else [])],
+                          project, environment, size, output / 'fixture', controlling_tty=True)
 
         def invocations():
             path = root / 'invocations.jsonl'
@@ -118,10 +124,16 @@ def fixture_journey(binary, output):
             session.send('\r')
             wait_for(session, 'Review connection')
             wait_for(session, label)
-            wait_for(session, 'y Confirm')
+            assert '[Back]' in session.display(), 'connection review does not default to neutral Back'
+            assert request_retained(), 'connection preparation changed the saved unsent Request'
+            session.capture('review-' + label.replace(' ', '-'))
 
         def authorize():
-            session.send('\t\r')
+            before = argv()
+            session.send('\t')
+            assert '[Connect]' in session.display(), 'Tab did not select the visible connection effect'
+            assert argv() == before, 'selecting consent launched a provider before Enter'
+            session.send('\r')
 
         def listener():
             wait_for(session, 'Fixture waiting for terminal input')
@@ -148,17 +160,29 @@ def fixture_journey(binary, output):
                 return
             raise AssertionError('native login process survives return to Eevee')
 
+        retained_request = 'Auth fixture retained request; do not automatically send.'
+
+        def request_retained():
+            with closing(sqlite3.connect(data / 'workbench.sqlite3')) as db:
+                rows = [json.loads(row[0]) for row in db.execute('SELECT partner_drafts FROM tasks')]
+            return any(draft['field'] == 'Request' and draft['text'] == retained_request
+                       for states in rows for state in states.values()
+                       for draft in state.get('drafts', []))
+
         try:
             wait_for(session, 'Storage: saved')
-            session.send('\x1b')
-            session.command('connect')
+            session.capture('initial-admitted-terminal')
+            session.paste(retained_request)
+            session.send('\x13')
+            deadline = time.monotonic() + 8
+            while not request_retained():
+                assert session.alive() and time.monotonic() < deadline, 'auth fixture request was not saved'
+                session.pump(.05)
+            session.command('connect codex')
             wait_for(session, TITLE)
-            session.send('\r')
-            wait_for(session, 'ACTIONS')
-            session.send('\r')
-            wait_for(session, 'CHOOSE SIGN-IN METHOD')
-            wait_for(session, '> ChatGPT / device authorization (default)')
+            session.capture('shallow-methods-before-review')
             preview('device authorization')
+            assert argv() == [], 'preparing a connection review ran a provider without consent'
             session.send('\r')  # Neutral Back; not authorization.
             wait_for(session, TITLE)
             assert argv() == [], 'discovery/review ran a provider without consent'
@@ -171,6 +195,7 @@ def fixture_journey(binary, output):
             preview('browser OAuth')
             authorize()
             value = listener()
+            session.capture('foreground-listener-live')
             for _ in range(3):
                 request(value, '/waiting')
                 session.pump(.2)
@@ -186,23 +211,39 @@ def fixture_journey(binary, output):
             preview('browser OAuth')
             authorize()
             value = listener()
+            session.capture('foreground-listener-before-cancel')
             request(value, '/waiting')
             session.send('\x03')
             wait_for(session, 'Authentication cancelled')
             closed(value)
-            assert argv()[-2:] == [['--version'], ['login']], 'cancel triggered an unapproved operation'
-            wait_for(session, 'localhost connection refused')
+            assert argv() == [['--version'], ['login', '--device-auth'],
+                              ['--version'], ['login'], ['login', 'status'],
+                              ['--version'], ['login']], 'cancel triggered fallback, status refresh or model execution'
+            session.capture('restored-tui-after-cancel')
+            before_recovery = argv()
+            session.send('\x1b[B')  # Select device recovery, not an automatic fallback.
+            preview('device authorization')
+            assert argv() == before_recovery, 'callback recovery launched without effect consent'
+            session.send('\r')  # The alternative review also defaults to Back.
+            wait_for(session, TITLE)
+            assert argv() == before_recovery, 'neutral recovery review launched a provider'
             results['cases'].append('Ctrl+C reaps login/listener, restores TUI and offers callback recovery without retry')
             with closing(sqlite3.connect(data / 'workbench.sqlite3')) as db:
                 assert db.execute('SELECT count(*) FROM provider_journal').fetchone()[0] == 0
                 assert db.execute('SELECT count(*) FROM executions').fetchone()[0] == 0
-            session.send('\x1b')
-            session.send('\x1b')
-            session.send('\x1b')
-            session.command('quit')
+            assert request_retained(), 'authentication changed the exact unsent Request draft'
+            assert not (home / '.codex' / 'auth.json').exists(), 'fixture unexpectedly created provider credentials'
+            assert not (home / '.eevee-connections').exists(), 'CLI auth unexpectedly persisted an app-owned credential'
+            results['cases'].append('authentication preserves exact saved Request and never automatically sends it')
+            session.send('\x03')
+            confirm_exit(session)
             assert session.wait_exit() == 0
             results['cases'].append('no task/model execution; final terminal modes restored')
             results['status'] = 'passed-local-fixture'
+        except BaseException:
+            results['failure'] = traceback.format_exc()
+            session.capture('failure')
+            raise
         finally:
             session.close()
             for entry in invocations():
@@ -213,6 +254,28 @@ def fixture_journey(binary, output):
             (output / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
     for case in results['cases']:
         print('passed:', case, flush=True)
+
+
+def fixture_journey(binary, output):
+    """Both admitted terminal sizes must really launch and cancel a foreground child."""
+    output.mkdir(parents=True, exist_ok=True)
+    results = {'status': 'failed', 'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
+               'variants': [], 'limits': ['Credential-free official-command fixture only; real-account qualification blocked']}
+    failures = []
+    try:
+        for size, ascii_mode in (((120, 36), False), ((60, 18), True)):
+            name = f'{size[0]}x{size[1]}-' + ('ascii' if ascii_mode else 'unicode')
+            try:
+                fixture_size(binary, output / name, size, ascii_mode)
+                results['variants'].append({'name': name, 'status': 'passed'})
+            except BaseException:
+                failure = {'name': name, 'status': 'failed', 'failure': traceback.format_exc()}
+                results['variants'].append(failure)
+                failures.append(failure)
+        assert not failures, 'auth fixture variants failed; see retained per-size results'
+        results['status'] = 'passed-local-fixture-both-sizes'
+    finally:
+        (output / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
 
 
 def wsl_device_journey(binary, output, codex):
@@ -244,8 +307,6 @@ def wsl_device_journey(binary, output, codex):
             + '    log.write(json.dumps({"argv":sys.argv[1:],"pid":os.getpid()})+"\\n")\n'
             + 'os.execv(' + repr(str(executable)) + ',[' + repr(str(executable)) + ']+sys.argv[1:])\n')
         wrapper.chmod(0o700)
-        launcher = root / 'tty.py'
-        launcher.write_text('import fcntl,os,sys,termios\nfcntl.ioctl(0,termios.TIOCSCTTY,0)\nos.execv(sys.argv[1],sys.argv[1:])\n')
         environment = terminal_environment('mono')
         for key in list(environment):
             if key.startswith(('OPENAI_', 'CODEX_', 'ANTHROPIC_', 'CLAUDE_', 'GEMINI_', 'GOOGLE_', 'AWS_', 'OPENCODE_', 'SSH_')):
@@ -254,9 +315,9 @@ def wsl_device_journey(binary, output, codex):
                            XDG_CONFIG_HOME=str(home / '.config'), XDG_DATA_HOME=str(home / '.local/share'),
                            XDG_CACHE_HOME=str(home / '.cache'), BROWSER='/bin/true',
                            PATH=os.pathsep.join([str(tools), environment.get('PATH', '')]))
-        session = Session([sys.executable, str(launcher), str(binary), '--data-dir', str(data),
+        session = Session([str(binary), '--data-dir', str(data),
                            '--images', 'off', '--color', 'mono'], project, environment,
-                          (120, 40), output / 'device')
+                          (120, 40), output / 'device', controlling_tty=True)
 
         def wait_private(predicate, label, timeout=60):
             deadline = time.monotonic() + timeout
@@ -272,22 +333,16 @@ def wsl_device_journey(binary, output, codex):
 
         try:
             visible('Storage: saved')
-            session.send('\x1b')
-            session.command('connect')
+            session.command('connect codex')
             visible(TITLE)
-            session.send('\r')
-            visible('ACTIONS')
-            session.send('\r')
-            visible('CHOOSE SIGN-IN METHOD')
-            visible('> ChatGPT / device authorization (default)')
             session.send('\r')
             visible('Review connection')
             session.send('d')
             visible('["login", "--device-auth"]')
             session.send('d')
-            visible('y Confirm')
             start = len(session.text)
-            session.send('\t\r')
+            session.send('\t')
+            session.send('\r')
             wait_private(lambda: '/codex/device' in session.text[start:],
                          'official device-code authorization prompt')
             assert [entry['argv'] for entry in invocations()] == [
@@ -386,18 +441,16 @@ def main():
         for key in list(environment):
             if key.startswith(('OPENAI_', 'CODEX_API_', 'ANTHROPIC_', 'CLAUDE_CODE_', 'GEMINI_API_', 'GOOGLE_', 'AWS_', 'OPENCODE_')):
                 environment.pop(key, None)
-        # Acquire a controlling TTY for the official auth child's foreground group.
-        launcher = root / 'controlling_tty.py'
-        launcher.write_text('import fcntl,os,sys,termios\nfcntl.ioctl(0,termios.TIOCSCTTY,0)\nos.execv(sys.argv[1],sys.argv[1:])\n')
-        session = Session([sys.executable, str(launcher), str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono'],
-                          project, environment, (120, 36), output / 'journey')
+        # Keep the controlling session alive through the restoration observation.
+        session = Session([str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono'],
+                          project, environment, (120, 36), output / 'journey', controlling_tty=True)
         try:
             wait_for(session, 'Storage: saved')
             session.command('goal')
             session.paste('Keep this local task through authentication cancellation.')
             session.send('\r')
             wait_for(session, 'Storage: saved')
-            session.command('connect')
+            session.command('connect codex')
             wait_for(session, TITLE)
             # Deliberately start the browser route on every host; do not assume
             # the environment-aware default is browser on WSL or SSH.
@@ -411,10 +464,10 @@ def main():
             def preview(command='connect-method'):
                 session.command(command)
                 wait_for(session, 'Review connection', timeout=40)
-                wait_for(session, 'y Confirm')
 
             def authorize():
-                session.send('\t\r')
+                session.send('\t')
+                session.send('\r')
 
             def wait_native(predicate, description, timeout=60):
                 deadline = time.monotonic() + timeout
@@ -453,7 +506,8 @@ def main():
             wait_for(session, TITLE)
             preview()
             session.resize((39, 10))
-            session.send('\t\r')
+            session.send('\t')
+            session.send('\r')
             assert 'Review connection' in session.display() or TITLE in session.display()
             session.resize((120, 36))
             if 'Review connection' in session.display():
@@ -478,17 +532,17 @@ def main():
             cancel_native('codex-device', ('auth.openai.com', 'one-time code', 'device code'))
             session.command('method-next')
 
-            session.send('\x1b[D\x1b[B\x1b[B\r')  # Visible provider list: Codex -> OpenCode.
-            preview()
+            session.command('connect opencode')
+            wait_for(session, 'Review connection', timeout=40)
             cancel_native('opencode-chooser', ('Select provider', 'Select a provider', 'Add credential', 'Log in'))
 
-            session.send('\x1b[D\x1b[B\r')  # Visible provider list: OpenCode -> Gemini.
-            preview()
+            session.command('connect gemini')
+            wait_for(session, 'Review connection', timeout=40)
             cancel_native('gemini-google', ('accounts.google.com', 'Opening authentication page', 'Waiting for authentication'))
 
             if args.ant:
                 console = home / '.config/anthropic'
-                session.send('\x1b[D\x1b[A\x1b[A\r')  # Visible provider list: Gemini -> Claude.
+                session.command('connect claude')
                 preview('status')
                 authorize()
                 wait_native(lambda: 'Provider reports not logged in' in session.display(), 'real ant empty-profile status', 30)

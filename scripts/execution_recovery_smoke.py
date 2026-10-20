@@ -14,7 +14,7 @@ import time
 
 from terminal_smoke import Session, confirm_exit, terminal_environment
 from workbench_smoke import wait_for
-from execution_smoke import HOME, RIGHT, DELETE, TITLE, REVIEW, IDLE, NativeProcess
+from execution_smoke import HOME, RIGHT, DELETE, REVIEW, IDLE, NativeProcess
 
 
 def main():
@@ -85,8 +85,6 @@ def main():
             def prepare(session, value):
                 session.send('\x1b')
                 session.command('jolteon')  # Jolteon owns command preparation.
-                session.command('run')
-                wait_for(session, TITLE)
                 old = task()[0]
                 session.command('command-edit')
                 wait_for(session, 'Command / explicit JSON argv or shell')
@@ -98,8 +96,7 @@ def main():
                 session.paste(value)
                 session.send('\r')
                 until(session, lambda: task()[0] == value, 'command save acknowledgement')
-                wait_for(session, 'Approval pending')
-                session.command('run')
+                session.command('execute')
                 wait_for(session, REVIEW)
                 session.capture('review-' + str(len(rows()) + 1))
                 if not rows():
@@ -149,15 +146,13 @@ def main():
             session.paste('recovery task')
             session.send('\r')
             until(session, lambda: task() is not None and task()[1] == 'recovery task', 'task creation')
-            session.command('run')
-            wait_for(session, TITLE)
             shell = {'shell': os.environ['COMSPEC'], 'dialect': 'cmd', 'text': 'echo shell verified & exit /b 7'} if os.name == 'nt' else {
                 'shell': '/bin/sh', 'dialect': 'posix', 'text': "printf 'shell verified\\n'; exit 7"}
             prepare(session, json.dumps(shell))
             failed, spool = finished(session, 1, 'Failed')
             assert failed['exit_code'] == 7 and b'shell verified' in spool.read_bytes()
             assert failed['prepared']['spec']['Shell']['text'] == shell['text']
-            session.command('history')
+            session.command('runs')
             wait_for(session, 'Failed command')
             passed('explicit-shell-dialect-and-nonzero-exit-remain-failed-evidence')
 
@@ -167,7 +162,7 @@ def main():
             release.touch()
             ambiguous, _ = finished(session, count)
             assert ambiguous['prepared']['before']['fingerprint'] != ambiguous['after']['fingerprint']
-            session.command('history')
+            session.command('runs')
             wait_for(session, 'Ambiguous')
             session.capture('ambiguous-input-change')
             passed('during-run-input-change-is-ambiguous')
@@ -175,7 +170,7 @@ def main():
             stable, _ = finished(session, count + 1)
             assert stable['prepared']['before']['fingerprint'] == stable['after']['fingerprint']
             source.write_bytes(b'changed after command\r\n')
-            session.command('history')
+            session.command('runs')
             session.command('refresh')
             wait_for(session, 'Stale')
             session.capture('stale-after-refresh')
@@ -214,7 +209,6 @@ def main():
             quit_idle(session)
 
             interrupted = launch('interrupted-start')
-            interrupted.command('run')
             count, marker, release, process = waiting(interrupted, 'interrupted')
             wait_for(interrupted, 'WAITING')
             original_pid = marker.read_bytes()
@@ -227,7 +221,7 @@ def main():
             assert not process.alive()
             resumed = launch('interrupted-resume', (60, 18))
             resumed.command('run')
-            resumed.command('history')
+            resumed.command('runs')
             wait_for(resumed, 'Interrupted')
             recovered = rows()[-1][0]
             assert recovered['state'] == 'Interrupted' and recovered['tree'] != 'OwnedTreeExited'

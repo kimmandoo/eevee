@@ -146,8 +146,8 @@ fn run(config: Config) -> io::Result<()> {
             if let Some(plan) = app.agents.pending_auth.take() {
                 if app.overlay != Some(app::Overlay::Agents)
                     || !app.authentication_ready()
-                    || app.width < 80
-                    || app.height < 24
+                    || app.width < 60
+                    || app.height < 18
                 {
                     app.agents
                         .auth_returned(plan.profile, auth::Outcome::Refused);
@@ -405,6 +405,7 @@ fn run(config: Config) -> io::Result<()> {
                 mailbox_pending |= index == 63;
                 outstanding_agents = outstanding_agents.saturating_sub(1);
                 dirty |= app.agent_event(event);
+                dirty |= app.connection_settings_changed();
             }
             // Bound each mailbox drain so a hot producer cannot monopolize the
             // UI thread. Input (including consent and cancellation) comes first;

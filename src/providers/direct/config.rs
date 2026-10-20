@@ -1,7 +1,5 @@
-//! Native connection configuration. Credential material exists only in resolved connections.
+//! Native connection resolution and explicit private credential/configuration setup.
 use std::env;
-#[cfg(not(windows))]
-use std::fs::OpenOptions;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -12,8 +10,15 @@ use sha2::{Digest, Sha256};
 
 use crate::providers::{Agent, agent};
 
+mod owned;
+#[cfg(unix)]
+mod posix;
 #[cfg(windows)]
 mod windows;
+
+pub(crate) use owned::{
+    ForgetPlan, Setup, apply_setup, forget_connection, load_cli_credential, prepare_forget, setup,
+};
 
 const CODEX_BASE: &str = "https://chatgpt.com/backend-api/codex";
 const FILE_LIMIT: u64 = 128 * 1024;
@@ -82,7 +87,10 @@ impl Connection {
                 request = request.header("ChatGPT-Account-Id", private_header(account));
             }
             if let Some(residency) = &self.residency {
-                request = request.header("x-openai-internal-codex-residency", residency);
+                request = request.header(
+                    "x-openai-internal-codex-residency",
+                    private_header(residency),
+                );
             }
         }
         request
@@ -99,6 +107,23 @@ impl Connection {
             self.account_id.as_deref().unwrap_or_default(),
             self.residency.as_deref().unwrap_or_default(),
             self.description.as_str(),
+        ] {
+            digest.update((part.len() as u64).to_le_bytes());
+            digest.update(part.as_bytes());
+        }
+        format!("{:x}", digest.finalize())
+    }
+
+    /// Identity boundary for process-local conversations, independent of model choice.
+    pub fn conversation_scope(&self) -> String {
+        let mut digest = Sha256::new();
+        digest.update(b"eevee/native/conversation/v1");
+        digest.update([self.provider as u8, self.protocol as u8]);
+        for part in [
+            self.base_url.as_str(),
+            self.secret.as_deref().unwrap_or_default(),
+            self.account_id.as_deref().unwrap_or_default(),
+            self.residency.as_deref().unwrap_or_default(),
         ] {
             digest.update((part.len() as u64).to_le_bytes());
             digest.update(part.as_bytes());
@@ -445,6 +470,8 @@ fn validate_base(value: &str) -> Result<String, String> {
     let (scheme, rest) = value.split_once("://").ok_or_else(error)?;
     if !matches!(scheme, "https" | "http")
         || !value.is_ascii()
+        || value.len() > 2048
+        || crate::workspace::privacy::redact(value) != value
         || value
             .bytes()
             .any(|b| b.is_ascii_whitespace() || b.is_ascii_control())
@@ -525,9 +552,9 @@ fn read_user_file(
 ) -> Result<Vec<u8>, String> {
     let error = || {
         if credential {
-            "Cannot read provider-owned auth.json safely. Use CODEX_ACCESS_TOKEN (and optionally CODEX_ACCOUNT_ID), or a regular, owner-private CODEX_HOME/auth.json; keychain-only login is not readable by this transport.".to_string()
+            "Cannot read provider-owned auth.json safely: require a private regular file/ACL without links, or use CODEX_ACCESS_TOKEN (+ optional CODEX_ACCOUNT_ID). Keychain-only login is unreadable; existing provider permissions are never repaired.".to_string()
         } else {
-            "Cannot read user provider config safely: use an absolute, non-project, user-owned regular file without group/other write permission.".to_string()
+            "Cannot read user provider config safely: require an absolute, non-project, user-owned regular file with safe ACLs and no write grants. Existing provider permissions are never repaired.".to_string()
         }
     };
     if !path.is_absolute() {
@@ -546,37 +573,18 @@ fn read_user_file(
         {
             windows::open_user_file(path, &canonical, credential).map_err(|_| error())?
         }
-        #[cfg(not(windows))]
+        #[cfg(unix)]
         {
-            let mut options = OpenOptions::new();
-            options.read(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
-                if metadata.uid() != unsafe { libc::geteuid() }
-                    || metadata.permissions().mode() & (if credential { 0o077 } else { 0o022 }) != 0
-                {
-                    return Err(error());
-                }
-                options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
-            }
-            options.open(path).map_err(|_| error())?
+            posix::open_user_file(&canonical, &metadata, credential).map_err(|_| error())?
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            return Err(error());
         }
     };
     let opened = file.metadata().map_err(|_| error())?;
     if !opened.is_file() || opened.len() > FILE_LIMIT {
         return Err(error());
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        if metadata.dev() != opened.dev()
-            || metadata.ino() != opened.ino()
-            || metadata.uid() != opened.uid()
-            || metadata.mode() != opened.mode()
-        {
-            return Err(error());
-        }
     }
     let mut bytes = Vec::with_capacity(opened.len() as usize);
     file.by_ref()
@@ -628,7 +636,7 @@ fn token_claims(token: &str, now: u64) -> Result<Claims, String> {
     if let Some(expiry) = value.get("exp") {
         let expiry = expiry.as_u64().ok_or_else(|| "ChatGPT access token has invalid expiry metadata; supply a current provider access token.".to_string())?;
         if expiry <= now {
-            return Err("ChatGPT access token expired. Renew it with the provider outside Eevee, then review again; Eevee never refreshes or writes credentials.".into());
+            return Err("ChatGPT access token expired. Renew through the provider or reviewed official Codex login, then replace/review the selected credential. Eevee never refreshes provider tokens.".into());
         }
     }
     let auth = value.get("https://api.openai.com/auth");
@@ -726,7 +734,7 @@ fn resolve_with<F: Fn(&str) -> Option<String>>(
         }
     };
     let description = format!(
-        "{}: {:?} at {}; {}; no host CLI required. Only submitted input is sent; no provider tools, project hooks, hidden source, automatic edits, credential refresh or persistence. Account access and billing are not authenticated by configuration.",
+        "{}: {:?} at {}; {}; no host CLI required. Submitted input and bounded process-local conversation only; no provider tools, project hooks, hidden source or automatic edits. Request launch never refreshes credentials or changes storage. Account access and billing are not authenticated by configuration.",
         provider.label(),
         settings.protocol,
         settings.base_url,
@@ -746,7 +754,11 @@ fn resolve_with<F: Fn(&str) -> Option<String>>(
 }
 
 pub(super) fn resolve(provider: Agent) -> Result<Connection, String> {
-    resolve_with(provider, &inputs())
+    let input = inputs();
+    if let Some(entry) = owned::load(provider, &input)? {
+        return owned::connection(provider, entry, input.now);
+    }
+    resolve_with(provider, &input)
 }
 
 #[cfg(test)]
@@ -833,6 +845,9 @@ pub(crate) fn preferred_agent() -> Agent {
 /// Passive source availability is not authentication. No credential file is read.
 pub(crate) fn configured(provider: Agent) -> bool {
     let input = inputs();
+    if owned::available(provider, &input) {
+        return true;
+    }
     let Ok(settings) = settings(provider, &input) else {
         return false;
     };
@@ -850,49 +865,56 @@ pub(crate) fn configured(provider: Agent) -> bool {
 pub(crate) fn guidance(provider: Agent) -> String {
     let guidance = match provider {
         Agent::ChatGPT => {
-            "Codex native responses requires explicit CODEX_ACCESS_TOKEN (+ optional CODEX_ACCOUNT_ID), or your reviewed read-only CODEX_HOME/auth.json (default ~/.codex/auth.json) tokens.access_token. The token is sent only to the official ChatGPT Codex backend; no host CLI is needed. This method has no tools, local execution or edits; choose the Codex CLI agent for tool-driven work. Nonsecret model/model_reasoning_effort defaults come from CODEX_HOME/config.toml; CODEX_MODEL/CODEX_REASONING_EFFORT override them. Keychain-only, missing or expired credentials require supplying/renewing provider credentials outside Eevee. No refresh, login, import or credential write is performed."
+            "Native ChatGPT uses a provider access token, not an OpenAI API key. Enter a current token here, use CODEX_ACCESS_TOKEN (+ optional CODEX_ACCOUNT_ID), or explicitly delegate browser/device login to the official Codex CLI and use its read-only CODEX_HOME/auth.json. No app-owned ChatGPT OAuth client is available; without Codex, supply an access token or choose OpenAI API with separate API billing. Keychain-only login is not readable. Tokens can expire; renew through the provider, then replace the token or log in again. Eevee does not refresh tokens or modify the provider store. Native has no tools or edits; the separate Codex CLI route retains coding capabilities."
         }
         Agent::OpenAI => {
-            "Set OPENAI_API_KEY; optional OPENAI_BASE_URL and OPENAI_MODEL. User providers.toml may select api_key_env. This is metered API access, not ChatGPT subscription authentication."
+            "Enter an OpenAI API key here, or use OPENAI_API_KEY; optional OPENAI_BASE_URL and OPENAI_MODEL. This is metered API access, not ChatGPT subscription authentication."
         }
         Agent::Anthropic => {
-            "Set ANTHROPIC_API_KEY; optional ANTHROPIC_BASE_URL and ANTHROPIC_MODEL. Only an Anthropic API key is accepted; Claude subscription/session tokens are not API authentication."
+            "Enter an Anthropic API key here, or use ANTHROPIC_API_KEY; optional ANTHROPIC_BASE_URL and ANTHROPIC_MODEL. Claude subscription/session OAuth is not API authentication and is rejected."
         }
         Agent::Google => {
-            "Set GEMINI_API_KEY (or GOOGLE_API_KEY); optional GEMINI_BASE_URL and GEMINI_MODEL. This is Gemini API access, not a host CLI subscription/login."
+            "Enter a Gemini API key here, or use GEMINI_API_KEY (or GOOGLE_API_KEY); optional GEMINI_BASE_URL and GEMINI_MODEL. This is API access, not a host CLI subscription/login."
         }
         Agent::Compatible => {
-            "Set EV_API_BASE_URL and optional EV_API_MODEL. Supply EV_API_KEY, or explicitly enable EV_API_KEYLESS=1 for a trusted keyless endpoint. EV_API_PROTOCOL is chat_completions (default) or responses. HTTPS is required except HTTP loopback. Endpoint trust, account access and billing remain yours."
+            "Enter an endpoint, optional model and API key here, or explicitly choose keyless for a trusted endpoint. Compatible supports chat_completions or responses. HTTPS is required except HTTP loopback. Endpoint trust, account access and billing remain yours."
         }
         _ => "Select a native connection provider.",
     };
     format!(
-        "{guidance} Credential bytes are read only when an approved metadata/request launch resolves the connection; passive configuration is not authentication."
+        "{guidance} Setup offers session-only storage by default, or explicitly saved private local plaintext (not encrypted or an OS keychain). Configuration and metadata access do not prove inference, account access or billing."
     )
 }
 
 pub(crate) fn profile(provider: Agent) -> agent::Profile {
     let available = configured(provider);
     let input = inputs();
-    let configuration = match settings(provider, &input) {
-        Ok(settings) => format!(
-            "{:?}; endpoint {}; model {}; effort {}; configured source {}; not authenticated",
-            settings.protocol,
-            settings.base_url,
-            settings
-                .model
-                .as_deref()
-                .unwrap_or("explicit choice from Models"),
-            settings.effort.as_deref().unwrap_or("not explicitly set"),
-            if available {
-                "available"
-            } else {
-                "not established"
-            }
-        ),
-        Err(error) => error,
+    let own = owned::available(provider, &input);
+    let configuration = if own {
+        "Explicit own native settings are present; endpoint/protocol/model/account are resolved only on setup or an approved request. Source presence is not authentication.".into()
+    } else {
+        match settings(provider, &input) {
+            Ok(settings) => format!(
+                "{:?}; endpoint {}; model {}; effort {}; configured source {}; not authenticated",
+                settings.protocol,
+                settings.base_url,
+                settings
+                    .model
+                    .as_deref()
+                    .unwrap_or("explicit choice from Models"),
+                settings.effort.as_deref().unwrap_or("not explicitly set"),
+                if available {
+                    "available"
+                } else {
+                    "not established"
+                }
+            ),
+            Err(error) => error,
+        }
     };
-    let credential_source = if provider == Agent::ChatGPT {
+    let credential_source = if own {
+        "Explicit own session/private-local credential source. No credential file is read during passive discovery. Storage is plaintext, not encryption or an OS keychain.".into()
+    } else if provider == Agent::ChatGPT {
         if environment_exists("CODEX_ACCESS_TOKEN") {
             "Explicit credential source: CODEX_ACCESS_TOKEN; optional CODEX_ACCOUNT_ID. No credential file is read during passive discovery; credential bytes are read only when an approved metadata/request launch resolves the connection.".into()
         } else {
@@ -905,9 +927,9 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
             )
         }
     } else {
-        "Credential source: selected API-key environment variable only; configured is not authenticated. Credential bytes are read only when an approved metadata/request launch resolves the connection.".into()
+        "Credential source: own session/private local configuration when explicitly applied; otherwise the selected API-key environment variable. Configured is not authenticated. Passive discovery does not read credential files.".into()
     };
-    let boundary = "Native tool-free HTTP: only the immutable submitted request is sent. No project hooks/tools, hidden files, provider sessions or automatic edits. Implement returns proposals only; choose an existing controlled CLI implementation for writes.";
+    let boundary = "Native tool-free HTTP: the explicitly submitted request and bounded process-local conversation are sent. No project hooks/tools, hidden files, restart-resumable provider sessions or automatic edits. Implement returns proposals only; choose an existing controlled CLI implementation for writes.";
     agent::Profile {
         revision: 1,
         name: provider.label().into(),
@@ -923,7 +945,7 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
         action: "Enter saves and sends a prepared inference request; model inspection sends metadata only".into(),
         billing: "Provider account/API billing, eligibility and quota are unknown until an actual request; no billing lookup".into(),
         probe_allowed: false,
-        trust_preview: vec![configuration, credential_source, guidance(provider), boundary.into(), "Choosing model inspection or sending a request authorizes reading its selected environment API credential or ChatGPT provider-owned auth.json and sending it only to the configured endpoint. Credentials are never logged or persisted. Cancellation stops local waiting; it cannot promise a remote request stopped or was not billed. No retries or fallback.".into()],
+        trust_preview: vec![configuration, credential_source, guidance(provider), boundary.into(), "Choosing model inspection or sending a request authorizes reading the selected credential and sending it only to the configured endpoint. Credentials are never logged; persistence requires explicit private-local save. Cancellation stops local waiting; it cannot promise a remote request stopped or was not billed. No retries or fallback.".into()],
         blockers: if available { Vec::new() } else { vec![guidance(provider)] },
         capabilities: ["Plan", "Review", "Implement proposals", "Models metadata"].into_iter().map(|action| agent::Capability {
             action: action.into(), boundary: boundary.into(), evidence: "Native protocol adapter; requires reviewed endpoint and explicit request".into(), blocker: "Configuration is not successful authentication; provider may reject credentials, model, quota or protocol".into(),

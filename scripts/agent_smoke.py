@@ -55,8 +55,6 @@ def main():
                 wait_for(session, 'Storage: saved')
                 session.command('connect')
                 wait_for(session, 'Connections')
-                wait_for(session, 'Connect / credential setup')
-                session.send('\r')
                 return session
 
             def preview(session):
@@ -79,14 +77,9 @@ def main():
 
             session = launch('missing', missing)
             session.capture('missing-codex')
-            session.send('\x1b')  # Actions -> visible provider list.
-            for provider, keys in (('claude', '\x1b[B'), ('opencode', '\x1b[B'),
-                                   ('gemini', '\x1b[B'), ('codex', '\x1b[A' * 3)):
-                session.send(keys)
-                if provider == 'claude':
-                    assert 'cannot reuse claude.ai' in session.display(), session.display()
-                else:
-                    assert 'Not installed' in session.display(), session.display()
+            for provider in ('claude', 'opencode', 'gemini', 'codex'):
+                session.command('connect ' + provider)
+                assert not marker.exists(), 'connection discovery executed repository code'
                 session.capture('profile-' + provider)
             session.send('\x1b')
             session.send('\x1b')

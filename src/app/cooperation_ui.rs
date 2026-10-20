@@ -276,6 +276,12 @@ impl App {
         if key.kind == KeyEventKind::Release {
             return true;
         }
+        if self.command_popup.is_some()
+            || key.code == KeyCode::Char('/') && key.modifiers.is_empty()
+            || key.code == KeyCode::Char('k') && key.modifiers == KeyModifiers::CONTROL
+        {
+            return false;
+        }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.request_quit();
             return true;
@@ -447,6 +453,34 @@ mod tests {
     }
 
     #[test]
+    fn board_commands_keep_browsing_owner_and_pending_decisions_intact() {
+        for (width, height) in [(120, 36), (60, 18)] {
+            let mut app = three_owners(width, height);
+            app.open_party_board();
+            app.update(Event::Key(KeyEvent::new(
+                KeyCode::Char('k'),
+                KeyModifiers::CONTROL,
+            )));
+            assert!(app.command_popup.is_some());
+            key(&mut app, KeyCode::Char('g'));
+            assert_eq!(app.command_popup.as_ref().unwrap().query, "g");
+            key(&mut app, KeyCode::Esc);
+            assert!(app.command_popup.is_none());
+            assert_eq!(app.overlay, Some(Overlay::PartyBoard));
+            assert_eq!(app.lead().id, 1);
+            assert_eq!(app.work_rows().len(), 3);
+            assert_eq!(app.approval_count(), 2);
+            assert!(!app.planning.cancelling);
+            assert!(
+                app.cooperation
+                    .parked
+                    .values()
+                    .all(|state| !state.cancelling)
+            );
+        }
+    }
+
+    #[test]
     fn board_and_fifo_review_front_exact_owner_without_answering_or_cancelling() {
         for (width, height) in [(120, 36), (60, 18)] {
             let config = config();
@@ -557,15 +591,19 @@ mod tests {
             app.open_party_board();
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
             for owner in 1..=3 {
-                terminal
-                    .draw(|frame| crate::ui::render(frame, &mut app, &config, &mut artwork, "off"))
-                    .unwrap();
-                let mut shown = screen(&terminal);
-                key(&mut app, KeyCode::PageDown);
-                terminal
-                    .draw(|frame| crate::ui::render(frame, &mut app, &config, &mut artwork, "off"))
-                    .unwrap();
-                shown.push_str(&screen(&terminal));
+                let mut shown = String::new();
+                loop {
+                    terminal
+                        .draw(|frame| {
+                            crate::ui::render(frame, &mut app, &config, &mut artwork, "off")
+                        })
+                        .unwrap();
+                    shown.push_str(&screen(&terminal));
+                    if app.cooperation_ui.board_scroll == app.cooperation_ui.board_max {
+                        break;
+                    }
+                    key(&mut app, KeyCode::PageDown);
+                }
                 assert!(shown.contains(&format!("request-model-{owner}")), "{shown}");
                 assert!(shown.contains("Provider usage/cost: unknown"), "{shown}");
                 assert!(

@@ -60,12 +60,12 @@ Install and `ev update` show the same animation from release lookup through inst
 Use a terminal of at least **60 × 18** (120 × 36 recommended).
 
 1. Type in the bottom composer. **Enter** saves and sends the request; **Ctrl+S** saves locally only. No separate Goal setup or routine approval popup.
-2. `/provider` chooses a service. **Codex** is one entry with native responses (no CLI/tools) or CLI agent (tools/edits) as connection methods. `/model` follows **model → reasoning level → editor** when reasoning is supported; `/effort` opens the level directly.
-3. Approve actual effects when needed: commands, file changes, write-enabled sessions, project-supplied executables, external credential helpers and unmanaged agent connections. Advanced `/new` or `/resume` keeps exact-payload review available.
-4. Read responses inline and type the next request. The last provider/method, model and effort are restored on restart; credentials, sessions and grants are not.
-5. Use `/run` → `/command-edit` for a separately reviewed local command such as `["cargo","test"]`.
+2. `/provider` chooses an explicit route; **Codex native (no tools)** and **Codex CLI (tools/edits)** stay distinct. `/connect openai` opens masked API setup directly; **Save & choose model** selects that route and opens metadata selection, never sends the draft. `/model` follows **model → supported reasoning level → editor**; `/effort` opens the level directly.
+3. Approve actual effects when needed: commands, file changes, write-enabled sessions, project-supplied executables, external credential helpers and unmanaged agent connections. `/session-new` or `/session-resume` opens advanced exact-payload review.
+4. Read responses inline and type the next request. Nonsecret provider/model/effort choices survive restart. Explicitly saved private connections can be reused; native chat history, provider sessions and grants are not restored.
+5. `/command-edit` authors an explicit local command in Jolteon; `/execute` reviews it for one-shot execution. `/run` inspects evidence, without executing anything.
 
-**Provider:** on a ready row, **Enter** uses the provider directly; on the active row it opens models. **Right** opens connection/setup actions. Unready rows keep the setup path, and switching an owned provider context still uses its existing review.
+**Provider:** type to filter the ten explicit routes. Ready **Enter** selects the route and opens models; unready rows open setup. **Right** exposes setup/diagnostics without switching. Required login or existing-context switch reviews remain separate; their neutral Back never launches a provider. Missing connection setup preserves the exact Request and requires a deliberate later send.
 
 **Models:** exact IDs/names rank first. From staged reasoning, **Left** returns to the same model search; **Esc** keeps both previous settings. **Ctrl+D** shows complete provenance/errors. `/model <exact-id>` skips model search; `/effort <supported-value>` sets a level directly (`/effort default` resets it unless the provider advertises that literal value). These controls never send the draft.
 
@@ -87,9 +87,11 @@ ev --help
 
 | Command | Action |
 | --- | --- |
-| `/connect` / `/provider` | Manage provider sign-in / select the execution provider |
+| `/connect` / `/connect <route>` / `/provider` | Connections selector / direct named setup / execution-provider selector; never send a task |
 | `/model` / `/effort` / `/models-refresh` | Local model and reasoning pickers / reviewed catalogue refresh |
-| `/new` / `/resume` | Review a fresh request / resume an owned same-task session |
+| `/new` / `/resume` | Send the saved Request as an ordinary new turn / owned same-task continuation, consistently from every view |
+| `/session-new` / `/session-resume` | Advanced exact-payload review for a fresh session / owned continuation |
+| `/chat-new` | Reset this task/partner/native-route/role's process-local chat; keep draft, displayed output and durable evidence |
 | `/role` / `/forms` | Plan, Implement or Review / choose an evolution |
 | `/nickname` | Set a local partner nickname (up to 12 graphemes); Enter saves, empty clears, Esc keeps the old name. Names never become automatic provider or handoff context. |
 | `/party` / `/lead <name>` | Inspect/add local partners or choose the lead; fronting a partner never sends or cancels its work. |
@@ -104,12 +106,15 @@ ev --help
 | `/tasks` / `/task-new` | Browse saved tasks / create one |
 | `/reset` | Review a fresh local task; save the old task and drafts for `/tasks`, without erasing files or history |
 | `/init` | Prepare an editable Plan request for a repository-specific `AGENTS.md` proposal; no automatic send or file write |
-| `/files` / `@` / `/range` | Source context / attach files / attach line ranges |
-| `/run` / `/command-edit` | Local execution / author argv or an explicit shell object |
+| `/files` / `@` / `/search` / `/range` | Source context / inline attachment / direct filename search / selected exact-range review |
+| `/command-edit` / `/execute` | Author explicit argv or a shell object / review the exact prepared command for one-shot execution |
+| `/run` / `/runs` | Inspect local execution evidence / retained run history; neither command executes work |
 | `/locations` / `/pin-location` (in `/run`) | Parse only the current retained output window/page; review a bounded source capture with the selected run as provenance. Location Enter opens the same Pin range review. |
 | `/rerun` | Stage an observed stale check with exact argv/cwd for a new Jolteon approval; cancellation/denial starts nothing and the old run stays unchanged. |
 | `/diff` / `/history` / `/decision` | Worktree diff / provider journal / save a proposal as next action |
+| `/response` | Front the current provider response/request drawer; `/provider` always remains the connection selector |
 | `/handoff` / `/memory` / `/workflows` | Portable handoff / approved notes / diagnosis, refactor, review and recipe desk |
+| `/create-memory` / `/export-json` / `/export-markdown` / `/import-handoff` / `/edit-hypothesis` | Open the existing editor/path/review directly, without a preliminary workspace visit |
 | `/workflow-diagnosis` / `/workflow-refactor` / `/workflow-review` / `/workflow-recipe` | Open the chosen specialist desk directly |
 | `/specialist-fix` (Diagnosis/Review desk) | Stage a supported hypothesis or unresolved request-changes finding as a Flareon fix; choose own form or an idle matching partner. |
 | `/decision-criteria` / `/confirm-decision-criteria` (Recipe desk) | Edit items from a deliberately saved Espeon decision, inspect duplicates, then explicitly confirm new unchecked criteria. `/relay-decision` stages references for an idle Eevee instead. |
@@ -122,7 +127,7 @@ Pasted text never sends a request or executes a command. Model/effort pickers an
 
 `/reset` defaults to Stay and waits for durable task/context saves before switching, preserving old work in `/tasks`. Finish or explicitly cancel active work first. `/init` selects Espeon / Plan, clears write paths and prepares an editable project-guide proposal; replacing a nonempty Request requires confirmation. It sends nothing and overwrites no `AGENTS.md` by itself. **Enter** sends when you are ready; other drafts remain retained.
 
-**Missing newer Codex models?** Open **Codex** in `/provider` and choose **native responses** for live account discovery and streaming without an installed CLI. It uses an existing Codex session read-only or an environment token, only against the official backend. The CLI method remains available for agent tools/edits and shows its executable/catalogue provenance. Both preserve exact configured/custom IDs despite stale lists, never silently switch models, and retain previous rows with an error on failed refresh. Model search is local; Ctrl+U clears it.
+**Missing newer Codex models?** Select **Codex native (no tools)** or `/provider-chatgpt` for account discovery and streaming against the official backend. It accepts a deliberately selected app token, existing readable Codex session or environment token; no installed CLI is needed for inference. Explicit browser/device sign-in delegates to the official installed CLI, while **Load CLI token** imports only a user-selected readable token into masked setup. Keychain-only and expired credentials are reported, not guessed or silently refreshed. The separate CLI route retains tools/edits and executable/catalogue provenance. Both preserve exact custom IDs and stale rows on discovery failure.
 
 **SDK / ACP model choices.** Their lists are informational too: an exact custom ID may be accepted through the integration's official selector even when omitted by discovery. Real selector support and exact model acknowledgment remain required. Claude SDK effort is requested through official Options; applied effort is unknown and provider caps may apply. Existing optional Claude installations must explicitly update the complete bridge to revision 3, not only its SDK package.
 
@@ -132,21 +137,25 @@ Pasted text never sends a request or executes a command. Model/effort pickers an
 
 ## Connect a provider or agent
 
-Native services do not require a provider CLI, Node or an SDK sidecar. Keys are resolved in memory from environment variables; user-scoped configuration contains endpoint/model settings and **environment-variable names**, never literal credentials or shell commands. ChatGPT can read an existing provider-owned session file at the disclosed connection boundary; it does not copy, refresh or rewrite that file. No credentials enter task storage.
+Native API services need no provider CLI, Node or SDK sidecar. `/connect <route>` accepts masked credentials, endpoint/default-model settings and explicit Compatible protocol/keyless choices. **Save & choose model** explicitly selects the route and may fetch metadata; **Ctrl+S** saves locally only. Neither submits the retained Request. Ordinary private typing/navigation remains local; saving a connection or confirming removal requires committed idle task state.
+
+Session connections stay in memory. Selecting private persistence writes only that route's bounded file under `~/.eevee-connections/` (`%USERPROFILE%\.eevee-connections\` on Windows): owner-private **plaintext, not encryption or an OS keychain**. POSIX no-follow/identity checks, macOS ACL checks and protected Windows owner ACLs refuse unsafe existing files/directories. Source precedence is session → saved app profile → existing environment/provider configuration. **Forget app connection** neutrally reviews only that route's app file/session; it does not revoke a remote token or touch official provider stores, tasks, evidence or other routes. Existing environment/provider sources may become available afterward. Credentials never enter Request drafts, task storage, journals or logs.
 
 | Native service | Selection | Credential |
 | --- | --- | --- |
-| Codex / native method | Codex → native responses; explicit shortcut `/provider-chatgpt` | Existing `$CODEX_HOME/auth.json` (default `~/.codex/auth.json`), or `CODEX_ACCESS_TOKEN` / `CODEX_ACCOUNT_ID` |
-| OpenAI Responses | `/provider-openai` | `OPENAI_API_KEY`; optional `OPENAI_BASE_URL`, `OPENAI_MODEL` |
-| Anthropic Messages | `/provider-anthropic` | `ANTHROPIC_API_KEY`; optional `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`. No subscription OAuth reuse. |
-| Google Gemini | `/provider-google` | `GEMINI_API_KEY` or `GOOGLE_API_KEY`; optional `GEMINI_BASE_URL`, `GEMINI_MODEL` |
-| Compatible / local service | `/provider-compatible` | `EV_API_BASE_URL`, `EV_API_MODEL`; `EV_API_KEY`, or explicit `EV_API_KEYLESS=1` for a keyless service |
+| Codex native / ChatGPT | `/provider-chatgpt` | Masked access-token/account setup; explicit readable CLI-token import; existing `$CODEX_HOME/auth.json` or `CODEX_ACCESS_TOKEN` / `CODEX_ACCOUNT_ID` |
+| OpenAI Responses | `/provider-openai` | In-app API key, or `OPENAI_API_KEY`; optional `OPENAI_BASE_URL`, `OPENAI_MODEL` |
+| Anthropic Messages | `/provider-anthropic` | In-app API key, or `ANTHROPIC_API_KEY`; optional endpoint/model. No subscription OAuth reuse. |
+| Google Gemini | `/provider-google` | In-app API key, or `GEMINI_API_KEY` / `GOOGLE_API_KEY`; optional endpoint/model |
+| Compatible / local service | `/provider-compatible` | In-app endpoint/model/protocol and key or explicit keyless mode; environment configuration remains available |
 
-Native routes stream text without tools, hooks, implicit project reads or local writes; Implement replies are proposals, not applied edits. Use the CLI/controlled-agent method for tool-driven edits. Native calls are fresh, stateless requests. Enter sends the committed request without a second Run popup; cancellation closes the client but cannot prove remote work/billing stopped. Custom endpoints require HTTPS except loopback HTTP; redirects are refused.
+Native routes stream text without tools, hooks, implicit project reads or local writes; Implement replies are proposals, not applied edits. Use the CLI/controlled-agent route for tool-driven edits. Native chat retains bounded canonical user/assistant turns for the current task, partner, route/account/endpoint and role; it is separate from displayed items and tool journals and clears on task change or restart. Only authoritative completed output enters history, never private reasoning or interrupted text. `/chat-new` resets it explicitly; unexpected account/endpoint drift refuses old-context transmission rather than truncating, retrying or switching accounts. Managed Review always starts independently. Cancellation cannot prove remote work/billing stopped; custom endpoints require HTTPS except loopback HTTP and redirects are refused.
 
-Since Schema 10, the local store has remembered last-used provider/method and per-route model/effort, including exact custom IDs without a successful catalogue. `EV_PROVIDER` explicitly overrides the startup route (`chatgpt` for Codex native, `codex` for CLI, or another service/agent name); that route's own stored model remains available. With no stored preference, configured native routes are preferred, then CLI Codex. Default model selection follows provider configuration rather than inventing an observed ID. Preference failures stay visible with `/storage-retry`; exit waits for commit. No credentials, sessions or permissions are restored, and older binaries refuse the migrated store rather than rewriting it.
+A canceled or disconnected tool-free native request releases local ownership only after its reader closes and storage settles. Its partial output remains unverified and remote completion/billing remains unknown; a later explicit request is allowed, never automatic replay. Unresolved tool-capable agent effects remain blocking, even after changing the selected route.
 
-Version **0.1.11 uses Schema 13** for request-bound cooperation ownership and write leases, including wave 3's durable relay provenance. Published v0.1.10 used Schema 11; the unreleased wave 3 source used Schema 12. Opening either older store upgrades transactionally without rewriting existing evidence rows. **Back up the data directory before upgrading:** older binaries refuse Schema 13, and an in-place downgrade is not supported.
+Since Schema 10, task-independent preference rows remember nonsecret provider/model/effort, not credentials, sessions or permissions. `EV_PROVIDER` explicitly overrides startup routing. Exact configured/custom IDs remain usable without a successful catalogue; no model is invented as an observed default. Preference failures stay visible with `/storage-retry`; exit waits for commit. App-owned credentials are separately and explicitly persisted as described above.
+
+Versions **0.1.11 and 0.1.12 use Schema 13** for request-bound cooperation/write leases and durable relay provenance. Published v0.1.10 used Schema 11; the unreleased wave 3 source used Schema 12. Opening those older stores upgrades transactionally without rewriting evidence rows. **Back up before upgrading from Schema 11/12:** their older writers refuse Schema 13. v0.1.12 introduces no additional task-database migration.
 
 **Cooperation.** Up to three partners can own work on one task, with independent requests, transports, drafts, approvals, receipts and cancellation. Edit-capable work takes one durable per-task lease; another writer is refused with the owner's identity. Commands overlapping that lease are permanently labelled `revision moving`, never current verification. This coordinates Eevee-owned work, not arbitrary filesystem effects or a provider sandbox. Per-request provider usage/billing remains unknown when unreported; local payload estimates are labelled separately.
 
@@ -154,7 +163,7 @@ Version **0.1.11 uses Schema 13** for request-bound cooperation ownership and wr
 
 Cancel-all and quit list every owned request with Stay neutral, then wait for terminal outcomes and durable journal/ownership settlement. Crash recovery clears stale ownership without replaying requests or restoring grants. Releasing an idle partner atomically repairs task leads and removes that partner's local drafts/current recipient intents; historical evidence keeps its name snapshot. Moves and pairings have not yet been introduced, so the review does not pretend they exist.
 
-For persistent **nonsecret** settings, use `$XDG_CONFIG_HOME/eevee/providers.toml` (Linux; default `~/.config/eevee/providers.toml`), `~/Library/Application Support/eevee/providers.toml` (macOS), or `%APPDATA%\eevee\providers.toml` (Windows). `EV_PROVIDERS_CONFIG` selects an absolute user-owned file outside the project. Environment settings override the file:
+Without an app-owned connection override, persistent **nonsecret** settings use `$XDG_CONFIG_HOME/eevee/providers.toml` (Linux; default `~/.config/eevee/providers.toml`), `~/Library/Application Support/eevee/providers.toml` (macOS), or `%APPDATA%\eevee\providers.toml` (Windows). `EV_PROVIDERS_CONFIG` selects an absolute user-owned file outside the project. Environment settings override that nonsecret file:
 
 ```toml
 [openai]
@@ -217,19 +226,19 @@ Sprites are nine original PokeAPI images that installers download and hash-verif
 
 | Machine | Package |
 | --- | --- |
-| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.8/ev-darwin-arm64.tar.gz) |
-| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.8/ev-darwin-x86_64.tar.gz) |
-| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.8/ev-linux-x86_64.tar.gz) |
-| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.8/ev-linux-arm64.tar.gz) |
-| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.8/ev-windows-x86_64.zip) |
+| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.12/ev-darwin-arm64.tar.gz) |
+| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.12/ev-darwin-x86_64.tar.gz) |
+| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.12/ev-linux-x86_64.tar.gz) |
+| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.12/ev-linux-arm64.tar.gz) |
+| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.12/ev-windows-x86_64.zip) |
 
 Installers verify SHA-256, refuse to overwrite commands they don't own, and never edit your shell profile or persistent PATH — the last step on each platform is yours.
 
 ### macOS
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.6/install.sh
-sh ./install-ev.sh --version v0.1.6          # installs to ~/.local/bin/ev
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.12/install.sh
+sh ./install-ev.sh --version v0.1.12          # installs to ~/.local/bin/ev
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && exec zsh
 ```
 
@@ -238,8 +247,8 @@ Builds are not notarized. The script installs via `curl`, which sets no quaranti
 ### Linux and WSL
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.6/install.sh
-sh ./install-ev.sh --version v0.1.6          # installs to ~/.local/bin/ev
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.12/install.sh
+sh ./install-ev.sh --version v0.1.12          # installs to ~/.local/bin/ev
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && exec bash
 ```
 
@@ -250,7 +259,7 @@ Inside WSL, use this Linux build, not the Windows one. For provider sign-in on W
 Run in **PowerShell** (5.1 or 7, no admin). Windows blocks downloaded `.ps1` files by default, so run the installer as a script block instead of `.\install.ps1`:
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.6/install.ps1))) -Version v0.1.6
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.12/install.ps1))) -Version v0.1.12
 ```
 
 It installs `%LOCALAPPDATA%\ev\bin\ev.exe`. Use it right away, and keep it on PATH for new terminals:
@@ -260,7 +269,7 @@ $env:PATH = "$env:LOCALAPPDATA\ev\bin;" + $env:PATH
 [Environment]::SetEnvironmentVariable('Path', "$env:LOCALAPPDATA\ev\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')
 ```
 
-Prefer a saved script? Run it with a process-only bypass: `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-ev.ps1 -Version v0.1.6`. Windows Terminal shows the sprites (Sixel); other consoles fall back to text.
+Prefer a saved script? Run it with a process-only bypass: `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-ev.ps1 -Version v0.1.12`. Windows Terminal shows the sprites (Sixel); other consoles fall back to text.
 
 ### Offline
 

@@ -241,6 +241,229 @@ pub(super) fn open_user_file(
     Ok(file)
 }
 
+pub(super) fn file_identity(file: &File) -> Result<(u64, u64), String> {
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+        return Err(ERROR.into());
+    }
+    Ok((
+        u64::from(info.dwVolumeSerialNumber),
+        (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+    ))
+}
+
+/// The no-delete/no-write sharing mode holds the reviewed leaf identity through
+/// disposition. The caller retains private, non-reparse ancestor handles.
+pub(super) fn remove_private_file(path: &Path, expected: (u64, u64)) -> Result<(), String> {
+    use windows_sys::Win32::Storage::FileSystem::{
+        DELETE, FILE_DISPOSITION_INFO, FileDispositionInfo, SetFileInformationByHandle,
+    };
+    let canonical = path.canonicalize().map_err(|_| ERROR.to_string())?;
+    let file = OpenOptions::new()
+        .access_mode(FILE_GENERIC_READ | DELETE)
+        .share_mode(FILE_SHARE_READ)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .map_err(|_| ERROR.to_string())?;
+    check_private_file(&file)?;
+    if final_path(file.as_raw_handle())? != canonical || file_identity(&file)? != expected {
+        return Err("Private connection changed; review deletion again.".into());
+    }
+    let disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
+    if unsafe {
+        SetFileInformationByHandle(
+            file.as_raw_handle(),
+            FileDispositionInfo,
+            (&disposition as *const FILE_DISPOSITION_INFO).cast(),
+            size_of::<FILE_DISPOSITION_INFO>() as u32,
+        )
+    } == 0
+    {
+        return Err("Cannot remove private connection safely; it may be busy. No provider store was touched.".into());
+    }
+    drop(file);
+    Ok(())
+}
+
+fn private_attributes<T>(
+    action: impl FnOnce(&windows_sys::Win32::Security::SECURITY_ATTRIBUTES) -> Result<T, String>,
+) -> Result<T, String> {
+    use windows_sys::Win32::Security::{
+        ACL_REVISION, AddAccessAllowedAceEx, InitializeAcl, InitializeSecurityDescriptor,
+        SE_DACL_PROTECTED, SECURITY_ATTRIBUTES, SECURITY_DESCRIPTOR, SetSecurityDescriptorControl,
+        SetSecurityDescriptorDacl, SetSecurityDescriptorOwner,
+    };
+    use windows_sys::Win32::Storage::FileSystem::FILE_ALL_ACCESS;
+    let user = TokenUser::current()?;
+    let mut storage = [0u32; 256];
+    let acl = storage.as_mut_ptr().cast::<ACL>();
+    let mut descriptor = SECURITY_DESCRIPTOR::default();
+    let pointer = (&mut descriptor as *mut SECURITY_DESCRIPTOR).cast();
+    if unsafe {
+        InitializeAcl(acl, std::mem::size_of_val(&storage) as u32, ACL_REVISION) == 0
+            || AddAccessAllowedAceEx(acl, ACL_REVISION, 0, FILE_ALL_ACCESS, user.sid()) == 0
+            || InitializeSecurityDescriptor(pointer, 1) == 0
+            || SetSecurityDescriptorOwner(pointer, user.sid(), 0) == 0
+            || SetSecurityDescriptorDacl(pointer, 1, acl, 0) == 0
+            || SetSecurityDescriptorControl(pointer, SE_DACL_PROTECTED, SE_DACL_PROTECTED) == 0
+    } {
+        return Err(ERROR.into());
+    }
+    action(&SECURITY_ATTRIBUTES {
+        nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: pointer,
+        bInheritHandle: 0,
+    })
+}
+
+/// Retain no-delete handles to every ancestor, refusing reparse directories.
+pub(super) fn private_directory(home: &Path, create: bool) -> Result<(File, Vec<File>), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::ERROR_ALREADY_EXISTS;
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateDirectoryW, FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_WRITE,
+    };
+    let mut ancestors = Vec::new();
+    let open = |path: &Path| -> Result<File, String> {
+        let file = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)
+            .map_err(|_| ERROR.to_string())?;
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0
+            || info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0
+            || info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DEVICE) != 0
+            || final_path(file.as_raw_handle())? != path
+        {
+            return Err(ERROR.into());
+        }
+        Ok(file)
+    };
+    for ancestor in home.ancestors().collect::<Vec<_>>().into_iter().rev() {
+        if ancestor.as_os_str().is_empty() {
+            continue;
+        }
+        ancestors.push(open(ancestor)?);
+    }
+    trusted_acl(ancestors.last().ok_or(ERROR)?.as_raw_handle(), false)?;
+    let path = home.join(".eevee-connections");
+    if create {
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        private_attributes(|attributes| {
+            if unsafe { CreateDirectoryW(wide.as_ptr(), attributes) } == 0
+                && std::io::Error::last_os_error().raw_os_error()
+                    != Some(ERROR_ALREADY_EXISTS as i32)
+            {
+                return Err(ERROR.into());
+            }
+            Ok(())
+        })?;
+    }
+    let root = open(&path)?;
+    trusted_acl(root.as_raw_handle(), true)?;
+    Ok((root, ancestors))
+}
+
+pub(super) fn check_private_directory(file: &File) -> Result<(), String> {
+    let handle = file.as_raw_handle();
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    if unsafe { GetFileInformationByHandle(handle, &mut info) } == 0
+        || info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0
+        || info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DEVICE) != 0
+    {
+        return Err(ERROR.into());
+    }
+    trusted_acl(handle, true)
+}
+
+pub(super) fn check_private_file(file: &File) -> Result<(), String> {
+    let handle = file.as_raw_handle();
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    if unsafe { GetFileType(handle) } != FILE_TYPE_DISK
+        || unsafe { GetFileInformationByHandle(handle, &mut info) } == 0
+        || info.nNumberOfLinks != 1
+        || info.dwFileAttributes
+            & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_DEVICE)
+            != 0
+    {
+        return Err(ERROR.into());
+    }
+    trusted_acl(handle, true)
+}
+
+pub(super) fn write_private_file(
+    directory: &Path,
+    temporary: &str,
+    name: &str,
+    bytes: &[u8],
+) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::Storage::FileSystem::{
+        CREATE_NEW, CreateFileW, FILE_GENERIC_WRITE, MOVEFILE_REPLACE_EXISTING,
+        MOVEFILE_WRITE_THROUGH, MoveFileExW,
+    };
+    let temporary_path = directory.join(temporary);
+    let from: Vec<u16> = temporary_path
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let to: Vec<u16> = directory
+        .join(name)
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let mut created = false;
+    let result = (|| {
+        let mut file = private_attributes(|attributes| {
+            let raw = unsafe {
+                CreateFileW(
+                    from.as_ptr(),
+                    FILE_GENERIC_READ | FILE_GENERIC_WRITE,
+                    FILE_SHARE_READ,
+                    attributes,
+                    CREATE_NEW,
+                    FILE_FLAG_OPEN_REPARSE_POINT,
+                    null_mut(),
+                )
+            };
+            if raw == INVALID_HANDLE_VALUE {
+                return Err(ERROR.into());
+            }
+            Ok(unsafe { File::from_raw_handle(raw) })
+        })?;
+        created = true;
+        check_private_file(&file)?;
+        file.write_all(bytes).map_err(|_| ERROR.to_string())?;
+        file.sync_all().map_err(|_| ERROR.to_string())?;
+        drop(file);
+        if unsafe {
+            MoveFileExW(
+                from.as_ptr(),
+                to.as_ptr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        } == 0
+        {
+            return Err(ERROR.into());
+        }
+        Ok(())
+    })();
+    if created && result.is_err() {
+        if let Err(error) = std::fs::remove_file(temporary_path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                return Err("Private save failed and a private pending plaintext file could not be removed. Inspect ~/.eevee-connections; no request was sent.".into());
+            }
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -486,5 +709,78 @@ mod tests {
         symlink_dir(&project.0, &link).unwrap();
         assert!(open_user_file(&requested, &expected, false).is_err());
         fs::remove_dir(&link).unwrap();
+    }
+
+    #[test]
+    fn own_storage_private_acl_atomic_replacement_and_identity_bound_removal() {
+        use std::io::Read;
+        use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
+        let temp = Temp::new();
+        let home = temp.0.join("private-home");
+        let wide: Vec<u16> = home.as_os_str().encode_wide().chain(Some(0)).collect();
+        private_attributes(|attributes| {
+            if unsafe { CreateDirectoryW(wide.as_ptr(), attributes) } == 0 {
+                return Err(ERROR.into());
+            }
+            Ok(())
+        })
+        .unwrap();
+        let home = home.canonicalize().unwrap();
+        let (root, ancestors) = private_directory(&home, true).unwrap();
+        check_private_directory(&root).unwrap();
+        let directory = home.join(".eevee-connections");
+        write_private_file(&directory, ".pending-first", "openai.json", b"first").unwrap();
+        write_private_file(&directory, ".pending-second", "openai.json", b"second").unwrap();
+        let path = directory.join("openai.json");
+        let mut file = open_user_file(&path, &path.canonicalize().unwrap(), true).unwrap();
+        check_private_file(&file).unwrap();
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, b"second");
+        assert!(!directory.join(".pending-first").exists());
+        assert!(!directory.join(".pending-second").exists());
+        let previous_identity = file_identity(&file).unwrap();
+        drop(file);
+        write_private_file(&directory, ".pending-third", "openai.json", b"third").unwrap();
+        assert!(remove_private_file(&path, previous_identity).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"third");
+        write_private_file(&directory, ".pending-other", "chatgpt.json", b"other-route").unwrap();
+        write_private_file(
+            &home,
+            ".pending-provider",
+            "provider-auth.json",
+            b"provider-untouched",
+        )
+        .unwrap();
+        let file = open_user_file(&path, &path.canonicalize().unwrap(), true).unwrap();
+        let identity = file_identity(&file).unwrap();
+        drop(file);
+        remove_private_file(&path, identity).unwrap();
+        assert!(!path.exists());
+        assert_eq!(
+            fs::read(directory.join("chatgpt.json")).unwrap(),
+            b"other-route"
+        );
+        assert_eq!(
+            fs::read(home.join("provider-auth.json")).unwrap(),
+            b"provider-untouched"
+        );
+        write_private_file(
+            &directory,
+            ".pending-reserved",
+            "reserved.tmp",
+            b"must-stay",
+        )
+        .unwrap();
+        assert!(
+            write_private_file(&directory, "reserved.tmp", "openai.json", b"must-fail").is_err()
+        );
+        assert_eq!(
+            fs::read(directory.join("reserved.tmp")).unwrap(),
+            b"must-stay"
+        );
+        assert!(!path.exists());
+        drop(root);
+        drop(ancestors);
     }
 }

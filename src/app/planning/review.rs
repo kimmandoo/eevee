@@ -205,7 +205,7 @@ impl State {
         self.catalogue_dismissed = false;
         self.send_after_prepare = false;
         if !inspect_models && self.agent.is_direct() && (resume || inspect_sessions) {
-            self.notice = "Direct API requests are fresh and stateless here; choose /new. No session inspection or resume was prepared.".into();
+            self.notice = "Native history is process-local, not a resumable provider session. Send the next Request normally, or use /chat-new to reset local context. No inspection or resume was prepared.".into();
             return;
         }
         if !inspect_models && self.operation == Operation::Review && (resume || inspect_sessions) {
@@ -246,6 +246,21 @@ impl State {
         } else {
             self.selection.clone()
         };
+        self.native_candidate = None;
+        self.connection_invalidated = false;
+        self.native_request_partner = if self.agent.is_direct() && !inspect_models {
+            Some(task.lead_partner)
+        } else {
+            None
+        };
+        if !inspect_models && !inspect_sessions {
+            self.submitted_request = if self.agent.is_direct() {
+                crate::providers::native_request_text(task)
+            } else {
+                task.request_text()
+            }
+            .into();
+        }
         self.inspection = None;
         let request_task = if inspect_models {
             // Keep only local event ownership and project identity, never task content.
@@ -289,6 +304,16 @@ impl State {
             inspect_sessions,
             inspect_models,
             selection: self.request_selection.clone(),
+            conversation: if self.agent.is_direct()
+                && !inspect_models
+                && self.operation != Operation::Review
+            {
+                self.native_histories
+                    .get(&(self.agent, self.operation))
+                    .cloned()
+            } else {
+                None
+            },
             credential: if self.agent == Agent::Devin {
                 self.devin_credential.clone()
             } else {

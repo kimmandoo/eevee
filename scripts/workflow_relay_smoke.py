@@ -128,22 +128,25 @@ def main():
                     session.paste(f"{start}:{end}")
                     session.send("\r")
                     session.command("attach")
-                    wait_for(session, f"{count} task-owned basket references / stored", timeout=35)
-                    session.command("close")
+                    until(lambda: len(rows()[2]) == count and any(
+                        record["path"] == "calc.py" and record["start_line"] == start and record["end_line"] == end
+                        for row in rows()[2] for record in [json.loads(row["record"])]),
+                        "exact reviewed attachment did not commit")
+                    workspace()
                     save_wait()
 
                 command = json.dumps([str(Path(sys.executable).resolve()), "-B", str(project / "check.py")])
 
                 def run(count):
                     session.command("jolteon")
-                    session.command("run")
                     session.command("command-edit")
                     wait_for(session, "Command / explicit JSON argv or shell")
                     session.send(UP * 100 + HOME + DELETE * 512)
                     session.paste(command)
                     session.send("\r")
-                    wait_for(session, "Approval pending", timeout=35)
-                    session.command("run")
+                    until(lambda: rows()[0]["command"] == command and "Storage: saved" in session.display(),
+                          "exact local command did not commit before review")
+                    session.command("execute")
                     wait_for(session, "Review one-shot execution permission", timeout=35)
                     session.send(RIGHT + "\r")
                     until(lambda: len(rows()[1]) == count and rows()[1][-1]["state"] == "Succeeded", "actual check did not pass")
@@ -267,7 +270,7 @@ def main():
                 deadline = time.monotonic() + 30
                 while "a Allow once" not in session.display():
                     assert session.alive() and time.monotonic() < deadline, session.display()
-                    session.command("provider")
+                    session.command("response")
                     session.pump(.1)
                 session.capture("actual-controlled-file-permission")
                 session.send("a")
@@ -369,12 +372,13 @@ def main():
                 wait_for(session, "revision differs")
                 session.send(ESC)
                 session.command("jolteon")
-                session.command("run")
                 session.command("command-edit")
                 session.send(UP * 100 + HOME + DELETE * 512)
-                session.paste(json.dumps([str(Path(sys.executable).resolve()), "-B", str(project / "check.py"), "--different-argv"]))
+                different = json.dumps([str(Path(sys.executable).resolve()), "-B", str(project / "check.py"), "--different-argv"])
+                session.paste(different)
                 session.send("\r")
-                wait_for(session, "Approval pending", timeout=35)
+                until(lambda: rows()[0]["command"] == different and "Storage: saved" in session.display(),
+                      "different exact argv did not commit before baseline inspection")
                 desk("refactor")
                 session.command("refactor-baseline")
                 wait_for(session, "argv differs")

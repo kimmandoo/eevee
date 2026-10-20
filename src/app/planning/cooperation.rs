@@ -29,7 +29,7 @@ impl State {
             || !self.pending_journal.is_empty()
             || !self.journal_inflight.is_empty()
             || self.journal_failed()
-            || self.outcome_unknown()
+            || self.unknown_effects()
     }
 
     pub fn immutable_task(&self) -> Option<&store::Snapshot> {
@@ -44,7 +44,6 @@ impl State {
             return;
         };
         input.work = Some(claim.clone());
-        self.submitted_request = input.task.request_text().into();
         self.committed_input = None;
         self.work_pending = Some(store::WorkRequest::Acquire {
             claim: claim.clone(),
@@ -207,9 +206,10 @@ impl State {
             && self.send_after_prepare
             && let Some(preview) = self.preview.as_ref()
         {
-            if !preview.blockers.is_empty() {
+            if let Some(blocker) = preview.blockers.first() {
                 self.failed_request = true;
-                self.cancel();
+                self.send_after_prepare = false;
+                self.notice = format!("Request blocked: {blocker} /approvals Details");
                 changed = true;
             } else if preview.requires_connection_review {
                 self.send_after_prepare = false;

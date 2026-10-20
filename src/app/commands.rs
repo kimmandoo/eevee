@@ -64,7 +64,7 @@ impl Popup {
             .unwrap_or(self.query.trim());
         let (name, argument) = query.split_once(char::is_whitespace)?;
         let argument = argument.trim();
-        (matches!(name, "lead" | "model" | "effort") && !argument.is_empty())
+        (matches!(name, "lead" | "model" | "effort" | "connect") && !argument.is_empty())
             .then_some((name, argument))
     }
 
@@ -119,6 +119,327 @@ fn form_command_index(name: &str) -> Option<usize> {
         .position(|(form, alias)| name == *form || name == *alias)
 }
 
+// A direct action reuses the owning workspace's handler and permission gates.
+// Selection-dependent entries only open their chooser when invoked elsewhere.
+const DIRECT_ACTIONS: &[(&str, Overlay, &str, &str, bool)] = &[
+    (
+        "command-edit",
+        Overlay::Execution,
+        "command-edit",
+        "Edit explicit local command",
+        false,
+    ),
+    (
+        "execute",
+        Overlay::Execution,
+        "execute",
+        "Review exact prepared command; nothing executed yet",
+        false,
+    ),
+    (
+        "runs",
+        Overlay::Execution,
+        "runs",
+        "Inspect retained local run history",
+        false,
+    ),
+    (
+        "output-search",
+        Overlay::Execution,
+        "search",
+        "Search local execution output literally",
+        false,
+    ),
+    (
+        "create-memory",
+        Overlay::Memory,
+        "create-memory",
+        "Author a memory note",
+        false,
+    ),
+    (
+        "remember",
+        Overlay::Memory,
+        "remember",
+        "Review saved next action as a memory",
+        false,
+    ),
+    (
+        "edit-memory",
+        Overlay::Memory,
+        "edit-memory",
+        "Choose an approved memory to edit",
+        true,
+    ),
+    (
+        "select-memory",
+        Overlay::Memory,
+        "select-memory",
+        "Choose memory for request context",
+        true,
+    ),
+    (
+        "delete-memory",
+        Overlay::Memory,
+        "delete-memory",
+        "Choose memory for deletion review",
+        true,
+    ),
+    (
+        "memory-help",
+        Overlay::Memory,
+        "memory-help",
+        "Inspect memory scope policy",
+        false,
+    ),
+    (
+        "export-json",
+        Overlay::Handoff,
+        "export-json",
+        "Review JSON handoff export",
+        false,
+    ),
+    (
+        "export-markdown",
+        Overlay::Handoff,
+        "export-markdown",
+        "Review Markdown handoff export",
+        false,
+    ),
+    (
+        "import-handoff",
+        Overlay::Handoff,
+        "import-handoff",
+        "Read and review a local handoff",
+        false,
+    ),
+    (
+        "copy-decision",
+        Overlay::Handoff,
+        "copy-decision",
+        "Choose an imported unverified decision to copy into editor",
+        true,
+    ),
+    (
+        "search",
+        Overlay::Sources,
+        "search",
+        "Edit literal source filename filter",
+        false,
+    ),
+    (
+        "basket",
+        Overlay::Sources,
+        "basket",
+        "Inspect source files / pinned context basket",
+        false,
+    ),
+    (
+        "range",
+        Overlay::Sources,
+        "range",
+        "Choose a source file and exact line range",
+        true,
+    ),
+    (
+        "source-inspect",
+        Overlay::Sources,
+        "inspect",
+        "Choose a source file to inspect",
+        true,
+    ),
+    (
+        "attach",
+        Overlay::Sources,
+        "attach",
+        "Review source capture before attaching",
+        true,
+    ),
+    (
+        "assemble",
+        Overlay::Sources,
+        "assemble",
+        "Inspect assembled source context",
+        false,
+    ),
+    (
+        "dispatch-preview",
+        Overlay::Sources,
+        "dispatch-preview",
+        "Validate source context for provider dispatch",
+        false,
+    ),
+    (
+        "unpin",
+        Overlay::Sources,
+        "unpin",
+        "Choose pinned source context to remove",
+        true,
+    ),
+    (
+        "source-purge",
+        Overlay::Sources,
+        "purge",
+        "Choose captured source bytes for purge review",
+        true,
+    ),
+];
+
+const SPECIALIST_ACTIONS: &[(&str, &str, &str)] = &[
+    (
+        "edit-hypothesis",
+        "Edit diagnosis hypothesis / explanation",
+        "workflow-diagnosis",
+    ),
+    (
+        "add-hypothesis",
+        "Record diagnosis hypothesis",
+        "workflow-diagnosis",
+    ),
+    (
+        "next-hypothesis",
+        "Choose next diagnosis hypothesis",
+        "workflow-diagnosis",
+    ),
+    (
+        "hypothesis-evidence",
+        "Choose diagnosis evidence",
+        "workflow-diagnosis",
+    ),
+    (
+        "edit-contract",
+        "Edit refactor behavior contract",
+        "workflow-refactor",
+    ),
+    (
+        "refactor-hotspot",
+        "Choose bounded refactor source hotspot",
+        "workflow-refactor",
+    ),
+    (
+        "refactor-baseline",
+        "Choose refactor baseline run",
+        "workflow-refactor",
+    ),
+    (
+        "fresh-baseline",
+        "Review fresh refactor baseline handoff",
+        "workflow-refactor",
+    ),
+    (
+        "record-refactor",
+        "Record refactor contract / hotspot / baseline",
+        "workflow-refactor",
+    ),
+    (
+        "refactor-post",
+        "Choose post-change refactor run",
+        "workflow-refactor",
+    ),
+    (
+        "compare-refactor",
+        "Compare refactor baseline / post-change",
+        "workflow-refactor",
+    ),
+    (
+        "open-baseline",
+        "Inspect refactor baseline output",
+        "workflow-refactor",
+    ),
+    (
+        "open-post",
+        "Inspect post-change refactor output",
+        "workflow-refactor",
+    ),
+    (
+        "next-criterion",
+        "Choose review acceptance criterion",
+        "workflow-review",
+    ),
+    ("edit-finding", "Edit review finding", "workflow-review"),
+    (
+        "edit-recommendation",
+        "Edit review recommendation / resolution",
+        "workflow-review",
+    ),
+    (
+        "finding-evidence",
+        "Choose review finding evidence",
+        "workflow-review",
+    ),
+    (
+        "record-finding",
+        "Record actionable review finding",
+        "workflow-review",
+    ),
+    (
+        "next-finding",
+        "Choose next recorded review finding",
+        "workflow-review",
+    ),
+    (
+        "criterion-evidence",
+        "Choose acceptance criterion evidence",
+        "workflow-review",
+    ),
+    (
+        "resolve-finding",
+        "Review resolving selected finding",
+        "workflow-review",
+    ),
+    (
+        "managed-review",
+        "Review independent provider review request",
+        "workflow-review",
+    ),
+    (
+        "verdict-inconclusive",
+        "Record inconclusive review verdict",
+        "workflow-review",
+    ),
+    (
+        "verdict-changes",
+        "Review request-changes verdict",
+        "workflow-review",
+    ),
+    (
+        "verdict-accept",
+        "Review acceptance verdict",
+        "workflow-review",
+    ),
+    ("recipe-path", "Edit literal recipe path", "workflow-recipe"),
+    (
+        "load-recipe",
+        "Read local recipe for review",
+        "workflow-recipe",
+    ),
+    (
+        "preview-recipe",
+        "Review recipe proposal",
+        "workflow-recipe",
+    ),
+    (
+        "decision-criteria",
+        "Review proposed decision criteria",
+        "workflow-recipe",
+    ),
+    (
+        "edit-criteria-proposal",
+        "Edit proposed decision criteria",
+        "workflow-recipe",
+    ),
+    (
+        "confirm-decision-criteria",
+        "Review applying decision criteria",
+        "workflow-recipe",
+    ),
+    (
+        "relay-decision",
+        "Review decision handoff",
+        "workflow-recipe",
+    ),
+];
+
 impl App {
     pub fn command_choices(&self) -> Vec<Choice> {
         let mut choices = match self.overlay {
@@ -144,14 +465,48 @@ impl App {
             None if self.planning.busy() => self.planning.command_choices(),
             _ => Vec::new(),
         };
+        choices.retain(|choice| {
+            !matches!(
+                choice.command,
+                "provider"
+                    | "connect"
+                    | "new"
+                    | "resume"
+                    | "run"
+                    | "history"
+                    | "search"
+                    | "inspect"
+            ) && !DIRECT_ACTIONS
+                .iter()
+                .any(|(name, _, _, _, _)| *name == choice.command)
+                && !SPECIALIST_ACTIONS
+                    .iter()
+                    .any(|(name, _, _)| *name == choice.command)
+        });
         for (name, label) in [
-            (
-                "provider",
-                "Providers: connect, model, effort / active request / cancellation",
-            ),
+            ("provider", "Provider connection selector; nothing sent"),
             ("connect", "Provider connections; nothing sent"),
-            ("new", "New provider session"),
-            ("resume", "Resume owned provider session"),
+            ("new", "Send ordinary Request as a fresh conversation"),
+            (
+                "resume",
+                "Send ordinary Request using its owned conversation",
+            ),
+            (
+                "session-new",
+                "Advanced: review exact fresh-session payload",
+            ),
+            (
+                "session-resume",
+                "Advanced: review exact owned-session payload",
+            ),
+            (
+                "chat-new",
+                "Reset local native conversation; keep draft and journal",
+            ),
+            (
+                "response",
+                "Inspect current provider request / response drawer",
+            ),
             ("task-new", "Create local task"),
             ("reset", "Fresh local task; keep old task and drafts"),
             ("init", "Draft project guide request; review before sending"),
@@ -177,7 +532,7 @@ impl App {
             ("release-partner", "Review releasing an idle partner"),
             ("approvals", "Focus oldest pending approval or question"),
             ("cancel-all", "Review cancellation of all owned work"),
-            ("run", "Local commands / execution evidence / cancellation"),
+            ("run", "Inspect local execution evidence; never execute"),
             ("rerun", "Rerun with Jolteon (new approval)"),
             ("history", "Provider history / journal evidence"),
             (
@@ -203,6 +558,29 @@ impl App {
             ("help", "Navigation help"),
             ("verbose", "Toggle brief / full explanations"),
             ("quit", "Leave Eevee"),
+        ] {
+            if !choices.iter().any(|choice| choice.command == name) {
+                choices.push(Choice::new(name, label));
+            }
+        }
+        for (name, _, _, label, _) in DIRECT_ACTIONS {
+            choices.push(Choice::new(name, *label));
+        }
+        for (name, label, _) in SPECIALIST_ACTIONS {
+            choices.push(Choice::new(name, *label));
+        }
+        for (name, label) in [
+            (
+                "diagnostic",
+                "Review a diagnostic run handoff from the specialist desk",
+            ),
+            (
+                "specialist-fix",
+                "Review a source-fix handoff from the specialist desk",
+            ),
+            ("refresh-evidence", "Refresh specialist evidence"),
+            ("next-link", "Choose next specialist evidence link"),
+            ("open-link", "Open selected specialist evidence link"),
         ] {
             if !choices.iter().any(|choice| choice.command == name) {
                 choices.push(Choice::new(name, label));
@@ -358,13 +736,16 @@ impl App {
         {
             return Some("Completion requires an open task with every nonempty acceptance criterion checked.".into());
         }
-        if matches!(
+        if (matches!(
             name,
             "workflow-diagnosis" | "workflow-refactor" | "workflow-review" | "workflow-recipe"
-        ) && !self
-            .workflow_command_choices()
+        ) || SPECIALIST_ACTIONS
             .iter()
-            .any(|choice| choice.command == name)
+            .any(|(command, _, _)| *command == name))
+            && !self
+                .workflow_command_choices()
+                .iter()
+                .any(|choice| choice.command == "workflow-diagnosis")
         {
             return Some(
                 "Finish or close the current specialist editor, evidence chooser, or review first."
@@ -372,7 +753,7 @@ impl App {
             );
         }
         let local_preview_choice = self.planning.preview.is_some()
-            && (matches!(name, "model" | "effort" | "role")
+            && (matches!(name, "model" | "effort" | "role" | "chat-new")
                 || name.starts_with("role-")
                 || name.starts_with("provider-"));
         let local_picker_refresh = name == "models-refresh"
@@ -386,6 +767,9 @@ impl App {
                 "cancel"
                     | "quit"
                     | "provider"
+                    | "connect"
+                    | "response"
+                    | "runs"
                     | "answer"
                     | "answers-review"
                     | "verbose"
@@ -418,14 +802,16 @@ impl App {
                     .into(),
             );
         }
-        if matches!(name, "new" | "resume") && self.overlay.is_none() {
+        if matches!(name, "new" | "resume") {
             return None;
         }
-        if matches!(name, "new" | "resume" | "task-new" | "archive" | "restore")
-            && (!matches!(self.storage, StorageState::Saved)
-                || self.save_requested
-                || self.sources.persistence_pending()
-                || self.sources.store_failed)
+        if matches!(
+            name,
+            "session-new" | "session-resume" | "task-new" | "archive" | "restore"
+        ) && (!matches!(self.storage, StorageState::Saved)
+            || self.save_requested
+            || self.sources.persistence_pending()
+            || self.sources.store_failed)
         {
             return Some("Wait for saved task/context acknowledgement, or retry storage.".into());
         }
@@ -439,33 +825,84 @@ impl App {
                 "Finish or cancel the active local command before changing task ownership.".into(),
             );
         }
-        if (matches!(
-            name,
-            "model" | "effort" | "provider" | "history" | "models-refresh"
-        ) || name.starts_with("provider-")
+        if (matches!(name, "model" | "effort" | "models-refresh")
+            || name.starts_with("provider-")
             || matches!(name, "role-plan" | "role-implement" | "role-review"))
             && self.execution.busy()
             && self.command_owner() == Some(self.lead.id)
         {
             return Some("Finish or cancel the active local command first.".into());
         }
-        if name == "resume"
+        if name == "session-resume"
             && (self.planning.operation == crate::providers::Operation::Review
                 || self.planning.thread_id.is_none())
         {
-            return Some("This provider/role has no owned resumable session; choose /new.".into());
+            return Some(
+                "This provider/role has no owned resumable session; choose /session-new.".into(),
+            );
         }
-        if matches!(name, "new" | "resume" | "sessions") && self.task_id <= 0 {
+        if matches!(name, "session-new" | "session-resume" | "sessions") && self.task_id <= 0 {
             return Some("Create /task-new or save a local task before inspecting or submitting provider work.".into());
         }
-        if matches!(name, "new" | "resume") && self.goal.trim().is_empty() {
+        if matches!(name, "session-new" | "session-resume") && self.goal.trim().is_empty() {
             return Some("Save a nonempty goal before preparing a provider prompt.".into());
         }
-        if self.planning.needs_saved_command(name)
+        let planning_name = match name {
+            "session-new" => "new",
+            "session-resume" => "resume",
+            _ => name,
+        };
+        if self.planning.needs_saved_command(planning_name)
             && !matches!(name, "role-plan" | "role-implement" | "role-review")
             && !self.planning_input_ready()
         {
             return Some("Save task/context first and wait for storage acknowledgement; no request was prepared.".into());
+        }
+        if name == "chat-new" {
+            return self.planning.command_choices().into_iter()
+                .find(|choice| choice.command == name)
+                .map_or_else(
+                    || Some("Finish the current provider interaction before resetting local conversation.".into()),
+                    |choice| choice.reason,
+                );
+        }
+        if self.role_owner(name).is_none()
+            && let Some((_, overlay, local, _, selection)) = DIRECT_ACTIONS
+                .iter()
+                .find(|(command, _, _, _, _)| *command == name)
+        {
+            if *selection && self.overlay != Some(*overlay) {
+                return None;
+            }
+            if *overlay == Overlay::Sources
+                && self.overlay != Some(Overlay::Sources)
+                && matches!(
+                    *local,
+                    "search" | "basket" | "assemble" | "dispatch-preview"
+                )
+                && self.sources.editor.is_none()
+                && self.sources.confirmation.is_none()
+                && !self.sources.store_failed
+            {
+                return None;
+            }
+            let choices = match overlay {
+                Overlay::Execution => self.execution.command_choices(),
+                Overlay::Sources => self.sources.command_choices(),
+                Overlay::Handoff => self.handoff.command_choices(),
+                Overlay::Memory
+                    if self.memory_loading && matches!(*local, "create-memory" | "remember") =>
+                {
+                    return None;
+                }
+                Overlay::Memory => self.memory_command_choices(),
+                _ => Vec::new(),
+            };
+            return choices.into_iter().find(|choice| choice.command == *local)
+                .map_or_else(
+                    || Some("Finish the current workspace editor, storage operation, or review first.".into()),
+                    |choice| choice.reason,
+                );
         }
         self.role_owner(name).map(|owner| {
             let form = crate::domain::FORMS[owner].name;
@@ -656,6 +1093,33 @@ impl App {
             self.command_popup = None;
             return self.release_partner_command(argument);
         }
+        if name == "connect" && !argument.is_empty() {
+            if let Some(reason) = self.command_disabled_reason(name) {
+                self.notice = reason;
+                return true;
+            }
+            let agent = crate::providers::Agent::ALL.into_iter().find(|agent| {
+                argument == agent.command()
+                    || agent.command().strip_prefix("provider-") == Some(argument)
+            });
+            let Some(agent) = agent else {
+                self.notice = "Choose an exact provider route: codex (CLI), chatgpt (native), claude, opencode, gemini, devin, openai, anthropic, google, or compatible. Nothing changed.".into();
+                return true;
+            };
+            if !self.authentication_ready() {
+                self.notice = "Finish or retry task/context/journal saves and active work before connection setup. Your request is kept; nothing sent.".into();
+                return true;
+            }
+            self.command_popup = None;
+            if self.editing {
+                self.pending_request = None;
+                self.retain_action_editor();
+            }
+            self.open_overlay(Overlay::Agents);
+            self.agents.active = self.planning.agent.index();
+            self.agents.begin_connection(agent);
+            return true;
+        }
         if matches!(name, "model" | "effort") && !argument.is_empty() {
             if let Some(reason) = self.command_disabled_reason(name) {
                 self.notice = reason;
@@ -664,9 +1128,7 @@ impl App {
             self.command_popup = None;
             if self.editing {
                 self.pending_request = None;
-                let field = self.editor_field;
-                self.retain_editor();
-                self.composer_return = Some(field);
+                self.retain_action_editor();
             }
             self.open_overlay(Overlay::Planning);
             if self.overlay != Some(Overlay::Planning) {
@@ -746,20 +1208,27 @@ impl App {
             self.open_nickname(partner);
             return true;
         }
-        if matches!(name, "new" | "resume") && self.overlay.is_none() {
-            if !self.composer_is_request() {
+        if matches!(name, "new" | "resume") {
+            if !self.composer_is_request() || self.overlay.is_some() {
                 if self.editing {
-                    self.retain_editor();
+                    self.retain_action_editor();
                 }
-                self.open_editor(crate::store::EditorField::Request);
+                self.request_home(false);
             }
+            let already_saving = self.pending_request.is_some();
             let changed = self.submit_request();
             if name == "new"
+                && !already_saving
                 && let Some((_, resume)) = &mut self.pending_request
             {
                 *resume = false;
             }
             return changed;
+        }
+        if name == "chat-new" {
+            self.pending_request = None;
+            self.pending_request_owner = None;
+            return self.planning_command(name);
         }
         if name == "role" {
             // This is a local chooser, not a provider workspace or request.
@@ -801,9 +1270,116 @@ impl App {
         if self.editing && name != "quit" {
             self.pending_request = None;
             // Opening an action retains the actual draft without applying it.
-            let field = self.editor_field;
-            self.retain_editor();
-            self.composer_return = Some(field);
+            self.retain_action_editor();
+        }
+        if let Some((_, overlay, local, _, selection)) = DIRECT_ACTIONS
+            .iter()
+            .find(|(command, _, _, _, _)| *command == name)
+        {
+            if *local == "command-edit" {
+                self.execution.open(self.task_id);
+                if let Some(action) = self.execution.command(local) {
+                    self.apply_execution_action(action);
+                }
+                return true;
+            }
+            if self.overlay != Some(*overlay) && !*selection {
+                self.direct_sheet_return = Some((self.task_id, self.lead.id, *overlay));
+            }
+            let selecting = *selection && self.overlay != Some(*overlay);
+            self.open_overlay(*overlay);
+            if selecting {
+                self.notice = "Choose the exact item on this surface, then invoke the action again. Nothing applied or sent.".into();
+                return true;
+            }
+            return match overlay {
+                Overlay::Execution => {
+                    if let Some(action) = self.execution.command(local) {
+                        self.apply_execution_action(action);
+                    }
+                    true
+                }
+                Overlay::Sources => {
+                    if self.sources.busy()
+                        && matches!(
+                            *local,
+                            "search" | "basket" | "assemble" | "dispatch-preview"
+                        )
+                    {
+                        self.pending_source_action = Some((self.task_id, self.lead.id, local));
+                        return true;
+                    }
+                    let action =
+                        self.sources
+                            .command(local, self.task_id, self.repository.as_ref());
+                    self.apply_source_action(action)
+                }
+                Overlay::Handoff => self.handoff_command(local),
+                Overlay::Memory => {
+                    if self.memory_loading && matches!(*local, "create-memory" | "remember") {
+                        self.pending_memory_action = Some((self.task_id, self.lead.id, local));
+                        true
+                    } else {
+                        self.memory_command(local)
+                    }
+                }
+                _ => false,
+            };
+        }
+        if let Some((_, _, desk)) = SPECIALIST_ACTIONS
+            .iter()
+            .find(|(command, _, _)| *command == name)
+        {
+            if self.overlay != Some(Overlay::Workflows) {
+                self.direct_sheet_return = Some((self.task_id, self.lead.id, Overlay::Workflows));
+            }
+            self.open_overlay(Overlay::Workflows);
+            self.workflow_command(desk);
+            return self.workflow_command(name);
+        }
+        if matches!(
+            name,
+            "diagnostic" | "specialist-fix" | "refresh-evidence" | "next-link" | "open-link"
+        ) {
+            if self.overlay != Some(Overlay::Workflows) {
+                self.direct_sheet_return = Some((self.task_id, self.lead.id, Overlay::Workflows));
+            }
+            self.open_overlay(Overlay::Workflows);
+            return self.workflow_command(name);
+        }
+        // Stable globals must precede workspace-local spellings.
+        match name {
+            "provider" | "connect" => {
+                self.open_overlay(Overlay::Agents);
+                self.agents.active = self.planning.agent.index();
+                self.agents.focus_active();
+                return true;
+            }
+            "response" => {
+                self.open_overlay(Overlay::Planning);
+                return true;
+            }
+            "run" => {
+                self.open_overlay(Overlay::Execution);
+                return true;
+            }
+            "history" => {
+                self.open_overlay(Overlay::Planning);
+                return self.planning_command("provider-journal");
+            }
+            "session-new" | "session-resume" => {
+                self.open_overlay(Overlay::Planning);
+                return self.planning_command(if name == "session-new" {
+                    "new"
+                } else {
+                    "resume"
+                });
+            }
+            "inspect" => {
+                self.open_overlay(Overlay::Inspector);
+                return true;
+            }
+            _ => {}
         }
         let contextual = match self.overlay {
             Some(Overlay::Planning) => self.planning.command_choices(),
@@ -902,40 +1478,21 @@ impl App {
                 self.open_overlay(Overlay::Planning);
                 return self.planning_command(name);
             }
-            // Idle /provider opens the shared hub; an active request keeps its drawer.
-            "provider" if self.planning.busy() => self.open_overlay(Overlay::Planning),
-            "provider" => {
-                self.open_overlay(Overlay::Agents);
-                self.agents.active = self.planning.agent.index();
-                self.agents.focus_active();
-            }
-            "connect" => {
-                self.open_overlay(Overlay::Agents);
-                // Same active-provider sync as /provider so the hub's
-                // Model/Effort vs Use-for-task choice reflects the task's provider.
-                self.agents.active = self.planning.agent.index();
-            }
             "task-new" => self.new_task(),
             "tasks" => self.open_overlay(Overlay::Tasks),
             "party" => self.open_overlay(Overlay::Party),
             "lead" => {
                 self.lead_command("");
             }
-            "new" | "resume" | "model" | "effort" | "history" | "sessions" | "paths"
-            | "models-refresh" | "decision" => {
+            "model" | "effort" | "sessions" | "paths" | "models-refresh" | "decision" => {
                 self.open_overlay(Overlay::Planning);
                 if self.overlay == Some(Overlay::Planning) {
-                    return self.planning_command(if name == "history" {
-                        "provider-journal"
-                    } else {
-                        name
-                    });
+                    return self.planning_command(name);
                 }
             }
             "forms" => self.open_overlay(Overlay::Forms),
             "back-form" => self.previous_form_toggle(),
             "files" => self.open_overlay(Overlay::Sources),
-            "run" => self.open_overlay(Overlay::Execution),
             "rerun" => self.rerun_stale_check(),
             "handoff" => self.open_overlay(Overlay::Handoff),
             "goal" => self.begin_edit(),
@@ -945,7 +1502,6 @@ impl App {
             "next" => self.begin_edit_field(crate::store::EditorField::NextAction),
             "complete" => self.request_complete(),
             "diff" => self.open_overlay(Overlay::Repository),
-            "inspect" => self.open_overlay(Overlay::Inspector),
             "companion" => self.open_overlay(Overlay::Companion),
             "preview" => self.open_overlay(Overlay::Preview),
             "layout" => self.linear = !self.linear,
@@ -1726,6 +2282,665 @@ mod tests {
             assert!(app.workflow.relay.is_none());
             assert!(app.execution.prepared.is_none() && app.execution.active.is_none());
             assert!(app.planning.pending.is_none() && app.planning.paths_editor.is_none());
+        }
+    }
+
+    #[test]
+    fn stable_inspection_commands_do_not_change_meaning_with_the_surface() {
+        for (width, height) in [(120, 36), (60, 18)] {
+            for surface in [
+                None,
+                Some(Overlay::Execution),
+                Some(Overlay::Planning),
+                Some(Overlay::Sources),
+                Some(Overlay::Agents),
+                Some(Overlay::Workflows),
+            ] {
+                for command in ["run", "history", "provider", "connect", "response", "runs"] {
+                    let mut app = App::new("/workspace".into(), width, height);
+                    app.editing = false;
+                    app.overlay = surface;
+                    assert!(app.command(command));
+                    match command {
+                        "run" => {
+                            assert_eq!(app.overlay, Some(Overlay::Execution));
+                            assert!(app.execution.confirmation.is_none());
+                        }
+                        "runs" => {
+                            assert_eq!(app.overlay, Some(Overlay::Execution));
+                            assert_eq!(app.execution.view, super::super::execution::View::History);
+                        }
+                        "history" => {
+                            assert_eq!(app.overlay, Some(Overlay::Planning));
+                            assert!(app.planning.journal_mode);
+                        }
+                        "provider" | "connect" => {
+                            assert_eq!(app.overlay, Some(Overlay::Agents));
+                            assert_eq!(app.agents.page, super::super::agents::Page::Providers);
+                            assert_eq!(app.agents.selected, app.planning.agent.index());
+                        }
+                        "response" => assert_eq!(app.overlay, Some(Overlay::Planning)),
+                        _ => unreachable!(),
+                    }
+                    assert!(app.execution.active.is_none());
+                    assert!(app.planning.pending.is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn global_author_actions_open_their_editor_without_a_workspace_step() {
+        for (command, overlay) in [
+            ("search", Overlay::Sources),
+            ("create-memory", Overlay::Memory),
+            ("export-json", Overlay::Handoff),
+            ("export-markdown", Overlay::Handoff),
+            ("import-handoff", Overlay::Handoff),
+            ("edit-hypothesis", Overlay::Workflows),
+            ("edit-contract", Overlay::Workflows),
+            ("edit-finding", Overlay::Workflows),
+            ("recipe-path", Overlay::Workflows),
+        ] {
+            let mut app = App::new("/workspace".into(), 60, 18);
+            app.task_id = 7;
+            app.storage = StorageState::Saved;
+            app.memory.reset(7, "/workspace");
+            app.repository = Some(source_report());
+            let mut task = crate::store::Snapshot::empty("/workspace".into());
+            task.id = 7;
+            app.tasks.push(task);
+            app.update(Event::Paste("before suffix".into()));
+            app.cursor = 6;
+            assert!(
+                app.command_choices()
+                    .iter()
+                    .any(|choice| choice.command == command)
+            );
+            assert!(app.command(command), "{command}");
+            assert_eq!(app.overlay, Some(overlay));
+            if app.pending_source_action.is_some() {
+                app.sources.pending.take();
+                app.sources.event(
+                    7,
+                    crate::workspace::context::Event {
+                        task_id: 7,
+                        result: Ok(crate::workspace::context::Response::Catalogue(Vec::new())),
+                    },
+                );
+                app.settle_planning();
+            }
+            if app.memory_loading {
+                app.store_event(crate::store::Event::Memory {
+                    task_id: 7,
+                    result: Ok(Vec::new()),
+                });
+            }
+            match command {
+                "search" => assert!(app.sources.editor.is_some()),
+                "create-memory" => assert_eq!(app.memory.mode, super::super::memory::Mode::Edit),
+                "export-json" | "export-markdown" => {
+                    // The unsaved Request still has to pass the saved-input barrier.
+                    assert!(app.handoff.pending.is_none());
+                }
+                "import-handoff" => {
+                    assert_eq!(app.handoff.mode, super::super::handoff::Mode::Import)
+                }
+                _ => assert!(app.workflow.editor.is_some()),
+            }
+            let draft = app
+                .drafts
+                .iter()
+                .find(|draft| draft.field == crate::store::EditorField::Request)
+                .unwrap();
+            assert_eq!((draft.text.as_str(), draft.cursor), ("before suffix", 6));
+            assert!(app.planning.pending.is_none());
+            assert!(app.execution.active.is_none());
+        }
+    }
+
+    #[test]
+    fn loaded_memory_actions_select_the_visible_record_without_reopening_or_reloading() {
+        use crate::workspace::memory::{Proposal, Provenance, Record, Scope, SourceKind};
+        for (width, height) in [(120, 36), (60, 18)] {
+            let mut app = App::new("/workspace".into(), width, height);
+            app.task_id = 7;
+            app.storage = StorageState::Saved;
+            app.memory.reset(7, "/workspace");
+            app.command("memory");
+            app.memory_request.take();
+            app.store_event(crate::store::Event::Memory {
+                task_id: 7,
+                result: Ok(vec![Record {
+                    id: 11,
+                    revision: 3,
+                    project: "/workspace".into(),
+                    task_id: Some(7),
+                    proposal: Proposal {
+                        scope: Scope::Task,
+                        content: "Keep regression evidence with each change.".into(),
+                        provenance: Provenance {
+                            kind: SourceKind::UserAuthored,
+                            reference: "task:7/user-authored-memory-note".into(),
+                            task_id: 7,
+                        },
+                    },
+                }]),
+            });
+            app.command("select-memory");
+            assert_eq!(app.memory.selected_ids, vec![11]);
+            assert_eq!(app.memory.selected_snapshot().unwrap()[0].id, 11);
+            assert!(!app.memory_loading && app.memory_request.is_none());
+            app.command("select-memory");
+            assert!(app.memory.selected_snapshot().unwrap().is_empty());
+            app.command("edit-memory");
+            assert_eq!(app.memory.mode, super::super::memory::Mode::Edit);
+            assert_eq!(
+                app.memory.draft,
+                "Keep regression evidence with each change."
+            );
+            assert!(!app.memory_loading && app.memory_request.is_none());
+            assert!(app.memory.pending.is_none(), "editing is not approval");
+        }
+    }
+
+    #[test]
+    fn temporary_field_save_and_back_restore_exact_request_draft_and_caret() {
+        for (width, height) in [(120, 36), (60, 18)] {
+            for field in ["goal", "criteria-edit", "next"] {
+                let mut app = App::new("/workspace".into(), width, height);
+                app.update(Event::Paste("before 漢字 suffix".into()));
+                app.cursor = 7;
+                app.command(field);
+                app.input = "Saved task fact".into();
+                app.cursor = app.input.len();
+                assert!(app.apply_editor());
+                assert!(app.composer_is_request());
+                assert_eq!((app.input.as_str(), app.cursor), ("before 漢字 suffix", 7));
+                assert!(app.pending_request.is_none());
+                app.command(field);
+                key(&mut app, KeyCode::Esc);
+                assert!(app.composer_is_request());
+                assert_eq!((app.input.as_str(), app.cursor), ("before 漢字 suffix", 7));
+            }
+        }
+    }
+
+    #[test]
+    fn temporary_editor_return_cannot_replace_a_new_visible_review_or_owner() {
+        for changed_owner in [false, true] {
+            let mut app = App::new("/workspace".into(), 120, 36);
+            app.update(Event::Paste("kept request".into()));
+            app.command("goal");
+            if changed_owner {
+                app.lead.id += 1;
+            } else {
+                app.planning.quit_review = true;
+                app.open_overlay(Overlay::Planning);
+            }
+            app.finish_edit();
+            assert!(!app.composer_is_request());
+            if !changed_owner {
+                assert_eq!(app.overlay, Some(Overlay::Planning));
+                assert!(app.planning.quit_review);
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_send_commands_use_request_and_frozen_save_barrier_from_every_surface() {
+        for surface in [
+            Overlay::Execution,
+            Overlay::Planning,
+            Overlay::Agents,
+            Overlay::Workflows,
+        ] {
+            for command in ["new", "resume"] {
+                let mut app = App::new("/workspace".into(), 120, 36);
+                app.update(Event::Paste("exact ordinary request".into()));
+                app.command("help");
+                app.overlay = Some(surface);
+                app.command(command);
+                assert!(app.composer_is_request());
+                assert_eq!(app.input, "exact ordinary request");
+                assert!(app.pending_request.is_some());
+                assert!(app.planning.pending.is_none());
+                let frozen = app.pending_request;
+                app.command("new");
+                assert_eq!(app.pending_request, frozen);
+            }
+        }
+    }
+
+    #[test]
+    fn named_connection_setup_refuses_unsaved_input_without_losing_request() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.update(Event::Paste("kept request".into()));
+        app.cursor = 4;
+        app.command_with_argument("/connect openai");
+        assert!(app.composer_is_request());
+        assert_eq!((app.input.as_str(), app.cursor), ("kept request", 4));
+        assert!(app.overlay.is_none());
+        assert!(!app.agents.connection_editing());
+        assert!(app.planning.pending.is_none());
+    }
+
+    #[test]
+    fn source_and_output_search_keep_explicit_distinct_owners() {
+        for surface in [None, Some(Overlay::Execution), Some(Overlay::Sources)] {
+            let mut app = App::new("/workspace".into(), 120, 36);
+            app.editing = false;
+            app.overlay = surface;
+            app.command("search");
+            assert_eq!(app.overlay, Some(Overlay::Sources));
+            assert!(app.sources.editor.is_some());
+            assert!(!app.execution.searching);
+
+            let mut app = App::new("/workspace".into(), 120, 36);
+            app.editing = false;
+            app.overlay = surface;
+            app.command("output-search");
+            assert_eq!(app.overlay, Some(Overlay::Execution));
+            assert!(app.execution.searching);
+            assert!(app.sources.editor.is_none());
+        }
+    }
+
+    #[test]
+    fn saved_handoff_exports_start_path_editor_without_dispatch() {
+        for command in ["export-json", "export-markdown"] {
+            let mut app = App::new("/workspace".into(), 120, 36);
+            app.task_id = 7;
+            app.storage = StorageState::Saved;
+            app.editing = false;
+            let mut task = crate::store::Snapshot::empty("/workspace".into());
+            task.id = 7;
+            app.tasks.push(task);
+            app.command(command);
+            assert_eq!(app.overlay, Some(Overlay::Handoff));
+            assert!(app.handoff.editing);
+            assert!(matches!(
+                app.handoff.mode,
+                super::super::handoff::Mode::Export(_)
+            ));
+            assert!(app.handoff.pending.is_none());
+            assert!(!app.handoff.affirmative);
+        }
+    }
+
+    #[test]
+    fn direct_sheet_back_returns_without_an_extra_workspace_escape() {
+        for command in ["search", "output-search", "import-handoff", "edit-contract"] {
+            let mut app = App::new("/workspace".into(), 60, 18);
+            app.update(Event::Paste("before suffix".into()));
+            app.cursor = 6;
+            app.command(command);
+            let back = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+            app.update(Event::Key(back));
+            app.settle_direct_action(back, false);
+            assert!(app.composer_is_request(), "{command}");
+            assert_eq!((app.input.as_str(), app.cursor), ("before suffix", 6));
+            assert!(app.planning.pending.is_none());
+            assert!(app.execution.active.is_none());
+        }
+    }
+
+    #[test]
+    fn first_task_save_preserves_temporary_editor_return_identity() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.update(Event::Paste("exact request".into()));
+        app.cursor = 4;
+        app.command("goal");
+        let mut snapshot = app.snapshot("/workspace");
+        snapshot.id = 7;
+        app.store_event(crate::store::Event::Saved(snapshot));
+        app.input = "Local goal".into();
+        app.cursor = app.input.len();
+        app.apply_editor();
+        assert_eq!(app.task_id, 7);
+        assert!(app.composer_is_request());
+        assert_eq!((app.input.as_str(), app.cursor), ("exact request", 4));
+    }
+
+    #[test]
+    fn local_native_chat_reset_preserves_editor_and_never_prepares_a_request() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.planning.agent = crate::providers::Agent::OpenAI;
+        app.update(Event::Paste("exact native follow-up".into()));
+        app.cursor = 5;
+        app.command("chat-new");
+        assert!(app.composer_is_request());
+        assert_eq!(
+            (app.input.as_str(), app.cursor),
+            ("exact native follow-up", 5)
+        );
+        assert!(app.planning.pending.is_none());
+        assert!(app.pending_request.is_none());
+        assert!(app.overlay.is_none());
+    }
+
+    #[test]
+    fn advanced_session_entry_prepares_review_without_ordinary_send_intent() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.task_id = 7;
+        app.editing = false;
+        app.storage = StorageState::Saved;
+        app.goal = "Saved task".into();
+        let mut task = crate::store::Snapshot::empty("/workspace".into());
+        task.id = 7;
+        task.goal = app.goal.clone();
+        app.tasks.push(task);
+        app.command("session-new");
+        assert_eq!(app.overlay, Some(Overlay::Planning));
+        assert!(app.planning.busy());
+        assert!(app.planning.pending.is_none());
+        let claim = app.planning.work.as_ref().unwrap();
+        assert_eq!((claim.task_id, claim.owner.partner), (7, app.lead.id));
+        assert_eq!(app.planning.immutable_task().unwrap().goal, "Saved task");
+        assert!(!app.planning.send_after_prepare);
+        assert!(app.pending_request.is_none());
+    }
+
+    fn source_report() -> std::sync::Arc<crate::workspace::repo::Report> {
+        use crate::workspace::repo;
+        let snapshot = std::sync::Arc::new(repo::Snapshot {
+            head: None,
+            files: Default::default(),
+            working_diff: repo::WorkingDiff::default(),
+            complete: true,
+            stable: true,
+            warnings: Vec::new(),
+        });
+        std::sync::Arc::new(repo::Report {
+            repository: repo::RepositoryIdentity {
+                root: "/workspace".into(),
+                git_dir: "/workspace/.git".into(),
+            },
+            baseline: std::sync::Arc::clone(&snapshot),
+            current: snapshot,
+            changes: Vec::new(),
+            initial: true,
+        })
+    }
+
+    fn source_capture() -> crate::workspace::context::Excerpt {
+        crate::workspace::context::Excerpt {
+            origin_run: None,
+            id: 1,
+            task_id: 7,
+            root: "/workspace".into(),
+            path: "sample.rs".into(),
+            start_line: 1,
+            end_line: 1,
+            source_sha256: [7; 32],
+            text: "exact captured context".into(),
+            available: true,
+        }
+    }
+
+    #[test]
+    fn direct_source_actions_wait_for_catalogue_and_context_without_reinvocation() {
+        use crate::workspace::context;
+        for (width, height) in [(120, 36), (60, 18)] {
+            for command in ["search", "basket", "assemble", "dispatch-preview"] {
+                let mut app = App::new("/workspace".into(), width, height);
+                app.task_id = 7;
+                app.repository = Some(source_report());
+                app.sources.reset(7);
+                app.update(Event::Paste("before 漢字 suffix".into()));
+                app.cursor = 7;
+                app.command(command);
+                assert!(app.pending_source_action.is_some());
+                assert!(app.sources.editor.is_none());
+                assert!(matches!(
+                    app.sources.pending.take().unwrap().operation,
+                    context::Operation::Catalogue { .. }
+                ));
+                app.sources.event(
+                    7,
+                    context::Event {
+                        task_id: 7,
+                        result: Ok(context::Response::Catalogue(Vec::new())),
+                    },
+                );
+                app.settle_planning();
+                assert!(app.pending_source_action.is_some());
+                app.store_event(crate::store::Event::Context {
+                    task_id: 7,
+                    result: Ok(vec![source_capture()]),
+                });
+                app.settle_planning();
+                assert!(app.pending_source_action.is_none());
+                match command {
+                    "search" => assert!(app.sources.editor.is_some()),
+                    "basket" => assert!(matches!(
+                        app.sources.mode,
+                        super::super::sources::Mode::Basket
+                    )),
+                    _ => {
+                        assert!(
+                            matches!(app.sources.pending.as_ref().map(|request| &request.operation),
+                            Some(context::Operation::Assemble { excerpts, dispatch, .. })
+                            if excerpts == &vec![source_capture()] && *dispatch == (command == "dispatch-preview"))
+                        );
+                    }
+                }
+                let draft = app
+                    .drafts
+                    .iter()
+                    .find(|draft| draft.field == crate::store::EditorField::Request)
+                    .unwrap();
+                assert_eq!(
+                    (draft.text.as_str(), draft.cursor),
+                    ("before 漢字 suffix", 7)
+                );
+                assert!(app.planning.pending.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn pending_source_action_does_not_outlive_owner_back_failure_or_late_review() {
+        use crate::workspace::context;
+        for interruption in ["task", "partner", "back", "failure", "review"] {
+            let mut app = App::new("/workspace".into(), 60, 18);
+            app.task_id = 7;
+            app.repository = Some(source_report());
+            app.update(Event::Paste("retained request".into()));
+            app.cursor = 4;
+            app.command("search");
+            assert!(app.pending_source_action.is_some());
+            app.sources.pending.take();
+            match interruption {
+                "task" => app.task_id = 8,
+                "partner" => app.lead.id += 1,
+                "back" => app.close_overlay(),
+                "review" => {
+                    app.confirmation = Some(crate::app::Confirmation {
+                        kind: crate::app::ConfirmationKind::Complete,
+                        destructive: false,
+                    });
+                }
+                _ => {}
+            }
+            app.sources.event(
+                app.task_id,
+                context::Event {
+                    task_id: 7,
+                    result: if interruption == "failure" {
+                        Err("source evidence unavailable".into())
+                    } else {
+                        Ok(context::Response::Catalogue(Vec::new()))
+                    },
+                },
+            );
+            app.settle_planning();
+            assert!(app.pending_source_action.is_none());
+            assert!(app.sources.editor.is_none());
+            if interruption == "review" {
+                assert_eq!(
+                    app.confirmation.unwrap().kind,
+                    crate::app::ConfirmationKind::Complete
+                );
+            }
+            if interruption == "failure" {
+                assert_eq!(app.overlay, Some(Overlay::Sources));
+                assert!(!app.sources.error.is_empty());
+            }
+            let draft = app
+                .drafts
+                .iter()
+                .find(|draft| draft.field == crate::store::EditorField::Request)
+                .unwrap();
+            assert_eq!((draft.text.as_str(), draft.cursor), ("retained request", 4));
+        }
+    }
+
+    #[test]
+    fn initiating_enter_keeps_specialist_failure_and_its_explanation_visible() {
+        for (width, height) in [(120, 36), (60, 18)] {
+            let mut app = App::new("/workspace".into(), width, height);
+            app.update(Event::Paste("before suffix".into()));
+            app.cursor = 6;
+            app.open_commands();
+            app.command_popup.as_mut().unwrap().query = "add-hypothesis".into();
+            app.command_popup.as_mut().unwrap().selected = Some(0);
+            key(&mut app, KeyCode::Enter);
+            assert_eq!(app.overlay, Some(Overlay::Workflows));
+            assert!(!app.workflow.notice.is_empty());
+            assert!(app.workflows.hypotheses.is_empty());
+            assert!(app.workflow.editor.is_none());
+            assert!(app.planning.pending.is_none());
+            assert!(app.execution.active.is_none());
+            key(&mut app, KeyCode::Esc);
+            assert!(app.composer_is_request());
+            assert_eq!((app.input.as_str(), app.cursor), ("before suffix", 6));
+        }
+    }
+
+    #[test]
+    fn restoring_another_tasks_overlay_binds_its_own_request_return() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.task_id = 7;
+        app.update(Event::Paste("task A request".into()));
+        app.command("help");
+        assert_eq!(app.composer_return_owner, Some((7, app.lead.id)));
+        let mut task = crate::store::Snapshot::empty("/workspace".into());
+        task.id = 8;
+        task.lead_partner = 2;
+        task.navigation.overlay = Some(2);
+        task.partner_drafts.insert(
+            2,
+            crate::store::PartnerDrafts {
+                drafts: vec![crate::store::Draft {
+                    field: crate::store::EditorField::Request,
+                    text: "task B 漢字 request".into(),
+                    cursor: 7,
+                }],
+                editor_field: crate::store::EditorField::Request,
+                editing: true,
+                ..Default::default()
+            },
+        );
+        app.load_task(task);
+        assert_eq!(app.composer_return_owner, Some((8, 2)));
+        assert_eq!(app.overlay, Some(Overlay::Help));
+        key(&mut app, KeyCode::Esc);
+        assert!(app.composer_is_request());
+        assert_eq!((app.input.as_str(), app.cursor), ("task B 漢字 request", 7));
+        assert_eq!(app.lead.id, 2);
+    }
+
+    fn deferred_picker_app() -> App {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.task_id = 7;
+        app.goal = "Saved task".into();
+        app.update(Event::Paste("before suffix".into()));
+        app.cursor = 6;
+        let snapshot = app.snapshot("/workspace");
+        app.save_submitted();
+        app.store_event(crate::store::Event::Saved(snapshot));
+        app.planning.reset(7);
+        app.planning.thread_id = Some("owned-session".into());
+        app.planning.catalogues.insert(
+            crate::providers::Agent::OpenAI,
+            crate::providers::ModelCatalogue {
+                models: vec![crate::providers::ModelOption {
+                    id: "exact-model".into(),
+                    name: "Exact model".into(),
+                    description: String::new(),
+                    efforts: Vec::new(),
+                    default_effort: None,
+                }],
+                current: None,
+                source: "local metadata".into(),
+                effort_note: None,
+            },
+        );
+        app.command("provider");
+        app.agents.use_for_task = Some(crate::providers::Agent::OpenAI.index());
+        app.agents.pick = Some("model");
+        app.use_selected_provider();
+        app
+    }
+
+    #[test]
+    fn ready_provider_selection_opens_model_picker_only_after_accepted_switch_review() {
+        let mut app = deferred_picker_app();
+        assert_eq!(app.planning.agent, crate::providers::Agent::Codex);
+        assert_eq!(
+            app.planning.switch_to,
+            Some(crate::providers::Agent::OpenAI)
+        );
+        assert!(app.pending_provider_picker.is_some());
+        assert!(app.planning.picker.is_none());
+        app.planning.reviewed = true;
+        app.planning.affirmative = true;
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.planning.agent, crate::providers::Agent::OpenAI);
+        assert!(app.pending_provider_picker.is_none());
+        assert!(matches!(
+            app.planning.picker,
+            Some(super::super::planning::Picker::Model)
+        ));
+        assert!(app.planning.selection.model.is_none());
+        assert!(app.planning.pending.is_none());
+        key(&mut app, KeyCode::Esc);
+        assert!(app.composer_is_request());
+        assert_eq!((app.input.as_str(), app.cursor), ("before suffix", 6));
+    }
+
+    #[test]
+    fn rejected_or_stale_provider_switch_never_launches_its_picker() {
+        for interruption in ["reject", "back", "task", "partner", "route"] {
+            let mut app = deferred_picker_app();
+            assert!(app.pending_provider_picker.is_some());
+            match interruption {
+                "reject" => {
+                    app.planning.reviewed = true;
+                    app.planning.affirmative = false;
+                    key(&mut app, KeyCode::Enter);
+                }
+                "back" => {
+                    key(&mut app, KeyCode::Esc);
+                }
+                "task" => app.task_id = 8,
+                "partner" => app.lead.id += 1,
+                "route" => {
+                    app.planning.agent = crate::providers::Agent::Anthropic;
+                    app.planning.switch_to = None;
+                }
+                _ => unreachable!(),
+            }
+            app.settle_planning();
+            assert!(app.pending_provider_picker.is_none());
+            assert!(app.planning.picker.is_none());
+            assert!(app.planning.pending.is_none());
+            if matches!(interruption, "reject" | "back") {
+                assert_eq!(app.planning.agent, crate::providers::Agent::Codex);
+                assert!(app.composer_is_request());
+                assert_eq!((app.input.as_str(), app.cursor), ("before suffix", 6));
+            }
         }
     }
 }

@@ -79,7 +79,7 @@ def main():
                     session.pump(0.1)
 
             def start_patch(session):
-                session.command('new')
+                session.command('session-new')
                 wait_for(session, 'LOCAL PREVIEW', timeout=30)
                 wait_for(session, 'y Run')
                 session.capture('exact-edit-baseline-preview')
@@ -157,14 +157,13 @@ def main():
             session.capture('working-diff-review')
             session.send('\x1b')
             session.command('jolteon')  # Jolteon owns command preparation.
-            session.command('run')
             session.command('command-edit')
             wait_for(session, 'Command / explicit JSON argv or shell')
             check = json.dumps([sys.executable, '-c', "import runpy; m=runpy.run_path('calculator.py'); assert m['add'](2,3)==5; print('EEVEE_LOCAL_CHECK_OK')"])
             session.paste(check)
             session.send('\r')
-            wait_for(session, 'Approval pending', timeout=35)
-            session.command('run')
+            session.command('execute')
+            wait_for(session, 'Review one-shot execution permission', timeout=35)
             session.capture('deliberate-local-check-review')
             session.send(RIGHT + '\r')
             wait_for(session, 'EEVEE_LOCAL_CHECK_OK', timeout=35)
