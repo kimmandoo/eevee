@@ -116,6 +116,17 @@ impl App {
                 }
             }
             store::Event::Journal { task_id, result } => {
+                match &result {
+                    Ok(store::JournalResponse::Saved(record)) => {
+                        self.workflow_observe_patch(task_id, record)
+                    }
+                    Ok(store::JournalResponse::Records(records)) => {
+                        for record in records {
+                            self.workflow_observe_patch(task_id, record);
+                        }
+                    }
+                    _ => {}
+                }
                 self.planning.journal_event(task_id, result);
             }
             store::Event::Party(result) => {
@@ -259,8 +270,7 @@ impl App {
                         self.save_requested = false;
                         self.autosave = None;
                         if let Some((command, owner)) = self.pending_command.take() {
-                            self.execution
-                                .prepare_command_for(self.task_id, Some(owner), &command);
+                            self.prepare_command_relay(&command, owner);
                         }
                     }
                     self.refresh_save_state();

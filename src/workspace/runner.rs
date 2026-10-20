@@ -71,6 +71,9 @@ pub struct Prepared {
     /// Requesting partner (PT06A); absent on runs recorded before attribution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub partner: Option<crate::store::Attribution>,
+    /// A deliberate new approval may cite a previous task-owned run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rerun_of: Option<String>,
 }
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum RunState {
@@ -459,7 +462,8 @@ fn worker(
                     .and_then(|prepared| admit(prepared, &permit, &gate, &stopped));
                 match result {
                     Ok(process) => {
-                        let prepared = pending.take().expect("admitted prepared request");
+                        let mut prepared = pending.take().expect("admitted prepared request");
+                        prepared.rerun_of = permit.rerun_of;
                         run(
                             process,
                             prepared,
@@ -586,6 +590,7 @@ fn prepare(
         expires_at_ms: prepared_at_ms.saturating_add(APPROVAL_LIFETIME_MS),
         before,
         partner: None,
+        rerun_of: None,
     };
     if serde_json::to_vec(&prepared)
         .map_err(|e| e.to_string())?
@@ -596,7 +601,7 @@ fn prepare(
     }
     Ok(prepared)
 }
-fn resolve_executable(program: &str, cwd: &Path) -> Result<PathBuf, String> {
+pub(crate) fn resolve_executable(program: &str, cwd: &Path) -> Result<PathBuf, String> {
     let value = Path::new(program);
     let explicit = value.is_absolute()
         || value.components().count() > 1
@@ -640,7 +645,7 @@ fn resolve_executable(program: &str, cwd: &Path) -> Result<PathBuf, String> {
     }
     Err(format!("Executable not found or not executable: {program}"))
 }
-fn executable_identity(path: &Path) -> io::Result<ExecutableIdentity> {
+pub(crate) fn executable_identity(path: &Path) -> io::Result<ExecutableIdentity> {
     let mut options = fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]

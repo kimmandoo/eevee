@@ -38,6 +38,7 @@ impl Fixture {
         )
         .unwrap();
         context::Excerpt {
+            origin_run: None,
             id: 1,
             task_id: 7,
             root: self.0.to_str().unwrap().into(),
@@ -87,6 +88,7 @@ fn record(id: &str, identity: &str, start: u64) -> runner::RunRecord {
         expires_at_ms: start + 1000,
         before: snapshot(identity),
         partner: None,
+        rerun_of: None,
     };
     let mut run = runner::RunRecord::awaiting(&prepared);
     run.state = runner::RunState::Succeeded;
@@ -433,4 +435,187 @@ fn migration_and_portable_context_never_promote_saved_inference_to_evidence() {
         !observations.contains("actual-run-id"),
         "Diagnosis is not silently injected into independent review"
     );
+}
+
+#[test]
+fn range_addressing_uses_changed_lines_not_whole_file_or_hunk_context() {
+    let before = "one\ntwo\nthree\nfour\nfive\nsix\n";
+    let after = "one\nTWO\nthree\nfour\nfive\nsix\n";
+    assert!(range_touched(before, after, 2, 2));
+    assert!(!range_touched(before, after, 5, 5));
+    assert!(!range_touched(
+        before,
+        "inserted\none\ntwo\nthree\nfour\nfive\nsix\n",
+        5,
+        5
+    ));
+    assert!(range_touched(before, "one\nthree\nfour\nfive\nsix\n", 2, 2));
+    let two_lines = "one\ntwo\n";
+    assert!(
+        !range_touched(two_lines, "one\ntwo\nthree\n", 2, 2),
+        "Appending strictly after the last range is not addressing it"
+    );
+    assert!(
+        range_touched(two_lines, "zero\none\ntwo\n", 1, 1),
+        "Insertion at the first range boundary is included"
+    );
+    assert!(
+        !range_touched(two_lines, "one\ninserted\ntwo\n", 1, 1),
+        "Insertion after a one-line range is excluded"
+    );
+    assert!(
+        range_touched(two_lines, "one\ninserted\ntwo\n", 2, 2),
+        "Insertion before a selected line is included"
+    );
+    assert!(
+        range_touched(two_lines, "one\ninserted\ntwo\n", 1, 2),
+        "Interior insertion is included"
+    );
+    assert!(range_touched(two_lines, "one\nTWO\n", 2, 2));
+    assert!(range_touched(two_lines, "one\n", 2, 2));
+}
+
+#[test]
+fn baseline_reuse_requires_revision_argv_cwd_executable_and_retained_pass() {
+    let run = record("baseline", "before", 10);
+    let expected = run.prepared.clone();
+    assert!(baseline_eligibility(&run, &expected, &snapshot("before")).is_ok());
+    assert!(
+        baseline_eligibility(&run, &expected, &snapshot("after"))
+            .unwrap_err()
+            .contains("revision")
+    );
+    let mut changed = expected.clone();
+    changed.spec = runner::CommandSpec::Direct {
+        program: "different".into(),
+        args: Vec::new(),
+    };
+    assert!(
+        baseline_eligibility(&run, &changed, &snapshot("before"))
+            .unwrap_err()
+            .contains("argv")
+    );
+    changed = expected.clone();
+    changed.cwd_identity = "replaced-directory".into();
+    assert!(
+        baseline_eligibility(&run, &changed, &snapshot("before"))
+            .unwrap_err()
+            .contains("cwd")
+    );
+    changed = expected;
+    changed.executable.sha256 = "new-executable".into();
+    assert!(
+        baseline_eligibility(&run, &changed, &snapshot("before"))
+            .unwrap_err()
+            .contains("executable")
+    );
+    let mut unstable = run;
+    unstable.prepared.before.stable = false;
+    assert!(baseline_eligibility(&unstable, &changed, &snapshot("before")).is_err());
+}
+
+#[test]
+fn addressed_findings_stale_verdict_without_closing_and_require_new_verdict() {
+    let mut state = State::default();
+    let current = snapshot("before");
+    let evidence = view(&[], &[], &current);
+    let id = state
+        .add_finding("criterion", "finding", "fix", Vec::new(), &evidence)
+        .unwrap();
+    state
+        .record_review(Verdict::RequestChanges, Vec::new(), &evidence)
+        .unwrap();
+    state.relayed_findings.push(RelayedFinding {
+        finding: id,
+        author: 2,
+        ranges: vec![RangeBaseline {
+            path: "bug.rs".into(),
+            start: 2,
+            end: 2,
+            text: "one\ntwo\n".into(),
+        }],
+        addressed: true,
+        review_generation: state.review_generation,
+    });
+    state.review_stale = true;
+    assert!(state.resolve_finding(id, "fixed").is_err());
+    assert_eq!(
+        state.review_guard(&["criterion".into()], &evidence).verdict,
+        Verdict::Inconclusive
+    );
+    assert!(state.findings[0].resolution.is_none());
+    state
+        .record_review(Verdict::Inconclusive, Vec::new(), &evidence)
+        .unwrap();
+    assert!(state.findings[0].resolution.is_none());
+    state
+        .resolve_finding(id, "Explicit resolution after a new verdict")
+        .unwrap();
+}
+
+#[test]
+fn only_actual_controlled_success_origin_can_attribute_a_patch() {
+    use sha2::{Digest, Sha256};
+    let mut record = crate::store::ProviderRecord {
+        id: "controlled-write-record".into(),
+        agent: crate::providers::Agent::Codex,
+        generation: 1,
+        thread_id: "thread".into(),
+        turn_id: "turn".into(),
+        item_id: "eevee-edit-call".into(),
+        origin: "Codex-requested Eevee-controlled file edit".into(),
+        coverage: "Exact controlled selected-file replacement".into(),
+        text: "Applied reviewed replacement to calc.py. User must inspect working diff and choose a local check; no commit or verification occurred.\n--- a/calc.py\n+++ b/calc.py\n@@ exact full-file replacement; baseline sha256=fixture @@\n-old\n+new\n\\ No newline at end of file\n".into(),
+        complete: true,
+        partner: Some(crate::store::Attribution { partner: 2, name: "Local flavor".into(), form: 3 }),
+    };
+    let author = controlled_patch_author(&record).unwrap();
+    assert_eq!(author.partner, 2);
+    assert_eq!(author.path, "calc.py");
+    assert_eq!(
+        author.source_sha256,
+        <[u8; 32]>::from(Sha256::digest(b"new"))
+    );
+    record.origin = "Codex provider-native".into();
+    assert!(
+        controlled_patch_author(&record).is_none(),
+        "Provider text cannot spoof an Eevee-controlled origin"
+    );
+    record.origin = "Codex-requested Eevee-controlled file edit".into();
+    record.text = "User denied edit to calc.py; no Eevee write occurred".into();
+    assert!(controlled_patch_author(&record).is_none());
+    record.complete = false;
+    assert!(controlled_patch_author(&record).is_none());
+}
+
+#[test]
+fn confirmed_deletion_requires_contained_no_follow_not_found() {
+    let fixture = Fixture::new();
+    let path = Path::new("untracked.rs");
+    fs::write(fixture.0.join(path), "one\ntwo\n").unwrap();
+    assert!(!confirmed_source_absence(&fixture.0, path));
+    fs::remove_file(fixture.0.join(path)).unwrap();
+    assert!(confirmed_source_absence(&fixture.0, path));
+    assert!(!confirmed_source_absence(
+        &fixture.0,
+        Path::new("../outside.rs")
+    ));
+    fs::write(fixture.0.join("not-a-directory"), "ordinary file").unwrap();
+    assert!(!confirmed_source_absence(
+        &fixture.0,
+        Path::new("not-a-directory/file.rs")
+    ));
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(fixture.0.join("absent.rs"), fixture.0.join(path)).unwrap();
+        assert!(
+            !confirmed_source_absence(&fixture.0, path),
+            "A dangling link is not proof of deletion"
+        );
+        std::os::unix::fs::symlink(std::env::temp_dir(), fixture.0.join("linked-parent")).unwrap();
+        assert!(!confirmed_source_absence(
+            &fixture.0,
+            Path::new("linked-parent/absent.rs")
+        ));
+    }
 }

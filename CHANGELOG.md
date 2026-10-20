@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-20
+
+- feat(execution): parsed bounded retained Rust, Python, Node, TypeScript and generic diagnostic locations without reading additional output or files.
+- feat(context): pinned reviewed location ranges through existing source guards and retained their task-owned run provenance.
+- feat(execution): prepared stale checks with exact retained argv/cwd, fresh one-shot approvals and immutable `rerun_of` links; refused irreversibly masked commands.
+- feat(diagnosis): relayed supported hypotheses and current evidence into bounded Flareon fix drafts without sending requests or transferring permissions.
+- feat(review): relayed unresolved request-changes findings into reviewed Flareon requirements and proposed paths.
+- feat(review): marked only touched finding ranges addressed, staled verdicts and required independent re-review without automatically closing findings.
+- feat(planning): converted deliberately chosen Espeon decisions into editable duplicate-aware unchecked criteria with durable, reconciled provenance.
+- feat(refactor): offered eligible retained passing baselines with age, revision and exact command identities, plus a separately approved fresh fallback and distinct before/after durations.
+- feat(party): staged source-linked relays and owning-form redirect references for idle matching partners without replaying actions or changing sender drafts, and grounded same-partner review labels in actual current controlled-write evidence.
+- feat(forms): named an idle partner already in the recommended form and removed its availability hint while it owned work.
+- feat(storage)!: fenced durable wave 3 provenance with a version-only Schema 11→12 migration that preserved existing rows and refused older writers.
+- fix(ui): preserved visible project/storage status and safe-exit controls while specialist desks were open, kept complete decision criteria previews scrollable, and derived page strides from the actual detail viewport so compact keyboard navigation skipped no saved lines.
+
 ## 0.1.10
 
 - feat(forms): added factual empty-state actions and capability labels, deliberate owning-form redirects, and guarded Return to Eevee without replaying work or moving permissions.

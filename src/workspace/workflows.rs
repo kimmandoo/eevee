@@ -20,6 +20,14 @@ pub struct State {
     pub findings: Vec<Finding>,
     pub review: Option<Review>,
     pub recipe: Option<AppliedRecipe>,
+    pub chosen_decision: Option<ChosenDecision>,
+    pub criterion_origins: Vec<CriterionOrigin>,
+    pub relayed_findings: Vec<RelayedFinding>,
+    pub review_stale: bool,
+    pub command_relays: Vec<CommandRelay>,
+    pub review_generation: u64,
+    pub draft_relays: Vec<DraftRelay>,
+    pub patch_authors: Vec<PatchAuthor>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +132,256 @@ impl EvidenceRef {
             Self::Run { task_id, run_id } => format!("task:{task_id}/run:{run_id}"),
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommandRelay {
+    pub partner: i64,
+    pub run_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChosenDecision {
+    pub id: String,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CriterionOrigin {
+    pub criterion: String,
+    pub decision_id: String,
+    pub decision_text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelayedFinding {
+    pub finding: u64,
+    pub author: i64,
+    pub ranges: Vec<RangeBaseline>,
+    pub addressed: bool,
+    #[serde(default)]
+    pub review_generation: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DraftRelay {
+    pub partner: i64,
+    pub form: usize,
+    pub text: String,
+    pub paths: Vec<std::path::PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision: Option<ChosenDecision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role_action: Option<String>,
+}
+
+pub fn role_action_form(action: &str) -> Option<usize> {
+    match action {
+        "command-edit" => Some(2),
+        "paths" | "role-implement" => Some(3),
+        _ => None,
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PatchAuthor {
+    pub partner: i64,
+    pub path: String,
+    pub source_sha256: [u8; 32],
+    pub record_id: String,
+}
+
+/// Only the hardcoded Eevee-controlled success origin is decoded. Provider
+/// messages/native-tool observations use distinct origins and cannot claim it.
+/// Matching current source identity is separately required when using attribution.
+pub fn controlled_patch_author(record: &crate::store::ProviderRecord) -> Option<PatchAuthor> {
+    if record.agent != crate::providers::Agent::Codex
+        || !record.complete
+        || record.origin != "Codex-requested Eevee-controlled file edit"
+        || !record.item_id.starts_with("eevee-edit-")
+        || !record.text.starts_with("Applied reviewed replacement to ")
+        || record.text.len() > 64 * 1024
+    {
+        return None;
+    }
+    let owner = record.partner.as_ref().filter(|p| p.partner > 0)?;
+    let mut lines = record.text.split_inclusive('\n');
+    lines.next()?;
+    let path = lines
+        .next()?
+        .trim_end_matches('\n')
+        .strip_prefix("--- a/")?;
+    relative_path(path).ok()?;
+    if lines
+        .next()?
+        .trim_end_matches('\n')
+        .strip_prefix("+++ b/")?
+        != path
+    {
+        return None;
+    }
+    if !lines
+        .next()?
+        .starts_with("@@ exact full-file replacement; baseline sha256=")
+    {
+        return None;
+    }
+    let mut replacement = String::new();
+    let mut new_line = false;
+    for line in lines {
+        if let Some(text) = line.strip_prefix('+') {
+            if replacement.len().saturating_add(text.len()) > 12 * 1024 {
+                return None;
+            }
+            replacement.push_str(text);
+            new_line = true;
+        } else if line.starts_with('-') {
+            new_line = false;
+        } else if line.trim_end_matches('\n') == "\\ No newline at end of file" {
+            if new_line && replacement.ends_with('\n') {
+                replacement.pop();
+            }
+        } else {
+            return None;
+        }
+    }
+    use sha2::{Digest, Sha256};
+    Some(PatchAuthor {
+        partner: owner.partner,
+        path: path.into(),
+        source_sha256: Sha256::digest(replacement.as_bytes()).into(),
+        record_id: record.id.clone(),
+    })
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RangeBaseline {
+    pub path: String,
+    pub start: usize,
+    pub end: usize,
+    pub text: String,
+}
+
+/// Minimum line edit alignment, with ties preferring an untouched range.
+/// Unlike a whole-file hash or hunk context, edits elsewhere do not address a
+/// finding. Memory is linear in the new file; callers bound both files to 12 KiB.
+pub fn range_touched(before: &str, after: &str, start: usize, end: usize) -> bool {
+    if before == after {
+        return false;
+    }
+    let old: Vec<_> = before.split_inclusive('\n').collect();
+    let new: Vec<_> = after.split_inclusive('\n').collect();
+    let mut previous: Vec<(usize, bool)> =
+        (0..=new.len()).map(|n| (n, n > 0 && start == 1)).collect();
+    let mut row = vec![(0, false); new.len() + 1];
+    for (i, old_line) in old.iter().enumerate() {
+        let inside = i + 1 >= start && i < end;
+        row[0] = (i + 1, previous[0].1 || inside);
+        for (j, new_line) in new.iter().enumerate() {
+            if old_line == new_line {
+                row[j + 1] = previous[j];
+            } else {
+                let deletion = (previous[j + 1].0 + 1, previous[j + 1].1 || inside);
+                let insertion_inside = i + 2 >= start && i + 2 <= end;
+                let insertion = (row[j].0 + 1, row[j].1 || insertion_inside);
+                row[j + 1] = deletion.min(insertion);
+            }
+        }
+        std::mem::swap(&mut row, &mut previous);
+    }
+    previous[new.len()].1
+}
+
+/// Positive deletion evidence only: every existing ancestor is observed as the
+/// same contained directory before and after a no-follow NotFound result.
+/// Links, permission errors, replaced roots and unavailable paths remain unknown.
+pub fn confirmed_source_absence(root: &Path, relative: &Path) -> bool {
+    use std::path::Component;
+    if relative
+        .to_str()
+        .is_none_or(|path| relative_path(path).is_err())
+    {
+        return false;
+    }
+    let Ok(metadata) = std::fs::symlink_metadata(root) else {
+        return false;
+    };
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return false;
+    }
+    let Ok(canonical_root) = std::fs::canonicalize(root) else {
+        return false;
+    };
+    if canonical_root != root {
+        return false;
+    }
+    let Ok(identity) = runner::native::directory_identity(root) else {
+        return false;
+    };
+    let mut directories = vec![(root.to_path_buf(), identity)];
+    let mut path = root.to_path_buf();
+    let mut components = relative.components().peekable();
+    while let Some(component) = components.next() {
+        let Component::Normal(name) = component else {
+            return false;
+        };
+        path.push(name);
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink()
+                    || components.peek().is_none()
+                    || !metadata.is_dir()
+                {
+                    return false;
+                }
+                let Ok(identity) = runner::native::directory_identity(&path) else {
+                    return false;
+                };
+                directories.push((path.clone(), identity));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return directories.iter().all(|(directory, identity)| {
+                    std::fs::symlink_metadata(directory).is_ok_and(|metadata| {
+                        metadata.is_dir() && !metadata.file_type().is_symlink()
+                    }) && runner::native::directory_identity(directory)
+                        .is_ok_and(|current| current == *identity)
+                });
+            }
+            Err(_) => return false,
+        }
+    }
+    false
+}
+
+/// Explain ineligible retained baselines rather than silently substituting one.
+pub fn baseline_eligibility(
+    run: &runner::RunRecord,
+    expected: &runner::Prepared,
+    current: &runner::InputSnapshot,
+) -> Result<(), String> {
+    if !passed(run) {
+        return Err("not a complete retained passing run".into());
+    }
+    if !snapshot_known(current) || run.after.fingerprint != current.fingerprint {
+        return Err("revision differs from the pre-refactor revision".into());
+    }
+    if run.prepared.spec != expected.spec {
+        return Err("argv differs from the selected check".into());
+    }
+    if run.prepared.cwd != expected.cwd || run.prepared.cwd_identity != expected.cwd_identity {
+        return Err("cwd identity differs".into());
+    }
+    if run.prepared.executable != expected.executable {
+        return Err("executable identity differs".into());
+    }
+    Ok(())
 }
 
 fn snapshot_known(snapshot: &runner::InputSnapshot) -> bool {
@@ -395,6 +653,83 @@ impl State {
             }
             applied.recipe.validate()?;
         }
+        if self.criterion_origins.len() > 64 || self.relayed_findings.len() > MAX_ENTRIES {
+            return Err("Relay provenance exceeds task bounds".into());
+        }
+        if let Some(decision) = &self.chosen_decision {
+            text(&decision.id, 256)?;
+            text(&decision.text, MAX_TEXT_BYTES)?;
+        }
+        for origin in &self.criterion_origins {
+            text(&origin.criterion, 256)?;
+            text(&origin.decision_id, 256)?;
+            text(&origin.decision_text, MAX_TEXT_BYTES)?;
+        }
+        for relay in &self.relayed_findings {
+            if relay.author <= 0
+                || !self.findings.iter().any(|f| f.id == relay.finding)
+                || relay.ranges.is_empty()
+                || relay.ranges.len() > 16
+            {
+                return Err("Invalid relayed finding ownership or ranges".into());
+            }
+            for range in &relay.ranges {
+                relative_path(&range.path)?;
+                if range.start == 0 || range.end < range.start || range.text.len() > 12 * 1024 {
+                    return Err("Invalid finding baseline range".into());
+                }
+                if crate::workspace::privacy::redact(&range.text) != range.text {
+                    return Err("Credential-bearing raw range baselines cannot be retained".into());
+                }
+            }
+        }
+        if self.command_relays.len() > 6 {
+            return Err("Command relay provenance exceeds six partners".into());
+        }
+        for relay in &self.command_relays {
+            if relay.partner <= 0 {
+                return Err("Invalid command relay owner".into());
+            }
+            run_identity(&relay.run_id)?;
+        }
+        if self.draft_relays.len() > 6 {
+            return Err("Draft relay provenance exceeds six partners".into());
+        }
+        for relay in &self.draft_relays {
+            if relay.partner <= 0 || relay.form > 8 || relay.paths.len() > 8 {
+                return Err("Invalid draft relay scope".into());
+            }
+            text(&relay.text, MAX_TEXT_BYTES)?;
+            if let Some(decision) = &relay.decision {
+                text(&decision.id, 256)?;
+                text(&decision.text, MAX_TEXT_BYTES)?;
+                if relay.form != 0 {
+                    return Err("Decision relay must target intake criteria".into());
+                }
+            }
+            if let Some(action) = &relay.role_action
+                && (role_action_form(action) != Some(relay.form)
+                    || !relay.paths.is_empty()
+                    || relay.decision.is_some())
+            {
+                return Err(
+                    "Role-action relay transfers references only, not scope or decisions".into(),
+                );
+            }
+            for path in &relay.paths {
+                relative_path(path.to_str().ok_or("Relay path must be UTF-8")?)?;
+            }
+        }
+        if self.patch_authors.len() > MAX_ENTRIES {
+            return Err("Patch attribution exceeds 32 source paths".into());
+        }
+        for author in &self.patch_authors {
+            if author.partner <= 0 {
+                return Err("Invalid controlled patch author".into());
+            }
+            relative_path(&author.path)?;
+            text(&author.record_id, 256)?;
+        }
         if serde_json::to_vec(self)
             .map_err(|error| error.to_string())?
             .len()
@@ -624,11 +959,33 @@ impl State {
 
     pub fn resolve_finding(&mut self, id: u64, resolution: &str) -> Result<(), String> {
         let resolution = clean(resolution)?;
+        if self.relayed_findings.iter().any(|r| {
+            r.finding == id && (self.review_stale || self.review_generation <= r.review_generation)
+        }) {
+            return Err(
+                "Finding cannot close before a new verdict after the implementation relay.".into(),
+            );
+        }
         self.findings
             .iter_mut()
             .find(|f| f.id == id)
             .ok_or("Finding no longer exists")?
             .resolution = Some(resolution);
+        Ok(())
+    }
+
+    pub fn update_review_evidence(
+        &mut self,
+        criteria: Vec<CriterionEvidence>,
+        view: &EvidenceView<'_>,
+    ) -> Result<(), String> {
+        validate_criteria(&criteria, view.task_id)?;
+        self.review
+            .get_or_insert(Review {
+                requested: Verdict::Inconclusive,
+                criteria: Vec::new(),
+            })
+            .criteria = criteria;
         Ok(())
     }
 
@@ -643,6 +1000,8 @@ impl State {
             requested: verdict,
             criteria,
         });
+        self.review_stale = false;
+        self.review_generation = self.review_generation.saturating_add(1);
         Ok(())
     }
 
@@ -659,6 +1018,10 @@ impl State {
                 .push("No independent review has been recorded".into());
             return guard;
         };
+        if self.review_stale {
+            guard.reasons.push("Verdict stale: addressed findings need a fresh independent re-review; no finding was closed".into());
+            return guard;
+        }
         if self.findings.iter().any(|f| f.resolution.is_none()) {
             guard.verdict = Verdict::RequestChanges;
             guard

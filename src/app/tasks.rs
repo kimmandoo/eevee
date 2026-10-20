@@ -214,6 +214,7 @@ impl App {
         self.criterion_selection = navigation
             .criterion_selection
             .min(self.criteria.len().saturating_sub(1));
+        self.apply_relay_draft_role();
     }
 
     pub(super) fn new_task(&mut self) {
@@ -312,6 +313,18 @@ impl App {
 
     pub fn apply_execution_action(&mut self, action: execution::Action) {
         match action {
+            execution::Action::PinLocation(location, run) => {
+                if let Err(error) = self.pin_execution_location(location, run) {
+                    self.execution.notice.clone_from(&error);
+                    self.notice = error;
+                }
+            }
+            execution::Action::Rerun(run) => {
+                if let Err(error) = self.stage_execution_rerun(run) {
+                    self.execution.notice.clone_from(&error);
+                    self.notice = error;
+                }
+            }
             execution::Action::NewTask => self.finish_new_task(),
             execution::Action::ResetTask => {
                 self.pending_request = None;

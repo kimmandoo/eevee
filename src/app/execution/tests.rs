@@ -27,6 +27,7 @@ fn prepared() -> runner::Prepared {
         expires_at_ms: u64::MAX,
         before: identity("same"),
         partner: None,
+        rerun_of: None,
     }
 }
 fn identity(value: &str) -> runner::InputSnapshot {
@@ -539,4 +540,118 @@ fn approval_and_evidence_details_name_the_requesting_partner() {
     let mut state = State::default();
     assert!(state.prepare_command_for(1, p.partner.clone(), r#"["tool","first"]"#));
     assert_eq!(state.owner, p.partner);
+}
+
+#[test]
+fn location_selection_uses_only_the_displayed_window_and_keeps_run_ownership() {
+    let mut state = State {
+        task_id: 1,
+        ..State::default()
+    };
+    let record = record(runner::RunState::Failed);
+    state.selected_run = Some(record.prepared.run_id.clone());
+    state.history.push(record);
+    state.live.append("src/old.rs:2:1\n");
+    state.showing_retained = true;
+    state.retained_run = state.selected_run.clone();
+    state.retained.append("src/current.rs:5:3\n");
+    state.command("locations");
+    assert_eq!(
+        state.locations,
+        vec![crate::workspace::locations::Location {
+            path: "src/current.rs".into(),
+            line: 5,
+            column: Some(3),
+        }]
+    );
+    assert!(matches!(state.command("pin-location"),
+        Some(Action::PinLocation(location, run)) if location.line == 5 && run == "r-test-run"));
+    state.selected_run = Some("different-retained-run".into());
+    state.command("locations");
+    assert!(matches!(state.command("pin-location"),
+        Some(Action::PinLocation(_, run)) if run == "r-test-run"));
+    state.selected_run = Some("r-test-run".into());
+    state.retained = OutputWindow::default();
+    state.command("locations");
+    assert!(state.locations.is_empty());
+    assert!(state.command("pin-location").is_none());
+}
+
+#[test]
+fn rerun_preparation_has_fresh_approval_and_origin_is_cleared_by_manual_replacement() {
+    let mut state = State::default();
+    let owner = store::Attribution {
+        partner: 1,
+        name: "Bolt".into(),
+        form: 2,
+    };
+    assert!(state.prepare_rerun_for(1, owner.clone(), r#"["tool","check"]"#, "old-run".into()));
+    assert_eq!(state.rerun_of.as_deref(), Some("old-run"));
+    assert!(!state.affirmative);
+    assert!(state.permit.is_none());
+    assert!(state.prepare_command_for(1, Some(owner), r#"["tool","different"]"#));
+    assert!(state.rerun_of.is_none());
+}
+
+#[test]
+fn ordinary_source_refresh_updates_staleness_without_settling_unstarted_capture() {
+    let mut state = State {
+        task_id: 1,
+        ..State::default()
+    };
+    let initial = report(1, true);
+    state.repo_observed(Some(&initial));
+    let before = state.latest.clone();
+    let changed = report(2, true);
+    state.repo_observed(Some(&changed));
+    assert_ne!(state.latest.fingerprint, before.fingerprint);
+    assert_eq!(state.latest, fingerprint(&changed));
+    assert!(state.prepare_command(1, r#"["tool","check"]"#));
+    state.repo_observed(Some(&initial));
+    assert!(
+        state.before_ready.is_none(),
+        "ordinary refresh cannot settle an unstarted execution observation"
+    );
+    state.repo_started();
+    state.repo_observed(Some(&changed));
+    assert_eq!(state.before_ready, Some(fingerprint(&changed)));
+}
+
+#[test]
+fn irreversible_journal_masking_disables_exact_rerun_instead_of_substituting_arguments() {
+    let mut prior = record(runner::RunState::Succeeded);
+    prior.prepared.spec = runner::CommandSpec::Direct {
+        program: "tool".into(),
+        args: vec!["--password".into(), "synthetic-fixture-value".into()],
+    };
+    assert!(super::super::execution_relays::retained_rerun_spec(&prior).is_ok());
+    prior.redact_for_storage();
+    let mut state = State {
+        task_id: 1,
+        selected_run: Some(prior.prepared.run_id.clone()),
+        latest: identity("changed"),
+        history: vec![prior],
+        ..State::default()
+    };
+    let choices = state.command_choices();
+    let reason = choices
+        .iter()
+        .find(|choice| choice.command == "rerun")
+        .unwrap()
+        .reason
+        .as_deref();
+    assert!(reason.is_some_and(|reason| reason.contains("exact argv cannot be recovered")));
+    state.history[0].prepared.spec = runner::CommandSpec::Direct {
+        program: "tool".into(),
+        args: vec!["check".into()],
+    };
+    assert!(
+        state
+            .command_choices()
+            .iter()
+            .find(|choice| choice.command == "rerun")
+            .unwrap()
+            .reason
+            .is_none()
+    );
 }

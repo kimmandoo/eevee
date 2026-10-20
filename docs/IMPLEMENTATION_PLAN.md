@@ -255,10 +255,20 @@ Each task was implemented in existing modules, verified with relevant tests and 
 4. Implement EV10A: a reusable pure retained-output location parser for Rust/cargo, Python tracebacks, Node/TypeScript and generic path:line[:column], exposed in the existing run view without reading extra spool bytes or opening/pinning files.
 5. Prove real failing cargo test and pytest locations plus no-match behavior, actual TUI at 120×36/60×18, update contracts/task/changelog/checkpoint and commit EV10A independently. EV10B remains the next task, not part of this request.
 
-## Active request — ordinary conversation and provider architecture
+## Suspended request — ordinary conversation and provider architecture
 
 1. Trace actual first/follow-up payloads and compare application-owned history, separate system context and native tool-loop behavior with the supplied local reference without copying source or introducing reference branding.
 2. Resolve the material product boundary: native-only replaces external tool/session/auth integrations; native-first can preserve them as explicit advanced integrations. Removing a transport alone must not silently remove coding capabilities or imply different credentials are interchangeable.
 3. Implement the selected complete path: preserve ordinary user intent and role-separated prior turns, isolate task/partner/review ownership, maintain committed-input/admission/receipt correctness, and preserve command/write approvals and cancellation. Do not dump display-only items into a request as a substitute for canonical conversation state.
 4. Prove first and follow-up ordinary conversation through actual serialized requests and the active runtime, distinguish local protocol-fixture evidence from live model semantics, update behavioral contracts/tests/docs and commit. EV10A stays deferred until the user's higher-priority request is satisfied.
+
+
+## Completed request — wave 3 only (2026-10-20)
+
+The user initially requested waves 3 and 4, then explicitly narrowed the scope to wave 3 only. Removed the unverified wave 4 implementation rather than shipping dormant cooperation behavior. Ordinary conversation repair remained suspended with its architecture boundary unresolved.
+
+1. Completed EV10A → EV10B → EV14 → EV12 → EV13A → EV13B → EV15 → EV16 → PT10 → EV01C using retained execution output, guarded captures, canonical specialist evidence, reviewed drafts and existing task persistence.
+2. Preserve the existing one-working-partner runtime. Wave 4 write leases, moving-run metadata, concurrency, approval queue, cancel-all, party board and partner release remain unimplemented.
+3. Each task requires independent behavioral verification and actual TUI proof at 120×36 and 60×18 plus documentation. This whole-wave cutover uses one atomic integration commit for the shared Schema 12 provenance and relay state instead of the backlog's usual per-ID commit convention. Persisted additions still require transactional migration and real old-binary refusal.
+4. Verified the integrated source with 713 passed / 2 ignored, strict Clippy, release build and six actual-runtime suites on the same immutable candidate. Both UI sizes covered guarded transfer, exact fresh command approval, restart/provenance, source freshness, controlled-write authorship and gap-free compact pagination; real Schema 11→12 migration/refusal/resume also passed. No release, push, installed-binary replacement, provider credential change or unrelated architecture cutover occurred. This request is complete; do not start wave 4 automatically.
 

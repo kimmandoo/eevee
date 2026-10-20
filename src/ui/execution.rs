@@ -102,6 +102,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut State, config: &Config)
     match state.view {
         View::History => history(frame, body, state, &paint),
         View::Details => details(frame, body, state, &paint),
+        View::Locations => locations(frame, body, state, &paint),
         View::Output => output(frame, body, state, &paint),
     }
     let footer = row(
@@ -111,12 +112,55 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut State, config: &Config)
     );
     let hints = if state.view == View::History {
         "Up/Down select · Enter inspect retained output\n/ choices: purge, command-edit, run, cancel, refresh\nEsc output · Ctrl+C/quit: Stay or Cancel-and-wait"
+    } else if state.view == View::Locations {
+        "Up/Down select · Enter Pin range (review)\nRetained window/page only · Esc output"
     } else if state.view == View::Details {
         "Up/Down/PgUp/PgDn/Home/End inspect full details\n/ choices: journal-retry, run, cancel · Esc output\nNo command is retried automatically; task drafts stay"
     } else {
-        "/ choices: command-edit, run, cancel, history, artifacts\nArrows scroll · /search edits a literal output query\n/page-next, /page-previous · /refresh · Esc close"
+        "/ choices: command-edit, run, locations, artifacts\nArrows scroll · /search edits a literal output query\n/page-next, /page-previous · /refresh · Esc close"
     };
     text(frame, footer, hints, paint.muted);
+}
+
+fn locations(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) {
+    if state.locations.is_empty() {
+        text(
+            frame,
+            area,
+            "No parseable locations in retained output.\nNo extra output or files were read.",
+            paint.muted,
+        );
+        return;
+    }
+    let start = state
+        .location_index
+        .saturating_sub(area.height.saturating_sub(1) as usize);
+    let rows: Vec<Line<'_>> = state
+        .locations
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(area.height as usize)
+        .map(|(index, location)| {
+            Line::styled(
+                format!(
+                    "{} {}",
+                    if index == state.location_index {
+                        ">"
+                    } else {
+                        " "
+                    },
+                    location
+                ),
+                if index == state.location_index {
+                    paint.selected
+                } else {
+                    paint.surface
+                },
+            )
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(rows), area);
 }
 
 fn confirmation(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
@@ -445,6 +489,7 @@ mod tests {
             expires_at_ms: 100,
             before: crate::workspace::runner::InputSnapshot::default(),
             partner: None,
+            rerun_of: None,
         }
     }
 

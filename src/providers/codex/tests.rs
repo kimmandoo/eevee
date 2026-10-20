@@ -869,6 +869,7 @@ fn baseline_cites_identical_selected_capture_instead_of_resending_bytes() {
         identity: "identity".into(),
     };
     let pinned = Excerpt {
+        origin_run: None,
         id: 77,
         task_id: 1,
         root: "/repo".into(),

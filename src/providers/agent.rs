@@ -1067,6 +1067,7 @@ fn probe(index: usize, snapshot: &Snapshot, stopped: &AtomicBool) -> Result<Stri
         expires_at_ms: 0,
         before: crate::workspace::runner::InputSnapshot::default(),
         partner: None,
+        rerun_of: None,
     };
     let mut process = crate::workspace::runner::native::Process::spawn(&prepared).map_err(|_| "Could not start the trusted executable; repair executable/interpreter installation (details withheld)".to_owned())?;
     let start = Instant::now();
@@ -1331,6 +1332,7 @@ pub(crate) fn qualify_planning(
         expires_at_ms: 0,
         before: crate::workspace::runner::InputSnapshot::default(),
         partner: None,
+        rerun_of: None,
     })
 }
 
@@ -1426,6 +1428,7 @@ pub(crate) fn external_trust(
         expires_at_ms: 0,
         before: crate::workspace::runner::InputSnapshot::default(),
         partner: None,
+        rerun_of: None,
     };
     Ok(ExternalTrust {
         snapshot,

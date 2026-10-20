@@ -75,6 +75,12 @@ def main():
                     task[field] = json.loads(task[field])
                 return task, runs, memories, journals
 
+            def request_text():
+                task = rows()[0]
+                partners = json.loads(task["partner_drafts"])
+                drafts = partners.get(str(task["lead_partner"]), {}).get("drafts", [])
+                return next((draft["text"] for draft in drafts if draft["field"] == "Request"), "")
+
             def until(session, predicate, reason, timeout=35):
                 deadline = time.monotonic() + timeout
                 while not predicate():
@@ -297,15 +303,20 @@ def main():
             wait_for(resumed, "Supported")
             resumed.capture("diagnosis-linked-observations")
             passed("Actual source and command links distinguish refuted and supported hypotheses")
+            previous_next = rows()[0]["next_action"]
             menu(resumed, 7)
-            wait_for(resumed, "Flareon /")
-            until(resumed, lambda: diagnosis in rows()[0]["next_action"], "diagnosis handoff save")
-            assert "source:" in rows()[0]["next_action"] and "run:" in rows()[0]["next_action"]
-            assert "overflow" not in rows()[0]["next_action"]
+            wait_for(resumed, "Enter Review")
+            resumed.send("\r")
+            wait_for(resumed, "[Stay]")  # The neutral review must render before confirmation.
+            resumed.send("y")
+            until(resumed, lambda: rows()[0]["form"] == 3 and diagnosis in request_text(), "diagnosis reference relay save")
+            assert "source:" in request_text() and "run:" in request_text()
+            assert "overflow" not in request_text()
+            assert rows()[0]["next_action"] == previous_next
             assert source.read_text(encoding="utf-8") == "def total(a, b):\n    return a - b\n"
             assert rows()[3] == 0
-            resumed.send(ESC)  # implementation -> invoking desk
-            resumed.send(ESC)  # desk -> workspace
+            resumed.send(ESC)  # relay closes; return from the specialist desk
+            resumed.send(ESC)  # preserve the staged Request while returning to the workspace
             source.write_text("def total(a, b):\n    return a + b\n", encoding="utf-8")
             execute_check(resumed, 2)
             pin_source(resumed, 2)
@@ -316,26 +327,32 @@ def main():
             edit(resumed, 0, "Behavior contract", "total(7, 2) returns integer 9; preserve this observed behavior.")
             attach(resumed, 1, 1)
             attach(resumed, 2, 0)
-            menu(resumed, 3)
+            resumed.command("record-refactor")
             until(resumed, lambda: rows()[0]["workflows"]["refactor"] is not None, "bounded baseline save")
-            menu(resumed, 4)
-            wait_for(resumed, "Flareon /")
+            refactor_request = request_text()
+            resumed.command("specialist-fix")
+            wait_for(resumed, "Enter Review")
+            resumed.send("\r")
+            wait_for(resumed, "[Stay]")
+            resumed.send("y")
+            wait_for(resumed, "nonempty")
+            assert request_text() == refactor_request and rows()[0]["form"] == 2, "refactor relay overwrote the existing sender draft"
             assert rows()[3] == 0
             resumed.send(ESC)
             resumed.send(ESC)
             source.write_text("def total(a, b):\n    return a - b\n", encoding="utf-8")
             execute_check(resumed, 3, "Failed")
             resumed.command("workflows")
-            attach(resumed, 6, 0)
-            menu(resumed, 7)
+            attach(resumed, 7, 0)
+            resumed.command("compare-refactor")
             wait_for(resumed, "block a behavior-preservation claim")
             resumed.capture("refactor-failed-check-blocked")
             resumed.send(ESC)
             source.write_text("def total(a, b):\n    return sum((a, b))\n", encoding="utf-8")
             execute_check(resumed, 4)
             resumed.command("workflows")
-            attach(resumed, 6, 0)  # native journal choices are newest first
-            menu(resumed, 7)
+            attach(resumed, 7, 0)  # native journal choices are newest first
+            resumed.command("compare-refactor")
             wait_for(resumed, "selected contract check passed")
             resumed.capture("refactor-real-comparison")
             comparison = rows()[0]["workflows"]["refactor"]

@@ -25,7 +25,7 @@ These tasks make each switch informed and each form immediately useful, for the 
 - **Change:** An out-of-role action shows a disabled reason naming the owning form and offers `Switch to <form>`. After PT10, it also offers `Send to <partner>` when an idle party member is in that form.
 - **Accept:** Requesting an edit from Glaceon and a command from Espeon each name the owner and offer a working switch, without starting the action.
 - **Watch out:** Never widen or bypass a grant.
-- **Verified:** Glaceon `/paths` and `/role-implement` offered Flareon; Espeon `/run` → `/command-edit` offered Jolteon. Actual TUI passed all three routes at 120×36 and 60×18, including Escape, deliberate switching and explicit retry, with zero execution/provider records and unchanged source. The switch did not replay the action. Leafeon retained explicit scope editing; existing neutral reviews kept priority. `Send to <partner>` remains dependent on PT10.
+- **Verified:** Glaceon `/paths` and `/role-implement` offered Flareon; Espeon `/run` → `/command-edit` offered Jolteon. Both sizes passed Escape, deliberate switching and explicit retry without replaying the action. PT10 also added named idle matching recipients for all three actions: neutral review, cancellation, nonempty-target refusal and reference-only staging preserved the exact sender draft/caret/facts and source, with zero provider requests, executions or invented argv/paths/grants (`target/wave3-final-owner-redirects/results.json`). Leafeon retained explicit scope editing; existing neutral reviews kept priority.
 
 ### EV07 — Return to Eevee
 
@@ -64,10 +64,11 @@ These tasks make each switch informed and each form immediately useful, for the 
 
 ### EV01C — Suggest a free party member
 
-- [ ] Name an idle partner already in the suggested form.
+- [x] Name an idle partner already in the suggested form.
 - **Priority:** 2. **Needs:** EV01A, PT04A. **Builds on:** —.
 - **Change:** If an idle partner is in the suggested form, append `Mizu (Umbreon) is free`.
 - **Accept:** With an idle Umbreon partner the hint appears, and it disappears while that partner works.
+- **Verified:** Actual 120×36 and 60×18 fixtures named the idle Umbreon partner after real local failures, removed its availability hint during one deliberately started, owned protocol-fixture turn and restored it after settlement. Navigation dispatched no additional turn. `target/wave3-final-execution-relays/results.json`.
 
 ### EV02 — Carry-over strip
 

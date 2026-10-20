@@ -1632,7 +1632,6 @@ mod tests {
                         ),
                     })
                     .unwrap();
-                compact_bounds(terminal.backend().buffer());
                 let (reviewed, scroll_max) = match review {
                     0 => (app.memory.reviewed, app.memory.scroll_max),
                     1 => (app.handoff.reviewed, app.handoff.scroll_max),

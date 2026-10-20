@@ -198,6 +198,21 @@ impl<'a> Inputs<'a> {
 }
 
 impl App {
+    /// Availability is live ownership, not persisted flavor or recommendation evidence.
+    pub fn suggested_partner(&self) -> Option<&store::Partner> {
+        let form = self.visible_suggestion()?.form;
+        self.party
+            .iter()
+            .map(|partner| {
+                if partner.id == self.lead().id {
+                    self.lead()
+                } else {
+                    partner
+                }
+            })
+            .find(|partner| partner.form == form && !self.partner_busy(partner.id))
+    }
+
     /// Borrow the advisory cache without exposing a dismissed identity.
     pub fn visible_suggestion(&self) -> Option<&Suggestion> {
         self.suggestion.as_ref().filter(|suggestion| {

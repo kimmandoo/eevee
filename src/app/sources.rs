@@ -72,6 +72,7 @@ pub struct State {
     store_mutation: bool,
     last_mutation: Option<Mutation>,
     payload_page: usize,
+    pending_origin_run: Option<String>,
 }
 
 impl State {
@@ -189,7 +190,8 @@ impl State {
                 );
                 self.file_detail();
             }
-            Ok(context::Response::Inspected(excerpt)) => {
+            Ok(context::Response::Inspected(mut excerpt)) => {
+                excerpt.origin_run = self.pending_origin_run.take();
                 self.preview_reviewed = false;
                 self.detail = excerpt_detail(&excerpt);
                 self.preview = Some(excerpt);
@@ -207,6 +209,7 @@ impl State {
                     "Source identities checked; validating persisted basket references…".into();
             }
             Err(error) => {
+                self.pending_origin_run = None;
                 self.error = safe_error(error);
                 self.pending_payload = None;
                 self.payload = None;
@@ -272,6 +275,56 @@ impl State {
                 self.store_failed |= self.store_mutation;
             }
         }
+    }
+    /// Reuses the normal containment/exclusion/content guard and capture review.
+    pub fn inspect_location(
+        &mut self,
+        task_id: i64,
+        report: &Arc<repo::Report>,
+        location: &crate::workspace::locations::Location,
+        run: String,
+    ) -> Result<(), String> {
+        if self.busy() || self.store_failed {
+            return Err("Finish or retry the pending context operation first.".into());
+        }
+        let path = std::path::Path::new(&location.path);
+        let relative = if path.is_absolute() {
+            path.strip_prefix(&report.repository.root)
+                .map_err(|_| "Location is outside the current repository root.")?
+        } else {
+            path
+        };
+        if location.line == 0
+            || relative.as_os_str().is_empty()
+            || !relative.components().all(|part| {
+                matches!(
+                    part,
+                    std::path::Component::Normal(_) | std::path::Component::CurDir
+                )
+            })
+        {
+            return Err(
+                "Location must name a contained repository-relative file and positive line.".into(),
+            );
+        }
+        let relative: std::path::PathBuf = relative
+            .components()
+            .filter(|part| !matches!(part, std::path::Component::CurDir))
+            .collect();
+        self.preview = None;
+        self.preview_reviewed = false;
+        self.return_after_attach = false;
+        self.pending_origin_run = Some(run);
+        self.queue(
+            task_id,
+            context::Operation::Inspect {
+                report: Arc::clone(report),
+                path: relative,
+                start_line: location.line.saturating_sub(3).max(1),
+                end_line: location.line,
+            },
+        );
+        Ok(())
     }
     pub fn inspect_file(&mut self, task_id: i64, report: Option<&Arc<repo::Report>>) {
         if self.busy() || self.store_failed {
@@ -886,6 +939,9 @@ fn excerpt_detail(excerpt: &context::Excerpt) -> String {
         },
         excerpt.text
     );
+    if let Some(run) = &excerpt.origin_run {
+        value.insert_str(0, &format!("From run {run} (reference only)\n"));
+    }
     value.retain(super::safe_character);
     value
 }
@@ -899,6 +955,7 @@ mod tests {
     use super::*;
     fn capture() -> context::Excerpt {
         context::Excerpt {
+            origin_run: None,
             id: 0,
             task_id: 7,
             root: "/workspace".into(),

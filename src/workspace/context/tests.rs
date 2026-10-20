@@ -142,6 +142,7 @@ fn whole_file_attachment_uses_validated_bounded_source_capture() {
 #[test]
 fn windows_root_identity_requires_a_volume_and_preserves_verbatim_paths() {
     let mut excerpt = Excerpt {
+        origin_run: None,
         id: 0,
         task_id: 1,
         root: r"\\?\C:\workspace".into(),
@@ -586,6 +587,7 @@ fn provider_credential_stores_never_enter_catalogue_capture_or_dispatch() {
     ] {
         assert!(capture(1, &report, Path::new(path), 1, 1, &[], &stopped).is_err());
         let excerpt = Excerpt {
+            origin_run: None,
             id: 1,
             task_id: 1,
             root: fixture.0.to_str().unwrap().into(),

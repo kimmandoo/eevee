@@ -345,6 +345,7 @@ impl App {
         if draft.editing {
             self.open_editor(draft.editor_field);
         }
+        self.apply_relay_draft_role();
     }
 
     /// Why a lead switch is refused right now: only an in-flight roster write.
@@ -370,6 +371,11 @@ impl App {
                     .as_ref()
                     .map_or(self.lead.id, |owner| owner.partner)
             })
+    }
+    /// Relays and suggestions inspect existing request ownership; they never
+    /// infer an idle partner from whichever partner currently leads.
+    pub fn partner_busy(&self, partner: i64) -> bool {
+        self.provider_owner() == Some(partner) || self.command_owner() == Some(partner)
     }
 
     /// `Bolt (Jolteon) is working on this task…` when a partner other than the

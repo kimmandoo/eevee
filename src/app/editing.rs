@@ -229,6 +229,9 @@ impl App {
     }
 
     pub(super) fn open_editor(&mut self, field: store::EditorField) {
+        if field == store::EditorField::NextAction {
+            self.workflow.pending_decision = None;
+        }
         if field == store::EditorField::Command {
             self.execution.invalidate();
             self.pending_command = None;
@@ -261,7 +264,10 @@ impl App {
         match self.editor_field {
             store::EditorField::Request => return self.submit_request(),
             store::EditorField::Goal => self.goal = std::mem::take(&mut self.input),
-            store::EditorField::NextAction => self.next_action = std::mem::take(&mut self.input),
+            store::EditorField::NextAction => {
+                self.next_action = std::mem::take(&mut self.input);
+                self.workflow_commit_decision();
+            }
             store::EditorField::Command => {
                 self.command = std::mem::take(&mut self.input);
                 self.pending_command = Some((self.command.clone(), self.attribution()));
@@ -278,7 +284,7 @@ impl App {
                         "At most 64 criteria, each at most 256 UTF-8 bytes. Draft kept.".into();
                     return true;
                 }
-                self.criteria = lines
+                let next: Vec<_> = lines
                     .into_iter()
                     .enumerate()
                     .map(|(index, text)| store::Criterion {
@@ -289,6 +295,11 @@ impl App {
                         text: text.to_owned(),
                     })
                     .collect();
+                if let Err(error) = self.workflow_reconcile_criteria_origins(&next) {
+                    self.notice = error;
+                    return true;
+                }
+                self.criteria = next;
                 self.input.clear();
                 self.criterion_selection = self
                     .criterion_selection
