@@ -18,6 +18,7 @@
 - fix(providers): kept native responses distinct across recreated transports and retained blocked payload details for explicit inspection or local reset without dispatch.
 - fix(memory): selected and edited already loaded approved notes without reopening their loading gate or implicitly approving changes.
 - docs(storage): retained Schema 13 from v0.1.11 without an additional migration and warned that Schema 11/12 upgrades required backups because their older writers refused Schema 13.
+- fix(ux): waited for idle preference/history persistence without an empty all-owner cancellation review, while preserving active-work, unknown-outcome, journal and unsaved-draft exit safeguards.
 
 ## 0.1.11
 

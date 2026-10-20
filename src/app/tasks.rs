@@ -298,14 +298,15 @@ impl App {
             return;
         }
         let form_only = matches!(action, execution::Action::SelectForm(_));
-        let blocked = if form_only {
+        let blocked = if matches!(action, execution::Action::Quit) {
+            self.quit_requires_work_review()
+        } else if form_only {
             self.planning.busy()
         } else {
             self.planning_any_busy()
         };
         if matches!(action, execution::Action::Quit)
             && (blocked
-                || self.execution_any_pending()
                 || self.planning_any_unknown()
                 || self.execution_any_unknown()
                 || self.planning_any_journal_failed()
@@ -323,7 +324,8 @@ impl App {
             self.notice = "Finish or explicitly cancel owned work, and inspect retained journal/outcome before changing tasks; /party-board lists every owner.".into();
             return;
         }
-        if !form_only && self.execution_any_pending() {
+        if !form_only && !matches!(action, execution::Action::Quit) && self.execution_any_pending()
+        {
             let only_front_command = self.execution.busy()
                 && self.cooperation.command_saves.is_empty()
                 && self

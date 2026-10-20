@@ -163,6 +163,8 @@ Versions **0.1.11 and 0.1.12 use Schema 13** for request-bound cooperation/write
 
 Cancel-all and quit list every owned request with Stay neutral, then wait for terminal outcomes and durable journal/ownership settlement. Crash recovery clears stale ownership without replaying requests or restoring grants. Releasing an idle partner atomically repairs task leads and removes that partner's local drafts/current recipient intents; historical evidence keeps its name snapshot. Moves and pairings have not yet been introduced, so the review does not pretend they exist.
 
+Clean exit waits for local preference/history persistence without asking to cancel nonexistent work. Active requests/commands, unknown outcomes, failed journals and unsaved task drafts retain their own safety decisions.
+
 Without an app-owned connection override, persistent **nonsecret** settings use `$XDG_CONFIG_HOME/eevee/providers.toml` (Linux; default `~/.config/eevee/providers.toml`), `~/Library/Application Support/eevee/providers.toml` (macOS), or `%APPDATA%\eevee\providers.toml` (Windows). `EV_PROVIDERS_CONFIG` selects an absolute user-owned file outside the project. Environment settings override that nonsecret file:
 
 ```toml

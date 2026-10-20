@@ -44,6 +44,8 @@ Use Eevee and its eight existing evolutions; do not invent additional species. S
 5. Use source, execution, review and handoff commands directly when the task needs them. No journey requires visiting every form.
 6. Closing/reopening preserves the task and each partner's request draft, but never restores approvals or runs work automatically.
 
+Clean exit waits for local preference writes and optional history persistence without an empty all-owner cancellation review. Pending sends/commands, active requests, unresolved outcomes, failed journals and unsaved drafts retain their existing neutral safety decisions; no pending intent may dispatch while exiting.
+
 This is a route, not a mandatory tour through every form. Skip irrelevant forms; never issue model calls just to fill a progress trail. The smaller local-only milestone is create task -> exit -> resume -> inspect sources; it must be useful before a provider is connected.
 
 ## Forms and ownership

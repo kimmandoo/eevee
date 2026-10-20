@@ -2176,6 +2176,32 @@ fn terminal_native_unknown_allows_explicit_followup_and_task_switch_but_cli_unkn
 }
 
 #[test]
+fn idle_quit_waits_for_preferences_without_an_empty_cancel_all_review() {
+    let mut app = request_app();
+    app.planning.preference_event(Ok(None));
+    assert!(app.planning.select_model_id("local-fixture-model"));
+    assert!(app.planning.preferences_pending());
+    assert!(!app.planning.owns_work() && !app.execution.busy());
+    app.request_quit();
+    assert!(app.cooperation.cancel_review.is_none());
+    assert!(app.quit_after_save && !app.quit);
+    app.settle_exit();
+    assert!(
+        !app.quit,
+        "preference persistence still needs acknowledgement"
+    );
+    let Some(store::PreferenceRequest::Save(saved)) = app.planning.preference_request().take()
+    else {
+        panic!("missing preference save");
+    };
+    app.planning.preference_started();
+    app.store_event(store::Event::Preferences(Ok(Some(saved))));
+    app.settle_exit();
+    assert!(app.quit);
+    assert!(app.preferences_allow_quit(true));
+}
+
+#[test]
 fn followup_draft_isolated_and_blocked_preparation_never_sends() {
     for changed in [false, true] {
         let mut app = request_app();
