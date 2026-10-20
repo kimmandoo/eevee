@@ -134,6 +134,18 @@ impl App {
             .any(|state| state.busy() || state.preferences_pending())
     }
 
+    pub(super) fn quit_requires_work_review(&self) -> bool {
+        self.pending_request.is_some()
+            || self.pending_command.is_some()
+            || !self.cooperation.command_saves.is_empty()
+            || std::iter::once(&self.planning)
+                .chain(self.cooperation.parked.values())
+                .any(planning::State::busy)
+            || std::iter::once(&self.execution)
+                .chain(self.cooperation.executions.values())
+                .any(execution::State::busy)
+    }
+
     pub fn planning_any_unknown(&self) -> bool {
         self.planning.outcome_unknown()
             || self

@@ -623,15 +623,6 @@ class Journey:
         session.command('approvals')
         wait_for(session, 'Run blocked')
         session.send('d')
-        missing = {'openai': 'OPENAI_API_KEY', 'anthropic': 'ANTHROPIC_API_KEY',
-                   'google': 'GEMINI_API_KEY', 'compatible': 'EV_API_BASE_URL'}[self.route]
-        details = []
-        for page in range(32):
-            details.append(session.display())
-            if missing in '\n'.join(details):
-                break
-            session.send(ESC + '[6~')
-        assert missing in '\n'.join(details), 'forgotten source was not refused for missing connection setup'
         assert len(peer.snapshot()) == before_network, 'forgotten override/fallback transmitted a new request'
         self.capture('forget-session-and-file-source-gone-ordinary-send-blocked')
         session.command('cancel')

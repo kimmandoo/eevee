@@ -1082,8 +1082,7 @@ impl App {
     }
 
     pub(super) fn request_quit(&mut self) {
-        if self.planning_any_busy()
-            || self.execution_any_pending()
+        if self.quit_requires_work_review()
             || self.planning_any_unknown()
             || self.execution_any_unknown()
             || self.planning_any_journal_failed()
@@ -1108,6 +1107,9 @@ impl App {
                 kind: ConfirmationKind::Quit,
                 destructive: false,
             });
+        } else if self.planning_any_busy() || self.execution_any_pending() {
+            self.quit_after_save = true;
+            self.notice = "Finishing local persistence before exit…".into();
         } else {
             self.quit = true;
         }

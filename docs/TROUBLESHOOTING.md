@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-21] Clean startup exit offered cancellation for nonexistent work
+
+- **Context / Symptom:** Resuming an actual Schema 13 task and immediately pressing Ctrl+C showed “Quit / ALL owned work” with an empty owner list, despite saved task facts and idle request/command state.
+- **Root Cause:** Quit reused readiness aggregates that included provider preference persistence and optional execution history reads. Brief local persistence was classified as work requiring cancellation rather than a commit/read acknowledgement.
+- **Solution:** Separated work-review admission from local persistence waiting. Pending sends/commands, provider/request state, actual command state, unknown outcomes and failed journals still use their guarded decisions. A clean task quietly waits for local preference/history settlement before exit.
+- **Prevention / Reference:** The preference-acknowledgement regression retains the exact exit wait without a cancellation request. Actual v0.1.11→v0.1.12→v0.1.11 Schema 13 continuity preserved task facts; the current runtime exited without the empty review. Same-schema reopening is not older-schema refusal.
+
 ### [2026-10-21] Native response identities collided after transport recreation
 
 - **Context / Symptom:** Exact follow-up HTTP payloads were correct, but the current partial/complete answer appeared under the first request's label and replaced its retained display item.
