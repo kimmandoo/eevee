@@ -47,6 +47,7 @@ impl Fixture {
     fn pin(&self) -> context::Excerpt {
         let text = "fn check() {}\n";
         context::Excerpt {
+            origin_run: None,
             id: 1,
             task_id: 7,
             root: self.0.to_string_lossy().into_owned(),
@@ -109,6 +110,7 @@ fn run(app: &App) -> runner::RunRecord {
         expires_at_ms: 1000,
         before: current.clone(),
         partner: None,
+        rerun_of: None,
     };
     let mut run = runner::RunRecord::awaiting(&prepared);
     run.state = runner::RunState::Succeeded;

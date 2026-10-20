@@ -295,6 +295,9 @@ impl App {
             &self.sources.basket,
             self.repository.as_ref(),
         );
+        if name == "decision" {
+            self.workflow.pending_decision = self.planning.decision.clone();
+        }
         if operation != self.planning.operation {
             self.set_form(match self.planning.operation {
                 crate::providers::Operation::Implement => 3,
@@ -502,6 +505,7 @@ impl App {
             return true;
         }
         if let Some(decision) = self.handoff.decision.take() {
+            self.workflow.pending_decision = None;
             self.planning.decision = Some(decision);
         }
         if std::mem::take(&mut self.planning.quit_ready) {
@@ -531,8 +535,14 @@ impl App {
                 self.planning.notice = "Existing Next action draft retained. Save or discard it before selecting this decision again.".into();
                 return true;
             }
+            let chosen = self
+                .workflow
+                .pending_decision
+                .take()
+                .filter(|chosen| chosen == &decision);
             self.begin_edit_field(store::EditorField::NextAction);
             if self.editing {
+                self.workflow.pending_decision = chosen;
                 self.input.clear();
                 self.cursor = 0;
                 self.insert_input(&decision);

@@ -523,7 +523,7 @@ fn migrates_documented_schema_zero_and_one_atomically() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            11
+            12
         );
         assert!(connection.prepare("SELECT * FROM goals").is_err());
         assert!(connection.prepare("SELECT * FROM projects").is_err());
@@ -540,7 +540,7 @@ fn newer_foreign_and_corrupt_databases_are_untouched() {
         } else {
             let connection = Connection::open(&path).unwrap();
             connection.execute_batch(if fixture == 0 {
-                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=12;"
+                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=13;"
                 } else {
                     "CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('keep');"
                 }).unwrap();
@@ -1032,7 +1032,7 @@ fn crash_during_migration(directory: &Directory, kind: &str) {
         )
         .unwrap();
     match kind {
-            "newer" => connection.execute_batch("PRAGMA user_version=12;").unwrap(),
+            "newer" => connection.execute_batch("PRAGMA user_version=13;").unwrap(),
             "foreign" => connection.execute_batch("CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('preserve');").unwrap(),
             "one" => connection.execute_batch(
                 "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL);
@@ -1095,7 +1095,7 @@ fn process_interruption_recovers_legacy_and_current_committed_tasks() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            11
+            12
         );
     }
 }
@@ -2039,6 +2039,7 @@ fn maximum_valid_text_and_json_escaping_round_trip() {
 fn captured_excerpt(task_id: i64, source: &Path, text: &str) -> crate::workspace::context::Excerpt {
     use sha2::{Digest, Sha256};
     crate::workspace::context::Excerpt {
+        origin_run: None,
         id: 0,
         task_id,
         root: source.parent().unwrap().to_str().unwrap().into(),
@@ -2073,6 +2074,7 @@ fn prepared_run(task_id: i64, root: &Path, suffix: &str) -> crate::workspace::ru
         expires_at_ms: timestamp().unwrap() as u64 + 60_000,
         before: crate::workspace::runner::InputSnapshot::default(),
         partner: None,
+        rerun_of: None,
     }
 }
 
@@ -3904,7 +3906,7 @@ fn schema_eight_migrates_request_drafts_without_changing_task_facts() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        11
+        12
     );
     let mut task = Snapshot::empty("/workspace".into());
     task.goal = "Stable task identity".into();
@@ -4167,7 +4169,7 @@ fn schema_ten_dismissal_migration_only_changes_version_and_rolls_back_atomically
             transaction
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            11
+            12
         );
         assert!(matches!(inspect(&transaction).unwrap(), Schema::Current));
         for (table, rows) in tables.iter().zip(&before) {
@@ -4189,7 +4191,7 @@ fn schema_ten_dismissal_migration_only_changes_version_and_rolls_back_atomically
         connection
             .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
             .unwrap(),
-        11
+        12
     );
     for (table, rows) in tables.iter().zip(&before) {
         assert_eq!(stored_table_rows(&connection, table), *rows, "{table}");
@@ -4444,4 +4446,59 @@ fn provider_records_carry_a_partner_snapshot_and_fixture_records_read_unknown() 
         event(&worker),
         Event::Journal { result: Err(_), .. }
     ));
+}
+
+#[test]
+fn location_pin_requires_a_task_owned_run_and_retains_its_origin_after_reopen() {
+    let directory = Directory::new();
+    let mut storage = state(&directory, "project", Policy::default());
+    let first = storage.save(snapshot("project", 1)).unwrap();
+    let second = storage.save(snapshot("project", 1)).unwrap();
+    let prepared = prepared_run(first.id, &storage.data_dir, "pin-origin");
+    let permit = storage
+        .reserve_run(first.id, prepared.clone(), 1024)
+        .unwrap();
+    drop(permit);
+    storage
+        .run_request(RunRequest {
+            task_id: first.id,
+            operation: RunOperation::Abandon {
+                request_id: prepared.request_id.clone(),
+                run_id: prepared.run_id.clone(),
+            },
+        })
+        .unwrap();
+    let source = directory.0.join("source.rs");
+    let mut excerpt = captured_excerpt(first.id, &source, "source\n");
+    excerpt.origin_run = Some(prepared.run_id.clone());
+    let captured = storage
+        .context(ContextRequest {
+            task_id: first.id,
+            operation: ContextOperation::Pin(excerpt.clone()),
+        })
+        .unwrap();
+    excerpt.task_id = second.id;
+    assert!(
+        storage
+            .context(ContextRequest {
+                task_id: second.id,
+                operation: ContextOperation::Pin(excerpt),
+            })
+            .is_err()
+    );
+    drop(storage);
+    let mut reopened = state(&directory, "project", Policy::default());
+    assert_eq!(
+        reopened
+            .context(ContextRequest {
+                task_id: first.id,
+                operation: ContextOperation::Load,
+            })
+            .unwrap(),
+        captured
+    );
+    assert_eq!(
+        captured[0].origin_run.as_deref(),
+        Some(prepared.run_id.as_str())
+    );
 }

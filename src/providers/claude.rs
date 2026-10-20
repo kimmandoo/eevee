@@ -647,6 +647,7 @@ fn trust(project: &Path, data_dir: &Path) -> Result<Trust, String> {
         expires_at_ms: 0,
         before: crate::workspace::runner::InputSnapshot::default(),
         partner: None,
+        rerun_of: None,
     };
     Ok(Trust {
         launch,

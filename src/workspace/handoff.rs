@@ -722,6 +722,7 @@ mod tests {
         task.id = 1;
         task.goal = "Keep the approved source".into();
         let excerpt = context::Excerpt {
+            origin_run: None,
             id: 4,
             task_id: task.id,
             root: std::env::current_dir()

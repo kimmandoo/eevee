@@ -142,11 +142,12 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT10 — Send work to a partner
 
-- [ ] Pass a result to a party member instead of switching your own form.
+- [x] Pass a result to a party member instead of switching your own form.
 - **Priority:** 2. **Needs:** PT05B. **Builds on:** S01, G01.
 - **Change:** Relays (EV12, EV13, EV14, EV15) offer `Send to <partner> (<form>)` when an idle partner is already in the target form; sending pre-fills that partner's draft with references. A Glaceon review requested from the patch author's own partner is labelled `same partner`.
 - **Accept:** Send a supported hypothesis to an idle Flareon partner; its draft cites the evidence, and the sender's state is unchanged.
 - **Watch out:** Sending transfers references only: no approvals, sessions or provider calls.
+- **Verified:** Both sizes staged supported hypotheses and findings for an idle Flareon and decisions for an idle Eevee without altering sender drafts/carets, criteria or grants. Actual reviewed controlled writes grounded the same-partner warning; later external edits removed that attribution. Owning-form redirects also offered named idle recipients for all three role actions with zero request/run/write effects.
 
 ### PT11 — Formations
 

@@ -103,6 +103,13 @@ pub(super) fn run_json(record: &crate::workspace::runner::RunRecord) -> Result<S
     {
         return Err("Invalid run/request/task correlation".into());
     }
+    if prepared
+        .rerun_of
+        .as_ref()
+        .is_some_and(|run| !valid_run_id(run) || *run == prepared.run_id)
+    {
+        return Err("Invalid or self-referencing rerun identity".into());
+    }
     if let Some(partner) = &prepared.partner {
         partner.validate()?;
     }
@@ -270,6 +277,9 @@ impl State {
                 }
                 excerpt.text = crate::workspace::privacy::redact(&excerpt.text).into_owned();
                 excerpt.validate()?;
+                if let Some(run) = &excerpt.origin_run {
+                    stored_run(&transaction, task.id, run)?;
+                }
                 // The row identity belongs to storage, not to a user-supplied reference.
                 transaction
                     .execute(
@@ -398,9 +408,6 @@ impl State {
         if timestamp()? as u64 >= prepared.expires_at_ms {
             return Err("Prepared request expired before quota reservation; review again".into());
         }
-        let mut record = crate::workspace::runner::RunRecord::awaiting(&prepared);
-        record.redact_for_storage();
-        let json = run_json(&record)?;
         let name = spool_name(&prepared.run_id)?;
         let connection = self.connection.as_mut().ok_or("Storage is unavailable")?;
         let transaction = connection
@@ -411,6 +418,17 @@ impl State {
         if task.archived {
             return Err("Restore the task before execution".into());
         }
+        if let Some(origin) = &prepared.rerun_of {
+            let prior = stored_run(&transaction, task_id, origin)?;
+            if prior.record.prepared.spec != prepared.spec
+                || prior.record.prepared.cwd != prepared.cwd
+            {
+                return Err("Rerun argv/cwd differs from the referenced task-owned run".into());
+            }
+        }
+        let mut record = crate::workspace::runner::RunRecord::awaiting(&prepared);
+        record.redact_for_storage();
+        let json = run_json(&record)?;
         let count: usize = transaction
             .query_row(
                 "SELECT count(*) FROM executions WHERE task_id=?1",
@@ -443,6 +461,7 @@ impl State {
             run_id: prepared.run_id,
             file,
             capacity,
+            rerun_of: prepared.rerun_of,
             _committed: (),
         })
     }

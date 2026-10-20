@@ -17,6 +17,8 @@ pub const PAGE_BYTES: usize = 64 * 1024;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
     EditCommand,
+    PinLocation(crate::workspace::locations::Location, String),
+    Rerun(String),
     SelectForm(usize),
     SwitchTask(i64),
     NewTask,
@@ -29,6 +31,7 @@ pub enum View {
     Output,
     History,
     Details,
+    Locations,
 }
 #[derive(Clone, Debug)]
 pub enum Confirmation {
@@ -215,8 +218,13 @@ pub struct State {
     observed_generation: u64,
     page_offsets: Vec<u64>,
     live_run: Option<String>,
+    retained_run: Option<String>,
+    locations_run: Option<String>,
     deferred: Option<Action>,
     ready: Option<Action>,
+    pub locations: Vec<crate::workspace::locations::Location>,
+    pub location_index: usize,
+    rerun_of: Option<String>,
     final_unknown: bool,
 }
 impl Default for State {
@@ -272,8 +280,13 @@ impl Default for State {
             observed_generation: 0,
             page_offsets: Vec::new(),
             live_run: None,
+            retained_run: None,
+            locations_run: None,
             deferred: None,
             ready: None,
+            locations: Vec::new(),
+            location_index: 0,
+            rerun_of: None,
             final_unknown: false,
         }
     }
@@ -366,6 +379,7 @@ impl State {
         self.prepared = None;
         self.pending_spec = None;
         self.before_ready = None;
+        self.rerun_of = None;
         self.queue
             .retain(|job| !matches!(job, StoreJob::Reserve(..)));
         self.reserving = self
@@ -432,6 +446,21 @@ impl State {
                 self.fail("Command", message, "Use a JSON argv array or an explicit shell object; no command is split implicitly.");
                 false
             }
+        }
+    }
+    /// Binds provenance before preparation; no prior approval is inherited.
+    pub fn prepare_rerun_for(
+        &mut self,
+        task_id: i64,
+        owner: store::Attribution,
+        command: &str,
+        origin: String,
+    ) -> bool {
+        if self.prepare_command_for(task_id, Some(owner), command) {
+            self.rerun_of = Some(origin);
+            true
+        } else {
+            false
         }
     }
     pub fn drive(&mut self, worker: &runner::Worker, task_id: i64, cwd: &Path) -> Option<Action> {
@@ -522,14 +551,21 @@ impl State {
     }
     pub fn runner_event(&mut self, event: runner::Event) {
         match event {
-            runner::Event::Prepared(p) => {
+            runner::Event::Prepared(mut p) => {
                 // Routed by (task, partner, request id): a preparation for
                 // another partner's request never becomes this approval.
                 if p.task_id == self.task_id
                     && p.partner == self.owner
                     && self.request_id.as_deref() == Some(&p.request_id)
                 {
+                    p.rerun_of.clone_from(&self.rerun_of);
                     self.prepared = Some(p);
+                    if self.rerun_of.is_some() {
+                        self.confirmation = Some(Confirmation::Approval);
+                        self.affirmative = false;
+                        self.confirmation_visible = false;
+                        self.detail_scroll = 0;
+                    }
                     self.notice = "Approval pending. Use /run to inspect; opening/dismissing the view never approves.".into();
                     // Do not open a view or move focus while the user is typing elsewhere.
                 }
@@ -749,6 +785,7 @@ impl State {
                     self.retained = OutputWindow::default();
                     self.retained.append(&page.text);
                     self.retained_page = Some(page);
+                    self.retained_run = run_id.map(str::to_owned);
                     self.showing_retained = true;
                     self.follow = false;
                     self.anchor = 0;
@@ -834,6 +871,9 @@ impl State {
         self.repo_request = true;
     }
     pub fn repo_observed(&mut self, report: Option<&repo::Report>) {
+        // Ordinary repository refreshes update freshness too; only correlated
+        // execution refreshes may settle preparation/final journal snapshots.
+        self.latest = report.map(fingerprint).unwrap_or_default();
         if !self.repo_waiting {
             return;
         }
@@ -841,7 +881,6 @@ impl State {
         if self.observed_generation != self.repo_generation {
             return;
         }
-        self.latest = report.map(fingerprint).unwrap_or_default();
         match self.repo_purpose {
             RepoPurpose::Before => {
                 if self.pending_spec.is_some() {
@@ -994,6 +1033,49 @@ impl State {
                 }),
             ),
             choice("refresh", "Refresh repository and run history", reason),
+            choice(
+                "locations",
+                "Inspect locations parsed from retained output only",
+                reason.or_else(|| {
+                    (self.selected_run.is_none()
+                        || self.output_run() != self.selected_run.as_deref())
+                    .then_some(
+                        "Open the selected run's retained output and wait for its page first.",
+                    )
+                }),
+            ),
+            choice(
+                "pin-location",
+                "Pin range from selected location",
+                reason.or_else(|| {
+                    (self.view != View::Locations
+                        || self.locations.is_empty()
+                        || self.locations_run.is_none())
+                    .then_some("Select a parsed location belonging to a retained run first.")
+                }),
+            ),
+            choice(
+                "rerun",
+                "Rerun with Jolteon (new command review)",
+                reason.or_else(|| {
+                    if self.busy() {
+                        Some("Wait for owned work and journal settlement.")
+                    } else if let Some(reason) = self.selected_record().and_then(|record| {
+                        super::execution_relays::retained_rerun_spec(record).err()
+                    }) {
+                        Some(reason)
+                    } else if !self.selected_record().is_some_and(|record| {
+                        self.latest.complete
+                            && self.latest.stable
+                            && record.after.fingerprint.is_some()
+                            && record.after.fingerprint != self.latest.fingerprint
+                    }) {
+                        Some("Select a stale run after refreshing source observation.")
+                    } else {
+                        None
+                    }
+                }),
+            ),
             choice("artifacts", "Inspect command and artifact details", reason),
             choice(
                 "journal-retry",
@@ -1101,6 +1183,35 @@ impl State {
                 self.optional(StoreJob::Load(self.task_id));
             }
             "open" if self.view == View::History => self.open_history(),
+            "pin-location" if self.view == View::Locations => {
+                if let (Some(location), Some(run)) = (
+                    self.locations.get(self.location_index),
+                    self.locations_run.as_ref(),
+                ) {
+                    return Some(Action::PinLocation(location.clone(), run.clone()));
+                }
+            }
+            "rerun" if !self.busy() => {
+                if let Some(record) = self.selected_record() {
+                    return Some(Action::Rerun(record.prepared.run_id.clone()));
+                }
+            }
+            "locations" => {
+                if self.selected_run.is_none() || self.output_run() != self.selected_run.as_deref()
+                {
+                    self.notice =
+                        "Open the selected run's retained output and wait for its page first."
+                            .into();
+                    return None;
+                }
+                self.locations_run = self.output_run().map(str::to_owned);
+                self.locations = crate::workspace::locations::parse(
+                    self.window().lines.iter().map(|line| line.text.as_str()),
+                );
+                self.location_index = 0;
+                self.view = View::Locations;
+                self.notice = "Locations from this retained window/page only (at most 128); untrusted references, no files opened.".into();
+            }
             "refresh" => {
                 if self.pending_spec.is_none() && self.final_record.is_none() {
                     self.request_repo(RepoPurpose::Inspect);
@@ -1253,6 +1364,21 @@ impl State {
                 }
             }
             KeyCode::Enter if self.view == View::History => self.open_history(),
+            KeyCode::Enter if self.view == View::Locations && key.kind == KeyEventKind::Press => {
+                if let (Some(location), Some(run)) = (
+                    self.locations.get(self.location_index),
+                    self.locations_run.as_ref(),
+                ) {
+                    return Some(Action::PinLocation(location.clone(), run.clone()));
+                }
+            }
+            KeyCode::Up if self.view == View::Locations => {
+                self.location_index = self.location_index.saturating_sub(1);
+            }
+            KeyCode::Down if self.view == View::Locations => {
+                self.location_index =
+                    (self.location_index + 1).min(self.locations.len().saturating_sub(1));
+            }
             KeyCode::Up if self.view == View::History => {
                 self.history_index = self.history_index.saturating_sub(1);
                 self.select_history();
@@ -1395,6 +1521,13 @@ impl State {
             }) {
                 self.page_offsets.pop();
             }
+        }
+    }
+    fn output_run(&self) -> Option<&str> {
+        if self.showing_retained {
+            self.retained_run.as_deref()
+        } else {
+            self.live_run.as_deref()
         }
     }
     pub fn window(&self) -> &OutputWindow {

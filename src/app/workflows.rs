@@ -29,6 +29,7 @@ pub enum Field {
     Finding,
     Action,
     RecipePath,
+    Criteria,
 }
 impl Field {
     pub fn label(self) -> &'static str {
@@ -38,6 +39,7 @@ impl Field {
             Self::Finding => "Finding detail",
             Self::Action => "Actionable recommendation",
             Self::RecipePath => "Literal recipe path",
+            Self::Criteria => "Decision criteria (one editable item per line)",
         }
     }
 }
@@ -82,6 +84,14 @@ pub struct State {
     pub scroll: u16,
     pub notice: String,
     #[serde(skip)]
+    pub relay: Option<super::relays::Pending>,
+    pub pending_decision: Option<String>,
+    pub criteria_text: String,
+    pub criteria_decision: Option<workflows::ChosenDecision>,
+    pub criteria_preview: bool,
+    #[serde(skip)]
+    pub scroll_page: u16,
+    #[serde(skip)]
     pub scroll_max: u16,
     #[serde(skip)]
     pub reviewed: bool,
@@ -99,6 +109,12 @@ pub struct State {
     pub comparison_fingerprint: Option<String>,
     #[serde(skip)]
     pub recipe_preview_text: String,
+    #[serde(skip)]
+    pub baseline_expected: Option<crate::workspace::runner::Prepared>,
+    #[serde(skip)]
+    pub baseline_error: String,
+    #[serde(skip)]
+    pub addressed_fingerprint: Option<String>,
 }
 impl State {
     pub fn draft_snapshot(&self) -> Value {
@@ -108,6 +124,7 @@ impl State {
         if let Ok(mut state) = serde_json::from_value::<Self>(value) {
             state.affirmative = false;
             state.preview = false; // A restored draft is never a reviewed recipe.
+            state.pending_decision = None;
             if let Some(field) = state.editor {
                 state.cursor = state
                     .value(field)
@@ -128,6 +145,7 @@ impl State {
             Field::Finding => &self.finding_text,
             Field::Action => &self.action,
             Field::RecipePath => &self.recipe_path,
+            Field::Criteria => &self.criteria_text,
         }
     }
     fn value_mut(&mut self, field: Field) -> &mut String {
@@ -137,6 +155,7 @@ impl State {
             Field::Finding => &mut self.finding_text,
             Field::Action => &mut self.action,
             Field::RecipePath => &mut self.recipe_path,
+            Field::Criteria => &mut self.criteria_text,
         }
     }
     fn edit(&mut self, field: Field) {
@@ -289,6 +308,11 @@ enum Action {
     LoadRecipe,
     PreviewRecipe,
     Refresh,
+    DecisionCriteria,
+    EditCriteria,
+    ConfirmCriteria,
+    RelayDecision,
+    FreshBaseline,
 }
 
 impl Action {
@@ -326,6 +350,12 @@ impl Action {
             Self::LoadRecipe => "load-recipe",
             Self::PreviewRecipe => "preview-recipe",
             Self::Refresh => "refresh-evidence",
+            Self::Edit(Field::Criteria) => "edit-decision-criteria",
+            Self::DecisionCriteria => "decision-criteria",
+            Self::EditCriteria => "edit-criteria-proposal",
+            Self::ConfirmCriteria => "confirm-decision-criteria",
+            Self::RelayDecision => "relay-decision",
+            Self::FreshBaseline => "fresh-baseline",
         }
     }
 }
@@ -351,6 +381,7 @@ fn actions(tab: Tab) -> &'static [(Action, &'static str)] {
             (Edit(Field::Contract), "Edit behavior contract"),
             (Choose(Chooser::Hotspot), "Select bounded source hotspot"),
             (Choose(Chooser::Baseline), "Select baseline run"),
+            (FreshBaseline, "Choose none / request fresh baseline"),
             (SaveRefactor, "Record contract / hotspot / baseline"),
             (Fix, "Request bounded refactor via Flareon"),
             (Diagnostic, "Request measurement via Jolteon"),
@@ -397,6 +428,10 @@ fn actions(tab: Tab) -> &'static [(Action, &'static str)] {
             (Edit(Field::RecipePath), "Edit literal recipe path"),
             (LoadRecipe, "Load recipe read-only"),
             (PreviewRecipe, "Preview complete recipe / apply plan only"),
+            (DecisionCriteria, "Add chosen Espeon decision as criteria"),
+            (EditCriteria, "Edit proposed criteria (one per line)"),
+            (ConfirmCriteria, "Review / confirm decision criteria"),
+            (RelayDecision, "Send chosen decision to idle Eevee"),
         ],
     }
 }
@@ -425,6 +460,10 @@ impl App {
     pub fn workflow_refresh(&mut self) {
         self.suggestion_cache.invalidate();
         self.carry_over.invalidate();
+        if self.workflow.tab == Tab::Refactor {
+            self.workflow_refresh_baseline_identity();
+        }
+        self.workflow_refresh_addressed();
         let current = self.workflow_fingerprint();
         if current.fingerprint != self.workflow.comparison_fingerprint
             || !current.complete
@@ -502,7 +541,7 @@ impl App {
         );
     }
 
-    fn workflow_fingerprint(&self) -> crate::workspace::runner::InputSnapshot {
+    pub(super) fn workflow_fingerprint(&self) -> crate::workspace::runner::InputSnapshot {
         if self.repo_loading || self.repo_refresh || !self.repo_error.is_empty() {
             crate::workspace::runner::InputSnapshot::default()
         } else {
@@ -522,7 +561,8 @@ impl App {
 
     pub fn workflow_command_choices(&self) -> Vec<super::commands::Choice> {
         use super::commands::Choice;
-        if self.workflow.editor.is_some() || self.workflow.preview {
+        if self.workflow.editor.is_some() || self.workflow.preview || self.workflow.relay.is_some()
+        {
             return Vec::new();
         }
         if self.workflow.chooser.is_some() {
@@ -612,6 +652,9 @@ impl App {
         if key.kind == KeyEventKind::Release {
             return false;
         }
+        if self.relay_key(key) {
+            return true;
+        }
         if self.workflow.editor.is_some() && self.width >= 60 && self.height >= 18 {
             self.workflow.editor_key(key);
             return true;
@@ -649,7 +692,7 @@ impl App {
             return true;
         }
         if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown) {
-            let page = self.height.saturating_sub(12).max(1);
+            let page = self.workflow.scroll_page.max(1);
             self.workflow.scroll = if key.code == KeyCode::PageDown {
                 self.workflow
                     .scroll
@@ -672,7 +715,11 @@ impl App {
                         self.workflow.notice =
                             "Review the displayed scope before applying. Nothing changed.".into();
                     } else {
-                        let result = self.workflow_apply_recipe();
+                        let result = if self.workflow.criteria_preview {
+                            self.workflow_apply_criteria()
+                        } else {
+                            self.workflow_apply_recipe()
+                        };
                         self.workflow_result(result);
                     }
                 }
@@ -775,6 +822,27 @@ impl App {
                         run.state,
                         self.workflow_status(&reference)
                     );
+                    let label = if chooser == Chooser::Baseline {
+                        let eligibility = self.workflow_baseline_eligible(run).map_or_else(
+                            |reason| format!("excluded: {reason}"),
+                            |_| "eligible passing baseline".into(),
+                        );
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map_or(0, |v| v.as_millis() as u64);
+                        format!(
+                            "{} / {} / age {}s / rev {} / elapsed {:?}ms",
+                            eligibility,
+                            run.prepared.run_id,
+                            now.saturating_sub(run.ended_at_ms.unwrap_or(0)) / 1000,
+                            run.after.fingerprint.as_deref().unwrap_or("unknown"),
+                            run.ended_at_ms
+                                .zip(run.started_at_ms)
+                                .map(|(e, s)| e.saturating_sub(s))
+                        )
+                    } else {
+                        label
+                    };
                     result.push((reference, label));
                 }
             }
@@ -791,6 +859,9 @@ impl App {
     }
 
     fn workflow_attach(&mut self, chooser: Chooser) -> Result<(), String> {
+        if chooser == Chooser::Baseline {
+            self.workflow_refresh_baseline_identity();
+        }
         let reference = self
             .workflow_choices(chooser)
             .get(self.workflow.evidence)
@@ -865,6 +936,8 @@ impl App {
                 let EvidenceRef::Run { run_id, .. } = reference else {
                     return Err("Choose a local run".into());
                 };
+                let run = view.run(&run_id).ok_or("Baseline unavailable")?;
+                self.workflow_baseline_eligible(run)?;
                 self.workflow.baseline = run_id;
             }
             Chooser::Post => {
@@ -907,8 +980,7 @@ impl App {
                         evidence: vec![reference],
                     });
                 }
-                self.workflows
-                    .record_review(Verdict::Inconclusive, criteria, &view)?;
+                self.workflows.update_review_evidence(criteria, &view)?;
                 self.changed_task();
             }
         }
@@ -920,6 +992,9 @@ impl App {
     fn workflow_action(&mut self, action: Action) -> Result<(), String> {
         if self.task_id <= 0 && !matches!(action, Action::Edit(_)) {
             return Err("Create and save a task before recording specialist work.".into());
+        }
+        if matches!(action, Action::SaveRefactor) {
+            self.workflow_refresh_baseline_identity();
         }
         if matches!(
             action,
@@ -999,6 +1074,11 @@ impl App {
             }
             Action::Fix => self.workflow_fix()?,
             Action::SaveRefactor => {
+                self.workflow_baseline_eligible(
+                    view.run(&self.workflow.baseline).ok_or(
+                        "Choose an eligible retained baseline or request a fresh baseline",
+                    )?,
+                )?;
                 self.workflows.set_refactor(
                     &self.workflow.contract,
                     self.workflow.hotspot.clone(),
@@ -1012,8 +1092,12 @@ impl App {
             Action::Compare => {
                 let comparison = self.workflows.compare_refactor(&view);
                 self.workflow.comparison_summary = format!(
-                    "Observed comparison: {}\nElapsed baseline/post: {:?} / {:?} ms.\nSingle-run times cannot establish speedup.",
-                    comparison.reason, comparison.baseline_ms, comparison.post_ms
+                    "Observed comparison: {}\nBaseline {}: {:?} ms\nPost-change {}: {:?} ms\nSingle-run times cannot establish speedup.",
+                    comparison.reason,
+                    comparison.baseline_run.as_deref().unwrap_or("missing"),
+                    comparison.baseline_ms,
+                    comparison.post_run.as_deref().unwrap_or("missing"),
+                    comparison.post_ms
                 );
                 self.workflow.comparison_fingerprint = current.fingerprint.clone();
                 self.workflow.notice = comparison.reason;
@@ -1079,17 +1163,13 @@ impl App {
                 self.workflow.notice = "User resolution recorded; acceptance still requires current criterion evidence.".into();
             }
             Action::Review => {
-                if self.planning.busy() || self.execution.busy() {
-                    return Err(
-                        "Finish or cancel active work before a separate managed review.".into(),
-                    );
-                }
-                self.set_form(7);
-                self.planning
-                    .set_operation(crate::providers::Operation::Review);
-                self.changed_task();
-                self.open_overlay(Overlay::Planning);
-                self.planning.notice = "Independent read-only Review. Inspect scoped criteria, patch and selected observations; Preview and Run remain separate explicit actions.".into();
+                self.stage_relay(super::relays::RelayRequest {
+                    target_form: 7,
+                    text: format!("Fresh independent re-review of task {}.\nRequirements:\n{}\nInspect the current patch and freshly selected evidence through managed Review. Implementation history, sessions and grants are not review context. Findings remain unresolved until a fresh verdict and explicit resolution.", self.task_id, self.criteria.iter().map(|c| c.text.as_str()).collect::<Vec<_>>().join("\n")),
+                    paths: Vec::new(),
+                    source: super::relays::RelaySource::Review,
+                    command: None,
+                })?;
             }
             Action::Verdict(verdict) => {
                 let criteria = self
@@ -1098,7 +1178,7 @@ impl App {
                     .as_ref()
                     .map(|review| review.criteria.clone())
                     .unwrap_or_default();
-                let previous = self.workflows.review.clone();
+                let previous = self.workflows.clone();
                 self.workflows.record_review(verdict, criteria, &view)?;
                 if verdict == Verdict::Accept {
                     let texts: Vec<_> = self
@@ -1108,7 +1188,7 @@ impl App {
                         .collect();
                     let guard = self.workflows.review_guard(&texts, &view);
                     if guard.verdict != Verdict::Accept {
-                        self.workflows.review = previous;
+                        self.workflows = previous;
                         return Err(format!("Accept blocked: {}", guard.reasons.join("; ")));
                     }
                 }
@@ -1150,6 +1230,7 @@ impl App {
                     "{}\nApplication: add missing completion criteria as unverified; retain the full plan and context selection proposals in this desk; set a bounded Next action referring to the staged plan. Existing evidence, completed criteria, commands, model selection and grants are unchanged. No sources are read or pinned automatically.",
                     preview.text()
                 );
+                self.workflow.criteria_preview = false;
                 self.workflow.preview = true;
                 self.workflow.affirmative = false;
                 self.workflow.reviewed = false;
@@ -1157,6 +1238,60 @@ impl App {
                 self.workflow.notice =
                     "Untrusted recipe preview. Stay is selected. Applying stages task plan only."
                         .into();
+            }
+            Action::DecisionCriteria => {
+                let decision = self.workflows.chosen_decision.clone().ok_or("No canonical chosen decision. In Espeon, select a complete proposal, /decision, then explicitly save Next action first.")?;
+                self.workflow.criteria_text = decision
+                    .text
+                    .lines()
+                    .filter(|line| {
+                        !line.trim().is_empty() && !line.starts_with("[User-selected, unverified ")
+                    })
+                    .map(|line| line.trim().trim_start_matches(['-', '*', ' ']))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                self.workflow.criteria_decision = Some(decision);
+                self.workflow.edit(Field::Criteria);
+            }
+            Action::EditCriteria => {
+                if self.workflow.criteria_decision.is_none() {
+                    return Err("Add a chosen decision as criteria first.".into());
+                }
+                self.workflow.edit(Field::Criteria);
+            }
+            Action::ConfirmCriteria => {
+                self.workflow_criteria_items()?;
+                self.workflow.criteria_preview = true;
+                self.workflow.preview = true;
+                self.workflow.affirmative = false;
+                self.workflow.reviewed = false;
+                self.workflow.scroll = 0;
+            }
+            Action::RelayDecision => {
+                let decision = self
+                    .workflows
+                    .chosen_decision
+                    .as_ref()
+                    .ok_or("Choose and save an Espeon decision first")?;
+                self.stage_relay(super::relays::RelayRequest { target_form: 0, text: format!("Chosen decision {}:\n{}\nReview and edit acceptance criteria locally; this is not verified evidence.", decision.id, decision.text), paths: Vec::new(), source: super::relays::RelaySource::Decision(decision.id.clone()), command: None })?;
+            }
+            Action::FreshBaseline => {
+                if self.planning.busy()
+                    || self.execution.active.as_ref().is_some_and(|r| {
+                        matches!(
+                            r.state,
+                            crate::workspace::runner::RunState::Running
+                                | crate::workspace::runner::RunState::Cancelling
+                        )
+                    })
+                {
+                    return Err("Finish or explicitly cancel active work before requesting a fresh baseline.".into());
+                }
+                self.workflow.baseline.clear();
+                self.workflow.notice = "No retained baseline selected. Fresh baseline: edit the same check, review and approve in Jolteon, then return to select its passing run.".into();
+                self.set_form(2);
+                self.changed_task();
+                self.begin_edit_field(crate::store::EditorField::Command);
             }
             Action::Refresh => {
                 self.repo_refresh = true;
@@ -1266,48 +1401,32 @@ impl App {
     }
 
     fn workflow_fix(&mut self) -> Result<(), String> {
-        if self.planning.busy() || self.execution.busy() {
-            return Err("Finish or cancel active work before a Flareon handoff.".into());
-        }
-        if self.complete {
-            return Err(
-                "Explicitly reopen the completed task before changing its next action.".into(),
-            );
-        }
-        let next = match self.workflow.tab {
+        use super::relays::{RelayRequest, RelaySource};
+        let (source, text, references) = match self.workflow.tab {
             Tab::Diagnosis => {
                 let hypothesis = self
                     .workflows
                     .hypotheses
                     .get(self.workflow.hypothesis)
-                    .ok_or("Select a diagnosis hypothesis first")?;
-                let links = hypothesis
-                    .evidence
-                    .iter()
-                    .map(|link| format!("{:?}: {}", link.relation, link.reference.label()))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                format!(
-                    "Investigate / fix this diagnosis inference without assuming it is proven:\n{}\nSelected evidence:\n{}\nPreserve task criteria; inspect evidence and scope before implementation.",
-                    hypothesis.explanation, links
-                )
-            }
-            Tab::Refactor => {
-                let refactor = self
-                    .workflows
-                    .refactor
-                    .as_ref()
-                    .ok_or("Record a behavior contract, bounded hotspot and baseline first")?;
-                format!(
-                    "Behavior-preserving bounded refactor.\nContract: {}\nHotspot:\n{}\nBaseline: {}\nDo not widen scope or change requirements. Request the same relevant check from Jolteon after the patch; do not infer a speedup from one run.",
-                    refactor.contract,
-                    refactor
-                        .hotspot
+                    .ok_or("Select a supported hypothesis first")?;
+                (
+                    RelaySource::Hypothesis(hypothesis.id),
+                    format!(
+                        "Fix hypothesis {}: {}\nEvidence:\n{}",
+                        hypothesis.id,
+                        hypothesis.explanation,
+                        hypothesis
+                            .evidence
+                            .iter()
+                            .map(|e| e.reference.label())
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    ),
+                    hypothesis
+                        .evidence
                         .iter()
-                        .map(EvidenceRef::label)
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                    refactor.baseline_run
+                        .map(|e| e.reference.clone())
+                        .collect::<Vec<_>>(),
                 )
             }
             Tab::Review => {
@@ -1315,35 +1434,371 @@ impl App {
                     .workflows
                     .findings
                     .get(self.workflow.finding)
-                    .ok_or("Select an actionable finding first")?;
-                format!(
-                    "Deliberate fix handoff from independent review.\nCriterion: {}\nFinding: {}\nAction: {}\nEvidence:\n{}\nKeep review separate and request fresh verification.",
-                    finding.criterion,
-                    finding.detail,
-                    finding.next_action,
-                    finding
-                        .evidence
-                        .iter()
-                        .map(EvidenceRef::label)
-                        .collect::<Vec<_>>()
-                        .join("\n")
+                    .ok_or("Select a request-changes finding first")?;
+                (
+                    RelaySource::Finding(finding.id),
+                    format!(
+                        "Fix review finding {}\nCriterion: {}\nFinding: {}\nAction: {}\nEvidence:\n{}",
+                        finding.id,
+                        finding.criterion,
+                        finding.detail,
+                        finding.next_action,
+                        finding
+                            .evidence
+                            .iter()
+                            .map(EvidenceRef::label)
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    ),
+                    finding.evidence.clone(),
+                )
+            }
+            Tab::Refactor => {
+                let refactor = self
+                    .workflows
+                    .refactor
+                    .as_ref()
+                    .ok_or("Record contract, hotspot and baseline first")?;
+                (
+                    RelaySource::Review,
+                    format!(
+                        "Behavior-preserving refactor. Contract: {}\nBaseline: {}\nHotspot:\n{}\nPreserve criteria; use the same check after the patch. Single-run timings are not speedup evidence.",
+                        refactor.contract,
+                        refactor.baseline_run,
+                        refactor
+                            .hotspot
+                            .iter()
+                            .map(EvidenceRef::label)
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    ),
+                    refactor.hotspot.clone(),
                 )
             }
             Tab::Recipe => {
-                return Err("Apply a reviewed recipe plan first; grants remain separate.".into());
+                return Err("Choose a supported diagnosis or request-changes finding.".into());
             }
         };
-        if next.len() > workflows::MAX_TEXT_BYTES {
-            return Err("Curated handoff exceeds the 4096-byte Next action limit. Shorten the selected explanation/finding before handing it off; existing task input is unchanged.".into());
+        let mut paths = Vec::new();
+        for reference in references {
+            if let EvidenceRef::Source { path, .. } = reference {
+                let path = std::path::PathBuf::from(path);
+                if !paths.contains(&path) {
+                    paths.push(path);
+                }
+            }
         }
-        self.next_action = next;
-        self.set_form(3);
+        self.stage_relay(RelayRequest {
+            target_form: if self.workflow.tab == Tab::Refactor {
+                6
+            } else {
+                3
+            },
+            text,
+            paths,
+            source,
+            command: None,
+        })
+    }
+
+    pub fn workflow_commit_decision(&mut self) {
+        if self.workflow.pending_decision.take().is_none() || self.form() != 4 {
+            return;
+        }
+        if self.next_action.trim().is_empty() {
+            self.workflow.notice =
+                "Empty Next action was not accepted as a chosen decision.".into();
+            return;
+        }
+        use sha2::{Digest, Sha256};
+        let id = format!("decision:{:x}", Sha256::digest(self.next_action.as_bytes()));
+        self.workflows.chosen_decision = Some(workflows::ChosenDecision {
+            id,
+            text: self.next_action.clone(),
+        });
+    }
+
+    fn workflow_criteria_items(&self) -> Result<Vec<String>, String> {
+        let decision = self
+            .workflow
+            .criteria_decision
+            .as_ref()
+            .ok_or("Select a chosen decision first")?;
+        if self.workflows.chosen_decision.as_ref() != Some(decision) {
+            return Err("Chosen decision changed; stage its criteria again.".into());
+        }
+        let items: Vec<_> = self
+            .workflow
+            .criteria_text
+            .lines()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .collect();
+        if items.is_empty() || items.len() > 64 || items.iter().any(|s| s.len() > 256) {
+            return Err("Criteria require 1–64 editable lines, each at most 256 UTF-8 bytes; nothing trimmed.".into());
+        }
+        Ok(items)
+    }
+
+    pub fn workflow_criteria_preview(&self) -> String {
+        let Some(decision) = &self.workflow.criteria_decision else {
+            return "No decision selected.".into();
+        };
+        let mut seen = self
+            .criteria
+            .iter()
+            .map(|c| c.text.trim().to_owned())
+            .collect::<Vec<_>>();
+        let items = self
+            .workflow
+            .criteria_text
+            .lines()
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| {
+                let key = s.trim().to_owned();
+                let duplicate = seen.contains(&key);
+                seen.push(key);
+                format!(
+                    "{} {}",
+                    if duplicate {
+                        "[duplicate: skipped]"
+                    } else {
+                        "[new / unverified]"
+                    },
+                    s.trim()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!(
+            "Add editable criteria linked to {}.\nNo execution, permissions or verification.\n{items}\nMet/total now: {}/{}.\nEsc cancels all additions; edit proposal before confirming.",
+            decision.id,
+            self.criteria.iter().filter(|c| c.met).count(),
+            self.criteria.len()
+        )
+    }
+
+    fn workflow_apply_criteria(&mut self) -> Result<(), String> {
+        if self.complete {
+            return Err("Reopen the task before adding criteria.".into());
+        }
+        let items = self.workflow_criteria_items()?;
+        let decision = self
+            .workflow
+            .criteria_decision
+            .clone()
+            .ok_or("Decision unavailable")?;
+        let mut criteria = self.criteria.clone();
+        let mut state = self.workflows.clone();
+        for item in items {
+            if criteria.iter().any(|c| c.text.trim() == item) {
+                continue;
+            }
+            criteria.push(crate::store::Criterion {
+                text: item.clone(),
+                met: false,
+            });
+            state.criterion_origins.push(workflows::CriterionOrigin {
+                criterion: item,
+                decision_id: decision.id.clone(),
+                decision_text: decision.text.clone(),
+            });
+        }
+        if criteria.len() > 64 {
+            return Err("Merged task exceeds 64 criteria; nothing changed.".into());
+        }
+        state.validate(self.task_id)?;
+        self.criteria = criteria;
+        self.workflows = state;
+        self.workflow.preview = false;
+        self.workflow.criteria_preview = false;
+        self.workflow.affirmative = false;
+        self.workflow.notice = format!(
+            "Criteria confirmed with decision provenance; {}/{} met. New criteria remain unverified.",
+            self.criteria.iter().filter(|c| c.met).count(),
+            self.criteria.len()
+        );
         self.changed_task();
-        self.planning
-            .set_operation(crate::providers::Operation::Implement);
-        self.open_overlay(Overlay::Planning);
-        self.planning.notice = "Curated specialist handoff staged as Next action. Save must finish before explicit Preview; no model request sent and no source permissions granted.".into();
         Ok(())
+    }
+
+    /// Text is the existing criterion identity. Preserve exact identities across
+    /// reorder; infer a rename only for one changed row with all retained rows
+    /// unmoved. Never position-bind a removed criterion to unrelated reordered text.
+    pub(super) fn workflow_reconcile_criteria_origins(
+        &mut self,
+        next: &[crate::store::Criterion],
+    ) -> Result<(), String> {
+        let removed: Vec<_> = self
+            .criteria
+            .iter()
+            .enumerate()
+            .filter(|(_, old)| !next.iter().any(|new| new.text == old.text))
+            .collect();
+        let added: Vec<_> = next
+            .iter()
+            .enumerate()
+            .filter(|(_, new)| !self.criteria.iter().any(|old| old.text == new.text))
+            .collect();
+        let rename = match (removed.as_slice(), added.as_slice()) {
+            ([(old_index, old)], [(new_index, new)])
+                if old_index == new_index
+                    && self.criteria.iter().enumerate().all(|(index, old)| {
+                        !next.iter().any(|new| new.text == old.text)
+                            || next.get(index).is_some_and(|new| new.text == old.text)
+                    }) =>
+            {
+                Some((old.text.as_str(), new.text.as_str()))
+            }
+            _ => None,
+        };
+        let mut state = self.workflows.clone();
+        state.criterion_origins.clear();
+        for origin in &self.workflows.criterion_origins {
+            if !self.criteria.iter().any(|old| old.text == origin.criterion) {
+                continue;
+            }
+            let exact = next
+                .iter()
+                .filter(|new| new.text == origin.criterion)
+                .count();
+            if exact > 1 {
+                return Err("Duplicate decision-linked criteria need distinct text; criteria and provenance are unchanged.".into());
+            }
+            let text = if exact == 1 {
+                Some(origin.criterion.as_str())
+            } else {
+                rename
+                    .filter(|(old, _)| *old == origin.criterion)
+                    .map(|(_, new)| new)
+            };
+            let Some(text) = text else {
+                continue;
+            };
+            if state
+                .criterion_origins
+                .iter()
+                .any(|existing| existing.criterion == text)
+            {
+                return Err("Ambiguous duplicate decision provenance; criteria and provenance are unchanged.".into());
+            }
+            state.criterion_origins.push(workflows::CriterionOrigin {
+                criterion: text.to_owned(),
+                decision_id: origin.decision_id.clone(),
+                decision_text: origin.decision_text.clone(),
+            });
+        }
+        state.validate(self.task_id)?;
+        self.workflows = state;
+        Ok(())
+    }
+
+    fn workflow_baseline_eligible(
+        &self,
+        run: &crate::workspace::runner::RunRecord,
+    ) -> Result<(), String> {
+        let expected = self
+            .workflow
+            .baseline_expected
+            .as_ref()
+            .ok_or_else(|| self.workflow.baseline_error.clone())?;
+        workflows::baseline_eligibility(run, expected, &self.workflow_fingerprint())
+    }
+
+    fn workflow_refresh_baseline_identity(&mut self) {
+        self.workflow.baseline_expected = None;
+        let result = (|| {
+            let spec = super::execution::parse_command(&self.command).map_err(|_| "Choose the intended check with /command-edit before selecting a retained baseline".to_string())?;
+            let mut expected = self.execution.prepared.as_ref().filter(|p| p.spec == spec).or_else(|| self.execution.history.iter().filter(|r| r.prepared.task_id == self.task_id && r.prepared.spec == spec && r.prepared.cwd == std::path::Path::new(&self.cwd)).max_by_key(|r| r.prepared.prepared_at_ms).map(|r| &r.prepared)).cloned().ok_or("Prepare the intended check in Jolteon first, or run it once to establish command identity".to_string())?;
+            let program = match &spec {
+                crate::workspace::runner::CommandSpec::Direct { program, .. } => program,
+                crate::workspace::runner::CommandSpec::Shell { executable, .. } => executable,
+            };
+            let path = crate::workspace::runner::resolve_executable(
+                program,
+                std::path::Path::new(&self.cwd),
+            )?;
+            expected.executable = crate::workspace::runner::executable_identity(&path)
+                .map_err(|e| format!("Baseline executable identity unavailable: {e}"))?;
+            expected.cwd_identity = crate::workspace::runner::native::directory_identity(
+                std::path::Path::new(&self.cwd),
+            )
+            .map_err(|e| e.to_string())?;
+            Ok::<_, String>(expected)
+        })();
+        match result {
+            Ok(expected) => {
+                self.workflow.baseline_expected = Some(expected);
+                self.workflow.baseline_error.clear();
+            }
+            Err(error) => self.workflow.baseline_error = error,
+        }
+    }
+
+    fn workflow_refresh_addressed(&mut self) {
+        if self.repo_loading || self.repo_refresh {
+            return;
+        }
+        let Some(report) = &self.repository else {
+            return;
+        };
+        if !report.current.complete || !report.current.stable {
+            return;
+        }
+        let fingerprint = self.workflow_fingerprint().fingerprint;
+        if fingerprint.is_none() || self.workflow.addressed_fingerprint == fingerprint {
+            return;
+        }
+        self.workflow.addressed_fingerprint = fingerprint;
+        let mut changed = false;
+        for relay in &mut self.workflows.relayed_findings {
+            if relay.addressed {
+                continue;
+            }
+            for range in &relay.ranges {
+                if report
+                    .current
+                    .files
+                    .get(std::path::Path::new(&range.path))
+                    .is_some_and(|file| {
+                        matches!(file.state, crate::workspace::repo::FileState::Missing)
+                    })
+                {
+                    relay.addressed = true;
+                    changed = true;
+                    break;
+                }
+                let Ok((bytes, _)) = crate::workspace::repo::read_source(
+                    &report.repository.root,
+                    std::path::Path::new(&range.path),
+                    12 * 1024,
+                    &std::sync::atomic::AtomicBool::new(false),
+                ) else {
+                    if workflows::confirmed_source_absence(
+                        &report.repository.root,
+                        std::path::Path::new(&range.path),
+                    ) {
+                        relay.addressed = true;
+                        changed = true;
+                        break;
+                    }
+                    continue;
+                };
+                let Ok(text) = std::str::from_utf8(&bytes) else {
+                    continue;
+                };
+                if workflows::range_touched(&range.text, text, range.start, range.end) {
+                    relay.addressed = true;
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        if changed {
+            self.workflows.review_stale = true;
+            self.changed_task();
+        }
     }
 
     pub fn workflow_recipe_preview(&self) -> &str {
@@ -1459,6 +1914,32 @@ impl App {
                         &self.workflow.baseline
                     }
                 ),
+                Action::Fix if self.workflow.tab == Tab::Diagnosis => {
+                    let supported = self
+                        .workflows
+                        .hypotheses
+                        .get(self.workflow.hypothesis)
+                        .is_some_and(|h| {
+                            self.workflow.hypothesis_states.iter().any(|(id, status)| {
+                                *id == h.id && *status == workflows::HypothesisStatus::Supported
+                            })
+                        });
+                    if supported {
+                        label.into()
+                    } else {
+                        format!("{label} [disabled: supported hypothesis required]")
+                    }
+                }
+                Action::Fix
+                    if self.workflow.tab == Tab::Review
+                        && !self
+                            .workflows
+                            .review
+                            .as_ref()
+                            .is_some_and(|r| r.requested == Verdict::RequestChanges) =>
+                {
+                    format!("{label} [disabled: Request changes verdict required]")
+                }
                 _ => label.into(),
             })
             .collect()
@@ -1475,11 +1956,11 @@ impl App {
             } else {
                 ""
             };
-            return if let Some((reference, _)) =
+            return if let Some((reference, label)) =
                 self.workflow_choices(chooser).get(self.workflow.evidence)
             {
                 format!(
-                    "{relation}{}\n{:?}\nOpen deliberately with o to inspect exact output/source. Failed is an observation, not a passing check.",
+                    "{relation}{label}\n{}\n{:?}\nOpen deliberately with o to inspect exact output/source. Failed is an observation, not a passing check.",
                     reference.label(),
                     self.workflow_status(reference)
                 )
@@ -1513,7 +1994,8 @@ impl App {
                 let coverage = self.workflows.review.as_ref().and_then(|review| review.criteria.iter().find(|entry| entry.criterion == criterion))
                     .map(|entry| entry.evidence.iter().map(|reference| format!("{:?}: {}", self.workflow_status(reference), reference.label())).collect::<Vec<_>>().join("\n")).unwrap_or_else(|| "No linked coverage / inconclusive".into());
                 let finding = self.workflows.findings.get(self.workflow.finding).map(|finding| {
-                    format!("Finding {} / {}: {}\nAction: {}\nResolution: {}\n{}", finding.id, finding.criterion, finding.detail, finding.next_action, finding.resolution.as_deref().unwrap_or("unresolved"),
+                    let addressed = self.workflows.relayed_findings.iter().find(|r| r.finding == finding.id).filter(|r| r.addressed).map_or("", |r| if self.workflows.review_generation <= r.review_generation { "addressed, needs re-review / verdict stale\n" } else { "addressed / new verdict recorded; explicit resolution still required\n" });
+                    format!("{addressed}Finding {} / {}: {}\nAction: {}\nResolution: {}\n{}", finding.id, finding.criterion, finding.detail, finding.next_action, finding.resolution.as_deref().unwrap_or("unresolved"),
                         finding.evidence.iter().enumerate().map(|(index, reference)| format!("{} {:?}: {}", if index == self.workflow.link { ">" } else { " " }, self.workflow_status(reference), reference.label())).collect::<Vec<_>>().join("\n"))
                 }).unwrap_or_else(|| "No recorded findings. Missing verification is not acceptance.".into());
                 format!("Selected criterion: {criterion}\n{coverage}\n{}\n{finding}\nFinding draft evidence: {} links. Managed review has no source-writing tools.", self.workflow.review_summary, self.workflow.finding_evidence.len())

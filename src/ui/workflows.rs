@@ -14,6 +14,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     if area.width < 60 || area.height < 18 {
         frame.render_widget(Clear, area);
         app.workflow.reviewed = false;
+        if let Some(relay) = &mut app.workflow.relay {
+            relay.reviewed = false;
+        }
         app.workflow.affirmative = false;
         text(
             frame,
@@ -23,11 +26,16 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         );
         return;
     }
-    let compact = app.workflow.preview && app.workflow.editor.is_none() && !super::VERBOSE.get();
+    // Keep project/storage status and the global safe-exit footer visible.
+    let area = row(area, 2, area.height.saturating_sub(4));
+    let compact = app.workflow.preview
+        && !app.workflow.criteria_preview
+        && app.workflow.editor.is_none()
+        && !super::VERBOSE.get();
     let height = if compact {
-        18
+        18.min(area.height)
     } else {
-        area.height.saturating_sub(2)
+        area.height
     };
     let area = centered(area, 116, height);
     frame.render_widget(Clear, area);
@@ -54,6 +62,61 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     );
     let body = row(content, 3, content.height.saturating_sub(5));
     let footer = row(content, content.height.saturating_sub(2), 2);
+    app.workflow.scroll_page = body.height.max(1);
+    if app.workflow.relay.is_some() {
+        let targets = app.relay_targets();
+        let pending = app.workflow.relay.as_ref().unwrap();
+        let selected = pending.selected.min(targets.len().saturating_sub(1));
+        let confirm = pending.confirm;
+        let details = if confirm {
+            format!(
+                "{}\nStage references only. No call, run, permission or session.\nProposed paths (still need approval): {:?}\nSource: {:?}\n{}{}",
+                targets
+                    .iter()
+                    .find(|t| Some(t.0) == pending.target)
+                    .map_or("Chosen target no longer idle", |t| t.1.as_str()),
+                pending.request.paths,
+                pending.request.source,
+                if pending.request.command.is_some() {
+                    "Command draft replacement is included in this neutral review; no approval carries over.\n"
+                } else {
+                    ""
+                },
+                pending.request.text
+            )
+        } else {
+            targets
+                .iter()
+                .enumerate()
+                .map(|(i, (_, label))| format!("{} {label}", if i == selected { ">" } else { " " }))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let max = selection_details(
+            frame,
+            body,
+            Paragraph::new(details)
+                .style(paint.surface)
+                .wrap(Wrap { trim: false }),
+            app.workflow.scroll,
+        );
+        app.workflow.scroll_max = max;
+        app.workflow.scroll = app.workflow.scroll.min(max);
+        if let Some(pending) = &mut app.workflow.relay {
+            pending.reviewed = confirm && body.height >= 3;
+        }
+        text(
+            frame,
+            footer,
+            if confirm {
+                "[Stay] / y Stage / Esc Cancel / PgUp/PgDn Details\nEnter Stay (drafts unchanged)"
+            } else {
+                "Up/Down Target / Enter Review / Esc Cancel\nOnly idle partners in the target form are offered"
+            },
+            paint.accent,
+        );
+        return;
+    }
     if let Some(field) = app.workflow.editor {
         text(frame, row(body, 0, 1), field.label(), paint.accent);
         let input = row(body, 1, body.height.saturating_sub(2));
@@ -102,8 +165,14 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         return;
     }
     if app.workflow.preview {
-        let effect = "Stage plan, criteria and Next action only.\nNo tools, provider calls, writes or permissions.";
-        let preview = if super::VERBOSE.get() {
+        let effect = if app.workflow.criteria_preview {
+            "Confirm decision-linked criteria only.\nNew items remain unverified; duplicates skipped."
+        } else {
+            "Stage plan, criteria and Next action only.\nNo tools, provider calls, writes or permissions."
+        };
+        let preview = if app.workflow.criteria_preview {
+            app.workflow_criteria_preview()
+        } else if super::VERBOSE.get() {
             format!("{effect}\n\n{}", app.workflow_recipe_preview())
         } else {
             app.workflow.recipe.as_ref().map_or_else(
@@ -130,8 +199,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         );
         app.workflow.scroll_max = max;
         app.workflow.scroll = app.workflow.scroll.min(max);
-        if app.workflow.recipe.is_some() {
-            app.workflow.reviewed = body.height >= 3 && (!compact || max == 0);
+        if app.workflow.recipe.is_some() || app.workflow.criteria_preview {
+            app.workflow.reviewed =
+                body.height >= 3 && (app.workflow.criteria_preview || !compact || max == 0);
         }
         let footer_text = format!(
             "{} / {} | {}\ny Apply / n Back / Left/Right Choose / Enter",
@@ -180,6 +250,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             row(body, height, body.height.saturating_sub(height)),
         )
     };
+    app.workflow.scroll_page = detail.height.max(1);
     let top = selected.saturating_sub(list.height.saturating_sub(1) as usize);
     for (offset, label) in rows.iter().skip(top).take(list.height as usize).enumerate() {
         let active = top + offset == selected;
@@ -204,7 +275,14 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     text(
         frame,
         footer,
-        if app.workflow.chooser.is_some() {
+        if app.workflow.statuses.iter().any(|(reference, status)| {
+            matches!(
+                reference,
+                crate::workspace::workflows::EvidenceRef::Run { .. }
+            ) && *status == crate::workspace::workflows::EvidenceStatus::Stale
+        }) {
+            "/rerun Rerun with Jolteon / Commands\nUp/Down / Enter / PgUp/PgDn details / Esc Back"
+        } else if app.workflow.chooser.is_some() {
             "Up/Down evidence / Enter attach /open-evidence\nLeft/Right Supporting/Refuting / Esc Back"
         } else {
             "/ Commands / Left/Right tabs / Up/Down actions / Enter\nPgUp/PgDn details / Esc Back"

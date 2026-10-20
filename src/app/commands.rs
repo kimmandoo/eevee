@@ -2,11 +2,18 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::{App, Overlay, StorageState};
 
+#[derive(Clone, Copy)]
+struct RoleSend {
+    action: &'static str,
+    target: i64,
+}
+
 #[derive(Clone)]
 pub struct Choice {
     pub command: &'static str,
     pub label: String,
     pub reason: Option<String>,
+    role_send: Option<RoleSend>,
 }
 
 impl Choice {
@@ -15,6 +22,7 @@ impl Choice {
             command,
             label: label.into(),
             reason: None,
+            role_send: None,
         }
     }
 
@@ -27,6 +35,15 @@ impl Choice {
             command,
             label: label.into(),
             reason: Some(reason.into()),
+            role_send: None,
+        }
+    }
+    fn send_role(action: &'static str, target: i64, label: String) -> Self {
+        Self {
+            command: "send-role",
+            label,
+            reason: None,
+            role_send: Some(RoleSend { action, target }),
         }
     }
 }
@@ -157,6 +174,7 @@ impl App {
                 "Front a partner: /lead <name> or pick in the roster",
             ),
             ("run", "Local commands / execution evidence / cancellation"),
+            ("rerun", "Rerun with Jolteon (new approval)"),
             ("history", "Provider history / journal evidence"),
             ("handoff", "Portable task handoff"),
             ("goal", "Edit goal"),
@@ -206,7 +224,10 @@ impl App {
             .filter(|choice| {
                 choice.command.starts_with("provider-")
                     || choice.command.starts_with("role-")
-                    || matches!(choice.command, "sessions" | "paths" | "models-refresh")
+                    || matches!(
+                        choice.command,
+                        "sessions" | "paths" | "models-refresh" | "decision"
+                    )
             })
         {
             if !choices
@@ -418,21 +439,50 @@ impl App {
         }
     }
 
-    /// After an out-of-role refusal, offer exactly one working choice: switch
-    /// the lead to the owning form. Switching never starts the action.
+    /// An out-of-role action offers a non-replaying switch and reference-only
+    /// relays to idle partners already in that owning form (PT10).
     fn offer_owner(&mut self, name: &str) {
         if let Some(owner) = self.role_owner(name)
             && self
                 .command_disabled_reason(FORM_COMMANDS[owner].0)
                 .is_none()
         {
+            let action = match name {
+                "command-edit" => "command-edit",
+                "paths" => "paths",
+                "role-implement" => "role-implement",
+                _ => return,
+            };
+            let mut choices = vec![Choice::new(
+                FORM_COMMANDS[owner].0,
+                format!("Switch to {}", crate::domain::FORMS[owner].name),
+            )];
+            for partner in self.partners() {
+                if partner.id == self.lead().id
+                    || partner.form != owner
+                    || self.partner_busy(partner.id)
+                {
+                    continue;
+                }
+                let mut choice = Choice::send_role(
+                    action,
+                    partner.id,
+                    format!(
+                        "Send to {} ({})",
+                        Self::partner_label(&partner),
+                        crate::domain::FORMS[owner].name
+                    ),
+                );
+                if self.task_id <= 0 || self.complete {
+                    choice.reason =
+                        Some("Save an open task before sending role references.".into());
+                }
+                choices.push(choice);
+            }
             self.command_popup = Some(Popup {
                 query: String::new(),
                 selected: Some(0),
-                choices: vec![Choice::new(
-                    FORM_COMMANDS[owner].0,
-                    format!("Switch to {}", crate::domain::FORMS[owner].name),
-                )],
+                choices,
                 scope: self.overlay,
             });
         }
@@ -520,6 +570,13 @@ impl App {
                 {
                     self.notice = reason;
                     self.offer_owner(choice.command);
+                    return true;
+                }
+                if let Some(send) = choice.role_send {
+                    self.command_popup = None;
+                    if let Err(error) = self.stage_role_action(send.action, send.target) {
+                        self.notice = error;
+                    }
                     return true;
                 }
                 let name = choice.command;
@@ -778,7 +835,7 @@ impl App {
                 self.lead_command("");
             }
             "new" | "resume" | "model" | "effort" | "history" | "sessions" | "paths"
-            | "models-refresh" => {
+            | "models-refresh" | "decision" => {
                 self.open_overlay(Overlay::Planning);
                 if self.overlay == Some(Overlay::Planning) {
                     return self.planning_command(if name == "history" {
@@ -792,6 +849,7 @@ impl App {
             "back-form" => self.previous_form_toggle(),
             "files" => self.open_overlay(Overlay::Sources),
             "run" => self.open_overlay(Overlay::Execution),
+            "rerun" => self.rerun_stale_check(),
             "handoff" => self.open_overlay(Overlay::Handoff),
             "goal" => self.begin_edit(),
             "criteria" => self.open_overlay(Overlay::Criteria),
@@ -1342,5 +1400,241 @@ mod tests {
         ));
         assert_eq!(app.overlay, Some(Overlay::Planning));
         assert!(!app.planning.reviewed);
+    }
+    fn role_relay_app(width: u16, height: u16, sender_form: usize) -> App {
+        let mut app = App::new("/workspace".into(), width, height);
+        let partners = vec![
+            crate::store::Partner {
+                id: 1,
+                form: sender_form,
+                ..Default::default()
+            },
+            crate::store::Partner {
+                id: 2,
+                form: 2,
+                nickname: Some("Bolt".into()),
+                ..Default::default()
+            },
+            crate::store::Partner {
+                id: 3,
+                form: 3,
+                nickname: Some("Ember".into()),
+                ..Default::default()
+            },
+            crate::store::Partner {
+                id: 4,
+                form: 2,
+                nickname: Some("Scout".into()),
+                ..Default::default()
+            },
+        ];
+        let mut task = crate::store::Snapshot::empty("/workspace".into());
+        task.id = 7;
+        task.goal = "Keep task references and permissions separate".into();
+        task.form = sender_form;
+        task.partner_drafts.insert(
+            1,
+            crate::store::PartnerDrafts {
+                drafts: vec![crate::store::Draft {
+                    field: crate::store::EditorField::Request,
+                    text: "sender 漢字 suffix".into(),
+                    cursor: 7,
+                }],
+                editor_field: crate::store::EditorField::Request,
+                editing: true,
+                previous_form: None,
+            },
+        );
+        app.store_event(crate::store::Event::Loaded(crate::store::Project {
+            tasks: vec![task],
+            partners,
+            active_id: Some(7),
+            usage_bytes: 0,
+        }));
+        app
+    }
+
+    fn choose_role_recipient(app: &mut App, action: &str, target: i64) {
+        assert!(app.command(action));
+        let popup = app.command_popup.as_ref().expect("owning-form choices");
+        assert!(
+            popup.choices[0].role_send.is_none(),
+            "switch remains first and non-replaying"
+        );
+        let index = popup
+            .choices
+            .iter()
+            .position(|choice| {
+                choice
+                    .role_send
+                    .is_some_and(|send| send.target == target && send.action == action)
+            })
+            .expect("idle matching recipient choice");
+        app.command_popup.as_mut().unwrap().selected = Some(index);
+        assert!(app.command_popup_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    }
+
+    fn recipient_request(app: &App, partner: i64) -> Option<&crate::store::Draft> {
+        app.partner_drafts
+            .get(&partner)?
+            .drafts
+            .iter()
+            .find(|draft| draft.field == crate::store::EditorField::Request)
+    }
+
+    #[test]
+    fn owning_role_send_stages_only_reviewed_references_at_both_sizes() {
+        for (width, height) in [(120, 36), (60, 18)] {
+            for (action, sender_form, target) in [
+                ("command-edit", 4, 2),
+                ("paths", 7, 3),
+                ("role-implement", 7, 3),
+            ] {
+                let mut app = role_relay_app(width, height, sender_form);
+                let before = (
+                    app.input.clone(),
+                    app.cursor,
+                    app.drafts.clone(),
+                    app.goal.clone(),
+                    app.form(),
+                );
+                let operation = app.planning.operation;
+                let paths = app.planning.edit_paths.clone();
+                choose_role_recipient(&mut app, action, target);
+                assert!(
+                    app.workflow
+                        .relay
+                        .as_ref()
+                        .is_some_and(|relay| relay.confirm && !relay.reviewed)
+                );
+                assert!(recipient_request(&app, target).is_none());
+                app.relay_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                assert!(
+                    recipient_request(&app, target).is_none(),
+                    "neutral Enter never stages"
+                );
+                app.relay_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+                assert!(app.workflow.relay.is_none());
+                assert_eq!(
+                    (
+                        app.input.clone(),
+                        app.cursor,
+                        app.drafts.clone(),
+                        app.goal.clone(),
+                        app.form()
+                    ),
+                    before
+                );
+                choose_role_recipient(&mut app, action, target);
+                app.workflow.relay.as_mut().unwrap().reviewed = true;
+                app.relay_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+                let draft =
+                    recipient_request(&app, target).expect("references staged after review");
+                assert!(draft.text.contains(action) && draft.text.contains('7'));
+                assert_eq!(
+                    (
+                        app.input.clone(),
+                        app.cursor,
+                        app.drafts.clone(),
+                        app.goal.clone(),
+                        app.form()
+                    ),
+                    before
+                );
+                assert_eq!(app.lead().id, 1);
+                assert_eq!(app.planning.operation, operation);
+                assert_eq!(app.planning.edit_paths, paths);
+                assert!(app.planning.pending.is_none());
+                assert!(app.execution.prepared.is_none() && app.execution.active.is_none());
+                assert!(app.command.is_empty());
+                let relay = app
+                    .workflows
+                    .draft_relays
+                    .iter()
+                    .find(|relay| relay.partner == target)
+                    .unwrap();
+                assert!(relay.paths.is_empty());
+                // Fronting a reference-only recipient never replays role/scope selection.
+                app.request_lead(target);
+                assert_eq!(app.planning.operation, operation);
+                assert_eq!(app.planning.edit_paths, paths);
+                assert!(app.planning.pending.is_none() && app.execution.prepared.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn owning_role_send_excludes_busy_or_wrong_form_recipients() {
+        let mut app = role_relay_app(120, 36, 4);
+        assert!(app.execution.prepare_command_for(
+            7,
+            Some(crate::store::Attribution::of(&app.party[1])),
+            r#"["echo","explicitly prepared but never dispatched"]"#,
+        ));
+        app.command("command-edit");
+        let choices = &app.command_popup.as_ref().unwrap().choices;
+        assert!(
+            !choices
+                .iter()
+                .any(|choice| choice.role_send.is_some_and(|send| send.target == 2))
+        );
+        assert!(
+            choices
+                .iter()
+                .any(|choice| choice.role_send.is_some_and(|send| send.target == 4))
+        );
+        assert!(
+            !choices
+                .iter()
+                .any(|choice| choice.role_send.is_some_and(|send| send.target == 3))
+        );
+        assert!(app.planning.pending.is_none() && app.execution.active.is_none());
+    }
+
+    #[test]
+    fn owning_role_send_rechecks_nonempty_target_and_changed_task() {
+        let mut app = role_relay_app(120, 36, 7);
+        choose_role_recipient(&mut app, "paths", 3);
+        app.partner_drafts
+            .entry(3)
+            .or_default()
+            .drafts
+            .push(crate::store::Draft {
+                field: crate::store::EditorField::Request,
+                text: "keep recipient draft".into(),
+                cursor: 4,
+            });
+        app.workflow.relay.as_mut().unwrap().reviewed = true;
+        app.relay_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        assert!(app.workflow.notice.contains("nonempty"));
+        assert_eq!(
+            recipient_request(&app, 3).unwrap().text,
+            "keep recipient draft"
+        );
+        app.relay_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        app.partner_drafts.remove(&3);
+        choose_role_recipient(&mut app, "paths", 3);
+        app.goal.push_str(" changed after review");
+        app.workflow.relay.as_mut().unwrap().reviewed = true;
+        app.relay_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        assert!(recipient_request(&app, 3).is_none());
+        assert!(app.workflow.notice.contains("changed"));
+        assert!(app.execution.prepared.is_none() && app.planning.pending.is_none());
+    }
+    #[test]
+    fn owning_role_switch_remains_nonreplaying_when_send_choices_exist() {
+        for (width, height) in [(120, 36), (60, 18)] {
+            let mut app = role_relay_app(width, height, 4);
+            let before = (app.input.clone(), app.cursor);
+            app.command("command-edit");
+            assert_eq!(app.command_popup.as_ref().unwrap().selected, Some(0));
+            app.command_popup_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+            assert_eq!(app.form(), 2);
+            assert_eq!((app.input.clone(), app.cursor), before);
+            assert!(app.command.is_empty());
+            assert!(app.workflow.relay.is_none());
+            assert!(app.execution.prepared.is_none() && app.execution.active.is_none());
+            assert!(app.planning.pending.is_none() && app.planning.paths_editor.is_none());
+        }
     }
 }

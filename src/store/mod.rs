@@ -328,6 +328,7 @@ pub struct CommittedRunPermit {
     pub run_id: String,
     pub file: File,
     pub capacity: u64,
+    pub rerun_of: Option<String>,
     _committed: (),
 }
 

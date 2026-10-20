@@ -92,6 +92,7 @@ ev --help
 | `/new` / `/resume` | Review a fresh request / resume an owned same-task session |
 | `/role` / `/forms` | Plan, Implement or Review / choose an evolution |
 | `/nickname` | Set a local partner nickname (up to 12 graphemes); Enter saves, empty clears, Esc keeps the old name. Names never become automatic provider or handoff context. |
+| `/party` / `/lead <name>` | Inspect/add local partners or choose the lead. Selecting a partner never sends work; releasing and concurrent work remain future tasks. |
 | `/suggestion-dismiss` / Forms picker `d` | Hide the current task's exact evidence-based form suggestion, including after restart; a new triggering run can recommend again. Does not select a form or start work. |
 | `/carry-over` / Companion `c` | Reopen the last form switch's retained-state counts and capability difference. The one-line strip clears on the next key/paste without consuming it; Companion explains C/P/H/F. |
 | `/goal` / `/next` / `/criteria` / `/criteria-edit` | Edit task facts, inspect criteria, or edit criteria directly |
@@ -100,9 +101,14 @@ ev --help
 | `/init` | Prepare an editable Plan request for a repository-specific `AGENTS.md` proposal; no automatic send or file write |
 | `/files` / `@` / `/range` | Source context / attach files / attach line ranges |
 | `/run` / `/command-edit` | Local execution / author argv or an explicit shell object |
+| `/locations` / `/pin-location` (in `/run`) | Parse only the current retained output window/page; review a bounded source capture with the selected run as provenance. Location Enter opens the same Pin range review. |
+| `/rerun` | Stage an observed stale check with exact argv/cwd for a new Jolteon approval; cancellation/denial starts nothing and the old run stays unchanged. |
 | `/diff` / `/history` / `/decision` | Worktree diff / provider journal / save a proposal as next action |
 | `/handoff` / `/memory` / `/workflows` | Portable handoff / approved notes / diagnosis, refactor, review and recipe desk |
 | `/workflow-diagnosis` / `/workflow-refactor` / `/workflow-review` / `/workflow-recipe` | Open the chosen specialist desk directly |
+| `/specialist-fix` (Diagnosis/Review desk) | Stage a supported hypothesis or unresolved request-changes finding as a Flareon fix; choose own form or an idle matching partner. |
+| `/decision-criteria` / `/confirm-decision-criteria` (Recipe desk) | Edit items from a deliberately saved Espeon decision, inspect duplicates, then explicitly confirm new unchecked criteria. `/relay-decision` stages references for an idle Eevee instead. |
+| `/refactor-baseline` / `/fresh-baseline` (Refactor desk) | Inspect eligible retained runs with age/revision and rejection reasons, or choose a separately approved fresh baseline. |
 | `/sessions` / `/paths` | Review session metadata inspection / edit the implementation path draft directly |
 | `/images` / `/inspect` / `/companion` | Sprites / details / companion |
 | `/quit` / Ctrl+C | Safe exit review |
@@ -136,6 +142,10 @@ Native routes stream text without tools, hooks, implicit project reads or local 
 Since Schema 10, the local store has remembered last-used provider/method and per-route model/effort, including exact custom IDs without a successful catalogue. `EV_PROVIDER` explicitly overrides the startup route (`chatgpt` for Codex native, `codex` for CLI, or another service/agent name); that route's own stored model remains available. With no stored preference, configured native routes are preferred, then CLI Codex. Default model selection follows provider configuration rather than inventing an observed ID. Preference failures stay visible with `/storage-retry`; exit waits for commit. No credentials, sessions or permissions are restored, and older binaries refuse the migrated store rather than rewriting it.
 
 Version **0.1.10 uses Schema 11** for task-local suggestion dismissal; v0.1.9 uses Schema 10. Opening an existing store upgrades its version transactionally without rewriting its rows. Schema 10 binaries then refuse it: back up the data directory before upgrading, and do not expect an in-place downgrade.
+
+The **unreleased wave 3 source uses Schema 12** for durable relay provenance. Published v0.1.10 remains Schema 11. The version-only migration preserves existing rows; back up the data directory before opening it with the unreleased source. Older binaries refuse the upgraded store rather than dropping the new metadata. Migration does not restore requests, approvals or grants.
+
+**Form relays.** The specialist desk can stage supported hypotheses or review findings as a bounded Flareon fix, import a chosen Espeon decision as editable criteria, and reuse eligible passing checks as Leafeon baselines. Relays show source references and offer an idle matching partner instead of changing the sender's form; they never submit work or transfer permissions. Changes touching a relayed finding's ranges require fresh independent review, not automatic closure. The existing one-working-partner limit remains; concurrency, write leases, an approval queue, cancel-all, party board and partner release remain wave 4 work.
 
 For persistent **nonsecret** settings, use `$XDG_CONFIG_HOME/eevee/providers.toml` (Linux; default `~/.config/eevee/providers.toml`), `~/Library/Application Support/eevee/providers.toml` (macOS), or `%APPDATA%\eevee\providers.toml` (Windows). `EV_PROVIDERS_CONFIG` selects an absolute user-owned file outside the project. Environment settings override the file:
 

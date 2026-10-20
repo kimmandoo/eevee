@@ -4,9 +4,9 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 
 | File | Section | Open |
 |---|---|---|
-| [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 10 |
-| [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 1 |
-| [C-relays.md](tasks/C-relays.md) | Form relays | 8 |
+| [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 8 |
+| [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 0 |
+| [C-relays.md](tasks/C-relays.md) | Form relays | 0 |
 | [D-moves.md](tasks/D-moves.md) | Moves: teaching and learning skills | 14 |
 | [E-partner-record.md](tasks/E-partner-record.md) | Partner record and flavor | 13 |
 | [F-context-tools.md](tasks/F-context-tools.md) | Context, token economy and tool calling | 19 |
@@ -17,8 +17,8 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 ## Status
 
 - **Released:** 0.1.10 (tags v0.1.0–v0.1.10), adding wave 2 form guidance, guarded intake return, local nicknames, evidence-based recommendations/dismissal and carry-over records. Released store: Schema 11; v0.1.9 used Schema 10.
-- **Active user request:** Prioritize ordinary conversation and provider architecture repair; defer EV10A. Actual native requests omit prior role-tagged turns and wrap ordinary text as planning JSON. Decide native-only cutover versus preserving explicit external-agent integrations before changing their tool/auth support. v0.1.10 publication/runtime qualification is complete.
-- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV02 and the first code-structure pass (index below). **Open:** 85 small tasks. **Dropped:** T05.
+- **Completed user request:** All ten wave 3 tasks passed scoped and integrated runtime verification. The shared Schema 12/provenance/relay cutover was grouped atomically rather than using the usual per-ID commit convention. Wave 4 remained unimplemented; no next task is active. Ordinary conversation/provider architecture repair remains suspended, not fixed.
+- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV01C, EV02, EV10A, EV10B, EV14, EV12, EV13A, EV13B, EV15, EV16, PT10 and the first code-structure pass (index below). **Open:** 74 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.
 
@@ -27,6 +27,8 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 V01 sanctuary layout · P01 native terminal lifecycle · V02A/V02B species art and native graphics · V03 evolution picker · UX01 focus/editing · E01 durable goal · E02 task cards/resume · E03 task lifecycle/privacy/quota · C01 repository baseline/diff · C02 Vaporeon source map/basket · R01 Jolteon approve/run/cancel · R02 execution journal/freshness · UX02 interruption/recovery · P02 filesystem/process parity · A01 agent preflight · A02 Espeon planning request · A03 Flareon implementation · A05 OpenCode ACP · U01 Umbreon hypotheses · L01 Leafeon refactor comparison · G01 Glaceon review desk · S01 Sylveon handoff · S02 curated memory (Bond) · S03 Evolution Stone recipes · PT01 party contract (DESIGN_RULES § Party: ≤6 partners, ≤3 working per task, one writer) · PT02A/PT02B partner table and lead accessor · PT03A/PT03B named form commands and previous-form toggle · PT04A/PT04B party roster and add partner · PT06A partner attribution · PT06B per-partner request slot · PT06C partner-named approvals · EV04 form empty states · EV03A capability chip · EV03B owning-form redirect · RF03 `app.rs` split.
 
 EV07 guarded return to Eevee · PK01 personal partner nicknames · EV01A evidence-based form suggestions · EV01B picker recommendation and durable dismissal · EV02 nonblocking form carry-over.
+
+EV10A retained failure locations · EV10B run-linked guarded captures · EV14 freshly approved stale reruns · EV12 supported hypothesis fixes · EV13A finding fixes · EV13B range addressing and independent re-review · EV15 decision-linked criteria · EV16 retained refactor baselines · PT10 reference-only party relays · EV01C idle partner hints.
 
 ## How to pick work
 
@@ -38,7 +40,7 @@ EV07 guarded return to Eevee · PK01 personal partner nicknames · EV01A evidenc
 
 ### Cross-cutting watch-outs
 
-- **Schema:** Released v0.1.10 uses Schema 11; v0.1.9 uses Schema 10. Task-local suggestion dismissal migrated transactionally by version only. Older writers refuse before any rewrite; tasks, partner drafts, evidence and provider preferences remain unchanged. Every persisted addition needs migration and byte-preserving old-binary refusal.
+- **Schema:** Released v0.1.10 uses Schema 11; this unreleased wave 3 source uses Schema 12 for durable relay provenance. Both migrations were version-only and preserved existing rows. Actual older writers refused before rewrite; backups remain necessary for downgrade recovery. Every persisted addition needs migration and byte-preserving old-binary refusal.
 - **Packets:** Partner flavor (nicknames, partner names, move names, dialogue, ribbons, routes) never enters provider packets or handoffs. The receipt must show zero flavor bytes.
 - **Facts first:** Pokémon-style copy wraps a factual line (command, exit code, permission scope), never replaces it. Monochrome, ASCII and linear layouts keep the same information.
 - **No fake progression:** No XP, levels, affection, streaks, hunger or random unlocks. Raising partners means learned moves, nicknames and real records. Add each new concept (Moves, Dex) to DESIGN_RULES when it ships.

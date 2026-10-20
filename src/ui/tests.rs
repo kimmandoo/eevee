@@ -357,6 +357,7 @@ fn attachment_picker_exposes_saved_state_and_direct_removal_without_mutating_dra
             })
             .collect();
         app.sources.basket.push(crate::workspace::context::Excerpt {
+            origin_run: None,
             id: 91,
             task_id: 1,
             root: "/workspace".into(),
@@ -419,6 +420,7 @@ fn attachment_capture_requires_visible_review_and_fresh_render_after_resize() {
             task_id: 7,
             result: Ok(crate::workspace::context::Response::Inspected(
                 crate::workspace::context::Excerpt {
+                    origin_run: None,
                     id: 0,
                     task_id: 7,
                     root: "/workspace".into(),
@@ -624,6 +626,7 @@ fn carry_over_home(width: u16, height: u16) -> App {
         .collect();
     app.sources.basket = (1..=16)
         .map(|id| Excerpt {
+            origin_run: None,
             id,
             task_id: 7,
             root: "/workspace".into(),
@@ -955,6 +958,7 @@ fn source_purge_requires_a_current_visible_scope_after_resize() {
     app.overlay = Some(Overlay::Sources);
     app.sources.mode = crate::app::sources::Mode::Basket;
     app.sources.basket.push(crate::workspace::context::Excerpt {
+        origin_run: None,
         id: 91,
         task_id: 7,
         root: "/workspace".into(),
@@ -1433,5 +1437,85 @@ fn picker_marks_suggestion_textually_without_changing_selection_or_geometry() {
             assert!(app.planning.pending.is_none());
             assert!(app.execution.history.is_empty());
         }
+    }
+}
+
+#[test]
+fn every_decision_criterion_remains_inspectable_before_confirmation() {
+    use crate::workspace::workflows::ChosenDecision;
+    use ratatui::{Terminal, backend::TestBackend};
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = App::new("/workspace".into(), width, height);
+        app.task_id = 7;
+        app.editing = false;
+        app.overlay = Some(Overlay::Workflows);
+        let decision = ChosenDecision {
+            id: "decision:scroll".into(),
+            text: "Chosen design".into(),
+        };
+        app.workflows.chosen_decision = Some(decision.clone());
+        app.workflow.criteria_decision = Some(decision);
+        app.workflow.criteria_text = (1..=40)
+            .map(|n| format!("User criterion {n:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        app.workflow.criteria_preview = true;
+        app.workflow.preview = true;
+        let config = home_config();
+        let paint = Paint::new(&config, &FORMS[0], 0);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| super::workflows::render(frame, frame.area(), &mut app, &config, &paint))
+            .unwrap();
+        assert!(!screen_text(&terminal).contains("User criterion 40"));
+        for _ in 0..40 {
+            app.workflow_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+            terminal
+                .draw(|frame| {
+                    super::workflows::render(frame, frame.area(), &mut app, &config, &paint)
+                })
+                .unwrap();
+        }
+        assert!(
+            screen_text(&terminal).contains("User criterion 40"),
+            "{width}x{height}: every proposed item must be inspectable"
+        );
+        assert!(app.criteria.is_empty(), "inspection is not confirmation");
+        assert!(app.planning.pending.is_none());
+    }
+}
+
+#[test]
+fn specialist_paging_does_not_skip_saved_hypothesis_lines() {
+    use ratatui::{Terminal, backend::TestBackend};
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = App::new("/workspace".into(), width, height);
+        app.task_id = 7;
+        app.editing = false;
+        app.overlay = Some(Overlay::Workflows);
+        let lines = (1..=20)
+            .map(|n| format!("User hypothesis observation {n:02}"))
+            .collect::<Vec<_>>();
+        app.workflows.add_hypothesis(&lines.join("\n")).unwrap();
+        let config = home_config();
+        let paint = Paint::new(&config, &FORMS[0], 0);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        let mut seen = [false; 20];
+        for _ in 0..24 {
+            terminal
+                .draw(|frame| {
+                    super::workflows::render(frame, frame.area(), &mut app, &config, &paint)
+                })
+                .unwrap();
+            let visible = screen_text(&terminal);
+            for (line, seen) in lines.iter().zip(&mut seen) {
+                *seen |= visible.contains(line);
+            }
+            app.workflow_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        }
+        assert!(
+            seen.iter().all(|seen| *seen),
+            "{width}x{height}: paging skipped saved user lines: {seen:?}"
+        );
     }
 }

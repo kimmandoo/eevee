@@ -45,6 +45,7 @@ fn report(revision: u8, dirty: bool) -> Arc<repo::Report> {
 
 fn pin() -> context::Excerpt {
     context::Excerpt {
+        origin_run: None,
         id: 1,
         task_id: 7,
         root: "/fixture".into(),
@@ -96,6 +97,7 @@ fn run(app: &App, id: &str, start: u64) -> runner::RunRecord {
         expires_at_ms: start + 1000,
         before: current.clone(),
         partner: None,
+        rerun_of: None,
     };
     let mut run = runner::RunRecord::awaiting(&prepared);
     run.state = runner::RunState::Succeeded;
@@ -382,6 +384,7 @@ impl SourceFixture {
         )
         .unwrap();
         context::Excerpt {
+            origin_run: None,
             root: self.0.to_str().unwrap().into(),
             text: String::from_utf8(bytes).unwrap(),
             source_sha256: hash,
@@ -649,4 +652,33 @@ fn dismissal_controls_respect_cancel_editor_review_size_and_empty_state() {
     assert!(!app.dismiss_suggestion());
     assert!(app.dismissed_suggestion.is_none());
     assert_eq!(app.revision, revision);
+}
+
+#[test]
+fn idle_partner_hint_tracks_owned_work_without_changing_the_evidence_trigger() {
+    let mut app = app();
+    app.party.push(store::Partner {
+        id: 2,
+        form: 5,
+        nickname: Some("Mizu".into()),
+        ..Default::default()
+    });
+    let mut failed = run(&app, "failed-owned", 1);
+    failed.state = runner::RunState::Failed;
+    failed.exit_code = Some(7);
+    app.execution.history = vec![failed];
+    app.refresh_suggestion();
+    let trigger = app.visible_suggestion().unwrap().trigger.clone();
+    assert_eq!(app.suggested_partner().map(|partner| partner.id), Some(2));
+    let owner = store::Attribution::of(app.party.iter().find(|partner| partner.id == 2).unwrap());
+    assert!(
+        app.execution
+            .prepare_command_for(app.task_id, Some(owner), r#"["tool","held"]"#)
+    );
+    assert!(app.suggested_partner().is_none());
+    assert_eq!(app.visible_suggestion().unwrap().trigger, trigger);
+    app.execution.invalidate();
+    assert_eq!(app.suggested_partner().map(|partner| partner.id), Some(2));
+    app.dismissed_suggestion = Some(trigger);
+    assert!(app.suggested_partner().is_none());
 }

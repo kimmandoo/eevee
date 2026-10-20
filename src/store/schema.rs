@@ -230,9 +230,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=11).contains(&version) {
+    if !(0..=12).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0 through 11"
+            "Unsupported database schema version {version}; this ev supports versions 0 through 12"
         ));
     }
     let mut statement = connection
@@ -324,7 +324,7 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
                 Schema::Current
             }
         }
-        (10 | 11, objects)
+        (10..=12, objects)
             if objects.len() == 8
                 && objects
                     .iter()
@@ -589,6 +589,13 @@ pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), Str
         connection
             .execute_batch("PRAGMA user_version=11;")
             .map_err(|error| format!("Cannot migrate suggestion dismissals: {error}"))?;
+    }
+    if version < 12 {
+        // Wave-three provenance extends existing bounded JSON contracts only.
+        // Fence older binaries without rewriting task/evidence/schema rows.
+        connection
+            .execute_batch("PRAGMA user_version=12;")
+            .map_err(|error| format!("Cannot migrate workflow and evidence provenance: {error}"))?;
     }
     Ok(())
 }

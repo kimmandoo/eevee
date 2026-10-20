@@ -1,5 +1,75 @@
 # Troubleshooting
 
+### [2026-10-20] Compact specialist pagination skipped saved detail lines
+
+- **Context / Symptom:** Final 60×18 inspection exposed only the beginning of the comparison warning. A new keyboard-only regression confirmed that paging skipped several user-authored hypothesis lines entirely.
+- **Root Cause:** Page size came from terminal height, not the actual detail viewport. Narrow layouts reserved only three detail rows while PageDown advanced six rows.
+- **Solution:** Reported the actual rendered viewport height as ephemeral `scroll_page` state and used it for normal specialist and relay paging. The saved-hypothesis regression failed before and passed after at both sizes; the integrated source passed 713 tests / 2 ignored, strict Clippy and release build.
+- **Prevention / Reference:** The actual workflow smoke now inspected both linked run IDs, both factual durations and the no-speedup warning across reachable pages rather than stopping at the first `Single-run` substring. Old selected source captures were deliberately removed through normal reviewed UI before the independent source-free design request; freshness guards were not bypassed.
+
+### [2026-10-20] Smoke isolation invalidated toolchain and overlay assumptions
+
+- **Context / Symptom:** After isolating provider HOME, the Cargo smoke produced no source diagnostic. Fixed-count Escape batches in relay fixtures also left a different overlay or reopened a retained Request editor, so later command text could enter that editor instead of the chooser.
+- **Root Cause:** Rustup's default data location followed the disposable HOME, while overlay depth depended on the actual navigation history. A fixed number of Escape presses did not establish a workspace boundary.
+- **Solution:** Preserved explicit `RUSTUP_HOME` and `CARGO_HOME` for the real compiler fixture while keeping provider configuration isolated. Unwound observed overlay frames to the workspace footer before deliberate Request editing; checked committed ownership and empty recipient text before relaying. Both-size Cargo/location and owning-form journeys passed without changing production guards or skipping effects checks.
+- **Prevention / Reference:** `execution_relay_smoke.py`, `owner_redirect_smoke.py` and the workflow fixture's `workspace`/`clear_request` helpers. Chooser fixtures also reset to the first row before selecting an evidence identity instead of inheriting an old highlight.
+
+### [2026-10-20] Decision criteria preview reset scrolling before confirmation
+
+- **Context / Symptom:** A 40-criterion preview regression could not reach the final criterion at 120×36. Repeated PageDown input left the first items visible.
+- **Root Cause:** The compact recipe confirmation layout also applied to decision criteria and reset the shared scroll position on every render.
+- **Solution:** Kept the complete criteria preview on the ordinary scrollable detail path while preserving compact recipe consent behavior. The same regression passed at 120×36 and 60×18, with every last item inspectable and no confirmation or provider dispatch.
+- **Prevention / Reference:** `every_decision_criterion_remains_inspectable_before_confirmation`; full integrated verification passed 712 tests / 2 ignored plus strict Clippy and release build.
+
+### [2026-10-20] Controlled-provider fixture stalled on coalesced JSONL requests
+
+- **Context / Symptom:** The actual reviewed-edit smoke timed out before a provider turn started. A direct probe wrote initialize, initialized and account/read together but observed only the initialize response.
+- **Root Cause:** `select` watched the OS pipe while buffered `stdin.readline()` had already consumed later lines into Python's private buffer. The fixture also used its launch directory rather than the separately requested thread directory for policy acknowledgement.
+- **Solution:** Read available pipe bytes with `os.read` and drained complete newline-delimited packets from an explicit buffer before waiting again. The direct probe then received response IDs 1 and 2. Thread acknowledgement used the exact requested cwd and reasoning effort; production qualification and timeouts remained unchanged.
+- **Prevention / Reference:** `scripts/controlled_peer_fixture.py` is a disposable protocol peer, not live-provider conformance or a replacement for the actual Eevee file-write path.
+
+### [2026-10-20] Specialist desks covered the storage acknowledgement row
+
+- **Context / Symptom:** The actual relay journey reached a supported hypothesis but timed out with `missing state: Storage: saved`; its specialist overlay visibly covered the entire storage/activity header row.
+- **Root Cause:** The desk centered a nearly full-height panel against the entire terminal, starting at row 1. Header status was painted first and then cleared by the overlay, so local persistence acknowledgements and failures were not inspectable there.
+- **Solution:** Reserved the two header rows and two global footer rows before sizing the desk. Compact confirmations retained their visible-summary/consent gates and scroll handling. Removed the obsolete fixed 16–20-row geometry assertion from the local-summary fixture rather than re-pinning it; semantic full-summary, no-scroll and reviewed-state checks remained.
+- **Prevention / Reference:** `workflow_relay_smoke.py` waits for actual storage status while the desk is open at both sizes; do not replace this with a sleep or assume a hidden save succeeded.
+
+### [2026-10-20] Rust panic thread IDs were parsed as part of a source path
+
+- **Context / Symptom:** The actual Cargo/TUI location list displayed `5894500) panicked at src/lib.rs:3:5`. Pin range correctly refused it with `Source is absent from the current nonignored catalogue` instead of capturing `src/lib.rs`.
+- **Root Cause:** Newer Rust panic output included a parenthesized thread ID before `panicked at`. The Node stack-frame heuristic treated any last opening parenthesis as an unclosed filename wrapper and included the already-closed thread annotation.
+- **Solution:** Used the parenthesized-path branch only while the parenthesis remained unclosed before the coordinates; otherwise normal path tokenization applied. Added the exact observed thread-ID form and a Node path containing spaces to the parser regressions. All three isolated parser tests passed after the correction; actual integrated Pin range verification remained required.
+- **Prevention / Reference:** `target/wave3-execution-relay-runtime/120/cargo-locations.txt` retained the failing-before surface. Source containment/exclusion checks were not weakened to accommodate a bad parse.
+
+### [2026-10-20] Finding relays bypassed the source credential boundary
+
+- **Context / Symptom:** Static review of the new finding relay found that its exact range-comparison cache copied the whole raw file into task metadata, including recognizable credentials outside a sanitized pinned range.
+- **Root Cause:** Normal source capture applied secret masking, but the separate raw baseline reader and workflow validation did not inherit that boundary. Redacting only the persisted cache would also make later exact range comparisons incorrect.
+- **Solution:** Refused credential-bearing raw baselines before staging or mutating the relay and enforced the same refusal in workflow storage validation. Added a regression covering actual Finding → Fix refusal, unchanged source/evidence/workflow state and no credential in the outgoing snapshot.
+- **Prevention / Reference:** `relay_paths`, `workflows::State::validate` and the credential-bearing baseline regression. Use synthetic credential fixtures only; a source hash is not permission to persist all its raw bytes.
+
+### [2026-10-20] Deferred decision drafts and edited criteria lost their original provenance
+
+- **Context / Symptom:** Static review found that relaying decision A, choosing B and then fronting A's recipient could attach B's identity to A's text. Ordinary criterion renames/deletions could also leave stale origin rows and eventually exhaust origin capacity despite an empty checklist.
+- **Root Cause:** Recipient hydration substituted the latest chosen decision instead of the original relayed snapshot; the normal Criteria editor updated only the checklist, not its provenance lifecycle.
+- **Solution:** Persisted the original decision snapshot with the draft relay and refused stale proposal confirmation. Reconciled criterion origins atomically with normal editing: exact identities survived reordering, only an unambiguous single rename inherited its origin, deletions released capacity and ambiguous duplicates refused without mutation.
+- **Prevention / Reference:** Regressions cover A→B recipient restoration, normal rename/full task restoration, unrelated reorder, duplicate refusal and 64 criteria → clear → new criterion.
+
+### [2026-10-20] Finding range addressing misclassified appends and omitted untracked deletions
+
+- **Context / Symptom:** Static review found that appending after a finding's final line marked it addressed, while deleting a previously relayed untracked file could leave all its findings unaddressed.
+- **Root Cause:** The edit-alignment insertion transition reused the deletion-line intersection flag. Separately, removed untracked files vanished from the repository inventory instead of receiving the tracked-file `Missing` state; failed reads were treated uniformly as unavailable evidence.
+- **Solution:** Computed insertion boundaries separately from deleted/replaced lines. Required a complete stable repository observation and confirmed contained no-follow disappearance before treating an omitted file as deleted; links, traversal, replaced roots and arbitrary read failures remained unknown. Neither path automatically resolved a finding.
+- **Prevention / Reference:** Boundary/insertion/replacement/deletion fixtures plus no-follow disappearance and app-level deleted-untracked-source regressions.
+
+### [2026-10-20] Ordinary repository refresh did not update stale-check admission
+
+- **Context / Symptom:** Static review found that home `/refresh` could make specialist evidence stale while `/rerun` still compared against the completed run's old execution snapshot and refused the advertised action.
+- **Root Cause:** `execution::State::repo_observed` returned before updating freshness unless an execution-specific before/after observation was pending.
+- **Solution:** Updated the latest observed source fingerprint for ordinary observations too, while preserving generation gates that alone settle command preparation and final journal snapshots. Added a regression proving an ordinary refresh updates staleness without completing an unstarted execution capture.
+- **Prevention / Reference:** The actual execution-relay journey uses home `/refresh`, not an execution-only refresh. Retained command arguments containing irreversible journal masks are separately refused rather than replayed as substituted `[REDACTED]` bytes.
+
 ### [2026-10-16] Carry-over evidence fixtures failed native canonical-root validation
 
 - **Context / Symptom:** v0.1.10 qualification run `38866630609` failed tests on macOS and Windows. Native Windows diagnosis reproduced three carry-over assertions reporting one open hypothesis instead of zero for otherwise supported evidence.

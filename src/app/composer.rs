@@ -524,6 +524,7 @@ mod tests {
             source_sha256: [7; 32],
             text: "first\n".into(),
             available: true,
+            origin_run: None,
         };
         app.sources.event(
             7,

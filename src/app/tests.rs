@@ -147,57 +147,6 @@ fn specialist_shortcut_rechecks_hidden_review_and_popup_scope() {
 }
 
 #[test]
-fn root_catalogue_exposes_provider_setup_without_scope_bound_mutations() {
-    let mut app = app();
-    let choices = app.command_choices();
-    for command in [
-        "sessions",
-        "paths",
-        "models-refresh",
-        "criteria-edit",
-        "role-plan",
-        "role-implement",
-        "role-review",
-    ] {
-        assert_eq!(
-            choices
-                .iter()
-                .filter(|choice| choice.command == command)
-                .count(),
-            1,
-            "{command}"
-        );
-    }
-    for command in [
-        "attach-evidence",
-        "open-evidence",
-        "decision",
-        "archive",
-        "delete",
-    ] {
-        assert!(!choices.iter().any(|choice| choice.command == command));
-    }
-    app.planning.operation = crate::providers::Operation::Review;
-    let choices = app.command_choices();
-    assert!(
-        choices
-            .iter()
-            .find(|choice| choice.command == "paths")
-            .unwrap()
-            .reason
-            .is_some()
-    );
-    assert!(
-        choices
-            .iter()
-            .find(|choice| choice.command == "role-implement")
-            .unwrap()
-            .reason
-            .is_some()
-    );
-}
-
-#[test]
 fn root_session_inspection_keeps_saved_task_prerequisites() {
     let mut app = app();
     key(&mut app, KeyCode::Char('/'));

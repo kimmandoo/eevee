@@ -29,6 +29,9 @@ pub struct Excerpt {
     pub source_sha256: [u8; 32],
     pub text: String,
     pub available: bool,
+    /// Task-owned run that led to this capture; not execution or freshness proof.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_run: Option<String>,
 }
 
 impl Excerpt {
@@ -39,6 +42,13 @@ impl Excerpt {
             || self.end_line < self.start_line
         {
             return Err("Invalid excerpt owner, identity or inclusive line range".into());
+        }
+        if self
+            .origin_run
+            .as_ref()
+            .is_some_and(|run| !crate::store::valid_run_id(run))
+        {
+            return Err("Invalid originating run reference".into());
         }
         if self.root.len() > MAX_PATH_BYTES
             || !Path::new(&self.root).is_absolute()
@@ -370,6 +380,7 @@ fn capture_selection(
     }
     let text = line_range(&masked, start_line, end_line)?.to_owned();
     let excerpt = Excerpt {
+        origin_run: None,
         id: 0,
         task_id,
         root: root.into(),

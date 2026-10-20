@@ -735,13 +735,20 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
 
 fn suggestion_line<'a>(app: &'a App, paint: &Paint) -> Option<Line<'a>> {
     app.visible_suggestion().map(|suggestion| {
-        Line::from(vec![
+        let mut spans = vec![
             Span::raw("Suggested: "),
             Span::raw(FORMS[suggestion.form.min(FORMS.len() - 1)].name),
             Span::raw(" — "),
             Span::raw(suggestion.reason.as_str()),
-        ])
-        .style(paint.accent)
+        ];
+        if let Some(partner) = app.suggested_partner() {
+            spans.push(Span::raw(format!(
+                " · {} ({}) is free",
+                App::partner_label(partner),
+                FORMS[partner.form].name
+            )));
+        }
+        Line::from(spans).style(paint.accent)
     })
 }
 
