@@ -173,9 +173,17 @@ impl App {
                 "lead",
                 "Front a partner: /lead <name> or pick in the roster",
             ),
+            ("party-board", "Working partners and owned requests"),
+            ("release-partner", "Review releasing an idle partner"),
+            ("approvals", "Focus oldest pending approval or question"),
+            ("cancel-all", "Review cancellation of all owned work"),
             ("run", "Local commands / execution evidence / cancellation"),
             ("rerun", "Rerun with Jolteon (new approval)"),
             ("history", "Provider history / journal evidence"),
+            (
+                "journal-discard",
+                "Review exact failed observation writes after terminal",
+            ),
             ("handoff", "Portable task handoff"),
             ("goal", "Edit goal"),
             ("criteria", "Acceptance criteria"),
@@ -294,7 +302,14 @@ impl App {
         if (self.width < 60 || self.height < 18)
             && !matches!(
                 name,
-                "quit" | "cancel" | "close" | "storage-retry" | "verbose"
+                "quit"
+                    | "cancel"
+                    | "cancel-all"
+                    | "approvals"
+                    | "party-board"
+                    | "close"
+                    | "storage-retry"
+                    | "verbose"
             )
         {
             return Some("Enlarge the terminal to review this action.".into());
@@ -305,7 +320,13 @@ impl App {
         if name == "carry-over" && self.last_carry_over().is_none() {
             return Some("No form carry-over yet; switch forms first.".into());
         }
-        if name == "storage-retry" && !matches!(self.storage, StorageState::Failed(_)) {
+        if name == "journal-discard" {
+            return self.planning.journal_discard_reason();
+        }
+        if name == "storage-retry"
+            && !matches!(self.storage, StorageState::Failed(_))
+            && !self.planning_storage_failed()
+        {
             return Some("No failed task save to retry.".into());
         }
         if name == "archive" && self.show_archived {
@@ -313,6 +334,22 @@ impl App {
         }
         if name == "restore" && !self.show_archived {
             return Some("Choose the archived task view before restoring a task.".into());
+        }
+        if (self.planning_any_busy() || self.execution_any_busy())
+            && matches!(
+                name,
+                "archive"
+                    | "restore"
+                    | "delete"
+                    | "prune"
+                    | "complete"
+                    | "criterion-toggle"
+                    | "criteria-edit"
+                    | "goal"
+                    | "next"
+            )
+        {
+            return Some("Finish owned work before changing committed task facts or task ownership; your draft is kept.".into());
         }
         if name == "complete"
             && (self.complete
@@ -357,11 +394,25 @@ impl App {
                     | "party"
                     | "eevee"
                     | "normal"
+                    | "party-board"
+                    | "release-partner"
+                    | "approvals"
+                    | "cancel-all"
+                    | "run"
+                    | "files"
+                    | "tasks"
+                    | "help"
+                    | "history"
+                    | "provider-journal"
+                    | "journal-retry"
+                    | "journal-discard"
+                    | "journal-close"
+                    | "storage-retry"
             )
         {
             return Some("Finish or cancel the active provider request first.".into());
         }
-        if name == "init" && self.execution.busy() {
+        if name == "init" && self.execution_any_pending() {
             return Some(
                 "Finish or cancel the local command before preparing an initialization request."
                     .into(),
@@ -378,7 +429,7 @@ impl App {
         {
             return Some("Wait for saved task/context acknowledgement, or retry storage.".into());
         }
-        if self.execution.busy()
+        if self.execution_any_pending()
             && matches!(
                 name,
                 "task-new" | "archive" | "restore" | "delete" | "prune"
@@ -394,6 +445,7 @@ impl App {
         ) || name.starts_with("provider-")
             || matches!(name, "role-plan" | "role-implement" | "role-review"))
             && self.execution.busy()
+            && self.command_owner() == Some(self.lead.id)
         {
             return Some("Finish or cancel the active local command first.".into());
         }
@@ -600,6 +652,10 @@ impl App {
             self.command_popup = None;
             return self.lead_command(argument);
         }
+        if name == "release-partner" {
+            self.command_popup = None;
+            return self.release_partner_command(argument);
+        }
         if matches!(name, "model" | "effort") && !argument.is_empty() {
             if let Some(reason) = self.command_disabled_reason(name) {
                 self.notice = reason;
@@ -639,6 +695,37 @@ impl App {
             return true;
         }
         self.command_popup = None;
+        match name {
+            "journal-discard" => {
+                self.request_journal_discard();
+                return true;
+            }
+            "quit" => {
+                self.request_quit();
+                return true;
+            }
+            "approvals" => {
+                self.focus_approvals();
+                return true;
+            }
+            "cancel-all" => {
+                self.request_cancel_all();
+                return true;
+            }
+            "cancel" => {
+                self.cancel_lead();
+                return true;
+            }
+            "party-board" => {
+                self.open_party_board();
+                return true;
+            }
+            "release-partner" => {
+                self.request_partner_release();
+                return true;
+            }
+            _ => {}
+        }
         if name == "carry-over" {
             // A display-only action must not retain/hide the Request editor.
             self.reopen_carry_over();
@@ -811,7 +898,7 @@ impl App {
             return false;
         }
         match name {
-            "cancel" | "deny" | "answer" | "answers-review" if self.planning.busy() => {
+            "deny" | "answer" | "answers-review" if self.planning.busy() => {
                 self.open_overlay(Overlay::Planning);
                 return self.planning_command(name);
             }
@@ -888,7 +975,6 @@ impl App {
                     "Brief explanations on. /verbose shows full text.".into()
                 };
             }
-            "quit" => self.request_quit(),
             "archive" => self.archive_selected(true),
             "restore" => self.archive_selected(false),
             "archived" => {
@@ -1158,9 +1244,13 @@ mod tests {
             app.overlay.is_none(),
             "preparation must not open a request popup"
         );
-        assert!(matches!(app.planning.pending.as_ref(),
-            Some(crate::providers::Request::Preview(input))
-                if input.task.request_text() == "Saved prompt" && !input.inspect_models));
+        assert!(matches!(app.planning.work_pending.as_ref(),
+            Some(crate::store::WorkRequest::Acquire { task, .. })
+                if task.request_text() == "Saved prompt"));
+        assert!(
+            app.planning.pending.is_none(),
+            "provider preparation waits for durable ownership"
+        );
         assert!(app.pending_request.is_none());
         app.store_event(crate::store::Event::Saved(snapshot));
         app.settle_planning();
@@ -1566,9 +1656,10 @@ mod tests {
     #[test]
     fn owning_role_send_excludes_busy_or_wrong_form_recipients() {
         let mut app = role_relay_app(120, 36, 4);
-        assert!(app.execution.prepare_command_for(
+        let owner = crate::store::Attribution::of(&app.party[1]);
+        assert!(app.execution_state_mut(2).prepare_command_for(
             7,
-            Some(crate::store::Attribution::of(&app.party[1])),
+            Some(owner),
             r#"["echo","explicitly prepared but never dispatched"]"#,
         ));
         app.command("command-edit");

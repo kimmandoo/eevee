@@ -1,4 +1,5 @@
 //! Provider requests with durable nonsecret selection; provider text is never local execution evidence.
+//! Authentication revokes future session ownership without rewriting submitted request inputs.
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     path::PathBuf,
@@ -21,7 +22,8 @@ use crate::{
     workspace::repo,
 };
 
-mod journal;
+mod cooperation;
+pub(crate) mod journal;
 mod picker;
 mod preferences;
 mod response;
@@ -70,9 +72,7 @@ enum ModelPickerFocus {
     Custom,
 }
 
-/// One partner's request slot (PT06B): the task and provider generation its
-/// events, questions and approvals are routed by. Requests stay limited to one
-/// working partner per task, so at most one slot is bound at a time.
+/// A request's immutable task, partner and worker-local generation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Slot {
     pub owner: store::Attribution,
@@ -120,6 +120,8 @@ pub struct State {
     generation: Option<u64>,
     awaiting_preview: bool,
     active: bool,
+    /// An old-account transport may finish, but none of its sessions may resume.
+    authentication_invalidated: bool,
     cancel_when_ready: bool,
     quit_after_cancel: bool,
     unknown: bool,
@@ -139,9 +141,11 @@ pub struct State {
     journal_inflight: VecDeque<store::JournalRequest>,
     failed_journal: VecDeque<store::JournalRequest>,
     pub journal_notice: String,
+    pub(super) journal_recovery: journal::Recovery,
     /// Local receipt of the open preview's exact payload.
     pub receipt: Vec<String>,
     pub selection: ModelSelection,
+    pub receipt_claim: Option<store::WorkClaim>,
     selections: HashMap<Agent, ModelSelection>,
     preferences: preferences::Preferences,
     pub catalogues: HashMap<Agent, ModelCatalogue>,
@@ -181,6 +185,15 @@ pub struct State {
     pub front: Option<store::Attribution>,
     /// Request slots keyed by partner id; journal records carry the owner (PT06A).
     slots: BTreeMap<i64, Slot>,
+    pub work: Option<store::WorkClaim>,
+    pub work_pending: Option<store::WorkRequest>,
+    pub work_inflight: bool,
+    pub work_acquired: bool,
+    pub work_error: Option<String>,
+    pub(super) committed_input: Option<Box<store::Snapshot>>,
+    pub(super) held_input: Option<Box<crate::providers::Input>>,
+    pub(super) claim_cancelled: bool,
+    queued_prompts: VecDeque<Prompt>,
 }
 
 impl Default for State {
@@ -205,18 +218,21 @@ impl State {
             question: 0, option: 0, answers: Vec::new(), editing: false, submit_review: false,
             quit_review: false, quit_ready: false, cancelling: false, omitted: 0,
             task: 0, revision: 0, generation: None, awaiting_preview: false, active: false,
+            authentication_invalidated: false,
             cancel_when_ready: false, quit_after_cancel: false, unknown: false, saved_scroll: 0,
             agent: Agent::Codex, operation: Operation::Plan, edit_paths: Vec::new(),
             paths_editor: None, switch_to: None, handoff: None, sessions: HashMap::new(),
             journal_mode: false, journal_purge: false, journal_records: Vec::new(), journal_selected: 0,
             pending_journal: VecDeque::new(), journal_inflight: VecDeque::new(),
             failed_journal: VecDeque::new(), journal_notice: String::new(),
+            journal_recovery: journal::Recovery::default(),
             receipt: Vec::new(),
             inspection: None, inspect_sessions: false,
             selection: ModelSelection::default(), selections: HashMap::new(),
             preferences: preferences::Preferences::default(),
             catalogues: HashMap::new(), catalogue_errors: HashMap::new(), picker: None, picker_selected: 0,
             picker_query: Answer::default(), custom_model: None, pending_model: None, model_picker_return: None, picker_models: Vec::new(),
+            receipt_claim: None,
             catalogue_pending: None,
             selection_change: None, inspect_models: false,
             auto_models: false, auto_run: false, auto_picker: false, catalogue_dismissed: false, auto_blocked: None, send_after_prepare: false,
@@ -225,6 +241,10 @@ impl State {
             devin_credential: None,
             front: None,
             slots: BTreeMap::new(),
+            work: None, work_pending: None, work_inflight: false, work_error: None,
+            committed_input: None, held_input: None, claim_cancelled: false,
+            work_acquired: false,
+            queued_prompts: VecDeque::new(),
         }
     }
 
@@ -276,6 +296,9 @@ impl State {
             || self.custom_model.is_some()
             || !self.pending_journal.is_empty()
             || !self.journal_inflight.is_empty()
+            || self.work.is_some()
+            || self.work_pending.is_some()
+            || self.work_inflight
     }
 
     pub fn task_id(&self) -> i64 {
@@ -292,6 +315,7 @@ impl State {
             let preferences = std::mem::take(&mut self.preferences);
             let catalogues = std::mem::take(&mut self.catalogues);
             let catalogue_errors = std::mem::take(&mut self.catalogue_errors);
+            let journal_recovery = std::mem::take(&mut self.journal_recovery);
             let selection = self.selection.clone();
             let credential = self.devin_credential.take();
             let front = self.front.take();
@@ -301,6 +325,8 @@ impl State {
             self.auto_models = auto_models;
             self.auto_picker = auto_picker;
             self.task = task_id;
+            self.journal_recovery = journal_recovery;
+            self.refresh_journal_gap_notice();
             self.agent = agent;
             self.selection = selection;
             self.selections = selections;
@@ -312,8 +338,8 @@ impl State {
         }
     }
 
-    /// Stores or replaces the website-login credential used for Devin ACP
-    /// launches; `None` detaches it (native login or explicit clear).
+    /// Replaces only the credential for future Devin ACP preparations; `None`
+    /// detaches it. Held inputs and launched transports retain their exact bytes.
     pub fn set_devin_credential(
         &mut self,
         credential: Option<crate::providers::auth::SessionCredential>,
@@ -321,31 +347,75 @@ impl State {
         self.devin_credential = credential;
     }
 
+    /// Revoke account-scoped caches and grants in every state, including parked
+    /// states still settling journals or claims. An already submitted transport
+    /// keeps its immutable input and settles before its visible session clears.
     pub fn invalidate_authentication(&mut self) {
-        // Any open picker must close before its stale catalogue survives a
-        // credential change; a live request keeps its generation-correlated
-        // state and is only flagged for re-review.
         self.picker = None;
         self.custom_model = None;
         self.selection_change = None;
         self.pending_model = None;
         self.model_picker_return = None;
+        self.switch_to = None;
         self.catalogues.clear();
         self.catalogue_errors.clear();
         self.catalogue_pending = None;
         self.picker_models.clear();
-        if self.inspect_models && (self.active || self.awaiting_preview || self.preview.is_some()) {
-            // Late metadata belongs to the old credential and cannot publish.
+        self.devin_credential = None;
+        self.auto_models = false;
+        self.auto_picker = false;
+        self.auto_run = false;
+        self.auto_blocked = None;
+        self.catalogue_dismissed = true;
+        self.send_after_prepare = false;
+        self.invalidate_review();
+        self.sessions.clear();
+        if self.inspect_models && self.transport_pending() {
             self.catalogue_errors.insert(
                 self.agent,
                 "Authentication changed; refresh models with the current account.".into(),
             );
         }
-        if self.busy() {
-            self.invalidate_review();
-            self.notice = "Authentication changed during a provider request; continuing work is not invalidated.".into();
+        if self.active {
+            self.authentication_invalidated = true;
+            self.notice = "Authentication changed. The submitted request keeps its original input; its old-account session cannot resume after settlement.".into();
             return;
         }
+        // Acquisition may already be in flight. Keep the held input unchanged
+        // until its matching acknowledgment releases the exact owned claim.
+        if self.held_input.is_some() {
+            self.claim_cancelled = true;
+            self.awaiting_preview = false;
+        }
+        self.clear_provider_sessions();
+        if self.transport_pending() {
+            self.authentication_invalidated = true;
+            self.cancel();
+            self.notice = "Authentication changed. Cancelling the stale preparation; prepare a fresh request after settlement.".into();
+            return;
+        }
+        self.authentication_invalidated = false;
+        self.inspect_sessions = false;
+        self.inspect_models = false;
+        self.decision = None;
+        self.generation = None;
+        self.close_request();
+        self.review_start();
+        self.notice = "Authentication may have changed. Provider sessions and consent cleared; prepare a fresh request.".into();
+    }
+
+    /// Keep the provider worker registry while any current-account session,
+    /// including another agent/operation's cached session, still owns it.
+    pub fn has_resumable_sessions(&self) -> bool {
+        !self.authentication_invalidated
+            && (self.thread_id.is_some()
+                || self
+                    .sessions
+                    .values()
+                    .any(|session| session.thread_id.is_some()))
+    }
+
+    fn clear_provider_sessions(&mut self) {
         self.sessions.clear();
         self.thread_id = None;
         self.observed_model = None;
@@ -354,13 +424,20 @@ impl State {
         self.selected = 0;
         self.omitted = 0;
         self.inspection = None;
+        self.response_cache.invalidate();
+    }
+
+    fn finish_authentication_invalidation(&mut self) {
+        if !self.authentication_invalidated {
+            return;
+        }
+        self.authentication_invalidated = false;
+        self.clear_provider_sessions();
         self.inspect_sessions = false;
         self.inspect_models = false;
         self.decision = None;
-        self.generation = None;
-        self.close_request();
         self.review_start();
-        self.notice = "Authentication may have changed. Provider sessions and consent cleared; prepare a fresh request.".into();
+        self.notice.push_str(" Authentication changed; the old-account session was revoked. Prepare a fresh request.");
     }
 
     fn matches(&self, generation: u64, task: i64) -> bool {
@@ -377,6 +454,7 @@ impl State {
     /// (no lead known yet) routes by task and generation alone.
     fn bind_slot(&mut self, task: i64) {
         self.slots.clear();
+        self.queued_prompts.clear();
         if let Some(owner) = self.front.clone() {
             self.slots.insert(
                 owner.partner,
@@ -392,20 +470,6 @@ impl State {
     /// The partner whose slot holds the current or most recent request.
     pub fn owner(&self) -> Option<&store::Attribution> {
         self.slots.values().next().map(|slot| &slot.owner)
-    }
-
-    /// The partner doing provider work right now, if any. A model picker alone
-    /// is local navigation and belongs to whoever is in front.
-    pub fn working_partner(&self) -> Option<i64> {
-        if self.busy_except_picker() {
-            self.owner()
-                .or(self.front.as_ref())
-                .map(|owner| owner.partner)
-        } else if self.picker.is_some() {
-            self.front.as_ref().map(|front| front.partner)
-        } else {
-            None
-        }
     }
 
     /// Drop slots whose partner left the party: their late events no longer
@@ -560,7 +624,8 @@ impl State {
             } if self.matches(generation, task_id)
                 && self.active
                 && self.inspect_models
-                && !self.cancelling =>
+                && !self.cancelling
+                && !self.authentication_invalidated =>
             {
                 match catalogue.validate() {
                     Ok(()) => {
@@ -695,31 +760,43 @@ impl State {
                 && !self.inspect_models =>
             {
                 if self.request.is_none() {
-                    self.saved_scroll = self.scroll;
+                    self.install_prompt(request);
+                } else if self
+                    .request
+                    .as_ref()
+                    .is_none_or(|open| open.request_id != request.request_id)
+                    && !self
+                        .queued_prompts
+                        .iter()
+                        .any(|open| open.request_id == request.request_id)
+                {
+                    self.queued_prompts.push_back(request);
                 }
-                self.answers = match &request.kind {
-                    PromptKind::Questions(questions) => {
-                        questions.iter().map(|_| Answer::default()).collect()
-                    }
-                    _ => Vec::new(),
-                };
-                self.request = Some(request);
-                self.question = 0;
-                self.option = 0;
-                self.editing = false;
-                self.submit_review = false;
-                self.review_start();
             }
             Event::PromptClosed {
                 generation,
                 request_id,
             } if self.matches(generation, self.task)
-                && self
+                && (self
                     .request
                     .as_ref()
-                    .is_some_and(|request| request.request_id == request_id) =>
+                    .is_some_and(|request| request.request_id == request_id)
+                    || self
+                        .queued_prompts
+                        .iter()
+                        .any(|request| request.request_id == request_id)) =>
             {
-                self.close_request();
+                if self
+                    .request
+                    .as_ref()
+                    .is_some_and(|request| request.request_id == request_id)
+                {
+                    self.close_request();
+                    self.promote_prompt();
+                } else {
+                    self.queued_prompts
+                        .retain(|request| request.request_id != request_id);
+                }
             }
             Event::Finished {
                 generation,
@@ -741,6 +818,8 @@ impl State {
                 self.preview = None;
                 self.pending = None;
                 self.close_request();
+                self.queued_prompts.clear();
+                self.journal_terminal(generation, task_id, !matches!(outcome, Outcome::Unknown));
                 self.generation = None;
                 self.notice = message;
                 if self.inspect_models {
@@ -788,6 +867,7 @@ impl State {
                         self.quit_ready = true;
                     }
                 }
+                self.finish_authentication_invalidation();
             }
             Event::Error {
                 generation,
@@ -824,6 +904,7 @@ impl State {
                         self.quit_after_cancel = false;
                         self.quit_ready = true;
                     }
+                    self.finish_authentication_invalidation();
                 }
             }
             _ => {}
@@ -832,6 +913,13 @@ impl State {
 
     pub fn cancel(&mut self) -> bool {
         self.send_after_prepare = false;
+        if self.held_input.is_some() {
+            self.claim_cancelled = true;
+            self.held_input = None;
+            self.awaiting_preview = false;
+            self.notice = "Cancelling the owned reservation; no provider was started. Waiting for storage settlement.".into();
+            return true;
+        }
         self.invalidate_review();
         if self.inspect_models && self.auto_blocked.is_none() {
             self.catalogue_dismissed = true;
@@ -872,6 +960,7 @@ impl State {
             self.scroll = self.saved_scroll;
         }
         self.close_request();
+        self.queued_prompts.clear();
         self.active = true;
         self.cancelling = true;
         self.notice = "Cancellation requested. Waiting for provider acknowledgement or bounded owned teardown; outcome not yet known.".into();
@@ -898,6 +987,16 @@ impl State {
             }
             return vec![
                 Choice::new("journal-retry", "Retry retained journal storage"),
+                match self.journal_discard_reason() {
+                    Some(reason) => Choice::disabled(
+                        "journal-discard",
+                        "Review exact failed observation writes",
+                        reason,
+                    ),
+                    None => {
+                        Choice::new("journal-discard", "Review exact failed observation writes")
+                    }
+                },
                 if self.busy() {
                     Choice::disabled(
                         "journal-purge",
@@ -1031,6 +1130,20 @@ impl State {
             self.request_quit();
             return true;
         }
+        if name == "journal-retry" {
+            self.retry_journal();
+            return true;
+        }
+        if name == "provider-journal" && large_enough {
+            self.journal_mode = true;
+            self.journal_purge = false;
+            self.review_start();
+            self.pending_journal.push_back(store::JournalRequest {
+                task_id: self.task,
+                operation: store::JournalOperation::List,
+            });
+            return true;
+        }
         if !large_enough {
             self.invalidate_review();
             self.notice = "Terminal too small; no command action or approval available.".into();
@@ -1131,16 +1244,6 @@ impl State {
                     text,
                 });
             }
-            "provider-journal" => {
-                self.journal_mode = true;
-                self.journal_purge = false;
-                self.review_start();
-                self.pending_journal.push_back(store::JournalRequest {
-                    task_id: self.task,
-                    operation: store::JournalOperation::List,
-                });
-            }
-            "journal-retry" => self.retry_journal(),
             "journal-purge" => {
                 self.journal_purge = true;
                 self.invalidate_review();

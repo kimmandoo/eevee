@@ -233,6 +233,9 @@ impl State {
         if self.task != task.id {
             self.reset(task.id);
         }
+        self.receipt_claim = None;
+        self.receipt.clear();
+        self.observed_model = None;
         self.revision = task.revision;
         self.inspect_sessions = inspect_sessions;
         self.inspect_models = inspect_models;
@@ -255,6 +258,7 @@ impl State {
         };
         self.pending = Some(Request::Preview(Box::new(Input {
             task: request_task,
+            work: None,
             excerpts: if inspect_models {
                 Vec::new()
             } else {
@@ -541,6 +545,7 @@ impl State {
             answer,
         });
         self.close_request();
+        self.promote_prompt();
         self.notice = "Explicit response queued for the current provider request.".into();
     }
     pub fn key(

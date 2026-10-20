@@ -73,7 +73,7 @@ fn execute(
     let thread = thread::spawn(move || {
         run(
             process,
-            prepared,
+            RunRecord::awaiting(&prepared),
             (file, capacity),
             &run_events,
             &live,
@@ -804,4 +804,35 @@ fn each_partners_prepared_run_records_its_own_attribution() {
             )
             .is_err()
     );
+}
+
+#[test]
+fn revision_moving_is_optional_but_true_survives_journal_roundtrip() {
+    let temp = Temp::new();
+    let p = prepared(&temp, fixture_spec(&[]));
+    let mut record = RunRecord::awaiting(&p);
+    let legacy = serde_json::to_value(&record).unwrap();
+    assert!(legacy.get("revision_moving").is_none());
+    let restored: RunRecord = serde_json::from_value(legacy).unwrap();
+    assert!(!restored.revision_moving);
+    record.revision_moving = true;
+    let serialized = serde_json::to_value(&record).unwrap();
+    assert_eq!(serialized["revision_moving"], true);
+    let restored: RunRecord = serde_json::from_value(serialized).unwrap();
+    assert_eq!(restored, record);
+    assert_eq!(restored.prepared.spec, p.spec);
+    assert_eq!(restored.prepared.cwd, p.cwd);
+}
+
+#[test]
+fn prepared_commands_stamp_producer_arrival_and_legacy_records_default_to_zero() {
+    let temp = Temp::new();
+    let p = prepared(&temp, fixture_spec(&[]));
+    assert!(p.approval_arrival > 0);
+    let mut legacy = serde_json::to_value(&p).unwrap();
+    legacy.as_object_mut().unwrap().remove("approval_arrival");
+    let restored: Prepared = serde_json::from_value(legacy).unwrap();
+    assert_eq!(restored.approval_arrival, 0);
+    assert_eq!(restored.spec, p.spec);
+    assert_eq!(restored.cwd, p.cwd);
 }

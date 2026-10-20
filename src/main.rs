@@ -87,14 +87,10 @@ fn run(config: Config) -> io::Result<()> {
             store::Worker::start(config.data_dir.clone(), cwd.clone(), config.storage_policy)?;
         let repository = repo::Worker::start(project.clone())?;
         let sources = context::Worker::start(config.context_exclusions.clone())?;
-        let execution = runner::Worker::start()?;
+        let mut execution = std::collections::BTreeMap::new();
         let agents = agent::Worker::start(project.clone())?;
         let artwork_worker = artwork::Worker::start(config.clone())?;
-        let planning = providers::Worker::start(
-            project.clone(),
-            config.data_dir.clone(),
-            config.context_exclusions.clone(),
-        )?;
+        let mut planning = std::collections::BTreeMap::new();
         let size = terminal.size()?;
         let mut app = App::new(
             cwd.chars().filter(|c| !c.is_control()).collect(),
@@ -136,6 +132,7 @@ fn run(config: Config) -> io::Result<()> {
         let mut outstanding_agents = 0_usize;
         let mut activity_tick: Option<std::time::Instant> = None;
         let mut mailbox_pending = false;
+        let mut local_store_first = false;
         loop {
             if let Some(request) = app.images_pending
                 && artwork_worker.try_request(request)
@@ -167,13 +164,13 @@ fn run(config: Config) -> io::Result<()> {
                     // credential; a native login clears it only when Devin
                     // itself reports success.
                     if let Some(credential) = completion.credential {
-                        app.planning.set_devin_credential(Some(credential));
+                        app.set_devin_credential(Some(credential));
                     } else if matches!(
                         plan.method,
                         auth::Method::DevinBrowser | auth::Method::DevinManualToken
                     ) && completion.outcome == auth::Outcome::Authenticated
                     {
-                        app.planning.set_devin_credential(None);
+                        app.set_devin_credential(None);
                     }
                     app.agents.session_credential_until = app
                         .planning
@@ -194,18 +191,14 @@ fn run(config: Config) -> io::Result<()> {
                 }
             }
             let activity = app.execution.activity_label();
-            if let Some(action) = app.execution.drive(&execution, app.task_id, &project) {
-                app.apply_execution_action(action);
-                dirty = true;
-            }
+            dirty |= app.drive_executions(&mut execution, &project);
             // A deferred cancel-and-exit can become ready here, before input
             // polling. Do not wait for another key after ownership is settled.
-            if app.planning.preferences_allow_quit(app.quit) {
+            if app.preferences_allow_quit(app.quit) {
                 return Ok(());
             }
             if app.quit {
                 app.quit = false;
-                app.notice.clone_from(&app.planning.notice);
                 dirty = true;
             }
             dirty |= activity != app.execution.activity_label();
@@ -259,14 +252,37 @@ fn run(config: Config) -> io::Result<()> {
                 }
                 frame.finish()?;
             }
-            if app.execution.repo_requested() && outstanding_repo == 0 && repository.refresh() {
-                app.execution.repo_started();
+            if app.execution_repo_requested() && outstanding_repo == 0 && repository.refresh() {
+                app.execution_repo_started();
                 outstanding_repo += 1;
             }
-            if store.try_preferences(app.planning.preference_request()) {
-                app.planning.preference_started();
-                outstanding_store += 1;
+            if app.save_due(std::time::Instant::now())
+                && !(app.task_id == 0 && outstanding_store > 0)
+            {
+                if pending_save.as_ref().is_none_or(|snapshot| {
+                    snapshot.revision != app.revision || snapshot.id != app.task_id
+                }) {
+                    pending_save = Some(app.snapshot(&cwd));
+                }
+                if store.try_save(&mut pending_save) {
+                    app.save_submitted();
+                    outstanding_store += 1;
+                }
             }
+            if local_store_first {
+                outstanding_store += app.submit_execution_stores(&store);
+            }
+            outstanding_store += app.drive_providers(
+                &mut planning,
+                &store,
+                &project,
+                &config.data_dir,
+                &config.context_exclusions,
+            )?;
+            if !local_store_first {
+                outstanding_store += app.submit_execution_stores(&store);
+            }
+            local_store_first = !local_store_first;
             if sources.try_request(&mut app.sources.pending) {
                 outstanding_sources += 1;
             }
@@ -284,24 +300,8 @@ fn run(config: Config) -> io::Result<()> {
             if store.try_memory(&mut app.memory_request) {
                 outstanding_store += 1;
             }
-            if let Some(request) = app.planning.pending_journal.front().cloned() {
-                let mut pending = Some(request);
-                if store.try_journal(&mut pending) {
-                    app.planning.journal_started();
-                    outstanding_store += 1;
-                }
-            }
             if agents.try_request(&mut app.agents.pending) {
                 outstanding_agents += 1;
-            }
-            planning.try_request(&mut app.planning.pending);
-            if let Some(request) = app.execution.take_store_request() {
-                let mut pending = Some(request);
-                if store.try_run(&mut pending) {
-                    outstanding_store += 1;
-                } else if let Some(request) = pending {
-                    app.execution.requeue_store_request(request);
-                }
             }
             if app.repo_refresh && repository.refresh() {
                 app.repo_refresh = false;
@@ -309,7 +309,7 @@ fn run(config: Config) -> io::Result<()> {
             }
             if app.retry_storage && store.retry() {
                 app.retry_storage = false;
-                app.planning.retry_preferences();
+                app.retry_cooperation_storage();
                 outstanding_store += 1;
             }
             if store.try_manage(&mut app.management) {
@@ -325,19 +325,6 @@ fn run(config: Config) -> io::Result<()> {
                 app.switch_task = None;
                 outstanding_store += 1;
             }
-            if app.save_due(std::time::Instant::now())
-                && !(app.task_id == 0 && outstanding_store > 0)
-            {
-                if pending_save.as_ref().is_none_or(|snapshot| {
-                    snapshot.revision != app.revision || snapshot.id != app.task_id
-                }) {
-                    pending_save = Some(app.snapshot(&cwd));
-                }
-                if store.try_save(&mut pending_save) {
-                    app.save_submitted();
-                    outstanding_store += 1;
-                }
-            }
             // Deferred persistence sleeps until due; only outstanding I/O polls.
             // No idle frame timer or output is introduced by either wait.
             let save_wait = app.save_wait(std::time::Instant::now());
@@ -348,16 +335,15 @@ fn run(config: Config) -> io::Result<()> {
                 || app.agents.pending.is_some()
                 || artwork_worker.busy()
                 || app.images_pending.is_some()
-                || app.planning.busy()
-                || app.planning.pending.is_some()
-                || planning.busy()
+                || app.planning_any_busy()
+                || planning.values().any(providers::Worker::busy)
                 || app.sources.pending.is_some()
                 || app.sources.pending_store.is_some()
                 || app.memory_request.is_some()
                 || app.memory.pending.is_some()
                 || app.memory.saving
-                || app.execution.busy()
-                || execution.is_active()
+                || app.execution_any_pending()
+                || execution.values().any(runner::Worker::is_active)
                 || app.repo_refresh
                 || app.retry_storage
                 || app.switch_task.is_some()
@@ -423,19 +409,9 @@ fn run(config: Config) -> io::Result<()> {
             // Bound each mailbox drain so a hot producer cannot monopolize the
             // UI thread. Input (including consent and cancellation) comes first;
             // available stream updates are coalesced into the next single draw.
-            for index in 0..64 {
-                let Some(event) = planning.try_event() else {
-                    break;
-                };
-                mailbox_pending |= index == 63;
-                if matches!(&event, providers::Event::Finished { .. })
-                    && app.planning.operation == providers::Operation::Implement
-                {
-                    app.repo_refresh = true;
-                }
-                app.planning.event(event);
-                dirty = true;
-            }
+            let (provider_changed, provider_more) = app.poll_providers(&mut planning);
+            dirty |= provider_changed;
+            mailbox_pending |= provider_more;
             dirty |= app.settle_planning();
             dirty |= app.drive_catalogue();
             for index in 0..64 {
@@ -475,11 +451,8 @@ fn run(config: Config) -> io::Result<()> {
                         None
                     },
                 );
-                app.execution.repo_observed(if succeeded {
-                    app.repository.as_deref()
-                } else {
-                    None
-                });
+                let observed = app.repository.clone();
+                app.execution_repo_observed(if succeeded { observed.as_deref() } else { None });
                 dirty |= matches!(
                     app.overlay,
                     Some(
@@ -499,14 +472,9 @@ fn run(config: Config) -> io::Result<()> {
                 app.sources.event(app.task_id, event);
                 dirty |= app.overlay == Some(app::Overlay::Sources) || app.composer_menu.is_some();
             }
-            for index in 0..64 {
-                let Some(event) = execution.try_event() else {
-                    break;
-                };
-                mailbox_pending |= index == 63;
-                app.execution.runner_event(event);
-                dirty = true;
-            }
+            let (execution_changed, execution_more) = app.poll_executions(&execution);
+            dirty |= execution_changed;
+            mailbox_pending |= execution_more;
             dirty |= app.settle_planning();
             app.settle_exit();
             // Only genuine, visible provider work animates. Local reviews,
@@ -534,12 +502,11 @@ fn run(config: Config) -> io::Result<()> {
             {
                 dirty |= resized;
             }
-            if app.planning.preferences_allow_quit(app.quit) {
+            if app.preferences_allow_quit(app.quit) {
                 return Ok(());
             }
             if app.quit {
                 app.quit = false;
-                app.notice.clone_from(&app.planning.notice);
                 dirty = true;
             }
         }

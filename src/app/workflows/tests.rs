@@ -557,6 +557,15 @@ fn role_action_relays_are_reviewed_references_without_replaying_owner_actions() 
             app.planning.edit_paths = vec!["existing-scope.rs".into()];
             let sender = app.partner_draft();
             let scope = app.planning.edit_paths.clone();
+            let recipient = crate::store::Attribution::of(
+                app.party.iter().find(|partner| partner.id == 2).unwrap(),
+            );
+            let mut recipient_state = app.planning.new_partner(recipient, app.task_id);
+            let recipient_role = crate::providers::Operation::Review;
+            recipient_state.set_operation(recipient_role);
+            recipient_state.edit_paths = vec!["recipient-existing-scope.rs".into()];
+            let recipient_scope = recipient_state.edit_paths.clone();
+            app.cooperation.parked.insert(2, recipient_state);
             app.stage_role_action(action, 2).unwrap();
             let pending = app.workflow.relay.as_ref().unwrap();
             assert!(pending.confirm);
@@ -601,10 +610,18 @@ fn role_action_relays_are_reviewed_references_without_replaying_owner_actions() 
             app.workflows =
                 serde_json::from_str(&serde_json::to_string(&app.workflows).unwrap()).unwrap();
             app.request_lead(2);
-            assert_eq!(app.planning.operation, crate::providers::Operation::Plan);
             assert_eq!(
-                app.planning.edit_paths, scope,
-                "Fronting a role-reference draft must not replay paths or role-implement"
+                app.planning.operation, recipient_role,
+                "A role-action reference does not replace the recipient's own read-only role"
+            );
+            assert_eq!(
+                app.planning.edit_paths, recipient_scope,
+                "A reference relay preserves the recipient's own scope instead of copying the sender's or selecting new paths"
+            );
+            assert_eq!(
+                app.planning_state(1).unwrap().edit_paths,
+                scope,
+                "The sender's scope remains with the sender"
             );
             assert!(app.planning.paths_editor.is_none());
             assert!(app.planning.pending.is_none());

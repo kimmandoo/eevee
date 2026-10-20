@@ -35,15 +35,8 @@ impl App {
     }
 
     pub(super) fn open_overlay(&mut self, overlay: Overlay) {
-        // The roster is local navigation: fronting another partner leaves the
-        // request with its owner (PT06B).
-        if self.planning.busy() && !matches!(overlay, Overlay::Planning | Overlay::Party) {
-            self.notice = "Resolve or cancel the active provider request first.".into();
-            return;
-        }
-        if overlay == Overlay::Planning && self.execution.busy() {
-            self.notice = "Finish or cancel the local command before starting planning.".into();
-            return;
+        if self.overlay != Some(overlay) {
+            self.clear_approval_focus();
         }
         if overlay == Overlay::Planning && matches!(self.form(), 3 | 4 | 7) {
             self.planning.set_operation(match self.form() {
@@ -124,6 +117,7 @@ impl App {
     }
 
     pub(super) fn close_overlay(&mut self) {
+        self.clear_approval_focus();
         if self.overlay == Some(Overlay::Agents) {
             self.agents.cancel_preview();
         }
@@ -330,7 +324,8 @@ impl App {
                 | Overlay::Repository
                 | Overlay::Sources
                 | Overlay::Images
-                | Overlay::Party,
+                | Overlay::Party
+                | Overlay::PartyBoard,
             ) => ScrollSurface::Preview,
             _ => match self.effective_focus() {
                 Pane::Companion => ScrollSurface::Companion,

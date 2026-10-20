@@ -13,6 +13,7 @@ pub(super) struct Preferences {
     provider_changed: bool,
     error: Option<String>,
     quit_waiting: bool,
+    dirty_routes: std::collections::HashSet<Agent>,
 }
 
 impl State {
@@ -27,6 +28,7 @@ impl State {
         self.selections.insert(self.agent, self.selection.clone());
         self.preferences.remembered_selection = Some((self.agent, self.selection.clone()));
         self.preferences.dirty = true;
+        self.preferences.dirty_routes.insert(self.agent);
         self.preferences.error = None;
         // A queued, not-yet-submitted save must contain the latest choice.
         self.preferences.pending = None;
@@ -49,6 +51,7 @@ impl State {
         self.preferences.provider_changed = true;
         self.selections.insert(self.agent, self.selection.clone());
         self.preferences.dirty = true;
+        self.preferences.dirty_routes.insert(self.agent);
         self.preferences.pending = None;
     }
 
@@ -79,6 +82,20 @@ impl State {
         self.preferences.inflight = true;
     }
 
+    pub fn merge_preferences(&mut self, saved: &store::ProviderPreferences) {
+        for (agent, selection) in &saved.selections {
+            if !self.preferences.dirty_routes.contains(agent) {
+                self.selections.insert(*agent, selection.clone());
+            }
+        }
+        if matches!(
+            self.preferences.pending,
+            Some(store::PreferenceRequest::Save(_))
+        ) {
+            self.preferences.pending =
+                Some(store::PreferenceRequest::Save(self.preference_snapshot()));
+        }
+    }
     pub fn retry_preferences(&mut self) {
         self.preferences.error = None;
     }
@@ -122,6 +139,11 @@ impl State {
                 self.preferences.loaded = true;
             }
             Ok(saved) => {
+                self.preferences.dirty_routes.retain(|agent| {
+                    saved.as_ref().is_none_or(|saved| {
+                        saved.selections.get(agent) != self.selections.get(agent)
+                    })
+                });
                 self.preferences.dirty = !saved.as_ref().is_some_and(|saved| {
                     saved.provider == self.agent && saved.selections == self.selections
                 });

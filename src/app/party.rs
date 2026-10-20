@@ -13,9 +13,8 @@ pub struct NicknameEditor {
 }
 
 /// A roster row's activity state, derived per frame from live ownership.
-/// Provider requests and local runs belong to the partner that started them
-/// (PT06B), not to whoever is in front now; until PT07 only one partner per
-/// task can be working.
+/// Provider requests and local commands stay with their starting partner,
+/// independently of whoever is in front now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PartnerStatus {
     Idle,
@@ -322,6 +321,7 @@ impl App {
         self.clear_carry_over();
         self.partner_drafts
             .insert(self.lead.id, self.partner_draft());
+        self.front_planning(&partner);
         self.lead = partner;
         self.sync_front();
         self.form_selection = self.lead.form;
@@ -355,15 +355,7 @@ impl App {
             .then(|| "Finish the in-flight party change first.".into())
     }
 
-    /// The partner that owns this task's live provider request, if any.
-    fn provider_owner(&self) -> Option<i64> {
-        (self.planning.task_id() == self.task_id || self.task_id <= 0)
-            .then(|| self.planning.working_partner())
-            .flatten()
-    }
-
-    /// The partner that owns this task's command request or run, if any.
-    fn command_owner(&self) -> Option<i64> {
+    pub(super) fn command_owner(&self) -> Option<i64> {
         (self.execution.busy() && (self.execution.task_id == self.task_id || self.task_id <= 0))
             .then(|| {
                 self.execution
@@ -372,36 +364,27 @@ impl App {
                     .map_or(self.lead.id, |owner| owner.partner)
             })
     }
-    /// Relays and suggestions inspect existing request ownership; they never
-    /// infer an idle partner from whichever partner currently leads.
-    pub fn partner_busy(&self, partner: i64) -> bool {
-        self.provider_owner() == Some(partner) || self.command_owner() == Some(partner)
-    }
 
-    /// `Bolt (Jolteon) is working on this task…` when a partner other than the
-    /// lead holds the task's single working slot (PT06B); `None` otherwise.
-    pub(super) fn other_partner_working(&self) -> Option<String> {
-        let owner = self
-            .provider_owner()
-            .or_else(|| self.command_owner())
-            .filter(|owner| *owner != self.lead.id)?;
-        let name = self
-            .partners()
-            .into_iter()
-            .find(|partner| partner.id == owner)
-            .map_or_else(
-                || format!("Eevee #{owner}"),
-                |partner| {
-                    format!(
-                        "{} ({})",
-                        Self::partner_label(&partner),
-                        FORMS[partner.form.min(FORMS.len() - 1)].name
-                    )
-                },
-            );
-        Some(format!(
-            "{name} is working on this task; one partner works at a time, so lead it again or wait. Your draft is kept."
-        ))
+    pub fn partner_busy(&self, partner: i64) -> bool {
+        std::iter::once(&self.planning)
+            .chain(self.cooperation.parked.values())
+            .any(|state| {
+                state.owns_work()
+                    && state
+                        .owner()
+                        .or(state.front.as_ref())
+                        .is_some_and(|owner| owner.partner == partner)
+            })
+            || std::iter::once(&self.execution)
+                .chain(self.cooperation.executions.values())
+                .any(|state| {
+                    (state.busy() || state.outcome_unknown())
+                        && state
+                            .owner
+                            .as_ref()
+                            .is_some_and(|owner| owner.partner == partner)
+                })
+            || self.cooperation.command_saves.contains_key(&partner)
     }
 
     /// Roster-scoped command dispatch (`/add` and `/lead` inside the party overlay).
@@ -462,22 +445,20 @@ impl App {
     /// provider prompt is open, working while it owns a live provider request
     /// or local run, and idle otherwise.
     pub fn partner_status(&self, partner: &store::Partner) -> PartnerStatus {
-        let provider = self.provider_owner() == Some(partner.id);
-        let command = self.command_owner() == Some(partner.id);
-        if !provider && !command {
+        if !self.partner_busy(partner.id) {
             return PartnerStatus::Idle;
         }
-        if provider && (self.planning.preview.is_some() || self.planning.request.is_some())
-            || command
-                && self
-                    .execution
-                    .confirmation
-                    .as_ref()
-                    .is_some_and(|c| matches!(c, execution::Confirmation::Approval))
-        {
-            return PartnerStatus::Waiting;
+        let waiting = self
+            .planning_state(partner.id)
+            .is_some_and(|state| state.preview.is_some() || state.request.is_some())
+            || self
+                .execution_state(partner.id)
+                .is_some_and(|state| state.approval_identity().is_some());
+        if waiting {
+            PartnerStatus::Waiting
+        } else {
+            PartnerStatus::Working
         }
-        PartnerStatus::Working
     }
 
     /// Display identity shared by the header and the roster: nickname when set
@@ -525,6 +506,15 @@ impl App {
     pub(super) fn retain_slots(&mut self) {
         let ids: Vec<i64> = self.partners().iter().map(|partner| partner.id).collect();
         self.planning.retain_partners(&ids);
+        for state in self.cooperation.parked.values_mut() {
+            state.retain_partners(&ids);
+        }
+        self.cooperation.parked.retain(|id, state| {
+            ids.contains(id) || state.owns_work() || state.preferences_pending()
+        });
+        self.cooperation.executions.retain(|id, state| {
+            ids.contains(id) || state.busy() || state.storage_pending() || state.outcome_unknown()
+        });
     }
 
     /// The task a partner is engaged with: the lead fronts it and a working

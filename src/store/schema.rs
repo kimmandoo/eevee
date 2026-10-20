@@ -122,8 +122,7 @@ pub(super) fn inspect_evidence(connection: &Connection) -> Result<(), String> {
         "SELECT EXISTS(SELECT 1 FROM excerpts e LEFT JOIN tasks t ON t.id=e.task_id WHERE t.id IS NULL)
          OR EXISTS(SELECT 1 FROM executions e LEFT JOIN tasks t ON t.id=e.task_id WHERE t.id IS NULL)
          OR EXISTS(SELECT 1 FROM excerpts GROUP BY task_id HAVING count(*) > 16)
-         OR EXISTS(SELECT 1 FROM executions GROUP BY task_id HAVING count(*) > 256)
-         OR (SELECT count(*) FROM executions WHERE reserved=1) > 1",
+         OR EXISTS(SELECT 1 FROM executions GROUP BY task_id HAVING count(*) > 256)",
         [], |row| row.get(0),
     ).map_err(|error| error.to_string())?;
     if invalid {
@@ -230,9 +229,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=12).contains(&version) {
+    if !(0..=13).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0 through 12"
+            "Unsupported database schema version {version}; this ev supports versions 0 through 13"
         ));
     }
     let mut statement = connection
@@ -329,6 +328,25 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
                 && objects
                     .iter()
                     .zip([
+                        "excerpts",
+                        "executions",
+                        "memories",
+                        "partners",
+                        "provider_journal",
+                        "provider_preferences",
+                        "selections",
+                        "tasks",
+                    ])
+                    .all(|((kind, name), expected)| kind == "table" && name == expected) =>
+        {
+            Schema::Current
+        }
+        (13, objects)
+            if objects.len() == 9
+                && objects
+                    .iter()
+                    .zip([
+                        "active_work",
                         "excerpts",
                         "executions",
                         "memories",
@@ -508,6 +526,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
             if version >= 10 {
                 super::preferences::inspect_preferences(connection)?;
             }
+            if version >= 13 {
+                super::work::inspect_work(connection)?;
+            }
             return Ok(schema);
         }
     };
@@ -596,6 +617,20 @@ pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), Str
         connection
             .execute_batch("PRAGMA user_version=12;")
             .map_err(|error| format!("Cannot migrate workflow and evidence provenance: {error}"))?;
+    }
+    if version < 13 {
+        // Ownership is additive: preserve every old task and evidence JSON byte.
+        connection.execute_batch(
+            "CREATE TABLE active_work(
+                task_id INTEGER NOT NULL CHECK(task_id>0),
+                partner INTEGER NOT NULL CHECK(partner>0),
+                request_id TEXT NOT NULL UNIQUE CHECK(length(CAST(request_id AS BLOB)) BETWEEN 1 AND 128),
+                owner TEXT NOT NULL CHECK(length(CAST(owner AS BLOB))<=2048),
+                writing INTEGER NOT NULL CHECK(writing IN (0,1)),
+                kind TEXT NOT NULL CHECK(kind IN ('provider','command')),
+                PRIMARY KEY(task_id,partner));
+             PRAGMA user_version=13;"
+        ).map_err(|error| format!("Cannot migrate durable work ownership: {error}"))?;
     }
     Ok(())
 }

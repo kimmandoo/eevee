@@ -2,6 +2,96 @@
 use super::*;
 
 impl App {
+    fn apply_released_project(&mut self, project: store::Project) {
+        let committed = project
+            .tasks
+            .iter()
+            .find(|task| task.id == self.task_id)
+            .cloned();
+        self.party = project.partners;
+        self.tasks = project.tasks;
+        self.usage_bytes = project.usage_bytes;
+        let ids: Vec<_> = self.party.iter().map(|partner| partner.id).collect();
+        let front_removed = !ids.contains(&self.lead.id);
+
+        // These are personal recipient intents, not evidence or task requirements.
+        // Reconcile them in live state as well as the store's returned task rows.
+        self.workflows
+            .command_relays
+            .retain(|relay| ids.contains(&relay.partner));
+        self.workflows
+            .draft_relays
+            .retain(|relay| ids.contains(&relay.partner));
+        if front_removed {
+            self.workflow = workflows::State::default();
+            self.memory.clear_draft();
+        } else if self.workflow.relay.as_ref().is_some_and(|relay| {
+            relay.target.is_some_and(|target| !ids.contains(&target))
+                || matches!(&relay.request.source, relays::RelaySource::RoleAction { target, .. } if !ids.contains(target))
+        }) {
+            self.workflow.relay = None;
+        }
+
+        // A newly fronted partner creates a local navigation/draft mutation.
+        // Start above the committed release revision, never reuse its revision.
+        if let Some(task) = &committed {
+            self.saved_revision = self.saved_revision.max(task.revision);
+            self.revision = self.revision.max(self.saved_revision);
+            self.updated_at = task.updated_at;
+        }
+        if front_removed {
+            let next = committed
+                .as_ref()
+                .and_then(|task| {
+                    self.party
+                        .iter()
+                        .find(|partner| partner.id == task.lead_partner)
+                })
+                .or_else(|| self.party.first())
+                .cloned();
+            if let Some(next) = next {
+                self.request_lead(next.id);
+            }
+        } else if let Some(partner) = self.party.iter().find(|partner| partner.id == self.lead.id) {
+            self.lead.nickname.clone_from(&partner.nickname);
+            self.sync_front();
+        }
+        self.partner_drafts
+            .retain(|partner, _| ids.contains(partner));
+        self.cooperation
+            .execution_actions
+            .retain(|partner, _| ids.contains(partner));
+        self.cooperation
+            .command_saves
+            .retain(|partner, _| ids.contains(partner));
+        if self
+            .pending_request_owner
+            .is_some_and(|partner| !ids.contains(&partner))
+        {
+            self.pending_request = None;
+            self.pending_request_owner = None;
+        }
+        if self
+            .pending_command
+            .as_ref()
+            .is_some_and(|(_, owner)| !ids.contains(&owner.partner))
+        {
+            self.pending_command = None;
+        }
+        self.retain_slots();
+        if let Some(task) = committed {
+            if self.snapshot(&task.project) != task {
+                self.revision = self.revision.max(self.saved_revision.saturating_add(1));
+                self.save_requested = true;
+            } else {
+                self.save_requested = false;
+                self.autosave = None;
+            }
+        }
+        self.refresh_save_state();
+        self.notice = "Partner released; tasks and attributed evidence are retained.".into();
+    }
+
     pub fn agent_event(&mut self, event: crate::providers::agent::Event) -> bool {
         self.agents.event(event);
         // Discovery/probe results belong to the connections drawer. In
@@ -96,8 +186,17 @@ impl App {
 
     pub fn store_event(&mut self, event: store::Event) {
         match event {
+            store::Event::Work { request, result } => self.cooperation_work_event(request, result),
+            store::Event::PartyReleased(result) => {
+                self.party_inflight = false;
+                self.release_partner_finished(&result);
+                match result {
+                    Ok(project) => self.apply_released_project(project),
+                    Err(error) => self.notice = error,
+                }
+            }
             store::Event::Preferences(result) => {
-                self.planning.preference_event(result);
+                self.cooperation_preference_event(result);
                 self.agents.active = self.planning.agent.index();
                 self.agents.selected = self.agents.active;
                 if self.planning.preference_error().is_some() {
@@ -127,7 +226,7 @@ impl App {
                     }
                     _ => {}
                 }
-                self.planning.journal_event(task_id, result);
+                self.cooperation_journal_event(task_id, result);
             }
             store::Event::Party(result) => {
                 self.party_inflight = false;
@@ -269,12 +368,10 @@ impl App {
                         self.storage = StorageState::Saved;
                         self.save_requested = false;
                         self.autosave = None;
-                        if let Some((command, owner)) = self.pending_command.take() {
-                            self.prepare_command_relay(&command, owner);
-                        }
                     }
                     self.refresh_save_state();
                 }
+                self.commit_pending_commands(&snapshot);
                 if let Some(previous) = self.tasks.iter_mut().find(|task| task.id == snapshot.id) {
                     if previous.revision <= snapshot.revision {
                         *previous = snapshot;
@@ -369,7 +466,7 @@ impl App {
                 run_id,
                 result,
             } => {
-                self.execution.store_event(
+                self.cooperation_run_event(
                     task_id,
                     request_id.as_deref(),
                     run_id.as_deref(),
@@ -395,6 +492,8 @@ impl App {
                 self.refresh_save_state();
             }
         }
+        self.refresh_approvals();
+        self.settle_cooperation();
         self.settle_exit();
         self.settle_reset();
     }

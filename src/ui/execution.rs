@@ -33,7 +33,7 @@ pub(super) fn render_small_confirmation(
     }
     let body = row(area, 0, area.height.saturating_sub(2));
     state.set_viewport(body.height.saturating_sub(3) as usize);
-    confirmation(frame, body, state, &paint);
+    confirmation(frame, body, state, &paint, None);
     text(
         frame,
         row(area, area.height.saturating_sub(2), 2),
@@ -42,7 +42,14 @@ pub(super) fn render_small_confirmation(
     );
 }
 
-pub fn render(frame: &mut Frame, area: Rect, state: &mut State, config: &Config) {
+pub(super) fn render(
+    frame: &mut Frame,
+    area: Rect,
+    state: &mut State,
+    config: &Config,
+    queue: Option<&str>,
+    editing: Option<&str>,
+) {
     if !state.visible() {
         return;
     }
@@ -53,11 +60,16 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut State, config: &Config)
     };
     let paint = Paint::new(config, &FORMS[2], 2);
     frame.render_widget(Clear, area);
-    let block = panel(" Jolteon · local command evidence ", config, &paint, true);
+    let block = panel(
+        queue.unwrap_or(" Jolteon · local command evidence "),
+        config,
+        &paint,
+        true,
+    );
     let content = block.inner(area);
     frame.render_widget(block, area);
     if state.confirmation.is_some() {
-        confirmation(frame, content, state, &paint);
+        confirmation(frame, content, state, &paint, editing);
         return;
     }
     if content.height < 4 || content.width < 12 {
@@ -163,7 +175,13 @@ fn locations(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) {
     frame.render_widget(Paragraph::new(rows), area);
 }
 
-fn confirmation(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
+fn confirmation(
+    frame: &mut Frame,
+    area: Rect,
+    state: &mut State,
+    paint: &Paint,
+    editing: Option<&str>,
+) {
     let Some(confirm) = state.confirmation.as_ref() else {
         return;
     };
@@ -218,7 +236,7 @@ fn confirmation(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint)
         Paragraph::new(choices).wrap(Wrap { trim: false }),
         row(area, 1, 2),
     );
-    let summary = match confirm {
+    let mut summary = match confirm {
         Confirmation::Approval => state.prepared.as_ref().map_or_else(
             || vec!["BLOCKED: prepared command no longer exists.".into()],
             |prepared| {
@@ -265,6 +283,18 @@ fn confirmation(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint)
             "Stay and /journal-retry retries storage only.".into(),
         ],
     };
+    if let Some(editing) = editing {
+        if matches!(confirm, Confirmation::Approval) && state.prepared.is_some() {
+            // The details navigation is already disclosed in the footer.
+            // Keep the six-row consent budget at 60x18 without painting over
+            // the permission title or any effect/identity disclosure.
+            let last = summary.last_mut().expect("approval summary");
+            last.clear();
+            last.push_str(editing);
+        } else {
+            summary.push(editing.to_owned());
+        }
+    }
     let summary_height = summary.len() as u16;
     state.confirmation_visible = super::planning::render_summary(
         frame,
@@ -466,6 +496,7 @@ mod tests {
     }
     fn prepared() -> crate::workspace::runner::Prepared {
         crate::workspace::runner::Prepared {
+            approval_arrival: crate::providers::approval_arrival(),
             request_id: "r-review".into(),
             run_id: "r-review-run".into(),
             task_id: 1,
@@ -542,7 +573,7 @@ mod tests {
     }
 
     fn confirmation_frame(frame: &mut ratatui::Frame, area: Rect, state: &mut State) {
-        confirmation(frame, area, state, &paint());
+        confirmation(frame, area, state, &paint(), None);
     }
 
     #[test]
@@ -554,7 +585,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                confirmation(frame, area, &mut state, &paint());
+                confirmation(frame, area, &mut state, &paint(), None);
             })
             .unwrap();
         assert!(!state.affirmative);
@@ -572,7 +603,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                confirmation(frame, area, &mut state, &paint());
+                confirmation(frame, area, &mut state, &paint(), None);
             })
             .unwrap();
         let rendered: String = terminal

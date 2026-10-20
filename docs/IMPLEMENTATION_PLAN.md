@@ -272,3 +272,26 @@ The user initially requested waves 3 and 4, then explicitly narrowed the scope t
 3. Each task requires independent behavioral verification and actual TUI proof at 120×36 and 60×18 plus documentation. This whole-wave cutover uses one atomic integration commit for the shared Schema 12 provenance and relay state instead of the backlog's usual per-ID commit convention. Persisted additions still require transactional migration and real old-binary refusal.
 4. Verified the integrated source with 713 passed / 2 ignored, strict Clippy, release build and six actual-runtime suites on the same immutable candidate. Both UI sizes covered guarded transfer, exact fresh command approval, restart/provenance, source freshness, controlled-write authorship and gap-free compact pagination; real Schema 11→12 migration/refusal/resume also passed. No release, push, installed-binary replacement, provider credential change or unrelated architecture cutover occurred. This request is complete; do not start wave 4 automatically.
 
+
+## Active request — complete wave 4 and release (2026-10-20)
+
+The user explicitly authorized all seven cooperation tasks and publication after implementation. Wave 3 remains included in the next release. A subsequent instruction authorized provider connection repair immediately after this release; it must not be mixed into the wave 4 qualification candidate.
+
+1. PT08A/PT08B: persist request-bound work claims under the single store worker, enforce one writer and three distinct participants per task, recover stale ownership under the exclusive startup lock, and monotonically classify overlapping command evidence as revision moving.
+2. PT07A: isolate provider state, transport, immutable submitted input, events, receipts, storage settlement and cancellation by task/partner/request. Allow independent provider and command work without changing the foreground draft/caret or weakening effect admission.
+3. PT07B/PT07C: queue correlated approvals/questions in arrival order, defer without answering, cancel only the selected owner, and review/cancel/wait for all work on cancel-all or quit. Unknown outcomes and failed journal/ownership settlement remain explicit.
+4. PT09/PT04C: expose factual working/waiting identities in a responsive board, front selected owners without effects, and release only idle non-last partners through reviewed transactional deletion while preserving historical evidence/name snapshots.
+5. Qualify real concurrent keyboard journeys at 120×36 and 60×18, writer refusal/crash recovery, moving-run ineligibility, prompt isolation/deferral, cancellation/quit and release/restart. Run integrated Rust/SDK/release checks and actual old-binary Schema 11→13 upgrade/refusal.
+6. Prepare v0.1.11 notes covering unreleased wave 3 plus wave 4 and Schema 13 incompatibility. Commit and push the candidate, require successful exact-commit Check and all five native rows in one attempt, tag only that qualified commit, then verify publication, downloaded assets/checksums and real public binary behavior. Do not replace the user's installed command.
+
+The shared Schema 13 ownership/runtime/consent cutover will use one atomic whole-wave integration commit rather than artificial per-ID code splits. Every task still requires independent runtime acceptance; no unverified task is marked complete.
+
+Local implementation qualification completed on immutable candidate E: all seven task acceptances passed 24 strict cooperation groups at 120×36/60×18; Rust passed 784 tests/2 ignored, strict Clippy and release build, SDK policy 15 and release-script checks 14/3 platform skips. Both real older-schema writers refused upgraded data byte-for-byte, and execution/workflow/relay, sprite/input/fronting/idle journeys passed. Only commit/native five-row qualification/publication and public-asset/runtime verification remain before provider repair starts.
+
+## Queued request — provider connection repair (2026-10-21)
+
+1. Finish and publish the qualified wave 4 release first. Then reproduce current discovery, authentication, route/model selection and submission behavior through the actual runtime.
+2. Choose the connection architecture from the observed failure and protocol contracts, not from a requirement to retain existing internals. Preserve deliberate provider selection, credential boundaries, explicit effect consent, independent partner/request ownership and actual coding capabilities during clean cutover.
+3. Implement every affected connection/authentication/model/submission caller and migrate its behavioral contracts; remove obsolete paths rather than retaining misleading fallback routes. Canonical conversation history must be investigated where it materially causes the reported provider behavior, not fabricated from display text.
+4. Exercise repaired first-use/sign-in/account-change/model-selection/request paths with isolated actual-runtime protocol fixtures and available real credentials. Distinguish local interoperability proof from unavailable live-provider qualification; do not invent authentication success or silently substitute another provider.
+5. Update existing design/changelog/troubleshooting/checkpoint records with product-native behavior and exercised evidence, remove obsolete connection paths, and commit the verified repair.

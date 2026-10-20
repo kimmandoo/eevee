@@ -156,7 +156,7 @@ pub(super) fn run_json(record: &crate::workspace::runner::RunRecord) -> Result<S
 
 pub(super) fn no_active(connection: &Connection, task_id: Option<i64>) -> Result<(), String> {
     let active: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM executions WHERE reserved=1 AND (?1 IS NULL OR task_id=?1))",
+        "SELECT EXISTS(SELECT 1 FROM executions WHERE reserved=1 AND (?1 IS NULL OR task_id=?1)) OR EXISTS(SELECT 1 FROM active_work WHERE ?1 IS NULL OR task_id=?1)",
         [task_id], |row| row.get(0),
     ).map_err(|error| error.to_string())?;
     if active {
@@ -413,7 +413,6 @@ impl State {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|error| error.to_string())?;
-        no_active(&transaction, None)?;
         let task = load_task(&transaction, &self.project, task_id)?.ok_or("Task is missing")?;
         if task.archived {
             return Err("Restore the task before execution".into());
@@ -426,7 +425,9 @@ impl State {
                 return Err("Rerun argv/cwd differs from the referenced task-owned run".into());
             }
         }
+        let revision_moving = super::work::acquire_command(&transaction, &task, &prepared)?;
         let mut record = crate::workspace::runner::RunRecord::awaiting(&prepared);
+        record.revision_moving = revision_moving;
         record.redact_for_storage();
         let json = run_json(&record)?;
         let count: usize = transaction
@@ -462,6 +463,7 @@ impl State {
             file,
             capacity,
             rerun_of: prepared.rerun_of,
+            revision_moving,
             _committed: (),
         })
     }
@@ -485,6 +487,7 @@ impl State {
         if stored.record.prepared != record.prepared {
             return Err("Run event correlation or approved inputs changed".into());
         }
+        record.revision_moving |= stored.record.revision_moving;
         if !stored.reserved || !active_state(&stored.record.state) {
             return Err("Late run event cannot rewrite terminal journal evidence".into());
         }
@@ -518,6 +521,7 @@ impl State {
         stored.reserved = active_state(&record.state);
         if !stored.reserved {
             record.ended_at_ms.get_or_insert(timestamp()? as u64);
+            super::work::release_command(&transaction, &stored.record.prepared)?;
             match SpoolDirectory::open(&self.data_dir)
                 .and_then(|directory| directory.read(&stored.output_name, &stored.output_identity))
             {
@@ -666,6 +670,16 @@ impl State {
 }
 
 pub(super) fn reconcile_runs(connection: &mut Connection, data_dir: &Path) -> Result<(), String> {
+    let needs_recovery: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM executions WHERE reserved=1) OR EXISTS(SELECT 1 FROM active_work)",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if !needs_recovery {
+        return Ok(());
+    }
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| error.to_string())?;
@@ -700,6 +714,11 @@ pub(super) fn reconcile_runs(connection: &mut Connection, data_dir: &Path) -> Re
         }
         write_run(&transaction, stored)?;
     }
+    // Recovery runs only under the exclusive store lock. Interrupt evidence and
+    // discard stale ownership atomically; neither commands nor providers resume.
+    transaction
+        .execute("DELETE FROM active_work", [])
+        .map_err(|error| error.to_string())?;
     transaction.commit().map_err(|error| error.to_string())
 }
 
@@ -755,5 +774,228 @@ pub(super) fn enforce_evidence_quota(
         Err("Local storage quota exceeded (live SQLite + retained output + committed reservations); nothing was evicted and no command was started".into())
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod moving_tests {
+    use super::*;
+    use crate::workspace::runner::{
+        CommandSpec, ExecutableIdentity, InputSnapshot, Prepared, RunRecord, RunState, TreeOutcome,
+    };
+
+    struct Fixture(PathBuf);
+
+    impl Fixture {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "eevee-moving-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            fs::create_dir(&root).unwrap();
+            Self(fs::canonicalize(root).unwrap())
+        }
+
+        fn open(&self) -> State {
+            let mut state = State {
+                data_dir: self.0.clone(),
+                project: "moving".into(),
+                policy: Policy::default(),
+                connection: None,
+                lock: None,
+            };
+            assert!(matches!(state.reopen(), Event::Loaded(_)));
+            state
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn saved_task(store: &mut State) -> Snapshot {
+        let mut task = Snapshot::empty("moving".into());
+        task.goal = "Preserve truthful overlap evidence".into();
+        store.save(task).unwrap()
+    }
+
+    fn prepared(task: &Snapshot, root: &Path, id: &str, owner: Option<Attribution>) -> Prepared {
+        let now = timestamp().unwrap() as u64;
+        Prepared {
+            request_id: format!("request-{id}"),
+            run_id: format!("run-{id}"),
+            task_id: task.id,
+            spec: CommandSpec::Direct {
+                program: "check".into(),
+                args: vec!["exact-argument".into()],
+            },
+            cwd: root.to_path_buf(),
+            cwd_identity: "fixture-directory".into(),
+            executable: ExecutableIdentity {
+                path: root.join("check"),
+                sha256: "0".repeat(64),
+                bytes: 1,
+                modified_ns: 1,
+                file_id: "fixture-file".into(),
+            },
+            prepared_at_ms: now,
+            expires_at_ms: now + 60_000,
+            approval_arrival: 0,
+            before: InputSnapshot::default(),
+            partner: owner,
+            rerun_of: None,
+        }
+    }
+
+    fn writer(task: &Snapshot, owner: Attribution) -> WorkClaim {
+        WorkClaim {
+            task_id: task.id,
+            owner,
+            request_id: "writer-request".into(),
+            writing: true,
+        }
+    }
+
+    fn acquire_writer(store: &mut State, task: &Snapshot, claim: &WorkClaim) {
+        store
+            .work_request(&WorkRequest::Acquire {
+                claim: claim.clone(),
+                task: Box::new(task.clone()),
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn writer_before_command_marks_permit_and_stale_terminal_update_cannot_clear_it() {
+        let fixture = Fixture::new();
+        let mut store = fixture.open();
+        let task = saved_task(&mut store);
+        let roster = store.add_partner().unwrap();
+        let claim = writer(&task, Attribution::of(&roster[1]));
+        acquire_writer(&mut store, &task, &claim);
+        assert!(no_active(store.connection.as_ref().unwrap(), Some(task.id)).is_err());
+        let prepared = prepared(
+            &task,
+            &fixture.0,
+            "during-write",
+            Some(Attribution::of(&roster[0])),
+        );
+        let permit = store.reserve_run(task.id, prepared.clone(), 1024).unwrap();
+        assert!(permit.revision_moving);
+        let mut stale = RunRecord::awaiting(&prepared);
+        stale.state = RunState::Running;
+        stale.started_at_ms = Some(timestamp().unwrap() as u64);
+        assert!(
+            store
+                .update_run(task.id, stale.clone())
+                .unwrap()
+                .revision_moving
+        );
+        stale.state = RunState::Succeeded;
+        stale.ended_at_ms = Some(timestamp().unwrap() as u64);
+        stale.exit_code = Some(0);
+        stale.tree = TreeOutcome::OwnedTreeExited;
+        let committed = store.update_run(task.id, stale).unwrap();
+        assert!(committed.revision_moving);
+        assert_eq!(committed.prepared, prepared);
+        assert_eq!(
+            super::super::work::claims(store.connection.as_ref().unwrap()).unwrap(),
+            vec![claim.clone()]
+        );
+        store.work_request(&WorkRequest::Release(claim)).unwrap();
+        drop(permit);
+        drop(store);
+        let reopened = fixture.open();
+        assert!(reopened.load_runs(task.id).unwrap()[0].revision_moving);
+    }
+
+    #[test]
+    fn writer_after_command_taints_stored_run_and_restart_preserves_it_and_clears_claims() {
+        let fixture = Fixture::new();
+        let mut store = fixture.open();
+        let task = saved_task(&mut store);
+        let roster = store.add_partner().unwrap();
+        // Legacy unattributed reservations still receive a lead-owned claim.
+        let prepared = prepared(&task, &fixture.0, "before-write", None);
+        let permit = store.reserve_run(task.id, prepared.clone(), 1024).unwrap();
+        assert!(!permit.revision_moving);
+        let claim = writer(&task, Attribution::of(&roster[1]));
+        acquire_writer(&mut store, &task, &claim);
+        let mut stale = RunRecord::awaiting(&prepared);
+        stale.state = RunState::Running;
+        stale.started_at_ms = Some(timestamp().unwrap() as u64);
+        assert!(store.update_run(task.id, stale).unwrap().revision_moving);
+        drop(permit);
+        drop(store);
+        let reopened = fixture.open();
+        let records = reopened.load_runs(task.id).unwrap();
+        assert_eq!(records[0].state, RunState::Interrupted);
+        assert!(records[0].revision_moving);
+        assert!(
+            super::super::work::claims(reopened.connection.as_ref().unwrap())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn distinct_commands_share_task_and_abandon_releases_only_correlated_owner() {
+        let fixture = Fixture::new();
+        let mut store = fixture.open();
+        let task = saved_task(&mut store);
+        let other_task = saved_task(&mut store);
+        let roster = store.add_partner().unwrap();
+        let first = prepared(&task, &fixture.0, "first", None);
+        let second = prepared(
+            &task,
+            &fixture.0,
+            "second",
+            Some(Attribution::of(&roster[1])),
+        );
+        let first_permit = store.reserve_run(task.id, first.clone(), 1024).unwrap();
+        let second_permit = store.reserve_run(task.id, second.clone(), 1024).unwrap();
+        assert_eq!(
+            super::super::work::claims(store.connection.as_ref().unwrap())
+                .unwrap()
+                .len(),
+            2
+        );
+        let duplicate = prepared(
+            &other_task,
+            &fixture.0,
+            "duplicate",
+            Some(Attribution::of(&roster[0])),
+        );
+        assert!(store.reserve_run(other_task.id, duplicate, 1024).is_err());
+        assert!(
+            store
+                .run_request(RunRequest {
+                    task_id: task.id,
+                    operation: RunOperation::Abandon {
+                        request_id: second.request_id.clone(),
+                        run_id: first.run_id.clone()
+                    },
+                })
+                .is_err()
+        );
+        store
+            .run_request(RunRequest {
+                task_id: task.id,
+                operation: RunOperation::Abandon {
+                    request_id: first.request_id,
+                    run_id: first.run_id,
+                },
+            })
+            .unwrap();
+        let claims = super::super::work::claims(store.connection.as_ref().unwrap()).unwrap();
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims[0].request_id, second.request_id);
+        drop((first_permit, second_permit));
     }
 }

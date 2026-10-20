@@ -200,6 +200,7 @@ pub struct State {
     /// Partner whose command request this is (PT06A); stamped into the run record.
     pub owner: Option<store::Attribution>,
     request_id: Option<String>,
+    approval_review: Option<runner::Prepared>,
     pending_spec: Option<runner::CommandSpec>,
     before_ready: Option<runner::InputSnapshot>,
     final_record: Option<runner::RunRecord>,
@@ -207,6 +208,7 @@ pub struct State {
     dispatching: bool,
     reserving: bool,
     permit: Option<store::CommittedRunPermit>,
+    moving_request: Option<String>,
     invalidation: bool,
     cancellation: bool,
     queue: VecDeque<StoreJob>,
@@ -262,6 +264,7 @@ impl Default for State {
             journal_saving: false,
             owner: None,
             request_id: None,
+            approval_review: None,
             pending_spec: None,
             before_ready: None,
             final_record: None,
@@ -269,6 +272,7 @@ impl Default for State {
             dispatching: false,
             reserving: false,
             permit: None,
+            moving_request: None,
             invalidation: false,
             cancellation: false,
             queue: VecDeque::new(),
@@ -294,6 +298,131 @@ impl Default for State {
 impl State {
     pub fn set_capture_capacity(&mut self, bytes: u64) {
         self.capture_capacity = bytes.clamp(1024, 8 * 1024 * 1024);
+    }
+    /// A failed lazy runner start revokes dispatch without affecting other partners.
+    pub fn runner_unavailable(&mut self, error: String) {
+        if let Some(permit) = self.permit.take() {
+            self.critical(StoreJob::Abandon {
+                task: permit.task_id,
+                request: permit.request_id,
+                run: permit.run_id,
+            });
+        }
+        self.invalidate();
+        self.invalidation = false;
+        self.fail(
+            "Runtime",
+            format!("Local command runtime unavailable; no process launched: {error}"),
+            "The command draft is retained. Resolve the runtime error and deliberately prepare again.",
+        );
+    }
+    pub fn storage_pending(&self) -> bool {
+        !self.queue.is_empty() || self.inflight.is_some() || self.failed.is_some()
+    }
+    pub fn outcome_unknown(&self) -> bool {
+        self.final_unknown
+            || self
+                .active
+                .as_ref()
+                .is_some_and(|record| record.state == runner::RunState::OutcomeUnknown)
+    }
+    pub fn journal_failed(&self) -> bool {
+        self.failed.as_ref().is_some_and(StoreJob::critical)
+    }
+    /// Seed another partner's independent executor without transferring work or consent.
+    pub fn new_partner_state(&self, task: i64) -> Self {
+        Self {
+            task_id: task,
+            capture_capacity: self.capture_capacity,
+            latest: if self.task_id == task {
+                self.latest.clone()
+            } else {
+                runner::InputSnapshot::default()
+            },
+            history: self
+                .history
+                .iter()
+                .filter(|record| record.prepared.task_id == task)
+                .cloned()
+                .collect(),
+            ..Self::default()
+        }
+    }
+    pub fn set_task(&mut self, task: i64) {
+        if self.task_id != task && !self.busy() {
+            self.attach(task);
+        }
+    }
+    /// Optional history/output reads use storage only and never allocate a runner.
+    pub fn needs_runner(&self) -> bool {
+        self.pending_spec.is_some()
+            || self.before_ready.is_some()
+            || self.request_id.is_some()
+            || self.prepared.is_some()
+            || self.active.is_some()
+            || self.permit.is_some()
+            || self.dispatching
+            || self.cancellation
+    }
+    pub fn take_ready_action(&mut self) -> Option<Action> {
+        self.maybe_navigate();
+        self.ready.take()
+    }
+    /// Share committed evidence, never another partner's output window or request.
+    pub fn observe_record(&mut self, record: &runner::RunRecord) {
+        if record.prepared.task_id != self.task_id
+            || self.history.iter().any(|existing| existing == record)
+        {
+            return;
+        }
+        self.upsert(record.clone());
+    }
+    /// A writer starting after reservation also taints currently settling evidence.
+    pub fn mark_revision_moving(&mut self, task: i64) {
+        if self.task_id == task
+            && (self.reserving
+                || self.dispatching
+                || self.permit.is_some()
+                || self.active.is_some()
+                || self.final_record.is_some()
+                || self.final_ack.is_some())
+            && let Some(request) = self.request_id.as_ref()
+            && self.moving_request.as_ref() != Some(request)
+        {
+            self.moving_request = Some(request.clone());
+        }
+        if let Some(permit) = &mut self.permit
+            && permit.task_id == task
+        {
+            permit.revision_moving = true;
+        }
+        for record in self.active.iter_mut().chain(self.final_record.iter_mut()) {
+            if record.prepared.task_id == task {
+                record.revision_moving = true;
+            }
+        }
+        let active_run = self
+            .active
+            .as_ref()
+            .map(|record| record.prepared.run_id.as_str());
+        let final_run = self
+            .final_record
+            .as_ref()
+            .map(|record| record.prepared.run_id.as_str());
+        for record in &mut self.history {
+            if record.prepared.task_id == task
+                && (matches!(
+                    record.state,
+                    runner::RunState::AwaitingDispatch
+                        | runner::RunState::Running
+                        | runner::RunState::Cancelling
+                ) || active_run == Some(record.prepared.run_id.as_str())
+                    || final_run == Some(record.prepared.run_id.as_str())
+                    || self.final_ack.as_deref() == Some(record.prepared.run_id.as_str()))
+            {
+                record.revision_moving = true;
+            }
+        }
     }
     pub fn activity_label(&self) -> &'static str {
         if let Some(record) = &self.active {
@@ -373,9 +502,92 @@ impl State {
             || self.failed.as_ref().is_some_and(StoreJob::critical)
             || self.queue.iter().any(StoreJob::critical)
     }
+    /// Pending command consent is bound to its original task, partner, request and run.
+    pub fn approval_identity(&self) -> Option<(i64, i64, &str, &str)> {
+        let prepared = self.approvable()?;
+        Some((
+            prepared.task_id,
+            prepared.partner.as_ref()?.partner,
+            &prepared.request_id,
+            &prepared.run_id,
+        ))
+    }
+    pub fn approval_arrival(&self) -> u64 {
+        self.approvable()
+            .map_or(0, |prepared| prepared.approval_arrival)
+    }
+    fn approvable(&self) -> Option<&runner::Prepared> {
+        self.prepared.as_ref().filter(|prepared| {
+            prepared.task_id == self.task_id
+                && prepared.partner == self.owner
+                && self.request_id.as_deref() == Some(&prepared.request_id)
+                && !self.reserving
+                && !self.dispatching
+                && self.permit.is_none()
+                && self.active.is_none()
+        })
+    }
+    fn open_approval(&mut self) -> bool {
+        let Some(prepared) = self.approvable().cloned() else {
+            return false;
+        };
+        self.approval_review = Some(prepared);
+        self.confirmation = Some(Confirmation::Approval);
+        self.confirmation_visible = false;
+        self.affirmative = false;
+        self.detail_scroll = 0;
+        true
+    }
+    /// An explicit queue revisit cannot front a replacement request or transfer ownership.
+    pub fn focus_approval(&mut self, task: i64, partner: i64, request: &str, run: &str) -> bool {
+        if self.approval_identity() != Some((task, partner, request, run)) {
+            return false;
+        }
+        if self.confirmation.is_some() && !matches!(self.confirmation, Some(Confirmation::Approval))
+        {
+            return false;
+        }
+        self.shown = true;
+        self.searching = false;
+        self.open_approval()
+    }
+    /// Closing consent is not rejection: the immutable command stays pending.
+    pub fn defer_approval(&mut self) -> bool {
+        if !matches!(self.confirmation, Some(Confirmation::Approval)) {
+            return false;
+        }
+        self.confirmation = None;
+        self.approval_review = None;
+        self.confirmation_visible = false;
+        self.affirmative = false;
+        self.shown = false;
+        true
+    }
+    /// Called only after an explicit all-work cancellation review has been accepted.
+    pub fn request_cancel(&mut self) {
+        self.confirmation = None;
+        self.approval_review = None;
+        self.confirmation_visible = false;
+        self.affirmative = false;
+        self.cancel_or_deny();
+    }
+    /// A lead-scoped cancellation may never cancel another partner's command.
+    pub fn request_cancel_for(&mut self, task: i64, partner: i64) -> bool {
+        if !self.busy()
+            || self.task_id != task
+            || self.owner.as_ref().map(|owner| owner.partner) != Some(partner)
+        {
+            return false;
+        }
+        self.request_cancel();
+        true
+    }
     pub fn invalidate(&mut self) {
         self.invalidation = true;
         self.request_id = None;
+        self.approval_review = None;
+        self.confirmation_visible = false;
+        self.affirmative = false;
         self.prepared = None;
         self.pending_spec = None;
         self.before_ready = None;
@@ -413,6 +625,17 @@ impl State {
             );
             return false;
         }
+        if self.busy()
+            && self.owner.as_ref().map(|owner| owner.partner)
+                != owner.as_ref().map(|owner| owner.partner)
+        {
+            self.fail(
+                "Ownership",
+                "The pending command belongs to another partner; its prepared input is unchanged.",
+                "Return to its owner and explicitly deny/cancel it, or wait for completion.",
+            );
+            return false;
+        }
         if self.active.is_some() || self.dispatching || self.final_ack.is_some() {
             self.fail(
                 "Command",
@@ -434,6 +657,7 @@ impl State {
             Ok(spec) => {
                 self.task_id = task_id;
                 self.owner = owner;
+                self.moving_request = None;
                 self.pending_spec = Some(spec);
                 self.before_ready = None;
                 self.error = None;
@@ -483,11 +707,15 @@ impl State {
             }
             self.attach(task_id);
         }
-        if let Some(permit) = self.permit.take() {
+        if let Some(mut permit) = self.permit.take() {
+            permit.revision_moving |= permit.task_id == self.task_id
+                && self.moving_request.as_deref() == Some(permit.request_id.as_str());
             let current = self.prepared.as_ref().is_some_and(|p| {
                 p.request_id == permit.request_id
                     && p.run_id == permit.run_id
                     && p.task_id == task_id
+                    && p.partner == self.owner
+                    && self.approval_review.as_ref() == Some(p)
             }) && self.request_id.as_deref() == Some(&permit.request_id)
                 && self.deferred.is_none();
             if current {
@@ -560,12 +788,7 @@ impl State {
                 {
                     p.rerun_of.clone_from(&self.rerun_of);
                     self.prepared = Some(p);
-                    if self.rerun_of.is_some() {
-                        self.confirmation = Some(Confirmation::Approval);
-                        self.affirmative = false;
-                        self.confirmation_visible = false;
-                        self.detail_scroll = 0;
-                    }
+                    // Approval arrival never steals focus, including reruns.
                     self.notice = "Approval pending. Use /run to inspect; opening/dismissing the view never approves.".into();
                     // Do not open a view or move focus while the user is typing elsewhere.
                 }
@@ -594,7 +817,8 @@ impl State {
                 self.invalidate();
                 self.fail("Approval / executable", message, "Inspect the details, correct inputs, and prepare a new request; no automatic retry.");
             }
-            runner::Event::Started(record) => {
+            runner::Event::Started(mut record) => {
+                self.retain_revision_moving(&mut record);
                 if !self.owns(&record) {
                     self.foreign_record(record);
                     return;
@@ -613,12 +837,14 @@ impl State {
                 self.critical(StoreJob::Update(record));
                 self.notice = "Running with owned-tree cancellation; filesystem/network effects are not sandboxed.".into();
             }
-            runner::Event::CaptureChanged(record) => {
+            runner::Event::CaptureChanged(mut record) => {
+                self.retain_revision_moving(&mut record);
                 if self.owns(&record) {
                     self.active = Some(record);
                 }
             }
-            runner::Event::Cancelling(record) => {
+            runner::Event::Cancelling(mut record) => {
+                self.retain_revision_moving(&mut record);
                 if !self.owns(&record) {
                     self.foreign_record(record);
                     return;
@@ -644,7 +870,8 @@ impl State {
                     }
                 }
             }
-            runner::Event::Finished(record) => {
+            runner::Event::Finished(mut record) => {
+                self.retain_revision_moving(&mut record);
                 if !self.owns(&record) {
                     self.foreign_record(record);
                     return;
@@ -658,13 +885,31 @@ impl State {
             }
         }
     }
+    fn retain_revision_moving(&self, record: &mut runner::RunRecord) {
+        record.revision_moving |= record.prepared.task_id == self.task_id
+            && record.prepared.partner == self.owner
+            && self.moving_request.as_deref() == Some(record.prepared.request_id.as_str());
+        record.revision_moving |= self
+            .active
+            .as_ref()
+            .is_some_and(|active| active.prepared == record.prepared && active.revision_moving);
+    }
     fn owns(&self, record: &runner::RunRecord) -> bool {
         record.prepared.task_id == self.task_id
+            && record.prepared.partner == self.owner
             && (self.request_id.as_deref() == Some(&record.prepared.request_id)
+                && self
+                    .prepared
+                    .as_ref()
+                    .is_none_or(|prepared| prepared == &record.prepared)
+                && self
+                    .active
+                    .as_ref()
+                    .is_none_or(|active| active.prepared == record.prepared)
                 || self
                     .active
                     .as_ref()
-                    .is_some_and(|r| r.prepared.run_id == record.prepared.run_id))
+                    .is_some_and(|active| active.prepared == record.prepared))
     }
     fn foreign_record(&mut self, record: runner::RunRecord) {
         // Fail closed on a late owner mismatch: preserve the original task/run correlation,
@@ -738,11 +983,36 @@ impl State {
                     self.fail("Storage / journal", message, if critical { "Use /journal-retry to retry only this journal save. No command is re-executed; cancellation remains available." } else { "Refresh/reopen the selected journal artifact after resolving local storage." });
                 }
             }
-            Ok(store::RunResponse::Reserved(permit)) => {
+            Ok(store::RunResponse::Reserved(mut permit)) => {
+                permit.revision_moving |= permit.task_id == self.task_id
+                    && self.moving_request.as_deref() == Some(permit.request_id.as_str());
                 self.reserving = false;
-                self.permit = Some(permit); // Only drive may ask the engine to dispatch.
+                let current = self.prepared.as_ref().is_some_and(|prepared| {
+                    prepared.task_id == permit.task_id
+                        && prepared.request_id == permit.request_id
+                        && prepared.run_id == permit.run_id
+                        && prepared.partner == self.owner
+                        && self.approval_review.as_ref() == Some(prepared)
+                }) && self.request_id.as_deref() == Some(permit.request_id.as_str())
+                    && self.deferred.is_none();
+                if current {
+                    self.permit = Some(permit); // Only drive may ask the engine to dispatch.
+                } else {
+                    self.critical(StoreJob::Abandon {
+                        task: permit.task_id,
+                        request: permit.request_id,
+                        run: permit.run_id,
+                    });
+                }
             }
             Ok(store::RunResponse::Updated(record)) => {
+                if record.revision_moving {
+                    for pending in self.active.iter_mut().chain(self.final_record.iter_mut()) {
+                        if pending.prepared == record.prepared {
+                            pending.revision_moving = true;
+                        }
+                    }
+                }
                 let terminal = !matches!(
                     record.state,
                     runner::RunState::AwaitingDispatch
@@ -750,6 +1020,11 @@ impl State {
                         | runner::RunState::Cancelling
                 );
                 let run = record.prepared.run_id.clone();
+                if terminal
+                    && self.moving_request.as_deref() == Some(record.prepared.request_id.as_str())
+                {
+                    self.moving_request = None;
+                }
                 if task_id == self.task_id {
                     self.upsert(record);
                 }
@@ -1067,8 +1342,9 @@ impl State {
                     } else if !self.selected_record().is_some_and(|record| {
                         self.latest.complete
                             && self.latest.stable
-                            && record.after.fingerprint.is_some()
-                            && record.after.fingerprint != self.latest.fingerprint
+                            && (record.revision_moving
+                                || record.after.fingerprint.is_some()
+                                    && record.after.fingerprint != self.latest.fingerprint)
                     }) {
                         Some("Select a stale run after refreshing source observation.")
                     } else {
@@ -1165,10 +1441,10 @@ impl State {
                 }
             }
             "run" => {
-                if self.prepared.is_some() && !self.reserving && !self.dispatching {
-                    self.confirmation = Some(Confirmation::Approval);
-                    self.affirmative = false;
-                    self.detail_scroll = 0;
+                if self.open_approval() {
+                    self.notice =
+                        "Review this command's exact immutable request before allowing it once."
+                            .into();
                 } else {
                     self.notice = "No approvable prepared request. Use /command-edit to edit an explicit JSON command.".into();
                 }
@@ -1282,6 +1558,9 @@ impl State {
                 KeyCode::Right => self.affirmative = true,
                 KeyCode::Tab => self.affirmative = !self.affirmative,
                 KeyCode::Esc => {
+                    if self.defer_approval() {
+                        return None;
+                    }
                     if matches!(
                         self.confirmation,
                         Some(
@@ -1298,6 +1577,12 @@ impl State {
                     self.affirmative = false;
                 }
                 KeyCode::Enter => {
+                    if matches!(self.confirmation, Some(Confirmation::Approval))
+                        && self.affirmative
+                        && (!self.confirmation_visible || !self.shown)
+                    {
+                        return None;
+                    }
                     self.confirmation_visible = false;
                     let confirmation = self.confirmation.take().expect("open confirmation");
                     if self.affirmative {
@@ -1430,6 +1715,8 @@ impl State {
                 if let Some(p) = &self.prepared
                     && self.request_id.as_deref() == Some(&p.request_id)
                     && p.task_id == self.task_id
+                    && p.partner == self.owner
+                    && self.approval_review.as_ref() == Some(p)
                     && !self.reserving
                     && !self.dispatching
                 {
@@ -1800,6 +2087,9 @@ pub fn evidence_label(record: &runner::RunRecord, latest: &runner::InputSnapshot
         | runner::RunState::Running
         | runner::RunState::Cancelling => labels.push("Incomplete execution"),
         runner::RunState::Succeeded => {}
+    }
+    if record.revision_moving {
+        labels.push("Revision moving; concurrent editing prevents fresh verification");
     }
     if record.output_unavailable {
         labels.push("Output unavailable; cannot substantiate a verified result");

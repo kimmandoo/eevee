@@ -77,6 +77,7 @@ fn app() -> App {
 fn run(app: &App, id: &str, start: u64) -> runner::RunRecord {
     let current = execution::fingerprint(app.repository.as_deref().unwrap());
     let prepared = runner::Prepared {
+        approval_arrival: crate::providers::approval_arrival(),
         request_id: format!("request-{id}"),
         run_id: id.into(),
         task_id: app.task_id,
@@ -671,13 +672,15 @@ fn idle_partner_hint_tracks_owned_work_without_changing_the_evidence_trigger() {
     let trigger = app.visible_suggestion().unwrap().trigger.clone();
     assert_eq!(app.suggested_partner().map(|partner| partner.id), Some(2));
     let owner = store::Attribution::of(app.party.iter().find(|partner| partner.id == 2).unwrap());
-    assert!(
-        app.execution
-            .prepare_command_for(app.task_id, Some(owner), r#"["tool","held"]"#)
-    );
+    let task = app.task_id;
+    assert!(app.execution_state_mut(2).prepare_command_for(
+        task,
+        Some(owner),
+        r#"["tool","held"]"#
+    ));
     assert!(app.suggested_partner().is_none());
     assert_eq!(app.visible_suggestion().unwrap().trigger, trigger);
-    app.execution.invalidate();
+    app.execution_state_mut(2).invalidate();
     assert_eq!(app.suggested_partner().map(|partner| partner.id), Some(2));
     app.dismissed_suggestion = Some(trigger);
     assert!(app.suggested_partner().is_none());

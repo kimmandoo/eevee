@@ -267,7 +267,7 @@ impl State {
         Ok(())
     }
 
-    fn clear_draft(&mut self) {
+    pub(super) fn clear_draft(&mut self) {
         self.mode = Mode::Browse;
         self.candidate = None;
         self.target = None;

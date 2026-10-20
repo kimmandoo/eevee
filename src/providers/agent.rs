@@ -1048,6 +1048,7 @@ fn probe(index: usize, snapshot: &Snapshot, stopped: &AtomicBool) -> Result<Stri
         .clone()
         .ok_or("Probe working directory unavailable")?;
     let prepared = crate::workspace::runner::Prepared {
+        approval_arrival: crate::providers::approval_arrival(),
         request_id: "agent-version-probe".into(),
         run_id: "agent-version-probe".into(),
         task_id: 0,
@@ -1313,6 +1314,7 @@ pub(crate) fn qualify_planning(
         .clone()
         .ok_or("Codex process cwd missing")?;
     Ok(crate::workspace::runner::Prepared {
+        approval_arrival: crate::providers::approval_arrival(),
         request_id: "codex-app-server".into(),
         run_id: "codex-app-server".into(),
         task_id: 0,
@@ -1409,6 +1411,7 @@ pub(crate) fn external_trust(
         "Process-tree ownership provides bounded cancellation, not filesystem/network isolation or rollback. Unsupported callback/capability is refused; missing authoritative completion remains outcome unknown. No automatic resend.".into(),
     ];
     let prepared = crate::workspace::runner::Prepared {
+        approval_arrival: crate::providers::approval_arrival(),
         request_id: "provider-session".into(),
         run_id: "provider-session".into(),
         task_id: 0,

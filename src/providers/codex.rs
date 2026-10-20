@@ -454,6 +454,7 @@ fn worker(
                 generation = generation.saturating_add(1);
                 preview_owner = Some((generation, input.task.id));
                 let mut preview = Preview {
+                    arrival: super::approval_arrival(),
                     destination: None,
                     requires_connection_review: true,
                     generation,
@@ -630,7 +631,7 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
         })).map_err(|_| "Could not encode catalogue inspection preview".into());
     }
     input.validate_review()?;
-    crate::store::validate_planning_input(data_dir, &input.task, &input.excerpts)?;
+    input.validate_committed(data_dir)?;
     if let Some(text) = input.review_payload(data_dir, exclusions)? {
         return Ok(text);
     }
@@ -1456,6 +1457,7 @@ impl Engine<'_> {
         }
     }
     fn start_selected_thread(&mut self) -> Result<(), String> {
+        revalidate(self.project, self.data_dir, self.exclusions, self.run)?;
         (self.model, self.effort) = self.catalogue.select(&self.run.input.selection)?;
         let mut params = json!({"cwd":self.project,"model":self.model,"sandbox":"read-only","approvalPolicy":"on-request","approvalsReviewer":"user","config":{"model_reasoning_effort":self.effort,"features.multi_agent":false,"web_search":"disabled","allow_login_shell":false}});
         if self.run.input.operation == Operation::Implement {
@@ -1941,17 +1943,18 @@ impl Engine<'_> {
                     coverage: coverage.into(),
                     text: text.into(),
                     complete,
-                    partner: None,
+                    partner: self
+                        .run
+                        .input
+                        .work
+                        .as_ref()
+                        .map(|claim| claim.owner.clone()),
                 },
             },
         )
     }
     fn revalidate_edit_session(&self) -> Result<(), String> {
-        crate::store::validate_planning_input(
-            self.data_dir,
-            &self.run.input.task,
-            &self.run.input.excerpts,
-        )?;
+        self.run.input.validate_committed(self.data_dir)?;
         crate::providers::agent::revalidate_planning_trust(self.project, &self.run.trust)?;
         for before in &self.edit_baseline {
             if read_edit_file(self.project, &before.path)? != *before {
@@ -2006,6 +2009,7 @@ impl Engine<'_> {
             }
             let item_id = identity(params, "callId")?;
             let prompt = Prompt {
+                arrival: super::approval_arrival(),
                 request_id: id.clone(), thread_id: self.thread_id.clone().unwrap(), turn_id: self.turn_id.clone().unwrap(), item_id,
                 kind: PromptKind::Permission {
                     description: format!("Eevee-controlled file replacement; exact selected path: {}\nBaseline includes dirty user edits. Only this replacement is allowed once; no provider-native write grant. Review requirement and preserve unrelated lines.\n{patch}", path.display()),
@@ -2140,6 +2144,7 @@ impl Engine<'_> {
             )?;
             return self.status("Stale/uncorrelated server request explicitly refused");
         }
+        self.run.input.validate_committed(self.data_dir)?;
         if method == "item/tool/call" {
             return self.request_edit(id, params);
         }
@@ -2254,6 +2259,7 @@ impl Engine<'_> {
             }
         };
         let prompt = Prompt {
+            arrival: super::approval_arrival(),
             request_id: id,
             thread_id: self.thread_id.clone().unwrap(),
             turn_id: self.turn_id.clone().unwrap(),
@@ -2290,6 +2296,7 @@ impl Engine<'_> {
             return self.status(&format!("Answer not sent: {error}"));
         }
         // Grant scope and immutable input/config remain valid at approval/answer dispatch as well.
+        self.run.input.validate_committed(self.data_dir)?;
         if self.pending_edit.is_some() {
             return self.answer_edit(generation, id, answer, index);
         }

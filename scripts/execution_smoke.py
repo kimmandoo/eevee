@@ -265,7 +265,7 @@ def main():
                     wait_for(session, "Approval pending", timeout=35)
 
             def approve(session):
-                session.command("run")
+                session.command("approvals")
                 wait_for(session, REVIEW)
                 session.send(RIGHT + "\r")
 
@@ -320,10 +320,10 @@ def main():
             first.send("\r")
             first.pump(0.4)
             assert not denied.exists() and not rows()["runs"], "neutral Enter executed a command"
-            first.command("run")
+            first.command("approvals")
             first.send(ESC)
             assert not denied.exists() and not rows()["runs"], "Esc executed a command"
-            first.command("run")
+            first.command("approvals")
             first.command("deny")
             wait_for(first, "Request denied")
             assert not denied.exists() and not rows()["runs"]
@@ -455,16 +455,11 @@ def main():
             assert task(task_a)["form"] == form_before and all(process.alive() for process in owned)
             resumed.capture("active-form-change-neutral-stay")
             resumed.command("cancel")
-            wait_for(resumed, "Cancel owned work / deny unstarted approval")
-            resumed.send("\r")
-            assert all(process.alive() for process in owned), "neutral cancellation terminated owned work"
-            resumed.command("cancel")
-            resumed.send(RIGHT + "\r")
             cancelled = final_run(resumed, 3, "Cancelled")
             exited(resumed, owned)
             assert cancelled["record"]["cancelled"] and cancelled["record"]["captured_bytes"] > 0
             resumed.capture("cancelled-owned-tree")
-            passed("neutral-cancel-stays-explicit-cancel-waits-for-owned-child-and-grandchild")
+            passed("explicit-lead-cancel-waits-for-owned-child-and-grandchild")
 
             owned, switched_command = start_tree(resumed, "task switch tree", 4)
             task_menu(resumed, 1)
@@ -487,11 +482,11 @@ def main():
             open_execution(resumed)
             owned, quit_command = start_tree(resumed, "quit tree", 5)
             resumed.command("quit")
-            wait_for(resumed, GUARD)
+            wait_for(resumed, "ALL owned work")
             resumed.send("\r")
             assert resumed.alive() and all(process.alive() for process in owned)
             resumed.command("quit")
-            wait_for(resumed, GUARD)
+            wait_for(resumed, "ALL owned work")
             resumed.capture("neutral-cancel-and-exit")
             resumed.send(RIGHT + "\r")
             final_run(resumed, 5, "Cancelled", idle=False)

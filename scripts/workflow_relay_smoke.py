@@ -260,6 +260,8 @@ def main():
                     if "y Run" in session.display():
                         session.capture("controlled-hypothesis-provider-review")
                         session.send("y")
+                    elif "1 pending approvals" in session.display() and "/approvals" in session.display():
+                        session.command("approvals")
                     session.pump(.05)
                 until(lambda: any(json.loads(line).get("kind") == "prompt" for line in peer_log.read_text().splitlines()), "controlled edit was not requested")
                 deadline = time.monotonic() + 30
@@ -379,6 +381,10 @@ def main():
                 session.send("\r")
                 wait_for(session, "argv differs")
                 session.send(ESC)
+                session.command("approvals")
+                wait_for(session, "Review one-shot execution permission")
+                session.command("deny")
+                desk("refactor")
                 session.command("fresh-baseline")
                 wait_for(session, "Command / explicit JSON argv or shell")
                 assert len(rows()[1]) == 3, "fresh fallback executed before approval"

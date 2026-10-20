@@ -993,6 +993,19 @@ impl App {
         if self.task_id <= 0 && !matches!(action, Action::Edit(_)) {
             return Err("Create and save a task before recording specialist work.".into());
         }
+        if (self.planning_any_busy() || self.execution_any_busy())
+            && matches!(
+                action,
+                Action::AddHypothesis
+                    | Action::SaveRefactor
+                    | Action::AddFinding
+                    | Action::ResolveFinding
+                    | Action::Review
+                    | Action::Verdict(_)
+            )
+        {
+            return Err("Finish owned work before changing committed specialist facts; the local draft is kept.".into());
+        }
         if matches!(action, Action::SaveRefactor) {
             self.workflow_refresh_baseline_identity();
         }
@@ -1580,6 +1593,12 @@ impl App {
     }
 
     fn workflow_apply_criteria(&mut self) -> Result<(), String> {
+        if self.planning_any_busy() || self.execution_any_busy() {
+            return Err(
+                "Finish owned work before changing committed criteria; the criteria draft is kept."
+                    .into(),
+            );
+        }
         if self.complete {
             return Err("Reopen the task before adding criteria.".into());
         }
@@ -1698,6 +1717,9 @@ impl App {
         &self,
         run: &crate::workspace::runner::RunRecord,
     ) -> Result<(), String> {
+        if run.revision_moving {
+            return Err("Revision moving: this run overlapped editing and is ineligible as a stable baseline.".into());
+        }
         let expected = self
             .workflow
             .baseline_expected
@@ -1809,7 +1831,7 @@ impl App {
         if self.complete {
             return Err("Reopen the completed task explicitly before applying a new plan.".into());
         }
-        if self.planning.busy() || self.execution.busy() {
+        if self.planning_any_busy() || self.execution_any_pending() {
             return Err("Finish or cancel active work before applying a recipe plan.".into());
         }
         let recipe = self

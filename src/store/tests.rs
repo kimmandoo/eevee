@@ -523,7 +523,7 @@ fn migrates_documented_schema_zero_and_one_atomically() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            12
+            13
         );
         assert!(connection.prepare("SELECT * FROM goals").is_err());
         assert!(connection.prepare("SELECT * FROM projects").is_err());
@@ -540,7 +540,7 @@ fn newer_foreign_and_corrupt_databases_are_untouched() {
         } else {
             let connection = Connection::open(&path).unwrap();
             connection.execute_batch(if fixture == 0 {
-                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=13;"
+                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=14;"
                 } else {
                     "CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('keep');"
                 }).unwrap();
@@ -1032,7 +1032,7 @@ fn crash_during_migration(directory: &Directory, kind: &str) {
         )
         .unwrap();
     match kind {
-            "newer" => connection.execute_batch("PRAGMA user_version=13;").unwrap(),
+            "newer" => connection.execute_batch("PRAGMA user_version=14;").unwrap(),
             "foreign" => connection.execute_batch("CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('preserve');").unwrap(),
             "one" => connection.execute_batch(
                 "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL);
@@ -1095,7 +1095,7 @@ fn process_interruption_recovers_legacy_and_current_committed_tasks() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            12
+            13
         );
     }
 }
@@ -2054,6 +2054,7 @@ fn captured_excerpt(task_id: i64, source: &Path, text: &str) -> crate::workspace
 
 fn prepared_run(task_id: i64, root: &Path, suffix: &str) -> crate::workspace::runner::Prepared {
     crate::workspace::runner::Prepared {
+        approval_arrival: 0,
         request_id: format!("request-{suffix}"),
         run_id: format!("run-{suffix}"),
         task_id,
@@ -2977,6 +2978,7 @@ fn downgrade_partners(connection: &Connection) {
     connection
         .execute_batch(
             "DROP TABLE provider_preferences;
+             DROP TABLE active_work;
              DROP TABLE partners;
              ALTER TABLE tasks DROP COLUMN lead_partner;
              ALTER TABLE tasks DROP COLUMN partner_drafts;
@@ -3527,7 +3529,7 @@ fn review_reads_only_linked_owned_observations_and_rejects_unsaved_selection() {
     let prepared = prepared_run(task.id, &store.data_dir, "review");
     let _permit = store.reserve_run(task.id, prepared.clone(), 4096).unwrap();
     assert!(
-        review_run_observations(&directory.0, &task)
+        review_run_observations(&directory.0, &task, None)
             .unwrap()
             .is_empty()
     );
@@ -3548,10 +3550,10 @@ fn review_reads_only_linked_owned_observations_and_rejects_unsaved_selection() {
             },
         ],
     });
-    assert!(review_run_observations(&directory.0, &task).is_err());
+    assert!(review_run_observations(&directory.0, &task, None).is_err());
     task.revision += 1;
     task = store.save(task).unwrap();
-    let records = review_run_observations(&directory.0, &task).unwrap();
+    let records = review_run_observations(&directory.0, &task, None).unwrap();
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].prepared.run_id, prepared.run_id);
     assert_eq!(records[0].prepared.task_id, task.id);
@@ -3566,7 +3568,7 @@ fn review_reads_only_linked_owned_observations_and_rejects_unsaved_selection() {
             task_id: task.id + 1,
             run_id: prepared.run_id,
         }];
-    assert!(review_run_observations(&directory.0, &foreign).is_err());
+    assert!(review_run_observations(&directory.0, &foreign, None).is_err());
 }
 
 #[test]
@@ -3899,14 +3901,16 @@ fn schema_eight_migrates_request_drafts_without_changing_task_facts() {
     let mut connection = Connection::open_in_memory().unwrap();
     initialize(&mut connection).unwrap();
     connection
-        .execute_batch("DROP TABLE provider_preferences; PRAGMA user_version=8;")
+        .execute_batch(
+            "DROP TABLE active_work; DROP TABLE provider_preferences; PRAGMA user_version=8;",
+        )
         .unwrap();
     initialize(&mut connection).unwrap();
     assert_eq!(
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        12
+        13
     );
     let mut task = Snapshot::empty("/workspace".into());
     task.goal = "Stable task identity".into();
@@ -4023,7 +4027,9 @@ fn schema_nine_preference_migration_is_atomic_and_preserves_existing_data() {
     drop(store);
     let mut connection = Connection::open(directory.0.join(DATABASE)).unwrap();
     connection
-        .execute_batch("DROP TABLE provider_preferences; PRAGMA user_version=9;")
+        .execute_batch(
+            "DROP TABLE active_work; DROP TABLE provider_preferences; PRAGMA user_version=9;",
+        )
         .unwrap();
     {
         let transaction = connection.transaction().unwrap();
@@ -4143,7 +4149,9 @@ fn schema_ten_dismissal_migration_only_changes_version_and_rolls_back_atomically
     connection
         .execute("UPDATE tasks SET navigation=?1", [navigation])
         .unwrap();
-    connection.execute_batch("PRAGMA user_version=10;").unwrap();
+    connection
+        .execute_batch("DROP TABLE active_work; PRAGMA user_version=10;")
+        .unwrap();
     let tables = [
         "tasks",
         "excerpts",
@@ -4154,7 +4162,6 @@ fn schema_ten_dismissal_migration_only_changes_version_and_rolls_back_atomically
         "partners",
         "memories",
         "sqlite_sequence",
-        "sqlite_schema",
     ];
     // SQLite values retain each original TEXT/BLOB byte, not a parsed JSON representation.
     let before: Vec<_> = tables
@@ -4169,7 +4176,7 @@ fn schema_ten_dismissal_migration_only_changes_version_and_rolls_back_atomically
             transaction
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            12
+            13
         );
         assert!(matches!(inspect(&transaction).unwrap(), Schema::Current));
         for (table, rows) in tables.iter().zip(&before) {
@@ -4191,7 +4198,7 @@ fn schema_ten_dismissal_migration_only_changes_version_and_rolls_back_atomically
         connection
             .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
             .unwrap(),
-        12
+        13
     );
     for (table, rows) in tables.iter().zip(&before) {
         assert_eq!(stored_table_rows(&connection, table), *rows, "{table}");
@@ -4329,7 +4336,16 @@ fn attribution(partner: i64, name: &str, form: usize) -> Attribution {
 fn runs_name_their_partner_and_older_records_stay_partner_unknown() {
     let directory = Directory::new();
     let mut store = state(&directory, "project", Policy::default());
-    let task = store.save(snapshot("project", 1)).unwrap();
+    let mut initial = snapshot("project", 1);
+    initial.form = 2;
+    let task = store.save(initial).unwrap();
+    store.add_partner().unwrap();
+    store.nickname_partner(1, Some("Bolt".into())).unwrap();
+    let mut routed = task.clone();
+    routed.revision += 1;
+    routed.lead_partner = 2;
+    routed.form = 1;
+    store.save(routed).unwrap();
     store.select(task.id).unwrap();
     let mut finish = |suffix: &str, partner: Option<Attribution>| {
         let mut prepared = prepared_run(task.id, &store.data_dir, suffix);
@@ -4501,4 +4517,281 @@ fn location_pin_requires_a_task_owned_run_and_retains_its_origin_after_reopen() 
         captured[0].origin_run.as_deref(),
         Some(prepared.run_id.as_str())
     );
+}
+
+fn work_claim(
+    store: &State,
+    task: &Snapshot,
+    partner: i64,
+    request: &str,
+    writing: bool,
+) -> WorkClaim {
+    let roster = partners(store.connection.as_ref().unwrap()).unwrap();
+    WorkClaim {
+        task_id: task.id,
+        owner: Attribution::of(roster.iter().find(|member| member.id == partner).unwrap()),
+        request_id: request.into(),
+        writing,
+    }
+}
+
+fn claim_work(
+    store: &mut State,
+    task: &Snapshot,
+    claim: &WorkClaim,
+) -> Result<Vec<WorkClaim>, String> {
+    store.work_request(&WorkRequest::Acquire {
+        claim: claim.clone(),
+        task: Box::new(task.clone()),
+    })
+}
+
+#[test]
+fn work_ownership_bounds_exact_idempotence_and_stale_release() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let task = store.save(snapshot("project", 1)).unwrap();
+    for _ in 0..3 {
+        store.add_partner().unwrap();
+    }
+    let first = work_claim(&store, &task, 1, "writer-one", true);
+    let second = work_claim(&store, &task, 2, "writer-two", true);
+    assert_eq!(
+        claim_work(&mut store, &task, &first).unwrap(),
+        vec![first.clone()]
+    );
+    assert_eq!(
+        claim_work(&mut store, &task, &first).unwrap(),
+        vec![first.clone()]
+    );
+    assert!(claim_work(&mut store, &task, &second).is_err());
+    let second = WorkClaim {
+        writing: false,
+        ..second
+    };
+    let third = work_claim(&store, &task, 3, "reader-three", false);
+    let fourth = work_claim(&store, &task, 4, "reader-four", false);
+    claim_work(&mut store, &task, &second).unwrap();
+    assert_eq!(claim_work(&mut store, &task, &third).unwrap().len(), 3);
+    assert!(claim_work(&mut store, &task, &fourth).is_err());
+    let mut forged = first.clone();
+    forged.owner.name = "not its owner".into();
+    assert!(store.work_request(&WorkRequest::Release(forged)).is_err());
+    store
+        .work_request(&WorkRequest::Release(first.clone()))
+        .unwrap();
+    store
+        .work_request(&WorkRequest::Release(first.clone()))
+        .unwrap();
+    let successor = WorkClaim {
+        request_id: "writer-successor".into(),
+        ..first.clone()
+    };
+    claim_work(&mut store, &task, &successor).unwrap();
+    let active = store.work_request(&WorkRequest::Release(first)).unwrap();
+    assert!(active.contains(&successor));
+    assert_eq!(active.len(), 3);
+}
+
+#[test]
+fn work_acquire_requires_exact_committed_task_and_live_owner() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let task = store.save(snapshot("project", 1)).unwrap();
+    let first = work_claim(&store, &task, 1, "exact-preview", false);
+    let mut unsaved = task.clone();
+    unsaved.command = "not committed".into();
+    assert!(claim_work(&mut store, &unsaved, &first).is_err());
+    let mut stale_owner = first.clone();
+    stale_owner.owner.name = "old nickname".into();
+    assert!(claim_work(&mut store, &task, &stale_owner).is_err());
+    claim_work(&mut store, &task, &first).unwrap();
+    let other = store.save(snapshot("project", 1)).unwrap();
+    let other_claim = work_claim(&store, &other, 1, "other-task", false);
+    assert!(claim_work(&mut store, &other, &other_claim).is_err());
+    assert!(validate_work_input(&directory.0, &other, &[], &first).is_err());
+}
+
+#[test]
+fn claimed_admission_allows_ui_and_audit_saves_but_not_shared_fact_changes() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let task = store.save(snapshot("project", 1)).unwrap();
+    store.add_partner().unwrap();
+    let claim = work_claim(&store, &task, 1, "immutable-input", true);
+    claim_work(&mut store, &task, &claim).unwrap();
+    let mut live = task.clone();
+    live.revision += 1;
+    live.lead_partner = 2;
+    live.form = 0;
+    live.command = "future command".into();
+    live.navigation.focus = 2;
+    live.partner_drafts.insert(
+        2,
+        PartnerDrafts {
+            drafts: vec![Draft {
+                field: EditorField::Request,
+                text: "follow-up".into(),
+                cursor: 9,
+            }],
+            ..PartnerDrafts::default()
+        },
+    );
+    live.workflows.review_generation += 1;
+    live.workflows.review_stale = true;
+    live.workflows
+        .patch_authors
+        .push(crate::workspace::workflows::PatchAuthor {
+            partner: 1,
+            path: "src/lib.rs".into(),
+            source_sha256: [1; 32],
+            record_id: "patch-record".into(),
+        });
+    let live = store.save(live).unwrap();
+    validate_work_input(&directory.0, &task, &[], &claim).unwrap();
+    assert!(validate_planning_input(&directory.0, &task, &[]).is_err());
+    let mut changed = live.clone();
+    changed.revision += 1;
+    changed.goal = "changed canonical goal".into();
+    store.save(changed).unwrap();
+    assert!(validate_work_input(&directory.0, &task, &[], &claim).is_err());
+    store
+        .work_request(&WorkRequest::Release(claim.clone()))
+        .unwrap();
+    assert!(validate_work_input(&directory.0, &task, &[], &claim).is_err());
+}
+
+#[test]
+fn claims_guard_selected_capture_identity_and_destructive_boundaries() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let task = store.save(snapshot("project", 1)).unwrap();
+    let source = directory.0.join("source.rs");
+    fs::write(&source, "visible\n").unwrap();
+    let basket = store
+        .context(ContextRequest {
+            task_id: task.id,
+            operation: ContextOperation::Pin(captured_excerpt(task.id, &source, "visible\n")),
+        })
+        .unwrap();
+    let claim = work_claim(&store, &task, 1, "capture-owner", false);
+    claim_work(&mut store, &task, &claim).unwrap();
+    validate_work_input(&directory.0, &task, &basket, &claim).unwrap();
+    let mut changed = basket.clone();
+    changed[0].text = "substituted".into();
+    assert!(validate_work_input(&directory.0, &task, &changed, &claim).is_err());
+    assert!(
+        store
+            .manage(Management::Archive {
+                id: task.id,
+                archived: true
+            })
+            .is_err()
+    );
+    assert!(
+        store
+            .manage(Management::Delete {
+                ids: vec![task.id],
+                expired_before: None
+            })
+            .is_err()
+    );
+    assert!(
+        store
+            .context(ContextRequest {
+                task_id: task.id,
+                operation: ContextOperation::Remove(basket[0].id)
+            })
+            .is_err()
+    );
+    store
+        .work_request(&WorkRequest::Release(claim.clone()))
+        .unwrap();
+    store
+        .context(ContextRequest {
+            task_id: task.id,
+            operation: ContextOperation::Remove(basket[0].id),
+        })
+        .unwrap();
+    assert!(validate_work_input(&directory.0, &task, &basket, &claim).is_err());
+}
+
+#[test]
+fn startup_recovers_claims_only_after_exclusive_writer_lock() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let task = store.save(snapshot("project", 1)).unwrap();
+    let claim = work_claim(&store, &task, 1, "crashed-writer", true);
+    claim_work(&mut store, &task, &claim).unwrap();
+    let mut refused = State {
+        data_dir: directory.0.clone(),
+        project: "project".into(),
+        policy: Policy::default(),
+        connection: None,
+        lock: None,
+    };
+    assert!(refused.open_and_load().is_err());
+    validate_work_input(&directory.0, &task, &[], &claim).unwrap();
+    drop(refused);
+    drop(store);
+    let mut reopened = state(&directory, "project", Policy::default());
+    assert!(
+        work::claims(reopened.connection.as_ref().unwrap())
+            .unwrap()
+            .is_empty()
+    );
+    assert!(validate_work_input(&directory.0, &task, &[], &claim).is_err());
+    let replacement = work_claim(&reopened, &task, 1, "new-writer", true);
+    claim_work(&mut reopened, &task, &replacement).unwrap();
+}
+
+#[test]
+fn schema_twelve_work_migration_preserves_old_rows_and_transactional_fence() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    store.save(snapshot("project", 1)).unwrap();
+    drop(store);
+    let mut connection = Connection::open(directory.0.join(DATABASE)).unwrap();
+    connection
+        .execute_batch("DROP TABLE active_work; PRAGMA user_version=12;")
+        .unwrap();
+    let tables = [
+        "tasks",
+        "executions",
+        "excerpts",
+        "provider_journal",
+        "partners",
+        "memories",
+        "selections",
+        "provider_preferences",
+        "sqlite_sequence",
+    ];
+    let before: Vec<_> = tables
+        .iter()
+        .map(|table| stored_table_rows(&connection, table))
+        .collect();
+    {
+        let transaction = connection.transaction().unwrap();
+        migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
+        assert_eq!(
+            transaction
+                .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
+                .unwrap(),
+            13
+        );
+        for (table, rows) in tables.iter().zip(&before) {
+            assert_eq!(stored_table_rows(&transaction, table), *rows, "{table}");
+        }
+    }
+    assert_eq!(
+        connection
+            .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
+            .unwrap(),
+        12
+    );
+    initialize(&mut connection).unwrap();
+    inspect(&connection).unwrap();
+    for (table, rows) in tables.iter().zip(&before) {
+        assert_eq!(stored_table_rows(&connection, table), *rows, "{table}");
+    }
 }
