@@ -366,6 +366,9 @@ pub fn baseline_eligibility(
     expected: &runner::Prepared,
     current: &runner::InputSnapshot,
 ) -> Result<(), String> {
+    if run.revision_moving {
+        return Err("revision moving during command execution".into());
+    }
     if !passed(run) {
         return Err("not a complete retained passing run".into());
     }
@@ -404,6 +407,7 @@ fn historical_run_status(run: &runner::RunRecord) -> EvidenceStatus {
         || run.ended_at_ms.is_none()
         || run.started_at_ms > run.ended_at_ms
         || run.tree != runner::TreeOutcome::OwnedTreeExited
+        || run.revision_moving
         || run.cancelled
         || run.truncated
         || run.discarded_bytes != 0

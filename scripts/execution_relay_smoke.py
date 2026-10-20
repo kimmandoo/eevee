@@ -236,13 +236,17 @@ def main():
                 session.send(UP * 256)
                 until(lambda: "Stale" in session.display(), "source edit did not stale the retained check")
                 session.command("rerun")
+                wait_for(session, "Approval pending")
+                session.command("approvals")
                 wait_for(session, "Review one-shot execution permission", timeout=40)
                 session.send(ESC)
                 assert len(rows()[1]) == 5, "dismissed rerun review executed a command"
-                session.command("run")
+                session.command("approvals")
                 session.command("deny")
                 assert len(rows()[1]) == 5, "denied rerun executed a command"
                 session.command("rerun")
+                wait_for(session, "Approval pending")
+                session.command("approvals")
                 wait_for(session, "Review one-shot execution permission")
                 session.send(RIGHT + "\r")
                 until(lambda: len(rows()[1]) == 6 and rows()[1][-1]["ended_at_ms"] is not None,

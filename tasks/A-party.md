@@ -50,7 +50,7 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT04C — Release a partner
 
-- [ ] Remove an idle partner with a clear preview.
+- [x] Remove an idle partner with a clear preview.
 - **Priority:** 2. **Needs:** PT04B. **Builds on:** E03.
 - **Change:** Show a preview of what is deleted (moves, pairings, previous-form state) and what stays (tasks, evidence with a name snapshot); approval is neutral. Partner #1 can be released only if another partner remains.
 - **Accept:** Release an idle partner and its rows disappear while evidence still shows the snapshot name. A working partner, or the last partner, cannot be released.
@@ -96,7 +96,7 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT08A — Write lease
 
-- [ ] Allow only one editing partner per task.
+- [x] Allow only one editing partner per task.
 - **Priority:** 2. **Needs:** PT06B. **Builds on:** A03, L01.
 - **Change:** Edit-capable work (Flareon, Leafeon) takes a per-task lease shown in the header. A second edit request shows `Bolt (Flareon) is editing` and starts nothing. The lease is released on completion, cancellation and startup recovery.
 - **Accept:** Two Flareon partners request edits: the second waits. Killing the process mid-edit and restarting leaves no stale lease.
@@ -104,14 +104,14 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT08B — `revision moving` runs
 
-- [ ] Stop runs during an edit from counting as fresh verification.
+- [x] Stop runs during an edit from counting as fresh verification.
 - **Priority:** 2. **Needs:** PT08A. **Builds on:** R02.
 - **Change:** A run started while a lease is held records `revision moving` instead of a stable revision. Glaceon and stale markers never treat it as current.
 - **Accept:** A Jolteon run during a Flareon edit shows `revision moving` and is not offered as verification.
 
 ### PT07A — Concurrent working partners
 
-- [ ] Let up to three partners work on one task at once.
+- [x] Let up to three partners work on one task at once.
 - **Priority:** 2. **Needs:** PT08B, PT06C. **Builds on:** R02, UX02.
 - **Change:** Allow several request slots to run concurrently, up to 3 per task; a fourth is refused with the reason. The header shows the working partners.
 - **Accept:** Mizu (Vaporeon) runs a provider planning request while Bolt (Jolteon) runs an approved command; both finish with correct attribution and receipts.
@@ -119,7 +119,7 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT07B — Approval queue
 
-- [ ] Answer concurrent approvals one at a time.
+- [x] Answer concurrent approvals one at a time.
 - **Priority:** 2. **Needs:** PT07A. **Builds on:** R01.
 - **Change:** Pending approvals and questions queue in arrival order; the dialog shows `1 of 2` with partner names. Esc defers without answering.
 - **Accept:** Two partners ask at once; each answer goes to the right partner, and deferring keeps both pending.
@@ -127,14 +127,14 @@ Contract: [DESIGN_RULES § Party](../docs/DESIGN_RULES.md) (confirmed 2026-10-15
 
 ### PT07C — Cancel all and quit with working partners
 
-- [ ] Stop cooperating work safely.
+- [x] Stop cooperating work safely.
 - **Priority:** 2. **Needs:** PT07A. **Builds on:** UX02.
 - **Change:** `Cancel` targets the lead's work; `Cancel all` lists every working partner first. Quitting with working partners lists them all with Stay as the default.
 - **Accept:** Cancel one partner while the other keeps running. Cancel all stops both, and a quit review lists both.
 
 ### PT09 — Party board
 
-- [ ] See every working partner at a glance.
+- [x] See every working partner at a glance.
 - **Priority:** 2. **Needs:** PT07A. **Builds on:** UX02.
 - **Change:** A compact HUD above the composer with one line per working or waiting partner (sprite, name, form, status, last event), collapsing to a count at 60×18. Selecting a line focuses that partner.
 - **Accept:** With three working partners, each line updates only from its own events, and the count opens the full board at 60×18.

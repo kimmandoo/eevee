@@ -10,6 +10,7 @@ fn prepared() -> runner::Prepared {
         request_id: "r-test-request".into(),
         run_id: "r-test-run".into(),
         task_id: 1,
+        approval_arrival: 1,
         spec: runner::CommandSpec::Direct {
             program: "tool".into(),
             args: vec!["中文 space;literal".into()],
@@ -140,6 +141,8 @@ fn approval_is_neutral_dismissible_one_shot_and_never_focus_stealing() {
     assert!(state.prepared.is_some());
     state.command("run");
     state.key(key(KeyCode::Right));
+    state.shown = true;
+    state.confirmation_visible = true;
     state.key(key(KeyCode::Enter));
     assert!(matches!(state.queue.front(), Some(StoreJob::Reserve(..))));
     assert_eq!(state.queue.len(), 1);
@@ -208,6 +211,7 @@ fn edit_and_explicit_denial_invalidate_grants_but_dismissal_does_not() {
     state.key(key(KeyCode::Esc));
     assert!(state.request_id.is_some());
     state.command("run");
+    state.shown = true;
     state.command("deny");
     assert!(state.invalidation && state.request_id.is_none() && state.prepared.is_none());
     let mut state = pending();
@@ -653,5 +657,568 @@ fn irreversible_journal_masking_disables_exact_rerun_instead_of_substituting_arg
             .unwrap()
             .reason
             .is_none()
+    );
+}
+
+fn command_owner(partner: i64) -> store::Attribution {
+    store::Attribution {
+        partner,
+        name: format!("Eevee #{partner}"),
+        form: 0,
+    }
+}
+
+#[test]
+fn deferred_command_consent_requires_exact_owner_request_run_and_new_visibility() {
+    let mut state = pending();
+    state.owner = Some(command_owner(1));
+    state
+        .prepared
+        .as_mut()
+        .unwrap()
+        .partner
+        .clone_from(&state.owner);
+    let original = state.prepared.clone().unwrap();
+    state.command("run");
+    state.confirmation_visible = true;
+    state.key(key(KeyCode::Right));
+    state.key(key(KeyCode::Esc));
+    assert!(!state.shown && state.confirmation.is_none());
+    assert!(state.busy());
+    assert_eq!(state.prepared.as_ref(), Some(&original));
+    for (task, partner, request, run) in [
+        (2, 1, original.request_id.as_str(), original.run_id.as_str()),
+        (1, 2, original.request_id.as_str(), original.run_id.as_str()),
+        (1, 1, "replacement-request", original.run_id.as_str()),
+        (1, 1, original.request_id.as_str(), "replacement-run"),
+    ] {
+        assert!(!state.focus_approval(task, partner, request, run));
+    }
+    assert!(state.focus_approval(1, 1, &original.request_id, &original.run_id));
+    assert!(!state.affirmative && !state.confirmation_visible);
+    state.key(key(KeyCode::Right));
+    state.key(key(KeyCode::Enter));
+    assert!(
+        state.queue.is_empty(),
+        "keyboard selection alone is not visible consent"
+    );
+    state.confirmation_visible = true;
+    state.key(key(KeyCode::Enter));
+    assert!(matches!(state.queue.front(), Some(StoreJob::Reserve(p, _)) if p == &original));
+}
+
+#[test]
+fn replacement_owner_and_mutated_review_cannot_take_over_command_consent() {
+    let mut state = pending();
+    state.owner = Some(command_owner(1));
+    state
+        .prepared
+        .as_mut()
+        .unwrap()
+        .partner
+        .clone_from(&state.owner);
+    let original = state.prepared.clone();
+    assert!(!state.prepare_command_for(1, Some(command_owner(2)), r#"["other-tool"]"#));
+    assert_eq!(state.prepared, original);
+    assert_eq!(state.owner, Some(command_owner(1)));
+    assert!(!state.request_cancel_for(1, 2));
+    assert!(!state.request_cancel_for(2, 1));
+    assert_eq!(state.prepared, original);
+    for mutation in 0..3 {
+        let mut state = pending();
+        state.command("run");
+        state.confirmation_visible = true;
+        match mutation {
+            0 => state.prepared.as_mut().unwrap().run_id.push_str("-changed"),
+            1 => state.prepared.as_mut().unwrap().partner = Some(command_owner(2)),
+            _ => state.prepared.as_mut().unwrap().spec = parse_command(r#"["changed"]"#).unwrap(),
+        }
+        state.key(key(KeyCode::Char('y')));
+        assert!(
+            state.queue.is_empty(),
+            "changed review scope cannot reserve"
+        );
+    }
+    assert!(state.request_cancel_for(1, 1));
+    assert!(state.prepared.is_none() && state.request_id.is_none());
+}
+
+#[test]
+fn moving_revision_is_never_labelled_fresh_even_when_all_hashes_match() {
+    let mut result = record(runner::RunState::Succeeded);
+    result.revision_moving = true;
+    let label = evidence_label(&result, &identity("same"));
+    assert!(label.contains("Revision moving"));
+    assert!(!label.contains("Before/after match"));
+    let mut state = pending();
+    state.active = Some(record(runner::RunState::Running));
+    let mut stored = state.active.clone().unwrap();
+    stored.revision_moving = true;
+    state.critical(StoreJob::Update(stored.clone()));
+    state.take_store_request().unwrap();
+    state.store_event(
+        1,
+        Some("r-test-request"),
+        Some("r-test-run"),
+        Ok(store::RunResponse::Updated(stored)),
+    );
+    assert!(state.active.as_ref().unwrap().revision_moving);
+}
+
+fn next_store_event(worker: &store::Worker) -> store::Event {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    loop {
+        if let Some(event) = worker.try_event() {
+            return event;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "store event timed out"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+fn settle_run_request(state: &mut State, worker: &store::Worker) -> bool {
+    let Some(request) = state.take_store_request() else {
+        return false;
+    };
+    assert!(worker.try_run(&mut Some(request)));
+    match next_store_event(worker) {
+        store::Event::Run {
+            task_id,
+            request_id,
+            run_id,
+            result,
+        } => {
+            state.store_event(
+                task_id,
+                request_id.as_deref(),
+                run_id.as_deref(),
+                result.map(|response| *response),
+            );
+        }
+        other => panic!("expected correlated execution response: {other:?}"),
+    }
+    true
+}
+
+#[cfg(unix)]
+#[test]
+fn real_reserve_capacity_race_retains_command_then_runs_beside_provider_and_releases_owner() {
+    struct Temp(std::path::PathBuf);
+    impl Drop for Temp {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let temp = Temp(std::env::temp_dir().join(format!(
+        "eevee-command-cooperation-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    )));
+    std::fs::create_dir_all(&temp.0).unwrap();
+    let cwd = std::fs::canonicalize(&temp.0).unwrap();
+    let project = cwd.to_str().unwrap().to_owned();
+    let storage = store::Worker::start(
+        cwd.join("storage"),
+        project.clone(),
+        store::Policy::default(),
+    )
+    .unwrap();
+    assert!(matches!(
+        next_store_event(&storage),
+        store::Event::Loaded(_)
+    ));
+    for _ in 0..3 {
+        assert!(storage.try_party(&mut Some(store::PartyRequest::Add)));
+        assert!(matches!(
+            next_store_event(&storage),
+            store::Event::Party(Ok(_))
+        ));
+    }
+    let mut task = store::Snapshot::empty(project);
+    task.goal = "cooperative command ownership".into();
+    task.revision = 1;
+    task.command = r#"["/bin/echo","owned original command"]"#.into();
+    assert!(storage.try_save(&mut Some(task.clone())));
+    task = match next_store_event(&storage) {
+        store::Event::Saved(task) => task,
+        other => panic!("expected committed task: {other:?}"),
+    };
+    let claims: Vec<_> = (1..=3)
+        .map(|partner| store::WorkClaim {
+            task_id: task.id,
+            owner: command_owner(partner),
+            request_id: format!("provider-owned-{partner}"),
+            writing: false,
+        })
+        .collect();
+    for claim in &claims {
+        assert!(storage.try_work(&mut Some(store::WorkRequest::Acquire {
+            claim: claim.clone(),
+            task: Box::new(task.clone())
+        })));
+        assert!(matches!(
+            next_store_event(&storage),
+            store::Event::Work { result: Ok(_), .. }
+        ));
+    }
+    let runner = runner::Worker::start().unwrap();
+    let mut state = State::default();
+    assert!(state.prepare_command_for(task.id, Some(command_owner(4)), &task.command));
+    state.before_ready = Some(identity("same"));
+    state.repo_request = false;
+    state.drive(&runner, task.id, &cwd);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while state.prepared.is_none() {
+        if let Some(event) = runner.try_event() {
+            state.runner_event(event);
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "command preparation timed out"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let original = state.prepared.clone().unwrap();
+    state.shown = true;
+    state.command("run");
+    state.confirmation_visible = true;
+    state.key(key(KeyCode::Char('y')));
+    assert!(settle_run_request(&mut state, &storage));
+    assert!(
+        state
+            .error
+            .as_ref()
+            .is_some_and(|error| error.layer == "Storage / reservation")
+    );
+    assert_eq!(state.prepared.as_ref(), Some(&original));
+    assert!(state.permit.is_none() && state.active.is_none());
+    for claim in &claims[1..] {
+        assert!(storage.try_work(&mut Some(store::WorkRequest::Release(claim.clone()))));
+        assert!(matches!(
+            next_store_event(&storage),
+            store::Event::Work { result: Ok(_), .. }
+        ));
+    }
+    // Another lead's saved command/form/draft changes cannot replace this approved input.
+    task.lead_partner = 2;
+    task.command = r#"["/bin/echo","future draft only"]"#.into();
+    task.form = 1;
+    task.revision += 1;
+    assert!(storage.try_save(&mut Some(task)));
+    task = match next_store_event(&storage) {
+        store::Event::Saved(task) => task,
+        other => panic!("routing save must remain available during provider work: {other:?}"),
+    };
+    assert!(state.focus_approval(task.id, 4, &original.request_id, &original.run_id));
+    state.confirmation_visible = true;
+    state.key(key(KeyCode::Char('y')));
+    assert!(storage.try_run(&mut state.take_store_request()));
+    let reserved = next_store_event(&storage);
+    let writer = store::WorkClaim {
+        task_id: task.id,
+        owner: command_owner(3),
+        request_id: "late-writer".into(),
+        writing: true,
+    };
+    assert!(storage.try_work(&mut Some(store::WorkRequest::Acquire {
+        claim: writer.clone(),
+        task: Box::new(task.clone())
+    })));
+    assert!(matches!(
+        next_store_event(&storage),
+        store::Event::Work { result: Ok(_), .. }
+    ));
+    state.mark_revision_moving(task.id);
+    match reserved {
+        store::Event::Run {
+            task_id,
+            request_id,
+            run_id,
+            result,
+        } => {
+            state.store_event(
+                task_id,
+                request_id.as_deref(),
+                run_id.as_deref(),
+                result.map(|response| *response),
+            );
+        }
+        other => panic!("expected reserved command before late writer: {other:?}"),
+    }
+    assert!(
+        state.permit.as_ref().unwrap().revision_moving,
+        "writer acquired before reservation ack must taint the permit"
+    );
+    state.drive(&runner, task.id, &cwd);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while state.busy() {
+        while let Some(event) = runner.try_event() {
+            state.runner_event(event);
+        }
+        if state.final_record.is_some() {
+            state.repo_started();
+            state.repo_observed(None);
+        }
+        while settle_run_request(&mut state, &storage) {}
+        assert!(
+            std::time::Instant::now() < deadline,
+            "owned command settlement timed out: {}",
+            state.details()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let completed = state
+        .history
+        .iter()
+        .find(|record| record.prepared.run_id == original.run_id)
+        .unwrap();
+    assert_eq!(completed.prepared, original);
+    assert_eq!(completed.state, runner::RunState::Succeeded);
+    assert_eq!(completed.prepared.partner, Some(command_owner(4)));
+    assert!(completed.revision_moving);
+    assert!(
+        state.moving_request.is_none(),
+        "terminal settlement clears only the request's pending taint"
+    );
+    assert!(storage.try_work(&mut Some(store::WorkRequest::Release(writer))));
+    assert!(matches!(
+        next_store_event(&storage),
+        store::Event::Work { result: Ok(_), .. }
+    ));
+    assert!(storage.try_work(&mut Some(store::WorkRequest::Acquire {
+        claim: claims[2].clone(),
+        task: Box::new(task)
+    })));
+    match next_store_event(&storage) {
+        store::Event::Work {
+            result: Ok(active), ..
+        } => {
+            assert_eq!(active.len(), 2);
+            assert!(active.iter().all(|claim| claim.owner.partner != 4));
+            assert!(
+                active.contains(&claims[0]),
+                "provider ownership survives command settlement"
+            );
+        }
+        other => panic!("terminal transaction must release command claim: {other:?}"),
+    }
+}
+
+#[test]
+fn command_relay_admission_counts_provider_owner_without_using_global_busy() {
+    let mut task = store::Snapshot::empty("/workspace".into());
+    task.id = 7;
+    task.goal = "shared task".into();
+    task.revision = 1;
+    task.command = r#"["tool","retained draft"]"#.into();
+    let mut app = super::super::App::new("/workspace".into(), 120, 36);
+    app.store_event(store::Event::Loaded(store::Project {
+        tasks: vec![task.clone()],
+        partners: (1..=4)
+            .map(|id| store::Partner {
+                id,
+                ..store::Partner::default()
+            })
+            .collect(),
+        active_id: Some(task.id),
+        usage_bytes: 0,
+    }));
+    app.planning.command("new", true, &task, &[], None);
+    assert!(app.planning.busy());
+    assert_eq!(app.planning.owner().map(|owner| owner.partner), Some(1));
+    let draft = app.command.clone();
+    app.prepare_command_relay(&draft, command_owner(1));
+    assert!(
+        app.execution.pending_spec.is_none(),
+        "provider owner cannot acquire local work too"
+    );
+    assert_eq!(app.command, draft);
+    app.prepare_command_relay(&draft, command_owner(2));
+    let other = app.execution_state(2).unwrap();
+    assert_eq!(other.owner, Some(command_owner(2)));
+    assert!(
+        other.pending_spec.is_some(),
+        "another partner's provider does not block command admission"
+    );
+    assert!(
+        !other.shown,
+        "a background save acknowledgment cannot steal the lead's focus"
+    );
+    assert_eq!(app.lead().id, 1);
+    assert_eq!(app.command, draft);
+    assert!(
+        app.planning.busy(),
+        "local admission never cancels another partner"
+    );
+}
+
+#[test]
+fn independent_partner_states_share_evidence_without_transferring_work_or_consent() {
+    let mut owner = pending();
+    owner.owner = Some(command_owner(1));
+    owner
+        .prepared
+        .as_mut()
+        .unwrap()
+        .partner
+        .clone_from(&owner.owner);
+    owner.latest = identity("shared-source");
+    owner.set_capture_capacity(8192);
+    let retained = record(runner::RunState::Succeeded);
+    owner.history.push(retained.clone());
+    owner.command("run");
+    owner.confirmation_visible = true;
+    let mut other = owner.new_partner_state(1);
+    assert_eq!(other.latest, owner.latest);
+    assert_eq!(other.capture_capacity, 8192);
+    assert_eq!(other.history, owner.history);
+    assert!(other.owner.is_none() && !other.busy() && !other.needs_runner());
+    assert!(other.prepared.is_none() && other.confirmation.is_none());
+    assert!(!other.shown && other.live.lines.is_empty());
+    assert!(other.prepare_command_for(1, Some(command_owner(2)), r#"["other-tool"]"#));
+    assert_eq!(owner.owner, Some(command_owner(1)));
+    assert!(owner.prepared.is_some() && owner.confirmation_visible);
+    assert_eq!(other.owner, Some(command_owner(2)));
+    assert!(other.request_cancel_for(1, 2));
+    assert!(
+        owner.prepared.is_some(),
+        "another partner's cancellation is independent"
+    );
+    let mut updated = retained.clone();
+    updated.revision_moving = true;
+    let selection = owner.selected_run.clone();
+    owner.observe_record(&updated);
+    owner.observe_record(&updated);
+    assert_eq!(owner.history.len(), 1);
+    assert!(owner.history[0].revision_moving);
+    assert_eq!(owner.selected_run, selection);
+    assert_eq!(owner.owner, Some(command_owner(1)));
+    assert!(owner.prepared.is_some());
+    let foreign = owner.new_partner_state(2);
+    assert!(foreign.history.is_empty());
+    assert_eq!(foreign.latest, runner::InputSnapshot::default());
+}
+
+#[test]
+fn parked_storage_and_late_writer_helpers_preserve_task_owned_settlement() {
+    let mut state = State {
+        task_id: 1,
+        ..State::default()
+    };
+    state.optional(StoreJob::Load(1));
+    assert!(state.storage_pending() && !state.needs_runner() && !state.busy());
+    state.take_store_request().unwrap();
+    assert!(state.storage_pending() && !state.needs_runner());
+    state.store_event(1, None, None, Ok(store::RunResponse::Runs(Vec::new())));
+    assert!(!state.storage_pending());
+    let mut running = record(runner::RunState::Running);
+    running.prepared.partner = Some(command_owner(1));
+    let mut finished = running.clone();
+    finished.state = runner::RunState::Succeeded;
+    let mut historic = finished.clone();
+    historic.prepared.run_id = "older-stable-run".into();
+    state.active = Some(running.clone());
+    state.final_record = Some(finished.clone());
+    state.history = vec![finished, historic];
+    state.mark_revision_moving(2);
+    assert!(!state.active.as_ref().unwrap().revision_moving);
+    state.mark_revision_moving(1);
+    assert!(state.active.as_ref().unwrap().revision_moving);
+    assert!(state.final_record.as_ref().unwrap().revision_moving);
+    assert!(state.history[0].revision_moving);
+    assert!(!state.history[1].revision_moving);
+    state.set_task(2);
+    assert_eq!(
+        state.task_id, 1,
+        "task changes cannot detach owned settlement"
+    );
+    state.active.as_mut().unwrap().state = runner::RunState::OutcomeUnknown;
+    assert!(state.outcome_unknown());
+    state.failed = Some(StoreJob::Update(running));
+    assert!(state.journal_failed() && state.storage_pending());
+    state.ready = Some(Action::SelectForm(2));
+    assert_eq!(state.take_ready_action(), Some(Action::SelectForm(2)));
+    assert!(state.take_ready_action().is_none());
+}
+
+#[test]
+fn lazy_runner_failure_revokes_launch_without_automatic_retry_or_peer_mutation() {
+    let mut state = State::default();
+    assert!(state.prepare_command_for(1, Some(command_owner(1)), r#"["tool","saved draft"]"#));
+    let mut peer = state.new_partner_state(1);
+    assert!(peer.prepare_command_for(1, Some(command_owner(2)), r#"["tool","peer draft"]"#));
+    let peer_spec = peer.pending_spec.clone();
+    state.runner_unavailable("thread creation refused".into());
+    assert!(!state.needs_runner());
+    assert!(!state.busy());
+    assert!(state.request_id.is_none() && state.prepared.is_none());
+    assert!(!state.invalidation);
+    assert_eq!(state.owner, Some(command_owner(1)));
+    assert_eq!(state.error.as_ref().unwrap().layer, "Runtime");
+    assert!(
+        state
+            .error
+            .as_ref()
+            .unwrap()
+            .message
+            .contains("no process launched")
+    );
+    assert_eq!(peer.pending_spec, peer_spec);
+    assert_eq!(peer.owner, Some(command_owner(2)));
+    assert!(peer.needs_runner());
+}
+
+#[test]
+fn writer_taint_survives_older_runner_capture_and_terminal_snapshots() {
+    let mut running = record(runner::RunState::Running);
+    running.prepared.partner = Some(command_owner(1));
+    let mut state = State {
+        task_id: 1,
+        owner: Some(command_owner(1)),
+        request_id: Some(running.prepared.request_id.clone()),
+        active: Some(running.clone()),
+        ..State::default()
+    };
+    state.mark_revision_moving(1);
+    state.runner_event(runner::Event::CaptureChanged(running.clone()));
+    assert!(state.active.as_ref().unwrap().revision_moving);
+    running.state = runner::RunState::Succeeded;
+    state.runner_event(runner::Event::Finished(running));
+    assert!(state.active.as_ref().unwrap().revision_moving);
+    assert!(state.final_record.as_ref().unwrap().revision_moving);
+}
+
+#[test]
+fn idle_invalidation_never_allocates_runner_and_pending_taint_is_request_scoped() {
+    let mut idle = State::default();
+    idle.invalidate();
+    assert!(
+        !idle.needs_runner(),
+        "opening a local command editor cannot start a runner"
+    );
+    let mut state = pending();
+    state.reserving = true;
+    state.mark_revision_moving(2);
+    assert!(state.moving_request.is_none());
+    state.mark_revision_moving(1);
+    assert_eq!(state.moving_request.as_deref(), Some("r-test-request"));
+    let running = record(runner::RunState::Running);
+    state.runner_event(runner::Event::Started(running));
+    assert!(
+        state.active.as_ref().unwrap().revision_moving,
+        "pre-Started overlap survives the runner snapshot"
+    );
+    let mut idle = State {
+        task_id: 1,
+        moving_request: Some("old-request".into()),
+        ..State::default()
+    };
+    assert!(idle.prepare_command_for(1, None, r#"["tool","new-request"]"#));
+    assert!(
+        idle.moving_request.is_none(),
+        "a new explicit preparation never inherits old overlap"
     );
 }

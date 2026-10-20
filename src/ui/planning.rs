@@ -102,6 +102,18 @@ pub(super) fn render_small(frame: &mut Frame, area: Rect, state: &mut State, pai
 }
 
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
+    let approval_header = app.approval_position().map(|(position, total)| {
+        format!(
+            "{position} of {total} · {}",
+            crate::store::Attribution::label(app.planning.owner()),
+        )
+    });
+    let editing = app.write_owner().map(|claim| {
+        format!(
+            "{} is editing",
+            crate::store::Attribution::label(Some(&claim.owner))
+        )
+    });
     let state = &app.planning;
     let is_review = state.preview.is_some()
         || state.request.as_ref().is_some_and(|request| {
@@ -164,6 +176,11 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             },
         )
     };
+    let title = match editing.as_deref().filter(|_| !local_picker) {
+        Some(editing) if area.width < 90 => format!(" {editing} "),
+        Some(editing) => format!("{title} / {editing} "),
+        None => title,
+    };
     let block = panel(&title, config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
@@ -200,6 +217,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     } else {
         "SESSION METADATA / not a selectable decision or model result"
     };
+    let header = approval_header.as_deref().unwrap_or(header);
     text(
         frame,
         row(content, 0, 1),
@@ -209,11 +227,10 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     if is_review && !state.review_details {
         let mut summary = review_summary(state);
         if state.preview.is_some() && !state.inspect_models && !state.inspect_sessions {
-            let request = app
-                .tasks
-                .iter()
-                .find(|task| task.id == app.task_id)
-                .map_or("", |task| task.request_text());
+            let request = state.immutable_task().map_or(
+                "Immutable request unavailable; inspect exact payload Details.",
+                |task| task.request_text(),
+            );
             summary.insert(1, format!("Request: {request}"));
         }
         let body = row(content, 1, content.height.saturating_sub(4));
@@ -1062,7 +1079,7 @@ fn journal(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         );
         return;
     }
-    let value = if let Some(record) = state.journal_records.get(state.journal_selected) {
+    let mut value = if let Some(record) = state.journal_records.get(state.journal_selected) {
         format!(
             "PROVIDER JOURNAL / {}/{} / {}\nPartner: {}\nOrigin: {}\nCoverage: {}\nThread {} / turn {} / item {}\nComplete capture: {}\n\n{}\n\nProvider-native observation, never a local runner verification. Missing/purged evidence cannot substantiate a result.",
             state.journal_selected + 1,
@@ -1082,6 +1099,10 @@ fn journal(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     } else {
         "PROVIDER JOURNAL\nNo retained observations for this task. Local commands remain in /execution-history; no provider result is inferred.".into()
     };
+    if let Some(gap) = state.journal_gap_notice() {
+        value.push_str("\n\nMemory-only coverage warning, not a stored observation:\n");
+        value.push_str(gap);
+    }
     let details = row(area, 0, area.height.saturating_sub(5));
     state.scroll_max = selection_details(
         frame,
@@ -1095,13 +1116,17 @@ fn journal(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     text(
         frame,
         row(area, area.height.saturating_sub(5), 2),
-        &super::brief(&state.journal_notice),
+        &super::brief(
+            state
+                .journal_gap_notice()
+                .unwrap_or(state.journal_notice.as_str()),
+        ),
         paint.muted,
     );
     text(
         frame,
         row(area, area.height.saturating_sub(3), 3),
-        "Up/Down Record / PgUp/Dn Scroll\n/journal-purge /journal-retry /journal-close",
+        "Up/Down Record / PgUp/Dn Scroll\n/journal-retry /journal-discard (failed writes)\n/journal-purge /journal-close",
         paint.accent,
     );
 }
@@ -1299,6 +1324,7 @@ mod tests {
             Some(Request::Preview(_))
         ));
         app.planning.event(Event::Preview(Preview {
+            arrival: crate::providers::approval_arrival(),
             destination: None,
             requires_connection_review: true,
             generation: 11,
@@ -1519,31 +1545,40 @@ mod tests {
     }
 
     #[test]
-    fn request_summary_is_compact_centered_and_fully_visible() {
+    fn request_summary_keeps_frozen_input_and_consent_readable_at_supported_sizes() {
         for (width, height) in [(60, 18), (120, 36)] {
-            let (mut app, task) = preview(width, height);
+            let (mut app, mut task) = preview(width, height);
+            let prepared = app.planning.preview.take().unwrap();
+            task.partner_drafts
+                .entry(task.lead_partner)
+                .or_default()
+                .drafts
+                .push(store::Draft {
+                    field: store::EditorField::Request,
+                    text: "Reviewed immutable request".into(),
+                    cursor: "Reviewed immutable request".len(),
+                });
+            let owner = store::Attribution::of(app.lead());
+            app.planning = State::new();
+            app.planning.command("new", true, &task, &[], None);
+            app.planning.stage_work(store::WorkClaim {
+                task_id: task.id,
+                owner,
+                request_id: "readable-immutable-preview".into(),
+                writing: false,
+            });
+            app.planning.event(Event::Preview(prepared));
             let buffer = draw(&mut app);
-            let bounds = compact_bounds(&buffer);
-            let config = config();
-            let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
-            let content = panel("", &config, &paint, true).inner(bounds);
-            let mut summary = review_summary(&app.planning);
-            summary.insert(1, "Request: ".into());
-            assert!(summary.len() <= content.height.saturating_sub(4) as usize);
-            for (index, line) in summary.iter().enumerate() {
-                let expected = clipped(line, content.width as usize);
-                assert_eq!(
-                    rendered_row(&buffer, content, 1 + index as u16),
-                    expected.trim_end()
-                );
-            }
-            for (index, line) in controls(&app.planning).lines().enumerate() {
-                assert_eq!(
-                    rendered_row(&buffer, content, content.height - 3 + index as u16),
-                    line
-                );
-            }
-            assert!(app.planning.reviewed);
+            let shown = screen(&buffer);
+            assert!(
+                shown.contains("Request: Reviewed immutable request"),
+                "{shown}"
+            );
+            assert!(
+                shown.contains("Run once") && shown.contains("Cancel"),
+                "{shown}"
+            );
+            assert!(app.planning.reviewed, "{shown}");
             key(&mut app, &task, KeyCode::Char('d'));
             draw(&mut app);
             assert!(app.planning.scroll_max > 0);
@@ -1767,6 +1802,7 @@ mod tests {
                 generation: 11,
                 task_id: 7,
                 request: Prompt {
+                    arrival: crate::providers::approval_arrival(),
                     request_id: serde_json::json!(42),
                     thread_id: "thread".into(),
                     turn_id: "turn".into(),
@@ -1922,6 +1958,7 @@ mod tests {
                 generation: 11,
                 task_id: 7,
                 request: Prompt {
+                    arrival: crate::providers::approval_arrival(),
                     request_id: serde_json::json!(43),
                     thread_id: "thread".into(),
                     turn_id: "turn".into(),
@@ -1982,6 +2019,7 @@ mod tests {
         app.planning.command("new", true, &task, &[], None);
         app.planning.pending.take();
         app.planning.event(Event::Preview(Preview {
+            arrival: crate::providers::approval_arrival(),
             destination: None,
             requires_connection_review: true,
             generation: 11,
@@ -1998,6 +2036,7 @@ mod tests {
             generation: 11,
             task_id: 7,
             request: Prompt {
+                arrival: crate::providers::approval_arrival(),
                 request_id: serde_json::json!(44),
                 thread_id: "thread".into(),
                 turn_id: "turn".into(),
@@ -2064,5 +2103,59 @@ mod tests {
         assert!(text.contains("Bolt (Jolteon) asks"), "{text}");
         assert!(text.contains("Which module?"), "{text}");
         assert!(text.contains("Cancel turn"), "{text}");
+    }
+
+    #[test]
+    fn deferred_preview_keeps_submitted_request_after_next_draft_is_saved() {
+        for (width, height) in [(120, 36), (60, 18)] {
+            let mut app = App::new("/workspace".into(), width, height);
+            let mut task = store::Snapshot::empty("/workspace".into());
+            task.id = 7;
+            task.goal = "Immutable request review".into();
+            task.partner_drafts
+                .entry(task.lead_partner)
+                .or_default()
+                .drafts
+                .push(store::Draft {
+                    field: store::EditorField::Request,
+                    text: "submitted-immutable-A".into(),
+                    cursor: "submitted-immutable-A".len(),
+                });
+            app.planning.command("new", true, &task, &[], None);
+            app.planning.stage_work(store::WorkClaim {
+                task_id: 7,
+                owner: store::Attribution::of(app.lead()),
+                request_id: "immutable-preview-review".into(),
+                writing: false,
+            });
+            app.planning.event(Event::Preview(Preview {
+                arrival: crate::providers::approval_arrival(),
+                destination: None,
+                requires_connection_review: true,
+                generation: 11,
+                task_id: 7,
+                thread_id: None,
+                trust: Vec::new(),
+                payload: "{}".into(),
+                blockers: Vec::new(),
+            }));
+            let mut saved_next = task.clone();
+            saved_next.revision += 1;
+            saved_next
+                .partner_drafts
+                .get_mut(&task.lead_partner)
+                .unwrap()
+                .drafts[0]
+                .text = "saved-next-request-B".into();
+            app.task_id = 7;
+            app.tasks = vec![saved_next];
+            let shown = screen(&draw(&mut app));
+            assert!(shown.contains("Request: submitted-immutable-A"), "{shown}");
+            assert!(!shown.contains("saved-next-request-B"), "{shown}");
+            assert_eq!(
+                app.planning.immutable_task().unwrap().request_text(),
+                "submitted-immutable-A"
+            );
+        }
     }
 }

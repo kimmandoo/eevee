@@ -1519,3 +1519,337 @@ fn specialist_paging_does_not_skip_saved_hypothesis_lines() {
         );
     }
 }
+
+fn cooperation_roster(width: u16, height: u16) -> App {
+    let mut app = App::new("/workspace".into(), width, height);
+    app.store_event(crate::store::Event::Loaded(crate::store::Project {
+        tasks: Vec::new(),
+        partners: vec![
+            crate::store::Partner {
+                nickname: Some("Bolt".into()),
+                form: 2,
+                ..Default::default()
+            },
+            crate::store::Partner {
+                id: 2,
+                nickname: Some("Mizu".into()),
+                form: 1,
+                ..Default::default()
+            },
+            crate::store::Partner {
+                id: 3,
+                nickname: Some("Shade".into()),
+                form: 5,
+                ..Default::default()
+            },
+        ],
+        active_id: None,
+        usage_bytes: 0,
+    }));
+    app
+}
+
+#[test]
+fn release_review_requires_visible_explicit_consent_and_preserves_refused_identity() {
+    use ratatui::{Terminal, backend::TestBackend};
+    for (width, height) in [(120, 36), (60, 18)] {
+        let config = home_config();
+        let mut artwork = Artwork::load(&config);
+        let mut app = cooperation_roster(width, height);
+        app.input = "unsent future draft 한글".into();
+        app.cursor = "unsent future ".len();
+        app.editing = true;
+        app.editor_field = crate::store::EditorField::Request;
+        let draft = (app.input.clone(), app.cursor);
+        app.command("party");
+        let retained_request = |app: &App| {
+            app.drafts
+                .iter()
+                .find(|entry| entry.field == crate::store::EditorField::Request)
+                .map(|entry| (entry.text.clone(), entry.cursor))
+        };
+        app.selected = 1;
+        app.command("release-partner");
+        assert_eq!(
+            app.cooperation_ui.release.as_ref().unwrap().owner.partner,
+            2
+        );
+        // Opening a preview or typing y before its scope is rendered grants nothing.
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Char('y'),
+            KeyModifiers::NONE,
+        )));
+        assert!(app.party_request.is_none());
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        let shown = screen_text(&terminal);
+        let disclosure = inner(centered(Rect::new(0, 0, width, height), 92, 24));
+        let buffer = terminal.backend().buffer();
+        let disclosure = (disclosure.y..disclosure.bottom())
+            .flat_map(|y| (disclosure.x..disclosure.right()).map(move |x| buffer[(x, y)].symbol()))
+            .collect::<String>();
+        let disclosure = disclosure.split_whitespace().collect::<Vec<_>>().join(" ");
+        for phrase in [
+            "Mizu (Vaporeon)",
+            "Remove:",
+            "Retain:",
+            "name/form attribution",
+            "not stored",
+            "Stay",
+            "Storage:",
+        ] {
+            assert!(disclosure.contains(phrase), "{phrase}: {disclosure}");
+        }
+        assert!(
+            app.cooperation_ui.release.as_ref().unwrap().reviewed,
+            "{shown}"
+        );
+        assert!(!app.cooperation_ui.release.as_ref().unwrap().affirmative);
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Right,
+            KeyModifiers::NONE,
+        )));
+        assert!(app.cooperation_ui.release.as_ref().unwrap().affirmative);
+        for modifiers in [
+            KeyModifiers::CONTROL,
+            KeyModifiers::ALT,
+            KeyModifiers::SHIFT,
+        ] {
+            for code in [KeyCode::Char('y'), KeyCode::Enter] {
+                app.update(Event::Key(KeyEvent::new(code, modifiers)));
+                assert!(
+                    app.party_request.is_none(),
+                    "{code:?} with {modifiers:?} must not consent"
+                );
+                assert!(app.cooperation_ui.release.is_some());
+            }
+        }
+        for kind in [
+            crossterm::event::KeyEventKind::Repeat,
+            crossterm::event::KeyEventKind::Release,
+        ] {
+            for code in [KeyCode::Char('y'), KeyCode::Enter] {
+                app.update(Event::Key(KeyEvent::new_with_kind(
+                    code,
+                    KeyModifiers::NONE,
+                    kind,
+                )));
+                assert!(
+                    app.party_request.is_none(),
+                    "{code:?} {kind:?} must not consent"
+                );
+            }
+        }
+        app.update(Event::Key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)));
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+        assert!(app.cooperation_ui.release.is_none());
+        assert!(app.party_request.is_none());
+        assert_eq!(retained_request(&app), Some(draft.clone()));
+        app.command("release-partner");
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Char('y'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(
+            app.party_request,
+            Some(crate::store::PartyRequest::Release { partner: 2 })
+        );
+        app.party_request = None;
+        app.store_event(crate::store::Event::PartyReleased(Err(
+            "disk full: roster retained".into(),
+        )));
+        let refused = app.cooperation_ui.release.as_ref().unwrap();
+        assert_eq!(
+            (refused.owner.partner, refused.owner.name.as_str()),
+            (2, "Mizu")
+        );
+        assert!(!refused.pending && !refused.affirmative);
+        assert_eq!(
+            refused.refusal.as_deref(),
+            Some("disk full: roster retained")
+        );
+        assert_eq!(retained_request(&app), Some(draft.clone()));
+        app.update(Event::Resize(59, 17));
+        let mut small = Terminal::new(TestBackend::new(59, 17)).unwrap();
+        small
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        assert!(!app.cooperation_ui.release.as_ref().unwrap().reviewed);
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Char('y'),
+            KeyModifiers::NONE,
+        )));
+        assert!(app.party_request.is_none());
+        app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        assert!(app.cooperation_ui.release.is_none());
+        assert_eq!(retained_request(&app), Some(draft.clone()));
+    }
+}
+
+#[test]
+fn last_partner_release_refusal_is_inspectable_without_roster_mutation() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    let mut artwork = Artwork::load(&config);
+    let mut app = App::new("/workspace".into(), 60, 18);
+    app.store_event(crate::store::Event::Loaded(crate::store::Project {
+        tasks: Vec::new(),
+        partners: vec![crate::store::Partner::default()],
+        active_id: None,
+        usage_bytes: 0,
+    }));
+    app.command("release-partner");
+    let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
+    terminal
+        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+        .unwrap();
+    let shown = screen_text(&terminal);
+    assert!(shown.contains("last partner"), "{shown}");
+    assert!(shown.contains("Eevee #1 (Eevee)"), "{shown}");
+    app.update(Event::Key(KeyEvent::new(
+        KeyCode::Char('y'),
+        KeyModifiers::NONE,
+    )));
+    assert!(app.party_request.is_none());
+    assert_eq!(app.partners().len(), 1);
+    assert!(app.cooperation_ui.release.is_some());
+}
+
+#[test]
+fn cooperation_reviews_withhold_native_images_without_moving_home_artwork() {
+    let mut app = cooperation_roster(120, 36);
+    app.editing = true;
+    let area = Rect::new(0, 0, 120, 36);
+    let mut targets = Vec::new();
+    portrait_targets(&app, area, &mut targets);
+    let original = targets.clone();
+    assert!(!original.is_empty());
+    app.command("release-partner");
+    portrait_targets(&app, area, &mut targets);
+    assert!(
+        targets.is_empty(),
+        "native pictures must not cover release disclosure"
+    );
+    app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+    portrait_targets(&app, area, &mut targets);
+    assert_eq!(targets, original);
+    app.request_cancel_all();
+    portrait_targets(&app, area, &mut targets);
+    assert!(
+        targets.is_empty(),
+        "native pictures must not cover owner scope"
+    );
+    app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+    portrait_targets(&app, area, &mut targets);
+    assert_eq!(targets, original);
+}
+
+#[test]
+fn journal_discard_review_keeps_exact_scope_inspectable_without_hidden_consent() {
+    use ratatui::{Terminal, backend::TestBackend};
+    for (width, height) in [(120, 36), (60, 18)] {
+        let config = home_config();
+        let mut artwork = Artwork::load(&config);
+        let mut app = App::new("/workspace".into(), width, height);
+        app.task_id = 7;
+        app.planning = crate::app::planning::State::terminal_failure_for_test(64);
+        app.command("journal-discard");
+        let review = app.cooperation.journal_discard.as_ref().unwrap();
+        assert_eq!(review.count, 64);
+        let ids = review.ids.clone();
+        let claim = app.planning.work.clone();
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Char('y'),
+            KeyModifiers::NONE,
+        )));
+        assert!(app.planning.journal_failed());
+        assert_eq!(app.planning.work, claim);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        let body_text = |terminal: &Terminal<TestBackend>| screen_text(terminal);
+        let summary = body_text(&terminal);
+        for scope in ["Bolt (Jolteon)", "provider-test-1", "64"] {
+            assert!(summary.contains(scope), "{scope}: {summary}");
+        }
+        for disclosure in ["committed", "gap", "replay"] {
+            assert!(
+                summary.to_lowercase().contains(disclosure),
+                "{disclosure}: {summary}"
+            );
+        }
+        let review = app.cooperation.journal_discard.as_ref().unwrap();
+        assert!(review.reviewed, "{summary}");
+        assert!(!review.affirmative);
+        let mut targets = Vec::new();
+        portrait_targets(&app, Rect::new(0, 0, width, height), &mut targets);
+        assert!(targets.is_empty());
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Char('d'),
+            KeyModifiers::NONE,
+        )));
+        let mut inspected = std::collections::HashSet::new();
+        for _ in 0..128 {
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            inspected.extend(body_text(&terminal).split_whitespace().map(str::to_owned));
+            assert!(!app.cooperation.journal_discard.as_ref().unwrap().reviewed);
+            if app.cooperation_ui.journal_discard_scroll == app.cooperation_ui.journal_discard_max {
+                break;
+            }
+            app.update(Event::Key(KeyEvent::new(
+                KeyCode::PageDown,
+                KeyModifiers::NONE,
+            )));
+        }
+        for id in &ids {
+            assert!(
+                inspected.contains(id),
+                "{width}x{height}: unreachable exact observation ID {id}; inspected {inspected:?}\n{}",
+                screen_text(&terminal)
+            );
+        }
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Char('y'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.planning.work, claim);
+        assert!(app.planning.journal_failed());
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Char('d'),
+            KeyModifiers::NONE,
+        )));
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        assert!(app.cooperation.journal_discard.as_ref().unwrap().reviewed);
+        app.update(Event::Resize(59, 17));
+        let mut small = Terminal::new(TestBackend::new(59, 17)).unwrap();
+        small
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        assert!(!app.cooperation.journal_discard.as_ref().unwrap().reviewed);
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Char('y'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.planning.work, claim);
+        app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        assert!(app.cooperation.journal_discard.is_none());
+        assert!(app.planning.journal_failed());
+        app.update(Event::Resize(width, height));
+        app.command("journal-discard");
+        assert_eq!(app.cooperation.journal_discard.as_ref().unwrap().ids, ids);
+        app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+    }
+}

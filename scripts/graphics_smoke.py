@@ -156,6 +156,7 @@ def main():
                         until(lambda: ESC + '[16t' in session.text, 'pixel metrics query')
                     else:
                         assert ESC + '[16t' not in session.text, 'explicit mode unexpectedly queried graphics'
+                    session.command('goal')
                     session.send('graphics draft')
                     if protocol in ('sixel', 'kitty'):
                         respond()

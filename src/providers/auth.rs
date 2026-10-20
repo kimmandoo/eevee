@@ -216,6 +216,15 @@ impl SessionCredential {
         })
     }
 }
+
+#[cfg(test)]
+pub(crate) fn test_credential(token: &str) -> SessionCredential {
+    SessionCredential {
+        env: "WINDSURF_API_KEY",
+        token: token.to_owned(),
+        expires_at: None,
+    }
+}
 impl Clone for SessionCredential {
     fn clone(&self) -> Self {
         Self {

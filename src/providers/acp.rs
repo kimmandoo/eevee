@@ -245,6 +245,7 @@ fn worker(
                         }
                     }
                     let preview = Preview {
+                        arrival: super::approval_arrival(),
                         destination: None,
                         requires_connection_review: true,
                         generation,
@@ -361,7 +362,7 @@ fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
         })).map_err(|_| "Could not encode ACP model inspection".into());
     }
     input.validate_review()?;
-    crate::store::validate_planning_input(&workspace.data_dir, &input.task, &input.excerpts)?;
+    input.validate_committed(&workspace.data_dir)?;
     if input.inspect_sessions {
         if input.selection != ModelSelection::default() {
             return Err(
@@ -1767,6 +1768,7 @@ impl Engine<'_> {
         if params.get("sessionId").and_then(Value::as_str) != Some(session.as_str()) {
             return Err("ACP permission has wrong session identity".into());
         }
+        revalidate(self.workspace, self.run)?;
         if !self.permissions.pending.is_empty() {
             if self.permissions.seen.len() >= 4096 || !self.permissions.seen.insert(id.to_string())
             {
@@ -1796,6 +1798,7 @@ impl Engine<'_> {
                 generation: self.run.generation,
                 task_id: self.run.input.task.id,
                 request: Prompt {
+                    arrival: super::approval_arrival(),
                     request_id: id,
                     thread_id: session,
                     turn_id: self.turn(),
@@ -2042,7 +2045,12 @@ impl Engine<'_> {
                         ),
                         text: safe(&item.text),
                         complete: item.complete,
-                        partner: None,
+                        partner: self
+                            .run
+                            .input
+                            .work
+                            .as_ref()
+                            .map(|claim| claim.owner.clone()),
                     },
                 },
             )?;

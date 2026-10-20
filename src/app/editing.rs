@@ -23,7 +23,7 @@ impl App {
     }
 
     pub(super) fn apply_init(&mut self) {
-        if self.planning.busy() || self.execution.busy() {
+        if self.planning_any_busy() || self.execution_any_pending() {
             self.notice = "Finish or cancel active work before preparing /init.".into();
             return;
         }
@@ -33,8 +33,10 @@ impl App {
                 .memory_request
                 .as_ref()
                 .is_some_and(|request| request.mutation.is_some())
-            || self.planning.journal_failed()
-            || self.planning.outcome_unknown()
+            || self.planning_any_journal_failed()
+            || self.execution_any_journal_failed()
+            || self.planning_any_unknown()
+            || self.execution_any_unknown()
         {
             self.notice = "Resolve retained operations or provider outcome before preparing /init; drafts kept.".into();
             return;
@@ -208,9 +210,20 @@ impl App {
     }
 
     pub(super) fn begin_edit_field(&mut self, field: store::EditorField) {
-        if self.planning.busy() {
+        if (self.planning_any_busy() || self.execution_any_busy())
+            && !matches!(
+                field,
+                store::EditorField::Request | store::EditorField::Command
+            )
+        {
             self.notice = "Cancel or finish the provider request before editing task input.".into();
             self.open_overlay(Overlay::Planning);
+            return;
+        }
+        if field == store::EditorField::Command
+            && (self.execution.busy() || self.cooperation.command_saves.contains_key(&self.lead.id))
+        {
+            self.notice = "Finish or cancel the owned command before replacing its command input; your draft is kept.".into();
             return;
         }
         if self.complete
@@ -269,6 +282,10 @@ impl App {
                 self.workflow_commit_decision();
             }
             store::EditorField::Command => {
+                if let Some(reason) = self.work_capacity_reason(self.lead.id) {
+                    self.notice = reason;
+                    return true;
+                }
                 self.command = std::mem::take(&mut self.input);
                 self.pending_command = Some((self.command.clone(), self.attribution()));
             }
@@ -309,6 +326,9 @@ impl App {
         self.drafts.retain(|draft| draft.field != self.editor_field);
         self.finish_edit();
         self.changed_task();
+        if self.editor_field == store::EditorField::Command {
+            self.track_pending_command();
+        }
         if self.editor_field == store::EditorField::Goal {
             self.notice = "Goal applied; / or Ctrl+K opens actions.".into();
         }

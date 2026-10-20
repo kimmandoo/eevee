@@ -25,6 +25,11 @@ impl App {
             || self.transitioning
             || self.save_inflight.is_some()
             || self.planning.holds_committed_input()
+            || self
+                .cooperation_ui
+                .release
+                .as_ref()
+                .is_some_and(|review| review.pending)
             || matches!(
                 self.storage,
                 StorageState::Failed(_) | StorageState::Loading

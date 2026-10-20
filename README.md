@@ -11,7 +11,7 @@
 
 **A local-first terminal workbench for LLM-assisted development.**
 
-One persistent partner. Nine task-specific forms. Your work stays local until you choose otherwise.
+One persistent task. Your party. Nine task-specific forms. Your work stays local until you choose otherwise.
 
 <sub>BUILT WITH RUST &nbsp; / &nbsp; KEYBOARD-FIRST &nbsp; / &nbsp; APACHE-2.0</sub>
 
@@ -92,7 +92,12 @@ ev --help
 | `/new` / `/resume` | Review a fresh request / resume an owned same-task session |
 | `/role` / `/forms` | Plan, Implement or Review / choose an evolution |
 | `/nickname` | Set a local partner nickname (up to 12 graphemes); Enter saves, empty clears, Esc keeps the old name. Names never become automatic provider or handoff context. |
-| `/party` / `/lead <name>` | Inspect/add local partners or choose the lead. Selecting a partner never sends work; releasing and concurrent work remain future tasks. |
+| `/party` / `/lead <name>` | Inspect/add local partners or choose the lead; fronting a partner never sends or cancels its work. |
+| `/party-board` | Inspect working/waiting partners and each request's own model/receipt; choose an owner to front. Compact home shows a count instead of three full rows. |
+| `/approvals` | Focus the oldest pending command, permission or question. Escape defers without answering; each answer remains bound to its owner/request. |
+| `/cancel` / `/cancel-all` | Cancel only the lead's work / review every owned request before cancelling all and waiting for settlement. |
+| `/journal-discard` | After a definite terminal outcome, neutrally review discarding only provably unsaved failed journal write attempts. Committed observations remain; a coverage-gap notice remains visible. Unknown outcomes and ambiguous commits refuse; nothing is replayed. |
+| `/release-partner [name]` | Review removing an idle non-last partner's personal/draft/intended work state; retain tasks and evidence with historical name snapshots. |
 | `/suggestion-dismiss` / Forms picker `d` | Hide the current task's exact evidence-based form suggestion, including after restart; a new triggering run can recommend again. Does not select a form or start work. |
 | `/carry-over` / Companion `c` | Reopen the last form switch's retained-state counts and capability difference. The one-line strip clears on the next key/paste without consuming it; Companion explains C/P/H/F. |
 | `/goal` / `/next` / `/criteria` / `/criteria-edit` | Edit task facts, inspect criteria, or edit criteria directly |
@@ -141,11 +146,13 @@ Native routes stream text without tools, hooks, implicit project reads or local 
 
 Since Schema 10, the local store has remembered last-used provider/method and per-route model/effort, including exact custom IDs without a successful catalogue. `EV_PROVIDER` explicitly overrides the startup route (`chatgpt` for Codex native, `codex` for CLI, or another service/agent name); that route's own stored model remains available. With no stored preference, configured native routes are preferred, then CLI Codex. Default model selection follows provider configuration rather than inventing an observed ID. Preference failures stay visible with `/storage-retry`; exit waits for commit. No credentials, sessions or permissions are restored, and older binaries refuse the migrated store rather than rewriting it.
 
-Version **0.1.10 uses Schema 11** for task-local suggestion dismissal; v0.1.9 uses Schema 10. Opening an existing store upgrades its version transactionally without rewriting its rows. Schema 10 binaries then refuse it: back up the data directory before upgrading, and do not expect an in-place downgrade.
+Version **0.1.11 uses Schema 13** for request-bound cooperation ownership and write leases, including wave 3's durable relay provenance. Published v0.1.10 used Schema 11; the unreleased wave 3 source used Schema 12. Opening either older store upgrades transactionally without rewriting existing evidence rows. **Back up the data directory before upgrading:** older binaries refuse Schema 13, and an in-place downgrade is not supported.
 
-The **unreleased wave 3 source uses Schema 12** for durable relay provenance. Published v0.1.10 remains Schema 11. The version-only migration preserves existing rows; back up the data directory before opening it with the unreleased source. Older binaries refuse the upgraded store rather than dropping the new metadata. Migration does not restore requests, approvals or grants.
+**Cooperation.** Up to three partners can own work on one task, with independent requests, transports, drafts, approvals, receipts and cancellation. Edit-capable work takes one durable per-task lease; another writer is refused with the owner's identity. Commands overlapping that lease are permanently labelled `revision moving`, never current verification. This coordinates Eevee-owned work, not arbitrary filesystem effects or a provider sandbox. Per-request provider usage/billing remains unknown when unreported; local payload estimates are labelled separately.
 
-**Form relays.** The specialist desk can stage supported hypotheses or review findings as a bounded Flareon fix, import a chosen Espeon decision as editable criteria, and reuse eligible passing checks as Leafeon baselines. Relays show source references and offer an idle matching partner instead of changing the sender's form; they never submit work or transfer permissions. Changes touching a relayed finding's ranges require fresh independent review, not automatic closure. The existing one-working-partner limit remains; concurrency, write leases, an approval queue, cancel-all, party board and partner release remain wave 4 work.
+**Form relays.** The specialist desk can stage supported hypotheses or review findings as a bounded Flareon fix, import a chosen Espeon decision as editable criteria, and reuse eligible passing checks as Leafeon baselines. Relays show source references and offer an idle matching partner instead of changing the sender's form; they never submit work or transfer permissions. Changes touching a relayed finding's ranges require fresh independent review, not automatic closure.
+
+Cancel-all and quit list every owned request with Stay neutral, then wait for terminal outcomes and durable journal/ownership settlement. Crash recovery clears stale ownership without replaying requests or restoring grants. Releasing an idle partner atomically repairs task leads and removes that partner's local drafts/current recipient intents; historical evidence keeps its name snapshot. Moves and pairings have not yet been introduced, so the review does not pretend they exist.
 
 For persistent **nonsecret** settings, use `$XDG_CONFIG_HOME/eevee/providers.toml` (Linux; default `~/.config/eevee/providers.toml`), `~/Library/Application Support/eevee/providers.toml` (macOS), or `%APPDATA%\eevee\providers.toml` (Windows). `EV_PROVIDERS_CONFIG` selects an absolute user-owned file outside the project. Environment settings override the file:
 
@@ -304,7 +311,7 @@ Source layout, by role:
 | `src/main.rs`, `config.rs`, `domain.rs` | Entry point, CLI/config parsing, form identities |
 | `src/app.rs`, `src/app/` | Interaction state and key handling per surface; `app/planning/{picker,review,journal}.rs` separate planning responsibilities |
 | `src/ui.rs`, `src/ui/` | Rendering per surface; `ui/artwork.rs` sprites and native graphics |
-| `src/store/` | SQLite store: `tasks`, `memories`, `journal`, `runs`, `spool`, `schema`, `admission`, `recovery` |
+| `src/store/` | SQLite store: task/memory/journal/run persistence, schema/recovery/admission and transactional cooperation ownership in `work` |
 | `src/workspace/` | Local work: `repo`, `context`, `runner`, `receipt`, `privacy`, `handoff`, `memory`, `workflows` |
 | `src/providers.rs`, `src/providers/` | Provider request/event contract; `acp`, `codex`, `claude`, `agent` preflight, `auth` |
 | `src/platform/` | OS boundary: `terminal`, `input`, `native`, `distribution` |

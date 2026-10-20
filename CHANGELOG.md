@@ -1,7 +1,21 @@
 # Changelog
 
-## 2026-10-20
+## 2026-10-21
 
+## 0.1.11
+
+- feat(party): isolated concurrent request state and transports by partner, bounded work to three participants per task and preserved each owner's draft, receipt and cancellation.
+- feat(storage)!: upgraded Schema 11/12 stores transactionally to Schema 13 with durable request-bound work ownership and one write lease per task; older writers refused before mutation, so backups were required for downgrade recovery.
+- feat(execution): permanently marked command evidence revision moving whenever a writer overlapped it and excluded that evidence from current verification and retained baselines.
+- feat(approvals): queued command approvals, permissions and questions in arrival order with owner-bound answers and non-answering deferral.
+- feat(party): added lead-only cancellation, neutral all-owner cancel/quit reviews, terminal-and-journal settlement and crash recovery without replay.
+- feat(ui): displayed a responsive working-party board, editing owner and approval queue position with independent per-request metadata and honest unknown billing.
+- feat(party): released idle non-last partners through reviewed transactional deletion while repairing task leads and preserving evidence attribution snapshots.
+- fix(providers): retained resumable session ownership across idle turns, invalidated parked old-account sessions and provided exact terminal-only unsaved-journal recovery without deleting committed evidence or replaying requests.
+- fix(party): reconciled released-lead autosave revisions and live recipient intents while preserving other working owners and future drafts.
+- fix(ui): kept queue and editing-owner context inside the command review layout instead of painting over its permission title, preserving neutral compact consent and exact-detail inspection.
+- fix(ui): preserved compact command-editor refusal, storage and exit feedback outside the modal while retaining complete draft/caret scrolling.
+- fix(journal): exposed acknowledged unsaved-write coverage loss in compact history and kept full memory-only ownership/error detail inspectable without presenting it as a stored observation.
 - feat(execution): parsed bounded retained Rust, Python, Node, TypeScript and generic diagnostic locations without reading additional output or files.
 - feat(context): pinned reviewed location ranges through existing source guards and retained their task-owned run provenance.
 - feat(execution): prepared stale checks with exact retained argv/cwd, fresh one-shot approvals and immutable `rerun_of` links; refused irreversibly masked commands.
@@ -14,6 +28,8 @@
 - feat(forms): named an idle partner already in the recommended form and removed its availability hint while it owned work.
 - feat(storage)!: fenced durable wave 3 provenance with a version-only Schema 11→12 migration that preserved existing rows and refused older writers.
 - fix(ui): preserved visible project/storage status and safe-exit controls while specialist desks were open, kept complete decision criteria previews scrollable, and derived page strides from the actual detail viewport so compact keyboard navigation skipped no saved lines.
+
+## 2026-10-20
 
 ## 0.1.10
 

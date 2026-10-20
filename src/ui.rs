@@ -1,6 +1,7 @@
 mod agents;
 pub mod artwork;
 mod composer;
+mod cooperation;
 mod execution;
 mod handoff;
 mod memory;
@@ -388,6 +389,9 @@ pub fn portrait_targets(app: &App, area: Rect, targets: &mut Vec<(usize, Rect)>)
         || modal_editor
         || app.confirmation.is_some()
         || app.nickname_editor.is_some()
+        || app.cooperation_ui.release.is_some()
+        || app.cooperation.cancel_review.is_some()
+        || app.cooperation.journal_discard.is_some()
     {
         return;
     }
@@ -404,9 +408,11 @@ pub fn portrait_targets(app: &App, area: Rect, targets: &mut Vec<(usize, Rect)>)
         Some(Overlay::Companion) => targets.push((app.form(), portrait(drawer(area)))),
         Some(_) => {}
         None => {
-            if let Some(rail) = shell(area, app.linear, app.effective_focus()).rail {
+            let layout = shell(area, app.linear, app.effective_focus());
+            if let Some(rail) = layout.rail {
                 targets.push((app.form(), companion_portrait(rail)));
             }
+            cooperation::sprite_targets(app, layout.workspace, targets);
         }
     }
     targets.retain(|&(_, target)| !occluded(area, app, target));
@@ -426,7 +432,11 @@ fn composer_menu_area(area: Rect, app: &App) -> Option<Rect> {
 
 /// Native images draw above cells, so only portraits under a popup are withheld.
 fn occluded(area: Rect, app: &App, target: Rect) -> bool {
-    if app.nickname_editor.is_some() {
+    if app.nickname_editor.is_some()
+        || app.cooperation_ui.release.is_some()
+        || app.cooperation.cancel_review.is_some()
+        || app.cooperation.journal_discard.is_some()
+    {
         return true;
     }
     app.command_popup.is_some() && command_popup_area(area, app).intersects(target)
@@ -443,6 +453,15 @@ pub fn render(
     VERBOSE.set(app.verbose);
     let area = frame.area();
     app.confirmation_reviewed = false;
+    if let Some(review) = &mut app.cooperation_ui.release {
+        review.reviewed = false;
+    }
+    if let Some(review) = &mut app.cooperation.cancel_review {
+        review.reviewed = false;
+    }
+    if let Some(review) = &mut app.cooperation.journal_discard {
+        review.reviewed = false;
+    }
     if let Some(confirmation) = &mut app.sources.confirmation {
         confirmation.reviewed = false;
     }
@@ -450,6 +469,7 @@ pub fn render(
     let paint = Paint::new(config, form, app.form().min(8));
     frame.render_widget(Block::default().style(paint.base), area);
     if area.width < 60 || area.height < 18 {
+        let review_area = row(area, 0, area.height.saturating_sub(1));
         app.agents.affirmative = false;
         app.agents.reviewed = false;
         app.images_reviewed = false;
@@ -460,22 +480,51 @@ pub fn render(
             paint.accent,
         );
         if app.confirmation.is_some() {
-            confirmation(frame, area, app, config, &paint);
+            confirmation(frame, review_area, app, config, &paint);
         } else if app.overlay == Some(Overlay::Execution) && app.execution.confirmation.is_some() {
-            execution::render_small_confirmation(frame, area, &mut app.execution, config);
+            execution::render_small_confirmation(frame, review_area, &mut app.execution, config);
         } else if app.overlay == Some(Overlay::Planning) {
-            planning::render_small(frame, area, &mut app.planning, &paint);
+            planning::render_small(frame, review_area, &mut app.planning, &paint);
         } else if app.overlay == Some(Overlay::Handoff) {
-            handoff::render_small(frame, area, &mut app.handoff, &paint);
+            handoff::render_small(frame, review_area, &mut app.handoff, &paint);
         } else if app.overlay == Some(Overlay::Memory) {
-            memory::render_small(frame, area, &mut app.memory, &paint);
+            memory::render_small(frame, review_area, &mut app.memory, &paint);
         } else if app.overlay == Some(Overlay::Workflows) {
-            workflows::render(frame, area, app, config, &paint);
+            workflows::render(frame, review_area, app, config, &paint);
+        } else if app.overlay == Some(Overlay::PartyBoard) {
+            cooperation::board(frame, review_area, app, config, &paint);
         }
+        if app.cooperation_ui.release.is_some() {
+            cooperation::release(frame, area, app, config, &paint);
+        }
+        if app.cooperation.cancel_review.is_some() {
+            cooperation::cancellation(frame, area, app, config, &paint);
+        }
+        if app.cooperation.journal_discard.is_some() {
+            cooperation::journal_discard(frame, area, app, config, &paint);
+        }
+        text(
+            frame,
+            row(area, area.height.saturating_sub(1), 1),
+            app.storage_label(),
+            paint.muted,
+        );
         return;
     }
     let shell = shell(area, app.linear, app.effective_focus());
     header(frame, shell.header, app, config, &paint);
+    if app.cooperation.journal_discard.is_some() {
+        cooperation::journal_discard(frame, area, app, config, &paint);
+        return;
+    }
+    if app.cooperation.cancel_review.is_some() {
+        cooperation::cancellation(frame, area, app, config, &paint);
+        return;
+    }
+    if app.cooperation_ui.release.is_some() {
+        cooperation::release(frame, area, app, config, &paint);
+        return;
+    }
     // A provider review owns its modal; do not wrap hidden response output.
     if app.overlay != Some(Overlay::Planning) {
         if let Some(rail) = shell.rail {
@@ -495,10 +544,12 @@ pub fn render(
                         )),
             );
         }
+        let workspace_area = cooperation::header(frame, shell.workspace, app, &paint);
+        let workspace_area = cooperation::strip(frame, workspace_area, app, &paint, artwork);
         let workspace_area = if matches!(app.overlay, Some(Overlay::Tasks | Overlay::Forms)) {
-            shell.workspace
+            workspace_area
         } else {
-            suggestion_strip(frame, shell.workspace, app, &paint)
+            suggestion_strip(frame, workspace_area, app, &paint)
         };
         if app.response_on_home() {
             planning::render_workspace(frame, workspace_area, app, config, &paint);
@@ -531,13 +582,35 @@ pub fn render(
             Overlay::Criteria => criteria(frame, area, app, config, &paint),
             Overlay::Repository => repository(frame, area, app, config, &paint),
             Overlay::Sources => sources::render(frame, area, app, config, &paint),
-            Overlay::Execution => execution::render(frame, area, &mut app.execution, config),
+            Overlay::Execution => {
+                let queue = app.approval_position().map(|(position, total)| {
+                    format!(
+                        " {position} of {total} / {} ",
+                        cooperation::approval_owner(app)
+                    )
+                });
+                let editing = app.write_owner().map(|claim| {
+                    format!(
+                        "{} is editing",
+                        store::Attribution::label(Some(&claim.owner))
+                    )
+                });
+                execution::render(
+                    frame,
+                    area,
+                    &mut app.execution,
+                    config,
+                    queue.as_deref(),
+                    editing.as_deref(),
+                );
+            }
             Overlay::Agents => agents::render(frame, area, app, config, &paint),
             Overlay::Planning => planning::render(frame, area, app, config, &paint),
             Overlay::Handoff => handoff::render(frame, area, app, config, &paint),
             Overlay::Workflows => workflows::render(frame, area, app, config, &paint),
             Overlay::Memory => memory::render(frame, area, &mut app.memory, config, &paint),
             Overlay::Party => party(frame, area, app, config, &paint),
+            Overlay::PartyBoard => cooperation::board(frame, area, app, config, &paint),
             Overlay::Images => images(frame, area, app, config, &paint, artwork, graphics_status),
             Overlay::Inspector => {
                 let area = drawer(area);
@@ -566,6 +639,17 @@ pub fn render(
     }
     if app.confirmation.is_some() {
         confirmation(frame, area, app, config, &paint);
+    }
+    if matches!(
+        app.overlay,
+        Some(Overlay::Planning | Overlay::Execution | Overlay::PartyBoard)
+    ) {
+        text(
+            frame,
+            row(area, area.height.saturating_sub(1), 1),
+            app.storage_label(),
+            paint.muted,
+        );
     }
 }
 
@@ -701,13 +785,13 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         app.execution.activity_label()
     };
     let status = format!(
-        "{} {activity}  /  {}",
+        "{}  /  {} {activity}",
+        app.storage_label(),
         if app.planning.activity_label().is_some() {
             activity_marker(app.activity_frame, config)
         } else {
             ""
-        },
-        app.storage_label()
+        }
     );
     let line = row(area, 1, 1);
     text(
@@ -1586,6 +1670,12 @@ fn party(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
         },
         paint.muted,
     );
+    text(
+        frame,
+        row(content, partners.len() as u16 + 4, 1),
+        "/release-partner reviews selected / /party-board",
+        paint.muted,
+    );
     app.set_scroll_max(ScrollSurface::Preview, 0);
 }
 
@@ -1692,7 +1782,8 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
                 | Overlay::Planning
                 | Overlay::Handoff
                 | Overlay::Workflows
-                | Overlay::Memory,
+                | Overlay::Memory
+                | Overlay::PartyBoard,
             ) => "/ Commands / Esc Back / Ctrl+C Exit",
             Some(_) => "/ Commands / Up/Down Scroll / Esc Back / Ctrl+C Exit",
             None => "Type Request / Tab Focus / / Commands / Ctrl+C Exit",
@@ -1951,6 +2042,8 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
 }
 
 fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
+    // A modal must not erase task/storage status or the refusal/exit footer.
+    let area = row(area, 2, area.height.saturating_sub(4));
     let area = centered(area, 86, 16);
     frame.render_widget(Clear, area);
     let title = format!(

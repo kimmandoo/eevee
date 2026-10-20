@@ -185,6 +185,7 @@ impl<'a> Inputs<'a> {
                     run.cancelled,
                     run.truncated,
                     run.output_unavailable,
+                    run.revision_moving,
                     run.discarded_bytes,
                     &run.error,
                 ),
@@ -305,8 +306,10 @@ fn evaluate(
         current,
     };
     let complete_current = latest.is_some_and(|run| {
-        workflows::EvidenceRef::run(run)
-            .is_ok_and(|reference| view.status(&reference) == workflows::EvidenceStatus::Current)
+        !run.revision_moving
+            && workflows::EvidenceRef::run(run).is_ok_and(|reference| {
+                view.status(&reference) == workflows::EvidenceStatus::Current
+            })
     });
     for &(rule, form, name) in RULES {
         let (reason, evidence) = match rule {

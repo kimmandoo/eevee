@@ -760,7 +760,12 @@ fn provider_exit_acknowledgement_cannot_bypass_local_work_confirmation() {
     assert!(app.settle_planning());
     assert!(!app.quit);
     assert!(app.execution.busy());
-    assert_eq!(app.overlay, Some(Overlay::Execution));
+    let review = app
+        .cooperation
+        .cancel_review
+        .as_ref()
+        .expect("every quit route reaches the all-owner review");
+    assert!(!review.affirmative);
     assert!(!app.authentication_ready());
 }
 
@@ -1214,6 +1219,7 @@ fn partner_status_tracks_live_request_and_approval_states() {
     let lead = app.lead().clone();
     // A provider preview awaiting the user's review is a waiting status.
     app.planning.preview = Some(crate::providers::Preview {
+        arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
         generation: 1,
@@ -1469,6 +1475,7 @@ fn lead_switch_keeps_live_work_and_its_approval_on_the_owning_partner() {
     app.planning.pending.take();
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
+            arrival: crate::providers::approval_arrival(),
             destination: None,
             requires_connection_review: true,
             generation: 11,
@@ -1488,20 +1495,28 @@ fn lead_switch_keeps_live_work_and_its_approval_on_the_owning_partner() {
     assert_eq!(app.partner_status(&bolt), party::PartnerStatus::Waiting);
     assert_eq!(app.partner_status(&mizu), party::PartnerStatus::Idle);
     assert_eq!(app.partner_task(&bolt), "task");
-    assert_eq!(app.planning.owner().map(|owner| owner.partner), Some(1));
-    assert!(app.planning.preview.is_some());
-    // The second partner cannot start a request while the first one works.
+    assert_eq!(
+        app.planning_state(1)
+            .and_then(planning::State::owner)
+            .map(|owner| owner.partner),
+        Some(1)
+    );
+    assert!(app.planning_state(1).unwrap().preview.is_some());
+    assert!(
+        app.planning.preview.is_none(),
+        "fronting another owner does not transfer consent"
+    );
+    // The second partner can independently enter the save/send barrier.
     app.open_editor(store::EditorField::Request);
     type_text(&mut app, "second request");
     key(&mut app, KeyCode::Enter);
-    assert!(app.pending_request.is_none());
-    assert!(
-        app.notice
-            .contains("Bolt (Jolteon) is working on this task"),
-        "{}",
-        app.notice
+    assert!(app.pending_request.is_some());
+    assert_eq!(app.pending_request_owner, Some(2));
+    assert_eq!(
+        app.input, "second request",
+        "the draft is kept until dispatch"
     );
-    assert_eq!(app.input, "second request", "the draft is kept");
+    assert!(app.planning_state(1).unwrap().preview.is_some());
     app.request_lead(1);
     assert_eq!(app.lead().id, 1);
     assert_eq!(app.partner_status(&bolt), party::PartnerStatus::Waiting);
@@ -1540,8 +1555,8 @@ fn failed_request_returns_to_its_senders_draft_not_the_current_lead() {
     app.request_lead(2);
     app.open_editor(store::EditorField::Request);
     type_text(&mut app, "mizu draft");
-    app.planning.failed_request = true;
-    assert!(app.settle_planning());
+    app.planning_state_mut(1).unwrap().failed_request = true;
+    assert!(app.poll_providers(&mut std::collections::BTreeMap::new()).0);
     assert_eq!(app.input, "mizu draft", "the lead's composer is untouched");
     let restored = &app.partner_drafts[&1].drafts;
     assert!(restored.iter().any(|draft| {
@@ -1686,6 +1701,7 @@ fn finish_catalogue(app: &mut App, task_id: i64, blockers: Vec<String>) {
     assert!(input.inspect_models && input.resume.is_none());
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
+            arrival: crate::providers::approval_arrival(),
             destination: None,
             requires_connection_review: false,
             generation: 3,
@@ -1933,16 +1949,32 @@ fn save_request(app: &mut App) -> store::Snapshot {
     snapshot
 }
 
+fn acknowledge_work(app: &mut App) {
+    app.planning.settle_work();
+    if let Some(request) = app.planning.work_pending.take() {
+        let claims = match &request {
+            store::WorkRequest::Acquire { claim, .. } => vec![claim.clone()],
+            store::WorkRequest::Release(_) => Vec::new(),
+        };
+        app.store_event(store::Event::Work {
+            request,
+            result: Ok(claims),
+        });
+    }
+}
+
 fn request_preview(app: &mut App) {
     key(app, KeyCode::Enter);
     save_request(app);
     assert!(app.settle_planning());
+    acknowledge_work(app);
     assert!(matches!(
         app.planning.pending.take(),
         Some(crate::providers::Request::Preview(_))
     ));
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
+            arrival: crate::providers::approval_arrival(),
             destination: None,
             requires_connection_review: true,
             generation: 12,
@@ -1954,6 +1986,7 @@ fn request_preview(app: &mut App) {
         },
     ));
     app.settle_planning();
+    app.command("approvals");
 }
 
 #[test]
@@ -1978,6 +2011,7 @@ fn composer_enter_dispatches_the_committed_request_once_without_a_popup() {
     key(&mut app, KeyCode::Enter);
     save_request(&mut app);
     app.settle_planning();
+    acknowledge_work(&mut app);
     let Some(crate::providers::Request::Preview(input)) = app.planning.pending.take() else {
         panic!("committed request was not prepared");
     };
@@ -1985,6 +2019,7 @@ fn composer_enter_dispatches_the_committed_request_once_without_a_popup() {
     assert!(app.overlay.is_none());
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
+            arrival: crate::providers::approval_arrival(),
             generation: 91,
             task_id: app.task_id,
             thread_id: None,
@@ -1995,14 +2030,6 @@ fn composer_enter_dispatches_the_committed_request_once_without_a_popup() {
             blockers: Vec::new(),
         },
     ));
-    app.storage = StorageState::Saving;
-    assert!(
-        !app.settle_planning(),
-        "transient local I/O must defer rather than cancel"
-    );
-    assert!(app.overlay.is_none() && app.planning.preview.is_some());
-    assert!(app.planning.pending.is_none());
-    app.storage = StorageState::Saved;
     assert!(app.settle_planning());
     assert!(app.overlay.is_none() && app.editing && app.input.is_empty());
     assert_eq!(
@@ -2017,23 +2044,28 @@ fn composer_enter_dispatches_the_committed_request_once_without_a_popup() {
     assert!(app.planning.pending.is_none());
     app.update(Event::Paste("unsent follow-up".into()));
     assert_eq!(app.input, "unsent follow-up");
-    assert!(app.planning.holds_committed_input());
+    assert!(
+        !app.planning.holds_committed_input(),
+        "the request owns private input rather than freezing draft saves"
+    );
 }
 
 #[test]
-fn changed_draft_or_blocked_preparation_never_auto_sends() {
+fn followup_draft_isolated_and_blocked_preparation_never_sends() {
     for changed in [false, true] {
         let mut app = request_app();
         app.update(Event::Paste("original".into()));
         key(&mut app, KeyCode::Enter);
         save_request(&mut app);
         app.settle_planning();
+        acknowledge_work(&mut app);
         app.planning.pending.take();
         if changed {
             app.update(Event::Paste(" edited before dispatch".into()));
         }
         app.planning.event(crate::providers::Event::Preview(
             crate::providers::Preview {
+                arrival: crate::providers::approval_arrival(),
                 generation: 92,
                 task_id: app.task_id,
                 thread_id: None,
@@ -2049,10 +2081,23 @@ fn changed_draft_or_blocked_preparation_never_auto_sends() {
             },
         ));
         app.settle_planning();
-        assert!(matches!(
-            app.planning.pending.take(),
-            Some(crate::providers::Request::Cancel { generation: 92 })
-        ));
+        if changed {
+            assert!(matches!(
+                app.planning.pending.take(),
+                Some(crate::providers::Request::Run { generation: 92 })
+            ));
+            assert_eq!(
+                app.planning.immutable_task().unwrap().request_text(),
+                "original"
+            );
+            assert_eq!(app.planning.submitted_request.as_ref(), "original");
+            assert_eq!(app.input, "original edited before dispatch");
+        } else {
+            assert!(matches!(
+                app.planning.pending.take(),
+                Some(crate::providers::Request::Cancel { generation: 92 })
+            ));
+        }
         assert!(app.input.starts_with("original") && app.overlay.is_none());
         app.planning.event(crate::providers::Event::Finished {
             generation: 92,
@@ -2065,7 +2110,7 @@ fn changed_draft_or_blocked_preparation_never_auto_sends() {
 }
 
 #[test]
-fn running_request_preserves_real_store_admission_until_terminal_acknowledgement() {
+fn running_request_keeps_claimed_admission_while_followup_saves_and_releases_exact_owner() {
     struct Directory(std::path::PathBuf);
     impl Drop for Directory {
         fn drop(&mut self) {
@@ -2103,23 +2148,30 @@ fn running_request_preserves_real_store_admission_until_terminal_acknowledgement
     app.store_event(next_event(&worker));
     app.update(Event::Paste("Exact reviewed request".into()));
     key(&mut app, KeyCode::Enter);
-    assert!(app.save_due(std::time::Instant::now()));
     let mut pending = Some(app.snapshot("/workspace"));
     assert!(worker.try_save(&mut pending));
     app.save_submitted();
-    let saved = match next_event(&worker) {
-        store::Event::Saved(snapshot) => snapshot,
-        _ => panic!("expected committed request"),
-    };
-    app.store_event(store::Event::Saved(saved.clone()));
+    app.store_event(next_event(&worker));
     assert!(app.settle_planning());
+    assert!(
+        app.planning.pending.is_none(),
+        "provider preparation waits for durable ownership"
+    );
+    assert!(worker.try_work(&mut app.planning.work_pending));
+    app.planning.work_inflight = true;
+    app.store_event(next_event(&worker));
     let Some(crate::providers::Request::Preview(input)) = app.planning.pending.take() else {
-        panic!("expected saved request preview");
+        panic!("expected acquired request preview");
     };
-    assert_eq!(input.task, saved);
-    store::validate_planning_input(&directory.0, &input.task, &[]).unwrap();
-    app.planning.event(crate::providers::Event::Preview(
-        crate::providers::Preview {
+    let claim = input
+        .work
+        .clone()
+        .expect("content requests own a durable claim");
+    input.validate_committed(&directory.0).unwrap();
+    app.provider_event(
+        1,
+        crate::providers::Event::Preview(crate::providers::Preview {
+            arrival: crate::providers::approval_arrival(),
             destination: None,
             requires_connection_review: true,
             generation: 12,
@@ -2127,10 +2179,11 @@ fn running_request_preserves_real_store_admission_until_terminal_acknowledgement
             thread_id: None,
             trust: vec!["Reviewed connection".into()],
             payload: "{}".into(),
-            blockers: vec![],
-        },
-    ));
+            blockers: Vec::new(),
+        }),
+    );
     app.settle_planning();
+    app.command("approvals");
     app.planning.reviewed = true;
     key(&mut app, KeyCode::Char('y'));
     assert!(matches!(
@@ -2138,58 +2191,60 @@ fn running_request_preserves_real_store_admission_until_terminal_acknowledgement
         Some(crate::providers::Request::Run { generation: 12 })
     ));
     assert!(app.input.is_empty());
-    let later = std::time::Instant::now() + std::time::Duration::from_secs(3);
-    assert!(
-        !app.save_due(later),
-        "consumption cannot race Run admission"
-    );
     app.update(Event::Paste("Retained follow-up".into()));
     key(&mut app, KeyCode::Left);
+    let caret = app.cursor;
     modified_key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
-    assert_eq!(app.storage, StorageState::Pending);
-    assert!(app.save_wait(later).is_none());
-    store::validate_planning_input(&directory.0, &input.task, &[]).unwrap();
-
-    // Thread establishment is earlier than the final dispatch/permission
-    // revalidation and must not release the reviewed committed snapshot.
-    app.planning.event(crate::providers::Event::Thread {
-        generation: 12,
-        task_id: app.task_id,
-        thread_id: "owned".into(),
-        model: "model".into(),
-        account: "account".into(),
-    });
-    assert!(!app.save_due(later));
-    app.planning.cancel();
     assert!(
-        !app.save_due(later),
-        "cancellation still awaits provider ownership"
+        app.save_due(std::time::Instant::now()),
+        "private input does not freeze future draft persistence"
     );
-    store::validate_planning_input(&directory.0, &input.task, &[]).unwrap();
-    app.planning.event(crate::providers::Event::Finished {
-        generation: 12,
-        task_id: app.task_id,
-        outcome: crate::providers::Outcome::Cancelled,
-        message: "Stopped before output".into(),
-    });
-    app.settle_planning();
-    assert_eq!(app.input, "Retained follow-up");
-    assert_eq!(
-        app.planning.submitted_request.as_ref(),
-        "Exact reviewed request"
-    );
-    assert!(app.save_due(later));
     let mut pending = Some(app.snapshot("/workspace"));
     assert!(worker.try_save(&mut pending));
     app.save_submitted();
-    let saved_followup = match next_event(&worker) {
-        store::Event::Saved(snapshot) => snapshot,
-        _ => panic!("expected committed follow-up"),
-    };
-    assert_eq!(saved_followup.request_text(), "Retained follow-up");
-    app.store_event(store::Event::Saved(saved_followup));
-    assert_eq!(app.storage, StorageState::Saved);
-    assert!(store::validate_planning_input(&directory.0, &input.task, &[]).is_err());
+    app.store_event(next_event(&worker));
+    assert_eq!(app.input, "Retained follow-up");
+    assert_eq!(app.cursor, caret);
+    assert_eq!(
+        app.planning.immutable_task().unwrap().request_text(),
+        "Exact reviewed request"
+    );
+    input.validate_committed(&directory.0).unwrap();
+    assert!(
+        store::validate_planning_input(&directory.0, &input.task, &[]).is_err(),
+        "ordinary unclaimed admission remains strict"
+    );
+    app.planning.cancel_owned();
+    input.validate_committed(&directory.0).unwrap();
+    assert_eq!(
+        app.planning.work.as_ref(),
+        Some(&claim),
+        "cancel does not release or reuse live ownership"
+    );
+    app.provider_event(
+        1,
+        crate::providers::Event::Finished {
+            generation: 12,
+            task_id: app.task_id,
+            outcome: crate::providers::Outcome::Cancelled,
+            message: "Stopped before output".into(),
+        },
+    );
+    app.settle_planning();
+    app.planning.settle_work();
+    assert!(
+        matches!(app.planning.work_pending.as_ref(), Some(store::WorkRequest::Release(owned)) if owned == &claim)
+    );
+    assert!(worker.try_work(&mut app.planning.work_pending));
+    app.planning.work_inflight = true;
+    app.store_event(next_event(&worker));
+    assert!(app.planning.work.is_none());
+    assert!(
+        input.validate_committed(&directory.0).is_err(),
+        "released claims never authorize another request"
+    );
+    assert_eq!(app.input, "Retained follow-up");
+    assert_eq!(app.cursor, caret);
 }
 
 #[test]
@@ -2200,7 +2255,7 @@ fn failure_without_output_recovers_original_request_when_followup_is_empty() {
     app.planning.reviewed = true;
     key(&mut app, KeyCode::Char('y'));
     assert!(app.input.is_empty());
-    assert!(app.planning.holds_committed_input());
+    assert!(app.planning.work.is_some());
     app.planning.event(crate::providers::Event::Finished {
         generation: 12,
         task_id: app.task_id,
@@ -2260,6 +2315,7 @@ fn explicit_run_returns_home_with_empty_followup_and_preserves_task_facts_and_ou
         message: "Complete".into(),
     });
     app.settle_planning();
+    acknowledge_work(&mut app);
     assert!(app.overlay.is_none());
     key(&mut app, KeyCode::Enter);
     let snapshot = save_request(&mut app);
@@ -2267,6 +2323,7 @@ fn explicit_run_returns_home_with_empty_followup_and_preserves_task_facts_and_ou
     assert_eq!(snapshot.goal, "Stable task");
     assert_eq!(snapshot.next_action, "Keep this task fact");
     assert!(app.settle_planning());
+    acknowledge_work(&mut app);
     assert!(
         matches!(app.planning.pending.as_ref(), Some(crate::providers::Request::Preview(input))
         if input.task.request_text() == "Follow-up")
@@ -2501,14 +2558,22 @@ fn reset_busy_work_uses_existing_guards_without_dispatch_or_abandonment() {
     key(&mut app, KeyCode::Enter);
     assert_eq!(app.task_id, 7);
     assert!(app.execution.busy());
-    assert!(matches!(
-        app.execution.confirmation,
-        Some(execution::Confirmation::Navigate(
-            execution::Action::ResetTask
-        ))
-    ));
+    assert!(
+        app.execution.confirmation.is_some(),
+        "Owned command navigation requires an explicit Stay / cancel-and-wait review"
+    );
     assert!(!app.execution.affirmative);
     assert!(!app.reset_after_save);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.task_id, 7, "Neutral Stay cannot reset the task");
+    assert!(
+        app.execution.busy(),
+        "Neutral Stay retains the original command preparation"
+    );
+    assert!(
+        app.execution.prepared.is_none() && app.execution.active.is_none(),
+        "Reset never dispatches the pending command"
+    );
 
     let mut app = request_app();
     app.update(Event::Paste("provider request".into()));
@@ -2522,6 +2587,42 @@ fn reset_busy_work_uses_existing_guards_without_dispatch_or_abandonment() {
     assert!(!app.reset_after_save);
     assert!(app.planning.pending.is_none());
     assert!(app.notice.contains("cancel"));
+}
+
+#[test]
+fn reset_does_not_transfer_or_cancel_another_partners_command() {
+    let mut app = request_app();
+    app.task_id = 7;
+    let partner = store::Partner {
+        id: 2,
+        form: 2,
+        ..Default::default()
+    };
+    let owner = store::Attribution::of(&partner);
+    app.party.push(partner);
+    assert!(app.execution_state_mut(2).prepare_command_for(
+        7,
+        Some(owner.clone()),
+        r#"["printf","not-dispatched"]"#,
+    ));
+    app.command("reset");
+    key(&mut app, KeyCode::Right);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.task_id, 7);
+    assert_eq!(app.lead.id, 1);
+    let retained = app.execution_state(2).unwrap();
+    assert!(retained.busy());
+    assert_eq!(retained.owner.as_ref(), Some(&owner));
+    assert!(
+        retained.confirmation.is_none(),
+        "The lead cannot stage navigation on another owner's command"
+    );
+    assert!(retained.prepared.is_none() && retained.active.is_none());
+    assert!(
+        app.cooperation.cancel_review.is_none(),
+        "Reset does not implicitly become Cancel all"
+    );
+    assert!(!app.reset_after_save);
 }
 
 #[test]
@@ -2961,6 +3062,7 @@ fn return_to_eevee_waits_for_explicit_provider_cancellation_and_known_outcome() 
         app.planning.pending.take();
         app.planning
             .event(crate::providers::Event::Preview(Preview {
+                arrival: crate::providers::approval_arrival(),
                 destination: None,
                 requires_connection_review: false,
                 generation: 12,
@@ -3029,12 +3131,16 @@ fn return_to_eevee_does_not_cancel_another_partners_request() {
     app.command_with_argument("/lead 2");
     assert_eq!(app.lead.id, 2);
     app.command("eevee");
-    assert_eq!(app.form(), 5);
+    assert_eq!(
+        app.form(),
+        0,
+        "an idle partner can change form independently"
+    );
     assert!(app.confirmation.is_none());
     assert!(app.return_after_cancel.is_none());
-    assert!(!app.planning.cancelling);
+    assert!(!app.planning_state(1).unwrap().cancelling);
     assert!(matches!(
-        app.planning.pending,
+        app.planning_state(1).unwrap().pending,
         Some(crate::providers::Request::Preview(_))
     ));
 }

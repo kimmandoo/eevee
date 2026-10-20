@@ -67,6 +67,9 @@ pub struct Prepared {
     pub executable: ExecutableIdentity,
     pub prepared_at_ms: u64,
     pub expires_at_ms: u64,
+    /// Process-wide preparation arrival order; legacy records have no ordering stamp.
+    #[serde(default)]
+    pub approval_arrival: u64,
     pub before: InputSnapshot,
     /// Requesting partner (PT06A); absent on runs recorded before attribution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -104,6 +107,9 @@ pub struct RunRecord {
     pub cancelled: bool,
     pub truncated: bool,
     pub output_unavailable: bool,
+    /// Overlapped task write ownership; never stable verification, even after restart.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub revision_moving: bool,
     pub captured_bytes: u64,
     pub discarded_bytes: u64,
     pub dropped_live_bytes: u64,
@@ -123,6 +129,7 @@ impl RunRecord {
             cancelled: false,
             truncated: false,
             output_unavailable: false,
+            revision_moving: false,
             captured_bytes: 0,
             discarded_bytes: 0,
             dropped_live_bytes: 0,
@@ -464,9 +471,11 @@ fn worker(
                     Ok(process) => {
                         let mut prepared = pending.take().expect("admitted prepared request");
                         prepared.rerun_of = permit.rerun_of;
+                        let mut record = RunRecord::awaiting(&prepared);
+                        record.revision_moving = permit.revision_moving;
                         run(
                             process,
-                            prepared,
+                            record,
                             (permit.file, permit.capacity),
                             &events,
                             &live,
@@ -588,6 +597,7 @@ fn prepare(
         executable,
         prepared_at_ms,
         expires_at_ms: prepared_at_ms.saturating_add(APPROVAL_LIFETIME_MS),
+        approval_arrival: crate::providers::approval_arrival(),
         before,
         partner: None,
         rerun_of: None,
@@ -782,7 +792,7 @@ fn arguments(spec: &CommandSpec) -> impl Iterator<Item = &str> {
 
 fn run(
     mut process: native::Process,
-    prepared: Prepared,
+    record: RunRecord,
     spool: (File, u64),
     events: &Mutex<VecDeque<Event>>,
     live: &SyncSender<Output>,
@@ -793,7 +803,7 @@ fn run(
     let mut capture = Capture {
         file,
         capacity,
-        record: RunRecord::awaiting(&prepared),
+        record,
         live,
         events,
     };

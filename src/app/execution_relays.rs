@@ -60,8 +60,9 @@ impl App {
     pub(super) fn rerun_stale_check(&mut self) {
         let stale = |record: &&runner::RunRecord| {
             record.prepared.task_id == self.task_id
-                && record.after.fingerprint.is_some()
-                && record.after.fingerprint != self.execution.latest.fingerprint
+                && (record.revision_moving
+                    || record.after.fingerprint.is_some()
+                        && record.after.fingerprint != self.execution.latest.fingerprint)
         };
         let run = self
             .execution
@@ -115,8 +116,9 @@ impl App {
         if !self.execution.latest.complete
             || !self.execution.latest.stable
             || self.execution.latest.fingerprint.is_none()
-            || record.after.fingerprint.is_none()
-            || record.after.fingerprint == self.execution.latest.fingerprint
+            || !record.revision_moving
+                && (record.after.fingerprint.is_none()
+                    || record.after.fingerprint == self.execution.latest.fingerprint)
         {
             return Err("Refresh sources and select a stale run; no command was prepared.".into());
         }
@@ -137,8 +139,8 @@ impl App {
 
     /// Explicit rerun intent prepares fresh identities; normal command approval is still required.
     pub fn execution_rerun(&mut self, run_id: &str) -> Result<(), String> {
-        if self.execution.busy() || self.partner_busy(self.lead().id) {
-            return Err("Wait for this partner's owned work before preparing a rerun.".into());
+        if let Some(reason) = self.work_capacity_reason(self.lead().id) {
+            return Err(reason);
         }
         let record = self
             .execution
@@ -199,30 +201,39 @@ impl App {
 
     /// A relayed command keeps provenance only while it still matches the cited run.
     pub(super) fn prepare_command_relay(&mut self, command: &str, owner: store::Attribution) {
+        if let Some(reason) = self.work_capacity_reason(owner.partner) {
+            self.notice = format!("{reason} Saved command draft retained; nothing prepared.");
+            return;
+        }
         let origin = self
             .workflows
             .command_relays
             .iter()
             .find(|origin| origin.partner == owner.partner)
             .and_then(|origin| {
-                self.execution.history.iter().find(|record| {
-                    record.prepared.task_id == self.task_id
-                        && record.prepared.run_id == origin.run_id
-                        && execution::parse_command(command)
-                            .is_ok_and(|spec| spec == record.prepared.spec)
-                        && record.prepared.cwd == std::path::Path::new(&self.cwd)
-                })
+                self.execution_state(owner.partner)?
+                    .history
+                    .iter()
+                    .find(|record| {
+                        record.prepared.task_id == self.task_id
+                            && record.prepared.run_id == origin.run_id
+                            && execution::parse_command(command)
+                                .is_ok_and(|spec| spec == record.prepared.spec)
+                            && record.prepared.cwd == std::path::Path::new(&self.cwd)
+                    })
             })
             .map(|record| record.prepared.run_id.clone());
+        let task = self.task_id;
+        let partner = owner.partner;
+        let shown = partner == self.lead().id && matches!(self.storage, StorageState::Saved);
+        let state = self.execution_state_mut(partner);
         if let Some(origin) = origin {
-            self.execution
-                .prepare_rerun_for(self.task_id, owner, command, origin);
+            state.prepare_rerun_for(task, owner, command, origin);
         } else {
-            self.execution
-                .prepare_command_for(self.task_id, Some(owner), command);
+            state.prepare_command_for(task, Some(owner), command);
         }
-        if matches!(self.storage, StorageState::Saved) {
-            self.execution.shown = true;
+        if shown {
+            state.shown = true;
         }
     }
 }

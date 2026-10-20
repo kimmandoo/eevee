@@ -72,10 +72,12 @@ impl App {
             self.notice = "Type a request and enlarge the terminal before sending.".into();
             return true;
         }
-        if self.pending_request.is_some() || self.planning.busy() || self.execution.busy() {
-            self.notice = self.other_partner_working().unwrap_or_else(|| {
-                "Finish or cancel the current request before sending another.".into()
-            });
+        if self.pending_request.is_some() || self.planning.busy() {
+            self.notice = "Finish or cancel this partner's request before sending another. Your draft is kept.".into();
+            return true;
+        }
+        if let Some(reason) = self.work_capacity_reason(self.lead.id) {
+            self.notice = reason;
             return true;
         }
         if self.archived {
@@ -91,6 +93,7 @@ impl App {
             self.planning.thread_id.is_some()
                 && self.planning.operation != crate::providers::Operation::Review,
         ));
+        self.pending_request_owner = Some(self.lead.id);
         self.flush_save();
         self.notice = "Saving request before sending…".into();
         true
@@ -100,6 +103,12 @@ impl App {
         let Some((revision, resume)) = self.pending_request else {
             return false;
         };
+        if self
+            .pending_request_owner
+            .is_some_and(|owner| owner != self.lead.id)
+        {
+            return false;
+        }
         if revision != self.revision {
             self.pending_request = None;
             self.notice =
@@ -134,10 +143,7 @@ impl App {
         self.composer_return = Some(EditorField::Request);
         self.open_overlay(Overlay::Planning);
         self.planning_command(if resume { "resume" } else { "new" });
-        if matches!(
-            self.planning.pending,
-            Some(crate::providers::Request::Preview(_))
-        ) {
+        if self.planning.owns_work() {
             self.planning.send_after_prepare = true;
             self.request_home(false);
             self.notice = "Preparing request… Enter will not send it twice.".into();
@@ -146,9 +152,14 @@ impl App {
     }
 
     pub(super) fn request_home(&mut self, consumed: bool) {
+        if self.composer_is_request() {
+            self.retain_editor();
+        }
         if consumed {
-            self.drafts
-                .retain(|draft| draft.field != EditorField::Request);
+            self.drafts.retain(|draft| {
+                draft.field != EditorField::Request
+                    || draft.text != self.planning.submitted_request.as_ref()
+            });
         }
         self.overlay = None;
         self.overlay_history.clear();
@@ -158,6 +169,7 @@ impl App {
         if consumed {
             self.changed_task();
         }
+        self.refresh_approvals();
     }
 
     pub fn composer_query(&self) -> &str {

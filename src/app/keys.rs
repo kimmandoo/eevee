@@ -39,9 +39,35 @@ impl App {
                 self.images_reviewed = false;
                 self.images_selected = 0;
                 self.planning.invalidate_review();
+                for state in self.cooperation.parked.values_mut() {
+                    state.invalidate_review();
+                }
+                for state in self.cooperation.executions.values_mut() {
+                    state.affirmative = false;
+                    state.confirmation_visible = false;
+                }
+                if let Some(review) = self.cooperation_ui.release.as_mut() {
+                    review.reviewed = false;
+                    review.affirmative = false;
+                }
+                if let Some(review) = self.cooperation.cancel_review.as_mut() {
+                    review.reviewed = false;
+                    review.affirmative = false;
+                }
+                if let Some(review) = self.cooperation.journal_discard.as_mut() {
+                    review.reviewed = false;
+                    review.affirmative = false;
+                }
                 self.handoff.invalidate_review();
                 self.sources.invalidate_review();
                 true
+            }
+            Event::Paste(_)
+                if self.cooperation.cancel_review.is_some()
+                    || self.cooperation.journal_discard.is_some()
+                    || self.cooperation_ui.release.is_some() =>
+            {
+                false
             }
             Event::Paste(_) if self.reset_after_save || self.confirmation.is_some() => false,
             Event::Paste(text) if self.nickname_editor.is_some() => self.nickname_paste(&text),
@@ -150,11 +176,13 @@ impl App {
             if key.kind == KeyEventKind::Repeat {
                 return false;
             }
-            if self.planning.busy() || self.planning.outcome_unknown() {
-                self.planning.request_quit();
-            } else {
-                self.request_quit();
-            }
+            self.request_quit();
+            return true;
+        }
+        if key.code == KeyCode::Esc
+            && (self.planning.request.is_some() || self.planning.preview.is_some())
+        {
+            self.defer_approval();
             return true;
         }
         if key.code == KeyCode::Esc
@@ -169,7 +197,7 @@ impl App {
             self.close_overlay();
             return true;
         }
-        if self.planning.needs_saved_input(&key) {
+        if self.planning.work.is_none() && self.planning.needs_saved_input(&key) {
             if let Err(error) = self.memory.selected_snapshot() {
                 self.planning.notice = format!("Review selected memories first: {error}");
                 return true;
@@ -194,13 +222,17 @@ impl App {
                 return true;
             }
         }
-        let empty;
-        let task = if let Some(task) = self.tasks.iter().find(|task| task.id == self.task_id) {
-            task
-        } else {
-            empty = store::Snapshot::empty(self.cwd.clone());
-            &empty
-        };
+        let task = self
+            .planning
+            .immutable_task()
+            .cloned()
+            .or_else(|| {
+                self.tasks
+                    .iter()
+                    .find(|task| task.id == self.task_id)
+                    .cloned()
+            })
+            .unwrap_or_else(|| store::Snapshot::empty(self.cwd.clone()));
         let operation = self.planning.operation;
         let choosing_locally = self.planning.picker.is_some()
             || self.planning.selection_change.is_some()
@@ -208,10 +240,21 @@ impl App {
         let changed = self.planning.key(
             key,
             self.width >= 60 && self.height >= 18,
-            task,
+            &task,
             &self.sources.basket,
             self.repository.as_ref(),
         );
+        self.refresh_approvals();
+        if matches!(
+            self.planning.pending,
+            Some(crate::providers::Request::Answer { .. })
+        ) {
+            self.close_overlay();
+            self.notice =
+                "Response queued for its exact owner; /approvals opens the next pending request."
+                    .into();
+            return changed;
+        }
         if matches!(
             self.planning.pending,
             Some(crate::providers::Request::Run { .. })
@@ -254,6 +297,10 @@ impl App {
     }
 
     pub(super) fn planning_command(&mut self, name: &str) -> bool {
+        if name == "quit" {
+            self.request_quit();
+            return true;
+        }
         if self.planning.preference_restore_error().is_some()
             && matches!(name, "new" | "resume" | "sessions" | "models-refresh")
         {
@@ -270,6 +317,13 @@ impl App {
                 "Restoring the last provider/model preference before connecting…".into();
             return true;
         }
+        if matches!(name, "new" | "resume" | "sessions" | "models-refresh")
+            && !self.planning.busy_except_picker()
+            && let Some(reason) = self.work_capacity_reason(self.lead.id)
+        {
+            self.planning.notice = reason;
+            return true;
+        }
         if self.planning.needs_saved_command(name) {
             if let Err(error) = self.memory.selected_snapshot() {
                 self.planning.notice = format!("Review selected memories first: {error}");
@@ -280,21 +334,22 @@ impl App {
                 return true;
             }
         }
-        let empty;
-        let task = if let Some(task) = self.tasks.iter().find(|task| task.id == self.task_id) {
-            task
-        } else {
-            empty = store::Snapshot::empty(self.cwd.clone());
-            &empty
-        };
+        let task = self
+            .tasks
+            .iter()
+            .find(|task| task.id == self.task_id)
+            .cloned()
+            .unwrap_or_else(|| store::Snapshot::empty(self.cwd.clone()));
         let operation = self.planning.operation;
         let changed = self.planning.command(
             name,
             self.width >= 60 && self.height >= 18,
-            task,
+            &task,
             &self.sources.basket,
             self.repository.as_ref(),
         );
+        self.stage_provider_work();
+        self.refresh_approvals();
         if name == "decision" {
             self.workflow.pending_decision = self.planning.decision.clone();
         }
@@ -331,7 +386,7 @@ impl App {
     }
 
     pub fn authentication_ready(&self) -> bool {
-        self.committed_input_ready() && !self.planning.busy()
+        self.committed_input_ready() && !self.planning_any_busy() && !self.execution_any_pending()
     }
 
     pub(super) fn planning_input_ready(&self) -> bool {
@@ -344,7 +399,6 @@ impl App {
             && !self.save_requested
             && !self.sources.busy()
             && !self.sources.store_failed
-            && !self.execution.busy()
             && !self.planning.journal_failed()
             && !self.transitioning
             && self.management.is_none()
@@ -377,6 +431,7 @@ impl App {
             || self.transitioning
             || self.management.is_some()
             || self.switch_task.is_some()
+            || self.work_capacity_reason(self.lead.id).is_some()
         {
             return false;
         }
@@ -393,6 +448,9 @@ impl App {
 
     pub fn authentication_returned(&mut self) {
         self.planning.invalidate_authentication();
+        for state in self.cooperation.parked.values_mut() {
+            state.invalidate_authentication();
+        }
         self.repo_refresh = true;
     }
 
@@ -443,16 +501,18 @@ impl App {
         if self.planning.send_after_prepare && self.planning.preview.is_some() {
             if self.width < 60
                 || self.height < 18
-                || !self.planning.matches_task(self.task_id, self.revision)
+                || self.planning.work.is_none()
+                    && !self.planning.matches_task(self.task_id, self.revision)
             {
                 self.planning.cancel();
                 self.notice = "Draft changed before dispatch or the terminal is too small; the request is retained. Press Enter when ready.".into();
                 return true;
             }
-            if !self.committed_input_ready() {
+            if self.planning.work.is_none() && !self.committed_input_ready() {
                 return false;
             }
             self.planning.send_after_prepare = false;
+            self.refresh_approvals();
             let preview = self.planning.preview.as_ref().expect("prepared request");
             if !preview.blockers.is_empty() {
                 let reason = preview.blockers.join(" ");
@@ -461,25 +521,14 @@ impl App {
                 return true;
             }
             if !preview.requires_connection_review && self.planning.dispatch_prepared() {
-                if let Some(task) = self.tasks.iter().find(|task| task.id == self.task_id) {
+                if let Some(task) = self.planning.immutable_task() {
                     self.planning.submitted_request = task.request_text().into();
                 }
                 self.planning.failed_request = false;
-                self.request_home(true);
+                let consumed = self.input == self.planning.submitted_request.as_ref();
+                self.request_home(consumed);
                 return true;
             }
-        }
-        // Only an actual consent/input surface opens a modal. Stream events
-        // and provider completion never move the response away from home.
-        if self.overlay.is_none()
-            && (self.planning.preview.is_some() || self.planning.request.is_some())
-        {
-            if self.composer_is_request() {
-                self.retain_editor();
-                self.composer_return = Some(store::EditorField::Request);
-            }
-            self.open_overlay(Overlay::Planning);
-            return true;
         }
         if self.overlay == Some(Overlay::Planning)
             && self.planning.preview.is_none()
@@ -509,11 +558,7 @@ impl App {
             self.planning.decision = Some(decision);
         }
         if std::mem::take(&mut self.planning.quit_ready) {
-            if let Some(action) = self.execution.request_navigation(execution::Action::Quit) {
-                self.apply_execution_action(action);
-            } else if self.execution.visible() {
-                self.open_overlay(Overlay::Execution);
-            }
+            self.request_quit();
             return true;
         }
         if std::mem::take(&mut self.planning.edit_goal) {
@@ -567,6 +612,10 @@ impl App {
     }
 
     pub(super) fn key(&mut self, key: KeyEvent, now: std::time::Instant) -> bool {
+        if self.journal_discard_key(key) || self.cancellation_key(key) || self.cooperation_key(key)
+        {
+            return true;
+        }
         if self.transitioning {
             if self.deletion_preview_pending && key.code == KeyCode::Esc {
                 self.deletion_preview_pending = false;
@@ -884,7 +933,17 @@ impl App {
     }
 
     pub(super) fn request_quit(&mut self) {
-        self.request_navigation(execution::Action::Quit);
+        if self.planning_any_busy()
+            || self.execution_any_pending()
+            || self.planning_any_unknown()
+            || self.execution_any_unknown()
+            || self.planning_any_journal_failed()
+            || self.execution_any_journal_failed()
+        {
+            self.open_cancel_review(true);
+        } else {
+            self.request_navigation(execution::Action::Quit);
+        }
     }
 
     pub(super) fn finish_request_quit(&mut self) {
@@ -894,7 +953,7 @@ impl App {
             || self.revision != self.saved_revision
             || self.sources.persistence_pending()
             || self.sources.store_failed
-            || self.planning.journal_failed()
+            || self.planning_any_journal_failed()
         {
             self.confirmation = Some(Confirmation {
                 kind: ConfirmationKind::Quit,
@@ -1031,8 +1090,8 @@ impl App {
                                     | StorageState::Saving
                                     | StorageState::Loading
                             ) || self.sources.persistence_pending()
-                                || self.execution.busy()
-                                || self.planning.busy()
+                                || self.execution_any_pending()
+                                || self.planning_any_busy()
                             {
                                 self.quit_after_save = true;
                             } else {

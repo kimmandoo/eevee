@@ -221,7 +221,7 @@ fn worker(
                 generation = generation.saturating_add(1);
                 current.store(generation, Ordering::Release);
                 owner = Some((generation, input.task.id));
-                let mut preview = Preview { destination: None, requires_connection_review: false, generation, task_id: input.task.id, thread_id: None, trust: vec![
+                let mut preview = Preview { arrival: super::approval_arrival(), destination: None, requires_connection_review: false, generation, task_id: input.task.id, thread_id: None, trust: vec![
                     "Native HTTPS request; no provider executable, project hooks, tools, local file writes, shell commands, or automatic retries. Fresh call only; no session or resume support.".into(),
                     "Only the exact HTTP JSON body below is sent for inference. Credentials are scoped request headers, not prompt context; no credentials are logged or persisted.".into(),
                     "Cancellation closes the local response reader; after dispatch the remote outcome remains unknown, not confirmed stopped. Connect/write/read deadlines are bounded.".into(),
@@ -348,6 +348,7 @@ fn payload(
     input: &Input,
     connection: &Connection,
 ) -> Result<String, String> {
+    input.validate_selection()?;
     if input.inspect_models {
         return serde_json::to_string_pretty(&json!({
             "purpose": "Model metadata only; no inference, task content, session, tools or local writes",
@@ -355,7 +356,7 @@ fn payload(
             "configured_model": connection.model, "explicit_model": input.selection.model,
         })).map_err(|_| "Cannot encode model inspection preview".into());
     }
-    crate::store::validate_planning_input(&workspace.data_dir, &input.task, &input.excerpts)?;
+    input.validate_committed(&workspace.data_dir)?;
     let context = if let Some(review) =
         input.review_payload(&workspace.data_dir, &workspace.exclusions)?
     {

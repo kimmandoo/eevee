@@ -109,13 +109,14 @@ impl App {
     }
 
     pub(super) fn load_task(&mut self, snapshot: store::Snapshot) {
+        let task_changed = self.task_id != snapshot.id;
         self.task_id = snapshot.id;
         self.pending_command = None;
         self.pending_request = None;
         self.goal = snapshot.goal;
         // The task's lead fronts this task with its full stored identity; a
         // missing row (guarded by store inspection) falls back to a bare id.
-        self.lead = self
+        let lead = self
             .party
             .iter()
             .find(|partner| partner.id == snapshot.lead_partner)
@@ -124,6 +125,19 @@ impl App {
                 id: snapshot.lead_partner,
                 ..store::Partner::default()
             });
+        if self.lead.id != lead.id {
+            self.front_planning(&lead);
+        }
+        self.lead = lead;
+        if task_changed {
+            self.cooperation.parked.clear();
+            self.cooperation.executions.clear();
+            self.cooperation.execution_actions.clear();
+            self.cooperation.command_saves.clear();
+            self.pending_request_owner = None;
+            self.planning.reset(snapshot.id);
+        }
+        self.execution.set_task(snapshot.id);
         self.sync_front();
         self.set_form(snapshot.form);
         // Loading/restoring a stored form is not an accepted form switch.
@@ -254,10 +268,6 @@ impl App {
     }
 
     pub(super) fn request_return_to_eevee(&mut self) {
-        if let Some(reason) = self.other_partner_working() {
-            self.notice = reason;
-            return;
-        }
         if self.planning.busy() {
             self.confirmation_reviewed = false;
             self.confirmation = Some(Confirmation {
@@ -280,28 +290,51 @@ impl App {
             self.notice = "Wait for the approved-memory operation to finish before changing tasks or leaving.".into();
             return;
         }
-        if matches!(action, execution::Action::Quit) && self.planning.outcome_unknown() {
-            self.planning.request_quit();
-            self.open_overlay(Overlay::Planning);
+        let form_only = matches!(action, execution::Action::SelectForm(_));
+        let blocked = if form_only {
+            self.planning.busy()
+        } else {
+            self.planning_any_busy()
+        };
+        if matches!(action, execution::Action::Quit)
+            && (blocked
+                || self.execution_any_pending()
+                || self.planning_any_unknown()
+                || self.execution_any_unknown()
+                || self.planning_any_journal_failed()
+                || self.execution_any_journal_failed())
+        {
+            self.open_cancel_review(true);
             return;
         }
-        if self.planning.journal_failed() {
-            self.planning.notice = "Provider observations are retained after journal failure; /history then /journal-retry retries storage only.".into();
-            if matches!(action, execution::Action::Quit) {
-                self.finish_request_quit();
-            } else {
-                self.open_overlay(Overlay::Planning);
-            }
+        if blocked
+            || !form_only
+                && (self.planning_any_journal_failed()
+                    || self.planning_any_unknown()
+                    || self.execution_any_unknown())
+        {
+            self.notice = "Finish or explicitly cancel owned work, and inspect retained journal/outcome before changing tasks; /party-board lists every owner.".into();
             return;
         }
-        if self.planning.busy() {
-            if matches!(action, execution::Action::Quit) {
-                self.planning.request_quit();
+        if !form_only && self.execution_any_pending() {
+            let only_front_command = self.execution.busy()
+                && self.cooperation.command_saves.is_empty()
+                && self
+                    .cooperation
+                    .executions
+                    .values()
+                    .all(|state| !state.busy() && !state.storage_pending());
+            if !only_front_command {
+                self.notice = "Other owned commands or command saves must settle before changing tasks; /cancel-all reviews every owner.".into();
+                return;
             }
-            self.notice =
-                "Resolve or cancel the active provider request before changing tasks or forms."
-                    .into();
-            self.open_overlay(Overlay::Planning);
+        }
+        if form_only
+            && self
+                .command_owner()
+                .is_some_and(|owner| owner != self.lead.id)
+        {
+            self.apply_execution_action(action);
             return;
         }
         if let Some(action) = self.execution.request_navigation(action) {
@@ -424,10 +457,10 @@ impl App {
             && !self.save_requested
             && self.save_inflight.is_none()
             && !self.sources.persistence_pending()
-            && !self.execution.busy()
-            && !self.planning.busy()
+            && !self.execution_any_pending()
+            && !self.planning_any_busy()
         {
-            if self.sources.store_failed || self.planning.journal_failed() {
+            if self.sources.store_failed || self.planning_any_journal_failed() {
                 self.quit_after_save = false;
                 self.confirmation = Some(Confirmation {
                     kind: ConfirmationKind::Quit,
@@ -479,6 +512,7 @@ impl App {
         if let Some(action) = self.execution.key(key) {
             self.apply_execution_action(action);
         }
+        self.refresh_approvals();
         if !self.execution.visible() && self.overlay == Some(Overlay::Execution) {
             self.close_overlay();
         }

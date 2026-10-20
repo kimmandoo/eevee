@@ -632,6 +632,7 @@ fn trust(project: &Path, data_dir: &Path) -> Result<Trust, String> {
             .into()
     });
     let launch = crate::workspace::runner::Prepared {
+        approval_arrival: crate::providers::approval_arrival(),
         request_id: "claude-agent".into(),
         run_id: "claude-agent".into(),
         task_id: 0,
@@ -696,7 +697,7 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
         })).map_err(|_| "Could not encode Claude model inspection".into());
     }
     input.validate_review()?;
-    crate::store::validate_planning_input(data_dir, &input.task, &input.excerpts)?;
+    input.validate_committed(data_dir)?;
     if let Some(text) = input.review_payload(data_dir, exclusions)? {
         return Ok(text);
     }
@@ -853,6 +854,7 @@ fn worker(
                 generation = generation.saturating_add(1);
                 preview_owner = Some((generation, input.task.id));
                 let mut preview = Preview {
+                    arrival: super::approval_arrival(),
                     destination: None,
                     requires_connection_review: true,
                     generation,
@@ -1289,7 +1291,7 @@ impl SdkItems {
                         ),
                         text: item.text.clone(),
                         complete: item.complete,
-                        partner: None,
+                        partner: run.input.work.as_ref().map(|claim| claim.owner.clone()),
                     },
                 },
             )?;
@@ -1458,11 +1460,7 @@ fn transport(
                             {
                                 match provider_answer(&prompt.kind, answer) {
                                     Ok(answer) => {
-                                        crate::store::validate_planning_input(
-                                            data_dir,
-                                            &run.input.task,
-                                            &run.input.excerpts,
-                                        )?;
+                                        run.input.validate_committed(data_dir)?;
                                         revalidate(project, data_dir, &run.trust)?;
                                         if cancelled.load(Ordering::Acquire) == run.generation {
                                             pipe.cancel(run.generation)?;
@@ -1533,8 +1531,9 @@ fn transport(
                             let id = value["request_id"].as_str().ok_or("Missing callback request ID")?;
                             if cancelling.is_some() || cancelled.load(Ordering::Acquire) == run.generation { pipe.cancel(run.generation)?; continue; }
                             if !prompts.is_empty() || seen_prompts.len() >= 256 || !seen_prompts.insert(id.to_owned()) || id.is_empty() || id.len() > 256 || safe(id) != id || thread_id.is_empty() || value["session_id"].as_str() != Some(thread_id.as_str()) { return Err("Stale/duplicate/concurrent/unqualified SDK callback refused".into()); }
+                            run.input.validate_committed(data_dir)?;
                             let kind = prompt_kind(&value)?;
-                            let prompt = Prompt { request_id: json!(id), thread_id: thread_id.clone(), turn_id: turn.clone(), item_id: safe(value["item_id"].as_str().unwrap_or("unknown")), kind };
+                            let prompt = Prompt { arrival: super::approval_arrival(), request_id: json!(id), thread_id: thread_id.clone(), turn_id: turn.clone(), item_id: safe(value["item_id"].as_str().unwrap_or("unknown")), kind };
                             emit(events, Event::Prompt { generation: run.generation, task_id: run.input.task.id, request: prompt.clone() })?; prompts.insert(id.into(), prompt);
                         }
                         "prompt_closed" => { let id = value["request_id"].as_str().ok_or("Invalid prompt closure")?; prompts.remove(id); emit(events, Event::PromptClosed { generation: run.generation, request_id: json!(id) })?; }

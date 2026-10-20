@@ -2,6 +2,9 @@ pub mod agents;
 pub mod carryover;
 pub mod commands;
 pub mod composer;
+pub mod cooperation;
+pub(crate) mod cooperation_journal;
+pub mod cooperation_ui;
 pub mod execution;
 pub mod execution_relays;
 pub mod handoff;
@@ -14,6 +17,7 @@ pub mod suggestions;
 pub mod workflows;
 
 mod autosave;
+mod cooperation_execution;
 mod editing;
 mod events;
 mod keys;
@@ -56,6 +60,7 @@ pub enum Overlay {
     Images,
     Workflows,
     Party,
+    PartyBoard,
     Memory,
 }
 
@@ -210,6 +215,8 @@ pub struct App {
     carry_over: carryover::State,
     pub agents: agents::State,
     pub planning: planning::State,
+    pub cooperation: cooperation::State,
+    pub cooperation_ui: cooperation_ui::State,
     pub handoff: handoff::State,
     pub workflows: crate::workspace::workflows::State,
     pub workflow: workflows::State,
@@ -224,6 +231,7 @@ pub struct App {
     pending_command: Option<(String, store::Attribution)>,
     /// Enter's save barrier. Never restored from disk or triggered by autosave.
     pending_request: Option<(u64, bool)>,
+    pending_request_owner: Option<i64>,
     /// Explicit cancellation intent, bound to the task and lead that requested it.
     return_after_cancel: Option<(i64, i64)>,
     edit_original: String,
@@ -322,6 +330,8 @@ impl App {
             carry_over: carryover::State::default(),
             agents: agents::State::new(),
             planning: planning::State::new(),
+            cooperation: cooperation::State::default(),
+            cooperation_ui: cooperation_ui::State::default(),
             handoff: handoff::State::new(),
             workflows: crate::workspace::workflows::State::default(),
             workflow: workflows::State::default(),
@@ -334,6 +344,7 @@ impl App {
             deletion_preview_pending: false,
             pending_command: None,
             pending_request: None,
+            pending_request_owner: None,
             return_after_cancel: None,
             edit_original: String::new(),
             form_selection: 0,

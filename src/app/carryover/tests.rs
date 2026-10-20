@@ -90,6 +90,7 @@ impl Drop for Fixture {
 fn run(app: &App) -> runner::RunRecord {
     let current = execution::fingerprint(app.repository.as_deref().unwrap());
     let prepared = runner::Prepared {
+        approval_arrival: crate::providers::approval_arrival(),
         request_id: "request-fixture".into(),
         run_id: "run-fixture".into(),
         task_id: 7,
@@ -346,6 +347,8 @@ fn preview_same_form_refusal_and_task_or_lead_restoration_do_not_create_records(
     });
     assert!(!app.refresh_carry_over());
     assert!(app.last_carry_over().is_none());
+    // Lead restoration is independent of the newly loaded task's pending evidence hydration.
+    let mut app = self::app();
     switch(&mut app, 5);
     app.party.push(store::Partner {
         id: 2,

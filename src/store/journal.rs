@@ -83,6 +83,7 @@ impl State {
                 JournalResponse::Records(records)
             }
             JournalOperation::Purge => {
+                no_active(&transaction, Some(request.task_id))?;
                 transaction
                     .execute(
                         "DELETE FROM provider_journal WHERE task_id=?1",

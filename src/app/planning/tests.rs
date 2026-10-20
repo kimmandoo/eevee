@@ -565,6 +565,444 @@ fn authentication_change_clears_cache_and_blocks_late_old_account_metadata() {
 }
 
 #[test]
+fn worker_retention_covers_current_and_cached_provider_operation_sessions() {
+    let mut state = active();
+    assert!(!state.has_resumable_sessions());
+    state
+        .sessions
+        .insert((Agent::Claude, Operation::Review), Session::default());
+    assert!(!state.has_resumable_sessions());
+    state.thread_id = Some("owned-plan-thread".into());
+    assert!(state.has_resumable_sessions());
+    state.event(Event::Finished {
+        generation: 11,
+        task_id: 7,
+        outcome: Outcome::Completed,
+        message: "Ordinary successful turn".into(),
+    });
+    assert!(state.has_resumable_sessions());
+    state.set_operation(Operation::Implement);
+    assert!(state.thread_id.is_none());
+    assert!(
+        state.has_resumable_sessions(),
+        "The cached Plan session still owns its worker."
+    );
+    state.set_operation(Operation::Plan);
+    assert_eq!(state.thread_id.as_deref(), Some("owned-plan-thread"));
+    state.switch_to = Some(Agent::Gemini);
+    state.complete_switch();
+    assert!(state.thread_id.is_none());
+    assert!(
+        state.has_resumable_sessions(),
+        "Another provider's cached session still owns its worker."
+    );
+    state.invalidate_authentication();
+    assert!(!state.has_resumable_sessions());
+    state.switch_to = Some(Agent::Codex);
+    state.complete_switch();
+    assert!(state.thread_id.is_none());
+    command(&mut state, "resume", true);
+    assert!(
+        state.pending.is_none(),
+        "Revoked Resume must not silently become New."
+    );
+    assert!(state.notice.contains("Resume requires"));
+}
+
+#[test]
+fn authentication_change_revokes_idle_sessions_even_while_claims_and_journals_settle() {
+    let mut state = State::new();
+    state.reset(7);
+    let claim = store::WorkClaim {
+        task_id: 7,
+        owner: partner(1, "Bolt", 2),
+        request_id: "settling-old-account".into(),
+        writing: false,
+    };
+    state.work = Some(claim.clone());
+    state.work_acquired = true;
+    state.work_pending = Some(store::WorkRequest::Release(claim.clone()));
+    state.pending_journal.push_back(store::JournalRequest {
+        task_id: 7,
+        operation: store::JournalOperation::List,
+    });
+    state.journal_inflight.push_back(store::JournalRequest {
+        task_id: 8,
+        operation: store::JournalOperation::Purge,
+    });
+    state.failed_journal.push_back(store::JournalRequest {
+        task_id: 9,
+        operation: store::JournalOperation::List,
+    });
+    state.thread_id = Some("idle-old-account".into());
+    state.sessions.insert(
+        (Agent::Claude, Operation::Implement),
+        Session {
+            thread_id: Some("cached-old-account".into()),
+            ..Session::default()
+        },
+    );
+    state.items.push(message());
+    state.catalogues.insert(Agent::Codex, catalogue());
+    state.set_devin_credential(Some(crate::providers::auth::test_credential("old-account")));
+    state.reviewed = true;
+    state.affirmative = true;
+    assert!(state.busy());
+    state.invalidate_authentication();
+    assert!(state.thread_id.is_none() && state.sessions.is_empty() && state.items.is_empty());
+    assert!(!state.has_resumable_sessions());
+    assert!(state.catalogues.is_empty() && state.devin_credential.is_none());
+    assert!(!state.reviewed && !state.affirmative && !state.transport_pending());
+    assert_eq!(state.work.as_ref(), Some(&claim));
+    assert!(state.work_acquired);
+    assert_eq!(state.work_pending, Some(store::WorkRequest::Release(claim)));
+    assert!(matches!(
+        state.pending_journal.front(),
+        Some(store::JournalRequest {
+            task_id: 7,
+            operation: store::JournalOperation::List
+        })
+    ));
+    assert!(matches!(
+        state.journal_inflight.front(),
+        Some(store::JournalRequest {
+            task_id: 8,
+            operation: store::JournalOperation::Purge
+        })
+    ));
+    assert!(matches!(
+        state.failed_journal.front(),
+        Some(store::JournalRequest {
+            task_id: 9,
+            operation: store::JournalOperation::List
+        })
+    ));
+}
+
+#[test]
+fn parked_and_new_partner_states_only_inherit_current_future_credentials() {
+    let mut front = State::new();
+    front.reset(7);
+    front.agent = Agent::Devin;
+    front.catalogues.insert(Agent::Devin, catalogue());
+    front.set_devin_credential(Some(crate::providers::auth::test_credential("account-one")));
+    let mut parked = front.new_partner(partner(2, "Mizu", 1), 7);
+    front.thread_id = Some("front-old-account".into());
+    parked.thread_id = Some("parked-old-account".into());
+    for state in [&mut front, &mut parked] {
+        state.invalidate_authentication();
+        assert!(state.devin_credential.is_none());
+        assert!(state.catalogues.is_empty() && !state.has_resumable_sessions());
+        state.set_devin_credential(Some(crate::providers::auth::test_credential("account-two")));
+        assert!(state.pending.is_none());
+    }
+    let mut newcomer = parked.new_partner(partner(3, "Leaf", 6), 7);
+    assert_eq!(
+        newcomer.devin_credential.as_ref().unwrap().token(),
+        "account-two"
+    );
+    assert!(newcomer.catalogues.is_empty() && !newcomer.has_resumable_sessions());
+    command(&mut newcomer, "new", true);
+    let Some(Request::Preview(input)) = newcomer.pending.take() else {
+        panic!("A deliberate new request must use the replacement credential.");
+    };
+    assert_eq!(input.credential.as_ref().unwrap().token(), "account-two");
+    for state in [&mut front, &mut parked, &mut newcomer] {
+        state.set_devin_credential(None);
+        assert!(state.devin_credential.is_none());
+    }
+    let fresh = front.new_partner(partner(4, "Snow", 7), 7);
+    assert!(fresh.devin_credential.is_none() && fresh.pending.is_none());
+    assert_eq!(input.credential.as_ref().unwrap().token(), "account-two");
+}
+
+#[test]
+fn credential_changes_preserve_held_input_and_authentication_cancel_settles_exact_claim() {
+    let owner = partner(1, "Bolt", 2);
+    let mut state = State::new().new_partner(owner.clone(), 7);
+    state.agent = Agent::Devin;
+    state.thread_id = Some("old-account-thread".into());
+    state.set_devin_credential(Some(crate::providers::auth::test_credential(
+        "held-account",
+    )));
+    command(&mut state, "resume", true);
+    let claim = store::WorkClaim {
+        task_id: 7,
+        owner,
+        request_id: "held-old-account".into(),
+        writing: false,
+    };
+    state.stage_work(claim.clone());
+    let held_address = state.held_input.as_deref().unwrap() as *const crate::providers::Input;
+    let task_bytes = serde_json::to_vec(&state.held_input.as_ref().unwrap().task).unwrap();
+    for credential in [
+        Some(crate::providers::auth::test_credential(
+            "replacement-account",
+        )),
+        None,
+    ] {
+        state.set_devin_credential(credential);
+        let held = state.held_input.as_deref().unwrap();
+        assert_eq!(held as *const _, held_address);
+        assert_eq!(held.credential.as_ref().unwrap().token(), "held-account");
+        assert_eq!(held.resume.as_deref(), Some("old-account-thread"));
+        assert_eq!(serde_json::to_vec(&held.task).unwrap(), task_bytes);
+    }
+    state.invalidate_authentication();
+    let held = state.held_input.as_deref().unwrap();
+    assert_eq!(held as *const _, held_address);
+    assert_eq!(held.credential.as_ref().unwrap().token(), "held-account");
+    assert_eq!(held.resume.as_deref(), Some("old-account-thread"));
+    assert_eq!(serde_json::to_vec(&held.task).unwrap(), task_bytes);
+    assert!(state.claim_cancelled && state.pending.is_none());
+    assert!(!state.has_resumable_sessions());
+    let acquire = state.work_pending.take().unwrap();
+    assert!(
+        matches!(&acquire, store::WorkRequest::Acquire { claim: owned, .. } if owned == &claim)
+    );
+    state.work_inflight = true;
+    state.work_event(acquire, Ok(vec![claim.clone()]));
+    assert!(state.held_input.is_none() && state.pending.is_none());
+    assert!(!state.transport_pending());
+    assert_eq!(state.work.as_ref(), Some(&claim));
+    let release = state.work_pending.take().unwrap();
+    assert_eq!(release, store::WorkRequest::Release(claim));
+    state.work_inflight = true;
+    state.work_event(release, Ok(Vec::new()));
+    assert!(state.work.is_none() && !state.owns_work());
+}
+
+#[test]
+fn authentication_change_cancels_stale_resume_previews_without_fresh_fallback() {
+    for already_prepared in [false, true] {
+        let mut state = State::new();
+        state.reset(7);
+        state.thread_id = Some("old-account-thread".into());
+        command(&mut state, "resume", true);
+        let Some(Request::Preview(input)) = state.pending.take() else {
+            panic!("Owned Resume must prepare an explicit resume.");
+        };
+        assert_eq!(input.resume.as_deref(), Some("old-account-thread"));
+        let preview = Preview {
+            arrival: crate::providers::approval_arrival(),
+            generation: 11,
+            task_id: 7,
+            thread_id: input.resume.clone(),
+            destination: None,
+            requires_connection_review: true,
+            trust: Vec::new(),
+            payload: "immutable old-account payload".into(),
+            blockers: Vec::new(),
+        };
+        if already_prepared {
+            state.event(Event::Preview(preview.clone()));
+        }
+        state.send_after_prepare = true;
+        state.reviewed = true;
+        state.affirmative = true;
+        state.invalidate_authentication();
+        assert!(!state.send_after_prepare && !state.reviewed && !state.affirmative);
+        assert!(!state.has_resumable_sessions());
+        if !already_prepared {
+            assert!(state.cancel_when_ready && state.awaiting_preview);
+            state.event(Event::Preview(preview));
+        }
+        assert!(state.preview.is_none() && state.cancelling);
+        assert!(!state.dispatch_prepared());
+        assert!(matches!(
+            state.pending.take(),
+            Some(Request::Cancel { generation: 11 })
+        ));
+        state.event(Event::Finished {
+            generation: 11,
+            task_id: 7,
+            outcome: Outcome::Cancelled,
+            message: "Stale preparation cancelled".into(),
+        });
+        assert!(!state.transport_pending() && !state.has_resumable_sessions());
+        command(&mut state, "resume", true);
+        assert!(
+            state.pending.is_none(),
+            "Revoked Resume must never silently launch New."
+        );
+        assert!(state.notice.contains("Resume requires"));
+        assert_eq!(input.resume.as_deref(), Some("old-account-thread"));
+    }
+}
+
+#[test]
+fn active_account_change_preserves_submitted_bytes_and_revokes_every_terminal_session() {
+    for outcome in [
+        Outcome::Completed,
+        Outcome::Failed,
+        Outcome::Cancelled,
+        Outcome::Unknown,
+    ] {
+        let mut state = State::new();
+        state.reset(7);
+        state.agent = Agent::Devin;
+        state.thread_id = Some("submitted-old-account".into());
+        state.set_devin_credential(Some(crate::providers::auth::test_credential(
+            "submitted-account",
+        )));
+        command(&mut state, "resume", true);
+        let Some(Request::Preview(input)) = state.pending.take() else {
+            panic!("The submitted transport must own an immutable input.");
+        };
+        let task_bytes = serde_json::to_vec(&input.task).unwrap();
+        state.committed_input = Some(Box::new(input.task.clone()));
+        let committed_address = state.committed_input.as_deref().unwrap() as *const store::Snapshot;
+        state.event(Event::Preview(Preview {
+            arrival: crate::providers::approval_arrival(),
+            generation: 11,
+            task_id: 7,
+            thread_id: input.resume.clone(),
+            destination: None,
+            requires_connection_review: true,
+            trust: Vec::new(),
+            payload: "submitted payload".into(),
+            blockers: Vec::new(),
+        }));
+        assert!(state.dispatch_prepared());
+        assert!(matches!(
+            state.pending.take(),
+            Some(Request::Run { generation: 11 })
+        ));
+        state.sessions.insert(
+            (Agent::Codex, Operation::Implement),
+            Session {
+                thread_id: Some("cached-old-account".into()),
+                ..Session::default()
+            },
+        );
+        state.invalidate_authentication();
+        state.set_devin_credential(Some(crate::providers::auth::test_credential(
+            "future-account",
+        )));
+        assert!(state.active && !state.cancelling && state.pending.is_none());
+        assert_eq!(state.generation, Some(11));
+        assert_eq!(state.thread_id.as_deref(), Some("submitted-old-account"));
+        assert!(state.sessions.is_empty() && !state.has_resumable_sessions());
+        assert_eq!(
+            input.credential.as_ref().unwrap().token(),
+            "submitted-account"
+        );
+        assert_eq!(input.resume.as_deref(), Some("submitted-old-account"));
+        assert_eq!(serde_json::to_vec(&input.task).unwrap(), task_bytes);
+        assert_eq!(
+            state.committed_input.as_deref().unwrap() as *const _,
+            committed_address
+        );
+        state.event(Event::Error {
+            generation: Some(11),
+            message: "Transport still settling".into(),
+        });
+        assert!(state.active && !state.has_resumable_sessions());
+        state.event(Event::Thread {
+            generation: 11,
+            task_id: 7,
+            thread_id: "late-old-account-thread".into(),
+            model: "observed-model".into(),
+            account: "old account".into(),
+        });
+        assert_eq!(state.thread_id.as_deref(), Some("late-old-account-thread"));
+        assert!(!state.has_resumable_sessions());
+        state.items.push(message());
+        state.event(Event::Finished {
+            generation: 11,
+            task_id: 7,
+            outcome,
+            message: "Owned transport settled".into(),
+        });
+        assert!(!state.active && !state.transport_pending());
+        assert!(state.thread_id.is_none() && state.items.is_empty() && state.sessions.is_empty());
+        assert!(!state.has_resumable_sessions());
+        assert_eq!(state.outcome_unknown(), outcome == Outcome::Unknown);
+        assert!(state.notice.starts_with("Owned transport settled"));
+        assert_eq!(
+            state.committed_input.as_deref().unwrap() as *const _,
+            committed_address
+        );
+        assert_eq!(
+            serde_json::to_vec(state.committed_input.as_deref().unwrap()).unwrap(),
+            task_bytes
+        );
+        assert_eq!(
+            input.credential.as_ref().unwrap().token(),
+            "submitted-account"
+        );
+        state.event(Event::Thread {
+            generation: 11,
+            task_id: 7,
+            thread_id: "too-late-old-account".into(),
+            model: "old-model".into(),
+            account: "old account".into(),
+        });
+        command(&mut state, "resume", true);
+        assert!(
+            state.pending.is_none(),
+            "A terminal old-account session cannot silently become New."
+        );
+        command(&mut state, "new", true);
+        let Some(Request::Preview(future)) = state.pending.take() else {
+            panic!("Only a deliberate fresh request can use the replacement credential.");
+        };
+        assert!(future.resume.is_none());
+        assert_eq!(
+            future.credential.as_ref().unwrap().token(),
+            "future-account"
+        );
+    }
+}
+
+#[test]
+fn deferred_authentication_revocation_preserves_terminal_claim_and_journal_operations() {
+    let mut state = active();
+    let claim = store::WorkClaim {
+        task_id: 7,
+        owner: partner(1, "Bolt", 2),
+        request_id: "active-old-account".into(),
+        writing: false,
+    };
+    state.work = Some(claim.clone());
+    state.work_acquired = true;
+    state.thread_id = Some("active-old-account-thread".into());
+    state.event(journal_event(11, "inflight-record"));
+    state.journal_started();
+    state.event(journal_event(11, "pending-record"));
+    state.failed_journal.push_back(store::JournalRequest {
+        task_id: 7,
+        operation: store::JournalOperation::List,
+    });
+    state.invalidate_authentication();
+    state.event(Event::Finished {
+        generation: 11,
+        task_id: 7,
+        outcome: Outcome::Completed,
+        message: "Provider settled; storage still pending".into(),
+    });
+    assert!(!state.has_resumable_sessions() && state.thread_id.is_none());
+    assert_eq!(state.work.as_ref(), Some(&claim));
+    assert!(state.work_acquired && state.work_pending.is_none());
+    assert_eq!(state.pending_journal.len(), 1);
+    assert_eq!(state.journal_inflight.len(), 1);
+    assert_eq!(state.failed_journal.len(), 1);
+    assert!(matches!(
+        &state.pending_journal[0].operation,
+        store::JournalOperation::Put(record) if record.id == "pending-record"
+    ));
+    assert!(matches!(
+        &state.journal_inflight[0].operation,
+        store::JournalOperation::Put(record) if record.id == "inflight-record"
+    ));
+    state.settle_work();
+    assert!(
+        state.work_pending.is_none(),
+        "Authentication cannot discard journal settlement to release a claim."
+    );
+}
+
+#[test]
 fn typed_slash_is_search_text_and_never_a_command() {
     let mut state = State::new();
     state.reset(7);
@@ -739,6 +1177,7 @@ fn custom_id_is_exact_local_and_invalidates_previous_review_and_effort() {
     command(&mut state, "new", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
         generation: 11,
@@ -851,6 +1290,7 @@ fn refresh_failure_retains_last_successful_rows_and_retry_replaces_them() {
     assert!(state.catalogues.contains_key(&Agent::Codex));
     state.pending.take();
     state.event(Event::Preview(Preview {
+        arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: false,
         generation: 12,
@@ -902,6 +1342,7 @@ fn first_fetch_failure_remains_retryable_and_empty_success_is_not_fake_failure()
     state.start_automatic_catalogue(&task(), &[], None);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: false,
         generation: 13,
@@ -963,6 +1404,7 @@ fn model_picker_is_local_and_refresh_requires_preview_run_without_journal() {
     assert!(input.inspect_models && !input.inspect_sessions && input.resume.is_none());
     assert_eq!(input.selection, ModelSelection::default());
     state.event(Event::Preview(Preview {
+        arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
         generation: 11,
@@ -1072,6 +1514,7 @@ fn advertised_effort_and_model_are_snapshotted_and_preview_change_revokes_consen
     assert_eq!(input.selection.model.as_deref(), Some("advertised-model"));
     assert_eq!(input.selection.effort.as_deref(), Some("high"));
     state.event(Event::Preview(Preview {
+        arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
         generation: 11,
@@ -1210,6 +1653,7 @@ fn start_catalogue(state: &mut State, task: &store::Snapshot, generation: u64) {
     state.start_automatic_catalogue(task, &[], None);
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
+        arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: false,
         generation,
@@ -1336,6 +1780,7 @@ fn blocked_preview_and_preview_error_retain_reason_without_automatic_manual_run(
             });
         } else {
             state.event(Event::Preview(Preview {
+                arrival: crate::providers::approval_arrival(),
                 destination: None,
                 requires_connection_review: true,
                 generation: 11,
@@ -1369,6 +1814,7 @@ fn blocked_preview_and_preview_error_retain_reason_without_automatic_manual_run(
         state.command("models-refresh", true, &task, &[], None);
         assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
         state.event(Event::Preview(Preview {
+            arrival: crate::providers::approval_arrival(),
             destination: None,
             requires_connection_review: true,
             generation: 12,
@@ -1489,6 +1935,7 @@ fn preview() -> State {
     command(&mut state, "new", true);
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
+        arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
         generation: 11,
@@ -1507,6 +1954,7 @@ fn preview_shows_local_receipt() {
     command(&mut state, "new", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
         generation: 11,
@@ -1606,6 +2054,7 @@ fn cancel_invalidates_prompt_and_rejects_stale_generation() {
         generation: 11,
         task_id: 7,
         request: Prompt {
+            arrival: crate::providers::approval_arrival(),
             request_id: json!(1),
             thread_id: "thread".into(),
             turn_id: "turn".into(),
@@ -1637,6 +2086,7 @@ fn pasted_commands_are_literal_and_cjk_cursor_stays_on_graphemes() {
         generation: 11,
         task_id: 7,
         request: Prompt {
+            arrival: crate::providers::approval_arrival(),
             request_id: json!(1),
             thread_id: "thread".into(),
             turn_id: "turn".into(),
@@ -1699,6 +2149,7 @@ fn denial_uses_the_server_offered_cancel_not_invented_decline() {
         generation: 11,
         task_id: 7,
         request: Prompt {
+            arrival: crate::providers::approval_arrival(),
             request_id: json!(23),
             thread_id: "thread".into(),
             turn_id: "turn".into(),
@@ -1888,6 +2339,7 @@ fn resize_and_quit_reset_permission_to_deny() {
         generation: 11,
         task_id: 7,
         request: Prompt {
+            arrival: crate::providers::approval_arrival(),
             request_id: json!(1),
             thread_id: "thread".into(),
             turn_id: "turn".into(),
@@ -1939,6 +2391,7 @@ fn prior_unknown_outcome_survives_later_completion_and_authentication_reset() {
     command(&mut state, "sessions", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
         generation: 12,
@@ -2047,6 +2500,7 @@ fn run_request(state: &mut State, generation: u64, request: &str) {
     command(state, "new", true);
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
+        arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
         generation,
@@ -2269,6 +2723,7 @@ fn output_does_not_move_prompt_question_or_journal_review() {
             generation: 11,
             task_id: 7,
             request: Prompt {
+                arrival: crate::providers::approval_arrival(),
                 request_id: "request".into(),
                 thread_id: "thread".into(),
                 turn_id: "turn".into(),
@@ -2489,6 +2944,7 @@ fn cancelling_connection_review_does_not_reopen_a_hidden_model_picker() {
     command(&mut state, "models-refresh", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
         generation: 99,
@@ -2530,6 +2986,7 @@ fn journal_records_carry_the_partner_bound_when_the_request_was_prepared() {
     command(&mut state, "new", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
         generation: 11,
@@ -2591,6 +3048,7 @@ fn journal_event(generation: u64, id: &str) -> Event {
 fn prepared_at(state: &mut State, generation: u64) {
     state.pending.take();
     state.event(Event::Preview(Preview {
+        arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
         generation,
@@ -2609,7 +3067,6 @@ fn late_events_for_another_or_released_partner_are_refused() {
     state.front = Some(partner(1, "Bolt", 2));
     command(&mut state, "new", true);
     prepared_at(&mut state, 11);
-    assert_eq!(state.working_partner(), Some(1));
     state.event(journal_event(11, "bolt-item"));
     assert_eq!(state.pending_journal.len(), 1);
     // Bolt's review closes; Mizu then owns the next request slot.

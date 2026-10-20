@@ -20,6 +20,7 @@ mod spool;
 mod tasks;
 #[cfg(test)]
 mod tests;
+mod work;
 
 use journal::*;
 use memories::*;
@@ -30,7 +31,7 @@ use schema::*;
 use spool::*;
 use tasks::*;
 
-pub use admission::{review_run_observations, validate_planning_input};
+pub use admission::{review_run_observations, validate_planning_input, validate_work_input};
 pub use partners::validate_nickname;
 pub use preferences::{PreferenceRequest, ProviderPreferences};
 pub use recovery::export_readable;
@@ -311,6 +312,24 @@ impl Attribution {
     }
 }
 
+/// Durable request ownership; this is never a file or command permission.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkClaim {
+    pub task_id: i64,
+    pub owner: Attribution,
+    pub request_id: String,
+    pub writing: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum WorkRequest {
+    Acquire {
+        claim: WorkClaim,
+        task: Box<Snapshot>,
+    },
+    Release(WorkClaim),
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Project {
     pub tasks: Vec<Snapshot>,
@@ -329,6 +348,7 @@ pub struct CommittedRunPermit {
     pub file: File,
     pub capacity: u64,
     pub rerun_of: Option<String>,
+    pub revision_moving: bool,
     _committed: (),
 }
 
@@ -463,6 +483,9 @@ pub enum PartyRequest {
         partner: i64,
         nickname: Option<String>,
     },
+    Release {
+        partner: i64,
+    },
 }
 #[derive(Debug)]
 pub enum Event {
@@ -486,6 +509,11 @@ pub enum Event {
     Preferences(Result<Option<ProviderPreferences>, String>),
     /// Committed party roster after a `PartyRequest`, or the refusal reason.
     Party(Result<Vec<Partner>, String>),
+    PartyReleased(Result<Project, String>),
+    Work {
+        request: WorkRequest,
+        result: Result<Vec<WorkClaim>, String>,
+    },
     Context {
         task_id: i64,
         result: Result<Vec<crate::workspace::context::Excerpt>, String>,
@@ -521,6 +549,7 @@ enum Command {
     Journal(JournalRequest),
     Memory(MemoryRequest),
     Party(PartyRequest),
+    Work(WorkRequest),
     Preferences(PreferenceRequest),
     Retry,
 }
@@ -662,6 +691,26 @@ impl Worker {
         }
     }
 
+    pub fn try_work(&self, pending: &mut Option<WorkRequest>) -> bool {
+        let Some(commands) = &self.commands else {
+            return false;
+        };
+        let Some(request) = pending.take() else {
+            return false;
+        };
+        match commands.try_send(Command::Work(request)) {
+            Ok(()) => true,
+            Err(
+                TrySendError::Full(Command::Work(request))
+                | TrySendError::Disconnected(Command::Work(request)),
+            ) => {
+                *pending = Some(request);
+                false
+            }
+            Err(_) => unreachable!("try_send returns the submitted command"),
+        }
+    }
+
     /// Queues a party roster mutation; full/disconnected queues retain it.
     pub fn try_party(&self, pending: &mut Option<PartyRequest>) -> bool {
         let Some(commands) = &self.commands else {
@@ -763,11 +812,19 @@ fn run(
                 task_id: request.task_id,
                 result: state.memory_request(request).map_err(actionable),
             },
+            Command::Work(request) => {
+                let result = state.work_request(&request).map_err(actionable);
+                Event::Work { request, result }
+            }
+            Command::Party(PartyRequest::Release { partner }) => {
+                Event::PartyReleased(state.release_partner(partner).map_err(actionable))
+            }
             Command::Party(request) => Event::Party(match request {
                 PartyRequest::Add => state.add_partner().map_err(actionable),
                 PartyRequest::Nickname { partner, nickname } => state
                     .nickname_partner(partner, nickname)
                     .map_err(actionable),
+                PartyRequest::Release { .. } => unreachable!("release returns refreshed project"),
             }),
             Command::Run(request) => {
                 let task_id = request.task_id;

@@ -1,5 +1,82 @@
 # Troubleshooting
 
+### [2026-10-21] Bounded fixture version probe expired during runtime qualification
+
+- **Context / Symptom:** The first E execution-relay run stopped after 10 of 14 groups: the deterministic peer's version probe exceeded the application's three-second deadline at 60×18 (`target/wave4-accepted-execution-relays-e`).
+- **Root Cause:** Not established. The fixture's version branch only printed its fixed version; the observation did not establish a production protocol defect.
+- **Solution:** Preserved the failure and manually ran the unchanged complete suite in fresh isolated disposable processes; all 14 groups passed on identical E bytes (`target/wave4-accepted-execution-relays-e-isolated`). No provider request retry, harness workaround, admission bypass or timeout change was added.
+- **Prevention / Reference:** Keep the bounded fail-closed probe and original evidence. A successful isolated run is not a claim that the timeout's cause was proven.
+
+### [2026-10-21] Compact history hid acknowledged provider coverage loss
+
+- **Context / Symptom:** Three explicit resumed native turns reached the real 256-record journal limit. Terminal-only discard correctly kept committed rows and released ownership, but 60×18 history showed only the positive acknowledgement; the unverified gap was invisible (`target/wave4-cooperation-c-reachable/60-journal-limit/initial/final.txt`).
+- **Root Cause:** The bounded history footer applied `brief` to a long storage acknowledgement while the coverage-loss warning was appended afterward.
+- **Solution:** Prioritized the existing gap as the compact notice, made its first sentence explicitly say write attempts were not saved and were not verification, and appended its full memory-only owner/request/error detail to the scrollable history presentation. No stored observation was rewritten or invented.
+- **Prevention / Reference:** Keep the post-discard visible-warning assertion alongside exact terminal-only recovery, 256 unchanged committed rows, deliberate neutral consent and no provider replay.
+
+### [2026-10-21] Compact command editor hid a correct capacity refusal
+
+- **Context / Symptom:** With three real owned local commands at 60×18, applying a fourth correctly refused execution and retained its draft, but no reason appeared. `target/wave4-accepted-cooperation/60-local-slots/initial/final.txt` preserved the failure.
+- **Root Cause:** The centered command editor covered screen rows 1–16, including the global notice row. The next key cleared the old notice before closing the editor, so Escape could not reveal it afterward.
+- **Solution:** Used the existing specialist-desk layout boundary: reserve two header and two footer rows before centering the editor. Task/storage/refusal/exit text remains outside the modal; the existing caret-driven input viewport retains the complete draft without changing the capacity guard.
+- **Prevention / Reference:** Keep the actual fourth-command visibility assertion at the minimum terminal size; absence of a process alone does not prove an actionable refusal.
+
+### [2026-10-21] Native graphics input fixture reopened the wrong editor
+
+- **Context / Symptom:** The native graphics smoke failed `typed text was lost, duplicated or polluted by terminal replies` after successfully decoding a real sprite.
+- **Root Cause:** Its pre-first-use-UX flow typed into the Request composer, then reopened Goal after Help and expected that different field to contain the same text. Terminal replies had not corrupted the input.
+- **Solution:** Opened Goal explicitly before typing and resumed that same retained field after Help. All five actual PTY routes then passed input persistence and terminal recovery: Sixel, Kitty, unsupported-native cell fallback, explicit cells and images-off.
+- **Prevention / Reference:** `scripts/graphics_smoke.py`; decoded native subject pixels remained at integer scale 3, with maximum RGB error 1 for Sixel and 0 for Kitty. Capability responders are not GUI-terminal certification.
+
+### [2026-10-21] Editing-owner banner painted over local command consent
+
+- **Context / Symptom:** The actual mixed reader/writer/command journey displayed `Ember (Flareon) is editingpermission` where the command permission title belonged. The full review locator failed even though the neutral choices and exact command remained below.
+- **Root Cause:** A queue wrapper drew the lease banner after rendering the confirmation, directly on its first content row.
+- **Solution:** Removed the post-render wrapper. Queue identity became the panel title; the editing owner used an existing consent-summary row without hiding command identity, directory, executable, effects or invalidated-request errors. The compact six-row approval budget and exact-detail scrolling were preserved.
+- **Prevention / Reference:** The actual mixed-work journey reached approval and started its exact owned command after the correction; both-size full cooperation qualification remained required. Deferred command smokes deliberately reopened `/approvals`; native-provider denial used the visible neutral Deny choice, not a nonexistent `/deny` palette command.
+
+### [2026-10-21] Parallel context fixtures collided on a timestamp-only directory name
+
+- **Context / Symptom:** The native integrated suite failed a context fixture at `fs::create_dir` with `AlreadyExists (code 17)` while creating a PID-and-nanosecond-named directory.
+- **Root Cause:** Wall-clock timestamps did not guarantee unique names for parallel fixture creation in one process.
+- **Solution:** Added a process-local atomic counter alongside the PID and timestamp, preserving canonicalization, isolation and the original parallel test execution.
+- **Prevention / Reference:** `workspace::context::tests::Fixture::new`; no production path, guard or timeout was relaxed.
+
+### [2026-10-21] Idle transport retirement lost resumable ownership
+
+- **Context / Symptom:** Cooperative runtime review found that a completed request retained its thread/session reference while the idle provider worker—and its backend ownership registry—was dropped. The next Resume could therefore refuse an otherwise owned session. Parked states could also retain old authentication catalogues or future-launch credentials.
+- **Root Cause:** Retirement used only transport activity, and authentication updates reached only the front state.
+- **Solution:** Retained bounded owner workers while current or cached resumable sessions existed; propagated account invalidation and future credential replacement/clearing to parked states without mutating submitted immutable input. Revoked sessions no longer kept obsolete workers alive.
+- **Prevention / Reference:** Consecutive same-owner readonly turns and parked-authentication regressions; no automatic resend or session adoption.
+
+### [2026-10-21] Full provider journal prevented ownership settlement
+
+- **Context / Symptom:** A definitive provider completion with a failed 257th journal record retained the exact work claim. Storage-only retry could not overcome the 256-record limit, while active ownership correctly refused purge, leaving ordinary settlement impossible.
+- **Root Cause:** Failed unsaved observations had no explicit terminal recovery distinct from retry or deletion of committed history.
+- **Solution:** Added neutral `/journal-discard` review bound to owner/task/request and every exact failed FIFO write attempt, including repeated IDs/partial/final versions. Only provably unsaved failures after definite termination could be acknowledged; committed rows remained unchanged, an unverified memory-only coverage-gap/error notice remained, and ordinary exact-claim release completed settlement. Running/unknown work and ambiguous commits/reads/purges refused recovery.
+- **Prevention / Reference:** Real 257th-record store regression and paced actual protocol fixture; recovery never invented successful persistence, purged history or replayed a provider.
+
+### [2026-10-21] Releasing the current idle lead conflicted with live autosave state
+
+- **Context / Symptom:** Review found that a committed release and subsequent front switch could share one revision with differing draft values. Removed recipient intents also remained in live workflows and could reappear on the next save.
+- **Root Cause:** Release completion copied roster/task metadata without reconciling live specialist intents or separating committed cleanup from additional front/navigation changes.
+- **Solution:** Paused autosave during the release transaction, applied committed recipient-intent pruning, cleared only the removed lead's specialist proposals, and saved additional live changes strictly above the committed revision while retaining peers, transports, unrelated drafts and carets.
+- **Prevention / Reference:** Current-lead release with three working peers, recipient-intent resurrection and preserved-evidence regressions.
+
+### [2026-10-20] Empty cooperation recovery rewrote an idle current-schema database
+
+- **Context / Symptom:** The first integrated wave 4 suite failed `current_schema_reopens_without_rewriting_or_inventing_activity`; reopening and saving the identical task changed the SQLite change counter despite no reserved execution or active work.
+- **Root Cause:** Startup recovery unconditionally executed `DELETE FROM active_work`, including an empty table. SQLite still performed a write.
+- **Solution:** Checked for either reserved executions or persisted ownership before opening the recovery transaction. A quiescent store now returns through the read-only path; real recovery still interrupts evidence and clears stale claims atomically under the exclusive writer lock.
+- **Prevention / Reference:** Retained the byte-preserving reopen regression and real previous-binary refusal qualification. Attribution fixtures were separately aligned with actual roster identities rather than weakening work-owner validation.
+
+### [2026-10-20] Cooperative consent and receipts used mutable or previous-request metadata
+
+- **Context / Symptom:** Read-only integration review found that a deferred request A could display a later saved draft B while dispatching A, a new claim could expose its predecessor's receipt/model, and modified affirmative keys could confirm partner release.
+- **Root Cause:** Legacy rendering read the current task draft; receipt fields lacked current-request ownership; release consent tested the key code without the modifier/Press boundary.
+- **Solution:** Rendered the immutable submitted snapshot, bound current-request receipt/model disclosure to its identity, and required unmodified affirmative Press events after visible release review. Added regressions for A versus B, independent request receipts and Ctrl/Alt/Shift/repeat/release-key refusal.
+- **Prevention / Reference:** Future drafts remain editable, but never replace reviewed input or its attribution. Unknown provider usage/cost must stay explicit, not become an earlier request's measurements.
+
 ### [2026-10-20] Compact specialist pagination skipped saved detail lines
 
 - **Context / Symptom:** Final 60×18 inspection exposed only the beginning of the comparison warning. A new keyboard-only regression confirmed that paging skipped several user-authored hypothesis lines entirely.

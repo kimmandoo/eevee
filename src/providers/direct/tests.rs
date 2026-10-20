@@ -4,6 +4,7 @@ use crate::providers::{Agent, ModelSelection};
 fn input() -> Input {
     Input {
         task: crate::store::Snapshot::empty("unopened-project".into()),
+        work: None,
         excerpts: Vec::new(),
         report: None,
         resume: None,

@@ -140,6 +140,14 @@ impl State {
                 return Err("Project capacity reached (256 tasks); no tasks were removed".into());
             }
         }
+        let roster = partners(&transaction)?;
+        if snapshot
+            .partner_drafts
+            .keys()
+            .any(|id| !roster.iter().any(|member| member.id == *id))
+        {
+            return Err("Draft owner is no longer in the party; reload the committed task".into());
+        }
         let criteria =
             serde_json::to_string(&snapshot.criteria).map_err(|error| error.to_string())?;
         let partner_drafts = bounded_json(&snapshot.partner_drafts, MAX_PARTNER_DRAFTS_BYTES)?;

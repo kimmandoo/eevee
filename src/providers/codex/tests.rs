@@ -442,6 +442,7 @@ fn model_modalities_follow_installed_protocol_default_without_accepting_malforme
 fn model_inspection_has_no_task_prompt_or_source_or_edit_lookup() {
     let mut input = Input {
         task: crate::store::Snapshot::empty("unopened-project".into()),
+        work: None,
         excerpts: Vec::new(),
         report: None,
         resume: None,
@@ -478,6 +479,7 @@ fn model_inspection_has_no_task_prompt_or_source_or_edit_lookup() {
 fn review_has_no_edit_baseline_and_refuses_selected_write_paths() {
     let mut input = Input {
         task: crate::store::Snapshot::empty("unopened-project".into()),
+        work: None,
         excerpts: Vec::new(),
         report: None,
         resume: None,
@@ -831,6 +833,7 @@ fn outbound_task_facts_do_not_leak_generated_provider_session_provenance() {
     let handoff = crate::workspace::handoff::from_task(&saved, &[], &[]).unwrap();
     let input = Input {
         task: saved,
+        work: None,
         excerpts: Vec::new(),
         report: None,
         resume: None,

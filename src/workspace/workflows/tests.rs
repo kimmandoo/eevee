@@ -86,6 +86,7 @@ fn record(id: &str, identity: &str, start: u64) -> runner::RunRecord {
         },
         prepared_at_ms: start,
         expires_at_ms: start + 1000,
+        approval_arrival: 0,
         before: snapshot(identity),
         partner: None,
         rerun_of: None,
@@ -618,4 +619,94 @@ fn confirmed_deletion_requires_contained_no_follow_not_found() {
             Path::new("linked-parent/absent.rs")
         ));
     }
+}
+
+#[test]
+fn moving_runs_cannot_support_review_diagnosis_or_refactor_after_restore() {
+    let fixture = Fixture::new();
+    let excerpts = [fixture.source()];
+    let mut runs = [
+        record("baseline", "before", 1),
+        record("post", "before", 20),
+    ];
+    let current = snapshot("before");
+    let criteria = vec!["Behavior remains unchanged".to_string()];
+    let mut state = State::default();
+    let refs = vec![
+        EvidenceRef::source(&excerpts[0]).unwrap(),
+        EvidenceRef::run(&runs[0]).unwrap(),
+    ];
+    let hypothesis = state
+        .add_hypothesis("Selected check supports the explanation")
+        .unwrap();
+    for reference in &refs {
+        state
+            .attach_hypothesis(
+                hypothesis,
+                EvidenceRelation::Supports,
+                reference.clone(),
+                &view(&excerpts, &runs, &current),
+            )
+            .unwrap();
+    }
+    state
+        .set_refactor(
+            &criteria[0],
+            vec![refs[0].clone()],
+            "baseline",
+            &view(&excerpts, &runs, &current),
+        )
+        .unwrap();
+    state
+        .set_post_run("post", &view(&excerpts, &runs, &current))
+        .unwrap();
+    state
+        .record_review(
+            Verdict::Accept,
+            vec![CriterionEvidence {
+                criterion: criteria[0].clone(),
+                evidence: refs,
+            }],
+            &view(&excerpts, &runs, &current),
+        )
+        .unwrap();
+    assert_eq!(
+        state
+            .review_guard(&criteria, &view(&excerpts, &runs, &current))
+            .verdict,
+        Verdict::Accept
+    );
+    assert!(
+        state
+            .compare_refactor(&view(&excerpts, &runs, &current))
+            .behavior_preserved
+    );
+    for run in &mut runs {
+        run.revision_moving = true;
+    }
+    let restored_runs: Vec<runner::RunRecord> =
+        serde_json::from_str(&serde_json::to_string(&runs).unwrap()).unwrap();
+    let evidence = view(&excerpts, &restored_runs, &current);
+    assert_eq!(
+        evidence.status(&EvidenceRef::run(&restored_runs[0]).unwrap()),
+        EvidenceStatus::Ambiguous
+    );
+    assert!(!passed(&restored_runs[0]));
+    assert!(
+        baseline_eligibility(&restored_runs[0], &restored_runs[0].prepared, &current)
+            .unwrap_err()
+            .contains("moving")
+    );
+    assert_eq!(
+        state.hypothesis_status(hypothesis, &evidence),
+        HypothesisStatus::Unresolved
+    );
+    assert_eq!(
+        state.review_guard(&criteria, &evidence).verdict,
+        Verdict::Inconclusive
+    );
+    assert!(!state.compare_refactor(&evidence).behavior_preserved);
+    let (facts, unresolved) = state.portable_notes();
+    assert!(facts.is_empty());
+    assert!(unresolved.iter().all(|note| note.contains("unverified")));
 }

@@ -99,10 +99,10 @@ impl State {
             })
     }
 
-    /// Provider dispatch and subsequent permission checks revalidate the exact
-    /// committed input. Live follow-up drafts must not replace it mid-request.
+    /// Unclaimed strict admission needs a save barrier. Claimed requests retain
+    /// their own immutable input and validate semantic committed facts.
     pub fn holds_committed_input(&self) -> bool {
-        self.active && !self.inspect_models && !self.inspect_sessions
+        self.work.is_none() && self.active && !self.inspect_models && !self.inspect_sessions
     }
 
     pub fn response_visible(&self) -> bool {

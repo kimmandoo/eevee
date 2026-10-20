@@ -10,6 +10,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{path::PathBuf, sync::Arc};
 
+/// Process-wide producer order, independent of worker drain or partner-map order.
+pub fn approval_arrival() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Agent {
     #[default]
@@ -181,6 +187,8 @@ impl ModelCatalogue {
 #[derive(Clone, Debug)]
 pub struct Input {
     pub task: crate::store::Snapshot,
+    /// Durable ownership of this immutable submitted request; never a tool permission.
+    pub work: Option<crate::store::WorkClaim>,
     pub excerpts: Vec<crate::workspace::context::Excerpt>,
     pub report: Option<Arc<crate::workspace::repo::Report>>,
     pub resume: Option<String>,
@@ -200,7 +208,40 @@ pub struct Input {
 }
 
 impl Input {
+    /// Revalidates immutable request ownership and committed task/context facts.
+    /// Unclaimed requests retain the ordinary exact-snapshot admission boundary.
+    pub fn validate_committed(&self, data_dir: &std::path::Path) -> Result<(), String> {
+        self.validate_work()?;
+        match &self.work {
+            Some(claim) => {
+                crate::store::validate_work_input(data_dir, &self.task, &self.excerpts, claim)
+            }
+            None => crate::store::validate_planning_input(data_dir, &self.task, &self.excerpts),
+        }
+    }
+
+    fn validate_work(&self) -> Result<(), String> {
+        let Some(claim) = &self.work else {
+            return Ok(());
+        };
+        if self.inspect_models || self.inspect_sessions {
+            return Err("Provider inspection cannot carry a work claim".into());
+        }
+        claim.owner.validate()?;
+        if claim.task_id != self.task.id
+            || claim.owner.partner != self.task.lead_partner
+            || claim.owner.form != self.task.form
+        {
+            return Err("Work claim task or immutable request owner does not match".into());
+        }
+        if claim.writing != (self.operation == Operation::Implement && !self.agent.is_direct()) {
+            return Err("Work claim writing lease does not match the provider operation".into());
+        }
+        Ok(())
+    }
+
     pub fn validate_selection(&self) -> Result<(), String> {
+        self.validate_work()?;
         if self.inspect_models && (self.inspect_sessions || self.resume.is_some()) {
             return Err(
                 "Model inspection cannot resume a session or inspect session history".into(),
@@ -255,6 +296,7 @@ impl Input {
             self.report.as_ref(),
             &self.excerpts,
             exclusions,
+            self.work.as_ref(),
         )?;
         if text.len() > 1024 * 1024
             || crate::workspace::privacy::redact(&text) != text
@@ -285,6 +327,8 @@ pub enum Request {
 }
 #[derive(Clone, Debug)]
 pub struct Preview {
+    /// Assigned by the producing worker; retain when deferring or fronting approval.
+    pub arrival: u64,
     pub generation: u64,
     pub task_id: i64,
     pub thread_id: Option<String>,
@@ -347,6 +391,8 @@ pub enum PromptKind {
 }
 #[derive(Clone, Debug)]
 pub struct Prompt {
+    /// Assigned by the producing worker, before the request enters its event queue.
+    pub arrival: u64,
     pub request_id: Value,
     pub thread_id: String,
     pub turn_id: String,
@@ -504,6 +550,7 @@ mod tests {
     fn review(agent: Agent) -> Input {
         Input {
             task: crate::store::Snapshot::empty("project".into()),
+            work: None,
             excerpts: Vec::new(),
             report: None,
             resume: None,
@@ -516,6 +563,205 @@ mod tests {
             selection: ModelSelection::default(),
             credential: None,
         }
+    }
+
+    fn claimed(agent: Agent, operation: Operation, writing: bool) -> Input {
+        let mut input = review(agent);
+        input.task.id = 7;
+        input.operation = operation;
+        input.work = Some(crate::store::WorkClaim {
+            task_id: input.task.id,
+            owner: crate::store::Attribution {
+                partner: input.task.lead_partner,
+                name: "Immutable owner".into(),
+                form: input.task.form,
+            },
+            request_id: "provider-admission-test".into(),
+            writing,
+        });
+        input
+    }
+
+    #[test]
+    fn work_writing_lease_matches_only_agent_implementation_not_native_proposals() {
+        for agent in Agent::ALL {
+            for operation in [Operation::Plan, Operation::Implement, Operation::Review] {
+                let writing = operation == Operation::Implement && !agent.is_direct();
+                let mut input = claimed(agent, operation, writing);
+                assert!(input.validate_work().is_ok(), "{agent:?} {operation:?}");
+                input.work.as_mut().unwrap().writing = !writing;
+                assert!(
+                    input
+                        .validate_committed(std::path::Path::new("unopened-data"))
+                        .unwrap_err()
+                        .contains("writing lease"),
+                    "{agent:?} {operation:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn claims_cannot_move_to_another_task_owner_form_or_inspection() {
+        let input = claimed(Agent::Codex, Operation::Implement, true);
+        let mut changed = input.clone();
+        changed.task.id += 1;
+        assert!(changed.validate_work().unwrap_err().contains("owner"));
+        let mut changed = input.clone();
+        changed.task.lead_partner += 1;
+        assert!(changed.validate_work().unwrap_err().contains("owner"));
+        let mut changed = input.clone();
+        changed.task.form += 1;
+        assert!(changed.validate_work().unwrap_err().contains("owner"));
+        let mut changed = input.clone();
+        changed.work.as_mut().unwrap().owner.name.clear();
+        assert!(changed.validate_work().is_err());
+        for models in [false, true] {
+            let mut changed = input.clone();
+            changed.inspect_models = models;
+            changed.inspect_sessions = !models;
+            assert!(
+                changed
+                    .validate_selection()
+                    .unwrap_err()
+                    .contains("inspection")
+            );
+            assert!(
+                changed
+                    .validate_committed(std::path::Path::new("unopened-data"))
+                    .unwrap_err()
+                    .contains("inspection")
+            );
+        }
+        assert_eq!(input.work.as_ref().unwrap().owner.name, "Immutable owner");
+    }
+
+    #[test]
+    fn committed_admission_keeps_submitted_draft_and_requires_the_exact_live_claim() {
+        use crate::store::{Event, WorkRequest};
+        use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = std::env::temp_dir().join(format!(
+            "ev-provider-work-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let cleanup = Cleanup(root.canonicalize().unwrap());
+        let data = cleanup.0.join("data");
+        let worker = crate::store::Worker::start(
+            data.clone(),
+            cleanup.0.to_str().unwrap().into(),
+            crate::store::Policy::default(),
+        )
+        .unwrap();
+        let next = || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                if let Some(event) = worker.try_event() {
+                    return event;
+                }
+                assert!(Instant::now() < deadline, "Store acknowledgement timed out");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        };
+        let Event::Loaded(project) = next() else {
+            panic!("Expected loaded store")
+        };
+        let owner = crate::store::Attribution::of(&project.partners[0]);
+        let mut input = claimed(Agent::Codex, Operation::Plan, false);
+        input.task = crate::store::Snapshot::empty(cleanup.0.to_str().unwrap().into());
+        input.task.goal = "Keep immutable submitted work".into();
+        input.task.revision = 1;
+        input
+            .task
+            .partner_drafts
+            .entry(owner.partner)
+            .or_default()
+            .drafts
+            .push(crate::store::Draft {
+                field: crate::store::EditorField::Request,
+                text: "submitted request".into(),
+                cursor: 17,
+            });
+        let mut pending = Some(input.task.clone());
+        assert!(worker.try_save(&mut pending));
+        let Event::Saved(saved) = next() else {
+            panic!("Expected saved task")
+        };
+        input.task = saved;
+        let claim = input.work.as_mut().unwrap();
+        claim.task_id = input.task.id;
+        claim.owner = owner;
+        let claim = claim.clone();
+        assert!(
+            input.validate_committed(&data).is_err(),
+            "An unacquired claim grants nothing"
+        );
+        let mut pending = Some(WorkRequest::Acquire {
+            claim: claim.clone(),
+            task: Box::new(input.task.clone()),
+        });
+        assert!(worker.try_work(&mut pending));
+        let Event::Work { result, .. } = next() else {
+            panic!("Expected acquired claim")
+        };
+        result.unwrap();
+        assert!(input.validate_committed(&data).is_ok());
+        let mut forged = input.clone();
+        forged
+            .work
+            .as_mut()
+            .unwrap()
+            .request_id
+            .push_str("-different");
+        assert!(forged.validate_committed(&data).is_err());
+
+        let mut future = input.task.clone();
+        future.revision += 1;
+        future
+            .partner_drafts
+            .get_mut(&claim.owner.partner)
+            .unwrap()
+            .drafts[0]
+            .text = "future draft".into();
+        future
+            .partner_drafts
+            .get_mut(&claim.owner.partner)
+            .unwrap()
+            .drafts[0]
+            .cursor = 12;
+        let mut pending = Some(future);
+        assert!(worker.try_save(&mut pending));
+        assert!(matches!(next(), Event::Saved(_)));
+        assert!(input.validate_committed(&data).is_ok());
+        assert_eq!(input.task.request_text(), "submitted request");
+        let mut unclaimed = input.clone();
+        unclaimed.work = None;
+        assert!(
+            unclaimed.validate_committed(&data).is_err(),
+            "Unclaimed requests stay strict"
+        );
+        let mut pending = Some(WorkRequest::Release(claim));
+        assert!(worker.try_work(&mut pending));
+        let Event::Work { result, .. } = next() else {
+            panic!("Expected released claim")
+        };
+        result.unwrap();
+        assert!(
+            input.validate_committed(&data).is_err(),
+            "Released work cannot authorize callbacks"
+        );
+        drop(worker);
     }
 
     #[test]

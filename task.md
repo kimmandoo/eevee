@@ -4,7 +4,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 
 | File | Section | Open |
 |---|---|---|
-| [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 8 |
+| [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 1 |
 | [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 0 |
 | [C-relays.md](tasks/C-relays.md) | Form relays | 0 |
 | [D-moves.md](tasks/D-moves.md) | Moves: teaching and learning skills | 14 |
@@ -17,8 +17,8 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 ## Status
 
 - **Released:** 0.1.10 (tags v0.1.0–v0.1.10), adding wave 2 form guidance, guarded intake return, local nicknames, evidence-based recommendations/dismissal and carry-over records. Released store: Schema 11; v0.1.9 used Schema 10.
-- **Completed user request:** All ten wave 3 tasks passed scoped and integrated runtime verification. The shared Schema 12/provenance/relay cutover was grouped atomically rather than using the usual per-ID commit convention. Wave 4 remained unimplemented; no next task is active. Ordinary conversation/provider architecture repair remains suspended, not fixed.
-- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV01C, EV02, EV10A, EV10B, EV14, EV12, EV13A, EV13B, EV15, EV16, PT10 and the first code-structure pass (index below). **Open:** 74 small tasks. **Dropped:** T05.
+- **Active user request:** Wave 4 implementation and all seven task acceptances are complete; publish qualified v0.1.11 including wave 3, then immediately repair provider connections. Existing connection internals may be replaced. Native release qualification/publication remains active.
+- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B/PT04C, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, PT07A/PT07B/PT07C, PT08A/PT08B, PT09, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV01C, EV02, EV10A, EV10B, EV14, EV12, EV13A, EV13B, EV15, EV16, PT10 and the first code-structure pass (index below). **Open:** 67 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.
 
@@ -40,7 +40,7 @@ EV10A retained failure locations · EV10B run-linked guarded captures · EV14 fr
 
 ### Cross-cutting watch-outs
 
-- **Schema:** Released v0.1.10 uses Schema 11; this unreleased wave 3 source uses Schema 12 for durable relay provenance. Both migrations were version-only and preserved existing rows. Actual older writers refused before rewrite; backups remain necessary for downgrade recovery. Every persisted addition needs migration and byte-preserving old-binary refusal.
+- **Schema:** Published v0.1.10 uses Schema 11; completed unreleased wave 3 used Schema 12. The v0.1.11 cooperation candidate uses Schema 13 for durable request ownership and write leases, with transactional upgrades preserving existing rows. Real Schema 11 and 12 writers must refuse without mutation; back up data before upgrading because in-place downgrade is unsupported.
 - **Packets:** Partner flavor (nicknames, partner names, move names, dialogue, ribbons, routes) never enters provider packets or handoffs. The receipt must show zero flavor bytes.
 - **Facts first:** Pokémon-style copy wraps a factual line (command, exit code, permission scope), never replaces it. Monochrome, ASCII and linear layouts keep the same information.
 - **No fake progression:** No XP, levels, affection, streaks, hunger or random unlocks. Raising partners means learned moves, nicknames and real records. Add each new concept (Moves, Dex) to DESIGN_RULES when it ships.
