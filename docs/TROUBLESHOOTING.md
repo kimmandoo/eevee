@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-21] Public Windows license had valid CRLF bytes
+
+- **Context / Symptom:** Public asset digests, checksum manifest and archive layouts passed, but a cross-platform byte comparison of the packaged Windows `LICENSE` against the POSIX checkout failed.
+- **Root Cause:** Windows checkout used 201 CRLF line endings: 11,525 bytes versus the POSIX file's 11,324 bytes. LF-normalized content was exactly equal; the archive was not corrupted.
+- **Solution:** Kept exact raw SHA-256 and GitHub digest validation for every asset and compared license text using line-ending equivalence only. Completed installer identity, archive safety, backup-note and actual downloaded executable checks without changing published bytes.
+- **Prevention / Reference:** Never normalize bytes before checksum verification, alter immutable archives, or infer cross-platform license corruption from valid checkout line endings.
+
 ### [2026-10-21] Clean startup exit offered cancellation for nonexistent work
 
 - **Context / Symptom:** Resuming an actual Schema 13 task and immediately pressing Ctrl+C showed “Quit / ALL owned work” with an empty owner list, despite saved task facts and idle request/command state.

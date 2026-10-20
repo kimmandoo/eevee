@@ -273,7 +273,7 @@ The user initially requested waves 3 and 4, then explicitly narrowed the scope t
 4. Verified the integrated source with 713 passed / 2 ignored, strict Clippy, release build and six actual-runtime suites on the same immutable candidate. Both UI sizes covered guarded transfer, exact fresh command approval, restart/provenance, source freshness, controlled-write authorship and gap-free compact pagination; real Schema 11→12 migration/refusal/resume also passed. No release, push, installed-binary replacement, provider credential change or unrelated architecture cutover occurred. This request is complete; do not start wave 4 automatically.
 
 
-## Active request — complete wave 4 and release (2026-10-20)
+## Completed request — complete wave 4 and release (2026-10-20)
 
 The user explicitly authorized all seven cooperation tasks and publication after implementation. Wave 3 remains included in the next release. A subsequent instruction authorized provider connection repair immediately after this release; it must not be mixed into the wave 4 qualification candidate.
 
@@ -288,7 +288,7 @@ The shared Schema 13 ownership/runtime/consent cutover will use one atomic whole
 
 Wave 4 completed on immutable candidate E: all seven task acceptances passed 24 strict cooperation groups at 120×36/60×18; Rust passed 784 tests/2 ignored, strict Clippy and release build, SDK policy 15 and release-script checks 14/3 platform skips. Commit `d6cdc4c` passed exact-commit Check/all five native rows (39464765658); v0.1.11 publication promoted immutable artifacts (39466712898). Public asset/checksum/archive, installed 34-scenario, all 24 cooperation and both Schema 11/12→13 migration/byte-identical refusal/resume checks passed.
 
-## Active request — provider connections and shallow UX release (2026-10-21)
+## Completed request — provider connections and shallow UX release (2026-10-21)
 
 1. Completed: published and publicly verified the immutable qualified wave 4 commit before follow-on source integration.
 2. Audit every implemented surface and record actual entry/action/return depth: Request/response, provider sign-in/model/effort, party/forms/board/approvals, task facts, source/file/range context, local commands/evidence, specialist workflows/memory/handoff, and settings/artwork. Distinguish necessary scope consent from avoidable navigation.
@@ -298,5 +298,5 @@ Wave 4 completed on immutable candidate E: all seven task acceptances passed 24 
 6. Exercise actual first-use/authentication/account-change/model/send and all revised common UX journeys at 120×36 and 60×18/ASCII. Measure avoidable step depth before/after from real interactions; distinguish credential-free protocol proof from unavailable live-account qualification.
 7. Update product-native design/changelog/troubleshooting/checkpoint evidence and commit the completed connection/UX repair. Prepare v0.1.12, require fresh exact-commit Check and all five native rows, publish immutable qualified artifacts, then verify public checksums/install/runtime and any required real old-schema refusal. Do not replace the installed user command implicitly.
 
-Implementation and captured-surface audit completed in primary. Common command authoring/source search/memory authoring/handoff export/hypothesis editing each measured one entry command and one Escape at both sizes, versus two/two before. Immutable D passed 849 Rust tests/two ignored, strict Clippy/build, 24 cooperation, eight execution, 15 workflow, both-size foreground-auth recovery, five graphics modes and real older-schema refusal. Full native/private-source and final migrated relay acceptance, exact-commit five-native qualification, publication and public runtime remain required before completion.
+Implementation, all 38 captured entry surfaces and before/after audit completed. Common command authoring/source search/memory authoring/handoff export/hypothesis editing each measured one entry command and one Escape at both sizes, versus two/two before. Final E passed 850 Rust tests/two ignored, strict Clippy/build, 176 native groups/ten variants, 24 cooperation, auth/graphics and real migration/same-schema continuity. D additionally passed eight execution, 15 workflow, 12 workflow-relay, 14 execution-relay and both-size owning-form redirects. Commit `20600be6` passed exact-commit Check/all five native rows in run `39497516134`, attempt 1; v0.1.12 publication `39499187454` promoted those immutable packages. Public asset/checksum/archive/installers, 23 installation groups with the installed 34-scenario suite, all 176 native/24 cooperation groups, auth/graphics, ten shallow leaf journeys, exact returns and real older-schema refusal/same-schema continuity passed. Requested release is complete; no user installation or credentials were replaced. Live-account and GUI-terminal limits remain explicit.
 
