@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-22
+
+- docs(release): published v0.1.14 by promoting the exact-commit Check/all-five-native qualified immutable packages and verified all eight public asset digests, seven manifest entries and five safe archive layouts.
+- test(install): included the catalog build script and locale resources in the real source-upgrade fixture.
+- test(terminal): required bounded startup stream quiescence before the fixed zero-output idle observation without restarting or filtering the measured window.
+- docs(verification): verified the actual public v0.1.14 binary through 52 English/Korean Wave 6 case executions, both-size response/tooltips, 176 native-protocol groups, 24 cooperation groups, 26 Moves groups, three real Schema 14 upgrade/refusal/resume cases and 23 installation groups with all 34 installed terminal scenarios.
+
+
 ## 2026-10-21
 
 ## 0.1.14

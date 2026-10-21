@@ -361,13 +361,13 @@ class Session:
         finally:
             self.data.put(None)
 
-    def pump(self, duration=0.25, settle=False):
+    def pump(self, duration=0.25, settle=False, *, quiet_period=0.12):
         deadline = time.monotonic() + duration
         maximum = deadline + 2 if settle else deadline
         last_output = time.monotonic()
         while time.monotonic() < maximum:
             now = time.monotonic()
-            horizon = max(deadline, last_output + 0.12) if settle else deadline
+            horizon = max(deadline, last_output + quiet_period) if settle else deadline
             if now >= horizon and (not settle or self.data.empty()):
                 break
             try:
@@ -388,7 +388,7 @@ class Session:
             if len(self.text) > 16 * 1024 * 1024:
                 raise AssertionError("terminal transcript exceeded 16 MiB")
         if settle:
-            assert time.monotonic() < maximum or time.monotonic() - last_output >= 0.12, \
+            assert time.monotonic() < maximum or time.monotonic() - last_output >= quiet_period, \
                 "native console output did not settle within the bounded capture window"
         if not WINDOWS and self.alive():
             import termios
@@ -459,10 +459,11 @@ class Session:
         (self.directory / (name + ".txt")).write_text(self.display() + "\n", encoding="utf-8")
 
     def idle(self):
-        # Drain an in-flight PTY/ConPTY frame before starting the measurement,
-        # using the same bounded quiet-stream boundary as interactive captures.
-        # Do not restart the observation window if new output arrives.
-        self.pump(0, settle=True)
+        # Storage acknowledgment is not completion of asynchronous startup
+        # caches. Require bounded stream quiescence before the fixed sample;
+        # continuous repaint still fails the two-second settling deadline.
+        # Never restart the measured window when output arrives.
+        self.pump(0, settle=True, quiet_period=0.5)
         assert self.alive(), "app exited before idle observation"
         self.capture("idle-before")
         before = len(self.text)

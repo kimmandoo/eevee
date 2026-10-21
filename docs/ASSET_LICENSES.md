@@ -56,6 +56,8 @@ Reviewed the v0.1.14 record/Dex/habit/pairing labels, embedded English/Korean Fl
 
 Retained the independent/unofficial/no-endorsement notice and image-free native software-package boundary. Embedded translation code and resource prose did not change the separate artwork, naming, trademark or provider-service terms. This review did not establish legal clearance, commercial-use permission, provider eligibility or completion of Q01's separate whole-product gate.
 
+Public v0.1.14 verification checked all five native archives: each contained only its executable, `LICENSE` and `THIRD_PARTY_NOTICES`, including the new Fluent/language dependency notices. No franchise image bytes or other artwork were packaged. This package inspection did not expand the rights or live-provider claims above.
+
 ### 2026-10-21 — Wave 5 move-name distribution review
 
 Reviewed the nine fixed eight-name vocabularies and semantic suggestions in `src/workspace/moves.rs` for v0.1.13. These are editable local text labels, not executable capabilities, provider context, franchise artwork or an assertion of game mechanics. No image, sound, font or official logo was added to the source or native packages by Moves.
