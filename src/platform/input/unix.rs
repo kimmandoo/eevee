@@ -76,6 +76,12 @@ impl TerminalInput {
             while self.position < self.length {
                 let byte = self.bytes[self.position];
                 self.position += 1;
+                if self.decoder.expects_mouse_byte() {
+                    if let Some(event) = self.decoder.mouse_byte(byte) {
+                        return Ok(Some(event));
+                    }
+                    continue;
+                }
                 let Some(character) = self.utf8.push(byte)? else {
                     continue;
                 };
@@ -224,7 +230,7 @@ impl Utf8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyCode, KeyEvent};
+    use crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind};
 
     #[test]
     fn utf8_and_combining_characters_survive_each_raw_read_boundary() {
@@ -250,6 +256,47 @@ mod tests {
                     })
                     .collect::<Vec<_>>()
             );
+        }
+    }
+
+    #[test]
+    fn x10_raw_coordinates_are_not_utf8_and_cannot_turn_into_keys() {
+        let bytes = b"\x1b[M`\xff\xfe\x1b[<65;2;3Mq";
+        for split in 0..=bytes.len() {
+            let mut utf8 = Utf8::default();
+            let mut decoder = Decoder::default();
+            let mut events = Vec::new();
+            for chunk in [&bytes[..split], &bytes[split..]] {
+                for byte in chunk {
+                    let event = if decoder.expects_mouse_byte() {
+                        decoder.mouse_byte(*byte)
+                    } else {
+                        utf8.push(*byte)
+                            .unwrap()
+                            .and_then(|character| decoder.character(character, KeyModifiers::NONE))
+                    };
+                    events.extend(event);
+                }
+            }
+            assert_eq!(
+                events,
+                vec![
+                    Event::Mouse(MouseEvent {
+                        kind: MouseEventKind::ScrollUp,
+                        column: 222,
+                        row: 221,
+                        modifiers: KeyModifiers::NONE,
+                    }),
+                    Event::Mouse(MouseEvent {
+                        kind: MouseEventKind::ScrollDown,
+                        column: 1,
+                        row: 2,
+                        modifiers: KeyModifiers::NONE,
+                    }),
+                    Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+                ]
+            );
+            assert_eq!(utf8.length, 0);
         }
     }
 }

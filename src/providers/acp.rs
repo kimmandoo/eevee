@@ -398,7 +398,7 @@ fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
     let text = serde_json::to_string_pretty(&json!({
         "purpose":"Plan the user's task. Do not implement or write files. Ask for decisions and report proposals as unverified planning. This instruction is not an enforced sandbox.",
         "task":{"id":input.task.id,"revision":input.task.revision,"goal":input.task.goal,"acceptance_criteria":input.task.criteria,"next_action":crate::workspace::handoff::without_local_provenance(&input.task.next_action)},
-        "request":input.task.request_text(),
+        "request":input.instruction(),
         "approved_memories":input.task.approved_memories,
         "selected_sources":serde_json::from_str::<Value>(&sources.text).map_err(|_| "Invalid selected source JSON")?,
         "accepted_handoff":input.handoff

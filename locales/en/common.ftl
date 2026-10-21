@@ -1,0 +1,9 @@
+common-stay = Stay
+common-stay-selected = [Stay]
+common-back = Back
+common-approve = Approve
+common-approve-selected = [Approve]
+common-connect = Connect
+common-check-status = Check status
+common-details = Details
+common-enlarge-review = Enlarge to review scope

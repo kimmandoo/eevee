@@ -18,6 +18,16 @@ fn press(state: &mut State, code: KeyCode, large: bool) {
     );
 }
 
+fn reply_key(state: &mut State, code: KeyCode) {
+    state.key(
+        KeyEvent::new(code, KeyModifiers::ALT),
+        true,
+        &task(),
+        &[],
+        None,
+    );
+}
+
 fn command(state: &mut State, name: &str, large: bool) {
     state.command(name, large, &task(), &[], None);
 }
@@ -2575,8 +2585,8 @@ fn retained_output_keeps_request_ownership_during_startup_failure_and_navigation
     ));
     press(&mut state, KeyCode::End, true);
     assert_eq!(state.response_request(), ("First question", false));
-    press(&mut state, KeyCode::Up, true);
-    press(&mut state, KeyCode::Up, true);
+    reply_key(&mut state, KeyCode::Up);
+    reply_key(&mut state, KeyCode::Up);
     assert_eq!(state.response_request(), ("First question", true));
     assert_eq!(state.items[state.selected].text, "First answer");
 }
@@ -2651,7 +2661,7 @@ fn partial_response_follows_each_snapshot_until_explicit_scroll_and_end() {
     assert!(state.new_output);
     assert_eq!(
         state.response_rows(40, 2, false).collect::<Vec<_>>(),
-        ["one", "two"]
+        ["five", "six"]
     );
     assert_eq!(state.scroll, held);
     press(&mut state, KeyCode::PageDown, true);
@@ -2683,7 +2693,7 @@ fn newest_response_follows_but_older_selection_stays_until_end() {
     streamed(&mut state, "first", "first response", true);
     streamed(&mut state, "second", "second response", false);
     assert_eq!(state.selected, 1);
-    press(&mut state, KeyCode::Up, true);
+    reply_key(&mut state, KeyCode::Up);
     streamed(&mut state, "second", "second response grows", false);
     streamed(&mut state, "third", "third response", false);
     assert_eq!(state.items[state.selected].item_id, "first");
@@ -2877,11 +2887,11 @@ fn tool_updates_do_not_replace_the_response_and_hidden_cache_stays_fresh() {
     });
     assert_eq!(state.selected, 0);
     assert!(state.new_output);
-    press(&mut state, KeyCode::Down, true);
+    reply_key(&mut state, KeyCode::Down);
     // The user navigates back before another render. Invalidation must track
     // the cached item's identity, not just the currently selected index.
     streamed(&mut state, "first", "replacement\nwith two rows", true);
-    press(&mut state, KeyCode::Up, true);
+    reply_key(&mut state, KeyCode::Up);
     assert_eq!(
         state.response_rows(40, 3, false).collect::<Vec<_>>(),
         ["replacement", "with two rows"]
@@ -2899,7 +2909,7 @@ fn response_tail_and_manual_scrolling_are_not_limited_to_u16_rows() {
     );
     assert_eq!(state.response_scroll, 70_000);
     press(&mut state, KeyCode::PageUp, true);
-    assert_eq!(state.response_scroll, 69_995);
+    assert_eq!(state.response_scroll, 69_999);
     assert_eq!(
         state.response_rows(40, 1, false).collect::<Vec<_>>(),
         ["row"]
@@ -2936,6 +2946,168 @@ fn verbose_response_retains_provenance_without_stale_cached_content() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(details.ends_with("completed text") && !details.contains("partial text"));
+}
+
+#[test]
+fn response_lines_and_viewport_pages_never_navigate_between_items() {
+    let mut state = active();
+    streamed(&mut state, "older", "old response", true);
+    streamed(
+        &mut state,
+        "selected",
+        "0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11",
+        false,
+    );
+    state.response_rows(40, 4, false).count();
+    assert_eq!(state.response_position(), (9, 12, 12));
+    press(&mut state, KeyCode::Up, true);
+    assert_eq!(state.selected, 1);
+    assert_eq!(state.response_rows(40, 4, false).next(), Some("7"));
+    press(&mut state, KeyCode::PageUp, true);
+    assert_eq!(state.response_rows(40, 4, false).next(), Some("4"));
+    press(&mut state, KeyCode::PageDown, true);
+    assert_eq!(state.response_rows(40, 4, false).next(), Some("7"));
+    state.response_rows(40, 2, false).count();
+    press(&mut state, KeyCode::PageUp, true);
+    assert_eq!(state.response_rows(40, 2, false).next(), Some("6"));
+    assert_eq!(state.selected, 1);
+    assert!(!state.following);
+    reply_key(&mut state, KeyCode::Up);
+    assert_eq!(state.items[state.selected].item_id, "older");
+    assert_eq!(
+        state.response_rows(40, 2, false).next(),
+        Some("old response")
+    );
+    reply_key(&mut state, KeyCode::Down);
+    assert_eq!(state.items[state.selected].item_id, "selected");
+    assert_eq!(state.response_rows(40, 2, false).next(), Some("0"));
+}
+
+#[test]
+fn paused_unicode_content_keeps_its_byte_anchor_across_reflow_and_appends() {
+    let mut state = active();
+    let initial = "前置\n界界e\u{301}界界e\u{301}界界e\u{301}\ntail\nlast";
+    streamed(&mut state, "unicode", initial, false);
+    state.response_rows(4, 1, false).count();
+    state.home_response_key(KeyCode::Home);
+    assert!(state.scroll_response_lines(3));
+    let source = state.items[0].text.as_ptr();
+    let anchored_byte = initial.find("界界e\u{301}").unwrap() + "界界e\u{301}界".len();
+    let held = state.response_rows(4, 1, false).next().unwrap();
+    assert_eq!(held, "界e\u{301}");
+    assert_eq!(held.as_ptr(), source.wrapping_add(anchored_byte));
+    // The wide row contains the same anchored grapheme even though its start
+    // moves earlier. Repeated narrow/wide reflows must not drift toward row 0.
+    assert_eq!(
+        state.response_rows(20, 1, false).next(),
+        Some("界界e\u{301}界界e\u{301}界界e\u{301}")
+    );
+    assert_eq!(state.response_rows(4, 1, false).next(), Some("界e\u{301}"));
+    streamed(
+        &mut state,
+        "unicode",
+        &format!("{initial}\nnew tail"),
+        false,
+    );
+    assert!(state.new_output);
+    assert_eq!(state.response_rows(4, 1, false).next(), Some("界e\u{301}"));
+    assert!(!state.following);
+    state.home_response_key(KeyCode::End);
+    assert_eq!(state.response_rows(40, 1, false).next(), Some("new tail"));
+    assert!(state.following && !state.new_output);
+}
+
+#[test]
+fn paused_output_survives_retention_index_changes_and_tool_completion() {
+    let mut state = active();
+    streamed(&mut state, "discard", "discard", true);
+    streamed(&mut state, "pinned", "zero\none\ntwo\nthree\nfour", false);
+    state.response_rows(40, 2, false).count();
+    assert!(state.scroll_response_lines(-2));
+    assert_eq!(state.response_rows(40, 2, false).next(), Some("one"));
+    for index in 0..ITEM_LIMIT {
+        streamed(&mut state, &format!("later-{index}"), "later output", true);
+    }
+    assert_eq!(state.items[state.selected].item_id, "pinned");
+    assert_eq!(state.response_rows(40, 2, false).next(), Some("one"));
+    state.event(Event::Item {
+        generation: 11,
+        task_id: 7,
+        thread_id: "thread".into(),
+        turn_id: "turn".into(),
+        item_id: "tool".into(),
+        kind: ItemKind::Tool,
+        text: "tool completed".into(),
+        complete: true,
+    });
+    state.event(Event::Finished {
+        generation: 11,
+        task_id: 7,
+        outcome: Outcome::Completed,
+        message: "Complete".into(),
+    });
+    assert_eq!(state.items[state.selected].item_id, "pinned");
+    assert_eq!(state.response_rows(40, 2, false).next(), Some("one"));
+    assert!(!state.following && state.new_output);
+}
+
+#[test]
+fn response_wheel_uses_only_the_rendered_body_and_never_grants_prompt_consent() {
+    use ratatui::layout::Rect;
+
+    let mut state = active();
+    streamed(&mut state, "response", "0\n1\n2\n3\n4\n5\n6\n7", false);
+    state.response_rows(20, 3, false).count();
+    let body = Rect::new(5, 4, 20, 3);
+    state.set_response_body(body);
+    for (column, row) in [(4, 4), (25, 4), (5, 3), (5, 7)] {
+        assert!(!state.response_wheel(column, row, -3));
+    }
+    assert!(state.following);
+    assert!(state.response_wheel(24, 6, -3));
+    assert_eq!(state.response_rows(20, 3, false).next(), Some("2"));
+    assert_eq!(state.selected, 0);
+    assert!(!state.following);
+    assert!(state.response_wheel(5, 4, 100));
+    assert_eq!(state.response_rows(20, 3, false).next(), Some("5"));
+    assert!(!state.following, "manual bottom does not resume follow");
+
+    state.event(Event::Prompt {
+        generation: 11,
+        task_id: 7,
+        request: Prompt {
+            arrival: crate::providers::approval_arrival(),
+            request_id: "approval".into(),
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "response".into(),
+            kind: PromptKind::Approval {
+                command: "echo".into(),
+                cwd: ".".into(),
+                reason: "review".into(),
+                allow_once: true,
+                deny_decision: "decline".into(),
+            },
+        },
+    });
+    // Opening any review clears the registered response body, even though the
+    // cached layout remains available behind it.
+    state.set_response_body(Rect::default());
+    assert!(!state.response_wheel(5, 4, -3));
+    let selected = state.selected;
+    press(&mut state, KeyCode::End, true);
+    assert_eq!(state.selected, selected);
+    assert!(state.decision.is_none());
+    assert!(!state.affirmative && !state.reviewed);
+    // Esc-deferred prompt: home is visible again, and may be scrolled without
+    // dismissing or answering the still-owned approval.
+    state.set_response_body(body);
+    assert!(state.response_wheel(5, 4, -3));
+    assert_eq!(state.response_rows(20, 3, false).next(), Some("2"));
+    assert!(state.request.is_some() && state.decision.is_none());
+    assert!(!state.affirmative && !state.reviewed);
+    state.set_response_body(Rect::new(5, 4, 0, 3));
+    assert!(!state.response_wheel(5, 4, 1));
 }
 
 #[test]
@@ -3091,4 +3263,54 @@ fn late_events_for_another_or_released_partner_are_refused() {
     assert!(state.notice.contains("left the party"));
     state.event(journal_event(12, "released-item"));
     assert!(state.pending_journal.is_empty());
+}
+
+#[test]
+fn fresh_turn_dispatch_keeps_manually_selected_previous_response_until_explicit_latest() {
+    let mut state = active();
+    streamed(
+        &mut state,
+        "previous",
+        "one\ntwo\nthree\nfour\nfive\nsix",
+        true,
+    );
+    state.response_rows(40, 2, false).count();
+    assert!(state.scroll_response_lines(-2));
+    assert_eq!(
+        state.response_rows(40, 2, false).collect::<Vec<_>>(),
+        ["three", "four"]
+    );
+    state.event(Event::Finished {
+        generation: 11,
+        task_id: 7,
+        outcome: Outcome::Completed,
+        message: "Complete".into(),
+    });
+    run_request(&mut state, 12, "Next request");
+    assert!(!state.following);
+    assert_eq!(
+        state.response_rows(40, 2, false).collect::<Vec<_>>(),
+        ["three", "four"]
+    );
+    state.event(Event::Item {
+        generation: 12,
+        task_id: 7,
+        thread_id: "next-thread".into(),
+        turn_id: "next-turn".into(),
+        item_id: "next-response".into(),
+        kind: ItemKind::Message,
+        text: "new response".into(),
+        complete: true,
+    });
+    assert!(state.new_output);
+    assert_eq!(state.items[state.selected].item_id, "previous");
+    assert_eq!(
+        state.response_rows(40, 2, false).collect::<Vec<_>>(),
+        ["three", "four"]
+    );
+    reply_key(&mut state, KeyCode::End);
+    assert_eq!(
+        state.response_rows(40, 2, false).collect::<Vec<_>>(),
+        ["new response"]
+    );
 }

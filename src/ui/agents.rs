@@ -11,7 +11,79 @@ use crate::{
         agents::{ConnectionField, Page},
     },
     config::Config,
+    i18n::{Message, Template},
 };
+
+fn setup_hint(selected: usize, paint: &Paint) -> &'static str {
+    use crate::providers::Agent;
+    paint.hint(match Agent::from_index(selected) {
+        Some(Agent::Codex) => Message::ProvidersSetupCodex,
+        Some(Agent::Claude) => Message::ProvidersSetupClaude,
+        Some(Agent::OpenCode) => Message::ProvidersSetupOpencode,
+        Some(Agent::Gemini) => Message::ProvidersSetupGemini,
+        Some(Agent::Devin) => Message::ProvidersSetupDevin,
+        Some(Agent::ChatGPT) => Message::ProvidersSetupChatgpt,
+        Some(Agent::OpenAI) => Message::ProvidersSetupOpenai,
+        Some(Agent::Anthropic) => Message::ProvidersSetupAnthropic,
+        Some(Agent::Google) => Message::ProvidersSetupGoogle,
+        Some(Agent::Compatible) => Message::ProvidersSetupCompatible,
+        None => Message::ProvidersSetupNone,
+    })
+}
+
+fn method_label(method: crate::providers::auth::Method, paint: &Paint) -> &'static str {
+    use crate::providers::auth::Method;
+    paint.hint(match method {
+        Method::CodexBrowser => Message::ProvidersAuthLabelCodexBrowser,
+        Method::CodexDevice => Message::ProvidersAuthLabelCodexDevice,
+        Method::OpenCode => Message::ProvidersAuthLabelOpenCode,
+        Method::GeminiNative => Message::ProvidersAuthLabelGeminiNative,
+        Method::ClaudeConsole => Message::ProvidersAuthLabelClaudeConsole,
+        Method::ClaudeConsoleCode => Message::ProvidersAuthLabelClaudeConsoleCode,
+        Method::DevinWeb => Message::ProvidersAuthLabelDevinWeb,
+        Method::DevinBrowser => Message::ProvidersAuthLabelDevinBrowser,
+        Method::DevinManualToken => Message::ProvidersAuthLabelDevinManualToken,
+        Method::DevinStatus => Message::ProvidersAuthLabelDevinStatus,
+        Method::ClaudeConsoleStatus => Message::ProvidersAuthLabelClaudeConsoleStatus,
+        Method::CodexStatus => Message::ProvidersAuthLabelCodexStatus,
+        Method::OpenCodeStatus => Message::ProvidersAuthLabelOpenCodeStatus,
+    })
+}
+
+fn method_guidance(method: crate::providers::auth::Method, paint: &Paint) -> Option<&'static str> {
+    use crate::providers::auth::Method;
+    Some(paint.hint(match method {
+        Method::CodexBrowser => Message::ProvidersAuthGuidanceCodexBrowser,
+        Method::CodexDevice => Message::ProvidersAuthGuidanceCodexDevice,
+        Method::ClaudeConsole | Method::ClaudeConsoleCode => {
+            Message::ProvidersAuthGuidanceClaudeConsoleCode
+        }
+        Method::DevinWeb => Message::ProvidersAuthGuidanceDevinWeb,
+        Method::DevinBrowser | Method::DevinManualToken => {
+            Message::ProvidersAuthGuidanceDevinManualToken
+        }
+        _ => return None,
+    }))
+}
+
+fn action_hint<'a>(paint: &Paint, action: &'a str) -> &'a str {
+    let message = match action {
+        "Connect / credential setup" => Message::ProvidersActionConnectCredentialSetup,
+        "Check connection status" => Message::ProvidersActionCheckConnectionStatus,
+        "Check installed version" => Message::ProvidersActionCheckInstalledVersion,
+        "Advanced diagnostics" => Message::ProvidersActionAdvancedDiagnostics,
+        "Refresh installed providers" => Message::ProvidersActionRefreshInstalledProviders,
+        "Use for task" => Message::ProvidersActionUseForTask,
+        "Choose model" => Message::ProvidersActionChooseModel,
+        "Choose reasoning effort" => Message::ProvidersActionChooseReasoningEffort,
+        "Change Codex connection method" => Message::ProvidersActionChangeCodexConnectionMethod,
+        "Set up native responses (no tools)" => Message::ProvidersActionSetUpNativeResponsesNoTools,
+        "Set up CLI agent (tools / edits)" => Message::ProvidersActionSetUpCliAgentToolsEdits,
+        "Setup" => Message::ProvidersActionSetup,
+        _ => return action,
+    };
+    paint.hint(message)
+}
 
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
     let compact =
@@ -33,13 +105,13 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     }
     let block = panel(
         if state.forget_preview.is_some() {
-            " Forget app connection "
+            paint.hint(Message::ProvidersAgentsForgetAppConnection2)
         } else if state.auth_preview.is_some() {
-            " Review connection "
+            paint.hint(Message::ProvidersAgentsReviewConnection)
         } else if state.preview {
-            " Review version check "
+            paint.hint(Message::ProvidersAgentsReviewVersionCheck)
         } else {
-            " Connections "
+            paint.hint(Message::ProvidersAgentsConnections)
         },
         config,
         paint,
@@ -55,7 +127,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         text(
             frame,
             content,
-            "Checking installed providers...\nEsc Back",
+            paint.hint(Message::ProvidersAgentsCheckingInstalledProvidersEscBack),
             paint.surface,
         );
         return;
@@ -68,7 +140,10 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 text(
                     frame,
                     row(body, 0, 1),
-                    &format!("Search providers: {}_", state.search),
+                    &paint.format(
+                        Template::ProvidersAgentsSearchProviders,
+                        &[("query", &(state.search))],
+                    ),
                     paint.accent,
                 );
                 let indices = state.provider_indices();
@@ -81,7 +156,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     text(
                         frame,
                         row(body, 1, 1),
-                        "No matching route. Backspace edits; Esc clears.",
+                        paint.hint(Message::ProvidersAgentsNoMatchingRouteBackspaceEditsEscClears),
                         paint.muted,
                     );
                 }
@@ -111,7 +186,10 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 text(
                     frame,
                     row(body, 0, 1),
-                    &format!("{} | sign-in method", profile.name),
+                    &paint.format(
+                        Template::ProvidersAgentsSignInMethod,
+                        &[("provider", &(profile.name))],
+                    ),
                     paint.accent,
                 );
                 let methods = crate::providers::auth::methods(state.selected);
@@ -122,7 +200,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                         &format!(
                             "{} {}",
                             if index == state.method { ">" } else { " " },
-                            method.label()
+                            method_label(*method, paint)
                         ),
                         if index == state.method {
                             paint.accent
@@ -134,7 +212,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 let start = 2 + methods.len() as u16;
                 if let Some(guidance) = methods
                     .get(state.method)
-                    .and_then(|method| method.guidance())
+                    .and_then(|method| method_guidance(*method, paint))
                 {
                     state.scroll_max = selection_details(
                         frame,
@@ -172,7 +250,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                         &format!(
                             "{} {}",
                             if index == state.action { ">" } else { " " },
-                            state.action_label(*action)
+                            action_hint(paint, state.action_label(*action))
                         ),
                         if index == state.action {
                             paint.accent
@@ -186,7 +264,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 let mut value = format!(
                     "{}\n{}\n\n{}\nInstalled: {}\nExecutable: {:?}\nArguments: {:?}\nVersion: {}\nAuthentication: {}\nBilling: {}\nAdapter: {}\nAdapter revision: {}\nProfile action: {}\n",
                     profile.name,
-                    state.setup_hint(),
+                    setup_hint(state.selected, paint),
                     profile.configuration,
                     profile.installed,
                     profile.executable,
@@ -228,17 +306,19 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             paint.muted,
         );
         let footer = match state.page {
-            Page::Providers => format!(
-                "Type Search | Up/Down Select | Enter {}\nRight Options | * task route | Esc Back",
-                state.enter_hint()
+            Page::Providers => paint.format(
+                Template::ProvidersAgentsTypeSearchUpDownSelectEnterRight,
+                &[("action", (action_hint(paint, state.enter_hint())))],
             ),
-            Page::Methods => {
-                "Up/Down Select | Enter Review method\nTab Providers | / choices | Esc Back".into()
-            }
-            Page::Actions => {
-                "Up/Down Select | Enter Open action\nTab Providers | / choices | Esc Back".into()
-            }
-            Page::Diagnostics => "Up/Down Scroll | Tab Providers\n/ choices | Esc Back".into(),
+            Page::Methods => paint
+                .hint(Message::ProvidersAgentsUpDownSelectEnterReviewMethodTab)
+                .into(),
+            Page::Actions => paint
+                .hint(Message::ProvidersAgentsUpDownSelectEnterOpenActionTab)
+                .into(),
+            Page::Diagnostics => paint
+                .hint(Message::ProvidersAgentsUpDownScrollTabProvidersChoicesEsc)
+                .into(),
         };
         text(
             frame,
@@ -273,15 +353,27 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             version_summary = vec![
                 format!("{} · version check only", profile.name),
                 format!("Executable: {:?}", profile.executable),
-                "Runs executable with version argument; no task sent.".into(),
-                "Trust executable and inherited environment/config.".into(),
-                "Not sandboxed; executable may have unknown effects.".into(),
+                paint
+                    .hint(Message::ProvidersAgentsRunsExecutableWithVersionArgumentNoTask)
+                    .into(),
+                paint
+                    .hint(Message::ProvidersAgentsTrustExecutableAndInheritedEnvironmentConfig)
+                    .into(),
+                paint
+                    .hint(Message::ProvidersAgentsNotSandboxedExecutableMayHaveUnknownEffects)
+                    .into(),
                 if profile.probe_allowed {
-                    "One bounded check; does not establish authentication.".into()
+                    paint
+                        .hint(Message::ProvidersAgentsOneBoundedCheckDoesNotEstablishAuthentication)
+                        .into()
                 } else {
-                    "BLOCKED: executable prerequisites not satisfied.".into()
+                    paint
+                        .hint(Message::ProvidersAgentsBlockedExecutablePrerequisitesNotSatisfied)
+                        .into()
                 },
-                "d Details: exact executable/configuration and risks.".into(),
+                paint
+                    .hint(Message::ProvidersAgentsDDetailsExactExecutableConfigurationAndRisks)
+                    .into(),
             ];
             &version_summary
         };
@@ -291,14 +383,18 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         state.scroll_max = 0;
     }
     let footer = if !auth_room || !state.reviewed && !state.auth_details {
-        "Scope not fully visible | d Details | Esc Back".into()
+        paint
+            .hint(Message::ProvidersAgentsScopeNotFullyVisibleDDetailsEsc)
+            .into()
     } else if state.auth_details {
-        "d Summary | PgUp/Dn Scroll | Esc Cancel".into()
+        paint
+            .hint(Message::ProvidersAgentsDSummaryPgupDnScrollEscCancel)
+            .into()
     } else if let Some(plan) = &state.auth_preview {
         let approve = if plan.method.is_status() {
-            "Check status"
+            paint.hint(Message::CommonCheckStatus)
         } else {
-            "Connect"
+            paint.hint(Message::CommonConnect)
         };
         let choice = if state.affirmative {
             1
@@ -307,7 +403,11 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         } else {
             0
         };
-        let labels = ["Back", approve, "Details"];
+        let labels = [
+            paint.hint(Message::CommonBack),
+            approve,
+            paint.hint(Message::CommonDetails),
+        ];
         let buttons = labels
             .iter()
             .enumerate()
@@ -320,11 +420,18 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             })
             .collect::<Vec<_>>()
             .join(" ");
-        format!("{buttons} | y/n d Tab Enter")
+        paint.format(
+            Template::ProvidersAgentsButtonsYNDTabEnter,
+            &[("buttons", &(buttons))],
+        )
     } else if state.affirmative {
-        "Back [Check version] | y/n d Tab Enter".into()
+        paint
+            .hint(Message::ProvidersAgentsBackCheckVersionYNDTab)
+            .into()
     } else {
-        "[Back] Check version | y/n d Tab Enter".into()
+        paint
+            .hint(Message::ProvidersAgentsBackCheckVersionYNDTab2)
+            .into()
     };
     text(
         frame,
@@ -354,9 +461,14 @@ fn render_connection(
         .as_mut()
         .expect("private connection editor");
     let title = if agent == crate::providers::Agent::ChatGPT {
-        "Codex native | official ChatGPT only | no tools".into()
+        paint
+            .hint(Message::ProvidersAgentsCodexNativeOfficialChatgptOnlyNoTools)
+            .into()
     } else {
-        format!("{} | native; no tools", agent.label())
+        paint.format(
+            Template::ProvidersAgentsNativeNoTools,
+            &[("provider", (agent.label()))],
+        )
     };
     text(frame, row(content, 0, 1), &title, paint.accent);
     let room = content.width >= 54 && content.height >= 12;
@@ -379,42 +491,48 @@ fn render_connection(
         let (label, value, private) = match field {
             ConnectionField::Credential => (
                 if agent == crate::providers::Agent::ChatGPT {
-                    "Access token"
+                    paint.hint(Message::ProvidersAgentsAccessToken)
                 } else {
-                    "API key"
+                    paint.hint(Message::ProvidersAgentsApiKey)
                 },
                 if editor.form.credential.is_empty() {
-                    "(blank keeps selected source)".into()
+                    paint
+                        .hint(Message::ProvidersAgentsBlankKeepsSelectedSource)
+                        .into()
                 } else {
                     "********".into()
                 },
                 true,
             ),
             ConnectionField::Endpoint => (
-                "Endpoint",
+                paint.hint(Message::ProvidersAgentsEndpoint),
                 crate::workspace::privacy::redact(&editor.form.base_url),
                 false,
             ),
             ConnectionField::Model => (
-                "Default model",
+                paint.hint(Message::ProvidersAgentsDefaultModel),
                 if editor.form.model.is_empty() {
-                    "(explicit choice later)".into()
+                    paint
+                        .hint(Message::ProvidersAgentsExplicitChoiceLater)
+                        .into()
                 } else {
                     crate::workspace::privacy::redact(&editor.form.model)
                 },
                 false,
             ),
             ConnectionField::Account => (
-                "Account ID",
+                paint.hint(Message::ProvidersAgentsAccountId),
                 if editor.form.account_id.is_empty() {
-                    "(token/source account)".into()
+                    paint
+                        .hint(Message::ProvidersAgentsTokenSourceAccount)
+                        .into()
                 } else {
                     "********".into()
                 },
                 true,
             ),
             ConnectionField::Protocol => (
-                "Protocol",
+                paint.hint(Message::ProvidersAgentsProtocol),
                 if editor.form.responses {
                     "responses"
                 } else {
@@ -424,48 +542,58 @@ fn render_connection(
                 false,
             ),
             ConnectionField::Keyless => (
-                "Authentication",
+                paint.hint(Message::ProvidersAgentsAuthentication),
                 if editor.form.keyless {
-                    "KEYLESS: no authentication header"
+                    paint.hint(Message::ProvidersAgentsKeylessNoAuthenticationHeader)
                 } else {
-                    "API key (separate from endpoint/model)"
+                    paint.hint(Message::ProvidersAgentsApiKeySeparateFromEndpointModel)
                 }
                 .into(),
                 false,
             ),
             ConnectionField::Storage => (
-                "Storage",
+                paint.hint(Message::ProvidersAgentsStorage),
                 if editor.form.persist {
-                    "SAVE private local plaintext"
+                    paint.hint(Message::ProvidersAgentsSavePrivateLocalPlaintext)
                 } else {
-                    "SESSION (older saved profile unchanged)"
+                    paint.hint(Message::ProvidersAgentsSessionOlderSavedProfileUnchanged)
                 }
                 .into(),
                 false,
             ),
             ConnectionField::Save => (
-                "Save & choose model",
-                "Select route; metadata only".into(),
+                paint.hint(Message::ProvidersAgentsSaveChooseModel),
+                paint
+                    .hint(Message::ProvidersAgentsSelectRouteMetadataOnly)
+                    .into(),
                 false,
             ),
             ConnectionField::Browser => (
-                "Browser login",
-                "Own token stays; official Codex CLI".into(),
+                paint.hint(Message::ProvidersAgentsBrowserLogin),
+                paint
+                    .hint(Message::ProvidersAgentsOwnTokenStaysOfficialCodexCli)
+                    .into(),
                 false,
             ),
             ConnectionField::Device => (
-                "Device login",
-                "Own token stays; official Codex CLI".into(),
+                paint.hint(Message::ProvidersAgentsDeviceLogin),
+                paint
+                    .hint(Message::ProvidersAgentsOwnTokenStaysOfficialCodexCli)
+                    .into(),
                 false,
             ),
             ConnectionField::LoadCli => (
-                "Load CLI token",
-                "Read-only auth.json into draft; then Save".into(),
+                paint.hint(Message::ProvidersAgentsLoadCliToken),
+                paint
+                    .hint(Message::ProvidersAgentsReadOnlyAuthJsonIntoDraftThen)
+                    .into(),
                 false,
             ),
             ConnectionField::Forget => (
-                "Forget app connection",
-                "Review own override deletion only".into(),
+                paint.hint(Message::ProvidersAgentsForgetAppConnection),
+                paint
+                    .hint(Message::ProvidersAgentsReviewOwnOverrideDeletionOnly)
+                    .into(),
                 false,
             ),
         };
@@ -473,6 +601,7 @@ fn render_connection(
             "{} {label}: ",
             if editor.field == index { ">" } else { " " }
         );
+        let prefix_width = ratatui::text::Span::raw(prefix.as_str()).width();
         let text_field = matches!(
             field,
             ConnectionField::Credential
@@ -481,7 +610,7 @@ fn render_connection(
                 | ConnectionField::Account
         );
         let capacity = usize::from(content.width)
-            .saturating_sub(prefix.len())
+            .saturating_sub(prefix_width)
             .max(1);
         let displayed = if private || value.chars().count() <= capacity {
             value.clone()
@@ -522,7 +651,7 @@ fn render_connection(
             if 1 + (offset as u16) < content.height && content.width > 0 {
                 frame.set_cursor_position((
                     content.x
-                        + (prefix.len() + caret_column)
+                        + (prefix_width + caret_column)
                             .min(content.width.saturating_sub(1) as usize)
                             as u16,
                     content.y + 1 + offset as u16,
@@ -532,13 +661,18 @@ fn render_connection(
     }
     if has_effort {
         let effort = if editor.form.effort_resets() {
-            "Model changed: Save resets default effort; choose anew.".into()
+            paint
+                .hint(Message::ProvidersAgentsModelChangedSaveResetsDefaultEffortChoose)
+                .into()
         } else {
-            format!(
-                "Default effort: {} (same model only)",
-                crate::workspace::privacy::redact(
-                    editor.form.effort.as_deref().unwrap_or_default()
-                )
+            paint.format(
+                Template::ProvidersAgentsDefaultEffortSameModelOnly,
+                &[(
+                    "effort",
+                    &(crate::workspace::privacy::redact(
+                        editor.form.effort.as_deref().unwrap_or_default(),
+                    )),
+                )],
             )
         };
         text(
@@ -548,7 +682,7 @@ fn render_connection(
             paint.accent,
         );
     }
-    let disclosure = "Save+model: select route + metadata; NEVER send task.\nSaved plaintext; NOT encrypted/keychain. Ctrl+S local.";
+    let disclosure = paint.hint(Message::ProvidersAgentsSaveModelSelectRouteMetadataNeverSend);
     text(
         frame,
         row(content, content.height.saturating_sub(5), 2),
@@ -568,9 +702,9 @@ fn render_connection(
         frame,
         row(content, content.height.saturating_sub(1), 1),
         if room {
-            "Tab Fields | Enter | Ctrl+S Local | PgUp/Dn | Esc"
+            paint.hint(Message::ProvidersAgentsTabFieldsEnterCtrlSLocalPgup)
         } else {
-            "Resize to 60x18 | Esc Cancel; nothing saved"
+            paint.hint(Message::ProvidersAgentsResizeTo60x18EscCancelNothingSaved)
         },
         paint.accent,
     );
@@ -605,11 +739,11 @@ fn render_forget(
         paint.muted,
     );
     let footer = if !state.reviewed {
-        "Resize to 60x18 for full scope | Esc Cancel"
+        paint.hint(Message::ProvidersAgentsResizeTo60x18ForFullScopeEsc)
     } else if state.affirmative {
-        "Back [Forget local] | Tab Enter | y/n | Esc"
+        paint.hint(Message::ProvidersAgentsBackForgetLocalTabEnterYN)
     } else {
-        "[Back] Forget local | Tab Enter | y/n | Esc"
+        paint.hint(Message::ProvidersAgentsBackForgetLocalTabEnterYN2)
     };
     text(
         frame,
@@ -628,6 +762,7 @@ mod tests {
     fn private_setup_masks_paste_and_shows_storage_scope_at_supported_sizes() {
         let style = Style::default();
         let paint = Paint {
+            language: crate::i18n::Language::ENGLISH,
             base: style,
             surface: style,
             muted: style,

@@ -229,9 +229,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=14).contains(&version) {
+    if !(0..=15).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0 through 14"
+            "Unsupported database schema version {version}; this ev supports versions 0 through 15"
         ));
     }
     let mut statement = connection
@@ -377,6 +377,43 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
                         "partners",
                         "provider_journal",
                         "provider_preferences",
+                        "selections",
+                        "tasks",
+                    ])
+                    .all(|((kind, name), expected)| kind == "table" && name == expected) =>
+        {
+            Schema::Current
+        }
+        (15, objects)
+            if objects.len() == 27
+                && objects
+                    .iter()
+                    .zip([
+                        "active_work",
+                        "diagnosis_transitions",
+                        "excerpts",
+                        "executions",
+                        "failure_observations",
+                        "failure_resolutions",
+                        "failure_signatures",
+                        "form_routes",
+                        "instruction_candidates",
+                        "instruction_sources",
+                        "local_activity",
+                        "local_artifacts",
+                        "local_settings",
+                        "memories",
+                        "move_candidates",
+                        "move_dispatches",
+                        "move_sources",
+                        "move_usages",
+                        "moves",
+                        "partner_pairings",
+                        "partners",
+                        "provider_journal",
+                        "provider_preferences",
+                        "provider_usage",
+                        "provider_usage_events",
                         "selections",
                         "tasks",
                     ])
@@ -556,6 +593,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
             if version >= 14 {
                 super::moves::inspect(connection)?;
             }
+            if version >= 15 {
+                super::records::inspect(connection)?;
+            }
             return Ok(schema);
         }
     };
@@ -661,6 +701,9 @@ pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), Str
     }
     if version < 14 {
         super::moves::migrate(connection)?;
+    }
+    if version < 15 {
+        super::records::migrate(connection)?;
     }
     Ok(())
 }

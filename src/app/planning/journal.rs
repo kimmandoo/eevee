@@ -195,6 +195,7 @@ impl State {
                 self.scroll = 0;
                 self.scroll_max = 0;
                 // Purge is not an acknowledgement of failed in-memory writes.
+                self.usage_purged(task_id);
                 self.journal_notice = "This task's local provider observations purged; provider history and exports remain.".into();
             }
             Ok(_) => {}

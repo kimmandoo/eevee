@@ -25,7 +25,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     }
     let area = sheet(area, 104, area.height);
     frame.render_widget(Clear, area);
-    let block = panel(" Sources / task-owned context ", config, paint, true);
+    let block = panel(
+        paint.hint(crate::i18n::Message::DesksSourcesPanel),
+        config,
+        paint,
+        true,
+    );
     let content = block.inner(area);
     frame.render_widget(block, area);
     let state = &app.sources;
@@ -140,26 +145,30 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             .wrap(Wrap { trim: false }),
         app.scroll_for(ScrollSurface::Preview),
     );
-    app.set_scroll_max(ScrollSurface::Preview, max);
+    app.set_scroll_viewport(ScrollSurface::Preview, max, details.height);
     text(
         frame,
         row(content, content.height.saturating_sub(2), 2),
         if app.sources.store_failed {
-            "Enter Retry retained local save · Esc Draft\nCapture kept; nothing sent to a provider"
+            paint.hint(crate::i18n::Message::DesksSourcesEnterRetryRetainedLocalSaveEscDraft)
         } else if app.sources.busy() {
-            "Saving/validating locally; attachment not committed\nPgUp/Dn Details · Esc Draft"
+            paint.hint(
+                crate::i18n::Message::DesksSourcesSavingValidatingLocallyAttachmentNotCommittedPgup,
+            )
         } else {
             match app.sources.mode {
                 Mode::Files => {
-                    "Enter Review/attach · s Search · r Range · Del Remove\nTab Attachments · PgUp/Dn Details · Esc Draft"
+                    paint.hint(crate::i18n::Message::DesksSourcesEnterReviewAttachSSearchRRange)
                 }
                 Mode::Preview => {
-                    "Enter Attach locally & return · r Range\nTab Attachments · PgUp/Dn Review · Esc Cancel"
+                    paint.hint(crate::i18n::Message::DesksSourcesEnterAttachLocallyReturnRRangeTab)
                 }
                 Mode::Basket => {
-                    "Del Remove (review) · Tab Files · / More\nPgUp/Dn Details · Esc Draft"
+                    paint.hint(crate::i18n::Message::DesksSourcesDelRemoveReviewTabFilesMorePgup)
                 }
-                Mode::Payload => "/ More · Tab Files · PgUp/Dn Details · Esc Draft",
+                Mode::Payload => {
+                    paint.hint(crate::i18n::Message::DesksSourcesMoreTabFilesPgupDnDetailsEsc)
+                }
             }
         },
         paint.muted,
@@ -175,8 +184,8 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
     frame.render_widget(Clear, area);
     let block = panel(
         match editor.kind {
-            EditKind::Search => " Filename filter / literal ",
-            EditKind::Range => " Source range / inclusive ",
+            EditKind::Search => paint.hint(crate::i18n::Message::DesksSourcesFilenameFilterLiteral),
+            EditKind::Range => paint.hint(crate::i18n::Message::DesksSourcesSourceRangeInclusive),
         },
         config,
         paint,
@@ -188,8 +197,12 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         app.sources.error.as_str()
     } else {
         match editor.kind {
-            EditKind::Search => "Case-sensitive filename substring; excluded paths stay excluded.",
-            EditKind::Range => "One-based start:end, e.g. 2:5. Exact range; no silent clipping.",
+            EditKind::Search => paint.hint(
+                crate::i18n::Message::DesksSourcesCaseSensitiveFilenameSubstringExcludedPathsStay,
+            ),
+            EditKind::Range => {
+                paint.hint(crate::i18n::Message::DesksSourcesOneBasedStartEndEGExact)
+            }
         }
     };
     text(frame, row(content, 0, 2), hint, paint.muted);
@@ -225,7 +238,12 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
     };
     let area = sheet(area, 76, if app.verbose { 20 } else { 14 });
     frame.render_widget(Clear, area);
-    let block = panel(" Review local excerpt removal ", config, paint, true);
+    let block = panel(
+        paint.hint(crate::i18n::Message::DesksSourcesReviewLocalExcerptRemoval),
+        config,
+        paint,
+        true,
+    );
     let content = block.inner(area);
     frame.render_widget(block, area);
     let target = app
@@ -241,22 +259,40 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
                 excerpt.path, excerpt.start_line, excerpt.end_line
             )
         })
-        .unwrap_or_else(|| "Unavailable; reload before confirming.".into());
+        .unwrap_or_else(|| {
+            paint
+                .hint(crate::i18n::Message::DesksSourcesUnavailableReloadBeforeConfirming)
+                .into()
+        });
     let details = row(content, 0, content.height.saturating_sub(4));
-    let summary = format!(
-        "{} excerpt #{} from this task?\nCapture: {}\n{}\nOther files/tasks and provider data stay unchanged.\nNot secure erasure; exports remain unchanged.",
-        if confirmation.purge {
-            "Purge"
-        } else {
-            "Remove"
-        },
-        confirmation.id,
-        super::clipped(&capture, details.width.saturating_sub(9) as usize),
-        if confirmation.purge {
-            "Clear local bytes; keep unavailable identity."
-        } else {
-            "Remove local reference and captured text."
-        }
+    let summary = paint.format(
+        crate::i18n::Template::DesksSourcesRemovalSummary,
+        &[
+            (
+                "action",
+                (if confirmation.purge {
+                    paint.hint(crate::i18n::Message::DesksSourcesPurge)
+                } else {
+                    paint.hint(crate::i18n::Message::DesksSourcesRemove)
+                }),
+            ),
+            ("id", &(confirmation.id).to_string()),
+            (
+                "capture",
+                &(super::clipped(&capture, details.width.saturating_sub(9) as usize)),
+            ),
+            (
+                "effect",
+                (if confirmation.purge {
+                    paint.hint(
+                        crate::i18n::Message::DesksSourcesClearLocalBytesKeepUnavailableIdentity,
+                    )
+                } else {
+                    paint
+                        .hint(crate::i18n::Message::DesksSourcesRemoveLocalReferenceAndCapturedText)
+                }),
+            ),
+        ],
     );
     let summary = Paragraph::new(summary)
         .style(paint.surface)
@@ -274,19 +310,22 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
         selection_details(
             frame,
             row(details, rows as u16, remaining),
-            Paragraph::new(format!("Exact capture: {capture}"))
-                .style(paint.muted)
-                .wrap(Wrap { trim: false }),
+            Paragraph::new(paint.format(
+                crate::i18n::Template::DesksSourcesExactCapture,
+                &[("capture", &(capture))],
+            ))
+            .style(paint.muted)
+            .wrap(Wrap { trim: false }),
             app.scroll_for(ScrollSurface::Preview),
         )
     } else {
         0
     };
-    app.set_scroll_max(ScrollSurface::Preview, max);
+    app.set_scroll_viewport(ScrollSurface::Preview, max, remaining);
     text(
         frame,
         row(content, content.height.saturating_sub(3), 1),
-        "n / Stay - keep the excerpt",
+        paint.hint(crate::i18n::Message::DesksSourcesNStayKeepTheExcerpt),
         if confirmation.destructive {
             paint.surface
         } else {
@@ -297,9 +336,9 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
         frame,
         row(content, content.height.saturating_sub(2), 1),
         if confirmation.purge {
-            "y / Purge selected local captured bytes"
+            paint.hint(crate::i18n::Message::DesksSourcesYPurgeSelectedLocalCapturedBytes)
         } else {
-            "y / Remove selected basket reference"
+            paint.hint(crate::i18n::Message::DesksSourcesYRemoveSelectedBasketReference)
         },
         if confirmation.destructive {
             paint.selected

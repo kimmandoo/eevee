@@ -198,9 +198,28 @@ impl App {
                 state.observe_record(record);
             }
         }
+        if !observations.is_empty() {
+            self.records_invalidate();
+        }
         if move_updated {
             for record in &observations {
                 self.move_run_committed(record);
+                if record.started_at_ms.is_some()
+                    && record.ended_at_ms.is_some()
+                    && !matches!(
+                        record.state,
+                        crate::workspace::runner::RunState::AwaitingDispatch
+                            | crate::workspace::runner::RunState::Running
+                            | crate::workspace::runner::RunState::Cancelling
+                    )
+                {
+                    self.queue_record_operation(
+                        record.prepared.task_id,
+                        store::records::Operation::ObserveRun {
+                            run_id: record.prepared.run_id.clone(),
+                        },
+                    );
+                }
             }
         }
         let ids: Vec<_> = self.party.iter().map(|partner| partner.id).collect();

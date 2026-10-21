@@ -644,15 +644,19 @@ impl App {
             };
             self.sources.preview = None;
             self.sources.preview_reviewed = false;
-            self.sources.pending = Some(context::Request {
-                task_id: self.task_id,
-                operation: context::Operation::Inspect {
+            if let Err(error) = self.sources.begin_capture(
+                self.task_id,
+                context::Operation::Inspect {
                     report: report.clone(),
                     path: PathBuf::from(&pin.path),
                     start_line: pin.start_line,
                     end_line: pin.end_line,
                 },
-            });
+            ) {
+                flow.remaining.push_front(pin);
+                self.sources.error = error;
+                return true;
+            }
             self.sources.source_busy = true;
             self.sources.mode = sources::Mode::Preview;
             self.sources.status =

@@ -14,6 +14,7 @@ mod memories;
 pub mod moves;
 mod partners;
 mod preferences;
+pub mod records;
 mod recovery;
 mod runs;
 mod schema;
@@ -127,6 +128,8 @@ pub struct Snapshot {
     pub archived: bool,
     pub archived_at: i64,
     pub redacted: bool,
+    #[serde(skip)]
+    pub local_records: Vec<crate::workspace::records::LocalIntent>,
 }
 
 impl Snapshot {
@@ -165,6 +168,7 @@ impl Snapshot {
             archived: false,
             archived_at: 0,
             redacted: false,
+            local_records: Vec::new(),
         }
     }
 }
@@ -355,6 +359,7 @@ pub struct CommittedRunPermit {
 
 pub struct ContextRequest {
     pub task_id: i64,
+    pub producer: Option<Attribution>,
     pub operation: ContextOperation,
 }
 
@@ -539,6 +544,10 @@ pub enum Event {
         form: usize,
         result: Result<moves::Response, String>,
     },
+    Records {
+        request: Box<records::Request>,
+        result: Result<Box<records::Response>, String>,
+    },
 }
 
 struct Managed {
@@ -559,6 +568,7 @@ enum Command {
     Party(PartyRequest),
     Work(WorkRequest),
     Preferences(PreferenceRequest),
+    Records(Box<records::Request>),
     Retry,
 }
 
@@ -639,6 +649,26 @@ impl Worker {
                 false
             }
             Err(_) => unreachable!("try_send returns the submitted command"),
+        }
+    }
+
+    pub fn try_records(&self, pending: &mut Option<records::Request>) -> bool {
+        let Some(commands) = &self.commands else {
+            return false;
+        };
+        let Some(request) = pending.take() else {
+            return false;
+        };
+        match commands.try_send(Command::Records(Box::new(request))) {
+            Ok(()) => true,
+            Err(
+                TrySendError::Full(Command::Records(request))
+                | TrySendError::Disconnected(Command::Records(request)),
+            ) => {
+                *pending = Some(*request);
+                false
+            }
+            Err(_) => unreachable!("try_send returns submitted command"),
         }
     }
 
@@ -820,10 +850,14 @@ fn run(
         lock: None,
         connection: None,
     };
-    let _ = events.send(state.reopen());
+    let _ = events.send(state.reopen_startup());
     while let Ok(command) = commands.recv() {
         let event = match command {
             Command::Retry => state.reopen(),
+            Command::Records(request) => {
+                let result = state.records(&request).map(Box::new).map_err(actionable);
+                Event::Records { request, result }
+            }
             Command::Preferences(request) => {
                 Event::Preferences(state.preference_request(request).map_err(actionable))
             }

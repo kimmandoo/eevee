@@ -86,14 +86,18 @@ impl Popup {
             if exact {
                 return choice.command.eq_ignore_ascii_case(query);
             }
-            // Terms may match the command and label independently, in any order.
-            // Keep catalogue order stable and avoid fuzzy scores or search copies.
+            // Match original identities and borrowed descriptions from every embedded locale.
+            // Keep catalogue order stable without allocating search copies.
             query.split_whitespace().all(|term| {
-                [choice.command, choice.label.as_str()].iter().any(|text| {
+                let matches = |text: &str| {
                     text.as_bytes()
                         .windows(term.len())
                         .any(|part| part.eq_ignore_ascii_case(term.as_bytes()))
-                })
+                };
+                matches(choice.command)
+                    || matches(choice.label.as_str())
+                    || crate::command_help::key(choice.command)
+                        .is_some_and(|key| crate::i18n::translations(key).any(matches))
             })
         })
     }
@@ -443,6 +447,7 @@ const SPECIALIST_ACTIONS: &[(&str, &str, &str)] = &[
 impl App {
     pub fn command_choices(&self) -> Vec<Choice> {
         let mut choices = match self.overlay {
+            Some(Overlay::Records) => self.record_command_choices(),
             Some(Overlay::Planning) => self.planning.command_choices(),
             Some(Overlay::Execution) => self.execution.command_choices(),
             Some(Overlay::Sources) => self.sources.command_choices(),
@@ -673,6 +678,14 @@ impl App {
                     name,
                     format!("Choose {}", crate::domain::FORMS[index].name),
                 ));
+            }
+        }
+        for choice in self.record_command_choices() {
+            if !choices
+                .iter()
+                .any(|existing| existing.command == choice.command)
+            {
+                choices.push(choice);
             }
         }
         choices
@@ -1176,6 +1189,9 @@ impl App {
             return true;
         }
         self.command_popup = None;
+        if self.record_command(name) {
+            return true;
+        }
         if name == "deny"
             && self.overlay == Some(Overlay::Execution)
             && matches!(
@@ -2565,6 +2581,99 @@ mod tests {
         assert!(app.overlay.is_none());
         assert!(!app.agents.connection_editing());
         assert!(app.planning.pending.is_none());
+    }
+
+    #[test]
+    fn unavailable_repository_after_sources_does_not_trap_saved_connection_admission() {
+        fn save_request(app: &mut App) {
+            app.update(Event::Key(KeyEvent::new(
+                KeyCode::Char('s'),
+                KeyModifiers::CONTROL,
+            )));
+            let snapshot = app.snapshot("/workspace");
+            app.save_submitted();
+            app.store_event(crate::store::Event::Saved(snapshot));
+            assert_eq!(app.storage, StorageState::Saved);
+            assert!(app.authentication_ready());
+        }
+
+        for (width, height) in [(120, 36), (60, 18)] {
+            for unsupported in [true, false] {
+                let mut app = App::new("/workspace".into(), width, height);
+                app.task_id = 7;
+                app.storage = StorageState::Saved;
+                app.planning.preference_event(Ok(None));
+                app.repo_event(if unsupported {
+                    crate::workspace::repo::Event::Unsupported {
+                        path: "/workspace".into(),
+                        reason: "not a repository".into(),
+                    }
+                } else {
+                    crate::workspace::repo::Event::Failed {
+                        operation: "discover",
+                        message: "repository inspection unavailable".into(),
+                    }
+                });
+                app.sources.observed_repository(app.task_id, None);
+                let request = "Draft界e\u{301}Z-end";
+                app.update(Event::Paste(request.into()));
+                for _ in 0..3 {
+                    key(&mut app, KeyCode::Left);
+                }
+                let cursor = request.len() - 3;
+                save_request(&mut app);
+
+                app.update(Event::Key(KeyEvent::new(
+                    KeyCode::Char('k'),
+                    KeyModifiers::CONTROL,
+                )));
+                query(&mut app, "files");
+                key(&mut app, KeyCode::Enter);
+                assert_eq!(app.overlay, Some(Overlay::Sources));
+                assert!(!app.sources.busy());
+                assert!(
+                    app.sources
+                        .error
+                        .contains("Repository inspection unavailable")
+                );
+                assert!(app.sources.status.contains("unavailable"));
+                assert!(app.sources.pending.is_none() && app.sources.pending_store.is_none());
+                key(&mut app, KeyCode::Esc);
+                assert!(app.composer_is_request());
+                assert_eq!((app.input.as_str(), app.cursor), (request, cursor));
+                save_request(&mut app);
+
+                app.update(Event::Key(KeyEvent::new(
+                    KeyCode::Char('k'),
+                    KeyModifiers::CONTROL,
+                )));
+                query(&mut app, "connect compatible");
+                assert!(app.command_popup.is_some());
+                assert!(app.authentication_ready());
+                key(&mut app, KeyCode::Enter);
+                assert!(app.command_popup.is_none());
+                assert_eq!(app.overlay, Some(Overlay::Agents));
+                assert_eq!(
+                    app.agents.selected,
+                    crate::providers::Agent::Compatible.index()
+                );
+                let draft = app
+                    .drafts
+                    .iter()
+                    .find(|draft| draft.field == crate::store::EditorField::Request)
+                    .unwrap();
+                assert_eq!((draft.text.as_str(), draft.cursor), (request, cursor));
+                // Discovery has not been delivered: admission must not read a
+                // real credential source or submit provider/authentication work.
+                assert!(!app.agents.connection_editing());
+                assert!(app.agents.pending_auth.is_none() && app.agents.auth_preview.is_none());
+                assert!(app.planning.pending.is_none() && app.pending_request.is_none());
+                assert!(app.execution.active.is_none());
+                key(&mut app, KeyCode::Esc);
+                assert!(app.composer_is_request());
+                assert_eq!((app.input.as_str(), app.cursor), (request, cursor));
+            }
+        }
     }
 
     #[test]

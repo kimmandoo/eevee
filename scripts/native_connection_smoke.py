@@ -71,11 +71,15 @@ def until(session, predicate, description, timeout=12):
 class Peer:
     """Own a bounded real HTTP listener; never retain authentication header values."""
 
-    def __init__(self, protocol, secret, keyless):
+    def __init__(self, protocol, secret, keyless, *, retain_body_bytes=False):
         self.protocol, self.secret, self.keyless = protocol, secret, keyless
         self.lock = threading.Lock()
         self.requests, self.errors, self.workers = [], [], []
         self.plans = queue.Queue()
+        # Opt-in records acceptance keeps exact public request bodies and emits
+        # supplied Chat usage trailers; existing connection journeys are unchanged.
+        self.retain_body_bytes = retain_body_bytes
+        self.usage_plans = queue.Queue()
         self.stopped = threading.Event()
         self.cancel_started, self.cancel_closed = threading.Event(), threading.Event()
         fixture = self
@@ -142,7 +146,19 @@ class Peer:
                     self.record(None)
                     self.reply(400, {'error': 'unbounded fixture body'})
                     return
-                row = self.record(json.loads(self.rfile.read(size)))
+                raw_body = self.rfile.read(size)
+                row = self.record(json.loads(raw_body))
+                if fixture.retain_body_bytes:
+                    row['body_bytes_hex'] = raw_body.hex()
+                try:
+                    usage_plan = fixture.usage_plans.get_nowait()
+                except queue.Empty:
+                    usage_plan = None
+                if usage_plan is not None and protocol != 'chat_completions':
+                    with fixture.lock:
+                        fixture.errors.append('Chat usage plan supplied for a different protocol')
+                    self.reply(409, {'error': 'usage plan protocol mismatch'})
+                    return
                 endpoint = {'responses': 'responses', 'chat_completions': 'chat/completions',
                             'messages': 'messages', 'gemini': 'models/' + MODEL + ':streamGenerateContent?alt=sse'}[protocol]
                 if self.path not in ('/v1/' + endpoint, '/changed/v1/' + endpoint):
@@ -163,6 +179,8 @@ class Peer:
                 self.close_connection = True
 
                 def event(value, name=None):
+                    if usage_plan is not None:
+                        row.setdefault('fixture_events', []).append({'event': name, 'data': value})
                     prefix = ('event: ' + name + '\n') if name else ''
                     self.wfile.write((prefix + 'data: ' + json.dumps(value) + '\n\n').encode())
                     self.wfile.flush()
@@ -205,7 +223,11 @@ class Peer:
                         'model': MODEL, 'status': 'completed', 'output': [{'type': 'message',
                             'role': 'assistant', 'content': [{'type': 'output_text', 'text': answer}]}]}})
                 elif protocol == 'chat_completions':
-                    event({'model': MODEL, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})
+                    identity = {} if usage_plan is None else {'id': usage_plan['id']}
+                    event({'model': MODEL, **identity, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})
+                    if usage_plan is not None:
+                        for usage in usage_plan['snapshots']:
+                            event({'model': MODEL, **identity, 'choices': [], 'usage': usage})
                     self.wfile.write(b'data: [DONE]\n\n')
                     self.wfile.flush()
                 elif protocol == 'messages':
@@ -231,6 +253,7 @@ class Peer:
         with self.lock:
             assert not self.errors, self.errors
         assert self.plans.empty(), 'planned request never consumed'
+        assert self.usage_plans.empty(), 'planned usage frame never consumed by an actual request'
         assert all(row['authentication_matches_selected_source'] for row in self.snapshot()), \
             'request authentication does not match explicit native source'
 

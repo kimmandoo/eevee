@@ -234,6 +234,7 @@ impl State {
             self.reset(task.id);
         }
         self.receipt_claim = None;
+        self.submitted_instruction = None;
         self.receipt.clear();
         self.observed_model = None;
         self.revision = task.revision;
@@ -274,6 +275,7 @@ impl State {
         self.pending = Some(Request::Preview(Box::new(Input {
             task: request_task,
             work: None,
+            instruction_override: None,
             excerpts: if inspect_models {
                 Vec::new()
             } else {
@@ -401,11 +403,13 @@ impl State {
         }
         let generation = preview.generation;
         if preview.thread_id.is_none() && !self.inspect_sessions && !self.inspect_models {
-            self.following = true;
-            self.new_output = false;
-            self.saved_scroll = 0;
-            self.response_scroll = 0;
-            self.response_max = 0;
+            if self.items.is_empty() {
+                self.following = true;
+                self.new_output = false;
+                self.saved_scroll = 0;
+                self.response_scroll = 0;
+                self.response_max = 0;
+            }
             self.thread_id = None;
             self.observed_model = None;
         }
@@ -694,6 +698,16 @@ impl State {
             self.scroll = 0;
             return true;
         }
+        if large_enough
+            && self.response_surface()
+            && key.modifiers == KeyModifiers::ALT
+            && matches!(
+                key.code,
+                KeyCode::Up | KeyCode::Down | KeyCode::Home | KeyCode::End
+            )
+        {
+            return self.response_key(key.code);
+        }
         if key
             .modifiers
             .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
@@ -915,8 +929,19 @@ impl State {
                 _ => {}
             }
         }
-        if self.response_surface() && self.response_key(key.code) {
-            return true;
+        if self.response_surface() {
+            if key.modifiers.is_empty() && matches!(key.code, KeyCode::Up | KeyCode::Down) {
+                return self.scroll_response_lines(if key.code == KeyCode::Up { -1 } else { 1 });
+            }
+            if key.modifiers.is_empty()
+                && matches!(
+                    key.code,
+                    KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End
+                )
+                && self.response_key(key.code)
+            {
+                return true;
+            }
         }
         match key.code {
             KeyCode::PageUp => {

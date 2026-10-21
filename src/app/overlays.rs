@@ -128,8 +128,11 @@ impl App {
                 .unwrap_or(0);
         }
         if overlay == Overlay::Sources {
-            self.sources
-                .catalogue(self.task_id, self.repository.as_ref());
+            self.sources.catalogue(
+                self.task_id,
+                self.repository.as_ref(),
+                self.repo_loading || self.repo_refresh,
+            );
         } else if overlay == Overlay::Execution {
             self.execution.open(self.task_id);
         }
@@ -419,8 +422,8 @@ impl App {
     }
 
     pub(super) fn scroll_key(&mut self, key: KeyCode) -> bool {
-        let page = self.height.saturating_sub(8).max(1);
         let surface = self.scroll_surface().index();
+        let page = self.surface_scroll_page[surface];
         let previous = self.surface_scroll[surface];
         self.surface_scroll[surface] = match key {
             KeyCode::Up => previous.saturating_sub(1),

@@ -1,5 +1,6 @@
 mod agents;
 pub mod artwork;
+mod chips;
 mod composer;
 mod cooperation;
 mod execution;
@@ -7,6 +8,7 @@ mod handoff;
 mod memory;
 mod moves;
 mod planning;
+mod records;
 mod sources;
 mod workflows;
 
@@ -26,6 +28,7 @@ use crate::{
     app::{App, ConfirmationKind, Overlay, Pane, ScrollSurface},
     config::{ColorMode, Config, Theme},
     domain::{FORMS, Form},
+    i18n::{Language, Message, Template},
     store,
     store::EditorField,
     ui::artwork::Artwork,
@@ -111,6 +114,7 @@ fn brief(value: &str) -> Cow<'_, str> {
 }
 
 struct Paint {
+    language: Language,
     base: Style,
     surface: Style,
     muted: Style,
@@ -124,6 +128,7 @@ impl Paint {
         if config.color == ColorMode::Mono {
             let base = Style::default();
             return Self {
+                language: config.language,
                 base,
                 surface: base,
                 muted: base,
@@ -174,6 +179,7 @@ impl Paint {
         let base = Style::default().fg(foreground).bg(canvas);
         let surface_style = base.bg(image_background(config));
         Self {
+            language: config.language,
             base,
             surface: surface_style,
             muted: surface_style.fg(muted),
@@ -184,6 +190,26 @@ impl Paint {
                 .bg(accent)
                 .add_modifier(Modifier::BOLD),
         }
+    }
+
+    fn hint(&self, message: Message) -> &'static str {
+        self.language.text(message)
+    }
+
+    fn format(&self, template: Template, args: &[(&str, &str)]) -> String {
+        self.language
+            .format(template, args)
+            .unwrap_or_else(|error| format!("Localization error: {error}"))
+    }
+
+    fn format_values(
+        &self,
+        template: Template,
+        args: &[(&str, crate::i18n::Argument<'_>)],
+    ) -> String {
+        self.language
+            .format_values(template, args)
+            .unwrap_or_else(|error| format!("Localization error: {error}"))
     }
 }
 
@@ -457,6 +483,7 @@ pub fn render(
     graphics_status: &str,
 ) {
     VERBOSE.set(app.verbose);
+    app.planning.set_response_body(Rect::default());
     let area = frame.area();
     app.confirmation_reviewed = false;
     if let Some(review) = &mut app.cooperation_ui.release {
@@ -482,7 +509,7 @@ pub fn render(
         text(
             frame,
             area,
-            "Terminal too small\nNeed 60 columns x 18 rows\nResize keeps your draft. Ctrl+C opens safe exit.",
+            paint.hint(Message::CoreTerminalTooSmall),
             paint.accent,
         );
         if app.confirmation.is_some() {
@@ -499,6 +526,8 @@ pub fn render(
             workflows::render(frame, review_area, app, config, &paint);
         } else if app.overlay == Some(Overlay::Moves) {
             moves::render(frame, review_area, app, config, &paint);
+        } else if app.overlay == Some(Overlay::Records) {
+            records::render_small(frame, review_area, app, &paint);
         } else if app.overlay == Some(Overlay::PartyBoard) {
             cooperation::board(frame, review_area, app, config, &paint);
         }
@@ -618,6 +647,7 @@ pub fn render(
             Overlay::Workflows => workflows::render(frame, area, app, config, &paint),
             Overlay::Memory => memory::render(frame, area, &mut app.memory, config, &paint),
             Overlay::Moves => moves::render(frame, area, app, config, &paint),
+            Overlay::Records => records::render(frame, area, app, config, &paint),
             Overlay::Party => party(frame, area, app, config, &paint),
             Overlay::PartyBoard => cooperation::board(frame, area, app, config, &paint),
             Overlay::Images => images(frame, area, app, config, &paint, artwork, graphics_status),
@@ -916,7 +946,7 @@ fn workspace(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &
         .any(|draft| draft.field != EditorField::Request)
     {
         lines.push(Line::styled(
-            "Task-fact draft retained / /goal / /next",
+            paint.hint(Message::CoreRetainedTaskFact),
             paint.muted,
         ));
     }
@@ -972,9 +1002,9 @@ fn compact_companion(
         frame,
         row(content, content.height.saturating_sub(1), 1),
         if focused && app.last_carry_over().is_some() {
-            "c Carry-over / Enter"
+            paint.hint(Message::CoreCarryOverControl)
         } else if focused {
-            "> Enter Form / n Nickname"
+            paint.hint(Message::CoreFormControl)
         } else {
             "/forms / /companion"
         },
@@ -1149,7 +1179,12 @@ fn forms(
 ) {
     let (area, grid) = picker(area, app);
     frame.render_widget(Clear, area);
-    let block = panel(" Choose evolution / PARTY ", config, paint, true);
+    let block = panel(
+        paint.hint(Message::CoreFormPickerTitle),
+        config,
+        paint,
+        true,
+    );
     let content = block.inner(area);
     frame.render_widget(block, area);
     let current = FORMS[app.form()].name;
@@ -1166,9 +1201,9 @@ fn forms(
         frame,
         row(content, 1, 1),
         if app.form_return_selected {
-            "> Return to Eevee / intake"
+            paint.hint(Message::CoreReturnIntakeSelected)
         } else {
-            "  Return to Eevee / intake"
+            paint.hint(Message::CoreReturnIntake)
         },
         if app.form_return_selected {
             paint.selected
@@ -1195,7 +1230,7 @@ fn forms(
                 frame,
                 row(inside, 0, 1),
                 &format!(
-                    "{} {}{}{}",
+                    "{} {}{}{} {}",
                     if form_selected && index == selected {
                         ">"
                     } else {
@@ -1207,7 +1242,8 @@ fn forms(
                         " suggested"
                     } else {
                         ""
-                    }
+                    },
+                    records::compact_marker(app.record_form_marker(index), &cell_paint),
                 ),
                 if form_selected && index == selected {
                     cell_paint.selected
@@ -1233,7 +1269,7 @@ fn forms(
             let form = &FORMS[index];
             let item = Rect::new(content.x, content.y + 2 + row_index as u16, list_width, 1);
             let label = format!(
-                "{} {} {:<9}{}{}",
+                "{} {} {:<9}{}{} {}",
                 if form_selected && index == selected {
                     ">"
                 } else {
@@ -1246,7 +1282,8 @@ fn forms(
                     " suggested"
                 } else {
                     ""
-                }
+                },
+                records::compact_marker(app.record_form_marker(index), paint),
             );
             text(
                 frame,
@@ -1262,14 +1299,18 @@ fn forms(
         artwork.render(selected, compact_picker_portrait(area), frame.buffer_mut());
         let info = row(
             content,
-            3 + visible as u16,
-            content.height.saturating_sub(3 + visible as u16),
+            2 + visible as u16,
+            content.height.saturating_sub(2 + visible as u16),
         );
         let role = format!("{} / {}", FORMS[selected].name, FORMS[selected].role);
         let value = format!(
-            "{}\n{}",
+            "{}\n{}\n{}",
             clipped(&role, info.width as usize),
-            picker_moves(app, selected, info.width)
+            clipped(
+                &records::compact_marker(app.record_form_marker(selected), paint),
+                info.width as usize,
+            ),
+            picker_moves(app, selected, info.width, paint)
         );
         text(frame, info, &value, paint.muted);
     }
@@ -1286,10 +1327,12 @@ fn form_details(
     let form = &FORMS[index];
     let paint = Paint::new(config, form, index);
     let value = format!(
-        "{} / {}\n{}\n\n{}\n\n{}\n{}\n\n{}\nArrows Preview / /preview Role details",
+        "{} / {}\n{}\n{}\n{}\n\n{}\n\n{}\n{}\n{}",
         form.name,
         form.element,
         form.role,
+        picker_moves(app, index, area.width, &paint),
+        records::marker(app.record_form_marker(index), &paint),
         form.evidence,
         match index {
             0 => "Task cards and resumption: available",
@@ -1300,7 +1343,7 @@ fn form_details(
             _ => "Provider specialist workflow: unavailable",
         },
         artwork.status(index),
-        picker_moves(app, index, area.width)
+        paint.hint(Message::CoreRolePreviewControl)
     );
     frame.render_widget(
         Paragraph::new(value)
@@ -1310,19 +1353,19 @@ fn form_details(
     );
 }
 
-fn picker_moves(app: &App, form: usize, width: u16) -> String {
+fn picker_moves(app: &App, form: usize, width: u16, paint: &Paint) -> String {
     if app.task_id <= 0 {
-        return "Moves: save a task to teach an action.\n/preview Role details".into();
+        return paint.hint(Message::CoreMovesUnsaved).into();
     }
     match app.picker_move_names(form) {
-        None => "Moves: loading local records…".into(),
-        Some(Err(_)) => "Moves unavailable; /move shows the storage error.".into(),
-        Some(Ok(names)) if names.is_empty() => "Moves: none in this partner/form.\n/teach-move teaches approved local work.\n/preview Role details".into(),
+        None => paint.hint(Message::CoreMovesLoading).into(),
+        Some(Err(_)) => paint.hint(Message::CoreMovesUnavailable).into(),
+        Some(Ok(names)) if names.is_empty() => paint.hint(Message::CoreMovesEmpty).into(),
         Some(Ok(names)) => {
-            let mut value="Moves / this partner:\n".to_owned();
+            let mut value = paint.hint(Message::CoreMovesHeading).to_owned();
             for name in names {
                 value.push_str("- ");
-                value.push_str(&clipped(name,width.saturating_sub(2) as usize));
+                value.push_str(&clipped(name, width.saturating_sub(2) as usize));
                 value.push('\n');
             }
             value
@@ -1361,7 +1404,7 @@ fn repository(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, pai
             .wrap(Wrap { trim: false }),
         app.scroll_for(ScrollSurface::Preview),
     );
-    app.set_scroll_max(ScrollSurface::Preview, max);
+    app.set_scroll_viewport(ScrollSurface::Preview, max, details.height);
 }
 
 fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
@@ -1384,14 +1427,14 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
         text(
             frame,
             content,
-            "No task cards in this view.\n\n/archived Active/archived / /task-new New / Esc Back\nArchive is reversible; deletion requires review.",
+            paint.hint(Message::CoreTasksEmpty),
             paint.surface,
         );
-        app.set_scroll_max(ScrollSurface::Preview, 0);
+        app.set_scroll_viewport(ScrollSurface::Preview, 0, 0);
         return;
     }
     let selected = app.task_selection.min(count - 1);
-    let visible = (content.height / 3).clamp(1, 6) as usize;
+    let visible = count.min((content.height / 3).clamp(1, 6) as usize);
     let start = selected.saturating_sub(visible - 1);
     for (index, task) in app.visible_tasks().enumerate().skip(start).take(visible) {
         let title = task
@@ -1481,13 +1524,18 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
                 ""
             },
         )),
-        Line::styled("GOAL", paint.muted),
     ];
     if task.id == app.task_id
         && let Some(line) = suggestion_line(app, paint)
     {
         lines.insert(1, line);
     }
+    lines.push(Line::styled(
+        paint.hint(Message::RecordsRoutes),
+        paint.muted,
+    ));
+    records::task_routes(&app.records, task.id, paint, &mut lines);
+    lines.push(Line::styled("GOAL", paint.muted));
     if task.goal.is_empty() {
         lines.push(Line::from("No goal applied."));
     } else {
@@ -1519,7 +1567,7 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
             .wrap(Wrap { trim: false }),
         app.scroll_for(ScrollSurface::Preview),
     );
-    app.set_scroll_max(ScrollSurface::Preview, max);
+    app.set_scroll_viewport(ScrollSurface::Preview, max, details.height);
 }
 
 fn criteria(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
@@ -1549,7 +1597,7 @@ fn criteria(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint
             "No criteria yet. /criteria-edit adds them, one per line.",
             paint.surface,
         );
-        app.set_scroll_max(ScrollSurface::Preview, 0);
+        app.set_scroll_viewport(ScrollSurface::Preview, 0, 0);
         return;
     }
     let selected = app.criterion_selection.min(app.criteria.len() - 1);
@@ -1577,7 +1625,7 @@ fn criteria(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint
     text(
         frame,
         row(content, visible as u16 + 2, 1),
-        "Selected criterion / PgUp/Dn details",
+        paint.hint(Message::CoreCriterionDetailControl),
         paint.muted,
     );
     let criterion = &app.criteria[selected];
@@ -1590,9 +1638,9 @@ fn criteria(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint
         )),
         Line::from(""),
         Line::from(if app.complete {
-            "Completed task. Editing criteria requires explicit Reopen."
+            paint.hint(Message::CoreCriterionCompleted)
         } else {
-            "Enter toggles your review. /criteria-edit edits; /complete reviews completion."
+            paint.hint(Message::CoreCriterionReviewControl)
         }),
         Line::from("No command evidence is collected or verified here."),
     ];
@@ -1609,7 +1657,7 @@ fn criteria(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint
             .wrap(Wrap { trim: false }),
         app.scroll_for(ScrollSurface::Preview),
     );
-    app.set_scroll_max(ScrollSurface::Preview, max);
+    app.set_scroll_viewport(ScrollSurface::Preview, max, details.height);
 }
 
 fn nickname(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
@@ -1618,13 +1666,13 @@ fn nickname(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &P
     };
     let area = sheet(area, 58, 13);
     frame.render_widget(Clear, area);
-    let block = panel(" Nickname / local only ", config, paint, true);
+    let block = panel(paint.hint(Message::CoreNicknameTitle), config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
     text(
         frame,
         row(content, 0, 2),
-        "Local only: provider / handoff nickname bytes 0 B.\n12 graphemes; empty clears. No send, run or grant.",
+        paint.hint(Message::CoreNicknamePrivacy),
         paint.muted,
     );
     let input = row(content, 3, 2);
@@ -1647,9 +1695,9 @@ fn nickname(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &P
         frame,
         row(content, content.height.saturating_sub(1), 1),
         if app.party_inflight || app.party_request.is_some() {
-            "Saving locally / Esc Back"
+            paint.hint(Message::CoreNicknameSaving)
         } else {
-            "Enter Save locally / Esc Cancel"
+            paint.hint(Message::CoreNicknameSaveControl)
         },
         paint.muted,
     );
@@ -1704,19 +1752,19 @@ fn party(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
         frame,
         row(content, partners.len() as u16 + 3, 1),
         if partners.len() >= store::MAX_PARTNERS {
-            "Arrows Select / Enter Lead / n Nickname / Esc Back"
+            paint.hint(Message::CorePartyControlFull)
         } else {
-            "Arrows Select / Enter Lead / n Nickname / a Add"
+            paint.hint(Message::CorePartyControlAdd)
         },
         paint.muted,
     );
     text(
         frame,
         row(content, partners.len() as u16 + 4, 1),
-        "/release-partner reviews selected / /party-board",
+        paint.hint(Message::CoreReleasePartnerControl),
         paint.muted,
     );
-    app.set_scroll_max(ScrollSurface::Preview, 0);
+    app.set_scroll_viewport(ScrollSurface::Preview, 0, 0);
 }
 
 fn selection_details(frame: &mut Frame, area: Rect, paragraph: Paragraph<'_>, offset: u16) -> u16 {
@@ -1731,10 +1779,10 @@ fn selection_details(frame: &mut Frame, area: Rect, paragraph: Paragraph<'_>, of
 fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
     let area = sheet(area, 78, 24);
     frame.render_widget(Clear, area);
-    let block = panel(" Help / PgUp/Dn Scroll / Esc Back ", config, paint, true);
+    let block = panel(paint.hint(Message::CoreHelpTitle), config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let value = "KEYS\n / Ctrl+K   Commands (type to search)\n Enter      Send request / select / confirm\n Esc        Back (drafts are kept)\n Tab        Switch pane\n PgUp/PgDn  Scroll response or details\n Shift+Enter, Ctrl+N  Newline\n Ctrl+S     Keep draft locally\n @          Attach files\n Backspace  Previous form (outside text)\n Ctrl+C     Exit\n\nCOMMANDS\n /connect /provider  Provider and connection method\n /model /effort      Model and reasoning effort\n /new /resume        Send ordinary Request: fresh / owned conversation\n /session-new /session-resume\n                     Advanced: review exact session payload\n /task-new /tasks    Local tasks\n /reset              Fresh task; old task/draft in /tasks\n /init               Draft project guide request; not sent\n /goal /criteria     Optional task facts\n /party /lead NAME   Partners and the lead\n /forms /role        Evolution and role\n /files /search      Source context and filename search\n /run /execute       Command evidence / prepared command review\n /output-search      Search retained command output\n /complete           Mark acceptance checklist complete\n /verbose            Brief / full explanations\n\nSAFETY\n Enter sends your Request to the selected provider.\n Commands, file changes and privilege grants require approval.\n Project-supplied runtimes and unmanaged tool routes still need connection review.\n Full technical details remain inspectable.\n Pasted text never sends a request or runs commands.\n Provider output and handoffs are unverified context.";
+    let value = paint.hint(Message::CoreHelpContent);
     scroll_text(
         frame,
         content,
@@ -1783,50 +1831,46 @@ fn preview(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint:
 
 fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
     let value = if app.quit_after_save {
-        "Saving task and drafts before exit / Esc Cancel exit"
+        paint.hint(Message::CoreSavingExit)
     } else if app.confirmation.is_some() {
-        "y Confirm / n Stay / Tab Choose / Enter Select"
+        paint.hint(Message::CoreConfirmationControl)
     } else if app.reset_after_save {
-        "Saving old task and drafts before reset / Esc Stay"
+        paint.hint(Message::CoreSavingReset)
     } else if app.transitioning {
-        "Applying task operation / mutation paused"
+        paint.hint(Message::CoreApplyingTask)
     } else if app.command_popup.is_some() {
-        "Type / arrows Choose / Enter Open / Esc Back"
+        paint.hint(Message::CoreCommandPickerControl)
     } else if app.composer_menu.is_some() && app.overlay.is_none() {
-        "Arrows Choose file / Enter Inspect / Esc Keep text"
+        paint.hint(Message::CoreFilePickerControl)
     } else if app.editing && app.overlay.is_none() {
         if app.composer_is_request() && app.planning.busy() {
-            "Draft only / PgUp/Dn Response / /response / /cancel"
+            paint.hint(Message::CoreRequestBusyControl)
         } else if app.composer_is_request() && app.response_on_home() {
-            "Enter Send / PgUp/Dn Response / / Commands"
+            paint.hint(Message::CoreResponseRequestControl)
         } else if app.composer_is_request() {
-            "Enter Send / Ctrl+N Newline / @ Files / / Commands"
+            paint.hint(Message::CoreRequestControl)
         } else {
-            "Enter Save fact / Ctrl+N Newline / Esc Draft"
+            paint.hint(Message::CoreTaskFactControl)
         }
     } else {
         match app.overlay {
-            Some(Overlay::Forms) => "Arrows Preview / Home Intake / Enter Select / Esc Back",
+            Some(Overlay::Forms) => paint.hint(Message::CoreFormsControl),
             Some(Overlay::Criteria) if area.width < 70 => {
-                "Enter Toggle / /criteria-edit / /complete / Esc Back"
+                paint.hint(Message::CoreCriteriaControlCompact)
             }
-            Some(Overlay::Criteria) => {
-                "Enter Toggle / /criteria-edit / /complete / Arrows Choose / Esc Back"
-            }
-            Some(Overlay::Tasks) if area.width < 70 => "Enter Resume / / Commands / Esc Back",
-            Some(Overlay::Tasks) => {
-                "Enter Resume / /archived / /archive / /restore / /delete / Esc Back"
-            }
+            Some(Overlay::Criteria) => paint.hint(Message::CoreCriteriaControl),
+            Some(Overlay::Tasks) if area.width < 70 => paint.hint(Message::CoreTasksControlCompact),
+            Some(Overlay::Tasks) => paint.hint(Message::CoreTasksControl),
             Some(Overlay::Planning)
                 if app.planning.request.is_some() || app.planning.preview.is_some() =>
             {
-                "/ Commands / Esc Defer / /approvals Return"
+                paint.hint(Message::CoreApprovalsControl)
             }
             Some(Overlay::Planning) if app.planning.activity_label().is_some() => {
-                "/ Commands / Esc Cancel request / Ctrl+C Safe exit"
+                paint.hint(Message::CoreRequestActiveControl)
             }
             Some(Overlay::Sources) if app.sources.editor.is_some() => {
-                "Enter Apply filter/range / Esc Back / Ctrl+C Exit"
+                paint.hint(Message::CoreSourceFilterControl)
             }
             Some(
                 Overlay::Execution
@@ -1836,9 +1880,9 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
                 | Overlay::Workflows
                 | Overlay::Memory
                 | Overlay::PartyBoard,
-            ) => "/ Commands / Esc Back / Ctrl+C Exit",
-            Some(_) => "/ Commands / Up/Down Scroll / Esc Back / Ctrl+C Exit",
-            None => "Type Request / Tab Focus / / Commands / Ctrl+C Exit",
+            ) => paint.hint(Message::CoreOverlayControl),
+            Some(_) => paint.hint(Message::CoreOverlayScrollControl),
+            None => paint.hint(Message::CoreHomeControl),
         }
     };
     if !app.notice.is_empty() {
@@ -1853,7 +1897,10 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
         text(
             frame,
             area,
-            &format!("{value}\nDetail line {}", app.scroll() + 1),
+            &paint.format(
+                Template::CoreDetailPosition,
+                &[("value", value), ("line", &(app.scroll() + 1).to_string())],
+            ),
             paint.base,
         );
     } else {
@@ -1946,16 +1993,16 @@ fn images(
         .min(u16::MAX as usize) as u16;
     let offset = app.scroll_for(ScrollSurface::Preview).min(maximum);
     frame.render_widget(paragraph.scroll((offset, 0)), details);
-    app.set_scroll_max(ScrollSurface::Preview, maximum);
+    app.set_scroll_viewport(ScrollSurface::Preview, maximum, details.height);
     app.images_reviewed = content.height >= summary_rows + 4;
     let choices = [
-        "Back",
+        paint.hint(Message::CoreBack),
         if app.images_busy {
-            "Cancel download"
+            paint.hint(Message::CoreCancelDownload)
         } else {
-            "Download missing / Retry"
+            paint.hint(Message::CoreDownloadMissing)
         },
-        "Reload local",
+        paint.hint(Message::CoreReloadLocal),
     ];
     for (index, label) in choices.iter().enumerate() {
         text(
@@ -1979,7 +2026,7 @@ fn images(
     text(
         frame,
         row(content, content.height.saturating_sub(1), 1),
-        "Tab Choose / Enter Select / PgUp/Dn Details / Esc Back",
+        paint.hint(Message::CoreImagesControl),
         paint.muted,
     );
 }
@@ -1991,28 +2038,70 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
             EditorField::Request | EditorField::Goal | EditorField::NextAction
         );
     let title = if app.composer_is_request() || !editing {
-        " Request "
+        paint.hint(Message::CoreRequestTitle)
     } else if editing && app.editor_field == EditorField::NextAction {
-        " Next action / local "
+        paint.hint(Message::CoreNextActionTitle)
     } else {
-        " Task fact / local "
+        paint.hint(Message::CoreTaskFactTitle)
     };
     let attachment_status = if app.sources.store_failed {
-        " · save failed"
+        paint.hint(Message::CoreAttachmentSaveFailed)
     } else if app.sources.persistence_pending() {
-        " · saving"
+        paint.hint(Message::CoreAttachmentSaving)
     } else {
         ""
     };
-    let title = format!(
-        "{title}/ {} / {} attached{attachment_status} ",
-        app.lead_label(),
-        app.sources.basket.len()
+    let remembered = app.records_pairing_badge(
+        app.agents
+            .profiles
+            .get(app.planning.agent.index())
+            .is_some_and(|profile| profile.blockers.is_empty()),
+    );
+    let partner = app.lead_label();
+    let title = paint.format(
+        Template::CoreComposerTitle,
+        &[
+            ("title", title),
+            ("partner", &partner),
+            ("count", &app.sources.basket.len().to_string()),
+            ("status", attachment_status),
+            (
+                "pairing",
+                remembered.map(|message| paint.hint(message)).unwrap_or(""),
+            ),
+        ],
     );
     let mut block = panel(&title, config, paint, editing && app.overlay.is_none());
-    if editing {
+    let pairing_offer;
+    if app.overlay.is_none() && app.records.failed.is_some() {
         block = block.title_bottom(Line::styled(
-            " Ctrl+N Newline / Ctrl+S Retain draft ",
+            paint.hint(Message::RecordsWriteFailed),
+            paint.accent,
+        ));
+    } else if app.overlay.is_none()
+        && app.confirmation.is_none()
+        && !app.planning_any_busy()
+        && !app.execution_any_busy()
+        && let Some(activity) = app.record_activity()
+    {
+        block = block.title_bottom(Line::styled(
+            clipped(&activity.detail, area.width.saturating_sub(4) as usize),
+            paint.muted,
+        ));
+    } else if app.overlay.is_none()
+        && app.confirmation.is_none()
+        && !app.planning_any_busy()
+        && !app.execution_any_busy()
+        && app.has_pairing_offer()
+    {
+        pairing_offer = paint.format(Template::RecordsPairingUseOffer, &[("partner", &partner)]);
+        block = block.title_bottom(Line::styled(
+            clipped(&pairing_offer, area.width.saturating_sub(4) as usize),
+            paint.accent,
+        ));
+    } else if editing {
+        block = block.title_bottom(Line::styled(
+            paint.hint(Message::CoreComposerDraftControl),
             paint.muted,
         ));
     }
@@ -2023,9 +2112,13 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
     } else {
         1
     };
-    let attachment_rows = u16::from(!app.sources.basket.is_empty() && content.height >= 3);
+    let attachment_rows = if app.sources.basket.is_empty() {
+        0
+    } else {
+        content.height.saturating_sub(hint_rows + 1).min(2)
+    };
     if attachment_rows != 0 {
-        composer::attachments(frame, row(content, 0, 1), app, paint);
+        chips::render(frame, row(content, 0, attachment_rows), app, paint);
     }
     let input = row(
         content,
@@ -2042,11 +2135,11 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
             frame,
             input,
             if app.composer_is_request() || !editing {
-                "Ask a question or describe what you want to do..."
+                paint.hint(Message::CoreRequestPlaceholder)
             } else if app.editor_field == EditorField::NextAction {
-                "Describe the next action..."
+                paint.hint(Message::CoreNextActionPlaceholder)
             } else {
-                "Describe the optional task goal..."
+                paint.hint(Message::CoreGoalPlaceholder)
             },
             paint.muted,
         );
@@ -2061,6 +2154,17 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
             )
             .style(paint.surface),
             input,
+        );
+    }
+    if value.is_empty()
+        && input.height > 1
+        && let Some(hint) = app.record_habit_hint()
+    {
+        text(
+            frame,
+            row(input, input.height - 1, 1),
+            paint.hint(hint),
+            paint.muted,
         );
     }
     if editing
@@ -2079,11 +2183,11 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
     // While editing, the footer carries the composer keys; only the input
     // limit warning stays inside the panel.
     let hint = if app.input_truncated && editing {
-        "Input limit reached; draft retained."
+        paint.hint(Message::CoreInputLimit)
     } else if editing {
         ""
     } else {
-        "Type a request / / Commands / @ Files"
+        paint.hint(Message::CoreComposerIdleControl)
     };
     text(
         frame,
@@ -2098,10 +2202,12 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
     let area = row(area, 2, area.height.saturating_sub(4));
     let area = centered(area, 86, 16);
     frame.render_widget(Clear, area);
-    let title = format!(
-        " Edit {} / {} ",
-        app.editor_label(),
-        App::partner_label(app.lead())
+    let title = paint.format(
+        Template::CoreEditorTitle,
+        &[
+            ("field", app.editor_label()),
+            ("partner", &App::partner_label(app.lead())),
+        ],
     );
     let block = panel(&title, config, paint, true);
     let content = block.inner(area);
@@ -2110,21 +2216,11 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         frame,
         row(content, 0, 2),
         match app.editor_field {
-            EditorField::Request => {
-                "Enter sends this request. Commands and file changes need separate approval."
-            }
-            EditorField::Criteria => {
-                "One criterion per line; 64 max, 256 bytes each. Changed criteria reset to unmet."
-            }
-            EditorField::Goal => {
-                "Goal draft. Apply saves locally; no provider request or execution."
-            }
-            EditorField::NextAction => {
-                "Next-action draft. Describes your plan; does not execute it."
-            }
-            EditorField::Command => {
-                "JSON argv array or explicit shell object. Apply prepares review; never executes."
-            }
+            EditorField::Request => paint.hint(Message::CoreEditorRequestHelp),
+            EditorField::Criteria => paint.hint(Message::CoreEditorCriteriaHelp),
+            EditorField::Goal => paint.hint(Message::CoreEditorGoalHelp),
+            EditorField::NextAction => paint.hint(Message::CoreEditorNextActionHelp),
+            EditorField::Command => paint.hint(Message::CoreEditorCommandHelp),
         },
         paint.muted,
     );
@@ -2153,17 +2249,20 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         ));
     }
     let warning = if app.input_truncated {
-        " / LIMIT: paste truncated"
+        paint.hint(Message::CorePasteLimit)
     } else {
         ""
     };
     text(
         frame,
         row(content, content.height.saturating_sub(2), 2),
-        &format!(
-            "{} / 4096 bytes{}\nEnter Apply / Ctrl+S Save draft/back / Esc Back",
-            app.input.len(),
-            warning
+        &paint.format(
+            Template::CoreEditorStatus,
+            &[
+                ("count", &app.input.len().to_string()),
+                ("warning", warning),
+                ("controls", paint.hint(Message::CoreEditorApplyControl)),
+            ],
         ),
         paint.muted,
     );
@@ -2180,7 +2279,7 @@ fn scroll_text(
     let max = count
         .saturating_sub(area.height as usize)
         .min(u16::MAX as usize) as u16;
-    app.set_scroll_max(surface, max);
+    app.set_scroll_viewport(surface, max, area.height);
     frame.render_widget(paragraph.scroll((app.scroll_for(surface), 0)), area);
 }
 
@@ -2296,7 +2395,7 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
     text(
         frame,
         row(content, 6, 2),
-        "y Confirm / n Stay / Tab Choose / Enter Select",
+        paint.hint(Message::CoreConfirmationControl),
         paint.muted,
     );
     app.confirmation_reviewed = content.height >= 8
@@ -2401,7 +2500,7 @@ fn delete_confirmation(
             .wrap(Wrap { trim: false }),
         app.scroll_for(ScrollSurface::Preview),
     );
-    app.set_scroll_max(ScrollSurface::Preview, max);
+    app.set_scroll_viewport(ScrollSurface::Preview, max, details.height);
     let selected = app
         .confirmation
         .is_some_and(|confirmation| confirmation.destructive);
@@ -2428,7 +2527,7 @@ fn delete_confirmation(
     text(
         frame,
         row(content, content.height.saturating_sub(2), 2),
-        "y Delete / n Keep / Tab Choose / Enter Select\nPgUp/Dn IDs / Home/End Pages / Esc Stay",
+        paint.hint(Message::CoreDeleteControl),
         paint.muted,
     );
     app.confirmation_reviewed = content.height >= 8

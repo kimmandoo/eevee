@@ -17,7 +17,10 @@ use ratatui::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::config::{ColorMode, Config, ImageMode, Theme};
+use crate::{
+    config::{ColorMode, Config, ImageMode, Theme},
+    i18n::{Language, Message, Template},
+};
 
 pub const SPECIES: [u16; 9] = [133, 134, 135, 136, 196, 197, 470, 471, 700];
 const SOURCE: &str = "https://github.com/PokeAPI/sprites";
@@ -225,6 +228,7 @@ pub struct Artwork {
     cache: Vec<Raster>,
     color: ColorMode,
     ascii: bool,
+    language: Language,
     theme: Theme,
     tick: u64,
     generation: u64,
@@ -270,10 +274,13 @@ impl Artwork {
                 },
                 Err(error) => Asset {
                     image: None,
-                    status: format!(
-                        "Artwork unavailable: {error}. Open Images to download/retry, or supply {}.png with --assets-dir and reload.",
-                        SPECIES[index]
-                    ),
+                    status: config
+                        .language
+                        .format(
+                            Template::ProvidersArtworkUnavailable,
+                            &[("error", &error), ("species", &SPECIES[index].to_string())],
+                        )
+                        .unwrap_or_else(|error| format!("Localization error: {error}")),
                 },
             }
         });
@@ -288,6 +295,7 @@ impl Artwork {
             cache: Vec::new(),
             color: config.color,
             ascii: config.ascii,
+            language: config.language,
             theme: config.theme,
             tick: 0,
             cells_enabled: config.images == ImageMode::Cells,
@@ -400,9 +408,10 @@ impl Artwork {
     pub fn render(&self, index: usize, area: Rect, buffer: &mut Buffer) {
         if self.original(index).is_none() {
             let label = if self.status(index).starts_with("Artwork off") {
-                "Images off"
+                self.language.text(Message::ProvidersArtworkImagesOff)
             } else {
-                "No image\nImages: setup"
+                self.language
+                    .text(Message::ProvidersArtworkNoImageImagesSetup)
             };
             Paragraph::new(label)
                 .alignment(Alignment::Center)
@@ -414,7 +423,7 @@ impl Artwork {
             if self.native_active {
                 return;
             }
-            Paragraph::new("No native image")
+            Paragraph::new(self.language.text(Message::ProvidersArtworkNoNativeImage))
                 .alignment(Alignment::Center)
                 .wrap(Wrap { trim: true })
                 .render(area, buffer);

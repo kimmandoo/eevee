@@ -2,6 +2,23 @@
 
 ## 2026-10-21
 
+## 0.1.14
+
+- feat(records): added bounded Schema 15 producer/artifact references, form routes, factual summaries and deduplicated activity with persistent flavor controls through the existing writer.
+- feat(dex): retained project-local failed-run signatures and reviewed historical supported-diagnosis/source-transition/matching-pass relations without inferring causation.
+- feat(memory): proposed habits from three distinct actual authored dispatches and required explicit project-memory consent and selected exact-revision binding for substitution.
+- fix(memory): preserved literal Unicode codepoints and interior instruction bytes so exact-repeat memory substitution could not merge distinct code or path strings.
+- feat(models): added explicit project/partner/form pairings independent of global defaults without automatic connection, fallback or permission.
+- fix(models): preserved late committed global defaults across pairing restoration/removal and seeded new partners from the latest global model instead of a parked selection.
+- feat(context): added exact-ID attachment inspection/removal and worker-observed freshness/wire budgets; retained the same eligible match set under cached form-specific ranking.
+- fix(context): prevented settled unavailable repository inspection from permanently blocking saved connection setup while retaining source-save and active-work guards.
+- feat(i18n): embedded extensible Fluent catalogs with generated typed IDs, named literal arguments, BCP47 discovery, per-key English fallback and cached static translations.
+- feat(ux): added wheel/viewport response navigation and explicit pause/latest behavior while preserving reading anchors, drafts, carets and review ownership.
+- fix(ux): measured scrollable viewports to keep compact detail rows reachable, retained learned move previews and pinned complete consent scope without mandatory end-scrolling.
+- feat(usage): retained optional scoped native/Codex reports and required SDK bridge revision 5 correlation without fabricating totals or double-counting cumulative/subset counters.
+- docs(upgrade): documented full-data-directory backup, unsupported Schema 15 downgrade and the complete SDK bridge revision 5 update; verified actual Schema 14 migration, byte-identical older-writer refusal and current resume.
+
+
 ## 0.1.13
 
 - feat(moves): added four-slot partner/form inventories for approved literal runs, reviewed pin selectors, submitted user-authored requests and task templates, with project/personal ownership and restart persistence.

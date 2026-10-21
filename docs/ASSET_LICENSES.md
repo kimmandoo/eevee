@@ -50,6 +50,12 @@ Making the source repository public does not resolve artwork, naming, trademark,
 
 When adding or replacing an asset, record its actual source, fixed version, owner/notice, applicable permission, modifications and package scope. Do not copy character artwork into the source tree or release archive under the project's software license.
 
+### 2026-10-21 — Wave 6 and multilingual interface distribution review
+
+Reviewed the v0.1.14 record/Dex/habit/pairing labels, embedded English/Korean Fluent resources and response/attachment controls. The 72 fixed move labels below remained the current nine eight-name vocabularies in `src/workspace/moves.rs`; Wave 6 added no species, canonical move vocabulary, franchise image, sound, font or official logo.
+
+Retained the independent/unofficial/no-endorsement notice and image-free native software-package boundary. Embedded translation code and resource prose did not change the separate artwork, naming, trademark or provider-service terms. This review did not establish legal clearance, commercial-use permission, provider eligibility or completion of Q01's separate whole-product gate.
+
 ### 2026-10-21 — Wave 5 move-name distribution review
 
 Reviewed the nine fixed eight-name vocabularies and semantic suggestions in `src/workspace/moves.rs` for v0.1.13. These are editable local text labels, not executable capabilities, provider context, franchise artwork or an assertion of game mechanics. No image, sound, font or official logo was added to the source or native packages by Moves.

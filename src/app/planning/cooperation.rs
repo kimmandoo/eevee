@@ -5,11 +5,14 @@ impl State {
         let mut state = Self::new();
         state.task = task;
         state.front = Some(owner);
-        state.agent = self.agent;
+        let (agent, selection) = self.global_route();
+        state.agent = agent;
         let mut selections = self.selections.clone();
-        selections.insert(self.agent, self.selection.clone());
+        if selections.get(&agent) != Some(selection) {
+            selections.insert(agent, selection.clone());
+        }
         state.preference_event(Ok(Some(store::ProviderPreferences {
-            provider: self.agent,
+            provider: state.agent,
             selections,
         })));
         state.catalogues = self.catalogues.clone();
@@ -29,6 +32,7 @@ impl State {
             || !self.pending_journal.is_empty()
             || !self.journal_inflight.is_empty()
             || self.journal_failed()
+            || self.usage_pending()
             || self.unknown_effects()
     }
 
@@ -39,11 +43,45 @@ impl State {
             .or(self.committed_input.as_deref())
     }
 
+    /// Idempotent hold for the dispatched instruction's one local record.
+    /// The records runtime owns the bytes; this retains only its existing claim.
+    pub fn hold_local_record(&mut self, request_id: &str) -> bool {
+        if !self.work_acquired
+            || self.work_inflight
+            || self.work_pending.is_some()
+            || self
+                .work
+                .as_ref()
+                .is_none_or(|claim| claim.request_id != request_id)
+        {
+            return false;
+        }
+        self.local_record_hold = true;
+        true
+    }
+
+    pub fn release_local_record(&mut self, request_id: &str) {
+        if self
+            .work
+            .as_ref()
+            .is_some_and(|claim| claim.request_id == request_id)
+        {
+            self.local_record_hold = false;
+            self.settle_work();
+        }
+    }
+
     pub fn stage_work(&mut self, claim: store::WorkClaim) {
         let Some(Request::Preview(mut input)) = self.pending.take() else {
             return;
         };
         input.work = Some(claim.clone());
+        self.submitted_instruction = input
+            .instruction_override
+            .as_ref()
+            .map(|replacement| replacement.replacement.as_str().into());
+        self.usage = usage::State::default();
+        self.local_record_hold = false;
         self.committed_input = None;
         self.work_pending = Some(store::WorkRequest::Acquire {
             claim: claim.clone(),
@@ -116,6 +154,8 @@ impl State {
             && self.pending_journal.is_empty()
             && self.journal_inflight.is_empty()
             && !self.journal_failed()
+            && !self.usage_pending()
+            && !self.local_record_hold
             && !self.work_inflight
             && self.work_pending.is_none()
             && let Some(claim) = self.work.clone()
@@ -332,6 +372,36 @@ mod tests {
         state.settle_work();
         assert!(
             matches!(state.work_pending.as_ref(), Some(store::WorkRequest::Release(claim)) if claim == &owned)
+        );
+    }
+
+    #[test]
+    fn local_instruction_record_holds_exact_claim_until_commit_or_reviewed_discard() {
+        let (mut state, _, owner) = state();
+        let owned = claim(owner, "actual-dispatched-request");
+        state.work = Some(owned.clone());
+        assert!(
+            !state.hold_local_record(&owned.request_id),
+            "Admission alone is not acquired ownership"
+        );
+        state.work_acquired = true;
+        assert!(!state.hold_local_record("different-request"));
+        assert!(state.hold_local_record(&owned.request_id));
+        assert!(
+            state.hold_local_record(&owned.request_id),
+            "Repeated observed dispatch is idempotent"
+        );
+        state.settle_work();
+        assert!(state.work_pending.is_none() && state.owns_work());
+        state.release_local_record("different-request");
+        assert!(state.work_pending.is_none());
+        state.release_local_record(&owned.request_id);
+        assert!(
+            matches!(state.work_pending.as_ref(), Some(store::WorkRequest::Release(claim)) if claim == &owned)
+        );
+        assert!(
+            !state.hold_local_record(&owned.request_id),
+            "Cannot reacquire a record hold after release was queued"
         );
     }
 }

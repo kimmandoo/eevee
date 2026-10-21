@@ -20,7 +20,7 @@ pub(super) fn render_small(frame: &mut Frame, area: Rect, state: &mut State, pai
     text(
         frame,
         area,
-        "Local handoff: terminal too small\nNeed 60 columns x 18 rows.\nNo write or acceptance available.\nEsc Stay / resize to review.\nNo provider is launched.",
+        paint.hint(crate::i18n::Message::DesksHandoffLocalHandoffTerminalTooSmallNeedColumns),
         paint.accent,
     );
 }
@@ -41,19 +41,29 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     };
     let area = super::sheet(area, 110, height);
     frame.render_widget(Clear, area);
-    let block = panel(" Portable task handoff / local-only ", config, paint, true);
+    let block = panel(
+        paint.hint(crate::i18n::Message::DesksHandoffPanel),
+        config,
+        paint,
+        true,
+    );
     let content = block.inner(area);
     frame.render_widget(block, area);
     let state = &mut app.handoff;
-    let header = if state.editing {
-        "LITERAL FILE PATH / no action until review"
-    } else {
-        match state.mode {
-            Mode::Export(_) => "SANITIZED EXPORT PREVIEW / no file written yet",
-            Mode::Import => "USER-SUPPLIED IMPORT REVIEW / not applied or verified",
-            Mode::Idle => "LOCAL-ONLY / no provider or model launched",
-        }
-    };
+    let header =
+        if state.editing {
+            paint.hint(crate::i18n::Message::DesksHandoffLiteralFilePathNoActionUntilReview)
+        } else {
+            match state.mode {
+                Mode::Export(_) => paint
+                    .hint(crate::i18n::Message::DesksHandoffSanitizedExportPreviewNoFileWrittenYet),
+                Mode::Import => paint
+                    .hint(crate::i18n::Message::DesksHandoffUserSuppliedImportReviewNotAppliedOr),
+                Mode::Idle => {
+                    paint.hint(crate::i18n::Message::DesksHandoffLocalOnlyNoProviderOrModelLaunched)
+                }
+            }
+        };
     text(frame, row(content, 0, 1), header, paint.accent);
     text(
         frame,
@@ -89,13 +99,15 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         text(
             frame,
             row(content, content.height.saturating_sub(2), 2),
-            "Enter Read/Preview / Esc Back\nNew export only; symlink/reparse paths refused.",
+            paint.hint(crate::i18n::Message::DesksHandoffEnterReadPreviewEscBackNewExport),
             paint.accent,
         );
         return;
     }
     let path = if state.path.is_empty() {
-        "No path chosen".to_string()
+        paint
+            .hint(crate::i18n::Message::DesksHandoffNoPathChosen)
+            .to_string()
     } else {
         format!("Chosen path: {}", state.path)
     };
@@ -112,32 +124,39 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         body_start,
         content.height.saturating_sub(body_start + footer_rows),
     );
-    let empty = "/export-json /export-markdown /import-handoff\n\nOnly committed task facts, criteria, approved source references/excerpt bytes, selected decisions, and unresolved work are portable. No provider session IDs, permissions, credentials, or private reasoning. Imported claims are user-supplied/unverified and never become execution evidence.\n\nReview recognizable-secret redaction before sharing; detection is best-effort, not proof of secret absence. Deleting local data cannot erase prior exports, copies, provider-owned history, or backups. JSON and Markdown require the version-1 strict schema. No automatic task completion or provider request.";
+    let empty =
+        paint.hint(crate::i18n::Message::DesksHandoffExportJsonExportMarkdownImportHandoffOnly);
     let empty = super::brief(empty);
     let value = if state.mode != Mode::Idle && state.candidate.is_some() {
         let effect = match state.mode {
             Mode::Export(_) => {
-                "Write a new file only; no overwrite or provider call.\nSecret redaction is best-effort."
+                paint.hint(crate::i18n::Message::DesksHandoffWriteANewFileOnlyNoOverwrite)
             }
             _ => {
-                "Accept unverified context only.\nNo task facts, evidence or permissions are applied."
+                paint.hint(crate::i18n::Message::DesksHandoffAcceptUnverifiedContextOnlyNoTaskFacts)
             }
         };
         if super::VERBOSE.get() {
             format!("{effect}\nPath: {}\n\n{}", state.path, state.preview)
         } else {
             let document = state.candidate.as_ref().expect("handoff preview");
-            format!(
-                "{effect}\n{} sources / {} decisions\n/verbose Exact payload ({} bytes)",
-                document.sources.len(),
-                document.decisions.len(),
-                state.preview.len()
+            paint.format(
+                crate::i18n::Template::DesksHandoffPayloadSummary,
+                &[
+                    ("effect", (effect)),
+                    ("sources", &(document.sources.len()).to_string()),
+                    ("decisions", &(document.decisions.len()).to_string()),
+                    ("bytes", &(state.preview.len()).to_string()),
+                ],
             )
         }
     } else if let Some(decision) = state.selected_import_decision() {
-        format!(
-            "SELECTED IMPORTED DECISION / {} / user-supplied, unverified\n\n{decision}\n\nCopy opens the existing editor for separate review/save. It creates no execution evidence.",
-            state.selected_decision + 1
+        paint.format(
+            crate::i18n::Template::DesksHandoffDecisionPreview,
+            &[
+                ("index", &(state.selected_decision + 1).to_string()),
+                ("decision", (decision)),
+            ],
         )
     } else if state.preview.is_empty() {
         empty.to_string()
@@ -166,37 +185,57 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     }
     let footer = if state.mode != Mode::Idle {
         let action = match state.mode {
-            Mode::Export(_) => "Write new file",
-            _ => "Accept unverified context",
+            Mode::Export(_) => paint.hint(crate::i18n::Message::DesksHandoffWriteNewFile),
+            _ => paint.hint(crate::i18n::Message::DesksHandoffAcceptUnverifiedContext),
         };
-        format!(
-            "{} / {}{}{}\ny Confirm / n Back / {}",
-            if state.affirmative { "Stay" } else { "[Stay]" },
-            if state.affirmative { "[" } else { "" },
-            action,
-            if state.affirmative { "]" } else { "" },
-            if state.reviewed {
-                "/verbose Details"
-            } else {
-                "Enlarge to review scope"
-            }
+        paint.format(
+            crate::i18n::Template::DesksHandoffConfirmControls,
+            &[
+                (
+                    "stay",
+                    (if state.affirmative {
+                        paint.hint(crate::i18n::Message::CommonStay)
+                    } else {
+                        paint.hint(crate::i18n::Message::CommonStaySelected)
+                    }),
+                ),
+                ("open", (if state.affirmative { "[" } else { "" })),
+                ("action", (action)),
+                ("close", (if state.affirmative { "]" } else { "" })),
+                (
+                    "details",
+                    (if state.reviewed {
+                        paint.hint(crate::i18n::Message::DesksHandoffVerboseDetails)
+                    } else {
+                        paint.hint(crate::i18n::Message::CommonEnlargeReview)
+                    }),
+                ),
+            ],
         )
     } else if state.selected_import_decision().is_some() {
         let count = state
             .candidate
             .as_ref()
             .map_or(0, |document| document.decisions.len());
-        format!(
-            "/ Commands | Left/Right decision {}/{} /copy-decision | PgUp/PgDn / Esc",
-            if count == 0 {
-                0
-            } else {
-                state.selected_decision + 1
-            },
-            count
+        paint.format(
+            crate::i18n::Template::DesksHandoffDecisionControls,
+            &[
+                (
+                    "index",
+                    &(if count == 0 {
+                        0
+                    } else {
+                        state.selected_decision + 1
+                    })
+                    .to_string(),
+                ),
+                ("count", &(count).to_string()),
+            ],
         )
     } else {
-        "/export-json /export-markdown /import-handoff\nPgUp/PgDn Scroll / Esc Back".into()
+        paint
+            .hint(crate::i18n::Message::DesksHandoffExportJsonExportMarkdownImportHandoffPgup)
+            .into()
     };
     text(
         frame,

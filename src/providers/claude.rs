@@ -530,13 +530,14 @@ fn inspection_matches(value: &Value, versions: &SdkVersions) -> bool {
     value["type"] == "capabilities"
         && value["sdk_version"].as_str() == Some(versions.sdk.as_str())
         && value["cli_version"].as_str() == Some(versions.cli.as_str())
-        && value["bridge_revision"] == 4
+        && value["bridge_revision"] == 5
         && value["query"] == true
         && value["policy"]
             == json!({
                 "tools": "closed-allowlist", "permissions": "default-host-once", "mcp": "disabled",
                 "configuration": "isolated", "authentication": "api-console-cloud-only",
                 "dispatch": "correlated-sdk-submission",
+                "usage": "correlated-sdk-snapshots",
             })
 }
 
@@ -544,21 +545,171 @@ fn dispatch_receipt(
     input: &Input,
     generation: u64,
     value: &Value,
-    seen: &mut bool,
+    seen: &mut Option<String>,
 ) -> Result<Event, String> {
-    if *seen
+    if seen.is_some()
         || value["type"] != "dispatched"
         || value["generation"].as_u64() != Some(generation)
         || value["task_id"].as_i64() != Some(input.task.id)
         || value["request_id"].as_str() != input.work.as_ref().map(|work| work.request_id.as_str())
+        || value["submission_id"]
+            .as_str()
+            .is_none_or(|id| !sdk_uuid(id))
     {
         return Err("SDK dispatch receipt correlation mismatch or duplicate".into());
     }
     let event = input
         .dispatched(generation)
         .ok_or("SDK dispatch receipt requires a claimed inference request")?;
-    *seen = true;
+    *seen = Some(value["submission_id"].as_str().unwrap().into());
     Ok(event)
+}
+
+fn sdk_uuid(id: &str) -> bool {
+    id.len() == 36
+        && id.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
+}
+
+fn usage_event(
+    input: &Input,
+    generation: u64,
+    session: &str,
+    submission: Option<&str>,
+    value: &Value,
+) -> Result<Event, String> {
+    use crate::workspace::usage::{Kind, Report, Scope};
+    if input.inspect_models
+        || input.inspect_sessions
+        || input.work.is_none()
+        || session.is_empty()
+        || value["type"] != "usage"
+        || value["generation"].as_u64() != Some(generation)
+        || value["task_id"].as_i64() != Some(input.task.id)
+        || value["session_id"].as_str() != Some(session)
+        || value["request_id"].as_str() != input.work.as_ref().map(|work| work.request_id.as_str())
+        || submission.is_none()
+        || value["submission_id"].as_str() != submission
+    {
+        return Err("SDK usage requires an acknowledged current submitted request".into());
+    }
+    let report: Report =
+        serde_json::from_value(value["report"].clone()).map_err(|_| "Invalid SDK usage report")?;
+    report.validate()?;
+    if report.identity.session.as_deref() != Some(session)
+        || report.identity.turn.as_deref() != submission
+        || report.identity.response.is_some()
+        || report.kind != Kind::Snapshot
+        || !matches!(report.scope, Scope::MainLoopTurn | Scope::ModelPipeline)
+        || (report.scope == Scope::ModelPipeline && report.model.is_none())
+        || (report.scope == Scope::MainLoopTurn
+            && (report.model.is_some() || report.baseline.is_some()))
+        || report.tokenizer.is_some()
+    {
+        return Err("SDK usage widened its reported boundary or identity".into());
+    }
+    Ok(Event::Usage {
+        generation,
+        task_id: input.task.id,
+        report,
+    })
+}
+
+#[derive(Default)]
+struct SdkSession {
+    task_id: i64,
+    model_totals: HashMap<String, crate::workspace::usage::Counters>,
+}
+
+#[derive(Default)]
+struct SdkTurnUsage {
+    baseline: HashMap<String, crate::workspace::usage::Counters>,
+    completed: HashMap<String, crate::workspace::usage::Counters>,
+    result: Option<String>,
+}
+
+impl SdkTurnUsage {
+    fn begin(input: &Input, sessions: &mut HashMap<String, SdkSession>) -> Result<Self, String> {
+        // SDK 0.3.300 SDKResultSuccess/Error.modelUsage explicitly continues
+        // saved transcript totals on resume; this is not inferred from the
+        // session ID or from counters merely increasing between queries.
+        // https://unpkg.com/@anthropic-ai/claude-agent-sdk@0.3.300/sdk.d.ts
+        // Retain only observed completed totals, never seed external history.
+        let baseline = if let Some(id) = &input.resume {
+            let session = sessions
+                .get_mut(id)
+                .filter(|session| session.task_id == input.task.id)
+                .ok_or("SDK usage resume requires the owned task/session")?;
+            // A submitted turn with no complete result makes the next baseline
+            // unknown, rather than charging its consumption to a later turn.
+            std::mem::take(&mut session.model_totals)
+        } else {
+            HashMap::new()
+        };
+        Ok(Self {
+            baseline,
+            ..Self::default()
+        })
+    }
+
+    fn observe(&mut self, mut event: Event) -> Result<Event, String> {
+        use crate::workspace::usage::Scope;
+        let Event::Usage { report, .. } = &mut event else {
+            return Err("Expected correlated SDK usage".into());
+        };
+        let result = report
+            .identity
+            .event
+            .as_ref()
+            .ok_or("SDK usage lacks result identity")?;
+        if self
+            .result
+            .as_ref()
+            .is_some_and(|previous| previous != result)
+            || report.baseline.is_some()
+        {
+            return Err("SDK usage changed result identity or supplied an unowned baseline".into());
+        }
+        if self.result.is_none() {
+            self.result = Some(result.clone());
+        }
+        if report.scope == Scope::ModelPipeline {
+            let model = report
+                .model
+                .as_ref()
+                .ok_or("SDK pipeline usage lacks model")?;
+            report.baseline = self.baseline.get(model).copied();
+            if report.complete {
+                if self.completed.len() >= 128 && !self.completed.contains_key(model) {
+                    return Err("SDK usage model bound exceeded".into());
+                }
+                let totals = self.completed.entry(model.clone()).or_default();
+                for (field, value) in [
+                    (&mut totals.input, report.counters.input),
+                    (&mut totals.output, report.counters.output),
+                    (&mut totals.cache_read, report.counters.cache_read),
+                    (&mut totals.cache_write, report.counters.cache_write),
+                    (&mut totals.reasoning, report.counters.reasoning),
+                ] {
+                    if value.is_some() {
+                        *field = value;
+                    }
+                }
+            }
+        }
+        Ok(event)
+    }
+
+    fn finish(self, session: &mut SdkSession, outcome: Outcome) {
+        if outcome == Outcome::Completed {
+            session.model_totals = self.completed;
+        }
+    }
 }
 
 struct Trust {
@@ -831,7 +982,7 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
     let text = serde_json::to_string_pretty(&json!({
         "purpose": if input.operation == Operation::Plan { "Plan only; no implementation tools are exposed." } else { "Implement only reviewed files, preserving existing dirty working content. This is external SDK agent policy, not strict OS confinement. Do not commit/merge. Report unverified patch for human diff review." },
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
-        "request": input.task.request_text(),
+        "request": input.instruction(),
         "approved_memories": input.task.approved_memories,
         "selected_sources": serde_json::from_str::<Value>(&sources.text).map_err(|_| "Invalid source envelope")?, "edit_baselines": baselines, "handoff": input.handoff,
     })).map_err(|_| "Could not encode Claude payload")?;
@@ -863,7 +1014,7 @@ fn worker(
     let mut generation = 0u64;
     let mut prepared: Option<Prepared> = None;
     let mut preview_owner: Option<(u64, i64)> = None;
-    let mut sessions: HashMap<String, i64> = HashMap::new();
+    let mut sessions: HashMap<String, SdkSession> = HashMap::new();
     while !stop.load(Ordering::Acquire) {
         let request = match incoming.recv_timeout(Duration::from_millis(20)) {
             Ok(r) => r,
@@ -896,11 +1047,9 @@ fn worker(
                         .blockers
                         .push("Claude task/project/profile mismatch".into());
                 }
-                if input
-                    .resume
-                    .as_ref()
-                    .is_some_and(|id| sessions.get(id) != Some(&input.task.id))
-                {
+                if input.resume.as_ref().is_some_and(|id| {
+                    sessions.get(id).map(|session| session.task_id) != Some(input.task.id)
+                }) {
                     preview.blockers.push("Resume refused: explicit SDK session must have been started for this task in this Eevee instance".into());
                 }
                 if !input.inspect_models && sessions.len() >= 256 && input.resume.is_none() {
@@ -936,7 +1085,7 @@ fn worker(
                             Operation::Plan => "PLAN: SDK tool exposure excludes all file-write/shell/delegation routes. This is verified configured agent tool policy, not filesystem/network isolation.".into(),
                             Operation::Review => "REVIEW: fresh requirements/patch/selected-observation context in a new session; no implementation history or Resume. Uses the reviewed SDK read-only tool policy: Write/Edit/Bash/delegation/MCP are unavailable independently of approval callbacks. Agent tool policy is not OS isolation.".into(),
                         },
-                        if input.operation == Operation::Review { "Review never sends a provider session ID or resumes prior history. A fix requires a deliberate separate implementation handoff.".into() } else { "Resume includes provider-owned prior transcript, not just the selected context. Same-task/session/current policy only. Usage is latest cumulative query-pipeline snapshot including restored session, never summed with prior results; main-loop per-turn tokens have separate coverage.".into() },
+                        if input.operation == Operation::Review { "Review never sends a provider session ID or resumes prior history. A fix requires a deliberate separate implementation handoff.".into() } else { "Resume includes provider-owned prior transcript, not just the selected context. Same-task/session/current policy only. UUID-correlated main-loop per-turn usage is separate from cumulative model-pipeline snapshots. Restored pipeline totals are never current charges without an observed pre-submission baseline; this one-query sidecar cannot infer that baseline from prior history.".into() },
                     ]),
                     Err(error) => preview.blockers.push(safe(error)),
                 }
@@ -1329,7 +1478,7 @@ fn transport(
     events: &Events,
     stop: &AtomicBool,
     cancelled: &AtomicU64,
-    sessions: &mut HashMap<String, i64>,
+    sessions: &mut HashMap<String, SdkSession>,
 ) -> (Outcome, String) {
     let Workspace {
         project,
@@ -1429,7 +1578,7 @@ fn transport(
         let mut thread_id = String::new();
         let mut items = SdkItems::default();
         let mut seen_prompts = HashSet::new();
-        let mut dispatch_receipt_seen = false;
+        let mut dispatch_receipt_seen = None;
         let journal_nonce = if run.input.inspect_models {
             0
         } else {
@@ -1438,6 +1587,7 @@ fn transport(
                 .unwrap_or_default()
                 .as_nanos()
         };
+        let mut usage = SdkTurnUsage::begin(&run.input, sessions)?;
         pipe.send(json!({"protocol":1,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
             "request_id":if run.input.inspect_models { None } else { run.input.work.as_ref().map(|work| work.request_id.as_str()) },
             "prompt":if run.input.inspect_models { "" } else { run.text.as_str() },
@@ -1547,7 +1697,7 @@ fn transport(
                                 || run.input.resume.as_ref().is_some_and(|resume| resume != id)
                                 || (run.input.resume.is_none() && sessions.contains_key(id))
                             { return Err("SDK session identity mismatch/reuse; no ownership transfer".into()); }
-                            thread_id = id.into(); sessions.entry(id.into()).or_insert(run.input.task.id); startup = None;
+                            thread_id = id.into(); sessions.entry(id.into()).or_insert_with(|| SdkSession { task_id: run.input.task.id, ..SdkSession::default() }); startup = None;
                             emit(events, Event::Thread { generation: run.generation, task_id: run.input.task.id, thread_id: id.into(), model: safe(value["model"].as_str().unwrap_or("unknown")), account: safe(value["account"].as_str().unwrap_or("unknown")) })?;
                         }
                         "item" => {
@@ -1567,8 +1717,8 @@ fn transport(
                         "prompt_closed" => { let id = value["request_id"].as_str().ok_or("Invalid prompt closure")?; prompts.remove(id); emit(events, Event::PromptClosed { generation: run.generation, request_id: json!(id) })?; }
                         "status" => emit(events, Event::Status { generation: run.generation, task_id: run.input.task.id, message: safe(value["message"].as_str().unwrap_or("SDK status")) })?,
                         "usage" => {
-                            if thread_id.is_empty() || value["session_id"].as_str() != Some(thread_id.as_str()) { return Err("Unqualified SDK usage snapshot".into()); }
-                            emit(events, Event::Status { generation: run.generation, task_id: run.input.task.id, message: safe(&format!("SDK usage scope: {}. Latest cumulative estimated USD: {}. Model-pipeline snapshot: {}. Main-loop per-turn tokens: {}. Replace, never sum across resume.", value["scope"].as_str().unwrap_or("unknown"), value["estimated_cost_usd"], value["model_usage"], value["main_loop_per_turn"])) })?;
+                            let event = usage_event(&run.input, run.generation, &thread_id, dispatch_receipt_seen.as_deref(), &value)?;
+                            emit(events, usage.observe(event)?)?;
                         }
                         "finished" => {
                             if run.input.inspect_models {
@@ -1621,6 +1771,13 @@ fn transport(
         let clean = pipe.teardown();
         if !clean {
             return Ok((Outcome::Unknown, "Claude owned process-tree cleanup could not be confirmed; inspect external changes before any new run".into()));
+        }
+        if let Ok((outcome, _)) = &processing
+            && let Some(session) = sessions
+                .get_mut(&thread_id)
+                .filter(|session| session.task_id == run.input.task.id)
+        {
+            usage.finish(session, *outcome);
         }
         processing
     })();

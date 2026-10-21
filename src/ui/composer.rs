@@ -1,5 +1,3 @@
-use std::fmt::Write;
-
 use ratatui::{
     Frame,
     layout::Rect,
@@ -8,7 +6,11 @@ use ratatui::{
 };
 
 use super::{Paint, clipped, panel, row, text};
-use crate::{app::App, config::Config};
+use crate::{
+    app::App,
+    config::Config,
+    i18n::{Message, Template},
+};
 
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
     let Some(menu) = app.composer_menu else {
@@ -19,7 +21,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
     }
     frame.render_widget(Clear, area);
     let block = panel(
-        " @ Attach file / local capture review ",
+        paint.hint(Message::ProvidersComposerAttachFileLocalCaptureReview),
         config,
         paint,
         true,
@@ -34,13 +36,13 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
         .min(count.saturating_sub(rows));
     if count == 0 || app.sources.busy() || app.task_id <= 0 || !app.sources.error.is_empty() {
         let status = if app.task_id <= 0 {
-            "Saving local draft before selecting context..."
+            paint.hint(Message::ProvidersComposerSavingLocalDraftBeforeSelectingContext)
         } else if app.sources.busy() {
-            "Finding eligible repository files..."
+            paint.hint(Message::ProvidersComposerFindingEligibleRepositoryFiles)
         } else if !app.sources.error.is_empty() {
             &app.sources.error
         } else {
-            "No eligible matches. Ignored/binary/linked files excluded."
+            paint.hint(Message::ProvidersComposerNoEligibleMatchesIgnoredBinaryLinkedFiles)
         };
         text(frame, row(content, 0, rows as u16), status, paint.muted);
     } else {
@@ -62,65 +64,59 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
                 },
                 app.sources.files[index].path
             );
+            let reason = app
+                .composer_rank_reason(index)
+                .map(|reason| super::chips::rank_reason(reason, paint));
+            let reason_width = reason.map_or(0, |reason| {
+                Span::raw(reason).width().min(content.width as usize / 3) as u16
+            });
+            let path_width = content
+                .width
+                .saturating_sub(2 + reason_width + u16::from(reason.is_some()));
             frame.render_widget(
                 Paragraph::new(Line::from(vec![
                     Span::styled(if selected { "> " } else { "  " }, style),
-                    Span::styled(
-                        clipped(&label, content.width.saturating_sub(2) as usize),
-                        style,
-                    ),
+                    Span::styled(clipped(&label, path_width as usize), style),
                 ])),
                 row(content, visible as u16, 1),
             );
+            if let Some(reason) = reason {
+                text(
+                    frame,
+                    Rect {
+                        x: content.right() - reason_width,
+                        width: reason_width,
+                        ..row(content, visible as u16, 1)
+                    },
+                    reason,
+                    style,
+                );
+            }
         }
     }
     text(
         frame,
         row(content, content.height.saturating_sub(2), 1),
         &if count == 0 {
-            "0 matches".to_owned()
+            paint.hint(Message::ProvidersComposer0Matches).to_owned()
         } else {
-            format!("{}-{}/{count} files", start + 1, (start + rows).min(count))
+            let (first, last) = (start + 1, (start + rows).min(count));
+            paint.format(
+                Template::ProvidersComposerFilesRange,
+                &[
+                    ("first", &first.to_string()),
+                    ("last", &last.to_string()),
+                    ("count", &count.to_string()),
+                ],
+            )
         },
         paint.muted,
     );
     text(
         frame,
         row(content, content.height.saturating_sub(1), 1),
-        "Enter Review/attach / Del Remove / Esc Keep draft",
+        paint.hint(Message::ProvidersComposerEnterReviewAttachDelRemoveEscKeep),
         paint.muted,
-    );
-}
-
-pub(super) fn attachments(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
-    let mut value = String::with_capacity(area.width as usize + 32);
-    value.push_str("Files: ");
-    let path_width = (area.width as usize / 2).saturating_sub(12).max(8);
-    for (index, excerpt) in app.sources.basket.iter().take(2).enumerate() {
-        if index != 0 {
-            value.push_str(" · ");
-        }
-        let _ = write!(
-            value,
-            "{}{:?}:{}-{}",
-            if excerpt.available {
-                ""
-            } else {
-                "Unavailable "
-            },
-            clipped(&excerpt.path, path_width),
-            excerpt.start_line,
-            excerpt.end_line,
-        );
-    }
-    if app.sources.basket.len() > 2 {
-        let _ = write!(value, " · +{} more", app.sources.basket.len() - 2);
-    }
-    text(
-        frame,
-        area,
-        &clipped(&value, area.width as usize),
-        paint.accent,
     );
 }
 
@@ -130,7 +126,12 @@ pub(super) fn commands(frame: &mut Frame, area: Rect, app: &App, config: &Config
     };
     let area = super::command_popup_area(area, app);
     frame.render_widget(Clear, area);
-    let block = panel(" / Commands / type to search ", config, paint, true);
+    let block = panel(
+        paint.hint(Message::ProvidersComposerCommandsTypeToSearch),
+        config,
+        paint,
+        true,
+    );
     let content = block.inner(area);
     frame.render_widget(block, area);
     let count = popup.candidates().count();
@@ -144,23 +145,51 @@ pub(super) fn commands(frame: &mut Frame, area: Rect, app: &App, config: &Config
             .or_else(|| app.command_disabled_reason(choice.command))
     });
     let argument_hint = popup.argument().map(|(name, argument)| {
-        format!(
-            "Enter {}: {}",
-            match name {
-                "model" => "Use exact model",
-                "effort" => "Set reasoning",
-                _ => "Choose partner",
-            },
-            clipped(argument, content.width.saturating_sub(24) as usize),
+        paint.format(
+            Template::ProvidersCommandArgument,
+            &[
+                (
+                    "action",
+                    (match name {
+                        "model" => paint.hint(Message::ProvidersComposerUseExactModel),
+                        "effort" => paint.hint(Message::ProvidersComposerSetReasoning),
+                        "connect" => paint.hint(Message::ProvidersComposerChooseConnection),
+                        _ => paint.hint(Message::ProvidersComposerChoosePartner),
+                    }),
+                ),
+                (
+                    "argument",
+                    &(clipped(argument, content.width.saturating_sub(24) as usize)),
+                ),
+            ],
         )
+    });
+    let help = selected.map(|choice| {
+        crate::command_help::key(choice.command)
+            .map_or(choice.label.as_str(), |message| paint.hint(message))
     });
     let detail = reason
         .as_deref()
         .or(argument_hint.as_deref())
-        .or_else(|| selected.map(|choice| choice.label.as_str()))
-        .unwrap_or("Search actions by name or description. Esc keeps your draft.");
+        .or(help)
+        .unwrap_or_else(|| {
+            paint.hint(Message::ProvidersComposerSearchActionsByNameOrDescriptionEsc)
+        });
     let detail = if reason.is_some() {
-        std::borrow::Cow::Owned(format!("Unavailable: {detail}"))
+        std::borrow::Cow::Owned(
+            paint.format(Template::ProvidersCommandUnavailable, &[("reason", detail)]),
+        )
+    } else if argument_hint.is_none()
+        && let Some(choice) = selected
+        && matches!(
+            choice.command,
+            "send-role" | "lead" | "model-select" | "effort-select"
+        )
+    {
+        std::borrow::Cow::Owned(paint.format(
+            Template::ProvidersCommandIdentity,
+            &[("description", detail), ("identity", &choice.label)],
+        ))
     } else {
         std::borrow::Cow::Borrowed(detail)
     };
@@ -176,11 +205,13 @@ pub(super) fn commands(frame: &mut Frame, area: Rect, app: &App, config: &Config
         .min(count.saturating_sub(rows));
     let end = (start + rows).min(count);
     let range = if count == 0 {
-        "0 matches".to_owned()
+        paint.hint(Message::ProvidersComposer0Matches).to_owned()
     } else {
         format!("{}-{end}/{count}", start + 1)
     };
-    let query_width = content.width.saturating_sub(range.len() as u16 + 1);
+    let query_width = content
+        .width
+        .saturating_sub(Span::raw(range.as_str()).width() as u16 + 1);
     text(
         frame,
         Rect {
@@ -219,11 +250,20 @@ pub(super) fn commands(frame: &mut Frame, area: Rect, app: &App, config: &Config
         };
         let command = format!("/{}", choice.command);
         let command = clipped(&command, command_width);
+        let description = if matches!(
+            choice.command,
+            "send-role" | "lead" | "model-select" | "effort-select"
+        ) {
+            choice.label.as_str()
+        } else {
+            crate::command_help::key(choice.command)
+                .map_or(choice.label.as_str(), |message| paint.hint(message))
+        };
         let label = format!(
             "{}{} {command:command_width$} {}",
             if selected { ">" } else { " " },
             if unavailable { "x" } else { " " },
-            choice.label,
+            description,
         );
         text(
             frame,
@@ -236,7 +276,7 @@ pub(super) fn commands(frame: &mut Frame, area: Rect, app: &App, config: &Config
         text(
             frame,
             row(content, 1, rows as u16),
-            "No matching command. Try a shorter search.",
+            paint.hint(Message::ProvidersComposerNoMatchingCommandTryAShorterSearch),
             paint.muted,
         );
     }
@@ -253,7 +293,7 @@ pub(super) fn commands(frame: &mut Frame, area: Rect, app: &App, config: &Config
     text(
         frame,
         row(content, content.height.saturating_sub(1), 1),
-        "Up/Down Choose / Enter Open / Esc Back / Ctrl+K All",
+        paint.hint(Message::ProvidersComposerUpDownChooseEnterOpenEscBack),
         paint.muted,
     );
 }

@@ -11,6 +11,7 @@ use crate::{
     app::execution::{self, Confirmation, State, View},
     config::Config,
     domain::FORMS,
+    i18n::{Message, Template},
 };
 
 pub(super) fn render_small_confirmation(
@@ -26,7 +27,7 @@ pub(super) fn render_small_confirmation(
         text(
             frame,
             area,
-            "Resize to 60x18 to review approval.\nNo command can be approved here.\nEsc closes; /deny denies; Ctrl+C reviews exit.",
+            paint.hint(Message::ProvidersExecutionResizeTo60x18ToReviewApprovalNo),
             paint.surface,
         );
         return;
@@ -37,7 +38,7 @@ pub(super) fn render_small_confirmation(
     text(
         frame,
         row(area, area.height.saturating_sub(2), 2),
-        "Left Stay / Right action / Enter\nPgUp/Dn details / Esc Stay",
+        paint.hint(Message::ProvidersExecutionLeftStayRightActionEnterPgupDn),
         paint.muted,
     );
 }
@@ -57,7 +58,7 @@ pub(super) fn render(
     let paint = Paint::new(config, &FORMS[2], 2);
     frame.render_widget(Clear, area);
     let block = panel(
-        queue.unwrap_or(" Jolteon · local command evidence "),
+        queue.unwrap_or(paint.hint(Message::ProvidersExecutionJolteonLocalCommandEvidence)),
         config,
         &paint,
         true,
@@ -72,7 +73,7 @@ pub(super) fn render(
         text(
             frame,
             content,
-            "Execution state retained. Resize; Esc stays; Ctrl+C requests neutral cancel-and-exit.",
+            paint.hint(Message::ProvidersExecutionExecutionStateRetainedResizeEscStaysCtrl),
             paint.surface,
         );
         return;
@@ -85,14 +86,14 @@ pub(super) fn render(
         paint.accent,
     );
     let banner = if let Some(error) = &state.error {
-        format!(
-            "{} error · /artifacts details · /journal-retry storage only",
-            error.layer
+        paint.format(
+            Template::ProvidersExecutionErrorArtifactsDetailsJournalRetryStorageOnly,
+            &[("layer", (error.layer))],
         )
     } else if state.searching {
-        format!(
-            "Search current window/page: /{}  Enter finds · Esc keeps",
-            state.search
+        paint.format(
+            Template::ProvidersExecutionSearchCurrentWindowPageEnterFindsEsc,
+            &[("query", &(state.search))],
         )
     } else {
         super::brief(&state.notice).into_owned()
@@ -119,13 +120,13 @@ pub(super) fn render(
         footer_rows,
     );
     let hints = if state.view == View::History {
-        "Up/Down select · Enter inspect retained output\n/ choices: purge, command-edit, execute, cancel, refresh\nEsc output · Ctrl+C/quit: Stay or Cancel-and-wait"
+        paint.hint(Message::ProvidersExecutionUpDownSelectEnterInspectRetainedOutput)
     } else if state.view == View::Locations {
-        "Up/Down select · Enter Pin range (review)\nRetained window/page only · Esc output"
+        paint.hint(Message::ProvidersExecutionUpDownSelectEnterPinRangeReview)
     } else if state.view == View::Details {
-        "Up/Down/PgUp/PgDn/Home/End inspect full details\n/ choices: journal-retry, execute, cancel · Esc output\nNo command is retried automatically; task drafts stay"
+        paint.hint(Message::ProvidersExecutionUpDownPgupPgdnHomeEndInspect)
     } else {
-        "/ choices: command-edit, execute, locations, artifacts\nArrows scroll · /output-search Literal query\n/page-next, /page-previous · /refresh · Esc close"
+        paint.hint(Message::ProvidersExecutionChoicesCommandEditExecuteLocationsArtifactsArrows)
     };
     text(frame, footer, hints, paint.muted);
 }
@@ -135,7 +136,7 @@ fn locations(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) {
         text(
             frame,
             area,
-            "No parseable locations in retained output.\nNo extra output or files were read.",
+            paint.hint(Message::ProvidersExecutionNoParseableLocationsInRetainedOutputNo),
             paint.muted,
         );
         return;
@@ -183,35 +184,79 @@ fn confirmation(
     };
     let (title, affirmative, description) = match confirm {
         Confirmation::Approval => (
-            "Review one-shot execution permission", "Approve this exact command",
-            state.prepared.as_ref().map(|p| execution::approval_details(p, state.capture_capacity))
-                .unwrap_or_else(|| "This request was invalidated. Return and prepare a new command.".into()),
+            paint.hint(Message::ProvidersExecutionReviewOneShotExecutionPermission),
+            paint.hint(Message::ProvidersExecutionApproveThisExactCommand),
+            state
+                .prepared
+                .as_ref()
+                .map(|p| execution::approval_details(p, state.capture_capacity))
+                .unwrap_or_else(|| {
+                    paint
+                        .hint(Message::ProvidersExecutionThisRequestWasInvalidatedReturnAndPrepare)
+                        .into()
+                }),
         ),
         Confirmation::Cancel => (
-            "Cancel owned work / deny unstarted approval", "Cancel and wait",
-            "Cancellation waits for owned-tree exit with bounded escalation. It does not roll back filesystem edits or network effects. Partial output and the task's command draft remain. An unstarted request is denied instead; it will not execute.\n\nIf termination cannot be established, the journal records outcome unknown rather than success.\n\n".to_owned() + &state.details(),
+            paint.hint(Message::ProvidersExecutionCancelOwnedWorkDenyUnstartedApproval),
+            paint.hint(Message::ProvidersExecutionCancelAndWait),
+            paint
+                .hint(Message::ProvidersExecutionCancellationWaitsForOwnedTreeExitWith)
+                .to_owned()
+                + &state.details(),
         ),
         Confirmation::Purge(run) => (
-            "Purge retained local output", "Purge this run's output",
-            format!("Run {}\nOnly this run's owned local output file is removed. Metadata remains explicitly unavailable and cannot substantiate a verified result. Other tasks' records/artifacts remain.\n\nThis is NOT secure erasure of SQLite/WAL/backups and does not remove repository changes or provider-owned data. Active work is refused by storage.\n\n{}", execution::safe_text(run), state.details()),
+            paint.hint(Message::ProvidersExecutionPurgeRetainedLocalOutput),
+            paint.hint(Message::ProvidersExecutionPurgeThisRunSOutput),
+            paint.format(
+                Template::ProvidersExecutionRunOnlyThisRunSOwnedLocal,
+                &[
+                    ("run", &(execution::safe_text(run))),
+                    ("details", &(state.details())),
+                ],
+            ),
         ),
         Confirmation::Navigate(action) => (
-            "Stay with owned work, or cancel and wait", if *action == execution::Action::Quit { "Cancel and exit after saving" } else { "Cancel and wait, then navigate" },
-            format!("Requested: {action:?}\nStay keeps this task and all drafts. Cancel-and-wait first denies any unstarted approval or cancels the owned run, then waits for process-tree exit, after-source observation, and committed journal metadata.\n\nNo second keypress silently forces termination. Cancellation is not rollback. The parent's normal unsaved/failed-draft save review still follows.\n\n{}", state.details()),
+            paint.hint(Message::ProvidersExecutionStayWithOwnedWorkOrCancelAnd),
+            if *action == execution::Action::Quit {
+                paint.hint(Message::ProvidersExecutionCancelAndExitAfterSaving)
+            } else {
+                paint.hint(Message::ProvidersExecutionCancelAndWaitThenNavigate)
+            },
+            paint.format(
+                Template::ProvidersExecutionRequestedActionStayKeepsThisTaskAnd,
+                &[
+                    ("action", &format!("{action:?}")),
+                    ("details", &(state.details())),
+                ],
+            ),
         ),
         Confirmation::UnknownExit(action) => (
-            "Outcome unknown — explicit informed exit required", "Exit knowing effects are unknown",
-            format!("Requested: {action:?}\nOwned-tree/output closure could not be established. Effects may remain, and cancellation did NOT roll back edits. Partial journal evidence has been retained. This is not success or verified cancellation.\n\nStay to inspect. Only an explicit Quit acknowledgement may leave this unresolved ownership outcome; task switching cannot establish termination. Draft/save handling still follows.\n\n{}", state.details()),
+            paint.hint(Message::ProvidersExecutionOutcomeUnknownExplicitInformedExitRequired),
+            paint.hint(Message::ProvidersExecutionExitKnowingEffectsAreUnknown),
+            paint.format(
+                Template::ProvidersExecutionRequestedActionOwnedTreeOutputClosureCould,
+                &[
+                    ("action", &format!("{action:?}")),
+                    ("details", &(state.details())),
+                ],
+            ),
         ),
         Confirmation::UnsavedJournalExit(action) => (
-            "Process ended, but journal persistence failed", "Exit without saved final journal",
-            format!("Requested: {action:?}\nThe final execution record is retained only in memory. On restart, the last committed reservation/run will be interrupted, not magically completed. Spool bytes may remain partial; no command will be re-executed.\n\nStay and use /journal-retry to retry ONLY storage. Leaving knowingly forfeits the unsaved final metadata, not the task's independent draft/save review.\n\n{}", state.details()),
+            paint.hint(Message::ProvidersExecutionProcessEndedButJournalPersistenceFailed),
+            paint.hint(Message::ProvidersExecutionExitWithoutSavedFinalJournal),
+            paint.format(
+                Template::ProvidersExecutionRequestedActionTheFinalExecutionRecordIs,
+                &[
+                    ("action", &format!("{action:?}")),
+                    ("details", &(state.details())),
+                ],
+            ),
         ),
     };
     text(frame, row(area, 0, 1), title, paint.accent);
     let choices = Line::from(vec![
         Span::styled(
-            " Stay / return ",
+            paint.hint(Message::ProvidersExecutionStayReturn),
             if state.affirmative {
                 paint.surface
             } else {
@@ -234,49 +279,93 @@ fn confirmation(
     );
     let mut summary = match confirm {
         Confirmation::Approval => state.prepared.as_ref().map_or_else(
-            || vec!["BLOCKED: prepared command no longer exists.".into()],
+            || {
+                vec![
+                    paint
+                        .hint(Message::ProvidersExecutionBlockedPreparedCommandNoLongerExists)
+                        .into(),
+                ]
+            },
             |prepared| {
                 vec![
-                    format!(
-                        "{} wants to run: {}",
-                        execution::requester(prepared.partner.as_ref()),
-                        execution::command_summary(&prepared.spec)
+                    paint.format(
+                        Template::ProvidersExecutionWantsToRun,
+                        &[
+                            ("owner", &(execution::requester(prepared.partner.as_ref()))),
+                            ("command", &(execution::command_summary(&prepared.spec))),
+                        ],
                     ),
                     format!("Directory: {}", prepared.cwd.display()),
                     format!("Executable: {}", prepared.executable.path.display()),
-                    "One local command; may write files and use network.".into(),
-                    "Not sandboxed; effects are not rolled back.".into(),
-                    "Exact command/config and output limits below (PgDn).".into(),
+                    paint
+                        .hint(Message::ProvidersExecutionOneLocalCommandMayWriteFilesAnd)
+                        .into(),
+                    paint
+                        .hint(Message::ProvidersExecutionNotSandboxedEffectsAreNotRolledBack)
+                        .into(),
+                    paint
+                        .hint(Message::ProvidersExecutionExactCommandConfigAndOutputLimitsBelow)
+                        .into(),
                 ]
             },
         ),
         Confirmation::Cancel | Confirmation::Navigate(_) => vec![
-            format!(
-                "Stop {}'s command: deny it or cancel its tree.",
-                execution::requester(state.owner.as_ref())
+            paint.format(
+                Template::ProvidersExecutionStopSCommandDenyItOrCancel,
+                &[("owner", &(execution::requester(state.owner.as_ref())))],
             ),
-            "Wait for bounded teardown and journal acknowledgement.".into(),
-            "Cancellation is NOT rollback; edits/network may remain.".into(),
-            "Partial output and task drafts are retained.".into(),
-            "Unknown outcome needs a separate explicit exit choice.".into(),
+            paint
+                .hint(Message::ProvidersExecutionWaitForBoundedTeardownAndJournalAcknowledgement)
+                .into(),
+            paint
+                .hint(Message::ProvidersExecutionCancellationIsNotRollbackEditsNetworkMay)
+                .into(),
+            paint
+                .hint(Message::ProvidersExecutionPartialOutputAndTaskDraftsAreRetained)
+                .into(),
+            paint
+                .hint(Message::ProvidersExecutionUnknownOutcomeNeedsASeparateExplicitExit)
+                .into(),
         ],
         Confirmation::Purge(run) => vec![
             format!("Run: {}", execution::safe_text(run)),
-            "Deletes only this run's retained local output.".into(),
-            "Metadata stays; deleted evidence cannot verify results.".into(),
-            "Not secure erasure; repository/provider data unchanged.".into(),
+            paint
+                .hint(Message::ProvidersExecutionDeletesOnlyThisRunSRetainedLocal)
+                .into(),
+            paint
+                .hint(Message::ProvidersExecutionMetadataStaysDeletedEvidenceCannotVerifyResults)
+                .into(),
+            paint
+                .hint(Message::ProvidersExecutionNotSecureErasureRepositoryProviderDataUnchanged)
+                .into(),
         ],
         Confirmation::UnknownExit(_) => vec![
-            "UNKNOWN: process-tree/output closure not established.".into(),
-            "Effects may remain; cancellation was not rollback.".into(),
-            "Quit acknowledges unknown effects, not success.".into(),
-            "Task switching cannot establish termination.".into(),
+            paint
+                .hint(Message::ProvidersExecutionUnknownProcessTreeOutputClosureNotEstablished)
+                .into(),
+            paint
+                .hint(Message::ProvidersExecutionEffectsMayRemainCancellationWasNotRollback)
+                .into(),
+            paint
+                .hint(Message::ProvidersExecutionQuitAcknowledgesUnknownEffectsNotSuccess)
+                .into(),
+            paint
+                .hint(Message::ProvidersExecutionTaskSwitchingCannotEstablishTermination)
+                .into(),
         ],
         Confirmation::UnsavedJournalExit(_) => vec![
-            "Final execution journal is only in memory.".into(),
-            "Exit loses unsaved final metadata; drafts stay separate.".into(),
-            "Restart sees interruption; no command is replayed.".into(),
-            "Stay and /journal-retry retries storage only.".into(),
+            paint
+                .hint(Message::ProvidersExecutionFinalExecutionJournalIsOnlyInMemory)
+                .into(),
+            paint
+                .hint(Message::ProvidersExecutionExitLosesUnsavedFinalMetadataDraftsStay)
+                .into(),
+            paint
+                .hint(Message::ProvidersExecutionRestartSeesInterruptionNoCommandIsReplayed)
+                .into(),
+            paint
+                .hint(Message::ProvidersExecutionStayAndJournalRetryRetriesStorageOnly)
+                .into(),
         ],
     };
     if let Some(editing) = editing {
@@ -311,7 +400,7 @@ fn confirmation(
     text(
         frame,
         row(area, area.height.saturating_sub(2), 2),
-        "y Confirm / n Stay / Tab Choose / Enter / Esc Stay\nPgUp/Dn inspect exact details; no scroll gate",
+        paint.hint(Message::ProvidersExecutionYConfirmNStayTabChooseEnter),
         paint.accent,
     );
 }
@@ -329,7 +418,7 @@ fn history(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         text(
             frame,
             area,
-            "No retained executions for this task. /command-edit edits a command; /execute reviews a prepared request. /run only inspects command evidence. Loading history never executes a saved command. Interrupted startup records are evidence, not live process ownership.",
+            paint.hint(Message::ProvidersExecutionNoRetainedExecutionsForThisTaskCommand),
             paint.muted,
         );
         return;
@@ -374,42 +463,65 @@ fn history(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
 fn output(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     let label = if state.showing_retained {
         if let Some(page) = &state.retained_page {
-            format!(
-                "Retained bytes {}..{} / {}{}{} · [ ] pages",
-                page.offset,
-                page.offset + page.text.len() as u64,
-                page.total_bytes,
-                if page.unavailable {
-                    " · UNAVAILABLE"
-                } else {
-                    ""
-                },
-                if page.truncated { " · TRUNCATED" } else { "" }
+            paint.format(
+                Template::ProvidersExecutionRetainedBytesPages,
+                &[
+                    ("start", &(page.offset).to_string()),
+                    ("end", &(page.offset + page.text.len() as u64).to_string()),
+                    ("total", &(page.total_bytes).to_string()),
+                    (
+                        "unavailable",
+                        (if page.unavailable {
+                            paint.hint(Message::ProvidersExecutionUnavailable)
+                        } else {
+                            ""
+                        }),
+                    ),
+                    (
+                        "truncated",
+                        (if page.truncated {
+                            paint.hint(Message::ProvidersExecutionTruncated)
+                        } else {
+                            ""
+                        }),
+                    ),
+                ],
             )
         } else {
-            "Loading retained output".into()
+            paint
+                .hint(Message::ProvidersExecutionLoadingRetainedOutput)
+                .into()
         }
     } else {
-        format!(
-            "{} · {} new lines · {} live lines evicted · column {}",
-            if state.follow {
-                "Follow ON"
-            } else {
-                "Follow paused"
-            },
-            state.new_output,
-            state.live.evicted,
-            state.horizontal
+        paint.format(
+            Template::ProvidersExecutionNewLinesLiveLinesEvictedColumn,
+            &[
+                (
+                    "status",
+                    (if state.follow {
+                        paint.hint(Message::ProvidersExecutionFollowOn)
+                    } else {
+                        paint.hint(Message::ProvidersExecutionFollowPaused)
+                    }),
+                ),
+                ("new", &(state.new_output).to_string()),
+                ("evicted", &(state.live.evicted).to_string()),
+                ("column", &(state.horizontal).to_string()),
+            ],
         )
     };
     let warning = if state.showing_retained {
         ""
     } else {
         match state.active.as_ref() {
-            Some(record) if record.output_unavailable => "OUTPUT UNAVAILABLE · inspect details",
-            Some(record) if record.truncated => "CAPTURE TRUNCATED · excess drained/discarded",
+            Some(record) if record.output_unavailable => {
+                paint.hint(Message::ProvidersExecutionOutputUnavailableInspectDetails)
+            }
+            Some(record) if record.truncated => {
+                paint.hint(Message::ProvidersExecutionCaptureTruncatedExcessDrainedDiscarded)
+            }
             Some(record) if record.dropped_live_bytes > 0 => {
-                "LIVE QUEUE GAP · inspect retained output"
+                paint.hint(Message::ProvidersExecutionLiveQueueGapInspectRetainedOutput)
             }
             _ => "",
         }
@@ -434,7 +546,7 @@ fn output(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         text(
             frame,
             body,
-            "Output unavailable (purged, missing, or replaced). Empty display is NOT an empty successful command. /artifacts shows the retained metadata and source-identity limits.",
+            paint.hint(Message::ProvidersExecutionOutputUnavailablePurgedMissingOrReplacedEmpty),
             paint.accent,
         );
         return;
@@ -443,7 +555,7 @@ fn output(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         text(
             frame,
             body,
-            "No output yet.\n/command-edit writes a command, e.g. [\"cargo\",\"test\"]; /execute reviews it before anything runs.",
+            paint.hint(Message::ProvidersExecutionNoOutputYetCommandEditWritesA),
             paint.muted,
         );
         return;
@@ -482,6 +594,7 @@ mod tests {
 
     fn paint() -> Paint {
         Paint {
+            language: crate::i18n::Language::ENGLISH,
             base: Style::default(),
             surface: Style::default(),
             muted: Style::default(),

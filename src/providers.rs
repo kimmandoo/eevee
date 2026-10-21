@@ -209,6 +209,8 @@ pub struct Input {
     pub task: crate::store::Snapshot,
     /// Durable ownership of this immutable submitted request; never a tool permission.
     pub work: Option<crate::store::WorkClaim>,
+    /// Approved exact-repeat replacement, frozen without changing the authored draft.
+    pub instruction_override: Option<crate::workspace::records::InstructionReplacement>,
     pub excerpts: Vec<crate::workspace::context::Excerpt>,
     pub report: Option<Arc<crate::workspace::repo::Report>>,
     pub resume: Option<String>,
@@ -240,6 +242,53 @@ pub(crate) fn native_request_text(task: &crate::store::Snapshot) -> &str {
 }
 
 impl Input {
+    pub fn instruction(&self) -> &str {
+        self.instruction_override.as_ref().map_or_else(
+            || self.task.request_text(),
+            |replacement| replacement.replacement.as_str(),
+        )
+    }
+
+    pub fn native_instruction(&self) -> &str {
+        if self.instruction_override.is_some() {
+            self.instruction()
+        } else {
+            native_request_text(&self.task)
+        }
+    }
+
+    fn validate_instruction_override(&self) -> Result<(), String> {
+        let Some(replacement) = &self.instruction_override else {
+            return Ok(());
+        };
+        use crate::workspace::{memory, records::InstructionReplacement};
+        let (key, normalized) =
+            crate::workspace::records::instruction_key(self.task.request_text())?;
+        if self.inspect_models
+            || self.inspect_sessions
+            || replacement.original != self.task.request_text()
+            || replacement.habit_key != key
+            || replacement.replacement
+                != InstructionReplacement::reference_text(
+                    replacement.memory_id,
+                    replacement.memory_revision,
+                )
+            || !self.task.approved_memories.iter().any(|record| {
+                record.id == replacement.memory_id
+                    && record.revision == replacement.memory_revision
+                    && record.project == self.task.project
+                    && record.task_id.is_none()
+                    && record.proposal.scope == memory::Scope::Project
+                    && record.proposal.content == normalized
+                    && record.proposal.provenance.reference.strip_prefix("habit:")
+                        == Some(key.as_str())
+            })
+        {
+            return Err("Current instruction replacement lost its exact approved memory binding; prepare a fresh request".into());
+        }
+        Ok(())
+    }
+
     pub(crate) fn dispatched(&self, generation: u64) -> Option<Event> {
         if self.inspect_models || self.inspect_sessions {
             return None;
@@ -255,6 +304,7 @@ impl Input {
     /// Unclaimed requests retain the ordinary exact-snapshot admission boundary.
     pub fn validate_committed(&self, data_dir: &std::path::Path) -> Result<(), String> {
         self.validate_work()?;
+        self.validate_instruction_override()?;
         match &self.work {
             Some(claim) => {
                 crate::store::validate_work_input(data_dir, &self.task, &self.excerpts, claim)
@@ -285,6 +335,7 @@ impl Input {
 
     pub fn validate_selection(&self) -> Result<(), String> {
         self.validate_work()?;
+        self.validate_instruction_override()?;
         if self.conversation.is_some()
             && (!self.agent.is_direct() || self.inspect_models || self.inspect_sessions)
         {
@@ -347,6 +398,7 @@ impl Input {
         let text = crate::workspace::context::review_payload(
             data_dir,
             &self.task,
+            self.instruction(),
             self.report.as_ref(),
             &self.excerpts,
             exclusions,
@@ -462,6 +514,11 @@ pub enum Event {
         generation: u64,
         task_id: i64,
         request_id: String,
+    },
+    Usage {
+        generation: u64,
+        task_id: i64,
+        report: crate::workspace::usage::Report,
     },
     Models {
         generation: u64,
@@ -619,6 +676,7 @@ mod tests {
         Input {
             task: crate::store::Snapshot::empty("project".into()),
             work: None,
+            instruction_override: None,
             excerpts: Vec::new(),
             report: None,
             resume: None,
@@ -982,5 +1040,89 @@ mod tests {
                 .unwrap_err()
                 .contains("fresh context")
         );
+    }
+
+    #[test]
+    fn current_instruction_override_requires_exact_selected_project_memory_binding() {
+        use crate::workspace::{
+            memory,
+            records::{InstructionReplacement, instruction_key},
+        };
+        let mut input = claimed(Agent::OpenAI, Operation::Plan, false);
+        let original = "Keep the public API unchanged.";
+        input
+            .task
+            .partner_drafts
+            .entry(input.task.lead_partner)
+            .or_default()
+            .drafts
+            .push(crate::store::Draft {
+                field: crate::store::EditorField::Request,
+                text: original.into(),
+                cursor: original.len(),
+            });
+        let (key, normalized) = instruction_key(original).unwrap();
+        input.task.approved_memories.push(memory::Record {
+            id: 17,
+            revision: 3,
+            project: input.task.project.clone(),
+            task_id: None,
+            proposal: memory::Proposal {
+                scope: memory::Scope::Project,
+                content: normalized,
+                provenance: memory::Provenance {
+                    kind: memory::SourceKind::UserAuthored,
+                    reference: format!("habit:{key}"),
+                    task_id: 7,
+                },
+            },
+        });
+        input.instruction_override = Some(InstructionReplacement {
+            original: original.into(),
+            replacement: InstructionReplacement::reference_text(17, 3),
+            memory_id: 17,
+            memory_revision: 3,
+            habit_key: key,
+        });
+        input.validate_selection().unwrap();
+        assert_eq!(input.task.request_text(), original);
+        assert_eq!(input.native_instruction(), input.instruction());
+        let frozen = input.clone();
+        for case in 0..7 {
+            let mut changed = frozen.clone();
+            match case {
+                0 => changed
+                    .instruction_override
+                    .as_mut()
+                    .unwrap()
+                    .original
+                    .push('!'),
+                1 => changed
+                    .instruction_override
+                    .as_mut()
+                    .unwrap()
+                    .replacement
+                    .push('!'),
+                2 => {
+                    changed
+                        .instruction_override
+                        .as_mut()
+                        .unwrap()
+                        .memory_revision += 1
+                }
+                3 => changed.task.approved_memories.clear(),
+                4 => changed.task.approved_memories[0].proposal.scope = memory::Scope::Personal,
+                5 => {
+                    changed.task.approved_memories[0]
+                        .proposal
+                        .provenance
+                        .reference = "unrelated".into()
+                }
+                6 => changed.inspect_models = true,
+                _ => unreachable!(),
+            }
+            assert!(changed.validate_selection().is_err(), "case {case}");
+            assert_eq!(changed.task.request_text(), original);
+        }
     }
 }

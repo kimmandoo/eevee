@@ -186,6 +186,13 @@ impl App {
 
     pub fn store_event(&mut self, event: store::Event) {
         match event {
+            store::Event::Records { request, result } => {
+                if matches!(&request.operation, store::records::Operation::Usage { .. }) {
+                    self.cooperation_usage_event(*request, result);
+                } else {
+                    self.records_event(*request, result);
+                }
+            }
             store::Event::Moves {
                 task_id,
                 partner,
@@ -229,6 +236,10 @@ impl App {
                     let loaded = result.is_ok();
                     self.memory_loading = false;
                     self.memory.finish(result);
+                    self.records_memory_committed();
+                    if loaded {
+                        self.records_invalidate();
+                    }
                     if saving || before != self.memory.draft_snapshot() {
                         self.changed_task();
                     }
@@ -364,7 +375,8 @@ impl App {
                 self.transitioning = false;
                 self.notice.clear();
             }
-            store::Event::Saved(snapshot) => {
+            store::Event::Saved(mut snapshot) => {
+                self.records_task_saved(&mut snapshot);
                 self.move_task_saved(&snapshot);
                 if self.task_id == 0 {
                     // The first save assigns an identity to this same local task.
@@ -424,7 +436,7 @@ impl App {
                             self.drafts.clone_from(&draft.drafts);
                         }
                         self.storage = StorageState::Saved;
-                        self.save_requested = false;
+                        self.save_requested = !self.records.local.is_empty();
                         self.autosave = None;
                     }
                     self.refresh_save_state();
@@ -507,6 +519,9 @@ impl App {
             store::Event::Context { task_id, result } => {
                 let captured = result.is_ok();
                 self.sources.stored(self.task_id, task_id, result);
+                if captured {
+                    self.records_invalidate();
+                }
                 let move_capture = self.move_capture_stored(task_id, captured);
                 if !move_capture
                     && self.sources.take_return_to_composer()

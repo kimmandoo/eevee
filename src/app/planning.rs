@@ -25,10 +25,12 @@ use crate::{
 mod conversation;
 mod cooperation;
 pub(crate) mod journal;
+mod pairings;
 mod picker;
 mod preferences;
 mod response;
 mod review;
+mod usage;
 
 const ANSWER_BYTES: usize = 4096;
 const ITEM_LIMIT: usize = 128;
@@ -101,10 +103,13 @@ pub struct State {
     activity: &'static str,
     response_scroll: usize,
     response_max: usize,
+    response_height: u16,
+    response_body: ratatui::layout::Rect,
     pub reviewed: bool,
     /// Full technical review is optional; summary visibility still gates consent.
     pub review_details: bool,
     pub submitted_request: Arc<str>,
+    submitted_instruction: Option<Arc<str>>,
     pub(super) failed_request: bool,
     pub affirmative: bool,
     pub question: usize,
@@ -156,6 +161,9 @@ pub struct State {
     pub receipt: Vec<String>,
     pub selection: ModelSelection,
     pub receipt_claim: Option<store::WorkClaim>,
+    pub(super) remembered_pairing: Option<(i64, usize)>,
+    pub(super) pairing_offer: bool,
+    pub usage: usage::State,
     selections: HashMap<Agent, ModelSelection>,
     preferences: preferences::Preferences,
     pub catalogues: HashMap<Agent, ModelCatalogue>,
@@ -200,6 +208,7 @@ pub struct State {
     pub work_inflight: bool,
     pub work_acquired: bool,
     pub work_error: Option<String>,
+    local_record_hold: bool,
     pub(super) committed_input: Option<Box<store::Snapshot>>,
     pub(super) held_input: Option<Box<crate::providers::Input>>,
     pub(super) claim_cancelled: bool,
@@ -221,10 +230,12 @@ impl State {
             scroll: 0, scroll_max: 0, reviewed: false, affirmative: false,
             review_details: false,
             submitted_request: Arc::default(),
+            submitted_instruction: None,
             failed_request: false,
             following: true, new_output: false, response_cache: response::Layout::default(),
             activity: "Connecting",
             response_scroll: 0, response_max: 0,
+            response_height: 0, response_body: ratatui::layout::Rect::default(),
             question: 0, option: 0, answers: Vec::new(), editing: false, submit_review: false,
             quit_review: false, quit_ready: false, cancelling: false, omitted: 0,
             task: 0, revision: 0, generation: None, awaiting_preview: false, active: false,
@@ -247,6 +258,9 @@ impl State {
             catalogues: HashMap::new(), catalogue_errors: HashMap::new(), picker: None, picker_selected: 0,
             picker_query: Answer::default(), custom_model: None, pending_model: None, model_picker_return: None, picker_models: Vec::new(),
             receipt_claim: None,
+            remembered_pairing: None,
+            pairing_offer: false,
+            usage: usage::State::default(),
             catalogue_pending: None,
             selection_change: None, inspect_models: false,
             auto_models: false, auto_run: false, auto_picker: false, catalogue_dismissed: false, auto_blocked: None, send_after_prepare: false,
@@ -258,8 +272,15 @@ impl State {
             work: None, work_pending: None, work_inflight: false, work_error: None,
             committed_input: None, held_input: None, claim_cancelled: false,
             work_acquired: false,
+            local_record_hold: false,
             queued_prompts: VecDeque::new(),
         }
+    }
+
+    pub(super) fn submitted_instruction(&self) -> &str {
+        self.submitted_instruction
+            .as_deref()
+            .unwrap_or(&self.submitted_request)
     }
 
     pub fn matches_task(&self, task_id: i64, revision: u64) -> bool {
@@ -313,6 +334,7 @@ impl State {
             || self.work.is_some()
             || self.work_pending.is_some()
             || self.work_inflight
+            || self.usage_pending()
     }
 
     pub fn task_id(&self) -> i64 {
@@ -329,6 +351,7 @@ impl State {
 
     pub fn reset(&mut self, task_id: i64) {
         if !self.busy() && !self.journal_failed() {
+            self.clear_pairing();
             let selections = std::mem::take(&mut self.selections);
             let preferences = std::mem::take(&mut self.preferences);
             let catalogues = std::mem::take(&mut self.catalogues);
@@ -570,7 +593,9 @@ impl State {
                 submitted_request: std::mem::take(&mut self.submitted_request),
             },
         );
-        self.selections.insert(self.agent, self.selection.clone());
+        if self.remembered_pairing.is_none() {
+            self.selections.insert(self.agent, self.selection.clone());
+        }
         self.agent = next;
         self.selection = self.selections.get(&next).cloned().unwrap_or_default();
         self.preference_changed();
@@ -602,8 +627,32 @@ impl State {
         );
     }
 
+    pub fn accepts_preview(&self, preview: &crate::providers::Preview) -> bool {
+        self.awaiting_preview && preview.task_id == self.task
+    }
+
     pub fn event(&mut self, event: Event) {
         match event {
+            Event::Dispatched {
+                generation,
+                task_id,
+                request_id,
+            } if self.matches(generation, task_id)
+                && self.work_acquired
+                && self.active
+                && self.work.as_ref().is_some_and(|claim| {
+                    claim.task_id == task_id && claim.request_id == request_id
+                }) =>
+            {
+                self.usage_submitted();
+            }
+            Event::Usage {
+                generation,
+                task_id,
+                report,
+            } if self.matches(generation, task_id) => {
+                self.usage_report(generation, task_id, report);
+            }
             Event::NativeCompleted {
                 generation,
                 task_id,
@@ -630,7 +679,7 @@ impl State {
             {
                 self.queue_record(task_id, record);
             }
-            Event::Preview(preview) if self.awaiting_preview && preview.task_id == self.task => {
+            Event::Preview(preview) if self.accepts_preview(&preview) => {
                 self.awaiting_preview = false;
                 self.generation = Some(preview.generation);
                 for slot in self.slots.values_mut() {

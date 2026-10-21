@@ -1,5 +1,79 @@
 # Troubleshooting
 
+### [2026-10-21] Ranking fixture edited a file before the process baseline settled
+
+- **Context / Symptom:** A seeded fixture ranked every Python file as changed, or missed the intended `changed.py` edit in the compact Korean journey.
+- **Root Cause:** Repository refresh deliberately retains the process's first baseline. Seeding a commit after that baseline counted fixture setup as work; editing immediately after restart could instead enter the asynchronous initial baseline.
+- **Solution:** Reopened after fixture seeding and waited for an actual completed repository refresh before making the one working edit. Kept the production baseline and ranking rules unchanged. Actual nine-form ranking passed in English at 120×36 and Korean at 60×18 with the same five eligible matches, distinct failure/diff priorities and visible reasons.
+- **Prevention / Reference:** Synchronize fixture mutations with observed worker completion, not task-storage acknowledgment or sleeps.
+
+### [2026-10-21] Removing a restored pairing selected a stale global default
+
+- **Context / Symptom:** An actual restart/removal journey returned to Codex/Default although the acknowledged global preference was a compatible-provider model. The regression failed with `left: Codex, right: Compatible`.
+- **Root Cause:** Late global hydration updated a parked slot's model map but not its fallback route. Applying a pairing then captured that slot's passive current route. New partners could also overwrite a freshly merged model with an older current selection for the same provider.
+- **Solution:** Kept the committed global route independently of pairing presence, preserved explicit startup overrides, and invalidated the cache on an actual global choice/use. Seeded new partners from that route's selection, not the parked slot's current model. Both consumer regressions passed in the 1,049-test suite; actual two-partner restart/removal passed in English at 120×36 and Korean at 60×18 on candidate F.
+- **Prevention / Reference:** A passive current selection is not a new global preference. Preserve dirty user choices while separately reconciling acknowledged global defaults.
+
+### [2026-10-21] Live accounting qualification waited for an obsolete preview caption
+
+- **Context / Symptom:** The actual Codex qualifier reported `TUI prerequisite unavailable: LOCAL PREVIEW` after successful metadata discovery and retained request input, without dispatching a model turn.
+- **Root Cause:** The driver treated a nonempty Request's slash as a command, treated the model/reasoning picker like the ordinary workspace, and expected an old technical caption instead of the current owned approval queue and compact request-scope card. The pending request was not a provider transport failure.
+- **Solution:** Used the global chooser outside pickers, committed the visible model/reasoning transaction, deliberately opened `/approvals`, and verified the actual authored request, exact model, Plan role and Run control. Removed temporary diagnostics instead of changing provider-generation or ownership guards. Zero-turn preparation/cancellation passed, followed by exactly three authorized real Codex 0.147.0 turns and two actual owned-session resumes.
+- **Prevention / Reference:** Gate consent on current scope and user data, not an incidental heading. Sanitized evidence retained counts/scopes and salted identities only; original auth/config files remained unchanged and temporary credentials were removed. All three authorizations were consumed; no further paid turn is authorized.
+
+### [2026-10-21] Literal Unicode instruction paths inherited another prompt's memory
+
+- **Context / Symptom:** A consumer regression failed with `distinct literal path bytes inherited another instruction's approved memory` when composed and decomposed Unicode filenames appeared in otherwise identical authored instructions.
+- **Root Cause:** NFC and line-ending normalization changed code-sensitive interior bytes before deriving the repeated-instruction key. Canonical Unicode equivalence does not imply filesystem or programming-language equivalence.
+- **Solution:** Trimmed outer whitespace only, validated the unchanged interior text before taking ownership, and hashed its literal bytes. Unsupported interior controls made the instruction ineligible rather than rewriting it. Original drafts and history remained unchanged. The regression failed before the change and passed in final candidate E's 1,047-test suite.
+- **Prevention / Reference:** Treat authored source paths, code and spacing as literal data. An approved memory must not cross a different instruction identity.
+
+### [2026-10-21] Settled non-Git source inspection kept connection setup busy
+
+- **Context / Symptom:** Actual tooltip navigation opened Files in a non-Git project, then could not enter compatible-provider connection setup even though local storage had settled.
+- **Root Cause:** An absent repository catalogue always enabled `await_refresh`, including unsupported inspection with no queued or running job that could ever finish it.
+- **Solution:** Passed the actual queued/loading inspection state into `Sources::catalogue`. Real pending work retained its busy guard; settled unavailable inspection became an honest unavailable result. Root busy/refusal regressions and both-size English/Korean tooltip journeys passed on D and E.
+
+### [2026-10-21] Record consent could bury ownership and ignore the neutral shortcut
+
+- **Context / Symptom:** Long retained errors could push the failed operation's identity into optional pages, while the displayed `n` shortcut did not select Stay.
+- **Root Cause:** Consent relied on reaching the end of a detail viewport rather than rendering the complete bounded scope independently. The shortcut had no matching admission path.
+- **Solution:** Pinned the exact operation/request/task/partner or historical signature/support/pass scope and its effect above optional details. Confirmation remained disabled when the full scope could not fit. Unmodified `n` selected Stay; `y` required the current visible scope. Long-error, other-owner, tiny-view, neutral-return and explicit-confirmation regressions passed in candidate D's 1,046-test suite.
+- **Prevention / Reference:** Never truncate identity to enable consent, and never let paging an error stand in for reviewing the affected operation.
+
+### [2026-10-21] Fixed page strides skipped compact details and displaced learned moves
+
+- **Context / Symptom:** Actual compact source inspection skipped unseen detail rows; verbose artifact markers occupied the move-name preview in the form picker.
+- **Root Cause:** Generic paging used hard-coded strides instead of each rendered viewport. Unbounded factual marker descriptions preceded the compact move inventory.
+- **Solution:** Recorded the actual visible row count for every generic scroll surface and paged by that count minus one overlap row. Compact markers retained factual status/count/producer on one clipped line; full facts stayed inspectable, and learned moves retained their preview space. Both-size detail-reachability regressions and all 26 actual Moves groups passed on candidate C.
+
+### [2026-10-21] Factual activity formatting could fail its own privacy admission
+
+- **Context / Symptom:** The terminal-run recovery regression reopened a freshly written store with `Invalid activity metadata`.
+- **Root Cause:** Command arguments had already been redacted, but assembling a human-readable activity sentence could create a new credential-shaped fragment. The final sentence had not passed the same durable privacy projection.
+- **Solution:** Redacted the final serialized activity detail while borrowing unchanged text. Kept strict admission intact and retained nonsecret failure facts. The database/reopen regression and the 1,041-test integrated candidate-A suite passed.
+- **Prevention / Reference:** Validate the final durable human-readable projection, not just its input fragments. Do not relax admission or persist plaintext to satisfy a fixture.
+
+### [2026-10-21] Usage refinement and asynchronous terminal receipts needed distinct boundaries
+
+- **Context / Symptom:** Integration review found that newly reported usage identities could be rejected after an earlier unknown report, running command updates could enqueue terminal-only observations, and a ready handoff could be saved after the task had advanced to a later revision.
+- **Root Cause:** Unknown-to-known refinement is not a conflicting identity; worker progress is not a terminal receipt; receipt provenance is not necessarily the coalesced save revision.
+- **Solution:** Admitted one-way usage metadata refinement while rejecting changed known identities, retained unsuccessful native response reports, observed only actual started terminal runs using their prepared task identity, and persisted typed historical handoff revisions with exact receipt validation. Serialized destructive context actions behind unacknowledged local receipts. Behavioral regressions passed in candidate A.
+- **Prevention / Reference:** Keep failed writes attached to their original work owner. SDK cumulative resume accounting follows the locked SDK's published contract and is not live-account qualification.
+
+### [2026-10-21] Metadata-only quit could hide a failed owned write
+
+- **Context / Symptom:** Review of local-record persistence found that preference waiting could obscure a failed owned record operation during quit, while clearing the immediate quit request lost the eventual exit intent.
+- **Root Cause:** Preference settlement ran before the record gate, and the record gate had no independent sticky exit state.
+- **Solution:** Gated records before preferences, retained the exit request until acknowledgement, and cleared all exit flags only on explicit Stay. Failed operations remained inspectable and owner-bound; repeated-gate and neutral-return regressions passed in candidate A.
+
+### [2026-10-21] Alt response navigation was blocked by the generic modifier guard
+
+- **Context / Symptom:** Response-navigation work exposed a regression in Alt-modified response controls before the source-only 20-case response qualification passed.
+- **Root Cause:** Response-specific navigation needed admission before the generic editor guard that rejects Control/Alt input; otherwise legitimate response keys could not reach their owner.
+- **Solution:** Routed exact Alt+Up/Down/Home/End and unmodified paging through the guarded response surface before ordinary editor modifier refusal. Kept reviews, overlays and draft/caret input ownership intact; ordinary editing keys did not become response commands.
+- **Prevention / Reference:** The earlier source-only response qualification passed 20 cases after the fix. This is not proof for the final integrated v0.1.14 candidate: rerun wide/compact English/Korean reading, draft preservation, pause/latest and terminal restoration on the final bytes. The existing native-Windows C-toolchain limitation below remains a separate cross-check boundary, not native runtime evidence.
+
 ### [2026-10-21] Manual release qualification required the supported Python runtime
 
 - **Context / Symptom:** Importing the release qualifier from the analysis host failed with `ModuleNotFoundError: No module named 'tomllib'`.

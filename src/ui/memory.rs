@@ -18,7 +18,7 @@ pub(super) fn render_small(frame: &mut Frame, area: Rect, state: &mut State, pai
     text(
         frame,
         area,
-        "Approved memories / terminal too small\nNeed 60 columns x 18 rows.\nDraft and selection retained.\nEsc Back / Ctrl+C safe quit.\nNo approval or deletion at this size.",
+        paint.hint(crate::i18n::Message::DesksMemoryApprovedMemoriesTerminalTooSmallNeedColumns),
         paint.accent,
     );
 }
@@ -43,7 +43,7 @@ pub(super) fn render(
     let area = super::sheet(area, 110, height);
     frame.render_widget(Clear, area);
     let block = panel(
-        " Approved memories / explicit local curation ",
+        paint.hint(crate::i18n::Message::DesksMemoryPanel),
         config,
         paint,
         true,
@@ -51,14 +51,24 @@ pub(super) fn render(
     let content = block.inner(area);
     frame.render_widget(block, area);
     let heading = if state.saving {
-        "SAVING / awaiting committed acknowledgement"
+        paint.hint(crate::i18n::Message::DesksMemorySavingAwaitingCommittedAcknowledgement)
     } else {
         match state.mode {
-            Mode::Browse => "INSPECT / only selected approved notes enter context",
-            Mode::Edit => "USER NOTE / Enter previews, never approves",
-            Mode::Preview => "APPROVAL PREVIEW / no memory saved yet",
-            Mode::Delete => "LOCAL DELETION PREVIEW / no deletion yet",
-            Mode::Discard => "UNSAVED DRAFT / keep is selected initially",
+            Mode::Browse => paint.hint(
+                crate::i18n::Message::DesksMemoryInspectOnlySelectedApprovedNotesEnterContext,
+            ),
+            Mode::Edit => {
+                paint.hint(crate::i18n::Message::DesksMemoryUserNoteEnterPreviewsNeverApproves)
+            }
+            Mode::Preview => {
+                paint.hint(crate::i18n::Message::DesksMemoryApprovalPreviewNoMemorySavedYet)
+            }
+            Mode::Delete => {
+                paint.hint(crate::i18n::Message::DesksMemoryLocalDeletionPreviewNoDeletionYet)
+            }
+            Mode::Discard => {
+                paint.hint(crate::i18n::Message::DesksMemoryUnsavedDraftKeepIsSelectedInitially)
+            }
         }
     };
     text(frame, row(content, 0, 1), heading, paint.accent);
@@ -138,31 +148,69 @@ pub(super) fn render(
             body.x = body.x.saturating_add(31);
             body.width = body.width.saturating_sub(31);
         }
-        let value = match state.mode {
-            Mode::Browse if state.show_help => "/create-memory New note / /remember Next-action note\n/edit-memory Edit / /delete-memory Delete\n/select-memory Include in future requests\n/memory-scope Task / Project / Personal\n/verbose Full content and provenance\n\nRight then Enter confirms the displayed scope; changing scope resets consent. No tools run and context selection stays separate. Esc keeps the draft; failed saves retain it. Deletion does not erase exports or provider history.".into(),
-            Mode::Preview => state.candidate.as_ref().map_or_else(String::new, |candidate| {
-                if super::VERBOSE.get() {
-                    describe(candidate, &state.project, state.task_id)
-                } else {
-                    summary(candidate, false)
-                }
-            }),
-            Mode::Discard => format!("Keep this editable draft or discard it?\n\n{}\n\nDiscard affects only this draft, not existing approved memories.", state.draft),
+        let mut value = match state.mode {
+            Mode::Browse if state.show_help => paint
+                .hint(crate::i18n::Message::DesksMemoryCreateMemoryNewNoteRememberNextAction)
+                .into(),
+            Mode::Preview => state
+                .candidate
+                .as_ref()
+                .map_or_else(String::new, |candidate| {
+                    if super::VERBOSE.get() {
+                        describe(candidate, &state.project, state.task_id, paint)
+                    } else {
+                        summary(candidate, false, paint)
+                    }
+                }),
+            Mode::Discard => paint.format(
+                crate::i18n::Template::DesksMemoryDiscardPreview,
+                &[("draft", &(state.draft))],
+            ),
             Mode::Browse | Mode::Delete => {
                 if let Some(record) = state.selected_record() {
                     if state.mode == Mode::Delete && !super::VERBOSE.get() {
-                        format!("Memory #{} / revision {}\n{}", record.id, record.revision, summary(&record.proposal, true))
+                        format!(
+                            "Memory #{} / revision {}\n{}",
+                            record.id,
+                            record.revision,
+                            summary(&record.proposal, true, paint)
+                        )
                     } else {
-                    format!("Approved memory #{} / revision {}\n{}\n\n{}\n\n{}", record.id, record.revision,
-                        if state.selected_ids.contains(&record.id) { "Selected for future request previews" } else { "Not selected for outgoing context" },
-                        describe(&record.proposal, &record.project, record.task_id.unwrap_or(state.task_id)), memory::ERASURE_NOTICE)
+                        format!(
+                            "Approved memory #{} / revision {}\n{}\n\n{}\n\n{}",
+                            record.id,
+                            record.revision,
+                            if state.selected_ids.contains(&record.id) {
+                                paint.hint(crate::i18n::Message::DesksMemorySelectedForFutureRequestPreviews)
+                            } else {
+                                paint.hint(
+                                    crate::i18n::Message::DesksMemoryNotSelectedForOutgoingContext,
+                                )
+                            },
+                            describe(
+                                &record.proposal,
+                                &record.project,
+                                record.task_id.unwrap_or(state.task_id),
+                                paint
+                            ),
+                            paint.hint(crate::i18n::Message::DesksMemoryErasureNotice)
+                        )
                     }
                 } else {
-                    "No approved memories in this scope.\n\n/create-memory authors a note; /remember proposes the task's saved next-action note. Both open a separate scope/approval preview.\n\nProject memories stay in their project; personal memories are visible in every project. /select-memory deliberately selects approved notes for request context.\n\nNo transcript mining or automatic habit inference. Recognizable credentials and excluded captured notes are refused; detection is best-effort.".into()
+                    paint
+                        .hint(crate::i18n::Message::DesksMemoryNoApprovedMemoriesInThisScopeCreate)
+                        .into()
                 }
             }
             Mode::Edit => unreachable!(),
         };
+        if state.mode == Mode::Preview && !state.habit_sources.is_empty() {
+            value.push_str("\n\n");
+            value.push_str(&paint.format(
+                crate::i18n::Template::RecordsHabitMemoryDisclosure,
+                &[("sources", &state.habit_sources.join(", "))],
+            ));
+        }
         if compact {
             state.scroll = 0;
         }
@@ -181,56 +229,95 @@ pub(super) fn render(
         }
     }
     let footer = if state.saving {
-        "Waiting for storage / draft retained on failure".into()
+        paint
+            .hint(crate::i18n::Message::DesksMemoryWaitingForStorageDraftRetainedOnFailure)
+            .into()
     } else {
         match state.mode {
-            Mode::Browse => {
-                "Up/Down Inspect | / Commands\n/select-memory Context | PgUp/PgDn Scroll | Esc Back"
-                    .into()
-            }
-            Mode::Edit => {
-                "Enter Preview | Ctrl+N Newline | Esc Keep/Discard\nLiteral text only.".into()
-            }
-            Mode::Preview => format!(
-                "{} {} | y Approve / n Back\n{} / /memory-scope / /edit-memory",
-                if state.affirmative { "Stay" } else { "[Stay]" },
-                if state.affirmative {
-                    "[Approve]"
-                } else {
-                    "Approve"
-                },
-                if state.reviewed {
-                    "/verbose Full details"
-                } else {
-                    "Enlarge to review scope"
-                }
+            Mode::Browse => paint
+                .hint(crate::i18n::Message::DesksMemoryUpDownInspectCommandsSelectMemoryContext)
+                .into(),
+            Mode::Edit => paint
+                .hint(crate::i18n::Message::DesksMemoryEnterPreviewCtrlNNewlineEscKeep)
+                .into(),
+            Mode::Preview => paint.format(
+                crate::i18n::Template::DesksMemoryApproveControls,
+                &[
+                    (
+                        "stay",
+                        (if state.affirmative {
+                            paint.hint(crate::i18n::Message::CommonStay)
+                        } else {
+                            paint.hint(crate::i18n::Message::CommonStaySelected)
+                        }),
+                    ),
+                    (
+                        "approve",
+                        (if state.affirmative {
+                            paint.hint(crate::i18n::Message::CommonApproveSelected)
+                        } else {
+                            paint.hint(crate::i18n::Message::CommonApprove)
+                        }),
+                    ),
+                    (
+                        "details",
+                        (if state.reviewed {
+                            paint.hint(crate::i18n::Message::DesksMemoryVerboseFullDetails)
+                        } else {
+                            paint.hint(crate::i18n::Message::CommonEnlargeReview)
+                        }),
+                    ),
+                ],
             ),
-            Mode::Delete => format!(
-                "{} {} | y Delete / n Back\n{} / Left/Right Choose / Enter",
-                if state.affirmative { "Stay" } else { "[Stay]" },
-                if state.affirmative {
-                    "[Delete]"
-                } else {
-                    "Delete"
-                },
-                if state.reviewed {
-                    "/verbose Full details"
-                } else {
-                    "Enlarge to review scope"
-                }
+            Mode::Delete => paint.format(
+                crate::i18n::Template::DesksMemoryDeleteControls,
+                &[
+                    (
+                        "stay",
+                        (if state.affirmative {
+                            paint.hint(crate::i18n::Message::CommonStay)
+                        } else {
+                            paint.hint(crate::i18n::Message::CommonStaySelected)
+                        }),
+                    ),
+                    (
+                        "delete",
+                        (if state.affirmative {
+                            paint.hint(crate::i18n::Message::DesksMemoryDeleteSelected)
+                        } else {
+                            paint.hint(crate::i18n::Message::DesksMemoryDelete)
+                        }),
+                    ),
+                    (
+                        "details",
+                        (if state.reviewed {
+                            paint.hint(crate::i18n::Message::DesksMemoryVerboseFullDetails)
+                        } else {
+                            paint.hint(crate::i18n::Message::CommonEnlargeReview)
+                        }),
+                    ),
+                ],
             ),
-            Mode::Discard => format!(
-                "{} {}\ny Discard draft / n Keep editing",
-                if state.affirmative {
-                    "Keep editing"
-                } else {
-                    "[Keep editing]"
-                },
-                if state.affirmative {
-                    "[Discard draft]"
-                } else {
-                    "Discard draft"
-                }
+            Mode::Discard => paint.format(
+                crate::i18n::Template::DesksMemoryDiscardControls,
+                &[
+                    (
+                        "keep",
+                        (if state.affirmative {
+                            paint.hint(crate::i18n::Message::DesksMemoryKeepEditing)
+                        } else {
+                            paint.hint(crate::i18n::Message::DesksMemoryKeepEditingSelected)
+                        }),
+                    ),
+                    (
+                        "discard",
+                        (if state.affirmative {
+                            paint.hint(crate::i18n::Message::DesksMemoryDiscardDraftSelected)
+                        } else {
+                            paint.hint(crate::i18n::Message::DesksMemoryDiscardDraft)
+                        }),
+                    ),
+                ],
             ),
         }
     };
@@ -246,38 +333,54 @@ pub(super) fn render(
     );
 }
 
-fn summary(proposal: &Proposal, deleting: bool) -> String {
+fn summary(proposal: &Proposal, deleting: bool, paint: &Paint) -> String {
     let scope = match proposal.scope {
-        memory::Scope::Task => "This task",
-        memory::Scope::Project => "This project",
-        memory::Scope::Personal => "All projects",
+        memory::Scope::Task => paint.hint(crate::i18n::Message::DesksMemoryThisTask),
+        memory::Scope::Project => paint.hint(crate::i18n::Message::DesksMemoryThisProject),
+        memory::Scope::Personal => paint.hint(crate::i18n::Message::DesksMemoryAllProjects),
     };
-    format!(
-        "{scope}\n{}\n{}\n{} bytes / /verbose Full note and source",
-        if deleting {
-            "Delete locally; prior exports remain."
-        } else {
-            "Save note only; context selection is separate."
-        },
-        clipped(proposal.content.lines().next().unwrap_or(""), 100),
-        proposal.content.len()
+    paint.format(
+        crate::i18n::Template::DesksMemorySummary,
+        &[
+            ("scope", (scope)),
+            (
+                "effect",
+                (if deleting {
+                    paint.hint(crate::i18n::Message::DesksMemoryDeleteLocallyPriorExportsRemain)
+                } else {
+                    paint.hint(
+                        crate::i18n::Message::DesksMemorySaveNoteOnlyContextSelectionIsSeparate,
+                    )
+                }),
+            ),
+            (
+                "content",
+                &(clipped(proposal.content.lines().next().unwrap_or(""), 100)),
+            ),
+            ("bytes", &(proposal.content.len()).to_string()),
+        ],
     )
 }
 
-fn describe(proposal: &Proposal, project: &str, task_id: i64) -> String {
+fn describe(proposal: &Proposal, project: &str, task_id: i64, paint: &Paint) -> String {
     let owner = match proposal.scope {
         memory::Scope::Task => format!("Task {task_id} in {project}"),
         memory::Scope::Project => format!("Project: {project}"),
-        memory::Scope::Personal => "Personal: every project using this data store".into(),
+        memory::Scope::Personal => paint
+            .hint(crate::i18n::Message::DesksMemoryPersonalEveryProjectUsingThisDataStore)
+            .into(),
     };
-    format!(
-        "SCOPE: {}\nLocal memory only; no tools or grants.\nEXACT CONTENT ({} UTF-8 bytes):\n{}\n\nOWNER: {owner}\nPROVENANCE: {}\nSOURCE: {} (task {})\n\nContext selection is separate. Deletion does not erase prior exports or provider history.",
-        proposal.scope.label(),
-        proposal.content.len(),
-        proposal.content,
-        proposal.provenance.kind.label(),
-        proposal.provenance.reference,
-        proposal.provenance.task_id
+    paint.format(
+        crate::i18n::Template::DesksMemoryDetails,
+        &[
+            ("scope", (proposal.scope.label())),
+            ("bytes", &(proposal.content.len()).to_string()),
+            ("content", &(proposal.content)),
+            ("owner", &(owner)),
+            ("provenance", (proposal.provenance.kind.label())),
+            ("source", &(proposal.provenance.reference)),
+            ("task", &(proposal.provenance.task_id).to_string()),
+        ],
     )
 }
 

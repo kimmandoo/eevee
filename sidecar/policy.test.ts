@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, linkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { credentialRoute, consoleProfile, accountMatches, selectedWrite, selectedWriteIdentity, questionSchema, sdkOutcome, RunSchema, SelectionSchema, modelCatalogue, prepareModels, assertAppliedModel, SDKPackageSchema, assertInitialization, assertSessionPolicy, SDKDispatchReceipt, BRIDGE_POLICY } from './policy.ts';
+import { credentialRoute, consoleProfile, accountMatches, selectedWrite, selectedWriteIdentity, questionSchema, sdkOutcome, RunSchema, SelectionSchema, modelCatalogue, prepareModels, assertAppliedModel, SDKPackageSchema, assertInitialization, assertSessionPolicy, SDKDispatchReceipt, SDKUsageLedger, BRIDGE_POLICY } from './policy.ts';
 
 const compatibility = { sdkVersion: '0.3.999', cliVersion: '2.1.999', requireHooks: false };
 
@@ -248,7 +248,7 @@ test('dispatch receipts require admitted exact SDK submission acknowledgment, ne
   const receipt = new SDKDispatchReceipt(uuid, 'frozen-request');
   assert.equal(BRIDGE_POLICY.dispatch, 'correlated-sdk-submission');
   assert.equal(receipt.observe(ack), undefined, 'failed admission never arms a receipt');
-  receipt.arm();
+  receipt.submittedToSDK();
   for (const message of [
     { type: 'system', subtype: 'init', uuid },
     { type: 'status', user_message_uuid: uuid },
@@ -267,13 +267,101 @@ test('dispatch receipts require admitted exact SDK submission acknowledgment, ne
 test('correlated SDK reply evidence covers streamed, assistant and error replies without inventing owner IDs', () => {
   for (const type of ['stream_event', 'assistant', 'result']) {
     const receipt = new SDKDispatchReceipt('fresh-sdk-message', 'immutable-owner-request');
-    receipt.arm();
+    receipt.submittedToSDK();
     assert.equal(receipt.observe({ type, user_message_uuid: 'fresh-sdk-message' }), 'immutable-owner-request');
     assert.equal(receipt.observe({ type, user_message_uuid: 'fresh-sdk-message' }), undefined);
     for (const id of [null, undefined]) {
       const unclaimed = new SDKDispatchReceipt('fresh-sdk-message', id);
-      unclaimed.arm();
+      unclaimed.submittedToSDK();
       assert.equal(unclaimed.observe({ type, user_message_uuid: 'fresh-sdk-message' }), undefined);
     }
   }
+});
+
+// Contract-shaped fixtures from installed SDK 0.3.300 sdk.d.ts result fields.
+// These are deterministic fixtures, not recorded/live runtime evidence.
+const usageSession = '01234567-89ab-4cde-8123-456789abcdef';
+const submittedFirst = '11234567-89ab-4cde-8123-456789abcdef';
+const submittedSecond = '21234567-89ab-4cde-8123-456789abcdef';
+const submittedResume = '31234567-89ab-4cde-8123-456789abcdef';
+function usageResult(uuid: string, input: number, cumulative: number) {
+  return { type: 'result', uuid: `result-${uuid}`, session_id: usageSession, user_message_uuid: uuid, is_error: false, subtype: 'success',
+    usage: { input_tokens: input, output_tokens: 5, cache_read_input_tokens: null },
+    modelUsage: { 'provider-model-alias': { inputTokens: cumulative, outputTokens: 15, thinkingTokens: 2 } } };
+}
+
+test('usage requires actual SDK submission and exact current UUID, not restored history or admission', () => {
+  const ledger = new SDKUsageLedger();
+  const current = usageResult(submittedFirst, 10, 100);
+  assert.deepEqual(ledger.observe(current), []);
+  ledger.submitted(submittedFirst, 'frozen-request-1');
+  assert.deepEqual(ledger.observe({ ...current, user_message_uuid: submittedSecond }), []);
+  assert.deepEqual(ledger.observe({ ...current, isReplay: true }), []);
+  assert.deepEqual(ledger.observe({ ...current, user_message_uuid: undefined }), []);
+  const reports = ledger.observe(current);
+  assert.equal(reports.length, 2);
+  assert.equal(reports[0].request_id, 'frozen-request-1');
+  assert.equal(reports[0].submission_id, submittedFirst);
+  assert.equal(reports[0].report.scope, 'MainLoopTurn');
+  assert.equal(reports[0].report.counters.input, 10);
+  assert.equal(reports[0].report.counters.cache_read, null);
+  assert.equal(reports[0].report.counters.cache_write, null);
+  assert.equal(reports[0].report.model, null);
+  assert.equal(reports[0].report.tokenizer, null);
+  assert.equal(reports[1].report.scope, 'ModelPipeline');
+  assert.equal(reports[1].report.model, 'provider-model-alias');
+  assert.equal(reports[1].report.counters.reasoning, 2);
+  assert.equal(reports[1].report.semantics.reasoning_in_output, true);
+  assert.equal(reports[1].report.baseline, null);
+  ledger.submitted(submittedSecond, null);
+  assert.deepEqual(ledger.observe(usageResult(submittedSecond, 20, 120)), []);
+});
+
+test('two submitted turns freeze cumulative baselines and never charge prior turns as main-loop usage', () => {
+  const ledger = new SDKUsageLedger();
+  ledger.submitted(submittedFirst, 'request-1');
+  const first = usageResult(submittedFirst, 10, 100);
+  ledger.observe(first);
+  ledger.observe(first); // A repeated final snapshot is not a second increment.
+  ledger.submitted(submittedSecond, 'request-2');
+  assert.deepEqual(ledger.observe(first), [], 'prior turn cannot be billed to current owner');
+  const second = usageResult(submittedSecond, 20, 120);
+  const reports = ledger.observe(second);
+  assert.equal(reports[0].report.identity.turn, submittedSecond);
+  assert.equal(reports[0].report.counters.input, 20);
+  assert.equal(reports[0].report.baseline, null);
+  assert.equal(reports[1].report.counters.input, 120);
+  assert.equal(reports[1].report.baseline?.input, 100);
+  assert.equal(reports[1].request_id, 'request-2');
+  const partial = ledger.observe({ ...second, uuid: 'repeated-final', modelUsage: {
+    'provider-model-alias': { inputTokens: null, outputTokens: 19 },
+  } });
+  assert.deepEqual(partial[1].report.identity.turn, reports[1].report.identity.turn);
+  assert.equal(partial[1].report.counters.input, null);
+  assert.equal(partial[1].report.baseline?.input, 100, 'baseline stays frozen across final/partial reports');
+});
+
+test('resumed query keeps restored model totals unknown without an observed baseline', () => {
+  const resumed = new SDKUsageLedger();
+  resumed.submitted(submittedResume, 'request-resumed');
+  assert.deepEqual(resumed.observe(usageResult(submittedFirst, 10, 100)), []);
+  const reports = resumed.observe(usageResult(submittedResume, 7, 1007));
+  assert.equal(reports[0].report.counters.input, 7);
+  assert.equal(reports[1].report.counters.input, 1007);
+  assert.equal(reports[1].report.baseline, null, 'prior transcript is not an observed current-query baseline');
+  assert.deepEqual(resumed.observe({ ...usageResult(submittedResume, 7, 1007),
+    usage: null, modelUsage: null }), []);
+});
+
+test('failed correlated results preserve reported usage without establishing a completed baseline', () => {
+  const ledger = new SDKUsageLedger();
+  ledger.submitted(submittedFirst, 'failed-request');
+  const failed = { ...usageResult(submittedFirst, 10, 100), is_error: true, subtype: 'error_max_turns' };
+  const reports = ledger.observe(failed);
+  assert.equal(reports.length, 2);
+  assert.equal(reports[0].report.counters.input, 10);
+  assert.equal(reports[1].report.counters.input, 100);
+  assert.ok(reports.every(value => !value.report.complete));
+  ledger.submitted(submittedSecond, 'next-request');
+  assert.equal(ledger.observe(usageResult(submittedSecond, 20, 120))[1].report.baseline, null);
 });

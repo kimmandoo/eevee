@@ -286,6 +286,7 @@ impl State {
 
     pub(super) fn choose_selection(&mut self, selection: ModelSelection) {
         if selection == self.selection {
+            self.pairing_offer = true;
             self.pending_model = None;
             self.custom_model = None;
             self.model_picker_return = None;

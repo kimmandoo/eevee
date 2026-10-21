@@ -297,9 +297,16 @@ impl State {
                         ],
                     )
                     .map_err(|error| error.to_string())?;
+                super::records::capture(
+                    &transaction,
+                    &self.project,
+                    &excerpt,
+                    request.producer.as_ref(),
+                )?;
             }
             ContextOperation::Remove(id) => {
                 no_active(&transaction, Some(task.id))?;
+                super::records::purge_capture(&transaction, &self.project, task.id, id)?;
                 if !current.iter().any(|excerpt| excerpt.id == id) {
                     return Err("Excerpt is missing or belongs to another task".into());
                 }
@@ -324,6 +331,7 @@ impl State {
                         .find(|excerpt| excerpt.id == *id)
                         .cloned()
                         .ok_or("Purge reference is missing or belongs to another task")?;
+                    super::records::purge_capture(&transaction, &self.project, task.id, *id)?;
                     excerpt.text.clear();
                     excerpt.available = false;
                     transaction
@@ -425,6 +433,7 @@ impl State {
                 return Err("Rerun argv/cwd differs from the referenced task-owned run".into());
             }
         }
+        super::records::reserve_capacity(&transaction, &self.project)?;
         let revision_moving = super::work::acquire_command(&transaction, &task, &prepared)?;
         let mut record = crate::workspace::runner::RunRecord::awaiting(&prepared);
         record.revision_moving = revision_moving;
@@ -537,6 +546,9 @@ impl State {
         }
         stored.record = record;
         write_run(&transaction, &stored)?;
+        if !stored.reserved && stored.record.started_at_ms.is_some() {
+            super::records::record_run(&transaction, &self.project, &stored)?;
+        }
         // Reservation includes bounded terminal metadata headroom. Do not evict evidence
         // or reject an honest terminal transition solely because the quota was lowered.
         transaction.commit().map_err(|error| error.to_string())?;
@@ -654,6 +666,7 @@ impl State {
         let mut stored = stored_run(&transaction, task_id, run_id)?;
         stored.record.output_unavailable = true;
         write_run(&transaction, &stored)?;
+        super::records::purge_run(&transaction, &self.project, task_id, run_id)?;
         transaction.commit().map_err(|error| error.to_string())?;
         // Metadata becomes unavailable before physical cleanup. A replaced link is
         // never followed, and a cleanup failure cannot resurrect successful evidence.

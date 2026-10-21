@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { Query, CanUseTool, OnElicitation, Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { SDKPackageSchema, BRIDGE_POLICY, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, selectedWrite, selectedWriteIdentity, QuestionInputSchema, RunSchema, SDKPolicyError, SDKDispatchReceipt, querySelection, prepareModels, assertAppliedModel, assertSessionPolicy, credentialRoute, consoleProfile, sdkOutcome } from './policy.ts';
+import { SDKPackageSchema, BRIDGE_POLICY, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, selectedWrite, selectedWriteIdentity, QuestionInputSchema, RunSchema, SDKPolicyError, SDKDispatchReceipt, SDKUsageLedger, querySelection, prepareModels, assertAppliedModel, assertSessionPolicy, credentialRoute, consoleProfile, sdkOutcome } from './policy.ts';
 
 const require = createRequire(import.meta.url);
 const sdkEntry = realpathSync(require.resolve('@anthropic-ai/claude-agent-sdk'));
@@ -205,8 +205,13 @@ async function run(command: z.infer<typeof RunSchema>) {
   const authReady = Promise.withResolvers<boolean>();
   const submissionId = randomUUID();
   const dispatchReceipt = new SDKDispatchReceipt(submissionId, command.request_id);
+  const usageLedger = new SDKUsageLedger();
   async function* onePrompt(): AsyncGenerator<SDKUserMessage> {
-    if (await authReady.promise && !cancelled && !command.inspect_models) yield { type: 'user', uuid: submissionId, session_id: command.resume || '', message: { role: 'user', content: command.prompt }, parent_tool_use_id: null };
+    if (await authReady.promise && !cancelled && !command.inspect_models) {
+      dispatchReceipt.submittedToSDK();
+      usageLedger.submitted(submissionId, command.request_id);
+      yield { type: 'user', uuid: submissionId, session_id: command.resume || '', message: { role: 'user', content: command.prompt }, parent_tool_use_id: null };
+    }
   }
   current = query({ prompt: onePrompt(), options });
   let resultSeen = false;
@@ -226,11 +231,11 @@ async function run(command: z.infer<typeof RunSchema>) {
       return;
     }
     promptReleased = true;
-    dispatchReceipt.arm();
+    // The generator marks actual submission only when the SDK consumes this prompt.
     authReady.resolve(true);
     for await (const message of current) {
       const requestId = dispatchReceipt.observe(message);
-      if (requestId !== undefined) await emit({ type: 'dispatched', ...meta(), request_id: requestId });
+      if (requestId !== undefined) await emit({ type: 'dispatched', ...meta(), request_id: requestId, submission_id: submissionId });
       if (session && 'session_id' in message && message.session_id !== session) throw new Error('SDK message changed session identity');
       if (message.type === 'system' && message.subtype === 'init') {
         assertSessionPolicy(message, cliVersion, tools);
@@ -285,14 +290,14 @@ async function run(command: z.infer<typeof RunSchema>) {
           }), complete: true });
         }
       } else if (message.type === 'result') {
+        if (!session || message.session_id !== session) throw new Error('SDK result lacks the initialized session');
         resultSeen = true;
         if ((message.queued_turn_count ?? 0) !== 0) throw new Error('SDK reports an unexpected queued follow-up; stop without replay');
         for (const [id, item] of streaming) {
           await emit({ type: 'item', ...meta(), session_id: session, item_id: id, kind: 'message', text: item.text, complete: false });
         }
         streaming.clear();
-        await emit({ type: 'usage', ...meta(), session_id: message.session_id, scope: 'query-pipeline cumulative snapshot including restored session; replace, never sum; excludes out-of-pipeline helpers',
-          estimated_cost_usd: message.total_cost_usd, model_usage: message.modelUsage, main_loop_per_turn: message.usage });
+        for (const usage of usageLedger.observe(message)) await emit({ type: 'usage', ...meta(), ...usage });
         const outcome = sdkOutcome(cancelled, message.is_error, message.subtype);
         await emit({ type: 'finished', ...meta(), session_id: message.session_id, outcome,
           message: outcome === 'unknown' ? 'SDK terminal error observed after interrupt; cancellation was requested, not confirmed; prior actions are not rolled back' :
@@ -325,10 +330,10 @@ function fatal(_error: unknown) {
   void emit({ type: 'fatal', ...meta(), message: 'Claude SDK sidecar failed; raw diagnostics withheld; outcome unknown' }).finally(() => { current?.close(); process.exitCode = 1; process.stdin.pause(); }).catch(() => process.exit(1));
 }
 if (process.argv.includes('--inspect')) {
-  await emit({ type: 'capabilities', bridge_revision: 4, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
+  await emit({ type: 'capabilities', bridge_revision: 5, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
     query: typeof query === 'function', approvals: 'canUseTool with exact once/deny answers; no persistent rules', questions: 'AskUserQuestion single-select/free text',
     elicitation: 'distinct onElicitation; MCP disabled so decline/cancel only', resume: 'explicit same-task session ID only',
-    usage: 'latest cumulative query-pipeline snapshot, not additive', confinement: 'agent policy; not OS sandbox', credential_route: credentialRoute(process.env) ?? 'unavailable' });
+    usage: 'UUID-correlated main-loop turn and cumulative model-pipeline snapshots; owned completed baselines retained by host, unobserved resumed baseline unknown', confinement: 'agent policy; not OS sandbox', credential_route: credentialRoute(process.env) ?? 'unavailable' });
 } else {
   let bytes = Buffer.alloc(0);
   process.stdin.on('data', (chunk: Buffer) => {

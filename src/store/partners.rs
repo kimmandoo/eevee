@@ -273,6 +273,9 @@ impl State {
         }
         super::moves::release_partner(&transaction, partner)?;
         transaction
+            .execute("DELETE FROM partner_pairings WHERE partner=?1", [partner])
+            .map_err(|error| error.to_string())?;
+        transaction
             .execute("DELETE FROM partners WHERE id=?1", [partner])
             .map_err(|error| format!("Cannot release the partner: {error}"))?;
         enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
@@ -600,6 +603,7 @@ mod release_tests {
         use sha2::Digest;
         let source = store
             .context(ContextRequest {
+                producer: None,
                 task_id: current.id,
                 operation: ContextOperation::Pin(crate::workspace::context::Excerpt {
                     id: 0,
@@ -726,6 +730,7 @@ mod release_tests {
             reopened
                 .context(ContextRequest {
                     task_id: current.id,
+                    producer: None,
                     operation: ContextOperation::Load
                 })
                 .unwrap(),

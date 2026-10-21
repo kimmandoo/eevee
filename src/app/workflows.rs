@@ -31,18 +31,6 @@ pub enum Field {
     RecipePath,
     Criteria,
 }
-impl Field {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Hypothesis => "Hypothesis / explanation",
-            Self::Contract => "Behavior contract",
-            Self::Finding => "Finding detail",
-            Self::Action => "Actionable recommendation",
-            Self::RecipePath => "Literal recipe path",
-            Self::Criteria => "Decision criteria (one editable item per line)",
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Chooser {
@@ -859,6 +847,12 @@ impl App {
     }
 
     fn workflow_attach(&mut self, chooser: Chooser) -> Result<(), String> {
+        if !self.records_can_switch() {
+            return Err(
+                "Wait for the local record batch to commit before changing specialist facts."
+                    .into(),
+            );
+        }
         if chooser == Chooser::Baseline {
             self.workflow_refresh_baseline_identity();
         }
@@ -894,6 +888,10 @@ impl App {
                     reference,
                     &view,
                 )?;
+                self.record_artifact(
+                    crate::workspace::records::ArtifactKind::Hypothesis,
+                    id.to_string(),
+                );
                 self.changed_task();
             }
             Chooser::Finding => {
@@ -945,6 +943,10 @@ impl App {
                     return Err("Choose a local run".into());
                 };
                 self.workflows.set_post_run(&run_id, &view)?;
+                self.record_artifact(
+                    crate::workspace::records::ArtifactKind::Refactor,
+                    "refactor",
+                );
                 self.workflow.comparison_summary.clear();
                 self.changed_task();
             }
@@ -981,6 +983,10 @@ impl App {
                     });
                 }
                 self.workflows.update_review_evidence(criteria, &view)?;
+                self.record_artifact(
+                    crate::workspace::records::ArtifactKind::Review,
+                    self.workflows.review_generation.to_string(),
+                );
                 self.changed_task();
             }
         }
@@ -990,6 +996,12 @@ impl App {
     }
 
     fn workflow_action(&mut self, action: Action) -> Result<(), String> {
+        if !self.records_can_switch() && !matches!(action, Action::Edit(_)) {
+            return Err(
+                "Wait for the local record batch to commit before changing specialist facts."
+                    .into(),
+            );
+        }
         if self.task_id <= 0 && !matches!(action, Action::Edit(_)) {
             return Err("Create and save a task before recording specialist work.".into());
         }
@@ -1041,6 +1053,10 @@ impl App {
                     .add_hypothesis(&self.workflow.hypothesis_text)?;
                 self.workflow.hypothesis = self.workflows.hypotheses.len().saturating_sub(1);
                 self.workflow.hypothesis_text.clear();
+                let id = self.workflows.hypotheses[self.workflow.hypothesis]
+                    .id
+                    .to_string();
+                self.record_artifact(crate::workspace::records::ArtifactKind::Hypothesis, id);
                 self.workflow.notice =
                     "Hypothesis recorded as an unresolved inference. Attach real observations."
                         .into();
@@ -1098,6 +1114,10 @@ impl App {
                     &self.workflow.baseline,
                     &view,
                 )?;
+                self.record_artifact(
+                    crate::workspace::records::ArtifactKind::Refactor,
+                    "refactor",
+                );
                 self.changed_task();
                 self.workflow.notice =
                     "Bounded contract and baseline recorded. No files changed.".into();
@@ -1205,6 +1225,10 @@ impl App {
                         return Err(format!("Accept blocked: {}", guard.reasons.join("; ")));
                     }
                 }
+                self.record_artifact(
+                    crate::workspace::records::ArtifactKind::Review,
+                    self.workflows.review_generation.to_string(),
+                );
                 self.changed_task();
                 self.workflow.notice = format!(
                     "Recorded {:?}; task completion is a separate explicit action.",
@@ -1515,6 +1539,11 @@ impl App {
     }
 
     pub fn workflow_commit_decision(&mut self) {
+        if !self.records_can_switch() {
+            self.workflow.notice =
+                "Wait for the local record batch to commit before saving the decision.".into();
+            return;
+        }
         if self.workflow.pending_decision.take().is_none() || self.form() != 4 {
             return;
         }
@@ -1526,9 +1555,10 @@ impl App {
         use sha2::{Digest, Sha256};
         let id = format!("decision:{:x}", Sha256::digest(self.next_action.as_bytes()));
         self.workflows.chosen_decision = Some(workflows::ChosenDecision {
-            id,
+            id: id.clone(),
             text: self.next_action.clone(),
         });
+        self.record_artifact(crate::workspace::records::ArtifactKind::Decision, id);
     }
 
     fn workflow_criteria_items(&self) -> Result<Vec<String>, String> {
@@ -1885,7 +1915,7 @@ impl App {
         Ok(())
     }
 
-    pub fn workflow_rows(&self) -> Vec<String> {
+    pub fn workflow_rows(&self, language: crate::i18n::Language) -> Vec<String> {
         if let Some(chooser) = self.workflow.chooser {
             let choices = self.workflow_choices(chooser);
             return if choices.is_empty() {
@@ -1897,72 +1927,97 @@ impl App {
         actions(self.workflow.tab)
             .iter()
             .copied()
-            .map(|(action, label)| match action {
-                Action::Edit(field) => {
-                    format!("{label}: {}", self.workflow.value(field).replace('\n', " "))
-                }
-                Action::NextHypothesis => format!(
-                    "{label} ({}/{})",
-                    if self.workflows.hypotheses.is_empty() {
-                        0
-                    } else {
-                        self.workflow.hypothesis + 1
-                    },
-                    self.workflows.hypotheses.len()
-                ),
-                Action::NextFinding => format!(
-                    "{label} ({}/{})",
-                    if self.workflows.findings.is_empty() {
-                        0
-                    } else {
-                        self.workflow.finding + 1
-                    },
-                    self.workflows.findings.len()
-                ),
-                Action::NextCriterion => format!(
-                    "{label}: {}",
-                    self.criteria
-                        .get(self.workflow.criterion)
-                        .map_or("No criteria", |criterion| &criterion.text)
-                ),
-                Action::Choose(Chooser::Hotspot) => {
-                    format!("{label} ({} selected)", self.workflow.hotspot.len())
-                }
-                Action::Choose(Chooser::Baseline) => format!(
-                    "{label}: {}",
-                    if self.workflow.baseline.is_empty() {
-                        "not selected"
-                    } else {
-                        &self.workflow.baseline
+            .map(|(action, original_label)| {
+                let command_key = crate::command_help::key(action.command());
+                // Shared commands have distinct effects in each specialist tab.
+                let label_key = match (self.workflow.tab, action) {
+                    (Tab::Diagnosis, Action::Diagnostic) => {
+                        Some(crate::i18n::Message::DesksWorkflowsDiagnosisDiagnostic)
                     }
-                ),
-                Action::Fix if self.workflow.tab == Tab::Diagnosis => {
-                    let supported = self
-                        .workflows
-                        .hypotheses
-                        .get(self.workflow.hypothesis)
-                        .is_some_and(|h| {
-                            self.workflow.hypothesis_states.iter().any(|(id, status)| {
-                                *id == h.id && *status == workflows::HypothesisStatus::Supported
-                            })
-                        });
-                    if supported {
-                        label.into()
-                    } else {
-                        format!("{label} [disabled: supported hypothesis required]")
+                    (Tab::Refactor, Action::Diagnostic) => {
+                        Some(crate::i18n::Message::DesksWorkflowsRefactorDiagnostic)
                     }
-                }
-                Action::Fix
-                    if self.workflow.tab == Tab::Review
-                        && !self
+                    (Tab::Diagnosis, Action::Fix) => {
+                        Some(crate::i18n::Message::DesksWorkflowsDiagnosisFix)
+                    }
+                    (Tab::Refactor, Action::Fix) => {
+                        Some(crate::i18n::Message::DesksWorkflowsRefactorFix)
+                    }
+                    (Tab::Review, Action::Fix) => {
+                        Some(crate::i18n::Message::DesksWorkflowsReviewFix)
+                    }
+                    _ => command_key,
+                };
+                let label = label_key
+                    .map(|key| language.text(key))
+                    .unwrap_or(original_label);
+                match action {
+                    Action::Edit(field) => {
+                        format!("{label}: {}", self.workflow.value(field).replace('\n', " "))
+                    }
+                    Action::NextHypothesis => format!(
+                        "{label} ({}/{})",
+                        if self.workflows.hypotheses.is_empty() {
+                            0
+                        } else {
+                            self.workflow.hypothesis + 1
+                        },
+                        self.workflows.hypotheses.len()
+                    ),
+                    Action::NextFinding => format!(
+                        "{label} ({}/{})",
+                        if self.workflows.findings.is_empty() {
+                            0
+                        } else {
+                            self.workflow.finding + 1
+                        },
+                        self.workflows.findings.len()
+                    ),
+                    Action::NextCriterion => format!(
+                        "{label}: {}",
+                        self.criteria
+                            .get(self.workflow.criterion)
+                            .map_or("No criteria", |criterion| &criterion.text)
+                    ),
+                    Action::Choose(Chooser::Hotspot) => {
+                        format!("{label} ({} selected)", self.workflow.hotspot.len())
+                    }
+                    Action::Choose(Chooser::Baseline) => format!(
+                        "{label}: {}",
+                        if self.workflow.baseline.is_empty() {
+                            "not selected"
+                        } else {
+                            &self.workflow.baseline
+                        }
+                    ),
+                    Action::Fix if self.workflow.tab == Tab::Diagnosis => {
+                        let supported = self
                             .workflows
-                            .review
-                            .as_ref()
-                            .is_some_and(|r| r.requested == Verdict::RequestChanges) =>
-                {
-                    format!("{label} [disabled: Request changes verdict required]")
+                            .hypotheses
+                            .get(self.workflow.hypothesis)
+                            .is_some_and(|h| {
+                                self.workflow.hypothesis_states.iter().any(|(id, status)| {
+                                    *id == h.id && *status == workflows::HypothesisStatus::Supported
+                                })
+                            });
+                        if supported {
+                            label.into()
+                        } else {
+                            format!("{label} [disabled: supported hypothesis required]")
+                        }
+                    }
+                    Action::Fix
+                        if self.workflow.tab == Tab::Review
+                            && !self
+                                .workflows
+                                .review
+                                .as_ref()
+                                .is_some_and(|r| r.requested == Verdict::RequestChanges) =>
+                    {
+                        format!("{label} [disabled: Request changes verdict required]")
+                    }
+                    _ => label.into(),
                 }
-                _ => label.into(),
             })
             .collect()
     }

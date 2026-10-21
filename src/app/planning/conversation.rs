@@ -70,7 +70,7 @@ impl State {
                 .zip(previous)
                 .all(|(next, old)| next.role == old.role && Arc::ptr_eq(&next.text, &old.text))
             || messages[messages.len() - 2].role != ConversationRole::User
-            || messages[messages.len() - 2].text != self.submitted_request
+            || messages[messages.len() - 2].text.as_ref() != self.submitted_instruction()
             || messages[messages.len() - 1].role != ConversationRole::Assistant
             || messages[messages.len() - 1].text.is_empty()
         {
@@ -157,7 +157,7 @@ mod tests {
             .map_or_else(Vec::new, |history| history.messages.to_vec());
         messages.push(ConversationMessage {
             role: ConversationRole::User,
-            text: input.task.request_text().into(),
+            text: input.native_instruction().into(),
         });
         messages.push(ConversationMessage {
             role: ConversationRole::Assistant,

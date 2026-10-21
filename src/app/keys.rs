@@ -1,5 +1,6 @@
 //! Key dispatch: event update loop, per-surface keys, quit and confirmation.
 use super::*;
+use crossterm::event::{MouseEvent, MouseEventKind};
 
 impl App {
     /// Returns whether visible state changed. The event loop otherwise stays asleep.
@@ -61,6 +62,7 @@ impl App {
                 self.handoff.invalidate_review();
                 self.sources.invalidate_review();
                 self.moves.invalidate_review();
+                self.records.invalidate_review();
                 true
             }
             Event::Paste(_)
@@ -88,6 +90,9 @@ impl App {
                 self.insert_input(&text)
             }
             Event::Paste(text) if self.overlay == Some(Overlay::Moves) => self.move_paste(&text),
+            Event::Paste(text) if self.overlay == Some(Overlay::Records) => {
+                self.record_paste(&text)
+            }
             Event::Paste(text) if self.overlay == Some(Overlay::Workflows) => {
                 self.workflow_paste(&text)
             }
@@ -116,6 +121,7 @@ impl App {
             {
                 self.insert_input(&text)
             }
+            Event::Mouse(mouse) => self.response_mouse(mouse),
             Event::Key(key) if key.kind != KeyEventKind::Release => {
                 // A notice answers the previous action only; the next key
                 // starts from a clean footer.
@@ -131,6 +137,9 @@ impl App {
             }
             _ => false,
         };
+        if self.input.len() != input_state.0 {
+            self.sources.clear_wire_request();
+        }
         if changed
             && !resized
             && (!command_action || !self.planning.busy())
@@ -148,6 +157,37 @@ impl App {
             self.changed_implicitly(now);
         }
         changed || carry_over_hidden
+    }
+
+    fn response_mouse(&mut self, mouse: MouseEvent) -> bool {
+        if self.width < 60
+            || self.height < 18
+            || self.transitioning
+            || self.reset_after_save
+            || self.quit_after_save
+            || self.confirmation.is_some()
+            || self.command_popup.is_some()
+            || self.nickname_editor.is_some()
+            || self.cooperation_ui.release.is_some()
+            || self.cooperation.cancel_review.is_some()
+            || self.cooperation.journal_discard.is_some()
+            || !matches!(self.overlay, None | Some(Overlay::Planning))
+            || self.overlay.is_none()
+                && (self.composer_menu.is_some()
+                    || self.editing
+                        && matches!(
+                            self.editor_field,
+                            store::EditorField::Criteria | store::EditorField::Command
+                        ))
+        {
+            return false;
+        }
+        let lines = match mouse.kind {
+            MouseEventKind::ScrollUp => -3,
+            MouseEventKind::ScrollDown => 3,
+            _ => return false,
+        };
+        self.planning.response_wheel(mouse.column, mouse.row, lines)
     }
 
     pub(super) fn handoff_key(&mut self, key: KeyEvent) -> bool {
@@ -170,13 +210,18 @@ impl App {
             empty = store::Snapshot::empty(self.cwd.clone());
             &empty
         };
-        self.handoff.key(
+        let generation = self.handoff.ready_generation;
+        let changed = self.handoff.key(
             key,
             self.width >= 60 && self.height >= 18,
             task,
             &self.sources.basket,
             &[],
-        )
+        );
+        if self.handoff.ready_generation != generation {
+            self.record_handoff_ready();
+        }
+        changed
     }
 
     pub(super) fn planning_key(&mut self, key: KeyEvent) -> bool {
@@ -388,13 +433,18 @@ impl App {
             empty = store::Snapshot::empty(self.cwd.clone());
             &empty
         };
-        self.handoff.command(
+        let generation = self.handoff.ready_generation;
+        let changed = self.handoff.command(
             name,
             self.width >= 60 && self.height >= 18,
             task,
             &self.sources.basket,
             &[],
-        )
+        );
+        if self.handoff.ready_generation != generation {
+            self.record_handoff_ready();
+        }
+        changed
     }
 
     pub fn authentication_ready(&self) -> bool {
@@ -842,18 +892,42 @@ impl App {
                 return changed;
             }
             Some(Overlay::Images) => return self.images_key(key),
+            Some(Overlay::Records) => return self.record_key(key),
             _ => {}
         }
         if self.overlay.is_none()
             && self.response_on_home()
-            && (matches!(key.code, KeyCode::PageUp | KeyCode::PageDown)
+            && self.width >= 60
+            && self.height >= 18
+            && self.composer_menu.is_none()
+            && !(self.editing
+                && matches!(
+                    self.editor_field,
+                    store::EditorField::Criteria | store::EditorField::Command
+                ))
+        {
+            if key.modifiers.is_empty() && matches!(key.code, KeyCode::PageUp | KeyCode::PageDown)
                 || key.modifiers == KeyModifiers::ALT
                     && matches!(
                         key.code,
                         KeyCode::Up | KeyCode::Down | KeyCode::End | KeyCode::Home
-                    ))
-        {
-            return self.planning.home_response_key(key.code);
+                    )
+            {
+                return self.planning.home_response_key(key.code);
+            }
+            if !self.editing
+                && self.effective_focus() == Pane::Workspace
+                && key.modifiers.is_empty()
+            {
+                match key.code {
+                    KeyCode::Up => return self.planning.scroll_response_lines(-1),
+                    KeyCode::Down => return self.planning.scroll_response_lines(1),
+                    KeyCode::Home | KeyCode::End => {
+                        return self.planning.home_response_key(key.code);
+                    }
+                    _ => {}
+                }
+            }
         }
         if self.editing {
             return self.edit_key(key);

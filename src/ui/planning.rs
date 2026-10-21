@@ -15,6 +15,7 @@ use crate::{
         planning::{Picker, State},
     },
     config::Config,
+    i18n::{Message, Template},
     providers::{ItemKind, Operation, PromptKind},
 };
 /// Response-only home surface: reuse the cached layout and follow state.
@@ -35,7 +36,13 @@ pub(super) fn render_workspace(
         text(
             frame,
             row(area, 0, 1),
-            &clipped(&format!("Current request: {current}"), area.width as usize),
+            &clipped(
+                &paint.format(
+                    Template::ProvidersPlanningCurrentRequestCurrent,
+                    &[("current", &(current))],
+                ),
+                area.width as usize,
+            ),
             paint.muted,
         );
         row(area, 1, area.height.saturating_sub(1))
@@ -51,13 +58,19 @@ pub(super) fn render_workspace(
             frame,
             row(area, 0, 1),
             &clipped(
-                &format!(
-                    "{}: {request}",
-                    if previous {
-                        "Previous request"
-                    } else {
-                        "Request"
-                    }
+                &paint.format(
+                    Template::ProvidersPlanningRequest2,
+                    &[
+                        (
+                            "label",
+                            (if previous {
+                                paint.hint(Message::ProvidersPlanningPreviousRequest)
+                            } else {
+                                paint.hint(Message::ProvidersPlanningRequest)
+                            }),
+                        ),
+                        ("request", &(request)),
+                    ],
                 ),
                 area.width as usize,
             ),
@@ -69,49 +82,71 @@ pub(super) fn render_workspace(
 }
 
 pub(super) fn render_small(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
+    state.set_response_body(Rect::default());
     if !state.quit_review {
         state.invalidate_review();
     }
     frame.render_widget(Clear, area);
     let value = if state.quit_review {
-        format!(
-            "Exit planning?\n{}\n{}\nTab Choose / Enter / Esc Stay",
-            if state.outcome_unknown() {
-                "UNKNOWN outcome; work may have run.\nEffects not rolled back."
-            } else if state.cancelling {
-                "Waiting for cancellation."
-            } else {
-                "Cancel owned work before exit."
-            },
-            if state.outcome_unknown() {
-                if state.affirmative {
-                    "Stay / [Exit with unknown outcome]"
-                } else {
-                    "[Stay] / Exit with unknown outcome"
-                }
-            } else if state.affirmative {
-                "Stay / [Cancel and exit]"
-            } else {
-                "[Stay] / Cancel and exit"
-            }
+        paint.format(
+            Template::ProvidersPlanningExitPlanningTabChooseEnterEscStay,
+            &[
+                (
+                    "status",
+                    (if state.outcome_unknown() {
+                        paint.hint(Message::ProvidersPlanningUnknownOutcomeWorkMayHaveRunEffects)
+                    } else if state.cancelling {
+                        paint.hint(Message::ProvidersPlanningWaitingForCancellation)
+                    } else {
+                        paint.hint(Message::ProvidersPlanningCancelOwnedWorkBeforeExit)
+                    }),
+                ),
+                (
+                    "choices",
+                    (if state.outcome_unknown() {
+                        if state.affirmative {
+                            paint.hint(Message::ProvidersPlanningStayExitWithUnknownOutcome)
+                        } else {
+                            paint.hint(Message::ProvidersPlanningStayExitWithUnknownOutcome2)
+                        }
+                    } else if state.affirmative {
+                        paint.hint(Message::ProvidersPlanningStayCancelAndExit)
+                    } else {
+                        paint.hint(Message::ProvidersPlanningStayCancelAndExit2)
+                    }),
+                ),
+            ],
         )
     } else {
-        "Planning: terminal too small\nNeed 60 columns x 18 rows.\nNo run or approval available.\nEsc Cancel / Ctrl+C Safe exit\nCancellation waits for acknowledgement.".into()
+        paint
+            .hint(Message::ProvidersPlanningPlanningTerminalTooSmallNeed60Columns)
+            .into()
     };
     text(frame, area, &value, paint.accent);
 }
 
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
+    app.planning.set_response_body(Rect::default());
     let approval_header = app.approval_position().map(|(position, total)| {
-        format!(
-            "{position} of {total} · {}",
-            crate::store::Attribution::label(app.planning.owner()),
+        paint.format(
+            Template::ProvidersPlanningPositionOfTotal,
+            &[
+                ("position", &(position).to_string()),
+                ("total", &(total).to_string()),
+                (
+                    "owner",
+                    &(crate::store::Attribution::label(app.planning.owner())),
+                ),
+            ],
         )
     });
     let editing = app.write_owner().map(|claim| {
-        format!(
-            "{} is editing",
-            crate::store::Attribution::label(Some(&claim.owner))
+        paint.format(
+            Template::ProvidersPlanningIsEditing,
+            &[(
+                "owner",
+                &(crate::store::Attribution::label(Some(&claim.owner))),
+            )],
         )
     });
     let state = &app.planning;
@@ -154,9 +189,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         format!(
             " {} / {} ",
             if state.picker == Some(Picker::Model) {
-                "Model"
+                paint.hint(Message::ProvidersPlanningModel)
             } else {
-                "Reasoning level"
+                paint.hint(Message::ProvidersPlanningReasoningLevel)
             },
             state.agent.label()
         )
@@ -170,9 +205,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             },
             state.agent.label(),
             match state.operation {
-                Operation::Plan => "planning",
-                Operation::Implement => "implementation",
-                Operation::Review => "independent review",
+                Operation::Plan => paint.hint(Message::ProvidersPlanningPlanning),
+                Operation::Implement => paint.hint(Message::ProvidersPlanningImplementation),
+                Operation::Review => paint.hint(Message::ProvidersPlanningIndependentReview),
             },
         )
     };
@@ -209,13 +244,13 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         return;
     }
     let header = if state.preview.is_some() {
-        "LOCAL PREVIEW / no provider connection authorized"
+        paint.hint(Message::ProvidersPlanningLocalPreviewNoProviderConnectionAuthorized)
     } else if state.request.is_some() {
-        "PROVIDER REQUEST / explicit response required"
+        paint.hint(Message::ProvidersPlanningProviderRequestExplicitResponseRequired)
     } else if state.cancelling {
-        "CANCELLING / waiting; outcome not yet known"
+        paint.hint(Message::ProvidersPlanningCancellingWaitingOutcomeNotYetKnown)
     } else {
-        "SESSION METADATA / not a selectable decision or model result"
+        paint.hint(Message::ProvidersPlanningSessionMetadataNotASelectableDecisionOr)
     };
     let header = approval_header.as_deref().unwrap_or(header);
     text(
@@ -225,10 +260,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         paint.accent,
     );
     if is_review && !state.review_details {
-        let mut summary = review_summary(state);
+        let mut summary = review_summary(state, paint);
         if state.preview.is_some() && !state.inspect_models && !state.inspect_sessions {
             let request = state.immutable_task().map_or(
-                "Immutable request unavailable; inspect exact payload Details.",
+                paint.hint(
+                    Message::ProvidersPlanningImmutableRequestUnavailableInspectExactPayloadDetails,
+                ),
                 |task| task.request_text(),
             );
             summary.insert(1, format!("Request: {request}"));
@@ -279,9 +316,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             let _ = writeln!(value, "{line}");
         }
         value.push_str(if state.agent.is_direct() {
-            "\nEevee sends the exact HTTP payload below with scoped credential headers. No agent executable, local tools, project hooks/MCP, implicit source reads or automatic edits are exposed. The service owns authentication, usage charges, retention and internal behavior. Cancellation closes the client operation, not a guaranteed remote stop. No automatic retry.\n"
+            paint.hint(Message::ProvidersPlanningEeveeSendsTheExactHttpPayloadBelow)
         } else {
-            "\nEevee sends the exact payload below. It is NOT the complete effective provider prompt: provider configuration, instructions, tools/MCP, hooks and resumed history may add context or effects. Provider owns authentication, usage charges and retained thread history. Read-only policy is agent-controlled, not proof of OS isolation. No always-allow grant or automatic replay.\n"
+            paint.hint(Message::ProvidersPlanningEeveeSendsTheExactPayloadBelowIt)
         });
         value.push('\n');
         for line in &state.receipt {
@@ -295,16 +332,17 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         value.push_str("\nEXACT OUTGOING PAYLOAD END\n\nEND OF REVIEW. ");
         value.push_str(if state.agent.is_direct() {
             if state.inspect_models {
-                "Run authorizes scoped HTTP model metadata inspection only; no inference. Stay sends nothing.\n"
+                paint.hint(Message::ProvidersPlanningRunAuthorizesScopedHttpModelMetadataInspection)
             } else {
-                "Run authorizes this exact HTTP request and scoped credential use once. Stay sends nothing.\n"
+                paint.hint(Message::ProvidersPlanningRunAuthorizesThisExactHttpRequestAnd)
             }
         } else if state.inspect_models {
-            "Run authorizes only the disclosed executable/provider model inspection. No model turn or session resume is authorized. Stay sends nothing.\n"
+            paint.hint(Message::ProvidersPlanningRunAuthorizesOnlyTheDisclosedExecutableProvider)
         } else if state.inspect_sessions {
-            "Run authorizes executable connection and session metadata inspection only, not a model turn. Stay sends nothing.\n"
+            paint
+                .hint(Message::ProvidersPlanningRunAuthorizesExecutableConnectionAndSessionMetadata)
         } else {
-            "Run authorizes this executable and one turn under the selected role and scope only. Stay sends nothing.\n"
+            paint.hint(Message::ProvidersPlanningRunAuthorizesThisExecutableAndOneTurn)
         });
         review = true;
     } else if let Some(request) = &state.request {
@@ -324,7 +362,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                         option.description
                     );
                 }
-                value.push_str("\nEND OF REQUEST. Grants apply once only to this request, not the next provider.");
+                value.push_str(
+                    paint.hint(Message::ProvidersPlanningEndOfRequestGrantsApplyOnceOnly),
+                );
                 review = true;
             }
             PromptKind::Approval {
@@ -336,10 +376,16 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             } => {
                 let _ = writeln!(
                     value,
-                    "COMMAND APPROVAL\nCommand: {command}\nWorking directory: {cwd}\nReason: {reason}\n\nAllow once applies ONLY to this server request. The provider policy and callback coverage are not OS isolation. Edit boundaries depend on the reviewed adapter/operation; never approve a command you do not understand.\n\nEND OF REQUEST."
+                    "{}",
+                    paint.format(
+                        Template::ProvidersPlanningCommandApprovalCommandCommandWorkingDirectoryCwd,
+                        &[("command", (command)), ("cwd", (cwd)), ("reason", (reason))]
+                    )
                 );
                 if deny_decision == "cancel" {
-                    value.push_str("\nDeny (cancel turn): the provider offers cancellation, not a continue-after-denial option.\n");
+                    value.push_str(paint.hint(
+                        Message::ProvidersPlanningDenyCancelTurnTheProviderOffersCancellation,
+                    ));
                 }
                 review = true;
             }
@@ -352,27 +398,36 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                         question.header,
                         question.question,
                         if question.secret {
-                            "[secret answer hidden]"
+                            paint.hint(Message::ProvidersPlanningSecretAnswerHidden)
                         } else {
                             &answer.text
                         }
                     );
                 }
-                value.push_str("\nEND OF ANSWERS. Send responds only to the current request.\n");
+                value
+                    .push_str(paint.hint(Message::ProvidersPlanningEndOfAnswersSendRespondsOnlyTo));
                 review = true;
             }
             PromptKind::Questions(questions) => {
                 if let Some(question) = questions.get(state.question) {
                     let _ = writeln!(
                         value,
-                        "{} asks · QUESTION {}/{} / {}\n{}\n",
-                        crate::workspace::handoff::sanitize(&crate::store::Attribution::label(
-                            state.owner()
-                        )),
-                        state.question + 1,
-                        questions.len(),
-                        question.header,
-                        question.question
+                        "{}",
+                        paint.format(
+                            Template::ProvidersPlanningAsksQuestion,
+                            &[
+                                (
+                                    "owner",
+                                    &(crate::workspace::handoff::sanitize(
+                                        &crate::store::Attribution::label(state.owner())
+                                    ))
+                                ),
+                                ("index", &(state.question + 1).to_string()),
+                                ("count", &(questions.len()).to_string()),
+                                ("header", &(question.header)),
+                                ("question", &(question.question))
+                            ]
+                        )
                     );
                     for (index, option) in question.options.iter().enumerate() {
                         let _ = writeln!(
@@ -386,23 +441,35 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     if question.other || question.options.is_empty() {
                         let _ = writeln!(
                             value,
-                            "{} Type literal answer",
-                            if state.option == question.options.len() {
-                                ">"
-                            } else {
-                                " "
-                            }
+                            "{}",
+                            paint.format(
+                                Template::ProvidersPlanningTypeLiteralAnswer,
+                                &[(
+                                    "marker",
+                                    (if state.option == question.options.len() {
+                                        ">"
+                                    } else {
+                                        " "
+                                    })
+                                )]
+                            )
                         );
                     }
                     if let Some(answer) = state.answers.get(state.question) {
                         let _ = writeln!(
                             value,
-                            "\nDraft answer (not sent): {}",
-                            if question.secret && !answer.text.is_empty() {
-                                "[hidden]"
-                            } else {
-                                &answer.text
-                            }
+                            "{}",
+                            paint.format(
+                                Template::ProvidersPlanningDraftAnswerNotSent,
+                                &[(
+                                    "answer",
+                                    (if question.secret && !answer.text.is_empty() {
+                                        paint.hint(Message::ProvidersPlanningHidden)
+                                    } else {
+                                        &answer.text
+                                    })
+                                )]
+                            )
                         );
                     }
                 }
@@ -466,7 +533,7 @@ pub(super) fn render_summary(
     area.width >= 40 && area.height as usize >= lines.len()
 }
 
-fn review_summary(state: &State) -> Vec<String> {
+fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
     if let Some(preview) = &state.preview {
         if state.agent.is_direct() {
             return vec![
@@ -477,11 +544,13 @@ fn review_summary(state: &State) -> Vec<String> {
                     state.reviewed_selection().summary()
                 ),
                 if state.inspect_models {
-                    "Scope: model metadata only; no task prompt.".into()
+                    paint
+                        .hint(Message::ProvidersPlanningScopeModelMetadataOnlyNoTaskPrompt)
+                        .into()
                 } else {
-                    format!(
-                        "Send {} payload bytes · fresh HTTP request.",
-                        preview.payload.len()
+                    paint.format(
+                        Template::ProvidersPlanningSendPayloadBytesFreshHttpRequest,
+                        &[("bytes", &(preview.payload.len()).to_string())],
                     )
                 },
                 format!(
@@ -492,16 +561,29 @@ fn review_summary(state: &State) -> Vec<String> {
                         .unwrap_or("unavailable; inspect blocker")
                 ),
                 if state.operation == Operation::Implement {
-                    "Proposal only; no tools, commands or file writes.".into()
+                    paint
+                        .hint(Message::ProvidersPlanningProposalOnlyNoToolsCommandsOrFile)
+                        .into()
                 } else {
-                    "Text response only; no tools or local writes.".into()
+                    paint
+                        .hint(Message::ProvidersPlanningTextResponseOnlyNoToolsOrLocal)
+                        .into()
                 },
-                "Scoped credential headers; provider network/billing.".into(),
-                "No retries; local cancel cannot prove remote stop.".into(),
+                paint
+                    .hint(Message::ProvidersPlanningScopedCredentialHeadersProviderNetworkBilling)
+                    .into(),
+                paint
+                    .hint(Message::ProvidersPlanningNoRetriesLocalCancelCannotProveRemote)
+                    .into(),
                 if preview.blockers.is_empty() {
-                    "d Details: exact payload, endpoint and credentials source.".into()
+                    paint
+                        .hint(Message::ProvidersPlanningDDetailsExactPayloadEndpointAndCredentials)
+                        .into()
                 } else {
-                    format!("BLOCKED: {} (d for full remedy)", preview.blockers[0])
+                    paint.format(
+                        Template::ProvidersPlanningBlockedDForFullRemedy,
+                        &[("reason", &(preview.blockers[0]))],
+                    )
                 },
             ];
         }
@@ -513,35 +595,57 @@ fn review_summary(state: &State) -> Vec<String> {
                 state.reviewed_selection().summary()
             ),
             if state.inspect_models {
-                "Scope: model catalogue only; no task/model turn.".into()
+                paint
+                    .hint(Message::ProvidersPlanningScopeModelCatalogueOnlyNoTaskModel)
+                    .into()
             } else if state.inspect_sessions {
-                "Scope: session metadata only; no model turn.".into()
+                paint
+                    .hint(Message::ProvidersPlanningScopeSessionMetadataOnlyNoModelTurn)
+                    .into()
             } else {
-                format!(
-                    "Send {} payload bytes · {} thread · one turn.",
-                    preview.payload.len(),
-                    if preview.thread_id.is_some() {
-                        "resumed"
-                    } else {
-                        "new"
-                    }
+                paint.format(
+                    Template::ProvidersPlanningSendPayloadBytesThreadOneTurn,
+                    &[
+                        ("bytes", &(preview.payload.len()).to_string()),
+                        (
+                            "thread",
+                            (if preview.thread_id.is_some() {
+                                paint.hint(Message::ProvidersPlanningResumed)
+                            } else {
+                                paint.hint(Message::ProvidersPlanningNew)
+                            }),
+                        ),
+                    ],
                 )
             },
             if state.operation == Operation::Implement {
-                format!(
-                    "Writes: {} selected paths; inspect exact scope (d).",
-                    state.edit_paths.len()
+                paint.format(
+                    Template::ProvidersPlanningWritesSelectedPathsInspectExactScopeD,
+                    &[("count", &(state.edit_paths.len()).to_string())],
                 )
             } else {
-                "No source-write grant; agent policy, not OS isolation.".into()
+                paint
+                    .hint(Message::ProvidersPlanningNoSourceWriteGrantAgentPolicyNot)
+                    .into()
             },
-            "Launch provider; network, charges and retained history.".into(),
-            "Config, hooks, tools and history may add effects.".into(),
-            "Trust executable/config; no automatic future approval.".into(),
+            paint
+                .hint(Message::ProvidersPlanningLaunchProviderNetworkChargesAndRetainedHistory)
+                .into(),
+            paint
+                .hint(Message::ProvidersPlanningConfigHooksToolsAndHistoryMayAdd)
+                .into(),
+            paint
+                .hint(Message::ProvidersPlanningTrustExecutableConfigNoAutomaticFutureApproval)
+                .into(),
             if preview.blockers.is_empty() {
-                "d Details: exact payload, executable, scope and risks.".into()
+                paint
+                    .hint(Message::ProvidersPlanningDDetailsExactPayloadExecutableScopeAnd)
+                    .into()
             } else {
-                format!("BLOCKED: {} (d for all prerequisites)", preview.blockers[0])
+                paint.format(
+                    Template::ProvidersPlanningBlockedDForAllPrerequisites,
+                    &[("reason", &(preview.blockers[0]))],
+                )
             },
         ];
     }
@@ -549,26 +653,44 @@ fn review_summary(state: &State) -> Vec<String> {
         return Vec::new();
     };
     let who = crate::workspace::handoff::sanitize(&crate::store::Attribution::label(state.owner()));
-    let mut lines = vec![format!(
-        "{who} asks · {} · this provider request only",
-        state.agent.label()
+    let mut lines = vec![paint.format(
+        Template::ProvidersPlanningWhoAsksThisProviderRequestOnly,
+        &[("owner", &(who)), ("provider", (state.agent.label()))],
     )];
     match &request.kind {
         PromptKind::Permission {
             description,
             options,
         } => {
-            lines.push(format!("{who} wants permission: {description}"));
+            lines.push(paint.format(
+                Template::ProvidersPlanningWhoWantsPermissionDescription,
+                &[("owner", &(who)), ("description", (description))],
+            ));
             if let Some(option) = options.get(state.option) {
                 lines.push(format!("Selected: {}", option.label));
                 lines.push(format!("Effect: {}", option.description));
             }
             if options.len() == 2 {
-                lines.push(format!("a Allow once: {}", options[1].description));
+                lines.push(paint.format(
+                    Template::ProvidersPlanningAAllowOnce,
+                    &[("description", &(options[1].description))],
+                ));
             }
-            lines.push("One request only; no future/other-provider grants.".into());
-            lines.push("Provider policy is not OS isolation.".into());
-            lines.push("d Details: complete request and exact options.".into());
+            lines.push(
+                paint
+                    .hint(Message::ProvidersPlanningOneRequestOnlyNoFutureOtherProvider)
+                    .into(),
+            );
+            lines.push(
+                paint
+                    .hint(Message::ProvidersPlanningProviderPolicyIsNotOsIsolation)
+                    .into(),
+            );
+            lines.push(
+                paint
+                    .hint(Message::ProvidersPlanningDDetailsCompleteRequestAndExactOptions)
+                    .into(),
+            );
         }
         PromptKind::Approval {
             command,
@@ -577,29 +699,59 @@ fn review_summary(state: &State) -> Vec<String> {
             deny_decision,
             ..
         } => {
-            lines.push(format!("{who} wants to run: {command}"));
+            lines.push(paint.format(
+                Template::ProvidersPlanningWhoWantsToRunCommand,
+                &[("owner", &(who)), ("command", (command))],
+            ));
             lines.push(format!("Directory: {cwd}"));
             lines.push(format!("Reason: {reason}"));
-            lines.push("Allow once: this command; effects are not rolled back.".into());
+            lines.push(
+                paint
+                    .hint(Message::ProvidersPlanningAllowOnceThisCommandEffectsAreNot)
+                    .into(),
+            );
             lines.push(if deny_decision == "cancel" {
-                "Deny cancels this turn; no continuing denial offered.".into()
+                paint
+                    .hint(Message::ProvidersPlanningDenyCancelsThisTurnNoContinuingDenial)
+                    .into()
             } else {
-                "Provider policy/callbacks are not OS isolation.".into()
+                paint
+                    .hint(Message::ProvidersPlanningProviderPolicyCallbacksAreNotOsIsolation)
+                    .into()
             });
-            lines.push("d Details: exact command, cwd and full reason.".into());
+            lines.push(
+                paint
+                    .hint(Message::ProvidersPlanningDDetailsExactCommandCwdAndFull)
+                    .into(),
+            );
         }
         PromptKind::Questions(questions) => {
-            lines.push(format!(
-                "Send {} literal answers to this provider request.",
-                state.answers.len()
+            lines.push(paint.format(
+                Template::ProvidersPlanningSendLiteralAnswersToThisProviderRequest,
+                &[("count", &(state.answers.len()).to_string())],
             ));
-            lines.push(format!(
-                "{} secret answers hidden in review.",
-                questions.iter().filter(|question| question.secret).count()
+            lines.push(paint.format(
+                Template::ProvidersPlanningSecretAnswersHiddenInReview,
+                &[(
+                    "count",
+                    &(questions.iter().filter(|question| question.secret).count()).to_string(),
+                )],
             ));
-            lines.push("Answers may enter retained provider history.".into());
-            lines.push("No permission or future request is approved.".into());
-            lines.push("d Details: inspect every question and answer.".into());
+            lines.push(
+                paint
+                    .hint(Message::ProvidersPlanningAnswersMayEnterRetainedProviderHistory)
+                    .into(),
+            );
+            lines.push(
+                paint
+                    .hint(Message::ProvidersPlanningNoPermissionOrFutureRequestIsApproved)
+                    .into(),
+            );
+            lines.push(
+                paint
+                    .hint(Message::ProvidersPlanningDDetailsInspectEveryQuestionAndAnswer)
+                    .into(),
+            );
         }
     }
     lines
@@ -607,9 +759,9 @@ fn review_summary(state: &State) -> Vec<String> {
 
 fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) {
     let controls = if state.review_details {
-        "d Summary / PgUp/Dn Details / Esc Cancel\nReturn to summary to choose; no approval in Details."
+        paint.hint(Message::ProvidersPlanningDSummaryPgupDnDetailsEscCancel)
     } else {
-        controls(state)
+        controls(state, paint)
     };
     text(
         frame,
@@ -627,20 +779,24 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     let metadata = if let Some(item) = state.items.get(state.selected) {
         let mut metadata = format!(
             "{}{} {}/{} · {} · unverified",
-            if previous { "Previous " } else { "" },
+            if previous {
+                paint.hint(Message::ProvidersPlanningPrevious)
+            } else {
+                ""
+            },
             match item.kind {
-                ItemKind::Message => "Response",
-                ItemKind::Plan => "Plan",
-                ItemKind::Tool => "Tool output",
+                ItemKind::Message => paint.hint(Message::ProvidersPlanningResponse),
+                ItemKind::Plan => paint.hint(Message::ProvidersPlanningPlan),
+                ItemKind::Tool => paint.hint(Message::ProvidersPlanningToolOutput),
             },
             state.selected + 1,
             state.items.len(),
             if item.complete {
-                "complete"
+                paint.hint(Message::ProvidersPlanningComplete)
             } else if active && !previous && !state.cancelling {
-                "streaming"
+                paint.hint(Message::ProvidersPlanningStreaming)
             } else {
-                "partial"
+                paint.hint(Message::ProvidersPlanningPartial)
             },
         );
         if !previous && let Some(model) = state.observed_model.as_deref() {
@@ -648,9 +804,13 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         }
         metadata
     } else if state.outcome_unknown() {
-        "No response · outcome unknown".into()
+        paint
+            .hint(Message::ProvidersPlanningNoResponseOutcomeUnknown)
+            .into()
     } else {
-        "Response · no output yet".into()
+        paint
+            .hint(Message::ProvidersPlanningResponseNoOutputYet)
+            .into()
     };
     text(
         frame,
@@ -661,15 +821,17 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     let show_notice = !active && !state.notice.is_empty();
     let show_follow = !state.items.is_empty();
     let show_evidence = super::VERBOSE.get() && show_follow;
-    let footer_rows = u16::from(show_notice) + u16::from(show_follow) + u16::from(show_evidence);
+    let footer_rows =
+        u16::from(show_notice) + 2 * u16::from(show_follow) + u16::from(show_evidence);
     let body = row(area, 1, area.height.saturating_sub(1 + footer_rows));
+    state.set_response_body(body);
     if state.items.is_empty() {
         let empty = if active {
-            "You can keep editing your next request below."
+            paint.hint(Message::ProvidersPlanningYouCanKeepEditingYourNextRequest)
         } else if state.operation == Operation::Review {
-            "Enter sends an independent review request. No source writes or resumed implementation history."
+            paint.hint(Message::ProvidersPlanningEnterSendsAnIndependentReviewRequestNo)
         } else {
-            "Type a request below. Enter sends; commands and file changes require separate approval."
+            paint.hint(Message::ProvidersPlanningTypeARequestBelowEnterSendsCommands)
         };
         frame.render_widget(
             Paragraph::new(empty)
@@ -695,14 +857,33 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         footer_y += 1;
     }
     if show_follow {
-        let follow = if state.new_output {
-            "New output · Alt+End: latest"
-        } else if state.following {
-            "Following"
-        } else {
-            "Paused · Alt+End: latest"
-        };
-        let navigation = format!("{follow} · PgUp/Dn scroll · Alt+↑↓ items");
+        let (start, end, total) = state.response_position();
+        let navigation = paint.format(
+            Template::ProvidersPlanningStartEndTotalAltEndLatest,
+            &[
+                (
+                    "status",
+                    (if !state.following {
+                        paint.hint(Message::ProvidersPlanningPaused)
+                    } else if state.new_output {
+                        paint.hint(Message::ProvidersPlanningNewOutput)
+                    } else {
+                        paint.hint(Message::ProvidersPlanningFollowing)
+                    }),
+                ),
+                (
+                    "new",
+                    (if state.new_output && !state.following {
+                        paint.hint(Message::ProvidersPlanningNew2)
+                    } else {
+                        ""
+                    }),
+                ),
+                ("start", &(start).to_string()),
+                ("end", &(end).to_string()),
+                ("total", &(total).to_string()),
+            ],
+        );
         text(
             frame,
             row(area, footer_y, 1),
@@ -710,15 +891,27 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             paint.accent,
         );
         footer_y += 1;
+        text(
+            frame,
+            row(area, footer_y, 1),
+            &clipped(
+                paint.hint(Message::ProvidersPlanningWheelPgupDnAltUpDownItem),
+                area.width as usize,
+            ),
+            paint.muted,
+        );
+        footer_y += 1;
     }
     if show_evidence {
         let evidence = if state.omitted > 0 {
-            format!(
-                "{} earlier items omitted · /decision reviews a complete proposal",
-                state.omitted
+            paint.format(
+                Template::ProvidersPlanningEarlierItemsOmittedDecisionReviewsAComplete,
+                &[("count", &(state.omitted).to_string())],
             )
         } else {
-            "/decision reviews a complete proposal locally".into()
+            paint
+                .hint(Message::ProvidersPlanningDecisionReviewsACompleteProposalLocally)
+                .into()
         };
         text(
             frame,
@@ -729,56 +922,56 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     }
 }
 
-fn controls(state: &State) -> &'static str {
+fn controls(state: &State, paint: &Paint) -> &'static str {
     if let Some(preview) = &state.preview {
         return if !preview.blockers.is_empty() {
-            "Run blocked / n Cancel / Esc Cancel\n d Details: prerequisites / no connection"
+            paint.hint(Message::ProvidersPlanningRunBlockedNCancelEscCancelD)
         } else if !state.reviewed {
-            "[Cancel] / Run unavailable until summary is visible\nResize / Esc Cancel"
+            paint.hint(Message::ProvidersPlanningCancelRunUnavailableUntilSummaryIsVisible)
         } else if state.affirmative {
-            "Cancel / [Run once] · y Run / n Cancel\nTab Choose / Enter Confirm / d Details / Esc Cancel"
+            paint.hint(Message::ProvidersPlanningCancelRunOnceYRunNCancel)
         } else {
-            "[Cancel] / Run once · y Run / n Cancel\nTab Choose / Enter Cancel / d Details / Esc Cancel"
+            paint.hint(Message::ProvidersPlanningCancelRunOnceYRunNCancel2)
         };
     }
     if let Some(request) = &state.request {
         return match &request.kind {
             PromptKind::Permission { .. } => {
                 if !state.reviewed {
-                    "[Deny] / Allow unavailable until summary is visible\nResize / Enter Deny / Esc Cancel"
+                    paint.hint(Message::ProvidersPlanningDenyAllowUnavailableUntilSummaryIsVisible)
                 } else {
-                    "a Allow once / n Deny / y Send selected / d Details\nTab Choose / Enter Send selected / Esc Cancel"
+                    paint.hint(Message::ProvidersPlanningAAllowOnceNDenyYSend)
                 }
             }
             PromptKind::Approval { allow_once, .. } => {
                 if !allow_once {
-                    "[Deny] / Allow unavailable\nn or Enter Deny / d Details / Esc Cancel"
+                    paint.hint(Message::ProvidersPlanningDenyAllowUnavailableNOrEnterDeny)
                 } else if !state.reviewed {
-                    "[Deny] / Allow unavailable until summary is visible\nResize / Enter Deny / Esc Cancel"
+                    paint.hint(Message::ProvidersPlanningDenyAllowUnavailableUntilSummaryIsVisible)
                 } else if state.affirmative {
-                    "Deny / [Allow once] · a/y Allow / n Deny\nTab Choose / Enter Send / d Details / Esc Cancel"
+                    paint.hint(Message::ProvidersPlanningDenyAllowOnceAYAllowN)
                 } else {
-                    "[Deny] / Allow once · a/y Allow / n Deny\nTab Choose / Enter Deny / d Details / Esc Cancel"
+                    paint.hint(Message::ProvidersPlanningDenyAllowOnceAYAllowN2)
                 }
             }
             PromptKind::Questions(_) if state.submit_review => {
                 if !state.reviewed {
-                    "[Edit answers] / Send needs visible summary\nResize / Esc Cancel"
+                    paint.hint(Message::ProvidersPlanningEditAnswersSendNeedsVisibleSummaryResize)
                 } else if state.affirmative {
-                    "Edit answers / [Send answers] · y Send / n Edit\nTab Choose / Enter Send / d Details / Esc Cancel"
+                    paint.hint(Message::ProvidersPlanningEditAnswersSendAnswersYSendN)
                 } else {
-                    "[Edit answers] / Send answers · y Send / n Edit\nTab Choose / Enter Edit / d Details / Esc Cancel"
+                    paint.hint(Message::ProvidersPlanningEditAnswersSendAnswersYSendN2)
                 }
             }
             PromptKind::Questions(_) => {
-                "Up/Down Option / Enter Choose / /answer Type\nTab Question / /answers-review Review send / Esc Defer"
+                paint.hint(Message::ProvidersPlanningUpDownOptionEnterChooseAnswerType)
             }
         };
     }
     if state.busy() {
-        "PgUp/Dn Scroll session metadata\nEsc Cancel / /quit Safe exit"
+        paint.hint(Message::ProvidersPlanningPgupDnScrollSessionMetadataEscCancel)
     } else {
-        "PgUp/Dn Scroll session metadata / Esc Messages\n/session-new /session-resume /provider /history"
+        paint.hint(Message::ProvidersPlanningPgupDnScrollSessionMetadataEscMessages)
     }
 }
 
@@ -788,17 +981,37 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         let summary = vec![
             format!(
                 "Model: {} → {}",
-                state.selection.model.as_deref().unwrap_or("Default"),
-                selection.model.as_deref().unwrap_or("Default")
+                state
+                    .selection
+                    .model
+                    .as_deref()
+                    .unwrap_or(paint.hint(Message::ProvidersPlanningDefault)),
+                selection
+                    .model
+                    .as_deref()
+                    .unwrap_or(paint.hint(Message::ProvidersPlanningDefault))
             ),
             format!(
                 "Reasoning: {} → {}",
-                state.selection.effort.as_deref().unwrap_or("Default"),
-                selection.effort.as_deref().unwrap_or("Default")
+                state
+                    .selection
+                    .effort
+                    .as_deref()
+                    .unwrap_or(paint.hint(Message::ProvidersPlanningDefault)),
+                selection
+                    .effort
+                    .as_deref()
+                    .unwrap_or(paint.hint(Message::ProvidersPlanningDefault))
             ),
-            "New session clears this role's local resume selection.".into(),
-            "Provider history is not erased; no network starts.".into(),
-            "Keep preserves the current model and owned session.".into(),
+            paint
+                .hint(Message::ProvidersPlanningNewSessionClearsThisRoleSLocal)
+                .into(),
+            paint
+                .hint(Message::ProvidersPlanningProviderHistoryIsNotErasedNoNetwork)
+                .into(),
+            paint
+                .hint(Message::ProvidersPlanningKeepPreservesTheCurrentModelAndOwned)
+                .into(),
         ];
         state.reviewed = render_summary(
             frame,
@@ -810,27 +1023,41 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             frame,
             row(area, area.height.saturating_sub(3), 3),
             if state.affirmative {
-                "Keep current / [New session] · y New / n Keep\nTab Choose / Enter Confirm / Esc Back"
+                paint.hint(Message::ProvidersPlanningKeepCurrentNewSessionYNewN)
             } else {
-                "[Keep current] / New session · y New / n Keep\nTab Choose / Enter Keep / Esc Back"
+                paint.hint(Message::ProvidersPlanningKeepCurrentNewSessionYNewN2)
             },
             paint.accent,
         );
         return;
     }
-    let current_model = state.selection.model.as_deref().unwrap_or("Default");
-    let current_effort = state.selection.effort.as_deref().unwrap_or("Default");
+    let current_model = state
+        .selection
+        .model
+        .as_deref()
+        .unwrap_or(paint.hint(Message::ProvidersPlanningDefault));
+    let current_effort = state
+        .selection
+        .effort
+        .as_deref()
+        .unwrap_or(paint.hint(Message::ProvidersPlanningDefault));
     let model = state.picker == Some(Picker::Model);
     let header = if model {
-        format!("Model · {} matches", state.picker_matches())
+        paint.format(
+            Template::ProvidersPlanningModelMatches,
+            &[("count", &(state.picker_matches()).to_string())],
+        )
     } else {
-        format!(
-            "Reasoning · {}",
-            state
-                .picker_selection()
-                .model
-                .as_deref()
-                .unwrap_or("Default")
+        paint.format(
+            Template::ProvidersPlanningReasoning,
+            &[(
+                "model",
+                (state
+                    .picker_selection()
+                    .model
+                    .as_deref()
+                    .unwrap_or(paint.hint(Message::ProvidersPlanningDefault))),
+            )],
         )
     };
     text(
@@ -844,10 +1071,12 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         frame,
         row(area, 1, 1),
         &clipped(
-            &format!(
-                "Current: {} / {}",
-                clipped(current_model, model_width),
-                current_effort
+            &paint.format(
+                Template::ProvidersPlanningCurrent,
+                &[
+                    ("model", &(clipped(current_model, model_width))),
+                    ("effort", (current_effort)),
+                ],
             ),
             area.width as usize,
         ),
@@ -861,9 +1090,26 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         let candidate = state.picker_selection();
         let _ = writeln!(
             value,
-            "Candidate: {} / {}\nDefault uses provider configuration.",
-            candidate.model.as_deref().unwrap_or("Default"),
-            candidate.effort.as_deref().unwrap_or("Default")
+            "{}",
+            paint.format(
+                Template::ProvidersPlanningCandidateDefaultUsesProviderConfiguration,
+                &[
+                    (
+                        "model",
+                        (candidate
+                            .model
+                            .as_deref()
+                            .unwrap_or(paint.hint(Message::ProvidersPlanningDefault)))
+                    ),
+                    (
+                        "effort",
+                        (candidate
+                            .effort
+                            .as_deref()
+                            .unwrap_or(paint.hint(Message::ProvidersPlanningDefault)))
+                    )
+                ]
+            )
         );
         if let Some(choice) = state.picker_choice(state.picker_selected)
             && let Some(reason) = choice.reason
@@ -884,7 +1130,7 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         if let Some(reason) = state.catalogue_error() {
             let _ = writeln!(value, "\nFetch error: {reason}");
         }
-        value.push_str("\nCatalogue entries and custom IDs are not access grants. Refresh fetches metadata only; risky connections still require review.");
+        value.push_str(paint.hint(Message::ProvidersPlanningCatalogueEntriesAndCustomIdsAreNot));
         state.scroll_max = selection_details(
             frame,
             row(area, 2, area.height.saturating_sub(3)),
@@ -897,7 +1143,7 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         text(
             frame,
             row(area, area.height.saturating_sub(1), 1),
-            "↑↓ PgUp/Dn Scroll · Ctrl+D / Esc Back",
+            paint.hint(Message::ProvidersPlanningPgupDnScrollCtrlDEscBack),
             paint.accent,
         );
         return;
@@ -906,15 +1152,20 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         frame,
         row(area, 2, 1),
         &if model {
-            format!(
-                "Search: {}",
-                clipped(
-                    &state.picker_query.text,
-                    area.width.saturating_sub(8) as usize
-                )
+            paint.format(
+                Template::ProvidersPlanningSearch,
+                &[(
+                    "query",
+                    &(clipped(
+                        &state.picker_query.text,
+                        area.width.saturating_sub(8) as usize,
+                    )),
+                )],
             )
         } else {
-            "Default uses provider settings · Esc keeps current".into()
+            paint
+                .hint(Message::ProvidersPlanningDefaultUsesProviderSettingsEscKeepsCurrent)
+                .into()
         },
         paint.muted,
     );
@@ -936,7 +1187,7 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             if committed { "*" } else { " " },
             choice.label,
             if choice.reason.is_some() {
-                " [unavailable]"
+                paint.hint(Message::ProvidersPlanningUnavailable)
             } else {
                 ""
             },
@@ -957,15 +1208,15 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         );
     }
     let status = if state.catalogue_loading() {
-        "Loading metadata… · Ctrl+D Details"
+        paint.hint(Message::ProvidersPlanningLoadingMetadataCtrlDDetails)
     } else if state.catalogue_error().is_some() {
         if state.catalogues.contains_key(&state.agent) {
-            "Refresh failed · cached rows usable · Ctrl+D Error"
+            paint.hint(Message::ProvidersPlanningRefreshFailedCachedRowsUsableCtrlD)
         } else {
-            "Fetch failed · Refresh to retry · Ctrl+D Error"
+            paint.hint(Message::ProvidersPlanningFetchFailedRefreshToRetryCtrlD)
         }
     } else {
-        "> Focus · * Current · Ctrl+D Details"
+        paint.hint(Message::ProvidersPlanningFocusCurrentCtrlDDetails)
     };
     text(
         frame,
@@ -977,11 +1228,11 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         frame,
         row(area, area.height.saturating_sub(1), 1),
         if model {
-            "↑↓ Choose · Enter Next · Esc Keep · Ctrl+U Clear"
+            paint.hint(Message::ProvidersPlanningChooseEnterNextEscKeepCtrlU)
         } else if state.can_back_to_models() {
-            "↑↓ Choose · Enter Accept · ← Models · Esc Keep"
+            paint.hint(Message::ProvidersPlanningChooseEnterAcceptModelsEscKeep)
         } else {
-            "↑↓ Choose · Enter Accept · Esc Keep"
+            paint.hint(Message::ProvidersPlanningChooseEnterAcceptEscKeep)
         },
         paint.accent,
     );
@@ -991,17 +1242,37 @@ fn switch(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     let next = state.switch_to.expect("switch preview");
     if !state.review_details {
         let summary = vec![
-            format!("Switch {} → {}", state.agent.label(), next.label()),
-            "Old provider sessions stay with their original agent.".into(),
-            "No credentials, permissions or transcripts transferred.".into(),
-            "Grants reset; sending rechecks the connection.".into(),
+            paint.format(
+                Template::ProvidersPlanningSwitch,
+                &[
+                    ("previous", (state.agent.label())),
+                    ("next", (next.label())),
+                ],
+            ),
+            paint
+                .hint(Message::ProvidersPlanningOldProviderSessionsStayWithTheirOriginal)
+                .into(),
+            paint
+                .hint(Message::ProvidersPlanningNoCredentialsPermissionsOrTranscriptsTransferred)
+                .into(),
+            paint
+                .hint(Message::ProvidersPlanningGrantsResetSendingRechecksTheConnection)
+                .into(),
             if state.handoff.is_some() {
-                "Transfers selected portable context (unverified).".into()
+                paint
+                    .hint(Message::ProvidersPlanningTransfersSelectedPortableContextUnverified)
+                    .into()
             } else {
-                "Only current reviewed task facts; no handoff selected.".into()
+                paint
+                    .hint(Message::ProvidersPlanningOnlyCurrentReviewedTaskFactsNoHandoff)
+                    .into()
             },
-            "No process or network starts from this switch.".into(),
-            "d Details: inspect complete portable context.".into(),
+            paint
+                .hint(Message::ProvidersPlanningNoProcessOrNetworkStartsFromThis)
+                .into(),
+            paint
+                .hint(Message::ProvidersPlanningDDetailsInspectCompletePortableContext)
+                .into(),
         ];
         state.reviewed = render_summary(
             frame,
@@ -1015,9 +1286,9 @@ fn switch(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             frame,
             row(area, area.height.saturating_sub(3), 3),
             if state.affirmative {
-                "Stay / [Switch agent] · y Switch / n Stay\nTab Choose / Enter Confirm / d Details / Esc Stay"
+                paint.hint(Message::ProvidersPlanningStaySwitchAgentYSwitchNStay)
             } else {
-                "[Stay] / Switch agent · y Switch / n Stay\nTab Choose / Enter Stay / d Details / Esc Stay"
+                paint.hint(Message::ProvidersPlanningStaySwitchAgentYSwitchNStay2)
             },
             paint.accent,
         );
@@ -1028,12 +1299,17 @@ fn switch(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         .as_ref()
         .map(|document| serde_json::to_string_pretty(document).unwrap_or_default())
         .unwrap_or_else(|| {
-            "Only current reviewed task facts; no portable document selected.".into()
+            paint
+                .hint(Message::ProvidersPlanningOnlyCurrentReviewedTaskFactsNoPortable)
+                .into()
         });
-    let value = format!(
-        "IDLE AGENT SWITCH / {} → {}\n\nOld provider sessions remain separate and available under their original agent. No opaque provider session IDs, permissions, credentials, hidden reasoning or transcripts cross this boundary. All grants reset; the next request still requires executable/configuration and exact-payload review.\n\nAPPROVED PORTABLE CONTEXT / UNVERIFIED\n{handoff}\n\nEND OF SWITCH REVIEW.",
-        state.agent.label(),
-        next.label()
+    let value = paint.format(
+        Template::ProvidersPlanningIdleAgentSwitchOldProviderSessionsRemain,
+        &[
+            ("previous", (state.agent.label())),
+            ("next", (next.label())),
+            ("handoff", &(handoff)),
+        ],
     );
     let details = row(area, 0, area.height.saturating_sub(3));
     state.scroll_max = selection_details(
@@ -1049,7 +1325,7 @@ fn switch(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     text(
         frame,
         row(area, area.height.saturating_sub(3), 3),
-        "d Summary / PgUp/Dn Details / Esc Stay\nReturn to summary to choose; no switch in Details.",
+        paint.hint(Message::ProvidersPlanningDSummaryPgupDnDetailsEscStay),
         paint.accent,
     );
 }
@@ -1060,10 +1336,18 @@ fn journal(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             frame,
             row(area, 0, area.height.saturating_sub(3)),
             &[
-                "Purge this task's local provider journal?".into(),
-                "Deletes retained observations, not provider history.".into(),
-                "Purged evidence cannot substantiate later results.".into(),
-                "Does not undo work or change provider permissions.".into(),
+                paint
+                    .hint(Message::ProvidersPlanningPurgeThisTaskSLocalProviderJournal)
+                    .into(),
+                paint
+                    .hint(Message::ProvidersPlanningDeletesRetainedObservationsNotProviderHistory)
+                    .into(),
+                paint
+                    .hint(Message::ProvidersPlanningPurgedEvidenceCannotSubstantiateLaterResults)
+                    .into(),
+                paint
+                    .hint(Message::ProvidersPlanningDoesNotUndoWorkOrChangeProvider)
+                    .into(),
             ],
             paint,
         );
@@ -1071,9 +1355,9 @@ fn journal(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             frame,
             row(area, area.height.saturating_sub(3), 3),
             if state.affirmative {
-                "Keep / [Purge task journal] · y Purge / n Keep\nTab Choose / Enter Confirm / Esc Keep"
+                paint.hint(Message::ProvidersPlanningKeepPurgeTaskJournalYPurgeN)
             } else {
-                "[Keep] / Purge task journal · y Purge / n Keep\nTab Choose / Enter Keep / Esc Keep"
+                paint.hint(Message::ProvidersPlanningKeepPurgeTaskJournalYPurgeN2)
             },
             paint.accent,
         );
@@ -1097,10 +1381,12 @@ fn journal(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             record.text
         )
     } else {
-        "PROVIDER JOURNAL\nNo retained observations for this task. Local commands remain in /execution-history; no provider result is inferred.".into()
+        paint
+            .hint(Message::ProvidersPlanningProviderJournalNoRetainedObservationsForThis)
+            .into()
     };
     if let Some(gap) = state.journal_gap_notice() {
-        value.push_str("\n\nMemory-only coverage warning, not a stored observation:\n");
+        value.push_str(paint.hint(Message::ProvidersPlanningMemoryOnlyCoverageWarningNotAStored));
         value.push_str(gap);
     }
     let details = row(area, 0, area.height.saturating_sub(5));
@@ -1126,7 +1412,7 @@ fn journal(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     text(
         frame,
         row(area, area.height.saturating_sub(3), 3),
-        "Up/Down Record / PgUp/Dn Scroll\n/journal-retry /journal-discard (failed writes)\n/journal-purge /journal-close",
+        paint.hint(Message::ProvidersPlanningUpDownRecordPgupDnScrollJournal),
         paint.accent,
     );
 }
@@ -1142,9 +1428,9 @@ fn paths_editor(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) {
         frame,
         row(area, 0, 3),
         if custom {
-            "CUSTOM MODEL ID / LOCAL ONLY\nExact ID, 1–256 bytes; availability is not entitlement\nEnter Apply / Esc Back / Ctrl+U Clear"
+            paint.hint(Message::ProvidersPlanningCustomModelIdLocalOnlyExactId)
         } else {
-            "SELECT EDIT PATHS / LOCAL ONLY\nJSON array of existing root-relative files\nEnter Apply selection / Esc Cancel / 4096 bytes"
+            paint.hint(Message::ProvidersPlanningSelectEditPathsLocalOnlyJsonArray)
         },
         paint.accent,
     );
@@ -1186,13 +1472,23 @@ fn quit(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         row(area, 0, area.height.saturating_sub(5)),
         &[
             if state.outcome_unknown() {
-                "UNKNOWN OUTCOME: work may have run.".into()
+                paint
+                    .hint(Message::ProvidersPlanningUnknownOutcomeWorkMayHaveRun)
+                    .into()
             } else {
-                "Cancel owned work and exit planning?".into()
+                paint
+                    .hint(Message::ProvidersPlanningCancelOwnedWorkAndExitPlanning)
+                    .into()
             },
-            "Effects are not undone; provider history is retained.".into(),
-            "Waits for acknowledgement or bounded teardown.".into(),
-            "Unknown outcome needs a second explicit exit choice.".into(),
+            paint
+                .hint(Message::ProvidersPlanningEffectsAreNotUndoneProviderHistoryIs)
+                .into(),
+            paint
+                .hint(Message::ProvidersPlanningWaitsForAcknowledgementOrBoundedTeardown)
+                .into(),
+            paint
+                .hint(Message::ProvidersPlanningUnknownOutcomeNeedsASecondExplicitExit)
+                .into(),
         ],
         paint,
     );
@@ -1204,14 +1500,14 @@ fn quit(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     );
     let choice = if state.outcome_unknown() {
         if state.affirmative {
-            "Stay / [Exit with unknown outcome]"
+            paint.hint(Message::ProvidersPlanningStayExitWithUnknownOutcome)
         } else {
-            "[Stay] / Exit with unknown outcome"
+            paint.hint(Message::ProvidersPlanningStayExitWithUnknownOutcome2)
         }
     } else if state.affirmative {
-        "Stay / [Cancel remaining work and exit]"
+        paint.hint(Message::ProvidersPlanningStayCancelRemainingWorkAndExit)
     } else {
-        "[Stay] / Cancel remaining work and exit"
+        paint.hint(Message::ProvidersPlanningStayCancelRemainingWorkAndExit2)
     };
     text(
         frame,
@@ -1222,7 +1518,7 @@ fn quit(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     text(
         frame,
         row(area, area.height.saturating_sub(2), 2),
-        "y Confirm exit / n Stay / Tab Choose / Enter / Esc Stay",
+        paint.hint(Message::ProvidersPlanningYConfirmExitNStayTabChoose),
         paint.accent,
     );
 }
@@ -1243,13 +1539,18 @@ fn editor(frame: &mut Frame, area: Rect, state: &State, config: &Config, paint: 
         .unwrap_or(false);
     let area = centered(area, 86, 12);
     frame.render_widget(Clear, area);
-    let block = panel(" Literal answer / not sent ", config, paint, true);
+    let block = panel(
+        paint.hint(Message::ProvidersPlanningLiteralAnswerNotSent),
+        config,
+        paint,
+        true,
+    );
     let content = block.inner(area);
     frame.render_widget(block, area);
     text(
         frame,
         row(content, 0, 2),
-        "Enter/Esc Keep draft / no submission\n4096 UTF-8 bytes; paste is text, never approval",
+        paint.hint(Message::ProvidersPlanningEnterEscKeepDraftNoSubmission4096),
         paint.muted,
     );
     let input = row(content, 2, content.height.saturating_sub(2));
@@ -1298,6 +1599,7 @@ mod tests {
 
     fn config() -> Config {
         Config {
+            language: crate::i18n::Language::ENGLISH,
             ascii: true,
             no_animation: true,
             theme: Theme::Dark,
@@ -1519,6 +1821,51 @@ mod tests {
         assert!(screen.contains("partial"), "{screen}");
         assert!(!screen.contains("streaming"), "{screen}");
         assert!(!screen.contains("current-model-only"), "{screen}");
+    }
+
+    #[test]
+    fn rendered_response_hitbox_excludes_chrome_and_is_cleared_by_reviews() {
+        let (mut app, _) = preview(60, 18);
+        app.planning.items.push(crate::app::planning::Item {
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "retained".into(),
+            kind: ItemKind::Message,
+            text: "0\n1\n2\n3\n4\n5\n6\n7\n8\n9".into(),
+            complete: true,
+            request: "earlier request".into(),
+        });
+        app.planning.notice.clear();
+        let config = config();
+        let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
+        let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
+        terminal
+            .draw(|frame| response(frame, Rect::new(2, 2, 56, 8), &mut app.planning, &paint))
+            .unwrap();
+        assert!(
+            !app.planning.response_wheel(2, 2, -1),
+            "metadata is not scrollable"
+        );
+        assert!(
+            !app.planning.response_wheel(2, 8, -1),
+            "status is not scrollable"
+        );
+        assert!(
+            !app.planning.response_wheel(2, 9, -1),
+            "hints are not scrollable"
+        );
+        assert!(app.planning.response_wheel(2, 3, -1));
+        draw(&mut app);
+        assert!(
+            !app.planning.response_wheel(2, 3, -1),
+            "review occludes home body"
+        );
+        assert!(app.planning.decision.is_none() && !app.planning.affirmative);
+        app.planning.set_response_body(Rect::new(2, 3, 56, 5));
+        terminal
+            .draw(|frame| render_small(frame, frame.area(), &mut app.planning, &paint))
+            .unwrap();
+        assert!(!app.planning.response_wheel(2, 3, -1));
     }
 
     fn compact_bounds(buffer: &ratatui::buffer::Buffer) -> Rect {

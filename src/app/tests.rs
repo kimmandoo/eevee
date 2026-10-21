@@ -622,7 +622,7 @@ fn each_nonselecting_surface_retains_its_own_scroll() {
         ScrollSurface::Help,
         ScrollSurface::Preview,
     ] {
-        app.set_scroll_max(surface, 100);
+        app.set_scroll_viewport(surface, 100, 10);
     }
     key(&mut app, KeyCode::Down);
     assert_eq!(app.scroll(), 1);
@@ -927,19 +927,19 @@ fn paste_limit_warning_is_visible_without_text_change_and_survives_reflow() {
 fn rendered_scroll_bounds_prevent_overscroll_and_clamp_after_reflow() {
     let mut app = app();
     assert!(!key(&mut app, KeyCode::Down));
-    app.set_scroll_max(ScrollSurface::Workspace, 2);
+    app.set_scroll_viewport(ScrollSurface::Workspace, 2, 10);
     key(&mut app, KeyCode::PageDown);
     assert_eq!(app.scroll(), 2);
     assert!(!key(&mut app, KeyCode::Down));
-    app.set_scroll_max(ScrollSurface::Workspace, 1);
+    app.set_scroll_viewport(ScrollSurface::Workspace, 1, 10);
     assert_eq!(app.scroll(), 1);
-    app.set_scroll_max(ScrollSurface::Help, 3);
+    app.set_scroll_viewport(ScrollSurface::Help, 3, 10);
     app.command("help");
     key(&mut app, KeyCode::End);
     assert_eq!(app.scroll(), 3);
     key(&mut app, KeyCode::Esc);
     assert_eq!(app.scroll(), 1);
-    app.set_scroll_max(ScrollSurface::Workspace, 0);
+    app.set_scroll_viewport(ScrollSurface::Workspace, 0, 10);
     assert_eq!(app.scroll(), 0);
 }
 
@@ -3508,4 +3508,109 @@ fn rejected_nickname_paste_cannot_clear_or_save_a_different_name() {
         app.party_request.take(),
         Some(store::PartyRequest::Nickname { nickname: Some(name), .. }) if name == "月"
     ));
+}
+
+fn response_scroll_app() -> App {
+    let mut app = request_app();
+    let text = (0..40)
+        .map(|row| format!("row{row:02}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for id in ["older", "newer"] {
+        app.planning.items.push(planning::Item {
+            thread_id: "conversation".into(),
+            turn_id: id.into(),
+            item_id: id.into(),
+            kind: crate::providers::ItemKind::Message,
+            text: text.clone(),
+            complete: true,
+            request: std::sync::Arc::from("original request"),
+        });
+    }
+    app.planning.selected = 1;
+    app.planning.response_rows(40, 4, false).count();
+    app.planning
+        .set_response_body(ratatui::layout::Rect::new(2, 5, 40, 4));
+    app
+}
+
+fn response_wheel(
+    app: &mut App,
+    kind: crossterm::event::MouseEventKind,
+    column: u16,
+    row: u16,
+) -> bool {
+    app.update(Event::Mouse(crossterm::event::MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }))
+}
+
+#[test]
+fn response_wheel_and_pages_preserve_unicode_draft_caret_focus_and_reply() {
+    let mut app = response_scroll_app();
+    app.update(Event::Paste("draft界e\u{301}Z".into()));
+    key(&mut app, KeyCode::Left);
+    let draft = (app.input.clone(), app.cursor, app.navigation());
+    assert!(response_wheel(
+        &mut app,
+        crossterm::event::MouseEventKind::ScrollUp,
+        3,
+        6
+    ));
+    assert_eq!(
+        app.planning.response_rows(40, 4, false).collect::<Vec<_>>(),
+        ["row33", "row34", "row35", "row36"]
+    );
+    assert!(!app.planning.following);
+    assert_eq!(app.planning.selected, 1);
+    key(&mut app, KeyCode::PageUp);
+    assert_eq!(
+        app.planning.response_rows(40, 4, false).collect::<Vec<_>>(),
+        ["row30", "row31", "row32", "row33"]
+    );
+    assert_eq!((app.input.clone(), app.cursor, app.navigation()), draft);
+    assert!(app.composer_is_request());
+    assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+    modified_key(&mut app, KeyCode::End, KeyModifiers::ALT);
+    assert_eq!(
+        app.planning.response_rows(40, 4, false).collect::<Vec<_>>(),
+        ["row36", "row37", "row38", "row39"]
+    );
+    assert!(app.planning.following);
+    modified_key(&mut app, KeyCode::Up, KeyModifiers::ALT);
+    assert_eq!(app.planning.items[app.planning.selected].item_id, "older");
+    assert_eq!((app.input.clone(), app.cursor, app.navigation()), draft);
+}
+
+#[test]
+fn response_reading_arrows_scroll_lines_and_mouse_cannot_reach_occluded_output() {
+    let mut app = response_scroll_app();
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.effective_focus(), Pane::Workspace);
+    key(&mut app, KeyCode::Up);
+    assert_eq!(
+        app.planning.response_rows(40, 4, false).collect::<Vec<_>>(),
+        ["row35", "row36", "row37", "row38"]
+    );
+    assert_eq!(app.planning.items[app.planning.selected].item_id, "newer");
+    let held = app.planning.scroll;
+    assert!(!response_wheel(
+        &mut app,
+        crossterm::event::MouseEventKind::ScrollUp,
+        0,
+        0
+    ));
+    app.command("help");
+    assert!(!response_wheel(
+        &mut app,
+        crossterm::event::MouseEventKind::ScrollUp,
+        3,
+        6
+    ));
+    assert_eq!(app.planning.scroll, held);
+    assert_eq!(app.overlay, Some(Overlay::Help));
+    assert!(app.pending_request.is_none() && app.planning.pending.is_none());
 }

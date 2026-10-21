@@ -159,11 +159,23 @@ impl App {
     }
 
     fn partner_release_refusal(&self, partner: i64) -> Option<String> {
+        let pending_records = self.records.local.iter().any(|intent| {
+            use crate::workspace::records::LocalIntent;
+            match intent {
+                LocalIntent::FormRoute { owner, .. } | LocalIntent::Artifact { owner, .. } | LocalIntent::HandoffReady { owner, .. } => owner.partner == partner,
+            }
+        }) || self.records.pending.iter().chain(self.records.inflight.iter()).chain(self.records.failed.iter()).chain(self.records.queued.iter()).any(|request| {
+            matches!(&request.operation, store::records::Operation::SetPairing { partner: owner, .. } if *owner == partner)
+        });
         if self.partners().len() <= 1 {
             Some("Cannot release the last partner. Keep at least one partner in the party.".into())
         } else if self.partner_busy(partner) {
             Some("Cannot release the selected partner while it owns work or an execution, on any task. Finish or explicitly cancel its work first.".into())
-        } else if self.party_inflight || self.party_request.is_some() || self.transitioning {
+        } else if self.party_inflight
+            || self.party_request.is_some()
+            || self.transitioning
+            || pending_records
+        {
             Some("Wait for the current local storage operation to finish.".into())
         } else if self.storage != StorageState::Saved
             || self.revision != self.saved_revision
@@ -348,6 +360,7 @@ mod tests {
         Config {
             ascii: true,
             no_animation: true,
+            language: crate::i18n::Language::ENGLISH,
             theme: Theme::Dark,
             color: ColorMode::Mono,
             images: ImageMode::Off,
@@ -648,6 +661,29 @@ mod tests {
         assert!(detail.contains("No local payload receipt yet."));
         assert!(!detail.contains("prior-observed-model"));
         assert!(!detail.contains("Owner 1 local payload"));
+    }
+
+    #[test]
+    fn pending_pairing_write_blocks_only_its_own_partner_release() {
+        let mut app = three_owners(60, 18);
+        for id in [4, 5] {
+            app.party.push(store::Partner {
+                id,
+                ..Default::default()
+            });
+        }
+        assert!(app.queue_record_operation(
+            app.task_id,
+            store::records::Operation::SetPairing {
+                partner: 4,
+                form: 0,
+                selection: None,
+            }
+        ));
+        assert!(app.partner_release_refusal(4).is_some());
+        assert!(app.partner_release_refusal(5).is_none());
+        assert_eq!(app.work_rows().len(), 3);
+        assert!(app.cooperation.cancel_review.is_none());
     }
 
     #[test]

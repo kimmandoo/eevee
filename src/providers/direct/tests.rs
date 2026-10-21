@@ -8,6 +8,7 @@ fn decoded_body(body: NativeBody<'_>) -> Value {
 fn input() -> Input {
     Input {
         task: crate::store::Snapshot::empty("unopened-project".into()),
+        instruction_override: None,
         work: None,
         excerpts: Vec::new(),
         report: None,
@@ -61,29 +62,31 @@ fn frame(value: Value) -> String {
 #[test]
 fn protocol_sse_chunks_publish_only_user_facing_text_and_confirmed_model() {
     let responses = [
-        json!({"type":"response.created","response":{"model":"confirmed"}}),
+        json!({"type":"response.created","response":{"id":"resp_fixture","model":"confirmed"}}),
         json!({"type":"response.reasoning_text.delta","delta":"private thought"}),
         json!({"type":"response.output_text.delta","delta":"Hello "}),
         json!({"type":"response.output_text.delta","delta":"日本語"}),
-        json!({"type":"response.completed","response":{"model":"confirmed","status":"completed"}}),
+        json!({"type":"response.completed","response":{"id":"resp_fixture","model":"confirmed","status":"completed","usage":{"input_tokens":328,"input_tokens_details":{"cached_tokens":0},"output_tokens":52,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":380}}}),
     ]
     .into_iter()
     .map(frame)
     .collect::<String>();
     let chat = [
-        json!({"model":"confirmed","choices":[{"index":0,"delta":{"reasoning_content":"private thought","content":"Hello "},"finish_reason":null}]}),
-        json!({"model":"confirmed","choices":[{"index":0,"delta":{"content":"日本語"},"finish_reason":"stop"}]}),
+        json!({"id":"chatcmpl_fixture","model":"confirmed","choices":[{"index":0,"delta":{"reasoning_content":"private thought","content":"Hello "},"finish_reason":null}],"usage":null}),
+        json!({"id":"chatcmpl_fixture","model":"confirmed","choices":[{"index":0,"delta":{"content":"日本語"},"finish_reason":"stop"}],"usage":null}),
+        json!({"id":"chatcmpl_fixture","model":"confirmed","choices":[],"usage":{"prompt_tokens":9,"completion_tokens":12,"total_tokens":21}}),
     ].into_iter().map(frame).collect::<String>() + "data: [DONE]\n\n";
     let anthropic = [
-        json!({"type":"message_start","message":{"model":"confirmed"}}),
+        json!({"type":"message_start","message":{"id":"msg_fixture","model":"confirmed","usage":{"input_tokens":25,"output_tokens":1}}}),
         json!({"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"private thought"}}),
         json!({"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello 日本語"}}),
-        json!({"type":"message_delta","delta":{"stop_reason":"end_turn"}}),
+        json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":15}}),
         json!({"type":"message_stop"}),
     ].into_iter().map(frame).collect::<String>();
-    let gemini = frame(
-        json!({"modelVersion":"confirmed","candidates":[{"index":0,"content":{"parts":[{"text":"private thought","thought":true},{"text":"Hello 日本語"}]},"finishReason":"STOP"}]}),
-    );
+    let gemini = [
+        json!({"responseId":"gemini_fixture","modelVersion":"confirmed","candidates":[{"index":0,"content":{"parts":[{"text":"private thought","thought":true},{"text":"Hello 日本語"}]},"finishReason":"STOP"}]}),
+        json!({"responseId":"gemini_fixture","usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":7,"thoughtsTokenCount":3,"cachedContentTokenCount":2,"totalTokenCount":21}}),
+    ].into_iter().map(frame).collect::<String>();
     for (protocol, wire) in [
         (Protocol::Codex, responses.clone()),
         (Protocol::Responses, responses),
@@ -121,6 +124,13 @@ fn protocol_sse_chunks_publish_only_user_facing_text_and_confirmed_model() {
             assert!(queue.iter().any(
                 |e| matches!(e, Event::Item { text, complete: true, .. } if text == "Hello 日本語")
             ));
+            assert!(
+                queue.iter().any(|event| matches!(event,
+                Event::Usage { generation: 7, task_id, report }
+                if *task_id == run.input.task.id && report.complete
+                    && report.scope == Scope::Turn && report.kind == Kind::Snapshot
+                    && report.tokenizer.is_none() && report.model.as_deref() == Some("confirmed")))
+            );
             assert!(queue.iter().any(|event| matches!(event,
                 Event::NativeCompleted { generation: 7, conversation, .. }
                 if conversation.messages[1].role == ConversationRole::Assistant
@@ -296,6 +306,7 @@ fn exact_protocol_bodies_preserve_custom_model_and_do_not_grant_tools() {
                 assert_eq!(body["messages"][0]["role"], "system");
                 assert_eq!(body["messages"][0]["content"], "Policy");
                 assert_eq!(body["messages"][1]["content"], "Reviewed text");
+                assert_eq!(body["stream_options"]["include_usage"], true);
             }
             Protocol::Messages => {
                 assert_eq!(body["system"], "Policy");
@@ -702,6 +713,14 @@ fn http_fixture(body: String) -> (String, JoinHandle<()>) {
 }
 
 fn http_status_fixture(status: u16, body: String) -> (String, JoinHandle<()>) {
+    http_gated_fixture(status, body, None)
+}
+
+fn http_gated_fixture(
+    status: u16,
+    body: String,
+    trailer: Option<(Receiver<()>, String)>,
+) -> (String, JoinHandle<()>) {
     use std::io::{Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
@@ -737,7 +756,12 @@ fn http_status_fixture(status: u16, body: String) -> (String, JoinHandle<()>) {
             );
             request.extend_from_slice(&buffer[..count]);
         }
-        write!(socket, "HTTP/1.1 {status} Fixture\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+        let length = body.len() + trailer.as_ref().map_or(0, |(_, text)| text.len());
+        write!(socket, "HTTP/1.1 {status} Fixture\r\nContent-Type: text/event-stream\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n{body}").unwrap();
+        if let Some((ready, trailer)) = trailer {
+            ready.recv_timeout(Duration::from_secs(3)).unwrap();
+            socket.write_all(trailer.as_bytes()).unwrap();
+        }
     });
     (url, server)
 }
@@ -1243,7 +1267,7 @@ fn goal_only_native_turn_remains_user_context_when_followed_by_a_request() {
             None,
             "Read-only assistance",
             input.conversation.as_deref(),
-            native_request_text(&input.task),
+            input.native_instruction(),
         )
         .unwrap(),
     );
@@ -1342,4 +1366,513 @@ fn failed_local_admission_and_unproven_transport_never_emit_dispatch_receipts() 
     ));
     assert!(result.is_err());
     assert!(events.lock().is_empty());
+}
+
+fn usage_reports(events: &Events) -> Vec<Report> {
+    events
+        .lock()
+        .iter()
+        .filter_map(|event| match event {
+            Event::Usage { report, .. } => Some(report.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn usage_record(request: &str, task_id: i64) -> crate::workspace::usage::Record {
+    crate::workspace::usage::Record::new(
+        request.into(),
+        task_id,
+        crate::store::Attribution {
+            partner: 1,
+            name: "Fixture owner".into(),
+            form: 0,
+        },
+        Agent::Compatible,
+    )
+}
+
+#[test]
+fn native_usage_counters_are_independent_optional_response_snapshots() {
+    // Contract-shaped, offline fixtures, not recorded paid responses:
+    // https://developers.openai.com/api/reference/resources/responses
+    // https://developers.openai.com/api/reference/resources/chat
+    // https://platform.claude.com/docs/en/build-with-claude/streaming
+    // https://ai.google.dev/api/generate-content#UsageMetadata
+    for (protocol, first, repeated, expected, semantics) in [
+        (
+            Protocol::Responses,
+            json!({"type":"response.completed","response":{"id":"resp_partial","usage":{"input_tokens":null,"output_tokens":8,"input_tokens_details":{"cached_tokens":3,"cache_write_tokens":2},"output_tokens_details":{"reasoning_tokens":4}}}}),
+            json!({"type":"response.completed","response":{"id":"resp_partial","usage":{"input_tokens":null,"output_tokens":null,"input_tokens_details":{"cached_tokens":null}}}}),
+            Counters {
+                input: None,
+                output: Some(8),
+                cache_read: Some(3),
+                cache_write: Some(2),
+                reasoning: Some(4),
+            },
+            Semantics {
+                cache_read_in_input: Some(true),
+                cache_write_in_input: Some(true),
+                reasoning_in_output: Some(true),
+            },
+        ),
+        (
+            Protocol::ChatCompletions,
+            json!({"id":"chatcmpl_partial","choices":[],"usage":{"prompt_tokens":null,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":3,"cache_write_tokens":2},"completion_tokens_details":{"reasoning_tokens":4}}}),
+            json!({"id":"chatcmpl_partial","choices":[],"usage":null}),
+            Counters {
+                input: None,
+                output: Some(8),
+                cache_read: Some(3),
+                cache_write: Some(2),
+                reasoning: Some(4),
+            },
+            Semantics {
+                cache_read_in_input: Some(true),
+                cache_write_in_input: Some(true),
+                reasoning_in_output: Some(true),
+            },
+        ),
+        (
+            Protocol::Messages,
+            json!({"type":"message_start","message":{"id":"msg_partial","usage":{"input_tokens":null,"output_tokens":8,"cache_read_input_tokens":3,"cache_creation_input_tokens":2}}}),
+            json!({"type":"message_delta","usage":{"input_tokens":null,"output_tokens":null,"cache_read_input_tokens":null,"cache_creation_input_tokens":null}}),
+            Counters {
+                input: None,
+                output: Some(8),
+                cache_read: Some(3),
+                cache_write: Some(2),
+                reasoning: None,
+            },
+            Semantics {
+                cache_read_in_input: Some(false),
+                cache_write_in_input: Some(false),
+                reasoning_in_output: None,
+            },
+        ),
+        (
+            Protocol::Gemini,
+            json!({"responseId":"gemini_partial","usageMetadata":{"promptTokenCount":null,"candidatesTokenCount":8,"cachedContentTokenCount":3,"thoughtsTokenCount":4}}),
+            json!({"responseId":"gemini_partial","usageMetadata":{"candidatesTokenCount":null,"thoughtsTokenCount":null}}),
+            Counters {
+                input: None,
+                output: Some(8),
+                cache_read: Some(3),
+                cache_write: None,
+                reasoning: Some(4),
+            },
+            Semantics {
+                cache_read_in_input: Some(true),
+                cache_write_in_input: None,
+                reasoning_in_output: Some(false),
+            },
+        ),
+    ] {
+        let mut stream = Stream::new(protocol);
+        stream.event("", &first.to_string()).unwrap();
+        stream.event("", &first.to_string()).unwrap();
+        stream.event("", &repeated.to_string()).unwrap();
+        let mut run = prepared();
+        run.input.task.id = 41;
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        stream.publish_partial(&events, &run).unwrap();
+        let reports = usage_reports(&events);
+        assert_eq!(reports.len(), 1);
+        let report = &reports[0];
+        assert_eq!(report.counters, expected);
+        assert_eq!(report.semantics, semantics);
+        assert_eq!(report.kind, Kind::Snapshot);
+        assert_eq!(report.scope, Scope::Turn);
+        assert!(report.model.is_none() && report.tokenizer.is_none());
+        assert!(report.baseline.is_none() && report.identity.event.is_none());
+        assert!(report.identity.turn.is_none() && report.identity.session.is_none());
+        assert!(report.identity.response.is_some());
+        assert!(!report.complete);
+        let mut record = usage_record("partial-request", 41);
+        assert!(record.apply_retained(report.clone()).unwrap());
+        assert!(!record.apply_retained(report.clone()).unwrap());
+        assert_eq!(record.measurements.len(), 1);
+        assert_eq!(record.measurements[0].attributable, expected);
+    }
+}
+
+#[test]
+fn unsuccessful_responses_retain_reported_consumption_without_success_or_duplicate_charges() {
+    for protocol in [Protocol::Responses, Protocol::Codex] {
+        for kind in [
+            "response.incomplete",
+            "response.failed",
+            "response.completed",
+        ] {
+            let status = if kind == "response.failed" {
+                "failed"
+            } else {
+                "incomplete"
+            };
+            let terminal = json!({
+                "type":kind,
+                "response":{
+                    "id":"resp_unsuccessful", "model":"reported-model", "status":status,
+                    "incomplete_details":{"reason":"max_output_tokens"},
+                    "usage":{
+                        "input_tokens":25, "output_tokens":15,
+                        "input_tokens_details":{"cached_tokens":7},
+                        "output_tokens_details":{"reasoning_tokens":3}
+                    }
+                }
+            });
+            let mut stream = Stream::new(protocol);
+            let run = prepared();
+            let events = Arc::new(Mutex::new(VecDeque::new()));
+            let mut record = usage_record("unsuccessful-response", 41);
+            for repeat in [false, true] {
+                assert!(stream.event("", &terminal.to_string()).is_err());
+                assert!(stream.failed, "dispatch must preserve the Failed outcome");
+                assert!(!stream.complete);
+                stream.publish_partial(&events, &run).unwrap();
+                let reports = usage_reports(&events);
+                let report = reports.last().unwrap();
+                assert!(!report.complete);
+                assert_eq!(
+                    report.identity.response.as_deref(),
+                    Some("resp_unsuccessful")
+                );
+                assert_eq!(report.model.as_deref(), Some("reported-model"));
+                assert_eq!(
+                    report.counters,
+                    Counters {
+                        input: Some(25),
+                        output: Some(15),
+                        cache_read: Some(7),
+                        reasoning: Some(3),
+                        ..Counters::default()
+                    }
+                );
+                assert_eq!(record.apply_retained(report.clone()).unwrap(), !repeat);
+            }
+            assert!(stream.publish_final(&events, &run, "same-account").is_err());
+            assert_eq!(record.measurements.len(), 1);
+            assert_eq!(record.measurements[0].attributable.input, Some(25));
+            assert_eq!(record.measurements[0].attributable.output, Some(15));
+            let restored: crate::workspace::usage::Record =
+                serde_json::from_str(&serde_json::to_string(&record).unwrap()).unwrap();
+            assert_eq!(restored, record);
+            assert!(!restored.measurements[0].report.complete);
+            assert!(
+                !events
+                    .lock()
+                    .iter()
+                    .any(|event| matches!(event, Event::NativeCompleted { .. }))
+            );
+        }
+    }
+}
+
+#[test]
+fn anthropic_partial_cumulative_fields_merge_without_erasing_or_adding() {
+    let mut stream = Stream::new(Protocol::Messages);
+    stream.event("", &json!({"type":"message_start","message":{"id":"msg_cumulative","model":"reported-model","usage":{"input_tokens":25,"output_tokens":1,"cache_read_input_tokens":7,"cache_creation_input_tokens":0}}}).to_string()).unwrap();
+    let run = prepared();
+    let events = Arc::new(Mutex::new(VecDeque::new()));
+    stream.publish_partial(&events, &run).unwrap();
+    for output in [5, 15, 15] {
+        stream.event("", &json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":null,"output_tokens":output,"cache_read_input_tokens":null}}).to_string()).unwrap();
+    }
+    stream
+        .event("", &json!({"type":"message_stop"}).to_string())
+        .unwrap();
+    stream.publish_final(&events, &run, "same-account").unwrap();
+    let mut record = usage_record("anthropic-request", 1);
+    for report in usage_reports(&events) {
+        record.apply_retained(report.clone()).unwrap();
+        record.apply_retained(report).unwrap();
+    }
+    assert_eq!(record.measurements.len(), 1);
+    assert_eq!(
+        record.measurements[0].attributable,
+        Counters {
+            input: Some(25),
+            output: Some(15),
+            cache_read: Some(7),
+            cache_write: Some(0),
+            reasoning: None,
+        }
+    );
+    assert!(record.measurements[0].report.complete);
+}
+
+#[test]
+fn native_usage_two_turns_and_resumed_history_charge_only_each_http_response() {
+    for protocol in [
+        Protocol::Responses,
+        Protocol::ChatCompletions,
+        Protocol::Messages,
+        Protocol::Gemini,
+    ] {
+        let mut history = None;
+        let mut records = Vec::new();
+        for (index, (input_tokens, output_tokens)) in
+            [(25, 15), (40, 7), (52, 9)].into_iter().enumerate()
+        {
+            let mut run = prepared();
+            run.generation = index as u64 + 10;
+            run.input.task.id = 71;
+            run.input.conversation = history.clone();
+            set_request(&mut run.input.task, &format!("Current instruction {index}"));
+            // The third turn recreates the transport from retained role/text
+            // history, with no previous Stream or usage baseline available.
+            if index == 2 {
+                let retained = run.input.conversation.as_ref().unwrap();
+                run.input.conversation = Some(Arc::new(NativeConversation {
+                    owner: retained.owner.clone(),
+                    messages: retained.messages.to_vec().into(),
+                }));
+            }
+            let id = format!("wire-response-{index}");
+            let frames = match protocol {
+                Protocol::Responses => vec![
+                    json!({"type":"response.completed","response":{"id":id,"model":"reported-model","status":"completed","usage":{"input_tokens":input_tokens,"output_tokens":output_tokens}}}),
+                ],
+                Protocol::ChatCompletions => vec![
+                    json!({"id":id,"model":"reported-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}),
+                    json!({"id":id,"model":"reported-model","choices":[],"usage":{"prompt_tokens":input_tokens,"completion_tokens":output_tokens}}),
+                ],
+                Protocol::Messages => vec![
+                    json!({"type":"message_start","message":{"id":id,"model":"reported-model","usage":{"input_tokens":input_tokens,"output_tokens":1}}}),
+                    json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":output_tokens}}),
+                    json!({"type":"message_stop"}),
+                ],
+                Protocol::Gemini => vec![
+                    json!({"responseId":id,"modelVersion":"reported-model","candidates":[{"index":0,"finishReason":"STOP"}]}),
+                    json!({"responseId":id,"usageMetadata":{"promptTokenCount":input_tokens,"candidatesTokenCount":output_tokens}}),
+                ],
+                _ => unreachable!(),
+            };
+            let mut stream = Stream::new(protocol);
+            for value in &frames {
+                stream.event("", &value.to_string()).unwrap();
+            }
+            // Duplicate the usage snapshot/final event before publishing.
+            let usage_frame = if protocol == Protocol::Messages {
+                &frames[1]
+            } else {
+                frames.last().unwrap()
+            };
+            stream.event("", &usage_frame.to_string()).unwrap();
+            if protocol == Protocol::ChatCompletions {
+                stream.event("", "[DONE]").unwrap();
+            }
+            stream.append("User-facing answer").unwrap();
+            let events = Arc::new(Mutex::new(VecDeque::new()));
+            stream.publish_final(&events, &run, "same-account").unwrap();
+            finish(
+                &events,
+                run.generation,
+                71,
+                Outcome::Completed,
+                "Fixture complete",
+            );
+            let queue = events.lock();
+            let usage_index = queue.iter().position(|event| matches!(event, Event::Usage { generation, task_id: 71, .. } if *generation == run.generation)).unwrap();
+            let finished_index = queue
+                .iter()
+                .position(|event| matches!(event, Event::Finished { .. }))
+                .unwrap();
+            assert!(usage_index < finished_index);
+            history = queue.iter().find_map(|event| match event {
+                Event::NativeCompleted { conversation, .. } => Some(Arc::clone(conversation)),
+                _ => None,
+            });
+            drop(queue);
+            let mut record = usage_record(&format!("request-{index}"), 71);
+            for report in usage_reports(&events) {
+                assert_eq!(report.identity.response.as_deref(), Some(id.as_str()));
+                assert!(report.baseline.is_none());
+                assert!(record.apply_retained(report.clone()).unwrap());
+                assert!(!record.apply_retained(report).unwrap());
+            }
+            assert_eq!(record.measurements.len(), 1);
+            assert_eq!(
+                record.measurements[0].attributable.input,
+                Some(input_tokens)
+            );
+            assert_eq!(
+                record.measurements[0].attributable.output,
+                Some(output_tokens)
+            );
+            records.push(record);
+        }
+        assert_eq!(history.unwrap().messages.len(), 6);
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.measurements[0].attributable.input.unwrap())
+                .sum::<u64>(),
+            117
+        );
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.measurements[0].attributable.output.unwrap())
+                .sum::<u64>(),
+            31
+        );
+    }
+}
+
+#[test]
+fn gemini_http_reader_consumes_usage_after_stop_and_rejects_later_errors() {
+    let runtime = runtime();
+    for trailer_error in [false, true] {
+        let stop = json!({"responseId":"gemini_http","modelVersion":"reported-model","candidates":[{"index":0,"content":{"parts":[{"text":"Answer"}]},"finishReason":"STOP"}]});
+        let trailer = if trailer_error {
+            json!({"error":{"message":"private fixture failure"}})
+        } else {
+            json!({"responseId":"gemini_http","usageMetadata":{"promptTokenCount":25,"candidatesTokenCount":15,"cachedContentTokenCount":7,"thoughtsTokenCount":3}})
+        };
+        let (ready, seen_stop) = mpsc::sync_channel(1);
+        let (url, server) = http_gated_fixture(200, frame(stop), Some((seen_stop, frame(trailer))));
+        let mut ready = Some(ready);
+        let stopped = AtomicBool::new(false);
+        let cancelled = AtomicU64::new(0);
+        let control = control(&stopped, &cancelled);
+        let mut stream = Stream::new(Protocol::Gemini);
+        let run = prepared();
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        let result = runtime.block_on(async {
+            let mut response = wait_http(http_client().unwrap().get(url).send(), &control)
+                .await
+                .unwrap();
+            stream
+                .read(&mut response, &control, |stream| {
+                    if stream.complete
+                        && let Some(ready) = ready.take()
+                    {
+                        // The server cannot send usage/error until STOP was parsed,
+                        // so the trailer necessarily arrives in a later body chunk.
+                        ready.send(()).unwrap();
+                    }
+                    Ok(())
+                })
+                .await
+        });
+        server.join().unwrap();
+        if trailer_error {
+            assert!(
+                result
+                    .unwrap_err()
+                    .contains("Provider reported an inference error")
+            );
+            assert!(stream.publish_final(&events, &run, "same-account").is_err());
+        } else {
+            result.unwrap();
+            stream.publish_final(&events, &run, "same-account").unwrap();
+            let reports = usage_reports(&events);
+            assert_eq!(reports.len(), 1);
+            assert_eq!(
+                reports[0].counters,
+                Counters {
+                    input: Some(25),
+                    output: Some(15),
+                    cache_read: Some(7),
+                    cache_write: None,
+                    reasoning: Some(3),
+                }
+            );
+            assert!(reports[0].complete);
+        }
+    }
+}
+
+#[test]
+fn native_instruction_replacement_changes_only_current_submitted_user_turn() {
+    let mut input = input();
+    input.inspect_models = false;
+    set_request(&mut input.task, "Prior authored instruction");
+    input.conversation =
+        Some(completed_conversation(&input, "same-account", "Prior answer".into()).unwrap());
+    set_request(&mut input.task, "Current authored instruction");
+    input.instruction_override = Some(crate::workspace::records::InstructionReplacement {
+        original: "Current authored instruction".into(),
+        replacement: "Approved current replacement".into(),
+        memory_id: 1,
+        memory_revision: 1,
+        habit_key: "fixture-habit".into(),
+    });
+    for protocol in [
+        Protocol::Responses,
+        Protocol::ChatCompletions,
+        Protocol::Messages,
+        Protocol::Gemini,
+    ] {
+        let body = decoded_body(
+            inference_body(
+                protocol,
+                "requested-model",
+                None,
+                "Policy",
+                input.conversation.as_deref(),
+                input.native_instruction(),
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            role_texts(&body, protocol),
+            [
+                ("user".into(), "Prior authored instruction".into()),
+                ("assistant".into(), "Prior answer".into()),
+                ("user".into(), "Approved current replacement".into()),
+            ]
+        );
+    }
+    let completed =
+        completed_conversation(&input, "same-account", "Current answer".into()).unwrap();
+    assert_eq!(
+        completed.messages[0].text.as_ref(),
+        "Prior authored instruction"
+    );
+    assert_eq!(
+        completed.messages[2].text.as_ref(),
+        "Approved current replacement"
+    );
+    assert_eq!(input.task.request_text(), "Current authored instruction");
+}
+
+#[test]
+fn gemini_usage_at_eof_without_stop_remains_partial() {
+    let (url, server) = http_fixture(frame(json!({
+        "responseId":"gemini_interrupted",
+        "usageMetadata":{"promptTokenCount":25,"thoughtsTokenCount":3}
+    })));
+    let stopped = AtomicBool::new(false);
+    let cancelled = AtomicU64::new(0);
+    let control = control(&stopped, &cancelled);
+    let mut stream = Stream::new(Protocol::Gemini);
+    let error = runtime().block_on(async {
+        let mut response = wait_http(http_client().unwrap().get(url).send(), &control)
+            .await
+            .unwrap();
+        stream
+            .read(&mut response, &control, |_| Ok(()))
+            .await
+            .unwrap_err()
+    });
+    server.join().unwrap();
+    assert!(error.contains("without an authoritative completion"));
+    let events = Arc::new(Mutex::new(VecDeque::new()));
+    let run = prepared();
+    stream.publish_partial(&events, &run).unwrap();
+    let reports = usage_reports(&events);
+    assert_eq!(reports.len(), 1);
+    assert!(!reports[0].complete);
+    assert_eq!(
+        reports[0].counters,
+        Counters {
+            input: Some(25),
+            reasoning: Some(3),
+            ..Counters::default()
+        }
+    );
+    assert!(stream.publish_final(&events, &run, "same-account").is_err());
 }

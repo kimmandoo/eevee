@@ -88,6 +88,10 @@ impl App {
             self.goal.clone_from(&self.input);
         }
         self.changed_task();
+        // Explicit source-worker freshness before preparation; the existing
+        // committed-input gate waits for this check, and dispatch still revalidates.
+        self.sources
+            .observe_captures(self.task_id, self.repository.as_ref());
         self.pending_request = Some((
             self.revision,
             self.planning.thread_id.is_some()
@@ -194,11 +198,13 @@ impl App {
     }
 
     pub fn composer_candidates(&self) -> impl Iterator<Item = usize> + '_ {
-        let count = match self.composer_menu.map(|menu| menu.kind) {
-            Some(Kind::Files) => self.sources.files.len(),
-            None => 0,
-        };
-        (0..count).filter(|index| self.composer_match(*index))
+        self.sources
+            .ranked_files(self.form())
+            .filter(|index| self.composer_match(*index))
+    }
+
+    pub fn composer_rank_reason(&self, index: usize) -> Option<super::sources::RankReason> {
+        self.sources.rank_reason(self.form(), index)
     }
 
     /// Called after task-owned state is reset in the main loop. Initial '@'
@@ -217,8 +223,11 @@ impl App {
         // Fetch once for this chooser; typed filtering stays local so it cannot
         // repeatedly hide ready rows behind source validation.
         self.sources.query.clear();
-        self.sources
-            .catalogue(self.task_id, self.repository.as_ref());
+        self.sources.catalogue(
+            self.task_id,
+            self.repository.as_ref(),
+            self.repo_loading || self.repo_refresh,
+        );
     }
 
     pub(super) fn composer_key(&mut self, key: KeyEvent) -> Option<bool> {
@@ -227,6 +236,47 @@ impl App {
             EditorField::Request | EditorField::Goal | EditorField::NextAction
         ) {
             return None;
+        }
+        if self.composer_menu.is_none() {
+            let focused = self.sources.chip_focus;
+            match key.code {
+                KeyCode::Tab | KeyCode::BackTab if !self.sources.basket.is_empty() => {
+                    self.sources.focus_chip(key.code == KeyCode::BackTab);
+                    return Some(true);
+                }
+                KeyCode::Left | KeyCode::Right if focused.is_some() => {
+                    self.sources.focus_chip(key.code == KeyCode::Left);
+                    return Some(true);
+                }
+                KeyCode::Esc if focused.is_some() => {
+                    self.sources.chip_focus = None;
+                    return Some(true);
+                }
+                KeyCode::Enter | KeyCode::Delete if focused.is_some() => {
+                    let id = focused.expect("focused chip");
+                    if !self
+                        .sources
+                        .inspect_chip(id, key.code == KeyCode::Delete, self.task_id)
+                    {
+                        return Some(false);
+                    }
+                    self.retain_editor();
+                    self.composer_return = Some(self.editor_field);
+                    self.save_selection();
+                    if let Some(previous) = self.overlay_frame() {
+                        self.overlay_history.push(previous);
+                    }
+                    self.overlay = Some(Overlay::Sources);
+                    self.sources
+                        .observe_captures(self.task_id, self.repository.as_ref());
+                    return Some(true);
+                }
+                _ if focused.is_some() => {
+                    // Ordinary editing resumes without consuming the character.
+                    self.sources.chip_focus = None;
+                }
+                _ => {}
+            }
         }
         if let Some(menu) = self.composer_menu {
             if self.cursor <= menu.start || self.input.get(menu.start + 1..self.cursor).is_none() {
@@ -328,17 +378,34 @@ impl App {
         self.sources.file_selection = index;
         if remove {
             if let Some(attached) = self.sources.file_attachment(index) {
-                self.sources.mode = super::sources::Mode::Basket;
-                self.sources.basket_selection = attached;
-                self.sources
-                    .command("unpin", self.task_id, self.repository.as_ref());
+                let multiple =
+                    self.sources
+                        .basket
+                        .iter()
+                        .enumerate()
+                        .any(|(candidate, capture)| {
+                            candidate != attached
+                                && std::path::Path::new(&capture.path)
+                                    == self.sources.files[index].path
+                        });
+                if multiple {
+                    self.sources.mode = super::sources::Mode::Basket;
+                    self.sources.basket_selection = attached;
+                    self.sources.show_basket();
+                } else {
+                    let id = self.sources.basket[attached].id;
+                    self.sources.inspect_chip(id, true, self.task_id);
+                }
             }
         } else {
             self.sources
                 .inspect_file(self.task_id, self.repository.as_ref());
         }
-        self.notice =
-            "Review local capture, then Enter attaches and returns to your draft. r chooses lines; Esc cancels. Nothing sent.".into();
+        self.notice = if remove {
+            "Review the exact capture ID/range before removing it. Your draft is retained."
+        } else {
+            "Review local capture, then Enter attaches and returns to your draft. r chooses lines; Esc cancels. Nothing sent."
+        }.into();
     }
 }
 
@@ -589,5 +656,97 @@ mod tests {
         assert_eq!(app.focus, focus);
         assert!(app.input.is_empty());
         assert_eq!(app.goal, "Existing task");
+    }
+
+    #[test]
+    fn focused_chip_keyboard_inspects_exact_id_and_preserves_draft_caret() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.task_id = 7;
+        app.update(Event::Paste("before suffix".into()));
+        app.cursor = 6;
+        let draft = app.input.clone();
+        let caret = app.cursor;
+        app.sources.basket = [41, 42]
+            .into_iter()
+            .map(|id| crate::workspace::context::Excerpt {
+                id,
+                task_id: 7,
+                root: "/workspace".into(),
+                path: "same.rs".into(),
+                start_line: id as usize,
+                end_line: id as usize,
+                source_sha256: [7; 32],
+                text: format!("capture {id}\n"),
+                available: true,
+                origin_run: None,
+            })
+            .collect();
+        key(&mut app, KeyCode::Tab);
+        key(&mut app, KeyCode::Right);
+        assert_eq!(app.sources.chip_focus, Some(42));
+        assert_eq!((&app.input, app.cursor), (&draft, caret));
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.overlay, Some(Overlay::Sources));
+        assert_eq!(app.sources.basket_selection, 1);
+        assert!(app.sources.detail.contains("#42"));
+        assert!(app.planning.pending.is_none());
+        key(&mut app, KeyCode::Esc);
+        assert_eq!((app.input, app.cursor), (draft, caret));
+        assert!(app.editing);
+    }
+
+    #[test]
+    fn typed_matchsets_are_identical_across_cached_form_rankings() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.sources.files = [
+            "src/failure.rs",
+            "src/changed.rs",
+            "tests/review.rs",
+            "docs/readme",
+        ]
+        .into_iter()
+        .map(|path| crate::workspace::context::Source {
+            path: path.into(),
+            bytes: 1,
+            sha256: [0; 32],
+        })
+        .collect();
+        app.sources.set_rank_facts(
+            [std::path::PathBuf::from("src/changed.rs")]
+                .into_iter()
+                .collect(),
+            [
+                std::path::PathBuf::from("src/failure.rs"),
+                std::path::PathBuf::from(".env"),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        for query in ["", "src/", "srs", "missing", "tests/rv"] {
+            app.input = format!("@{query}");
+            app.cursor = app.input.len();
+            app.composer_menu = Some(Menu {
+                kind: Kind::Files,
+                start: 0,
+                selected: 0,
+            });
+            let mut expected = None;
+            for form in 0..9 {
+                app.lead.form = form;
+                let mut set: Vec<_> = app.composer_candidates().collect();
+                set.sort_unstable();
+                if let Some(expected) = &expected {
+                    assert_eq!(&set, expected, "query={query}, form={form}");
+                } else {
+                    expected = Some(set);
+                }
+            }
+        }
+        app.input = "@".into();
+        app.cursor = 1;
+        app.lead.form = 5;
+        assert_eq!(app.composer_candidates().next(), Some(0));
+        app.lead.form = 3;
+        assert_eq!(app.composer_candidates().next(), Some(1));
     }
 }

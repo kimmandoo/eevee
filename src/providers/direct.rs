@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 use crate::providers::{
     ConversationMessage, ConversationOwner, ConversationRole, Event, Input, ItemKind,
     ModelCatalogue, ModelOption, NativeConversation, Operation, Outcome, Preview, Request,
-    native_request_text,
 };
+use crate::workspace::usage::{Counters, Identity, Kind, Report, Scope, Semantics};
 use config::{Connection, Protocol};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
@@ -427,7 +427,7 @@ fn payload(
         selected_effort(input, connection),
         &policy,
         input.conversation.as_deref(),
-        native_request_text(&input.task),
+        input.native_instruction(),
     )?;
     let text = serde_json::to_string_pretty(&body).map_err(|_| "Cannot encode native request")?;
     if text.len() > BODY_LIMIT {
@@ -446,7 +446,7 @@ fn conversation_owner(input: &Input, scope: &str) -> ConversationOwner {
 }
 
 fn validate_conversation(input: &Input, scope: &str) -> Result<(), String> {
-    let request = native_request_text(&input.task);
+    let request = input.native_instruction();
     let Some(history) = input.conversation.as_deref() else {
         if !input.inspect_models && private_or_controls(request) {
             return Err("Native request contains recognizable credentials or display controls; edit the raw request before sending".into());
@@ -497,7 +497,7 @@ fn completed_conversation(
     scope: &str,
     assistant: Arc<str>,
 ) -> Result<Arc<NativeConversation>, String> {
-    let request = native_request_text(&input.task);
+    let request = input.native_instruction();
     let prior = input
         .conversation
         .as_deref()
@@ -555,6 +555,7 @@ enum NativeBody<'a> {
         model: &'a str,
         messages: Vec<TextMessage<'a>>,
         stream: bool,
+        stream_options: StreamOptions,
         #[serde(skip_serializing_if = "Option::is_none")]
         reasoning_effort: Option<&'a str>,
     },
@@ -570,6 +571,11 @@ enum NativeBody<'a> {
         system_instruction: TextParts<'a>,
         contents: Vec<GeminiMessage<'a>>,
     },
+}
+
+#[derive(serde::Serialize)]
+struct StreamOptions {
+    include_usage: bool,
 }
 
 #[derive(serde::Serialize)]
@@ -682,6 +688,9 @@ fn inference_body<'a>(
                 model,
                 messages: chat,
                 stream: true,
+                stream_options: StreamOptions {
+                    include_usage: true,
+                },
                 reasoning_effort: effort,
             }
         }
@@ -1285,6 +1294,8 @@ struct Stream {
     complete: bool,
     failed: bool,
     chat_finished: bool,
+    response_id: Option<String>,
+    usage: Option<Counters>,
 }
 impl Stream {
     fn new(protocol: Protocol) -> Self {
@@ -1296,6 +1307,8 @@ impl Stream {
             complete: false,
             failed: false,
             chat_finished: false,
+            response_id: None,
+            usage: None,
         }
     }
     fn append(&mut self, text: &str) -> Result<(), String> {
@@ -1323,6 +1336,63 @@ impl Stream {
         }
         Ok(())
     }
+    fn observe_response(&mut self, value: Option<&Value>) {
+        if self.response_id.is_none() {
+            self.response_id = value
+                .and_then(Value::as_str)
+                .and_then(|id| checked_identity(id).ok());
+        }
+    }
+    /// Every native usage object is a cumulative snapshot of this one HTTP
+    /// response, not a delta or a total for the retained conversation.
+    /// Omitted/null/invalid counters do not erase previously reported fields.
+    fn observe_usage(&mut self, value: Option<&Value>) {
+        let Some(value) = value.filter(|value| value.is_object()) else {
+            return;
+        };
+        let (input, output, cache_read, cache_write, reasoning) = match self.protocol {
+            Protocol::Codex | Protocol::Responses => (
+                value.get("input_tokens"),
+                value.get("output_tokens"),
+                value.pointer("/input_tokens_details/cached_tokens"),
+                value.pointer("/input_tokens_details/cache_write_tokens"),
+                value.pointer("/output_tokens_details/reasoning_tokens"),
+            ),
+            Protocol::ChatCompletions => (
+                value.get("prompt_tokens"),
+                value.get("completion_tokens"),
+                value.pointer("/prompt_tokens_details/cached_tokens"),
+                value.pointer("/prompt_tokens_details/cache_write_tokens"),
+                value.pointer("/completion_tokens_details/reasoning_tokens"),
+            ),
+            Protocol::Messages => (
+                value.get("input_tokens"),
+                value.get("output_tokens"),
+                value.get("cache_read_input_tokens"),
+                value.get("cache_creation_input_tokens"),
+                None,
+            ),
+            Protocol::Gemini => (
+                value.get("promptTokenCount"),
+                value.get("candidatesTokenCount"),
+                value.get("cachedContentTokenCount"),
+                None,
+                value.get("thoughtsTokenCount"),
+            ),
+        };
+        let counters = self.usage.get_or_insert_with(Counters::default);
+        for (field, value) in [
+            (&mut counters.input, input),
+            (&mut counters.output, output),
+            (&mut counters.cache_read, cache_read),
+            (&mut counters.cache_write, cache_write),
+            (&mut counters.reasoning, reasoning),
+        ] {
+            if let Some(value) = value.and_then(Value::as_u64) {
+                *field = Some(value);
+            }
+        }
+    }
     fn event(&mut self, event: &str, data: &str) -> Result<(), String> {
         if data.trim() == "[DONE]" {
             if matches!(self.protocol, Protocol::ChatCompletions) && self.chat_finished {
@@ -1334,6 +1404,18 @@ impl Stream {
         let value: Value =
             serde_json::from_str(data).map_err(|_| "Native SSE data is not valid JSON")?;
         let kind = value.get("type").and_then(Value::as_str).unwrap_or(event);
+        // Terminal errors can still report consumed tokens (for example an
+        // output limit). Retain them before any outcome/error handling;
+        // publish_partial keeps their coverage incomplete.
+        if matches!(self.protocol, Protocol::Codex | Protocol::Responses)
+            && matches!(
+                kind,
+                "response.completed" | "response.failed" | "response.incomplete"
+            )
+        {
+            self.observe_response(value.get("response").and_then(|v| v.get("id")));
+            self.observe_usage(value.get("response").and_then(|v| v.get("usage")));
+        }
         if value.get("error").is_some_and(|v| !v.is_null()) || kind == "error" {
             self.failed = true;
             return Err("Provider reported an inference error; private error body omitted".into());
@@ -1347,6 +1429,7 @@ impl Stream {
                         .or_else(|| value.get("model"))
                         .and_then(Value::as_str),
                 )?;
+                self.observe_response(value.get("response").and_then(|v| v.get("id")));
                 match kind {
                     "response.output_text.delta" | "response.refusal.delta" => {
                         if let Some(delta) = value.get("delta").and_then(Value::as_str) {
@@ -1383,6 +1466,10 @@ impl Stream {
             }
             Protocol::ChatCompletions => {
                 self.observe(value.get("model").and_then(Value::as_str))?;
+                self.observe_response(value.get("id"));
+                // include_usage sends a request-total trailer with choices: [].
+                // It must be parsed outside the per-choice text/finish loop.
+                self.observe_usage(value.get("usage"));
                 if let Some(choices) = value.get("choices").and_then(Value::as_array) {
                     for choice in choices {
                         if choice.get("index").and_then(Value::as_u64).unwrap_or(0) != 0 {
@@ -1406,12 +1493,12 @@ impl Stream {
                 }
             }
             Protocol::Messages => match kind {
-                "message_start" => self.observe(
-                    value
-                        .get("message")
-                        .and_then(|v| v.get("model"))
-                        .and_then(Value::as_str),
-                )?,
+                "message_start" => {
+                    let message = value.get("message");
+                    self.observe(message.and_then(|v| v.get("model")).and_then(Value::as_str))?;
+                    self.observe_response(message.and_then(|v| v.get("id")));
+                    self.observe_usage(message.and_then(|v| v.get("usage")));
+                }
                 "content_block_start" => {
                     if let Some(block) = value.get("content_block")
                         && block.get("type").and_then(Value::as_str) == Some("text")
@@ -1429,6 +1516,7 @@ impl Stream {
                     }
                 }
                 "message_delta" => {
+                    self.observe_usage(value.get("usage"));
                     if let Some(reason) = value
                         .get("delta")
                         .and_then(|v| v.get("stop_reason"))
@@ -1446,6 +1534,8 @@ impl Stream {
             },
             Protocol::Gemini => {
                 self.observe(value.get("modelVersion").and_then(Value::as_str))?;
+                self.observe_response(value.get("responseId"));
+                self.observe_usage(value.get("usageMetadata"));
                 if value
                     .get("promptFeedback")
                     .and_then(|v| v.get("blockReason"))
@@ -1536,7 +1626,9 @@ impl Stream {
                 control.check()?;
                 self.event(&event, &data)?;
                 publish(self)?;
-                if self.complete {
+                // Gemini STOP ends the candidate, not the HTTP body. Usage
+                // metadata can arrive in a later SSE event, even another chunk.
+                if self.complete && self.protocol != Protocol::Gemini {
                     return Ok(());
                 }
             }
@@ -1557,6 +1649,53 @@ impl Stream {
             self.model_published = true;
         }
         Ok(())
+    }
+    fn publish_usage(&self, events: &Events, run: &Prepared, complete: bool) -> Result<(), String> {
+        let Some(counters) = &self.usage else {
+            return Ok(());
+        };
+        // OpenAI details are subsets of their input/output totals. Anthropic
+        // input_tokens excludes cache reads/writes. Gemini prompt includes
+        // cached content, while candidatesTokenCount excludes thoughts.
+        // No native wire contract here reports a tokenizer identity.
+        let semantics = match self.protocol {
+            Protocol::Codex | Protocol::Responses | Protocol::ChatCompletions => Semantics {
+                cache_read_in_input: Some(true),
+                cache_write_in_input: Some(true),
+                reasoning_in_output: Some(true),
+            },
+            Protocol::Messages => Semantics {
+                cache_read_in_input: Some(false),
+                cache_write_in_input: Some(false),
+                reasoning_in_output: None,
+            },
+            Protocol::Gemini => Semantics {
+                cache_read_in_input: Some(true),
+                cache_write_in_input: None,
+                reasoning_in_output: Some(false),
+            },
+        };
+        emit(
+            events,
+            Event::Usage {
+                generation: run.generation,
+                task_id: run.input.task.id,
+                report: Report {
+                    identity: Identity {
+                        response: self.response_id.clone(),
+                        ..Identity::default()
+                    },
+                    scope: Scope::Turn,
+                    kind: Kind::Snapshot,
+                    counters: *counters,
+                    baseline: None,
+                    model: self.model.clone(),
+                    tokenizer: None,
+                    semantics,
+                    complete,
+                },
+            },
+        )
     }
     fn publish(&mut self, events: &Events, run: &Prepared) -> Result<(), String> {
         self.publish_model(events, run)?;
@@ -1602,6 +1741,7 @@ impl Stream {
     }
     fn publish_partial(&mut self, events: &Events, run: &Prepared) -> Result<(), String> {
         self.publish_model(events, run)?;
+        self.publish_usage(events, run, false)?;
         // Keep the privacy redactor's incomplete-tail protection after interrupted streams.
         self.publish_text(events, run, false)
     }
@@ -1617,6 +1757,7 @@ impl Stream {
             );
         }
         self.publish_model(events, run)?;
+        self.publish_usage(events, run, true)?;
         let text = safe(&self.text, true);
         if text.is_empty() {
             return Ok(());

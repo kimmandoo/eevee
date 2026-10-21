@@ -436,6 +436,7 @@ fn managed_review_is_refused_before_loading_or_dispatching_an_acp_session() {
         let input = Input {
             task: crate::store::Snapshot::empty("unopened-project".into()),
             work: None,
+            instruction_override: None,
             excerpts: Vec::new(),
             report: None,
             resume: None,
@@ -469,6 +470,7 @@ fn model_metadata_needs_no_saved_task_or_managed_role_and_retains_identity_check
             let mut input = Input {
                 task: crate::store::Snapshot::empty("unopened-project".into()),
                 work: None,
+                instruction_override: None,
                 excerpts: Vec::new(),
                 report: None,
                 resume: None,

@@ -57,8 +57,14 @@ impl State {
                             params![record.id, request.task_id, json],
                         )
                         .map_err(|error| format!("Provider evidence was not saved: {error}"))?;
-                    enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
                 }
+                super::records::observe_provider(
+                    &transaction,
+                    &self.project,
+                    request.task_id,
+                    &record,
+                )?;
+                enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
                 JournalResponse::Saved(record)
             }
             JournalOperation::List => {
@@ -84,6 +90,7 @@ impl State {
             }
             JournalOperation::Purge => {
                 no_active(&transaction, Some(request.task_id))?;
+                super::records::purge_provider(&transaction, &self.project, request.task_id)?;
                 transaction
                     .execute(
                         "DELETE FROM provider_journal WHERE task_id=?1",

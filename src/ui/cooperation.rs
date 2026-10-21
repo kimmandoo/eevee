@@ -137,7 +137,7 @@ pub(super) fn board(frame: &mut Frame, area: Rect, app: &mut App, config: &Confi
     let area = sheet(area, 106, 26);
     frame.render_widget(Clear, area);
     let block = panel(
-        " Party board / working and waiting only ",
+        paint.hint(crate::i18n::Message::DesksCooperationBoardPanel),
         config,
         paint,
         true,
@@ -149,7 +149,7 @@ pub(super) fn board(frame: &mut Frame, area: Rect, app: &mut App, config: &Confi
         text(
             frame,
             content,
-            "No partner owns working or waiting work.\nIdle partners run nothing. Esc returns; /party lists everyone.",
+            paint.hint(crate::i18n::Message::DesksCooperationNoPartnerOwnsWorkingOrWaitingWork),
             paint.muted,
         );
         return;
@@ -215,7 +215,7 @@ pub(super) fn board(frame: &mut Frame, area: Rect, app: &mut App, config: &Confi
     text(
         frame,
         row(content, content.height.saturating_sub(3), 3),
-        "Up/Down choose owner · Enter front owner only\nPgUp/Dn selected details · Esc Back\nNo request, approval or cancellation by browsing.",
+        paint.hint(crate::i18n::Message::DesksCooperationUpDownChooseOwnerEnterFrontOwner),
         paint.accent,
     );
 }
@@ -239,13 +239,20 @@ pub(super) fn release(
         area
     };
     frame.render_widget(Clear, area);
-    let block = panel(" Release partner / local roster only ", config, paint, true);
+    let block = panel(
+        paint.hint(crate::i18n::Message::DesksCooperationReleasePanel),
+        config,
+        paint,
+        true,
+    );
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let disclosure = format!(
-        "Selected: {} · #{}\nRemove: personal roster entry, own drafts/navigation and proposed recipient intents.\nRetain: task facts, sources, runs and provider journals with original name/form attribution snapshots.\nMoves/pairings are not stored; none are removed.\nNo repository/provider erasure; not secure deletion.",
-        store::Attribution::label(Some(&review.owner)),
-        review.owner.partner,
+    let disclosure = paint.format(
+        crate::i18n::Template::DesksCooperationReleaseDisclosure,
+        &[
+            ("owner", &(store::Attribution::label(Some(&review.owner)))),
+            ("partner", &(review.owner.partner).to_string()),
+        ],
     );
     let paragraph = Paragraph::new(disclosure)
         .style(paint.surface)
@@ -255,11 +262,11 @@ pub(super) fn release(
         .min(u16::MAX as usize) as u16;
     frame.render_widget(paragraph, row(content, 0, content.height.saturating_sub(4)));
     let message = if review.pending {
-        "Waiting for committed roster acknowledgement; no success claimed.".to_owned()
+        paint.hint(crate::i18n::Message::DesksCooperationWaitingForCommittedRosterAcknowledgementNoSuccess).to_owned()
     } else if let Some(refusal) = &review.refusal {
         format!("Refused: {refusal}")
     } else {
-        "Only explicit confirmation requests removal. Esc keeps everything.".to_owned()
+        paint.hint(crate::i18n::Message::DesksCooperationOnlyExplicitConfirmationRequestsRemovalEscKeeps).to_owned()
     };
     let status = Paragraph::new(message)
         .style(paint.accent)
@@ -277,7 +284,7 @@ pub(super) fn release(
     }
     let choices = Line::from(vec![
         Span::styled(
-            " Stay ",
+            paint.hint(crate::i18n::Message::DesksCooperationStay),
             if review.affirmative {
                 paint.surface
             } else {
@@ -286,7 +293,7 @@ pub(super) fn release(
         ),
         Span::raw("  "),
         Span::styled(
-            " Release selected partner ",
+            paint.hint(crate::i18n::Message::DesksCooperationReleaseSelectedPartner),
             if review.affirmative {
                 paint.selected
             } else {
@@ -302,11 +309,11 @@ pub(super) fn release(
         frame,
         row(content, content.height.saturating_sub(2), 1),
         if review.pending {
-            "Waiting for storage; removal cannot be undone by Esc."
+            paint.hint(crate::i18n::Message::DesksCooperationWaitingForStorageRemovalCannotBeUndone)
         } else if !minimum {
-            "Resize to 60x18 to review. Esc Stay; no removal here."
+            paint.hint(crate::i18n::Message::DesksCooperationResizeToXToReviewEscStay)
         } else {
-            "y Request / Left Stay / Right Release / Enter / Esc Stay"
+            paint.hint(crate::i18n::Message::DesksCooperationYRequestLeftStayRightReleaseEnter)
         },
         paint.muted,
     );
@@ -339,9 +346,9 @@ pub(super) fn cancellation(
     frame.render_widget(Clear, area);
     let block = panel(
         if review.quit {
-            " Quit / ALL owned work "
+            paint.hint(crate::i18n::Message::DesksCooperationQuitPanel)
         } else {
-            " Cancel ALL owned work "
+            paint.hint(crate::i18n::Message::DesksCooperationCancelPanel)
         },
         config,
         paint,
@@ -362,7 +369,7 @@ pub(super) fn cancellation(
     }
     let choices = Line::from(vec![
         Span::styled(
-            " Stay ",
+            paint.hint(crate::i18n::Message::DesksCooperationStay),
             if review.affirmative {
                 paint.surface
             } else {
@@ -372,9 +379,9 @@ pub(super) fn cancellation(
         Span::raw("  "),
         Span::styled(
             if review.quit {
-                " Cancel ALL and wait, then exit "
+                paint.hint(crate::i18n::Message::DesksCooperationCancelAllAndWaitThenExit)
             } else {
-                " Cancel ALL and wait "
+                paint.hint(crate::i18n::Message::DesksCooperationCancelAllAndWait)
             },
             if review.affirmative {
                 paint.selected
@@ -391,9 +398,9 @@ pub(super) fn cancellation(
         frame,
         row(content, content.height.saturating_sub(2), 1),
         if review.reviewed {
-            "y Confirm / Left Stay / Right action / Enter / Esc Stay"
+            paint.hint(crate::i18n::Message::DesksCooperationYConfirmLeftStayRightActionEnter)
         } else {
-            "Resize to inspect ALL owners. Esc Stay; none answered."
+            paint.hint(crate::i18n::Message::DesksCooperationResizeToInspectAllOwnersEscStay)
         },
         paint.accent,
     );
@@ -426,7 +433,7 @@ pub(super) fn journal_discard(
     };
     frame.render_widget(Clear, area);
     let block = panel(
-        " Discard exact failed journal writes / d IDs and error ",
+        paint.hint(crate::i18n::Message::DesksCooperationDiscardExactFailedJournalWritesDIds),
         config,
         paint,
         true,
@@ -436,20 +443,25 @@ pub(super) fn journal_discard(
     let body = row(content, 0, content.height.saturating_sub(3));
     if app.cooperation_ui.journal_discard_details {
         review.affirmative = false;
-        let mut detail = format!(
-            "DETAILS / no consent here\nOwner: {}\nTask: {}\nRequest: {}\nExact failed write attempt IDs ({}; repeats retained):\n",
-            store::Attribution::label(Some(&review.owner)),
-            review.task,
-            review.request_id,
-            review.count,
+        let mut detail = paint.format(
+            crate::i18n::Template::DesksCooperationJournalDetails,
+            &[
+                ("owner", &(store::Attribution::label(Some(&review.owner)))),
+                ("task", &(review.task).to_string()),
+                ("request", &(review.request_id)),
+                ("count", &(review.count).to_string()),
+            ],
         );
         for id in &review.ids {
             let _ = writeln!(detail, "{id}");
         }
         let _ = write!(
             detail,
-            "\nStorage/refusal error:\n{}\n\nCommitted observations remain. Discarding loses unsaved write attempts and leaves a coverage gap; not persistence, retry, purge or replay.",
-            review.error
+            "{}",
+            paint.format(
+                crate::i18n::Template::DesksCooperationJournalError,
+                &[("error", &(review.error)),]
+            )
         );
         let detail = crate::app::execution::safe_text(&detail);
         let paragraph = Paragraph::new(detail)
@@ -479,7 +491,7 @@ pub(super) fn journal_discard(
     }
     let choices = Line::from(vec![
         Span::styled(
-            " Stay ",
+            paint.hint(crate::i18n::Message::DesksCooperationStay),
             if review.affirmative {
                 paint.surface
             } else {
@@ -488,7 +500,7 @@ pub(super) fn journal_discard(
         ),
         Span::raw("  "),
         Span::styled(
-            " Discard failed writes ",
+            paint.hint(crate::i18n::Message::DesksCooperationDiscardFailedWrites),
             if review.affirmative {
                 paint.selected
             } else {
@@ -504,11 +516,11 @@ pub(super) fn journal_discard(
         frame,
         row(content, content.height.saturating_sub(2), 1),
         if app.cooperation_ui.journal_discard_details {
-            "d Summary / PgUp/Dn IDs and error / Esc Stay"
+            paint.hint(crate::i18n::Message::DesksCooperationDSummaryPgupDnIdsAndError)
         } else if review.reviewed {
-            "d Details / y Confirm / Left/Right / Enter / Esc Stay"
+            paint.hint(crate::i18n::Message::DesksCooperationDDetailsYConfirmLeftRightEnter)
         } else {
-            "Resize to inspect full scope. d Details / Esc Stay"
+            paint.hint(crate::i18n::Message::DesksCooperationResizeToInspectFullScopeDDetails)
         },
         paint.accent,
     );

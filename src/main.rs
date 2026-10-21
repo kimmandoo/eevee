@@ -1,6 +1,8 @@
 mod app;
+mod command_help;
 mod config;
 mod domain;
+mod i18n;
 mod platform;
 mod providers;
 mod store;
@@ -22,6 +24,11 @@ fn main() -> ExitCode {
     match config::parse() {
         Ok(Command::Help) => {
             println!("{}", config::HELP);
+            print!("Embedded display languages:");
+            for language in i18n::Language::registered() {
+                print!(" {}", language.tag());
+            }
+            println!();
             ExitCode::SUCCESS
         }
         Ok(Command::Version) => {
@@ -194,7 +201,7 @@ fn run(config: Config) -> io::Result<()> {
             dirty |= app.drive_executions(&mut execution, &project);
             // A deferred cancel-and-exit can become ready here, before input
             // polling. Do not wait for another key after ownership is settled.
-            if app.preferences_allow_quit(app.quit) {
+            if app.records_allow_quit(app.quit) && app.preferences_allow_quit(true) {
                 return Ok(());
             }
             if app.quit {
@@ -205,6 +212,7 @@ fn run(config: Config) -> io::Result<()> {
             if context_task != Some(app.task_id) {
                 context_task = Some(app.task_id);
                 app.sources.reset(app.task_id);
+                app.sources.set_producer(Some(app.attribution()));
                 app.handoff.reset(app.task_id);
                 if app.planning.task_id() != app.task_id {
                     app.planning.reset(app.task_id);
@@ -218,6 +226,10 @@ fn run(config: Config) -> io::Result<()> {
             dirty |= app.refresh_suggestion();
             dirty |= app.refresh_carry_over();
             dirty |= app.drive_moves();
+            app.records_pairing_selected();
+            dirty |= app.drive_records();
+            // Restoration reports readiness, not a changed frame.
+            app.records_restore_pairing();
             if dirty || animation_dirty {
                 ui::portrait_targets(
                     &app,
@@ -270,7 +282,11 @@ fn run(config: Config) -> io::Result<()> {
                     outstanding_store += 1;
                 }
             }
-            if local_store_first {
+            // Persist a newly prepared package receipt before evidence can be removed.
+            let handoff_receipt_pending = app.records.local.iter().any(|intent| {
+                matches!(intent, workspace::records::LocalIntent::HandoffReady { .. })
+            });
+            if local_store_first && !handoff_receipt_pending {
                 outstanding_store += app.submit_execution_stores(&store);
             }
             outstanding_store += app.drive_providers(
@@ -280,14 +296,24 @@ fn run(config: Config) -> io::Result<()> {
                 &config.data_dir,
                 &config.context_exclusions,
             )?;
-            if !local_store_first {
+            if !local_store_first && !handoff_receipt_pending {
                 outstanding_store += app.submit_execution_stores(&store);
             }
             local_store_first = !local_store_first;
             if sources.try_request(&mut app.sources.pending) {
                 outstanding_sources += 1;
             }
-            if store.try_context(&mut app.sources.pending_store) {
+            let context_mutates = app.sources.pending_store.as_ref().is_some_and(|request| {
+                matches!(
+                    request.operation,
+                    store::ContextOperation::Pin(_)
+                        | store::ContextOperation::Remove(_)
+                        | store::ContextOperation::Purge(_)
+                )
+            });
+            if (!context_mutates || app.records.local.is_empty())
+                && store.try_context(&mut app.sources.pending_store)
+            {
                 outstanding_store += 1;
             }
             if app.memory_request.is_none()
@@ -304,6 +330,7 @@ fn run(config: Config) -> io::Result<()> {
             if store.try_moves(&mut app.moves.pending) {
                 outstanding_store += 1;
             }
+            outstanding_store += app.submit_record_store(&store);
             if agents.try_request(&mut app.agents.pending) {
                 outstanding_agents += 1;
             }
@@ -316,7 +343,7 @@ fn run(config: Config) -> io::Result<()> {
                 app.retry_cooperation_storage();
                 outstanding_store += 1;
             }
-            if store.try_manage(&mut app.management) {
+            if !handoff_receipt_pending && store.try_manage(&mut app.management) {
                 outstanding_store += 1;
             }
             if store.try_party(&mut app.party_request) {
@@ -477,7 +504,7 @@ fn run(config: Config) -> io::Result<()> {
                 mailbox_pending |= index == 63;
                 outstanding_sources = outstanding_sources.saturating_sub(1);
                 app.sources.event(app.task_id, event);
-                dirty |= app.overlay == Some(app::Overlay::Sources) || app.composer_menu.is_some();
+                dirty = true;
             }
             let (execution_changed, execution_more) = app.poll_executions(&execution);
             dirty |= execution_changed;
@@ -509,7 +536,7 @@ fn run(config: Config) -> io::Result<()> {
             {
                 dirty |= resized;
             }
-            if app.preferences_allow_quit(app.quit) {
+            if app.records_allow_quit(app.quit) && app.preferences_allow_quit(true) {
                 return Ok(());
             }
             if app.quit {

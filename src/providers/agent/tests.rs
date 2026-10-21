@@ -4,7 +4,7 @@ use super::*;
 fn sdk_capabilities_disclose_correlated_bridge_dispatch_boundary() {
     let capabilities = capabilities(1);
     assert!(capabilities.iter().any(|capability| {
-        capability.evidence.contains("bridge revision 4")
+        capability.evidence.contains("bridge revision 5")
             && capability
                 .evidence
                 .contains("SDK-message UUID acknowledgment")

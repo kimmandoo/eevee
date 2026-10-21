@@ -443,6 +443,7 @@ fn model_inspection_has_no_task_prompt_or_source_or_edit_lookup() {
     let mut input = Input {
         task: crate::store::Snapshot::empty("unopened-project".into()),
         work: None,
+        instruction_override: None,
         excerpts: Vec::new(),
         report: None,
         resume: None,
@@ -481,6 +482,7 @@ fn review_has_no_edit_baseline_and_refuses_selected_write_paths() {
     let mut input = Input {
         task: crate::store::Snapshot::empty("unopened-project".into()),
         work: None,
+        instruction_override: None,
         excerpts: Vec::new(),
         report: None,
         resume: None,
@@ -836,6 +838,7 @@ fn outbound_task_facts_do_not_leak_generated_provider_session_provenance() {
     let input = Input {
         task: saved,
         work: None,
+        instruction_override: None,
         excerpts: Vec::new(),
         report: None,
         resume: None,
@@ -907,4 +910,361 @@ fn baseline_cites_identical_selected_capture_instead_of_resending_bytes() {
     other.path = "src/other.rs".into();
     let entry = baseline_entry(&baseline, &[other]);
     assert!(entry.get("working_content_same_as_capture").is_none());
+}
+
+// Wire shape follows the released generated schema, not `codex exec` JSON:
+// https://github.com/openai/codex/blob/rust-v0.147.0/codex-rs/app-server-protocol/schema/json/v2/ThreadTokenUsageUpdatedNotification.json
+// Local behavioral fixtures below are not live/account conformance evidence.
+fn usage_notification(turn: &str, last: Value, total: Value) -> Value {
+    json!({
+        "method": "thread/tokenUsage/updated",
+        "params": {
+            "threadId": "usage-thread",
+            "turnId": turn,
+            "tokenUsage": { "last": last, "total": total, "modelContextWindow": 258400 }
+        }
+    })
+}
+
+fn usage_breakdown(input: u64, output: u64, cached: u64, reasoning: u64) -> Value {
+    json!({
+        "inputTokens": input, "outputTokens": output,
+        "cachedInputTokens": cached, "reasoningOutputTokens": reasoning,
+        "totalTokens": input + output
+    })
+}
+
+fn usage_record(request: &str) -> crate::workspace::usage::Record {
+    crate::workspace::usage::Record::new(
+        request.into(),
+        3,
+        crate::store::Attribution {
+            partner: 1,
+            name: "Partner".into(),
+            form: 0,
+        },
+        Agent::Codex,
+    )
+}
+
+fn usage_reports(usage: &UsageSnapshots, turn: &str) -> Vec<Report> {
+    let events = Arc::new(Mutex::new(VecDeque::new()));
+    usage.emit(&events, 7, 3, "usage-thread", turn).unwrap();
+    finish(
+        &events,
+        7,
+        3,
+        Outcome::Completed,
+        "Fixture completed".into(),
+    );
+    let mut queue = events.lock();
+    assert!(matches!(queue.pop_back(), Some(Event::Finished { .. })));
+    queue
+        .drain(..)
+        .map(|event| match event {
+            Event::Usage {
+                generation: 7,
+                task_id: 3,
+                report,
+            } => report,
+            _ => panic!("Unexpected fixture event"),
+        })
+        .collect()
+}
+
+#[test]
+fn usage_two_turns_and_unknown_resume_do_not_charge_prior_history() {
+    let first_wire = usage_notification(
+        "turn-one",
+        usage_breakdown(100, 20, 40, 5),
+        usage_breakdown(100, 20, 40, 5),
+    );
+    let mut first = UsageSnapshots::default();
+    first
+        .observe(
+            &first_wire["params"],
+            Some("usage-thread"),
+            Some("turn-one"),
+            true,
+        )
+        .unwrap();
+    first.complete = true;
+    let mut first_record = usage_record("first-request");
+    for report in usage_reports(&first, "turn-one") {
+        first_record.apply_retained(report).unwrap();
+    }
+    assert_eq!(first_record.measurements.len(), 2);
+    let response = &first_record.measurements[0];
+    assert_eq!(response.report.scope, Scope::Response);
+    assert_eq!(response.attributable.input, Some(100));
+    assert_eq!(response.report.identity.turn.as_deref(), Some("turn-one"));
+    assert_eq!(response.report.model, None);
+    assert_eq!(response.report.tokenizer, None);
+    assert_eq!(response.report.semantics.cache_read_in_input, Some(true));
+    assert_eq!(response.report.semantics.reasoning_in_output, Some(true));
+    assert_eq!(response.attributable.cache_write, None); // optional, never synthesized zero
+    assert!(first_record.measurements[1].attributable.is_unknown());
+
+    // Resume the owned thread with an observed completed-turn baseline.
+    let mut second = UsageSnapshots {
+        baseline: Some(UsageBaseline {
+            turn_id: "turn-one".into(),
+            counters: first.total.unwrap(),
+        }),
+        ..UsageSnapshots::default()
+    };
+    second
+        .observe(&first_wire["params"], Some("usage-thread"), None, false)
+        .unwrap();
+    assert!(second.last.is_none()); // historical `last` is never current usage
+    let second_wire = usage_notification(
+        "turn-two",
+        usage_breakdown(60, 12, 10, 3),
+        usage_breakdown(160, 32, 50, 8),
+    );
+    for _ in 0..3 {
+        second
+            .observe(
+                &second_wire["params"],
+                Some("usage-thread"),
+                Some("turn-two"),
+                true,
+            )
+            .unwrap();
+    }
+    second.complete = true;
+    let mut second_record = usage_record("second-request");
+    let reports = usage_reports(&second, "turn-two");
+    for report in &reports {
+        assert!(second_record.apply_retained(report.clone()).unwrap());
+    }
+    for report in &reports {
+        assert!(!second_record.apply_retained(report.clone()).unwrap());
+    }
+    assert_eq!(second_record.measurements.len(), 2);
+    let session = &second_record.measurements[1];
+    assert_eq!(session.report.scope, Scope::Session);
+    assert_eq!(session.report.counters.input, Some(160));
+    assert_eq!(session.attributable.input, Some(60));
+    assert_eq!(session.attributable.output, Some(12));
+    assert_eq!(session.attributable.cache_read, Some(10));
+    assert_eq!(session.attributable.reasoning, Some(3));
+
+    // An unknown resumed baseline cannot be inferred from its first current total.
+    let mut resumed = UsageSnapshots::default();
+    resumed
+        .observe(&first_wire["params"], Some("usage-thread"), None, false)
+        .unwrap();
+    resumed
+        .observe(
+            &second_wire["params"],
+            Some("usage-thread"),
+            Some("turn-two"),
+            true,
+        )
+        .unwrap();
+    resumed.complete = true;
+    let mut resumed_record = usage_record("unknown-resume");
+    for report in usage_reports(&resumed, "turn-two") {
+        resumed_record.apply_retained(report).unwrap();
+    }
+    assert_eq!(resumed_record.measurements[0].attributable.input, Some(60));
+    assert_eq!(resumed_record.measurements[1].report.baseline, None);
+    assert!(resumed_record.measurements[1].attributable.is_unknown());
+}
+
+#[test]
+fn usage_agentic_last_replaces_response_snapshot_and_partial_finals_merge() {
+    let mut usage = UsageSnapshots::default();
+    let initial = usage_notification(
+        "agentic-turn",
+        usage_breakdown(100, 20, 40, 5),
+        usage_breakdown(100, 20, 40, 5),
+    );
+    usage
+        .observe(
+            &initial["params"],
+            Some("usage-thread"),
+            Some("agentic-turn"),
+            true,
+        )
+        .unwrap();
+    let mut record = usage_record("agentic-request");
+    for report in usage_reports(&usage, "agentic-turn") {
+        record.apply_retained(report).unwrap();
+    }
+    // Another model response in the same turn: last is replaced, not summed and
+    // not described as the complete 160-input-token agentic turn.
+    let next = usage_notification(
+        "agentic-turn",
+        usage_breakdown(60, 12, 10, 3),
+        usage_breakdown(160, 32, 50, 8),
+    );
+    usage
+        .observe(
+            &next["params"],
+            Some("usage-thread"),
+            Some("agentic-turn"),
+            true,
+        )
+        .unwrap();
+    let partial = usage_notification(
+        "agentic-turn",
+        json!({"inputTokens":null,"cacheWriteInputTokens":2}),
+        json!({"outputTokens":null,"cacheWriteInputTokens":7}),
+    );
+    usage
+        .observe(
+            &partial["params"],
+            Some("usage-thread"),
+            Some("agentic-turn"),
+            true,
+        )
+        .unwrap();
+    usage.complete = true;
+    let reports = usage_reports(&usage, "agentic-turn");
+    for report in &reports {
+        record.apply_retained(report.clone()).unwrap();
+    }
+    for report in reports {
+        assert!(!record.apply_retained(report).unwrap());
+    }
+    assert_eq!(record.measurements.len(), 2);
+    let response = &record.measurements[0];
+    assert_eq!(response.report.scope, Scope::Response);
+    assert_eq!(response.attributable.input, Some(60));
+    assert_eq!(response.attributable.output, Some(12));
+    assert_eq!(response.attributable.cache_write, Some(2));
+    assert!(response.report.complete);
+    assert_eq!(record.measurements[1].report.counters.input, Some(160));
+    assert_eq!(record.measurements[1].report.counters.output, Some(32));
+    assert_eq!(record.measurements[1].report.counters.cache_write, Some(7));
+}
+
+#[test]
+fn usage_requires_exact_thread_and_already_bound_current_turn() {
+    let wire = usage_notification(
+        "current-turn",
+        usage_breakdown(100, 20, 40, 5),
+        usage_breakdown(1000, 200, 400, 50),
+    );
+    for (thread, turn, dispatched) in [
+        (Some("other-thread"), Some("current-turn"), true),
+        (Some("usage-thread"), Some("other-turn"), true),
+        (Some("usage-thread"), None, true),
+        (None, Some("current-turn"), true),
+        (Some("usage-thread"), None, false),
+    ] {
+        let mut usage = UsageSnapshots::default();
+        usage
+            .observe(&wire["params"], thread, turn, dispatched)
+            .unwrap();
+        assert!(usage.last.is_none());
+        assert!(usage.total.is_none());
+        assert!(usage_reports(&usage, "current-turn").is_empty());
+    }
+    let mut usage = UsageSnapshots::default();
+    let mut missing_turn = wire["params"].clone();
+    missing_turn.as_object_mut().unwrap().remove("turnId");
+    usage
+        .observe(
+            &missing_turn,
+            Some("usage-thread"),
+            Some("current-turn"),
+            true,
+        )
+        .unwrap();
+    assert!(usage.total.is_none());
+    let mut wrong_shape = wire["params"].clone();
+    wrong_shape["tokenUsage"] = json!({"input_tokens":1000,"output_tokens":200});
+    usage
+        .observe(
+            &wrong_shape,
+            Some("usage-thread"),
+            Some("current-turn"),
+            true,
+        )
+        .unwrap();
+    assert!(usage.total.is_none()); // exec/Responses usage is not this wire contract
+}
+
+#[test]
+fn usage_optional_counters_reject_invalid_values_without_defaulting_to_zero() {
+    let counters = usage_counters(&json!({"inputTokens":null,"outputTokens":0})).unwrap();
+    assert_eq!(counters.input, None);
+    assert_eq!(counters.output, Some(0));
+    assert_eq!(counters.cache_read, None);
+    for value in [json!(-1), json!(1.5), json!("12"), json!(true)] {
+        assert!(usage_counters(&json!({"inputTokens":value})).is_err());
+    }
+    assert!(usage_counters(&Value::Null).is_err());
+}
+
+#[test]
+fn usage_predispatch_baseline_refresh_is_exact_and_freezes_at_submission() {
+    let mut usage = UsageSnapshots {
+        baseline: Some(UsageBaseline {
+            turn_id: "previous-turn".into(),
+            counters: Counters {
+                input: Some(100),
+                ..Counters::default()
+            },
+        }),
+        ..UsageSnapshots::default()
+    };
+    let observed = usage_notification(
+        "previous-turn",
+        usage_breakdown(100, 20, 40, 5),
+        json!({"inputTokens":105,"outputTokens":null,"cachedInputTokens":40}),
+    );
+    usage
+        .observe(&observed["params"], Some("usage-thread"), None, false)
+        .unwrap();
+    assert_eq!(usage.baseline.as_ref().unwrap().counters.input, Some(105));
+    assert_eq!(usage.baseline.as_ref().unwrap().counters.output, None);
+    assert!(usage.last.is_none());
+    assert!(usage.total.is_none());
+
+    let unrelated = usage_notification(
+        "unrelated-turn",
+        usage_breakdown(9000, 9000, 0, 0),
+        usage_breakdown(9000, 9000, 0, 0),
+    );
+    usage
+        .observe(&unrelated["params"], Some("usage-thread"), None, false)
+        .unwrap();
+    let current = usage_notification(
+        "submitted-turn",
+        usage_breakdown(45, 12, 10, 3),
+        usage_breakdown(150, 32, 50, 8),
+    );
+    usage
+        .observe(
+            &current["params"],
+            Some("usage-thread"),
+            Some("submitted-turn"),
+            true,
+        )
+        .unwrap();
+    // Even a well-shaped delayed previous-turn notification cannot shift the
+    // submitted request's baseline or replace its current counters.
+    usage
+        .observe(
+            &observed["params"],
+            Some("usage-thread"),
+            Some("submitted-turn"),
+            true,
+        )
+        .unwrap();
+    usage.complete = true;
+    let mut record = usage_record("baseline-refresh");
+    for report in usage_reports(&usage, "submitted-turn") {
+        record.apply_retained(report).unwrap();
+    }
+    let session = &record.measurements[1];
+    assert_eq!(session.report.counters.input, Some(150));
+    assert_eq!(session.attributable.input, Some(45));
+    assert_eq!(session.attributable.cache_read, Some(10));
+    assert_eq!(session.attributable.output, None);
+    assert_eq!(session.attributable.reasoning, None);
 }

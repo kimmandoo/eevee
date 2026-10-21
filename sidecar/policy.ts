@@ -13,6 +13,7 @@ export const BRIDGE_POLICY = {
   tools: 'closed-allowlist', permissions: 'default-host-once', mcp: 'disabled',
   configuration: 'isolated', authentication: 'api-console-cloud-only',
   dispatch: 'correlated-sdk-submission',
+  usage: 'correlated-sdk-snapshots',
 };
 export const FRAME_LIMIT = 2 * 1024 * 1024;
 export const READ_TOOLS = ['Read', 'Glob', 'Grep', 'AskUserQuestion'];
@@ -46,7 +47,7 @@ const SubmissionAckSchema = z.object({
 // Only a response tied to this fresh SDK message UUID proves query submission.
 // Initialization, iterator release, bridge enqueue and restored history do not.
 export class SDKDispatchReceipt {
-  private armed = false;
+  private submitted = false;
   private sent = false;
   private readonly uuid: string;
   private readonly requestId: string | null | undefined;
@@ -54,9 +55,9 @@ export class SDKDispatchReceipt {
     this.uuid = uuid;
     this.requestId = requestId;
   }
-  arm(): void { this.armed = true; }
+  submittedToSDK(): void { this.submitted = true; }
   observe(message: unknown): string | undefined {
-    if (!this.armed || this.sent || this.requestId == null) return undefined;
+    if (!this.submitted || this.sent || this.requestId == null) return undefined;
     const parsed = SubmissionAckSchema.safeParse(message);
     if (!parsed.success) return undefined;
     const value = parsed.data;
@@ -65,6 +66,83 @@ export class SDKDispatchReceipt {
     if (!acknowledged) return undefined;
     this.sent = true;
     return this.requestId;
+  }
+}
+
+// SDK 0.3.300 sdk.d.ts: result.usage is main-loop/per-turn; modelUsage
+// is cumulative query-pipeline coverage, including restored transcript totals.
+// Neither includes out-of-pipeline helpers. No tokenizer is reported.
+const CounterSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullish();
+const MainUsageSchema = z.object({
+  input_tokens: CounterSchema, output_tokens: CounterSchema,
+  cache_read_input_tokens: CounterSchema, cache_creation_input_tokens: CounterSchema,
+});
+const ModelUsageSchema = z.object({
+  inputTokens: CounterSchema, outputTokens: CounterSchema,
+  cacheReadInputTokens: CounterSchema, cacheCreationInputTokens: CounterSchema,
+  thinkingTokens: CounterSchema,
+});
+const ResultUsageSchema = z.object({
+  type: z.literal('result'), uuid: boundedText(512), session_id: z.string().uuid(),
+  user_message_uuid: z.string().optional(), isReplay: z.boolean().optional(),
+  is_error: z.boolean(), subtype: boundedText(256),
+  usage: MainUsageSchema.nullish(),
+  modelUsage: z.record(boundedText(512), ModelUsageSchema).nullish(),
+});
+type UsageCounters = { input: number | null; output: number | null; cache_read: number | null; cache_write: number | null; reasoning: number | null };
+type UsageReport = {
+  identity: { session: string; turn: string; response: null; event: string };
+  scope: 'MainLoopTurn' | 'ModelPipeline'; kind: 'Snapshot'; counters: UsageCounters;
+  baseline: UsageCounters | null; model: string | null; tokenizer: null;
+  semantics: { cache_read_in_input: false; cache_write_in_input: false; reasoning_in_output: true | null };
+  complete: boolean;
+};
+type UsageEnvelope = { request_id: string; submission_id: string; session_id: string; report: UsageReport };
+
+export class SDKUsageLedger {
+  private active: { uuid: string; requestId: string; baseline: Map<string, UsageCounters> } | undefined;
+  private readonly totals = new Map<string, UsageCounters>();
+  private session: string | undefined;
+  // Called at the actual SDKUserMessage yield, not at policy admission/enqueue.
+  submitted(uuid: string, requestId: string | null | undefined): void {
+    this.active = requestId == null ? undefined : { uuid, requestId, baseline: new Map(this.totals) };
+  }
+  observe(raw: unknown): UsageEnvelope[] {
+    const parsed = ResultUsageSchema.safeParse(raw);
+    if (!parsed.success || parsed.data.isReplay === true || !this.active ||
+      parsed.data.user_message_uuid !== this.active.uuid) return [];
+    const value = parsed.data;
+    if (this.session !== undefined && this.session !== value.session_id) throw new Error('SDK usage changed session');
+    this.session = value.session_id;
+    const envelope = { request_id: this.active.requestId, submission_id: this.active.uuid, session_id: value.session_id };
+    const identity = { session: value.session_id, turn: this.active.uuid, response: null, event: value.uuid };
+    const complete = !value.is_error && value.subtype === 'success';
+    const reports: UsageEnvelope[] = [];
+    if (value.usage != null) reports.push({ ...envelope, report: {
+      identity, scope: 'MainLoopTurn', kind: 'Snapshot',
+      counters: { input: value.usage.input_tokens ?? null, output: value.usage.output_tokens ?? null,
+        cache_read: value.usage.cache_read_input_tokens ?? null, cache_write: value.usage.cache_creation_input_tokens ?? null, reasoning: null },
+      baseline: null, model: null, tokenizer: null,
+      semantics: { cache_read_in_input: false, cache_write_in_input: false, reasoning_in_output: null }, complete,
+    } });
+    for (const [model, usage] of Object.entries(value.modelUsage ?? {})) {
+      const counters = { input: usage.inputTokens ?? null, output: usage.outputTokens ?? null,
+        cache_read: usage.cacheReadInputTokens ?? null, cache_write: usage.cacheCreationInputTokens ?? null, reasoning: usage.thinkingTokens ?? null };
+      reports.push({ ...envelope, report: {
+        identity, scope: 'ModelPipeline', kind: 'Snapshot', counters,
+        baseline: this.active.baseline.get(model) ?? null, model, tokenizer: null,
+        semantics: { cache_read_in_input: false, cache_write_in_input: false, reasoning_in_output: true }, complete,
+      } });
+      if (complete) {
+        const previous = this.totals.get(model);
+        this.totals.set(model, {
+          input: counters.input ?? previous?.input ?? null, output: counters.output ?? previous?.output ?? null,
+          cache_read: counters.cache_read ?? previous?.cache_read ?? null, cache_write: counters.cache_write ?? previous?.cache_write ?? null,
+          reasoning: counters.reasoning ?? previous?.reasoning ?? null,
+        });
+      }
+    }
+    return reports;
   }
 }
 const ModelSchema = z.object({

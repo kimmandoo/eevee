@@ -105,10 +105,12 @@ impl App {
             archived: self.archived,
             archived_at: self.archived_at,
             redacted: self.redacted,
+            local_records: self.records.local.clone(),
         }
     }
 
     pub(super) fn load_task(&mut self, snapshot: store::Snapshot) {
+        self.records.restoring = true;
         let task_changed = self.task_id != snapshot.id;
         self.task_id = snapshot.id;
         self.pending_command = None;
@@ -200,6 +202,7 @@ impl App {
         self.previous_form = draft.previous_form;
         self.surface_scroll = navigation.scroll;
         self.surface_scroll_max = [u16::MAX; 5];
+        self.surface_scroll_page = [1; 5];
         self.overlay = match navigation.overlay {
             Some(0) => Some(Overlay::Forms),
             // Legacy palette navigation is safely returned to the workspace.
@@ -236,6 +239,8 @@ impl App {
             .criterion_selection
             .min(self.criteria.len().saturating_sub(1));
         self.apply_relay_draft_role();
+        self.records.restoring = false;
+        self.records_invalidate();
     }
 
     pub(super) fn new_task(&mut self) {
@@ -287,6 +292,11 @@ impl App {
     }
 
     pub(super) fn request_navigation(&mut self, action: execution::Action) {
+        if !matches!(action, execution::Action::Quit) && !self.records_can_switch() {
+            self.notice =
+                "Wait for the local record batch to commit before switching forms or tasks.".into();
+            return;
+        }
         if !matches!(action, execution::Action::Quit) && self.moves.mutation_pending() {
             self.notice =
                 "Wait for the local move operation to commit before changing tasks or forms."
