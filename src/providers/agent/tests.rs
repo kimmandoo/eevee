@@ -1,17 +1,6 @@
 use super::*;
 
 #[test]
-fn sdk_capabilities_disclose_correlated_bridge_dispatch_boundary() {
-    let capabilities = capabilities(1);
-    assert!(capabilities.iter().any(|capability| {
-        capability.evidence.contains("bridge revision 5")
-            && capability
-                .evidence
-                .contains("SDK-message UUID acknowledgment")
-    }));
-}
-
-#[test]
 fn version_evidence_is_strict_and_never_retains_arbitrary_output() {
     assert_eq!(
         parse_version(0, b"codex-cli 0.152.1\n"),

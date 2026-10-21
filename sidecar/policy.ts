@@ -1,6 +1,9 @@
 import { z } from 'zod';
-import { lstatSync, realpathSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { lstatSync, realpathSync, readFileSync } from 'node:fs';
+import type { BigIntStats } from 'node:fs';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import type { EffortLevel, ModelInfo } from '@anthropic-ai/claude-agent-sdk';
 
 // Versions are observed identity, never a release allowlist.
@@ -27,15 +30,28 @@ export const SelectionSchema = z.object({
   model: boundedText(256).nullable(), effort: EffortSchema.nullable(),
 }).strict();
 export type Selection = z.infer<typeof SelectionSchema>;
+const IdentitySchema = z.string().min(1).max(256);
+export const WriteScopeSchema = z.object({
+  root_identity: IdentitySchema.nullable(),
+  files: z.array(z.object({
+    path: boundedText(4096), kind: z.enum(['Create', 'Replace']),
+    identity: IdentitySchema.nullable(), sha256: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+    working_content: z.string().max(256 * 1024).nullable(),
+    ancestors: z.array(z.object({ path: z.string().max(4096), identity: IdentitySchema.nullable() }).strict()).max(256),
+  }).strict()).max(256),
+}).strict();
+export type WriteScope = z.infer<typeof WriteScopeSchema>;
 export const RunSchema = z.object({
-  protocol: z.literal(1), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().positive(),
+  protocol: z.literal(1), bridge_revision: z.literal(6), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().positive(),
   request_id: boundedText(256).nullish(),
   prompt: z.string().max(FRAME_LIMIT / 2), cwd: z.string().min(1).max(4096), state_dir: z.string().min(1).max(4096),
-  operation: z.enum(['plan', 'implement']), edit_paths: z.array(z.string().min(1).max(4096)).max(256),
+  operation: z.enum(['plan', 'implement']), write_scope: WriteScopeSchema,
   resume: z.string().uuid().nullish(), inspect_models: z.boolean(), selection: SelectionSchema,
 }).strict().superRefine((command, context) => {
-  if (command.inspect_models && (command.request_id != null || command.prompt !== '' || command.resume != null || command.edit_paths.length !== 0 || command.operation !== 'plan')) {
-    context.addIssue({ code: 'custom', message: 'Model inspection accepts no prompt, session or write scope' });
+  if ((command.operation === 'plan' && command.write_scope.files.length !== 0) ||
+    (command.operation === 'implement' && command.write_scope.files.length === 0) ||
+    (command.inspect_models && (command.request_id != null || command.prompt !== '' || command.resume != null || command.write_scope.files.length !== 0 || command.operation !== 'plan'))) {
+    context.addIssue({ code: 'custom', message: 'Invalid inspection/operation write scope' });
   }
 });
 
@@ -252,50 +268,160 @@ export async function prepareModels(
 // Mandatory tool exposure and PreToolUse checks are independent of canUseTool:
 // provider-native/preapproved reads can bypass the approval callback.
 // This is agent policy, NOT OS confinement or a race-free filesystem sandbox.
-export function selectedWrite(cwd: string, paths: string[], candidate: unknown): boolean {
-  if (typeof candidate !== 'string' || candidate.length > 4096) return false;
-  const root = realpathSync(cwd);
-  const target = resolve(root, candidate);
-  const rel = relative(root, target);
-  if (!rel || isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) return false;
-  if (!paths.some(p => !isAbsolute(p) && resolve(root, p) === target)) return false;
-  let current = root;
-  const parts = rel.split(sep);
-  const protectedNames: Record<string, true> = { '.git': true, '.claude': true, '.codex': true, '.gemini': true, '.opencode': true, '.npmrc': true, '.netrc': true, '.pypirc': true };
-  if (parts.some(part => {
+function exactRelative(path: string): boolean {
+  return path.length > 0 && path.length <= 4096 && !isAbsolute(path) &&
+    !/[\p{Cc}\\:]/u.test(path) && path.split('/').every(part =>
+      part.length > 0 && part !== '.' && part !== '..' && !/[. ]$/.test(part) &&
+      !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part));
+}
+function protectedPath(path: string): boolean {
+  return path.split('/').some(part => {
     const name = part.toLowerCase();
-    return protectedNames[name] || name === '.env' || name.startsWith('.env.') || name.startsWith('id_') ||
-      name.includes('secret') || name.includes('credential') || name.startsWith('private_key') || name.endsWith('.pem') || name.endsWith('.key');
-  })) return false;
-  for (let i = 0; i < parts.length; i++) {
-    current = resolve(current, parts[i]);
-    try {
-      const metadata = lstatSync(current);
-      if (metadata.isSymbolicLink() || (i === parts.length - 1 && (!metadata.isFile() || metadata.nlink !== 1))) return false;
-    }
-    catch (error) {
-      if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT' || i !== parts.length - 1) return false;
-      return realpathSync(dirname(target)) === dirname(target);
-    }
-  }
-  return realpathSync(target) === target;
+    return ['.git', '.claude', '.codex', '.gemini', '.opencode', '.npmrc', '.netrc', '.pypirc', '.ds_store', '.ev-install'].includes(name) ||
+      name === '.env' || name.startsWith('.env.') || name.startsWith('id_') || name.includes('secret') ||
+      name.includes('credential') || name.startsWith('private_key') || name.endsWith('.pem') || name.endsWith('.key');
+  });
+}
+function nativeIdentity(stat: BigIntStats): string {
+  return process.platform === 'win32' ? `${stat.dev}:${stat.ino >> 32n}:${stat.ino & 0xffffffffn}` : `${stat.dev}:${stat.ino}`;
+}
+function directoryIdentity(path: string): string | undefined {
+  try {
+    const stat = lstatSync(path, { bigint: true });
+    if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(path) !== path) return undefined;
+    return nativeIdentity(stat);
+  } catch { return undefined; }
+}
+function absent(path: string): boolean {
+  try { lstatSync(path); return false; }
+  catch (error) { return !!error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT'; }
+}
+function fileState(path: string): { identity: string; sha256: string; content: string; revision: string } | undefined {
+  try {
+    const before = lstatSync(path, { bigint: true });
+    if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n || before.size > 256n * 1024n || realpathSync(path) !== path) return undefined;
+    const bytes = readFileSync(path);
+    const after = lstatSync(path, { bigint: true });
+    if (nativeIdentity(before) !== nativeIdentity(after) || before.size !== after.size ||
+      before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || after.nlink !== 1n) return undefined;
+    const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    return { identity: nativeIdentity(after), sha256: createHash('sha256').update(bytes).digest('hex'), content,
+      revision: `${after.size}:${after.mtimeNs}:${after.ctimeNs}` };
+  } catch { return undefined; }
 }
 
-// Recheck after the user has reviewed a write. Metadata identity is a stale-consent
-// guard, not an atomic filesystem sandbox; PreToolUse independently checks scope.
-export function selectedWriteIdentity(cwd: string, paths: string[], candidate: unknown): string | undefined {
-  try {
-    if (!selectedWrite(cwd, paths, candidate) || typeof candidate !== 'string') return undefined;
-    const target = resolve(realpathSync(cwd), candidate);
-    try {
-      const stat = lstatSync(target, { bigint: true });
-      return `file:${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
-    } catch (error) {
-      if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') return undefined;
-      const stat = lstatSync(dirname(target), { bigint: true });
-      return `new:${stat.dev}:${stat.ino}:${stat.mtimeNs}:${stat.ctimeNs}`;
+// Frozen authority comes only from the reviewed host IPC. Checks never capture
+// a new baseline from an externally appeared target or directory.
+export class SDKWritePolicy {
+  private readonly root: string;
+  private readonly scope: WriteScope;
+  private readonly ownedParents = new Map<string, string>();
+  private readonly seen = new Set<string>();
+  private readonly denied = new Map<string, { tool: string; input: Record<string, unknown> }>();
+  private active: { id: string; tool: string; input: Record<string, unknown>; path: string; fingerprint: string; expected: string; approved: boolean } | undefined;
+  constructor(cwd: string, scope: WriteScope) {
+    this.root = realpathSync(cwd);
+    this.scope = structuredClone(WriteScopeSchema.parse(scope));
+    if (new Set(this.scope.files.map(file => file.path)).size !== this.scope.files.length) throw new SDKPolicyError('Duplicate selected SDK paths');
+    for (const file of this.scope.files) {
+      const parts = file.path.split('/');
+      const expected = parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/'));
+      if (!exactRelative(file.path) || protectedPath(file.path) || file.ancestors.length !== expected.length ||
+        file.ancestors.some((ancestor, i) => ancestor.path !== expected[i]) ||
+        (file.kind === 'Create' ? file.identity !== null || file.sha256 !== null || file.working_content !== null :
+          file.identity === null || file.sha256 === null || file.working_content === null ||
+          createHash('sha256').update(file.working_content).digest('hex') !== file.sha256)) throw new SDKPolicyError('Invalid frozen SDK scope');
     }
-  } catch { return undefined; }
+  }
+  private path(candidate: unknown): string | undefined {
+    if (typeof candidate !== 'string' || candidate.length > 4096 ||
+      candidate.split(sep).join('/').split('/').some(part => part === '.' || part === '..')) return undefined;
+    const path = isAbsolute(candidate) ? relative(this.root, candidate).split(sep).join('/') : candidate;
+    return exactRelative(path) && !protectedPath(path) ? path : undefined;
+  }
+  private fingerprint(candidate: unknown): string | undefined {
+    try {
+      const path = this.path(candidate);
+      const file = this.scope.files.find(file => file.path === path);
+      if (!file || directoryIdentity(this.root) !== this.scope.root_identity) return undefined;
+      for (const ancestor of file.ancestors) {
+        const full = resolve(this.root, ancestor.path);
+        const identity = ancestor.identity ?? this.ownedParents.get(ancestor.path);
+        if (identity === undefined ? !absent(full) : directoryIdentity(full) !== identity) return undefined;
+      }
+      const full = resolve(this.root, file.path);
+      if (file.kind === 'Create') return absent(full) ? JSON.stringify(file) : undefined;
+      const state = fileState(full);
+      return state && state.identity === file.identity && state.sha256 === file.sha256 ? JSON.stringify({ file, revision: state.revision }) : undefined;
+    } catch { return undefined; }
+  }
+  // Mandatory PreToolUse independently enforces scope, stale state and tool IDs.
+  preToolUse(id: string, tool: string, input: Record<string, unknown>): boolean {
+    if ((tool !== 'Write' && tool !== 'Edit') || (!this.active && this.seen.has(id))) return false;
+    const fingerprint = this.fingerprint(input.file_path);
+    const file = this.scope.files.find(file => file.path === this.path(input.file_path));
+    return fingerprint !== undefined && !(tool === 'Edit' && file?.kind === 'Create') &&
+      (!this.active || this.active.id === id && this.active.tool === tool && isDeepStrictEqual(this.active.input, input) && this.active.fingerprint === fingerprint);
+  }
+  begin(id: string, tool: string, input: Record<string, unknown>): { kind: string; path: string; directories: string[] } | undefined {
+    if (this.active || this.seen.has(id) || this.seen.size >= 256 || !this.preToolUse(id, tool, input)) return undefined;
+    const file = this.scope.files.find(file => file.path === this.path(input.file_path))!;
+    let expected: string;
+    if (tool === 'Write') {
+      if (typeof input.content !== 'string' || Buffer.byteLength(input.content) > 256 * 1024) return undefined;
+      expected = input.content;
+    } else {
+      if (typeof input.old_string !== 'string' || typeof input.new_string !== 'string' || !input.old_string ||
+        (input.replace_all !== undefined && typeof input.replace_all !== 'boolean') || file.working_content === null) return undefined;
+      const occurrences = file.working_content.split(input.old_string).length - 1;
+      if (occurrences === 0 || (input.replace_all !== true && occurrences !== 1)) return undefined;
+      expected = input.replace_all === true ? file.working_content.split(input.old_string).join(input.new_string) :
+        file.working_content.replace(input.old_string, () => input.new_string as string);
+      if (Buffer.byteLength(expected) > 256 * 1024) return undefined;
+    }
+    this.seen.add(id);
+    this.active = { id, tool, input: structuredClone(input), path: file.path, fingerprint: this.fingerprint(input.file_path)!, expected, approved: false };
+    return { kind: file.kind, path: file.path, directories: file.ancestors.filter(parent => parent.identity === null && !this.ownedParents.has(parent.path)).map(parent => parent.path) };
+  }
+  approve(id: string, tool: string, input: Record<string, unknown>, allowed: boolean, cancelled: boolean): boolean {
+    const active = this.active;
+    if (!active || active.id !== id || active.approved) return false;
+    const accepted = !cancelled && allowed && this.preToolUse(id, tool, input);
+    if (accepted) active.approved = true;
+    else { this.denied.set(id, { tool: active.tool, input: active.input }); this.active = undefined; }
+    return accepted;
+  }
+  finish(id: string, tool: string, input: unknown, success: boolean, replay = false): boolean {
+    const active = this.active;
+    if (!active || active.id !== id) {
+      const denied = this.denied.get(id);
+      if (!success && !replay && denied?.tool === tool && isDeepStrictEqual(denied.input, input)) {
+        this.denied.delete(id); return true;
+      }
+      return false;
+    }
+    if (active.tool !== tool || !isDeepStrictEqual(active.input, input) || !active.approved || replay) return false;
+    this.active = undefined;
+    // A failed SDK call can still create parents or partially replace the leaf.
+    // Only a fresh, unambiguous observation of the original baseline settles it;
+    // failure never advances either the file baseline or sibling-parent ledger.
+    if (!success) return this.fingerprint(active.path) === active.fingerprint;
+    const file = this.scope.files.find(file => file.path === active.path)!;
+    if (directoryIdentity(this.root) !== this.scope.root_identity) return false;
+    const parents = new Map<string, string>();
+    for (const ancestor of file.ancestors) {
+      const identity = directoryIdentity(resolve(this.root, ancestor.path));
+      const expected = ancestor.identity ?? this.ownedParents.get(ancestor.path);
+      if (identity === undefined || (expected !== undefined && identity !== expected)) return false;
+      if (expected === undefined) parents.set(ancestor.path, identity);
+    }
+    const state = fileState(resolve(this.root, file.path));
+    // Advance only after a correlated successful result and exact approved bytes.
+    if (!state || state.content !== active.expected || (tool === 'Edit' && state.identity !== file.identity)) return false;
+    for (const [path, identity] of parents) this.ownedParents.set(path, identity);
+    file.kind = 'Replace'; file.identity = state.identity; file.sha256 = state.sha256; file.working_content = state.content;
+    return true;
+  }
 }
 
 export const QuestionInputSchema = z.object({

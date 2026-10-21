@@ -291,6 +291,9 @@ impl App {
         {
             return Some("Finish the current work-safety review first; your draft is kept.".into());
         }
+        if self.planning_any_unknown_effects() {
+            return Some("Local effects remain unknown; inspect the owning request before starting more work. Your draft is kept.".into());
+        }
         if self.partner_busy(partner) {
             return Some("This partner already owns work; finish or cancel its request first. Your draft is kept.".into());
         }
@@ -350,8 +353,16 @@ impl App {
                     .map_or(0, |time| time.as_nanos()),
                 REQUEST.fetch_add(1, Ordering::Relaxed)
             ),
-            writing: self.planning.operation == crate::providers::Operation::Implement
-                && !self.planning.agent.is_direct(),
+            writing: match &self.planning.pending {
+                Some(crate::providers::Request::Preview(input)) => {
+                    crate::providers::writing_required(
+                        input.agent,
+                        input.operation,
+                        !input.edit_paths.is_empty(),
+                    )
+                }
+                _ => false,
+            },
         };
         self.remember_move_request(&claim);
         self.planning.stage_work(claim);
@@ -1000,8 +1011,22 @@ impl App {
             }
             _ => None,
         };
-        let implemented = matches!(&event, crate::providers::Event::Finished { .. })
-            && state.operation == crate::providers::Operation::Implement;
+        let implemented = match &event {
+            crate::providers::Event::Finished {
+                generation,
+                task_id,
+                ..
+            }
+            | crate::providers::Event::LocalEffectsUnknown {
+                generation,
+                task_id,
+                ..
+            } => {
+                state.matches(*generation, *task_id)
+                    && state.operation == crate::providers::Operation::Implement
+            }
+            _ => false,
+        };
         let previous = if foreground_drawer
             && matches!(
                 &event,
@@ -1152,6 +1177,94 @@ mod tests {
                 },
             },
         );
+    }
+
+    #[test]
+    fn native_scope_takes_writer_claim_but_selection_and_metadata_do_not() {
+        for agent in providers::Agent::ALL {
+            for operation in [
+                providers::Operation::Plan,
+                providers::Operation::Implement,
+                providers::Operation::Review,
+            ] {
+                for has_paths in [false, true] {
+                    let mut app = app();
+                    app.planning.agent = agent;
+                    app.planning.set_operation(operation);
+                    if has_paths {
+                        app.planning.edit_paths.push("missing/nested/new.rs".into());
+                    }
+                    assert!(app.planning.pending.is_none() && app.planning.work.is_none());
+                    let task = app.tasks[0].clone();
+                    app.planning.command("new", true, &task, &[], None);
+                    app.stage_provider_work();
+                    let Some(store::WorkRequest::Acquire { claim, .. }) =
+                        &app.planning.work_pending
+                    else {
+                        panic!("content preparation must stage a durable claim");
+                    };
+                    assert_eq!(
+                        claim.writing,
+                        operation == providers::Operation::Implement
+                            && (!agent.is_direct() || has_paths)
+                    );
+                    let request = app.planning.work_pending.take().unwrap();
+                    app.planning.work_event(
+                        request,
+                        Err("Another partner holds the task writer lease".into()),
+                    );
+                    assert!(app.planning.pending.is_none());
+                    assert!(app.planning.work.is_none() && app.planning.held_input.is_none());
+                    assert!(!app.planning.transport_pending());
+                }
+            }
+            let mut app = app();
+            app.planning.agent = agent;
+            app.planning.set_operation(providers::Operation::Implement);
+            app.planning.edit_paths.push("missing/new.rs".into());
+            let task = app.tasks[0].clone();
+            app.planning
+                .command("models-refresh", true, &task, &[], None);
+            app.stage_provider_work();
+            assert!(app.planning.work_pending.is_none() && app.planning.work.is_none());
+        }
+    }
+
+    #[test]
+    fn unknown_local_effects_cannot_move_to_foreign_owner_or_allow_more_work() {
+        let mut app = app();
+        start(&mut app, 1, 1);
+        start(&mut app, 2, 2);
+        app.provider_event(
+            3,
+            providers::Event::LocalEffectsUnknown {
+                generation: 7,
+                task_id: 7,
+                message: "foreign owner".into(),
+            },
+        );
+        assert!(!app.planning_any_unknown_effects());
+        app.provider_event(
+            2,
+            providers::Event::LocalEffectsUnknown {
+                generation: 7,
+                task_id: 7,
+                message: "own local effects unknown".into(),
+            },
+        );
+        assert!(!app.planning.unknown_effects());
+        assert!(app.cooperation.parked[&2].unknown_effects());
+        app.provider_event(
+            2,
+            providers::Event::Finished {
+                generation: 7,
+                task_id: 7,
+                outcome: providers::Outcome::Cancelled,
+                message: "settled".into(),
+            },
+        );
+        assert!(app.work_capacity_reason(3).is_some());
+        assert!(app.planning_any_unknown_effects());
     }
 
     #[test]

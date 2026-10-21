@@ -131,8 +131,8 @@ pub struct State {
     cancel_when_ready: bool,
     quit_after_cancel: bool,
     unknown: bool,
-    // Tool-capable uncertainty retains ownership; tool-free native uncertainty
-    // remains disclosed but cannot keep a terminated local transport alive.
+    // Local/tool uncertainty retains ownership independently of native remote
+    // model uncertainty, including after the local transport has terminated.
     unknown_effects: bool,
     saved_scroll: u16,
     pub agent: Agent,
@@ -350,7 +350,7 @@ impl State {
     }
 
     pub fn reset(&mut self, task_id: i64) {
-        if !self.busy() && !self.journal_failed() {
+        if !self.busy() && !self.journal_failed() && !self.unknown_effects() {
             self.clear_pairing();
             let selections = std::mem::take(&mut self.selections);
             let preferences = std::mem::take(&mut self.preferences);
@@ -571,7 +571,7 @@ impl State {
         } else if operation == Operation::Review {
             "Independent Review selected locally. New always constructs fresh requirements/patch/evidence context and a separate provider session. Resume and source writes are unavailable; fixes require a deliberate implementation handoff.".into()
         } else if self.agent.is_direct() {
-            "Native role selected locally. Canonical chat is task/partner/role-scoped process memory only, not restart resumable. Send from Request or use /chat-new to reset local history; no tools or local writes.".into()
+            "Native role selected locally. Implement with /paths can create or replace selected files after exact one-shot approval; without paths it is proposal-only. Plan is read-only. Canonical chat stays in task/partner/role-scoped process memory, not a resumable provider session.".into()
         } else {
             "Role policy selected locally. New/Resume requires fresh scope and executable consent; no permission carried.".into()
         };
@@ -659,6 +659,7 @@ impl State {
                 conversation,
             } if self.matches(generation, task_id)
                 && self.active
+                && !self.unknown_effects()
                 && !self.cancelling
                 && !self.authentication_invalidated
                 && !self.connection_invalidated
@@ -666,6 +667,20 @@ impl State {
                 && !self.inspect_sessions =>
             {
                 self.capture_native(conversation);
+            }
+            Event::LocalEffectsUnknown {
+                generation,
+                task_id,
+                message,
+            } if self.matches(generation, task_id)
+                && self.active
+                && !self.inspect_models
+                && !self.inspect_sessions =>
+            {
+                self.unknown = true;
+                self.unknown_effects = true;
+                self.native_candidate = None;
+                self.notice = message;
             }
             Event::Journal {
                 generation,
@@ -898,7 +913,9 @@ impl State {
                 // the locally selected provider, and survives until Finished.
                 let unknown_effects =
                     matches!(outcome, Outcome::Unknown) && self.native_request_partner.is_none();
-                self.finish_native(matches!(outcome, Outcome::Completed));
+                self.finish_native(
+                    matches!(outcome, Outcome::Completed) && !self.unknown_effects(),
+                );
                 self.failed_request = self.active
                     && !self.inspect_models
                     && !self.inspect_sessions
@@ -914,9 +931,19 @@ impl State {
                 self.pending = None;
                 self.close_request();
                 self.queued_prompts.clear();
-                self.journal_terminal(generation, task_id, !matches!(outcome, Outcome::Unknown));
+                self.journal_terminal(
+                    generation,
+                    task_id,
+                    !matches!(outcome, Outcome::Unknown) && !self.unknown_effects(),
+                );
                 self.generation = None;
-                self.notice = message;
+                self.notice = if self.unknown_effects() {
+                    format!(
+                        "{message} Local effects remain unknown; inspect the owning journal before starting more work."
+                    )
+                } else {
+                    message
+                };
                 if self.inspect_models {
                     if let Some(blocked) = self.auto_blocked.take() {
                         self.catalogue_errors.insert(self.agent, blocked);
@@ -1174,13 +1201,13 @@ impl State {
             ("effort", "Choose reasoning effort"),
             ("models-refresh", "Refresh provider model metadata"),
             ("sessions", "Inspect provider session metadata"),
-            ("paths", "Edit selected write paths"),
+            ("paths", "Select exact new or existing write paths"),
             ("provider-journal", "Open local provider journal"),
             ("handoff-clear", "Deselect portable handoff"),
             ("provider-codex", "Codex CLI method (tools / edits)"),
             (
                 "provider-chatgpt",
-                "Codex native method (responses / no tools)",
+                "Codex native method (scoped coding / chat)",
             ),
             ("provider-claude", "Choose Claude"),
             ("provider-opencode", "Choose OpenCode"),

@@ -176,7 +176,7 @@ impl State {
     pub fn action_label(&self, action: Action) -> &'static str {
         if action == Action::ConnectionMethod {
             if self.selected == Agent::Codex.index() {
-                "Set up native responses (no tools)"
+                "Set up native responses (scoped coding)"
             } else {
                 "Set up CLI agent (tools / edits)"
             }

@@ -36,7 +36,7 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
     };
     let inspection = json!({
         "type":"capabilities", "sdk_version":"1.5.0", "cli_version":"4.0.0",
-        "bridge_revision":5, "query":true,
+        "bridge_revision":6, "query":true,
         "policy":{"tools":"closed-allowlist","permissions":"default-host-once","mcp":"disabled",
             "configuration":"isolated","authentication":"api-console-cloud-only",
             "dispatch":"correlated-sdk-submission","usage":"correlated-sdk-snapshots"},
@@ -45,7 +45,7 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
     for (field, value) in [
         ("sdk_version", json!("1.5.1")),
         ("cli_version", json!("4.0.1")),
-        ("bridge_revision", json!(4)),
+        ("bridge_revision", json!(5)),
         ("query", json!(false)),
         ("policy", Value::Null),
     ] {
@@ -564,4 +564,182 @@ fn sdk_resume_unknown_models_failed_turns_and_wrong_owners_never_seed_baselines(
     let event = usage_event(&input, 31, session, Some(submission), &forged).unwrap();
     assert!(usage.observe(event).is_err());
     assert!(sessions[session].model_totals.is_empty());
+}
+
+struct SdkTestDirectory(PathBuf);
+impl SdkTestDirectory {
+    fn new() -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "eevee-sdk-scope-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&path).unwrap();
+        Self(fs::canonicalize(path).unwrap())
+    }
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+impl Drop for SdkTestDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+#[test]
+fn sdk_frozen_scope_captures_create_replace_unicode_and_every_parent() {
+    let dir = SdkTestDirectory::new();
+    let root = fs::canonicalize(dir.path()).unwrap();
+    let data = SdkTestDirectory::new();
+    fs::write(root.join("dirty.txt"), "user working bytes\n").unwrap();
+    fs::create_dir(root.join("existing")).unwrap();
+    let mut input = crate::providers::tests::claimed(Agent::Claude, Operation::Implement, false);
+    input.task.project = root.to_string_lossy().into();
+    input.edit_paths = vec![
+        "dirty.txt".into(),
+        "existing/새 폴더/empty.txt".into(),
+        "nested/child/새 파일.txt".into(),
+    ];
+    let scope = capture_write_scope(data.path(), &input, &[]).unwrap();
+    assert_eq!(scope.files[0].kind, SdkWriteKind::Replace);
+    assert_eq!(
+        scope.files[0].working_content.as_deref(),
+        Some("user working bytes\n")
+    );
+    assert_eq!(scope.files[1].kind, SdkWriteKind::Create);
+    assert!(scope.files[1].identity.is_none());
+    assert!(scope.files[1].ancestors[0].identity.is_some());
+    assert!(scope.files[1].ancestors[1].identity.is_none());
+    assert_eq!(
+        scope.files[2]
+            .ancestors
+            .iter()
+            .map(|p| p.path.as_str())
+            .collect::<Vec<_>>(),
+        ["nested", "nested/child"]
+    );
+    assert!(
+        scope.files[2]
+            .ancestors
+            .iter()
+            .all(|p| p.identity.is_none())
+    );
+    let wire = serde_json::to_value(&scope).unwrap();
+    assert_eq!(
+        serde_json::from_value::<SdkWriteScope>(wire).unwrap(),
+        scope
+    );
+    fs::create_dir(root.join("nested")).unwrap();
+    assert_ne!(
+        capture_write_scope(data.path(), &input, &[]).unwrap(),
+        scope
+    );
+    fs::write(root.join("existing/appeared.txt"), "").unwrap();
+    input.edit_paths = vec!["existing/appeared.txt".into()];
+    assert_eq!(
+        capture_write_scope(data.path(), &input, &[]).unwrap().files[0].kind,
+        SdkWriteKind::Replace
+    );
+}
+
+#[test]
+fn sdk_scope_refuses_protected_invalid_directory_and_hardlinked_targets() {
+    let dir = SdkTestDirectory::new();
+    let root = fs::canonicalize(dir.path()).unwrap();
+    let data = SdkTestDirectory::new();
+    let mut input = crate::providers::tests::claimed(Agent::Claude, Operation::Implement, false);
+    input.task.project = root.to_string_lossy().into();
+    fs::write(root.join("file"), "bytes").unwrap();
+    fs::hard_link(root.join("file"), root.join("alias")).unwrap();
+    fs::create_dir(root.join("directory")).unwrap();
+    for path in [
+        ".git/new",
+        ".DS_Store",
+        ".ev-install/new",
+        ".env",
+        "../outside",
+        "x:y",
+        "nested//file",
+        "CON.txt",
+        "directory",
+        "alias",
+    ] {
+        input.edit_paths = vec![path.into()];
+        assert!(
+            capture_write_scope(data.path(), &input, &[]).is_err(),
+            "{path}"
+        );
+    }
+    input.edit_paths = vec!["excluded/new".into()];
+    assert!(capture_write_scope(data.path(), &input, &["excluded".into()]).is_err());
+}
+
+#[test]
+fn sdk_scope_uses_shared_native_name_admission_without_reducing_its_path_cap() {
+    let dir = SdkTestDirectory::new();
+    let root = fs::canonicalize(dir.path()).unwrap();
+    let data = SdkTestDirectory::new();
+    let mut input = crate::providers::tests::claimed(Agent::Claude, Operation::Implement, false);
+    input.task.project = root.to_string_lossy().into();
+    for paths in [
+        vec!["new.txt", "NEW.txt"],
+        vec!["caf\u{e9}.txt", "cafe\u{301}.txt"],
+        vec!["nested/a.txt", "NESTED/b.txt"],
+        vec!["duplicate.txt", "duplicate.txt"],
+        vec!["parent", "parent/child.txt"],
+    ] {
+        input.edit_paths = paths.iter().map(|path| PathBuf::from(*path)).collect();
+        let admission = crate::providers::writes::verify_path_names(&root, &input.edit_paths);
+        let captured = capture_write_scope(data.path(), &input, &[]);
+        assert_eq!(
+            captured.is_ok(),
+            admission.is_ok(),
+            "SDK capture must follow native filesystem name admission: {paths:?}"
+        );
+    }
+    input.edit_paths = (0..256)
+        .map(|index| PathBuf::from(format!("selected-{index}.txt")))
+        .collect();
+    assert_eq!(
+        capture_write_scope(data.path(), &input, &[])
+            .unwrap()
+            .files
+            .len(),
+        256
+    );
+    input.edit_paths.push("one-too-many.txt".into());
+    assert!(capture_write_scope(data.path(), &input, &[]).is_err());
+    assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+}
+
+#[test]
+fn sdk_creation_permission_exposes_complete_typed_scope_and_exact_answer() {
+    let allowed =
+        json!({"behavior":"allow","updatedInput":{"file_path":"새 폴더/a.txt","content":""}});
+    let frame = json!({"kind":"approval","input":{
+        "tool":"Write","input":allowed["updatedInput"],"scope":{"kind":"Create","path":"새 폴더/a.txt","directories":["새 폴더"]},
+        "options":[{"label":"Deny","answer":{"behavior":"deny","message":"User declined or request cancelled"}},{"label":"Allow once","answer":allowed}]
+    }});
+    let kind = prompt_kind(&frame).unwrap();
+    let PromptKind::Permission { description, .. } = &kind else {
+        panic!("permission");
+    };
+    assert_eq!(
+        description.lines().take(3).collect::<Vec<_>>(),
+        [
+            "Kind: Create",
+            "Path: 새 폴더/a.txt",
+            "Missing parents: 새 폴더"
+        ]
+    );
+    assert!(provider_answer(&kind, allowed.clone()).is_ok());
+    let mut changed = allowed;
+    changed["updatedInput"]["content"] = json!("not approved");
+    assert!(provider_answer(&kind, changed).is_err());
+    let mut missing = frame;
+    missing["input"]["scope"] = Value::Null;
+    assert!(prompt_kind(&missing).is_err());
 }

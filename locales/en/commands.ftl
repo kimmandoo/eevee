@@ -290,7 +290,7 @@ cmd-sylveon = { "Select Sylveon form" }
 
 cmd-provider-codex = { "Codex CLI method (tools / edits)" }
 
-cmd-provider-chatgpt = { "Codex native method (responses / no tools)" }
+cmd-provider-chatgpt = { "Codex native method (scoped coding / chat)" }
 
 cmd-provider-claude = { "Choose Claude" }
 
@@ -316,7 +316,7 @@ cmd-role-review = { "Independent review role" }
 
 cmd-sessions = { "Inspect provider session metadata" }
 
-cmd-paths = { "Edit selected write paths" }
+cmd-paths = { "Select exact new or existing write paths" }
 
 cmd-models-refresh = { "Review model catalogue refresh" }
 

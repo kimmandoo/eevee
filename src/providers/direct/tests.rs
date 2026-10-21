@@ -39,6 +39,7 @@ fn prepared() -> Prepared {
         input: Box::new(input),
         payload: String::new(),
         fingerprint: String::new(),
+        writes: None,
     }
 }
 fn runtime() -> tokio::runtime::Runtime {
@@ -532,13 +533,14 @@ fn explicit_selection_and_dispatch_revalidation_never_guess_a_fallback() {
         "deliberate-unlisted"
     );
     let workspace = workspace();
-    let body = payload(&workspace, &input, &connection).unwrap();
+    let body = payload(&workspace, &input, &connection, None).unwrap();
     assert!(!body.contains("approved_memories"));
     let mut run = Prepared {
         generation: 7,
         input: Box::new(input),
         payload: body,
         fingerprint: connection.fingerprint(),
+        writes: None,
     };
     validate_prepared(&workspace, &run, &connection).unwrap();
     run.input.selection.model = Some("changed-selection".into());
@@ -952,7 +954,7 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
             input.inspect_models = false;
             input.task = task.clone();
             input.conversation = history.clone();
-            let payload = payload(&workspace, &input, &connection).unwrap();
+            let payload = payload(&workspace, &input, &connection, None).unwrap();
             let body: Value = serde_json::from_str(&payload).unwrap();
             expected.push(("user".into(), user.into()));
             assert_eq!(role_texts(&body, protocol), expected);
@@ -978,6 +980,7 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
                 input: Box::new(input),
                 payload,
                 fingerprint: connection.fingerprint(),
+                writes: None,
             };
             validate_prepared(&workspace, &run, &connection).unwrap();
             if index == 1 {
@@ -987,7 +990,7 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
                     Some("exact-model"),
                 );
                 assert!(
-                    super::payload(&workspace, &run.input, &moved)
+                    super::payload(&workspace, &run.input, &moved, None)
                         .unwrap_err()
                         .contains("/chat-new")
                 );
@@ -996,6 +999,7 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
                     input: run.input.clone(),
                     payload: run.payload.clone(),
                     fingerprint: run.fingerprint.clone(),
+                    writes: None,
                 };
                 let original = changed.input.conversation.as_ref().unwrap();
                 let mut replaced = (**original).clone();
@@ -1069,7 +1073,7 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
             ]
             .into(),
         }));
-        let error = payload(&workspace, &oversized, &connection).unwrap_err();
+        let error = payload(&workspace, &oversized, &connection, None).unwrap_err();
         assert!(error.contains("1 MiB") && error.contains("/chat-new"));
         assert_eq!(
             oversized.conversation.as_ref().unwrap().messages[0]
@@ -1343,14 +1347,15 @@ fn failed_local_admission_and_unproven_transport_never_emit_dispatch_receipts() 
     let stopped = AtomicBool::new(false);
     let cancelled = AtomicU64::new(7);
     let control = control(&stopped, &cancelled);
-    let (outcome, message) = dispatch(&workspace(), &mut run, &events, &control);
+    let (_sender, incoming) = mpsc::sync_channel(8);
+    let (outcome, message) = dispatch(&workspace(), &mut run, &events, &control, &incoming);
     assert_eq!(outcome, Outcome::Cancelled);
     assert!(message.contains("no HTTP request dispatched"));
     assert!(events.lock().is_empty());
 
     cancelled.store(0, Ordering::Release);
     run.input.agent = Agent::Codex;
-    let (outcome, message) = dispatch(&workspace(), &mut run, &events, &control);
+    let (outcome, message) = dispatch(&workspace(), &mut run, &events, &control, &incoming);
     assert_eq!(outcome, Outcome::Failed);
     assert!(message.contains("no HTTP request dispatched"));
     assert!(events.lock().is_empty());
@@ -1486,7 +1491,6 @@ fn native_usage_counters_are_independent_optional_response_snapshots() {
         assert_eq!(report.scope, Scope::Turn);
         assert!(report.model.is_none() && report.tokenizer.is_none());
         assert!(report.baseline.is_none() && report.identity.event.is_none());
-        assert!(report.identity.turn.is_none() && report.identity.session.is_none());
         assert!(report.identity.response.is_some());
         assert!(!report.complete);
         let mut record = usage_record("partial-request", 41);

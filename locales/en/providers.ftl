@@ -36,7 +36,7 @@ providers-agents-back-check-version-y-n-d-tab = { "Back [Check version] | y/n d 
 
 providers-agents-back-check-version-y-n-d-tab-2 = { "[Back] Check version | y/n d Tab Enter" }
 
-providers-agents-codex-native-official-chatgpt-only-no-tools = { "Codex native | official ChatGPT only | no tools" }
+providers-agents-codex-native-official-chatgpt-scoped-coding = { "Codex native | official ChatGPT | scoped coding" }
 
 providers-agents-blank-keeps-selected-source = { "(blank keeps selected source)" }
 
@@ -121,7 +121,7 @@ providers-planning-immutable-request-unavailable-inspect-exact-payload-details =
 
 providers-planning-eevee-sends-the-exact-http-payload-below =
     { "" }
-    { "Eevee sends the exact HTTP payload below with scoped credential headers. No agent executable, local tools, project hooks/MCP, implicit source reads or automatic edits are exposed. The service owns authentication, usage charges, retention and internal behavior. Cancellation closes the client operation, not a guaranteed remote stop. No automatic retry." }
+    { "Eevee sends the exact initial HTTP payload below with scoped credential headers. Scoped Implement alone exposes selected-path create/replace through bounded tool continuations; each exact change and missing parent directory needs separate one-shot permission. Unscoped native requests, Plan, Review and metadata do not expose writes. No shell, project hooks/MCP or implicit source reads. This is not a universal OS sandbox. The service owns authentication, usage charges, retention and internal behavior. Cancellation is not a guaranteed remote stop. No automatic retry." }
     { "" }
 
 providers-planning-eevee-sends-the-exact-payload-below-it =
@@ -134,7 +134,7 @@ providers-planning-run-authorizes-scoped-http-model-metadata-inspection =
     { "" }
 
 providers-planning-run-authorizes-this-exact-http-request-and =
-    { "Run authorizes this exact HTTP request and scoped credential use once. Stay sends nothing." }
+    { "Run authorizes this initial HTTP request, scoped credentials and bounded continuations once. Each create/replace still needs exact one-shot permission. Stay sends nothing." }
     { "" }
 
 providers-planning-run-authorizes-only-the-disclosed-executable-provider =
@@ -164,7 +164,7 @@ providers-planning-hidden = { "[hidden]" }
 
 providers-planning-scope-model-metadata-only-no-task-prompt = { "Scope: model metadata only; no task prompt." }
 
-providers-planning-proposal-only-no-tools-commands-or-file = { "Proposal only; no tools, commands or file writes." }
+providers-planning-proposal-only-no-tools-commands-or-file = { "Proposal only; select new/existing paths via /paths to code." }
 
 providers-planning-text-response-only-no-tools-or-local = { "Text response only; no tools or local writes." }
 
@@ -188,11 +188,7 @@ providers-planning-trust-executable-config-no-automatic-future-approval = { "Tru
 
 providers-planning-d-details-exact-payload-executable-scope-and = { "d Details: exact payload, executable, scope and risks." }
 
-providers-planning-one-request-only-no-future-other-provider = { "One request only; no future/other-provider grants." }
-
-providers-planning-provider-policy-is-not-os-isolation = { "Provider policy is not OS isolation." }
-
-providers-planning-d-details-complete-request-and-exact-options = { "d Details: complete request and exact options." }
+providers-planning-d-details-complete-request-and-exact-options = { "d Exact content/options · once only, not a sandbox." }
 
 providers-planning-allow-once-this-command-effects-are-not = { "Allow once: this command; effects are not rolled back." }
 
@@ -239,8 +235,8 @@ providers-planning-cancel-run-once-y-run-n-cancel-2 =
     { "Tab Choose / Enter Cancel / d Details / Esc Cancel" }
 
 providers-planning-deny-allow-unavailable-until-summary-is-visible =
-    { "[Deny] / Allow unavailable until summary is visible" }
-    { "Resize / Enter Deny / Esc Cancel" }
+    { "[Deny] / Allow needs the complete visible scope" }
+    { "d Details / Resize / Enter Deny / Esc Cancel" }
 
 providers-planning-a-allow-once-n-deny-y-send =
     { "a Allow once / n Deny / y Send selected / d Details" }
@@ -379,9 +375,9 @@ providers-planning-custom-model-id-local-only-exact-id =
     { "Enter Apply / Esc Back / Ctrl+U Clear" }
 
 providers-planning-select-edit-paths-local-only-json-array =
-    { "SELECT EDIT PATHS / LOCAL ONLY" }
-    { "JSON array of existing root-relative files" }
-    { "Enter Apply selection / Esc Cancel / 4096 bytes" }
+    { "CREATE / REPLACE PATHS · LOCAL ONLY" }
+    { "JSON array: [\"src/new/file.rs\"] · no precreation" }
+    { "Enter Select / Esc Cancel · no writes or sends" }
 
 providers-planning-unknown-outcome-work-may-have-run = { "UNKNOWN OUTCOME: work may have run." }
 
@@ -560,7 +556,7 @@ providers-composer-up-down-choose-enter-open-esc-back = { "Up/Down Choose / Ente
 
 providers-agents-default-effort-same-model-only = { "Default effort: " }{ $effort }{ " (same model only)" }
 
-providers-agents-native-no-tools = { $provider }{ " | native; no tools" }
+providers-agents-native-scoped-coding = { $provider }{ " | native; scoped coding / chat" }
 
 providers-agents-type-search-up-down-select-enter-right =
     { "Type Search | Up/Down Select | Enter " }{ $action }
@@ -590,15 +586,15 @@ providers-planning-send-literal-answers-to-this-provider-request = { "Send " }{ 
 
 providers-planning-who-wants-to-run-command = { $owner }{ " wants to run: " }{ $command }
 
-providers-planning-a-allow-once = { "a Allow once: " }{ $description }
-
-providers-planning-who-wants-permission-description = { $owner }{ " wants permission: " }{ $description }
-
 providers-planning-who-asks-this-provider-request-only = { $owner }{ " asks · " }{ $provider }{ " · this provider request only" }
+
+providers-planning-selected-permission = { "Selected: " }{ $label }
+
+providers-planning-permission-effect = { "Effect: " }{ $description }
 
 providers-planning-blocked-d-for-all-prerequisites = { "BLOCKED: " }{ $reason }{ " (d for all prerequisites)" }
 
-providers-planning-writes-selected-paths-inspect-exact-scope-d = { "Writes: " }{ $count }{ " selected paths; inspect exact scope (d)." }
+providers-planning-writes-selected-paths-inspect-exact-scope-d = { "Create/replace: " }{ $count }{ " paths; parents + exact content (d)." }
 
 providers-planning-send-payload-bytes-thread-one-turn = { "Send " }{ $bytes }{ " payload bytes · " }{ $thread }{ " thread · one turn." }
 
@@ -687,7 +683,7 @@ providers-setup-gemini = { "Install/update latest stable Gemini on PATH: npm ins
 
 providers-setup-devin = { "Install latest stable Devin from https://docs.devin.ai/cli/; update an existing installation with devin update. Then Refresh installed providers. Eevee does not run an installer automatically." }
 
-providers-setup-chatgpt = { "Native ChatGPT uses a provider access token, not an OpenAI API key. Enter a current token here, use CODEX_ACCESS_TOKEN (+ optional CODEX_ACCOUNT_ID), or explicitly delegate browser/device login to the official Codex CLI and use its read-only CODEX_HOME/auth.json. No app-owned ChatGPT OAuth client is available; without Codex, supply an access token or choose OpenAI API with separate API billing. Keychain-only login is not readable. Tokens can expire; renew through the provider, then replace the token or log in again. Eevee does not refresh tokens or modify the provider store. Native has no tools or edits; the separate Codex CLI route retains coding capabilities. Setup offers session-only storage by default, or explicitly saved private local plaintext (not encrypted or an OS keychain). Configuration and metadata access do not prove inference, account access or billing." }
+providers-setup-chatgpt = { "Native ChatGPT uses a provider access token, not an OpenAI API key. Enter a current token here, use CODEX_ACCESS_TOKEN (+ optional CODEX_ACCOUNT_ID), or explicitly delegate browser/device login to the official Codex CLI and use its read-only CODEX_HOME/auth.json. No app-owned ChatGPT OAuth client is available; without Codex, supply an access token or choose OpenAI API with separate API billing. Keychain-only login is not readable. Tokens can expire; renew through the provider, then replace the token or log in again. Eevee does not refresh tokens or modify the provider store. Native Implement can create or replace exact /paths targets after one-shot permission; without paths it is proposal-only. Plan/Review remain read-only. Setup offers session-only storage by default, or explicitly saved private local plaintext (not encrypted or an OS keychain). Configuration and metadata access do not prove inference, account access or billing." }
 
 providers-setup-openai = { "Enter an OpenAI API key here, or use OPENAI_API_KEY; optional OPENAI_BASE_URL and OPENAI_MODEL. This is metered API access, not ChatGPT subscription authentication. Setup offers session-only storage by default, or explicitly saved private local plaintext (not encrypted or an OS keychain). Configuration and metadata access do not prove inference, account access or billing." }
 
@@ -753,7 +749,7 @@ providers-action-choose-reasoning-effort = { "Choose reasoning effort" }
 
 providers-action-change-codex-connection-method = { "Change Codex connection method" }
 
-providers-action-set-up-native-responses-no-tools = { "Set up native responses (no tools)" }
+providers-action-set-up-native-responses-scoped-coding = { "Set up native responses (scoped coding)" }
 
 providers-action-set-up-cli-agent-tools-edits = { "Set up CLI agent (tools / edits)" }
 

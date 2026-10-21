@@ -7,6 +7,16 @@
 - test(terminal): required bounded startup stream quiescence before the fixed zero-output idle observation without restarting or filtering the measured window.
 - docs(verification): verified the actual public v0.1.14 binary through 52 English/Korean Wave 6 case executions, both-size response/tooltips, 176 native-protocol groups, 24 cooperation groups, 26 Moves groups, three real Schema 14 upgrade/refusal/resume cases and 23 installation groups with all 34 installed terminal scenarios.
 
+## 0.1.15
+
+- feat(files): added shared approved file creation and replacement with exact absent/dirty baselines, reviewed missing-parent creation, sibling-parent authority and no-overwrite publication.
+- feat(native): added scoped file tools and bounded native Responses, Chat Completions, Messages and Gemini continuations while retaining one writer lease, exact one-shot permissions, distinct reported round usage and public-only canonical history.
+- feat(sdk)!: required complete bridge revision 6 files with frozen typed create/replace/content/ancestor authority and independently enforced mandatory pre-tool checks.
+- fix(safety): retained blocking uncertainty for partial or ambiguous failed SDK writes instead of accepting a later successful model response.
+- fix(ux): exposed new nested targets through existing path selection and wrapped complete creation/replacement scope in neutral English/Korean permission summaries without requiring end-scrolling.
+- fix(coding): prepared fresh controlled Codex threads for ordinary follow-up requests and kept compact once-only consent usable without hiding file or parent scope.
+- docs(upgrade): retained Schema 15 and documented complete SDK bridge replacement, full-directory backups and the limits of external agent policy.
+
 
 ## 2026-10-21
 

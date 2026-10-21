@@ -120,7 +120,7 @@ impl State {
                     }) => {
                     self.edit_paths = paths.into_iter().map(PathBuf::from).collect();
                     self.paths_editor = None;
-                    self.notice = "Edit paths selected locally; no write or permission granted. Review exact scope before Run.".into();
+                    self.notice = "Exact create/replace paths selected locally, including missing parents; no files captured or created, request sent, or permission granted.".into();
                 }
                 _ => self.notice = "Use a JSON array of 1–16 distinct root-relative paths; no parent/absolute/control components.".into(),
             }
@@ -189,7 +189,7 @@ impl State {
         excerpts: &[context::Excerpt],
         report: Option<&Arc<repo::Report>>,
     ) {
-        if self.busy() {
+        if self.busy() || self.unknown_effects() {
             return;
         }
         if self.preferences_loading() {
@@ -293,7 +293,10 @@ impl State {
             } else {
                 self.operation
             },
-            edit_paths: if inspect_models || self.operation == Operation::Review {
+            edit_paths: if inspect_models
+                || inspect_sessions
+                || self.operation != Operation::Implement
+            {
                 Vec::new()
             } else {
                 self.edit_paths.clone()

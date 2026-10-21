@@ -387,6 +387,40 @@ mod tests {
     }
 
     #[test]
+    fn scoped_native_local_uncertainty_is_not_remote_only_or_canonical_success() {
+        for outcome in [Outcome::Completed, Outcome::Cancelled, Outcome::Unknown] {
+            let mut state = native();
+            state.set_operation(Operation::Implement);
+            state.edit_paths.push("missing/nested/new.rs".into());
+            let input = start(&mut state, &task("Create the selected new target"), 1);
+            assert_eq!(
+                input.edit_paths,
+                vec![std::path::PathBuf::from("missing/nested/new.rs")]
+            );
+            state.event(Event::LocalEffectsUnknown {
+                generation: 1,
+                task_id: 7,
+                message: "Filesystem publication outcome uncertain".into(),
+            });
+            state.event(Event::NativeCompleted {
+                generation: 1,
+                task_id: 7,
+                conversation: conversation(&input, "Unverified success claim"),
+            });
+            finish(&mut state, 1, outcome);
+            assert!(state.unknown_effects() && state.outcome_unknown() && state.owns_work());
+            assert!(
+                !state
+                    .native_histories
+                    .contains_key(&(Agent::Compatible, Operation::Implement))
+            );
+            state.switch_to = Some(Agent::Codex);
+            state.complete_switch();
+            assert!(state.unknown_effects() && state.owns_work());
+        }
+    }
+
+    #[test]
     fn managed_review_and_new_partner_never_inherit_native_chat() {
         let mut state = native();
         let input = start(&mut state, &task("Planning request"), 1);

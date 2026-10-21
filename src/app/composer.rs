@@ -92,10 +92,14 @@ impl App {
         // committed-input gate waits for this check, and dispatch still revalidates.
         self.sources
             .observe_captures(self.task_id, self.repository.as_ref());
+        // Controlled Codex tools belong to a fresh thread, never inherited
+        // planning/resumed authority. Ordinary follow-ups must prepare New.
         self.pending_request = Some((
             self.revision,
             self.planning.thread_id.is_some()
-                && self.planning.operation != crate::providers::Operation::Review,
+                && self.planning.operation != crate::providers::Operation::Review
+                && !(self.planning.agent == crate::providers::Agent::Codex
+                    && self.planning.operation == crate::providers::Operation::Implement),
         ));
         self.pending_request_owner = Some(self.lead.id);
         self.flush_save();

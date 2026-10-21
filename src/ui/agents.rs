@@ -77,7 +77,9 @@ fn action_hint<'a>(paint: &Paint, action: &'a str) -> &'a str {
         "Choose model" => Message::ProvidersActionChooseModel,
         "Choose reasoning effort" => Message::ProvidersActionChooseReasoningEffort,
         "Change Codex connection method" => Message::ProvidersActionChangeCodexConnectionMethod,
-        "Set up native responses (no tools)" => Message::ProvidersActionSetUpNativeResponsesNoTools,
+        "Set up native responses (scoped coding)" => {
+            Message::ProvidersActionSetUpNativeResponsesScopedCoding
+        }
         "Set up CLI agent (tools / edits)" => Message::ProvidersActionSetUpCliAgentToolsEdits,
         "Setup" => Message::ProvidersActionSetup,
         _ => return action,
@@ -462,11 +464,11 @@ fn render_connection(
         .expect("private connection editor");
     let title = if agent == crate::providers::Agent::ChatGPT {
         paint
-            .hint(Message::ProvidersAgentsCodexNativeOfficialChatgptOnlyNoTools)
+            .hint(Message::ProvidersAgentsCodexNativeOfficialChatgptScopedCoding)
             .into()
     } else {
         paint.format(
-            Template::ProvidersAgentsNativeNoTools,
+            Template::ProvidersAgentsNativeScopedCoding,
             &[("provider", (agent.label()))],
         )
     };

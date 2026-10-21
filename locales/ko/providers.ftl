@@ -36,7 +36,7 @@ providers-agents-back-check-version-y-n-d-tab = { "돌아가기 [버전 확인] 
 
 providers-agents-back-check-version-y-n-d-tab-2 = { "[돌아가기] 버전 확인 | y/n d Tab Enter" }
 
-providers-agents-codex-native-official-chatgpt-only-no-tools = { "Codex 네이티브 | 공식 ChatGPT 전용 | 도구 없음" }
+providers-agents-codex-native-official-chatgpt-scoped-coding = { "Codex 네이티브 | 공식 ChatGPT | 범위 지정 코딩" }
 
 providers-agents-blank-keeps-selected-source = { "(비우면 선택한 출처 유지)" }
 
@@ -121,7 +121,7 @@ providers-planning-immutable-request-unavailable-inspect-exact-payload-details =
 
 providers-planning-eevee-sends-the-exact-http-payload-below =
     { "" }
-    { "Eevee는 범위가 제한된 인증 헤더로 아래의 정확한 HTTP 페이로드를 보냅니다. 에이전트 실행 파일, 로컬 도구, 프로젝트 훅/MCP, 암묵적 소스 읽기나 자동 편집은 제공하지 않습니다. 인증, 사용 요금, 보관, 내부 동작은 서비스가 관리합니다. 취소는 클라이언트 작업을 닫을 뿐 원격 중단을 보장하지 않습니다. 자동 재시도는 없습니다." }
+    { "Eevee는 제한된 인증 헤더로 아래의 정확한 최초 HTTP 페이로드를 보냅니다. 경로를 지정한 Implement에서만 제한된 도구 후속 요청으로 선택 경로를 생성/교체합니다. 정확한 변경과 새 상위 디렉터리마다 별도의 일회성 승인이 필요합니다. 경로 없는 요청, Plan, Review, 메타데이터에는 쓰기를 제공하지 않습니다. 셸, 프로젝트 훅/MCP, 암묵적 소스 읽기는 없습니다. 범용 OS 샌드박스가 아닙니다. 인증, 요금, 보관, 내부 동작은 서비스가 관리합니다. 취소는 원격 중단을 보장하지 않으며 자동 재시도하지 않습니다." }
     { "" }
 
 providers-planning-eevee-sends-the-exact-payload-below-it =
@@ -134,7 +134,7 @@ providers-planning-run-authorizes-scoped-http-model-metadata-inspection =
     { "" }
 
 providers-planning-run-authorizes-this-exact-http-request-and =
-    { "실행은 이 정확한 HTTP 요청과 제한된 인증 정보 사용을 한 번 허용합니다. 머무르면 아무것도 보내지 않습니다." }
+    { "실행은 최초 HTTP 요청, 제한된 인증 사용과 제한된 후속 요청을 한 번 허용합니다. 생성/교체마다 정확한 일회성 승인이 별도로 필요합니다. 머무르면 아무것도 보내지 않습니다." }
     { "" }
 
 providers-planning-run-authorizes-only-the-disclosed-executable-provider =
@@ -164,7 +164,7 @@ providers-planning-hidden = { "[숨김]" }
 
 providers-planning-scope-model-metadata-only-no-task-prompt = { "범위: 모델 메타데이터만 조회하며 작업 프롬프트는 보내지 않습니다." }
 
-providers-planning-proposal-only-no-tools-commands-or-file = { "제안만 생성하며 도구, 명령 실행, 파일 쓰기는 없습니다." }
+providers-planning-proposal-only-no-tools-commands-or-file = { "제안 전용 · 코딩하려면 /paths로 새/기존 경로 선택." }
 
 providers-planning-text-response-only-no-tools-or-local = { "텍스트 응답만 생성하며 도구나 로컬 쓰기는 없습니다." }
 
@@ -188,11 +188,7 @@ providers-planning-trust-executable-config-no-automatic-future-approval = { "실
 
 providers-planning-d-details-exact-payload-executable-scope-and = { "d 상세: 정확한 페이로드, 실행 파일, 범위, 위험." }
 
-providers-planning-one-request-only-no-future-other-provider = { "이 요청에만 적용되며 이후 요청이나 다른 제공자는 허용하지 않습니다." }
-
-providers-planning-provider-policy-is-not-os-isolation = { "제공자 정책은 OS 격리가 아닙니다." }
-
-providers-planning-d-details-complete-request-and-exact-options = { "d 상세: 전체 요청과 정확한 선택지." }
+providers-planning-d-details-complete-request-and-exact-options = { "d 정확한 내용/선택지 · 일회성, 샌드박스 아님." }
 
 providers-planning-allow-once-this-command-effects-are-not = { "한 번 허용: 이 명령에만 적용되며 효과는 되돌리지 않습니다." }
 
@@ -239,8 +235,8 @@ providers-planning-cancel-run-once-y-run-n-cancel-2 =
     { "Tab 선택 / Enter 취소 / d 상세 / Esc 취소" }
 
 providers-planning-deny-allow-unavailable-until-summary-is-visible =
-    { "[거부] / 요약이 보일 때까지 허용 불가" }
-    { "크기 조정 / Enter 거부 / Esc 취소" }
+    { "[거부] / 전체 범위가 보여야 허용 가능" }
+    { "d 상세 / 크기 조정 / Enter 거부 / Esc 취소" }
 
 providers-planning-a-allow-once-n-deny-y-send =
     { "a 한 번 허용 / n 거부 / y 선택 전송 / d 상세" }
@@ -379,9 +375,9 @@ providers-planning-custom-model-id-local-only-exact-id =
     { "Enter 적용 / Esc 돌아가기 / Ctrl+U 지우기" }
 
 providers-planning-select-edit-paths-local-only-json-array =
-    { "편집 경로 선택 / 로컬 전용" }
-    { "루트 기준 기존 파일의 JSON 배열" }
-    { "Enter 선택 적용 / Esc 취소 / 4096바이트" }
+    { "생성 / 교체 경로 · 로컬 전용" }
+    { "JSON 배열: [\"src/new/file.rs\"] · 미리 만들 필요 없음" }
+    { "Enter 선택 / Esc 취소 · 쓰기/전송 없음" }
 
 providers-planning-unknown-outcome-work-may-have-run = { "결과 불명: 작업이 실행되었을 수 있습니다." }
 
@@ -560,7 +556,7 @@ providers-composer-up-down-choose-enter-open-esc-back = { "Up/Down 선택 / Ente
 
 providers-agents-default-effort-same-model-only = { "기본 추론 강도: " }{ $effort }{ " (동일 모델만)" }
 
-providers-agents-native-no-tools = { $provider }{ " | 네이티브; 도구 없음" }
+providers-agents-native-scoped-coding = { $provider }{ " | 네이티브; 범위 코딩 / 대화" }
 
 providers-agents-type-search-up-down-select-enter-right =
     { "입력 검색 | Up/Down 선택 | Enter " }{ $action }
@@ -590,15 +586,15 @@ providers-planning-send-literal-answers-to-this-provider-request = { "이 제공
 
 providers-planning-who-wants-to-run-command = { $owner }{ "의 실행 요청: " }{ $command }
 
-providers-planning-a-allow-once = { "a 한 번 허용: " }{ $description }
-
-providers-planning-who-wants-permission-description = { $owner }{ "의 권한 요청: " }{ $description }
-
 providers-planning-who-asks-this-provider-request-only = { $owner }{ "의 요청 · " }{ $provider }{ " · 이 제공자 요청에만 적용" }
+
+providers-planning-selected-permission = { "선택: " }{ $label }
+
+providers-planning-permission-effect = { "효과: " }{ $description }
 
 providers-planning-blocked-d-for-all-prerequisites = { "차단됨: " }{ $reason }{ " (d 모든 사전 조건)" }
 
-providers-planning-writes-selected-paths-inspect-exact-scope-d = { "쓰기: 선택한 경로 " }{ $count }{ "개; 정확한 범위 확인(d)." }
+providers-planning-writes-selected-paths-inspect-exact-scope-d = { "생성/교체 " }{ $count }{ "개 · 상위 폴더/정확한 내용(d)." }
 
 providers-planning-send-payload-bytes-thread-one-turn = { $bytes }{ "바이트 페이로드 전송 · " }{ $thread }{ " 스레드 · 한 턴." }
 
@@ -687,7 +683,7 @@ providers-setup-gemini = { "PATH에 최신 안정 Gemini를 설치/업데이트�
 
 providers-setup-devin = { "https://docs.devin.ai/cli/에서 최신 안정 Devin을 설치하세요. 기존 설치는 devin update로 업데이트합니다. 이후 설치된 제공자를 새로 고치세요. Eevee는 설치 프로그램을 자동 실행하지 않습니다." }
 
-providers-setup-chatgpt = { "네이티브 ChatGPT는 OpenAI API 키가 아닌 제공자 액세스 토큰을 사용합니다. 현재 토큰을 입력하거나 CODEX_ACCESS_TOKEN(+ 선택적 CODEX_ACCOUNT_ID)을 사용하세요. 또는 공식 Codex CLI에 브라우저/기기 로그인을 명시적으로 위임하고 읽기 전용 CODEX_HOME/auth.json을 사용하세요. 앱 자체 ChatGPT OAuth 클라이언트는 없습니다. Codex가 없으면 액세스 토큰을 제공하거나 별도 API 과금의 OpenAI API를 선택하세요. 키체인 전용 로그인은 읽을 수 없습니다. 토큰은 만료될 수 있습니다. 제공자에서 갱신한 뒤 교체하거나 다시 로그인하세요. Eevee는 토큰을 갱신하거나 제공자 저장소를 수정하지 않습니다. 네이티브에는 도구/편집이 없으며 별도 Codex CLI 경로는 코딩 기능을 유지합니다. 설정은 기본적으로 세션 전용 저장을 제공하며 명시적으로 선택하면 비공개 로컬 평문으로 저장합니다(암호화나 OS 키체인 아님). 설정과 메타데이터 접근은 추론, 계정 접근, 과금을 입증하지 않습니다." }
+providers-setup-chatgpt = { "네이티브 ChatGPT는 OpenAI API 키가 아닌 제공자 액세스 토큰을 사용합니다. 현재 토큰을 입력하거나 CODEX_ACCESS_TOKEN(+ 선택적 CODEX_ACCOUNT_ID)을 사용하세요. 또는 공식 Codex CLI에 브라우저/기기 로그인을 명시적으로 위임하고 읽기 전용 CODEX_HOME/auth.json을 사용하세요. 앱 자체 ChatGPT OAuth 클라이언트는 없습니다. Codex가 없으면 액세스 토큰을 제공하거나 별도 API 과금의 OpenAI API를 선택하세요. 키체인 전용 로그인은 읽을 수 없습니다. 토큰은 만료될 수 있습니다. 제공자에서 갱신한 뒤 교체하거나 다시 로그인하세요. Eevee는 토큰을 갱신하거나 제공자 저장소를 수정하지 않습니다. 네이티브 Implement는 /paths의 정확한 경로를 일회성 승인 후 생성/교체하며 경로가 없으면 제안만 합니다. Plan/Review는 읽기 전용입니다. 설정은 기본적으로 세션 전용 저장을 제공하며 명시적으로 선택하면 비공개 로컬 평문으로 저장합니다(암호화나 OS 키체인 아님). 설정과 메타데이터 접근은 추론, 계정 접근, 과금을 입증하지 않습니다." }
 
 providers-setup-openai = { "OpenAI API 키를 입력하거나 OPENAI_API_KEY를 사용하세요. OPENAI_BASE_URL과 OPENAI_MODEL은 선택 사항입니다. 종량제 API 접근이며 ChatGPT 구독 인증이 아닙니다. 설정은 기본적으로 세션 전용 저장을 제공하며 명시적으로 선택하면 비공개 로컬 평문으로 저장합니다(암호화나 OS 키체인 아님). 설정과 메타데이터 접근은 추론, 계정 접근, 과금을 입증하지 않습니다." }
 
@@ -753,7 +749,7 @@ providers-action-choose-reasoning-effort = { "추론 강도 선택" }
 
 providers-action-change-codex-connection-method = { "Codex 연결 방식 변경" }
 
-providers-action-set-up-native-responses-no-tools = { "네이티브 응답 설정 (도구 없음)" }
+providers-action-set-up-native-responses-scoped-coding = { "네이티브 응답 설정 (범위 지정 코딩)" }
 
 providers-action-set-up-cli-agent-tools-edits = { "CLI 에이전트 설정 (도구 / 편집)" }
 

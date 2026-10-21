@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { Query, CanUseTool, OnElicitation, Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { SDKPackageSchema, BRIDGE_POLICY, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, selectedWrite, selectedWriteIdentity, QuestionInputSchema, RunSchema, SDKPolicyError, SDKDispatchReceipt, SDKUsageLedger, querySelection, prepareModels, assertAppliedModel, assertSessionPolicy, credentialRoute, consoleProfile, sdkOutcome } from './policy.ts';
+import { SDKPackageSchema, BRIDGE_POLICY, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, SDKWritePolicy, QuestionInputSchema, RunSchema, SDKPolicyError, SDKDispatchReceipt, SDKUsageLedger, querySelection, prepareModels, assertAppliedModel, assertSessionPolicy, credentialRoute, consoleProfile, sdkOutcome } from './policy.ts';
 
 const require = createRequire(import.meta.url);
 const sdkEntry = realpathSync(require.resolve('@anthropic-ai/claude-agent-sdk'));
@@ -129,7 +129,7 @@ async function run(command: z.infer<typeof RunSchema>) {
   cleanEnvironment(command.state_dir, expectedProvider !== 'firstParty' && process.env.EEVEE_CLAUDE_CLOUD_AUTH === 'provider-chain', profile);
   controller = new AbortController();
   const tools = command.inspect_models ? [] : command.operation === 'implement' ? [...READ_TOOLS, 'Edit', 'Write'] : READ_TOOLS;
-  let activeWrite: string | undefined;
+  const writePolicy = new SDKWritePolicy(command.cwd, command.write_scope);
   const canUseTool: CanUseTool = async (tool, input, options) => {
     if (cancelled || options.signal.aborted || !tools.includes(tool)) return deny;
     const id = options.requestId || `permission-${++promptSequence}`;
@@ -148,23 +148,22 @@ async function run(command: z.infer<typeof RunSchema>) {
       return parsed.success ? { behavior: 'allow', updatedInput: { ...input, answers: parsed.data.updatedInput.answers } } : deny;
     }
     const writes = tool === 'Edit' || tool === 'Write';
-    if (writes && activeWrite !== undefined) return { behavior: 'deny', message: 'Another write is awaiting review or a terminal tool result' };
-    const baseline = writes ? selectedWriteIdentity(command.cwd, command.edit_paths, input.file_path) : undefined;
-    if (writes && baseline === undefined) return { behavior: 'deny', message: 'Write outside reviewed selected paths or through symlink refused' };
-    if (writes) activeWrite = options.toolUseID;
+    const scope = writes ? writePolicy.begin(options.toolUseID, tool, input) : undefined;
+    if (writes && scope === undefined) return { behavior: 'deny', message: 'Stale, concurrent, duplicate or out-of-scope write refused' };
     let approved = false;
     try {
       const allowed = { behavior: 'allow' as const, updatedInput: input };
-      const answer = await ask(id, options.toolUseID, { tool, input, description: options.description, title: options.title, blockedPath: options.blockedPath,
+      const answer = await ask(id, options.toolUseID, { tool, input, scope, description: options.description, title: options.title, blockedPath: options.blockedPath,
         options: [{ label: 'Deny', answer: deny }, { label: 'Allow once', answer: allowed }], defaultToNo: true, suppressAlwaysAllowRule: true },
         'approval', options.signal, deny, a => isDeepStrictEqual(a, allowed) || isDeepStrictEqual(a, deny));
-      if (cancelled || options.signal.aborted ||
-        (writes && selectedWriteIdentity(command.cwd, command.edit_paths, input.file_path) !== baseline)) return deny;
       const permission = PermissionSchema.parse(answer);
-      approved = permission.behavior === 'allow';
-      return permission;
+      if (writes) {
+        approved = writePolicy.approve(options.toolUseID, tool, input, permission.behavior === 'allow', cancelled || options.signal.aborted);
+        return approved ? allowed : deny;
+      }
+      return cancelled || options.signal.aborted ? deny : permission;
     } finally {
-      if (writes && !approved) activeWrite = undefined;
+      if (writes && !approved) writePolicy.approve(options.toolUseID, tool, input, false, true);
     }
   };
   const onElicitation: OnElicitation = async (request, options) => {
@@ -195,8 +194,9 @@ async function run(command: z.infer<typeof RunSchema>) {
     options.hooks = { PreToolUse: [{ hooks: [async (input) => {
       if (input.hook_event_name !== 'PreToolUse') return { continue: false };
       const name = input.tool_name;
-      const toolInput = z.object({ file_path: z.unknown() }).safeParse(input.tool_input);
-      if (!tools.includes(name) || ((name === 'Write' || name === 'Edit') && (!toolInput.success || !selectedWrite(command.cwd, command.edit_paths, toolInput.data.file_path)))) {
+      const toolInput = z.record(z.string(), z.unknown()).safeParse(input.tool_input);
+      if (cancelled || controller?.signal.aborted || !tools.includes(name) || ((name === 'Write' || name === 'Edit') &&
+        (!toolInput.success || !writePolicy.preToolUse(input.tool_use_id, name, toolInput.data)))) {
         return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Mandatory selected-path/tool policy' } };
       }
       return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: 'Review this one operation in Eevee' } };
@@ -283,7 +283,10 @@ async function run(command: z.infer<typeof RunSchema>) {
           if (!toolCalls.has(block.tool_use_id)) throw new Error('SDK tool result lacks an observed call');
           const call = toolCalls.get(block.tool_use_id);
           toolCalls.delete(block.tool_use_id);
-          if (activeWrite === block.tool_use_id) activeWrite = undefined;
+          if (call && (call.tool === 'Write' || call.tool === 'Edit') &&
+            !writePolicy.finish(block.tool_use_id, call.tool, call.input, block.is_error !== true, 'isReplay' in message && message.isReplay === true)) {
+            throw new Error('SDK write result lacks exact approved authority or a verified filesystem outcome');
+          }
           await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: block.tool_use_id, kind: 'tool', text: JSON.stringify({
             provider: 'Claude Agent SDK', sdk_version: sdkVersion, cli_version: cliVersion, coverage: 'provider-native tool result; not an Eevee local command/check or proof of confinement',
             ...call, result: block.content, is_error: block.is_error, status: block.is_error ? 'failed' : 'completed',
@@ -330,7 +333,7 @@ function fatal(_error: unknown) {
   void emit({ type: 'fatal', ...meta(), message: 'Claude SDK sidecar failed; raw diagnostics withheld; outcome unknown' }).finally(() => { current?.close(); process.exitCode = 1; process.stdin.pause(); }).catch(() => process.exit(1));
 }
 if (process.argv.includes('--inspect')) {
-  await emit({ type: 'capabilities', bridge_revision: 5, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
+  await emit({ type: 'capabilities', bridge_revision: 6, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
     query: typeof query === 'function', approvals: 'canUseTool with exact once/deny answers; no persistent rules', questions: 'AskUserQuestion single-select/free text',
     elicitation: 'distinct onElicitation; MCP disabled so decline/cancel only', resume: 'explicit same-task session ID only',
     usage: 'UUID-correlated main-loop turn and cumulative model-pipeline snapshots; owned completed baselines retained by host, unobserved resumed baseline unknown', confinement: 'agent policy; not OS sandbox', credential_route: credentialRoute(process.env) ?? 'unavailable' });
