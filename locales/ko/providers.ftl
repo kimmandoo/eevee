@@ -121,7 +121,7 @@ providers-planning-immutable-request-unavailable-inspect-exact-payload-details =
 
 providers-planning-eevee-sends-the-exact-http-payload-below =
     { "" }
-    { "Eevee는 제한된 인증 헤더로 아래의 정확한 최초 HTTP 페이로드를 보냅니다. 경로를 지정한 Implement에서만 제한된 도구 후속 요청으로 선택 경로를 생성/교체합니다. 정확한 변경과 새 상위 디렉터리마다 별도의 일회성 승인이 필요합니다. 경로 없는 요청, Plan, Review, 메타데이터에는 쓰기를 제공하지 않습니다. 셸, 프로젝트 훅/MCP, 암묵적 소스 읽기는 없습니다. 범용 OS 샌드박스가 아닙니다. 인증, 요금, 보관, 내부 동작은 서비스가 관리합니다. 취소는 원격 중단을 보장하지 않으며 자동 재시도하지 않습니다." }
+    { "Eevee는 제한된 인증 헤더로 아래의 정확한 최초 HTTP 페이로드를 보냅니다. Implement는 작업공간의 새/기존 경로에 제한된 파일 제안 도구를 제공합니다. /paths로 정확한 대상을 선택적으로 제한하며 []로 제한을 해제합니다. 정확한 변경과 새 상위 디렉터리마다 별도의 일회성 승인이 필요합니다. 네이티브/Codex는 최대 8개 파일, 파일당 64 KiB이며 SDK는 별도로 최대 256개 파일, 파일당 256 KiB입니다. Plan, Review, 메타데이터에는 쓰기를 제공하지 않습니다. 셸, 프로젝트 훅/MCP, 암묵적 소스 읽기는 없습니다. 범용 OS 샌드박스가 아닙니다. 인증, 요금, 보관, 내부 동작은 서비스가 관리합니다. 취소는 원격 중단을 보장하지 않으며 자동 재시도하지 않습니다." }
     { "" }
 
 providers-planning-eevee-sends-the-exact-payload-below-it =
@@ -164,7 +164,7 @@ providers-planning-hidden = { "[숨김]" }
 
 providers-planning-scope-model-metadata-only-no-task-prompt = { "범위: 모델 메타데이터만 조회하며 작업 프롬프트는 보내지 않습니다." }
 
-providers-planning-proposal-only-no-tools-commands-or-file = { "제안 전용 · 코딩하려면 /paths로 새/기존 경로 선택." }
+providers-planning-workspace-path-proposals = { "작업공간 경로 제안 · 정확한 일회성 승인(d)." }
 
 providers-planning-text-response-only-no-tools-or-local = { "텍스트 응답만 생성하며 도구나 로컬 쓰기는 없습니다." }
 
@@ -375,9 +375,9 @@ providers-planning-custom-model-id-local-only-exact-id =
     { "Enter 적용 / Esc 돌아가기 / Ctrl+U 지우기" }
 
 providers-planning-select-edit-paths-local-only-json-array =
-    { "생성 / 교체 경로 · 로컬 전용" }
-    { "JSON 배열: [\"src/new/file.rs\"] · 미리 만들 필요 없음" }
-    { "Enter 선택 / Esc 취소 · 쓰기/전송 없음" }
+    { "선택적 정확한 경로 제한 · 로컬 전용" }
+    { "JSON: [\"src/new/file.rs\"] · []는 작업공간 제안으로 해제" }
+    { "Enter 적용 / Esc 취소 · 쓰기/전송/권한 부여 없음" }
 
 providers-planning-unknown-outcome-work-may-have-run = { "결과 불명: 작업이 실행되었을 수 있습니다." }
 
@@ -683,7 +683,7 @@ providers-setup-gemini = { "PATH에 최신 안정 Gemini를 설치/업데이트�
 
 providers-setup-devin = { "https://docs.devin.ai/cli/에서 최신 안정 Devin을 설치하세요. 기존 설치는 devin update로 업데이트합니다. 이후 설치된 제공자를 새로 고치세요. Eevee는 설치 프로그램을 자동 실행하지 않습니다." }
 
-providers-setup-chatgpt = { "네이티브 ChatGPT는 OpenAI API 키가 아닌 제공자 액세스 토큰을 사용합니다. 현재 토큰을 입력하거나 CODEX_ACCESS_TOKEN(+ 선택적 CODEX_ACCOUNT_ID)을 사용하세요. 또는 공식 Codex CLI에 브라우저/기기 로그인을 명시적으로 위임하고 읽기 전용 CODEX_HOME/auth.json을 사용하세요. 앱 자체 ChatGPT OAuth 클라이언트는 없습니다. Codex가 없으면 액세스 토큰을 제공하거나 별도 API 과금의 OpenAI API를 선택하세요. 키체인 전용 로그인은 읽을 수 없습니다. 토큰은 만료될 수 있습니다. 제공자에서 갱신한 뒤 교체하거나 다시 로그인하세요. Eevee는 토큰을 갱신하거나 제공자 저장소를 수정하지 않습니다. 네이티브 Implement는 /paths의 정확한 경로를 일회성 승인 후 생성/교체하며 경로가 없으면 제안만 합니다. Plan/Review는 읽기 전용입니다. 설정은 기본적으로 세션 전용 저장을 제공하며 명시적으로 선택하면 비공개 로컬 평문으로 저장합니다(암호화나 OS 키체인 아님). 설정과 메타데이터 접근은 추론, 계정 접근, 과금을 입증하지 않습니다." }
+providers-setup-chatgpt = { "네이티브 ChatGPT는 OpenAI API 키가 아닌 제공자 액세스 토큰을 사용합니다. 현재 토큰을 입력하거나 CODEX_ACCESS_TOKEN(+ 선택적 CODEX_ACCOUNT_ID)을 사용하세요. 또는 공식 Codex CLI에 브라우저/기기 로그인을 명시적으로 위임하고 읽기 전용 CODEX_HOME/auth.json을 사용하세요. 앱 자체 ChatGPT OAuth 클라이언트는 없습니다. Codex가 없으면 액세스 토큰을 제공하거나 별도 API 과금의 OpenAI API를 선택하세요. 키체인 전용 로그인은 읽을 수 없습니다. 토큰은 만료될 수 있습니다. 제공자에서 갱신한 뒤 교체하거나 다시 로그인하세요. Eevee는 토큰을 갱신하거나 제공자 저장소를 수정하지 않습니다. 네이티브 Implement는 작업공간의 새/기존 경로를 제안하고 정확한 일회성 승인 후에만 생성/교체합니다. /paths로 대상을 선택적으로 제한하며 []로 해제합니다. 최대 8개 파일, 파일당 64 KiB입니다. Plan/Review는 읽기 전용입니다. 설정은 기본적으로 세션 전용 저장을 제공하며 명시적으로 선택하면 비공개 로컬 평문으로 저장합니다(암호화나 OS 키체인 아님). 설정과 메타데이터 접근은 추론, 계정 접근, 과금을 입증하지 않습니다." }
 
 providers-setup-openai = { "OpenAI API 키를 입력하거나 OPENAI_API_KEY를 사용하세요. OPENAI_BASE_URL과 OPENAI_MODEL은 선택 사항입니다. 종량제 API 접근이며 ChatGPT 구독 인증이 아닙니다. 설정은 기본적으로 세션 전용 저장을 제공하며 명시적으로 선택하면 비공개 로컬 평문으로 저장합니다(암호화나 OS 키체인 아님). 설정과 메타데이터 접근은 추론, 계정 접근, 과금을 입증하지 않습니다." }
 

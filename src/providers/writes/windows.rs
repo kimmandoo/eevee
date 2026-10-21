@@ -19,9 +19,9 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT, FILE_BASIC_INFO, FILE_CASE_SENSITIVE_INFO,
     FILE_DISPOSITION_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
     FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_ID_INFO, FILE_LIST_DIRECTORY, FILE_NAME_NORMALIZED,
-    FILE_READ_ATTRIBUTES, FILE_RENAME_INFO, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE,
-    FILE_TYPE_DISK, FileBasicInfo, FileCaseSensitiveInfo, FileDispositionInfo, FileIdInfo,
-    GetFileInformationByHandle, GetFileInformationByHandleEx, GetFileType,
+    FILE_READ_ATTRIBUTES, FILE_RENAME_INFO, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    FILE_TRAVERSE, FILE_TYPE_DISK, FileBasicInfo, FileCaseSensitiveInfo, FileDispositionInfo,
+    FileIdInfo, GetFileInformationByHandle, GetFileInformationByHandleEx, GetFileType,
     GetFinalPathNameByHandleW, SYNCHRONIZE, SetFileInformationByHandle, VOLUME_NAME_DOS,
 };
 
@@ -515,9 +515,15 @@ impl Directory {
         let native = Name::new(name)?;
         self.verify()?;
         let access = FILE_GENERIC_READ | if write { FILE_GENERIC_WRITE } else { 0 };
-        // A baseline reread must coexist with our retained writer. The writer
-        // itself denies write sharing, so this does not admit another writer.
-        let share = FILE_SHARE_READ | if write { 0 } else { FILE_SHARE_WRITE };
+        // Validation must coexist with a retained publication handle carrying
+        // WRITE and DELETE access. Sharing here grants no such access: that
+        // retained handle still denies other writers and deleters.
+        let share = FILE_SHARE_READ
+            | if write {
+                0
+            } else {
+                FILE_SHARE_WRITE | FILE_SHARE_DELETE
+            };
         let file = relative_open(
             &self.node.file,
             &native,
@@ -842,6 +848,36 @@ mod tests {
         );
         assert_eq!(fs::read_dir(&temp.0).unwrap().count(), 3);
         directory.verify().unwrap();
+    }
+
+    #[test]
+    fn retained_publication_allows_named_validation_but_excludes_writers_and_deletion() {
+        let temp = Temp::new();
+        let directory = temp.directory();
+        let name = OsStr::new("retained.txt");
+        let mut retained = directory.publish(name, b"exact\r\nbytes").unwrap();
+        let mut named = directory.open_file(name, false).unwrap();
+        assert_eq!(file_stamp(&retained).unwrap(), file_stamp(&named).unwrap());
+        let mut retained_bytes = Vec::new();
+        retained.seek(SeekFrom::Start(0)).unwrap();
+        retained.read_to_end(&mut retained_bytes).unwrap();
+        let mut named_bytes = Vec::new();
+        named.read_to_end(&mut named_bytes).unwrap();
+        assert_eq!(retained_bytes, b"exact\r\nbytes");
+        assert_eq!(retained_bytes, named_bytes);
+        assert!(directory.open_file(name, true).is_err());
+        assert!(
+            fs::OpenOptions::new()
+                .write(true)
+                .open(temp.0.join(name))
+                .is_err()
+        );
+        assert!(fs::remove_file(temp.0.join(name)).is_err());
+        assert!(fs::rename(temp.0.join(name), temp.0.join("moved.txt")).is_err());
+        drop(named);
+        assert!(fs::remove_file(temp.0.join(name)).is_err());
+        drop(retained);
+        fs::remove_file(temp.0.join(name)).unwrap();
     }
 
     #[test]

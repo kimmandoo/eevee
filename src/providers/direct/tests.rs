@@ -693,7 +693,7 @@ fn worker_rejects_unreviewed_runs_and_cancels_only_current_preview() {
 }
 
 #[test]
-fn implementation_items_are_explicitly_non_mutating_proposals() {
+fn generated_implementation_text_is_not_a_filesystem_receipt() {
     let mut run = prepared();
     run.input.operation = Operation::Implement;
     let mut stream = Stream::new(Protocol::Responses);
@@ -705,8 +705,7 @@ fn implementation_items_are_explicitly_non_mutating_proposals() {
         events
             .lock()
             .iter()
-            .any(|e| matches!(e, Event::Item { text, .. }
-        if text.starts_with("IMPLEMENT PROPOSAL ONLY") && text.contains("no local files changed")))
+            .any(|e| matches!(e, Event::Item { text, .. } if text == "Suggested patch"))
     );
 }
 
@@ -1230,7 +1229,7 @@ fn interrupted_reasoning_and_proposal_display_never_seed_canonical_assistant_his
     );
     assert!(queue.iter().any(
         |event| matches!(event, Event::Item { text, complete: true, .. }
-        if text.starts_with("IMPLEMENT PROPOSAL ONLY"))
+        if text == "Incomplete proposal")
     ));
     assert!(!queue.iter().any(|event| matches!(event, Event::NativeCompleted { conversation, .. }
         if conversation.messages.iter().any(|message| message.text.contains("IMPLEMENT PROPOSAL ONLY") || message.text.contains("private thought")))));

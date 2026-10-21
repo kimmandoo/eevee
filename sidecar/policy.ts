@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { lstatSync, realpathSync, readFileSync } from 'node:fs';
+import { lstatSync, realpathSync, readFileSync, readdirSync } from 'node:fs';
 import type { BigIntStats } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep, toNamespacedPath } from 'node:path';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { EffortLevel, ModelInfo } from '@anthropic-ai/claude-agent-sdk';
@@ -32,6 +32,9 @@ export const SelectionSchema = z.object({
 export type Selection = z.infer<typeof SelectionSchema>;
 const IdentitySchema = z.string().min(1).max(256);
 export const WriteScopeSchema = z.object({
+  mode: z.enum(['Selected', 'Workspace']),
+  protected_paths: z.array(boundedText(4096)).max(256),
+  excluded_paths: z.array(boundedText(4096)).max(256),
   root_identity: IdentitySchema.nullable(),
   files: z.array(z.object({
     path: boundedText(4096), kind: z.enum(['Create', 'Replace']),
@@ -48,9 +51,10 @@ export const RunSchema = z.object({
   operation: z.enum(['plan', 'implement']), write_scope: WriteScopeSchema,
   resume: z.string().uuid().nullish(), inspect_models: z.boolean(), selection: SelectionSchema,
 }).strict().superRefine((command, context) => {
-  if ((command.operation === 'plan' && command.write_scope.files.length !== 0) ||
-    (command.operation === 'implement' && command.write_scope.files.length === 0) ||
-    (command.inspect_models && (command.request_id != null || command.prompt !== '' || command.resume != null || command.write_scope.files.length !== 0 || command.operation !== 'plan'))) {
+  const scope = command.write_scope;
+  if ((command.operation === 'plan' && (scope.mode !== 'Selected' || scope.files.length !== 0)) ||
+    (command.operation === 'implement' && (scope.root_identity === null || (scope.mode === 'Selected' ? scope.files.length === 0 : scope.files.length !== 0))) ||
+    (command.inspect_models && (command.request_id != null || command.prompt !== '' || command.resume != null || scope.files.length !== 0 || command.operation !== 'plan'))) {
     context.addIssue({ code: 'custom', message: 'Invalid inspection/operation write scope' });
   }
 });
@@ -270,7 +274,7 @@ export async function prepareModels(
 // This is agent policy, NOT OS confinement or a race-free filesystem sandbox.
 function exactRelative(path: string): boolean {
   return path.length > 0 && path.length <= 4096 && !isAbsolute(path) &&
-    !/[\p{Cc}\\:]/u.test(path) && path.split('/').every(part =>
+    !/[\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069\\:]/u.test(path) && path.split('/').every(part =>
       part.length > 0 && part !== '.' && part !== '..' && !/[. ]$/.test(part) &&
       !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part));
 }
@@ -310,34 +314,107 @@ function fileState(path: string): { identity: string; sha256: string; content: s
   } catch { return undefined; }
 }
 
-// Frozen authority comes only from the reviewed host IPC. Checks never capture
-// a new baseline from an externally appeared target or directory.
+// Workspace authority freezes the root at Run and targets only at valid proposal.
+// A previously enrolled target is never recaptured to refresh stale authority.
 export class SDKWritePolicy {
   private readonly root: string;
   private readonly scope: WriteScope;
   private readonly ownedParents = new Map<string, string>();
+  private readonly protectedPaths: string[];
+  private readonly ancestorLedger = new Map<string, string | null>();
+  private uncertain = false;
   private readonly seen = new Set<string>();
   private readonly denied = new Map<string, { tool: string; input: Record<string, unknown> }>();
   private active: { id: string; tool: string; input: Record<string, unknown>; path: string; fingerprint: string; expected: string; approved: boolean } | undefined;
-  constructor(cwd: string, scope: WriteScope) {
+  constructor(cwd: string, scope: WriteScope, runtimePaths: string[] = []) {
     this.root = realpathSync(cwd);
+    if (toNamespacedPath(resolve(cwd)) !== toNamespacedPath(this.root) || directoryIdentity(this.root) === undefined) throw new SDKPolicyError('SDK cwd must be a canonical non-link directory');
     this.scope = structuredClone(WriteScopeSchema.parse(scope));
+    if (this.scope.root_identity !== null && directoryIdentity(this.root) !== this.scope.root_identity) throw new SDKPolicyError('SDK frozen root changed');
+    if (this.scope.mode === 'Workspace' && (this.scope.root_identity === null || this.scope.files.length !== 0)) throw new SDKPolicyError('Invalid initial workspace scope');
+    if (this.scope.excluded_paths.some(path => !exactRelative(path)) || this.scope.protected_paths.some(path => !isAbsolute(path))) throw new SDKPolicyError('Invalid SDK boundaries');
+    this.protectedPaths = [...this.scope.protected_paths, realpathSync(process.execPath), ...runtimePaths].map(path => realpathSync(path));
     if (new Set(this.scope.files.map(file => file.path)).size !== this.scope.files.length) throw new SDKPolicyError('Duplicate selected SDK paths');
     for (const file of this.scope.files) {
       const parts = file.path.split('/');
       const expected = parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/'));
-      if (!exactRelative(file.path) || protectedPath(file.path) || file.ancestors.length !== expected.length ||
+      if (this.path(file.path) !== file.path || file.ancestors.length !== expected.length ||
         file.ancestors.some((ancestor, i) => ancestor.path !== expected[i]) ||
         (file.kind === 'Create' ? file.identity !== null || file.sha256 !== null || file.working_content !== null :
           file.identity === null || file.sha256 === null || file.working_content === null ||
+          Buffer.byteLength(file.working_content) > 256 * 1024 ||
           createHash('sha256').update(file.working_content).digest('hex') !== file.sha256)) throw new SDKPolicyError('Invalid frozen SDK scope');
+      for (const ancestor of file.ancestors) {
+        if (this.ancestorLedger.has(ancestor.path) && this.ancestorLedger.get(ancestor.path) !== ancestor.identity) throw new SDKPolicyError('Inconsistent frozen SDK parents');
+        this.ancestorLedger.set(ancestor.path, ancestor.identity);
+      }
     }
   }
   private path(candidate: unknown): string | undefined {
     if (typeof candidate !== 'string' || candidate.length > 4096 ||
       candidate.split(sep).join('/').split('/').some(part => part === '.' || part === '..')) return undefined;
     const path = isAbsolute(candidate) ? relative(this.root, candidate).split(sep).join('/') : candidate;
-    return exactRelative(path) && !protectedPath(path) ? path : undefined;
+    if (!exactRelative(path) || protectedPath(path)) return undefined;
+    const full = resolve(this.root, path);
+    const within = (target: string, boundary: string) => {
+      const parts = target.normalize('NFC').toUpperCase().split(sep);
+      const prefix = boundary.normalize('NFC').toUpperCase().split(sep);
+      return prefix.every((part, i) => parts[i] === part);
+    };
+    return this.protectedPaths.some(boundary => within(full, boundary)) ||
+      this.scope.excluded_paths.some(boundary => within(full, resolve(this.root, boundary))) ? undefined : path;
+  }
+  private capture(path: string): WriteScope['files'][number] | undefined {
+    if (this.scope.mode !== 'Workspace' || this.scope.files.length >= 256 || directoryIdentity(this.root) !== this.scope.root_identity) return undefined;
+    const key = (value: string) => value.normalize('NFC').toUpperCase();
+    const candidate = path.split('/');
+    if (this.scope.files.some(file => {
+      const existing = file.path.split('/');
+      for (let i = 0; i < Math.min(candidate.length, existing.length); i++) {
+        if (key(candidate[i]) !== key(existing[i])) return false;
+        if (candidate[i] !== existing[i]) return true;
+      }
+      return candidate.length !== existing.length;
+    })) return undefined;
+    const ancestors: WriteScope['files'][number]['ancestors'] = [];
+    const parts = path.split('/');
+    let missing = false;
+    for (let i = 0; i < parts.length; i++) {
+      const parent = parts.slice(0, i).join('/');
+      const current = parts.slice(0, i + 1).join('/');
+      if (!missing) {
+        // Conservatively refuse case/normalization aliases on every filesystem.
+        try {
+          const key = parts[i].normalize('NFC').toUpperCase();
+          if (readdirSync(resolve(this.root, parent)).some(name => name !== parts[i] && name.normalize('NFC').toUpperCase() === key)) return undefined;
+        } catch { return undefined; }
+      }
+      if (i === parts.length - 1) break;
+      const full = resolve(this.root, current);
+      const identity = directoryIdentity(full);
+      if (identity === undefined && !absent(full)) return undefined;
+      if (missing && identity !== undefined) return undefined;
+      const frozen = this.ancestorLedger.get(current);
+      const expected = frozen ?? this.ownedParents.get(current);
+      if (this.ancestorLedger.has(current) && (expected === undefined ? identity !== undefined : identity !== expected)) return undefined;
+      ancestors.push({ path: current, identity: identity ?? null });
+      missing ||= identity === undefined;
+    }
+    const full = resolve(this.root, path);
+    if (absent(full)) return { path, kind: 'Create', identity: null, sha256: null, working_content: null, ancestors };
+    if (missing) return undefined;
+    const state = fileState(full);
+    return state ? { path, kind: 'Replace', identity: state.identity, sha256: state.sha256, working_content: state.content, ancestors } : undefined;
+  }
+  private expected(tool: string, input: Record<string, unknown>, file: WriteScope['files'][number]): string | undefined {
+    if (tool === 'Write') return typeof input.content === 'string' && Buffer.byteLength(input.content) <= 256 * 1024 ? input.content : undefined;
+    if (tool !== 'Edit' || typeof input.old_string !== 'string' || typeof input.new_string !== 'string' || !input.old_string ||
+      (input.replace_all !== undefined && typeof input.replace_all !== 'boolean') || file.working_content === null) return undefined;
+    const occurrences = file.working_content.split(input.old_string).length - 1;
+    if (occurrences === 0 || (input.replace_all !== true && occurrences !== 1)) return undefined;
+    const content = input.replace_all === true ? file.working_content.split(input.old_string).join(input.new_string) :
+      file.working_content.replace(input.old_string, () => input.new_string as string);
+    return Buffer.byteLength(content) <= 256 * 1024 ? content : undefined;
   }
   private fingerprint(candidate: unknown): string | undefined {
     try {
@@ -357,31 +434,34 @@ export class SDKWritePolicy {
   }
   // Mandatory PreToolUse independently enforces scope, stale state and tool IDs.
   preToolUse(id: string, tool: string, input: Record<string, unknown>): boolean {
-    if ((tool !== 'Write' && tool !== 'Edit') || (!this.active && this.seen.has(id))) return false;
-    const fingerprint = this.fingerprint(input.file_path);
-    const file = this.scope.files.find(file => file.path === this.path(input.file_path));
-    return fingerprint !== undefined && !(tool === 'Edit' && file?.kind === 'Create') &&
+    if (this.uncertain || (tool !== 'Write' && tool !== 'Edit') || (!this.active && this.seen.has(id))) return false;
+    const path = this.path(input.file_path);
+    if (path === undefined) return false;
+    const frozen = this.scope.files.find(file => file.path === path);
+    const file = frozen ?? this.capture(path);
+    if (!file || this.expected(tool, input, file) === undefined) return false;
+    if (!frozen) return this.active === undefined;
+    const fingerprint = this.fingerprint(path);
+    return fingerprint !== undefined &&
       (!this.active || this.active.id === id && this.active.tool === tool && isDeepStrictEqual(this.active.input, input) && this.active.fingerprint === fingerprint);
   }
   begin(id: string, tool: string, input: Record<string, unknown>): { kind: string; path: string; directories: string[] } | undefined {
     if (this.active || this.seen.has(id) || this.seen.size >= 256 || !this.preToolUse(id, tool, input)) return undefined;
-    const file = this.scope.files.find(file => file.path === this.path(input.file_path))!;
-    let expected: string;
-    if (tool === 'Write') {
-      if (typeof input.content !== 'string' || Buffer.byteLength(input.content) > 256 * 1024) return undefined;
-      expected = input.content;
-    } else {
-      if (typeof input.old_string !== 'string' || typeof input.new_string !== 'string' || !input.old_string ||
-        (input.replace_all !== undefined && typeof input.replace_all !== 'boolean') || file.working_content === null) return undefined;
-      const occurrences = file.working_content.split(input.old_string).length - 1;
-      if (occurrences === 0 || (input.replace_all !== true && occurrences !== 1)) return undefined;
-      expected = input.replace_all === true ? file.working_content.split(input.old_string).join(input.new_string) :
-        file.working_content.replace(input.old_string, () => input.new_string as string);
-      if (Buffer.byteLength(expected) > 256 * 1024) return undefined;
+    const path = this.path(input.file_path)!;
+    let file = this.scope.files.find(file => file.path === path);
+    if (!file) {
+      file = this.capture(path);
+      if (!file || this.expected(tool, input, file) === undefined) return undefined;
+      // Commit the whole capture only after all proposal validation succeeds.
+      this.scope.files.push(file);
+      for (const ancestor of file.ancestors) if (!this.ancestorLedger.has(ancestor.path)) this.ancestorLedger.set(ancestor.path, ancestor.identity);
     }
+    const fingerprint = this.fingerprint(path);
+    const expected = this.expected(tool, input, file);
+    if (fingerprint === undefined || expected === undefined) return undefined;
     this.seen.add(id);
-    this.active = { id, tool, input: structuredClone(input), path: file.path, fingerprint: this.fingerprint(input.file_path)!, expected, approved: false };
-    return { kind: file.kind, path: file.path, directories: file.ancestors.filter(parent => parent.identity === null && !this.ownedParents.has(parent.path)).map(parent => parent.path) };
+    this.active = { id, tool, input: structuredClone(input), path, fingerprint, expected, approved: false };
+    return { kind: file.kind, path, directories: file.ancestors.filter(parent => parent.identity === null && !this.ownedParents.has(parent.path)).map(parent => parent.path) };
   }
   approve(id: string, tool: string, input: Record<string, unknown>, allowed: boolean, cancelled: boolean): boolean {
     const active = this.active;
@@ -405,7 +485,11 @@ export class SDKWritePolicy {
     // A failed SDK call can still create parents or partially replace the leaf.
     // Only a fresh, unambiguous observation of the original baseline settles it;
     // failure never advances either the file baseline or sibling-parent ledger.
-    if (!success) return this.fingerprint(active.path) === active.fingerprint;
+    if (!success) {
+      const unchanged = this.fingerprint(active.path) === active.fingerprint;
+      this.uncertain ||= !unchanged;
+      return unchanged;
+    }
     const file = this.scope.files.find(file => file.path === active.path)!;
     if (directoryIdentity(this.root) !== this.scope.root_identity) return false;
     const parents = new Map<string, string>();

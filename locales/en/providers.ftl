@@ -121,7 +121,7 @@ providers-planning-immutable-request-unavailable-inspect-exact-payload-details =
 
 providers-planning-eevee-sends-the-exact-http-payload-below =
     { "" }
-    { "Eevee sends the exact initial HTTP payload below with scoped credential headers. Scoped Implement alone exposes selected-path create/replace through bounded tool continuations; each exact change and missing parent directory needs separate one-shot permission. Unscoped native requests, Plan, Review and metadata do not expose writes. No shell, project hooks/MCP or implicit source reads. This is not a universal OS sandbox. The service owns authentication, usage charges, retention and internal behavior. Cancellation is not a guaranteed remote stop. No automatic retry." }
+    { "Eevee sends the exact initial HTTP payload below with scoped credential headers. Implement exposes bounded file-proposal tools for new or existing workspace paths; optional /paths restricts exact targets and [] clears that restriction. Each exact change and missing parent directory needs separate one-shot permission. Native/Codex writes allow at most eight files and 64 KiB per file; the SDK separately allows 256 files and 256 KiB per file. Plan, Review and metadata do not expose writes. No shell, project hooks/MCP or implicit source reads. This is not a universal OS sandbox. The service owns authentication, usage charges, retention and internal behavior. Cancellation is not a guaranteed remote stop. No automatic retry." }
     { "" }
 
 providers-planning-eevee-sends-the-exact-payload-below-it =
@@ -164,7 +164,7 @@ providers-planning-hidden = { "[hidden]" }
 
 providers-planning-scope-model-metadata-only-no-task-prompt = { "Scope: model metadata only; no task prompt." }
 
-providers-planning-proposal-only-no-tools-commands-or-file = { "Proposal only; select new/existing paths via /paths to code." }
+providers-planning-workspace-path-proposals = { "Workspace path proposals; exact one-shot approval (d)." }
 
 providers-planning-text-response-only-no-tools-or-local = { "Text response only; no tools or local writes." }
 
@@ -375,9 +375,9 @@ providers-planning-custom-model-id-local-only-exact-id =
     { "Enter Apply / Esc Back / Ctrl+U Clear" }
 
 providers-planning-select-edit-paths-local-only-json-array =
-    { "CREATE / REPLACE PATHS · LOCAL ONLY" }
-    { "JSON array: [\"src/new/file.rs\"] · no precreation" }
-    { "Enter Select / Esc Cancel · no writes or sends" }
+    { "OPTIONAL EXACT PATH RESTRICTION · LOCAL ONLY" }
+    { "JSON: [\"src/new/file.rs\"] · [] clears to workspace proposals" }
+    { "Enter Apply / Esc Cancel · no writes, sends or grants" }
 
 providers-planning-unknown-outcome-work-may-have-run = { "UNKNOWN OUTCOME: work may have run." }
 
@@ -683,7 +683,7 @@ providers-setup-gemini = { "Install/update latest stable Gemini on PATH: npm ins
 
 providers-setup-devin = { "Install latest stable Devin from https://docs.devin.ai/cli/; update an existing installation with devin update. Then Refresh installed providers. Eevee does not run an installer automatically." }
 
-providers-setup-chatgpt = { "Native ChatGPT uses a provider access token, not an OpenAI API key. Enter a current token here, use CODEX_ACCESS_TOKEN (+ optional CODEX_ACCOUNT_ID), or explicitly delegate browser/device login to the official Codex CLI and use its read-only CODEX_HOME/auth.json. No app-owned ChatGPT OAuth client is available; without Codex, supply an access token or choose OpenAI API with separate API billing. Keychain-only login is not readable. Tokens can expire; renew through the provider, then replace the token or log in again. Eevee does not refresh tokens or modify the provider store. Native Implement can create or replace exact /paths targets after one-shot permission; without paths it is proposal-only. Plan/Review remain read-only. Setup offers session-only storage by default, or explicitly saved private local plaintext (not encrypted or an OS keychain). Configuration and metadata access do not prove inference, account access or billing." }
+providers-setup-chatgpt = { "Native ChatGPT uses a provider access token, not an OpenAI API key. Enter a current token here, use CODEX_ACCESS_TOKEN (+ optional CODEX_ACCOUNT_ID), or explicitly delegate browser/device login to the official Codex CLI and use its read-only CODEX_HOME/auth.json. No app-owned ChatGPT OAuth client is available; without Codex, supply an access token or choose OpenAI API with separate API billing. Keychain-only login is not readable. Tokens can expire; renew through the provider, then replace the token or log in again. Eevee does not refresh tokens or modify the provider store. Native Implement proposes new/existing workspace paths and creates or replaces only after exact one-shot permission; /paths optionally restricts targets and [] clears the restriction. Up to eight files, 64 KiB per file. Plan/Review remain read-only. Setup offers session-only storage by default, or explicitly saved private local plaintext (not encrypted or an OS keychain). Configuration and metadata access do not prove inference, account access or billing." }
 
 providers-setup-openai = { "Enter an OpenAI API key here, or use OPENAI_API_KEY; optional OPENAI_BASE_URL and OPENAI_MODEL. This is metered API access, not ChatGPT subscription authentication. Setup offers session-only storage by default, or explicitly saved private local plaintext (not encrypted or an OS keychain). Configuration and metadata access do not prove inference, account access or billing." }
 

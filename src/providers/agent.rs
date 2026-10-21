@@ -362,7 +362,7 @@ fn discover(index: usize, project: &Path) -> Snapshot {
         os: env::consts::OS.into(),
         architecture: env::consts::ARCH.into(),
         adapter: match index {
-            0 => "Codex app-server; Plan and POSIX controlled-file implementation".into(),
+            0 => "Codex app-server; Plan/Review and native controlled-file implementation".into(),
             1 => "Optional Claude Agent SDK sidecar; e performs separate runtime/auth qualification".into(),
             2 => "OpenCode / negotiated ACP v1; provider-owned tools".into(),
             DEVIN => "Devin / negotiated ACP v1; provider-owned tools and native account login".into(),
@@ -415,7 +415,7 @@ fn capabilities(index: usize) -> Vec<Capability> {
             (
                 "Command/file/permission requests",
                 "Eevee-mediated callbacks",
-                "Plan: supported command deny/allow-once; Implement: exact selected-path creation/replacement and missing parents via Eevee tool with patch approval; native edits/escalation refused",
+                "Implement: model-proposed workspace paths, optionally restricted by /paths; exact creation/replacement and missing parents via Eevee tool with one-shot patch approval; at most 8 files, 64 KiB per file; native edits/escalation refused",
                 "Not every provider/MCP/hook action necessarily reaches a callback",
             ),
             (
@@ -475,7 +475,7 @@ fn capabilities(index: usize) -> Vec<Capability> {
         result.push(Capability {
             action: action.into(),
             boundary: if action == "Filesystem/network restrictions" { "Observed/external — no Eevee confinement" } else { "Eevee-mediated protocol callbacks / provider-owned tools" }.into(),
-            evidence: if index == 1 { "Optional official SDK sidecar bridge revision 6; selected new/existing paths and missing parents use external Write/Edit policy, not OS confinement; exact SDK-message UUID acknowledgment proves claimed request submission; tool/config policy separate from callbacks" }
+            evidence: if index == 1 { "Optional official SDK sidecar bridge revision 6; model-proposed workspace paths or optional exact /paths restriction, at most 256 files and 256 KiB per file; new/existing files and missing parents use external Write/Edit policy, not OS confinement; exact SDK-message UUID acknowledgment proves claimed request submission; tool/config policy separate from callbacks" }
                 else { "Negotiated ACP v1; exact once-only permission IDs; fs/terminal callbacks disabled" }.into(),
             blocker: "Requires supported runtime/auth/capability qualification after explicit consent; installation alone is not support".into(),
         });

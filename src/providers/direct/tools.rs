@@ -11,7 +11,7 @@ use crate::providers::writes::{MAX_BYTES, TOOL_NAME};
 const CALL_LIMIT: usize = 16;
 const ID_LIMIT: usize = 256;
 const NAME_LIMIT: usize = 128;
-const PATH_LIMIT: usize = 4096;
+pub(super) const PATH_LIMIT: usize = 4096;
 // JSON may escape every source byte as a six-byte Unicode escape.
 const ARGUMENT_LIMIT: usize = 6 * (MAX_BYTES + PATH_LIMIT) + 128;
 
@@ -25,13 +25,13 @@ pub(super) fn advertise(body: &mut Value, protocol: Protocol) {
     let parameters = json!({
         "type":"object",
         "properties":{
-            "path":{"type":"string","description":"Exact selected root-relative file path."},
+            "path":{"type":"string","description":"Exact project-relative file path, within any selected-path restriction."},
             "content":{"type":"string","description":"Complete intended UTF-8 file contents, not a patch."}
         },
         "required":["path","content"],
         "additionalProperties":false
     });
-    let description = "Propose creating or replacing one exact selected file with complete contents. Local permission and frozen scope checks are required before any write.";
+    let description = "Propose creating or replacing one project-relative file with complete contents (at most 64 KiB). Exact local permission and frozen workspace or selected-path scope checks are required before any write.";
     body["tools"] = match protocol {
         Protocol::Responses | Protocol::Codex => json!([{
             "type":"function","name":TOOL_NAME,"description":description,
@@ -124,6 +124,38 @@ impl Calls {
             Protocol::Messages => self.messages_event(kind, value),
             Protocol::Gemini => self.gemini_event(value),
         }
+    }
+
+    /// Bounded opaque progress only; never expose names, paths or argument text.
+    pub(super) fn proposal_progress(&self) -> Option<(usize, usize)> {
+        let count = match self.protocol {
+            Protocol::Responses | Protocol::Codex => self.output.as_ref().map_or_else(
+                || {
+                    self.responses
+                        .values()
+                        .filter(|item| item.value["type"] == "function_call")
+                        .count()
+                },
+                |output| {
+                    output
+                        .iter()
+                        .filter(|item| item["type"] == "function_call")
+                        .count()
+                },
+            ),
+            Protocol::ChatCompletions => self.chat.len(),
+            Protocol::Messages => self
+                .blocks
+                .values()
+                .filter(|block| block.value["type"] == "tool_use")
+                .count(),
+            Protocol::Gemini => self
+                .parts
+                .iter()
+                .filter(|part| part.get("functionCall").is_some())
+                .count(),
+        };
+        (count > 0).then_some((count.min(CALL_LIMIT), self.bytes / (16 * 1024)))
     }
 
     fn responses_event(&mut self, kind: &str, value: &Value) -> Result<(), String> {
@@ -331,7 +363,7 @@ impl Calls {
                 }
                 let reason = string(choice, "finish_reason")?;
                 if !matches!(reason, "stop" | "tool_calls")
-                    || (reason == "tool_calls") == self.chat.is_empty()
+                    || (reason == "tool_calls" && self.chat.is_empty())
                 {
                     return Err("Chat finish reason does not match its tool call set".into());
                 }
@@ -670,7 +702,7 @@ impl Calls {
                         )?;
                     }
                 }
-                if (!calls.is_empty() && self.message_reason.as_deref() != Some("tool_use"))
+                if (!calls.is_empty() && self.message_reason.is_none())
                     || (calls.is_empty() && self.message_reason.as_deref() == Some("tool_use"))
                 {
                     return Err("Messages stop reason does not match its tool call set".into());
@@ -835,6 +867,74 @@ fn encoded_len(value: &(impl serde::Serialize + ?Sized)) -> Result<usize, String
     Ok(counter.0)
 }
 
+/// Preserve object integrity before Value would overwrite duplicate wire keys,
+/// including whole Messages/Gemini tool arguments and terminal metadata.
+pub(super) fn frame(data: &str) -> Result<Value, String> {
+    struct Unique(Value);
+    impl<'de> Deserialize<'de> for Unique {
+        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            struct Visitor;
+            impl<'de> serde::de::Visitor<'de> for Visitor {
+                type Value = Unique;
+                fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    formatter.write_str("JSON with unique object keys")
+                }
+                fn visit_unit<E: serde::de::Error>(self) -> Result<Unique, E> {
+                    Ok(Unique(Value::Null))
+                }
+                fn visit_bool<E: serde::de::Error>(self, value: bool) -> Result<Unique, E> {
+                    Ok(Unique(Value::Bool(value)))
+                }
+                fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<Unique, E> {
+                    Ok(Unique(Value::Number(value.into())))
+                }
+                fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<Unique, E> {
+                    Ok(Unique(Value::Number(value.into())))
+                }
+                fn visit_f64<E: serde::de::Error>(self, value: f64) -> Result<Unique, E> {
+                    serde_json::Number::from_f64(value)
+                        .map(|value| Unique(Value::Number(value)))
+                        .ok_or_else(|| E::custom("Invalid JSON number"))
+                }
+                fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Unique, E> {
+                    Ok(Unique(Value::String(value.into())))
+                }
+                fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Unique, E> {
+                    Ok(Unique(Value::String(value)))
+                }
+                fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                    self,
+                    mut sequence: A,
+                ) -> Result<Unique, A::Error> {
+                    let mut values = Vec::new();
+                    while let Some(Unique(value)) = sequence.next_element()? {
+                        values.push(value);
+                    }
+                    Ok(Unique(Value::Array(values)))
+                }
+                fn visit_map<A: serde::de::MapAccess<'de>>(
+                    self,
+                    mut map: A,
+                ) -> Result<Unique, A::Error> {
+                    let mut values = serde_json::Map::new();
+                    while let Some(key) = map.next_key::<String>()? {
+                        if values.contains_key(&key) {
+                            return Err(serde::de::Error::custom("Duplicate JSON object key"));
+                        }
+                        let Unique(value) = map.next_value()?;
+                        values.insert(key, value);
+                    }
+                    Ok(Unique(Value::Object(values)))
+                }
+            }
+            deserializer.deserialize_any(Visitor)
+        }
+    }
+    serde_json::from_str::<Unique>(data)
+        .map(|value| value.0)
+        .map_err(|_| "Native SSE data is not valid JSON with unique object keys".into())
+}
+
 fn string<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
     value
         .get(key)
@@ -950,6 +1050,9 @@ fn decode(json: &str) -> Result<Arguments, String> {
 }
 
 fn arguments_value(value: &Value) -> Result<Arguments, String> {
+    if encoded_len(value)? > ARGUMENT_LIMIT {
+        return Err("Tool arguments exceed capacity".into());
+    }
     let object = value
         .as_object()
         .ok_or("Tool arguments must be an object")?;
@@ -958,9 +1061,6 @@ fn arguments_value(value: &Value) -> Result<Arguments, String> {
     }
     let path = string(value, "path")?;
     let content = string(value, "content")?;
-    if path.len() > PATH_LIMIT || content.len() > MAX_BYTES {
-        return Err("Tool path/content exceeds capacity".into());
-    }
     Ok(Arguments {
         path: path.into(),
         content: content.into(),
@@ -979,13 +1079,6 @@ fn push_call(
     validate_name(name)?;
     if let Some(id) = id {
         validate_id(id)?;
-    }
-    if args.path.is_empty()
-        || args.path.len() > PATH_LIMIT
-        || args.path.chars().any(char::is_control)
-        || args.content.len() > MAX_BYTES
-    {
-        return Err("Tool path/content exceeds the selected write bounds".into());
     }
     calls.push(Call {
         id: id.map(str::to_owned),

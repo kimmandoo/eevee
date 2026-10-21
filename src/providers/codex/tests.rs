@@ -548,6 +548,94 @@ fn review_has_no_write_baseline_and_refuses_selected_write_paths() {
 
 #[cfg(unix)]
 #[test]
+fn implement_without_preselection_captures_workspace_and_invalid_proposals_do_not_enroll() {
+    let fixture = WriteFixture::new();
+    std::fs::write(fixture.root.join("unselected-binary.txt"), b"\0").unwrap();
+    let mut input = Input {
+        task: crate::store::Snapshot::empty(fixture.root.to_string_lossy().into()),
+        work: None,
+        instruction_override: None,
+        excerpts: Vec::new(),
+        report: None,
+        resume: None,
+        agent: Agent::Codex,
+        operation: Operation::Implement,
+        edit_paths: Vec::new(),
+        handoff: None,
+        inspect_sessions: false,
+        inspect_models: false,
+        selection: ModelSelection::default(),
+        conversation: None,
+        credential: None,
+    };
+    let mut writes = capture_writes(&fixture.root, &fixture.data, &input, &["excluded".into()])
+        .unwrap()
+        .unwrap();
+    assert_eq!(writes.payload(&[]), json!([]));
+    for params in [
+        json!({"tool":TOOL_NAME,"arguments":{"path":"new/invalid.txt","content":"x".repeat(64 * 1024 + 1)}}),
+        json!({"tool":TOOL_NAME,"arguments":{"path":"new/invalid.txt","content":"unsafe\rcontrol"}}),
+        json!({"tool":TOOL_NAME,"arguments":{"path":"new/invalid.txt","content":"ok","grantRoot":"/"}}),
+        json!({"tool":TOOL_NAME,"arguments":{"path":"excluded/file.txt","content":"ok"}}),
+        json!({"tool":TOOL_NAME,"arguments":{"path":".eevee-data/file.txt","content":"ok"}}),
+        json!({"tool":TOOL_NAME,"arguments":{"path":"../outside.txt","content":"ok"}}),
+    ] {
+        assert!(proposed_write(&mut writes, &params).is_err());
+        assert_eq!(writes.payload(&[]), json!([]));
+        assert!(!fixture.root.join("new").exists());
+    }
+    let content = format!("{}\r\n", "안".repeat(21_844));
+    assert_eq!(content.len(), 65_534);
+    let proposal = proposed_write(
+        &mut writes,
+        &json!({
+            "tool":TOOL_NAME,
+            "arguments":{"path":"new/한글/generated.txt","content":content}
+        }),
+    )
+    .unwrap();
+    assert_eq!(proposal.content, content);
+    assert!(!proposal.description().contains('\r'));
+    let permission = write_permission(&proposal);
+    assert!(validate_answer(&permission, &json!({"decision":"decline"})).is_ok());
+    assert!(!fixture.root.join("new").exists());
+    // Abandoned/denied review is not an effect. A later appeared target remains
+    // stale rather than being recaptured as replacement authority.
+    std::fs::create_dir_all(fixture.root.join("new/한글")).unwrap();
+    std::fs::write(fixture.root.join("new/한글/generated.txt"), "user").unwrap();
+    assert!(
+        proposed_write(
+            &mut writes,
+            &json!({
+                "tool":TOOL_NAME,
+                "arguments":{"path":"new/한글/generated.txt","content":"must not replace"}
+            })
+        )
+        .is_err()
+    );
+    assert!(!writes.apply(&proposal).unwrap_err().uncertain);
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("new/한글/generated.txt")).unwrap(),
+        "user"
+    );
+    input.edit_paths = vec!["only.txt".into()];
+    let mut selected = capture_writes(&fixture.root, &fixture.data, &input, &[])
+        .unwrap()
+        .unwrap();
+    assert!(
+        proposed_write(
+            &mut selected,
+            &json!({
+                "tool":TOOL_NAME,
+                "arguments":{"path":"unselected.txt","content":"no"}
+            })
+        )
+        .is_err()
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn controlled_route_refuses_protected_unselected_and_escaping_paths() {
     let fixture = WriteFixture::new();
     let writes = fixture.capture(&["src/main.rs"]).unwrap();
@@ -620,7 +708,7 @@ fn exact_dirty_baseline_preserved_and_stale_or_linked_write_has_no_side_effect()
     );
     let after = "user dirty line\nnew requirement\n";
     let proposal = proposed_write(
-        &writes,
+        &mut writes,
         &json!({
             "tool": TOOL_NAME,
             "arguments": {"path": "target.txt", "content": after},
@@ -688,11 +776,9 @@ fn exact_write_permissions_do_not_offer_persistent_grants() {
 fn codex_create_scope_supports_empty_unicode_siblings_and_later_replacement() {
     use crate::providers::writes::WriteKind;
     let fixture = WriteFixture::new();
-    let mut writes = fixture
-        .capture(&["새 폴더/하위/empty.txt", "새 폴더/하위/sibling.txt"])
-        .unwrap();
+    let mut writes = WriteSet::capture_workspace(&fixture.root, &fixture.data, &[]).unwrap();
     let empty = proposed_write(
-        &writes,
+        &mut writes,
         &json!({
             "tool": TOOL_NAME,
             "arguments": {"path": "새 폴더/하위/empty.txt", "content": ""},
@@ -716,7 +802,7 @@ fn codex_create_scope_supports_empty_unicode_siblings_and_later_replacement() {
     );
     writes.verify().unwrap();
     let sibling = proposed_write(
-        &writes,
+        &mut writes,
         &json!({
             "tool": TOOL_NAME,
             "arguments": {"path": "새 폴더/하위/sibling.txt", "content": "안녕하세요\n"},
@@ -730,7 +816,7 @@ fn codex_create_scope_supports_empty_unicode_siblings_and_later_replacement() {
         "안녕하세요\n"
     );
     let replacement = proposed_write(
-        &writes,
+        &mut writes,
         &json!({
             "tool": TOOL_NAME,
             "arguments": {"path": "새 폴더/하위/empty.txt", "content": "now nonempty\n"},
@@ -755,7 +841,7 @@ fn codex_create_scope_supports_empty_unicode_siblings_and_later_replacement() {
 #[test]
 fn codex_write_arguments_and_permission_answers_never_expand_selected_authority() {
     let fixture = WriteFixture::new();
-    let writes = fixture.capture(&["only.txt"]).unwrap();
+    let mut writes = fixture.capture(&["only.txt"]).unwrap();
     for params in [
         json!({"tool":"unadvertised-tool","arguments":{"path":"only.txt","content":"text"}}),
         json!({"tool":TOOL_NAME,"namespace":"other","arguments":{"path":"only.txt","content":"text"}}),
@@ -764,10 +850,10 @@ fn codex_write_arguments_and_permission_answers_never_expand_selected_authority(
         json!({"tool":TOOL_NAME,"arguments":{"path":"only.txt","content":null}}),
         json!({"tool":TOOL_NAME,"arguments":"{\"path\":\"only.txt\",\"content\":\"text\"}"}),
     ] {
-        assert!(proposed_write(&writes, &params).is_err());
+        assert!(proposed_write(&mut writes, &params).is_err());
     }
     let proposal = proposed_write(
-        &writes,
+        &mut writes,
         &json!({
             "tool": TOOL_NAME,
             "arguments": {"path": "only.txt", "content": "text"},
@@ -793,7 +879,7 @@ fn codex_creation_refuses_appeared_targets_and_parents_without_adopting_them() {
     let fixture = WriteFixture::new();
     let mut writes = fixture.capture(&["new-parent/file.txt"]).unwrap();
     let proposal = proposed_write(
-        &writes,
+        &mut writes,
         &json!({
             "tool": TOOL_NAME,
             "arguments": {"path": "new-parent/file.txt", "content": "must not publish"},
@@ -807,7 +893,7 @@ fn codex_creation_refuses_appeared_targets_and_parents_without_adopting_them() {
 
     let mut writes = fixture.capture(&["appeared.txt"]).unwrap();
     let proposal = proposed_write(
-        &writes,
+        &mut writes,
         &json!({
             "tool": TOOL_NAME,
             "arguments": {"path": "appeared.txt", "content": "must not replace"},

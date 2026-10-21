@@ -192,7 +192,7 @@ fn cloud_auth_chains_require_explicit_consent_and_selected_backend() {
 #[test]
 fn sdk_callbacks_never_offer_hidden_or_unsupported_grants() {
     let deny = json!({"label":"Deny","answer":{"behavior":"deny","message":"No"}});
-    let oversized = json!({"kind":"approval","input":{"options":[deny.clone(), {"label":"Allow","answer":{"behavior":"allow","updatedInput":{"content":"x".repeat(ITEM_LIMIT)}}}]}});
+    let oversized = json!({"kind":"approval","input":{"options":[deny.clone(), {"label":"Allow","answer":{"behavior":"allow","updatedInput":{"content":"x".repeat(APPROVAL_LIMIT)}}}]}});
     assert!(prompt_kind(&oversized).is_err());
     let elicitation = json!({"kind":"elicitation","input":{"options":[{"label":"Decline","answer":{"action":"decline"}},{"label":"Accept","answer":{"action":"accept"}}]}});
     assert!(prompt_kind(&elicitation).is_err());
@@ -742,4 +742,75 @@ fn sdk_creation_permission_exposes_complete_typed_scope_and_exact_answer() {
     let mut missing = frame;
     missing["input"]["scope"] = Value::Null;
     assert!(prompt_kind(&missing).is_err());
+}
+
+#[test]
+fn sdk_workspace_scope_freezes_root_and_all_privacy_boundaries_without_targets() {
+    let dir = SdkTestDirectory::new();
+    let root = fs::canonicalize(dir.path()).unwrap();
+    let data = root.join("private-data");
+    fs::create_dir(&data).unwrap();
+    let mut input = crate::providers::tests::claimed(Agent::Claude, Operation::Implement, false);
+    input.task.project = root.to_str().unwrap().into();
+    input.edit_paths.clear();
+    let exclusions = vec![PathBuf::from("context/omitted")];
+    let scope = capture_write_scope(&data, &input, &exclusions).unwrap();
+    assert_eq!(scope.mode, SdkWriteMode::Workspace);
+    assert_eq!(
+        scope.root_identity,
+        Some(sdk_directory_identity(&root).unwrap())
+    );
+    assert!(scope.files.is_empty());
+    assert_eq!(scope.excluded_paths, exclusions);
+    assert!(
+        scope
+            .protected_paths
+            .contains(&fs::canonicalize(&data).unwrap())
+    );
+    assert!(
+        scope
+            .protected_paths
+            .contains(&fs::canonicalize(std::env::current_exe().unwrap()).unwrap())
+    );
+    input.edit_paths = vec!["private-data/new.txt".into()];
+    assert!(capture_write_scope(&data, &input, &[]).is_err());
+    input.edit_paths.clear();
+    input.operation = Operation::Plan;
+    assert_eq!(
+        capture_write_scope(&data, &input, &[]).unwrap(),
+        SdkWriteScope::empty_selected()
+    );
+    let mut wire = serde_json::to_value(scope).unwrap();
+    for field in ["mode", "protected_paths", "excluded_paths"] {
+        let mut missing = wire.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        assert!(serde_json::from_value::<SdkWriteScope>(missing).is_err());
+    }
+    wire["mode"] = json!("Legacy");
+    assert!(serde_json::from_value::<SdkWriteScope>(wire).is_err());
+}
+
+#[test]
+fn sdk_large_literal_permission_preserves_crlf_and_near_file_limit_without_truncation() {
+    for content in [
+        "export const value = 1;\r\n".repeat(2048),
+        format!("{}\r\n", "x".repeat(256 * 1024 - 2)),
+    ] {
+        let allowed = json!({"behavior":"allow","updatedInput":{"file_path":"generated/main.ts","content":content}});
+        let frame = json!({"kind":"approval","input":{
+            "tool":"Write","input":allowed["updatedInput"],
+            "scope":{"kind":"Create","path":"generated/main.ts","directories":["generated"]},
+            "options":[{"label":"Deny","answer":{"behavior":"deny","message":"No"}},{"label":"Allow once","answer":allowed}]
+        }});
+        let kind = prompt_kind(&frame).unwrap();
+        let PromptKind::Permission { description, .. } = &kind else {
+            panic!("permission")
+        };
+        assert!(description.len() > ITEM_LIMIT);
+        assert!(description.contains(&serde_json::to_string(&content).unwrap()));
+        assert_eq!(provider_answer(&kind, allowed.clone()).unwrap(), allowed);
+        let mut altered = allowed;
+        altered["updatedInput"]["content"] = json!(content.replace("\r\n", "\n"));
+        assert!(provider_answer(&kind, altered).is_err());
+    }
 }

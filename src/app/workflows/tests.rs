@@ -194,8 +194,8 @@ fn relay_scope_limit_is_explicit_and_never_silently_trims_paths() {
         id: "chosen".into(),
         text: "chosen requirements".into(),
     });
-    let error = app
-        .stage_relay(super::super::relays::RelayRequest {
+    assert!(
+        app.stage_relay(super::super::relays::RelayRequest {
             target_form: 3,
             text: "bounded fix".into(),
             paths: (0..9)
@@ -204,8 +204,8 @@ fn relay_scope_limit_is_explicit_and_never_silently_trims_paths() {
             source: super::super::relays::RelaySource::Decision("chosen".into()),
             command: None,
         })
-        .unwrap_err();
-    assert!(error.contains("1–8") || error.contains("POSIX"));
+        .is_err()
+    );
     assert!(app.workflow.relay.is_none());
     assert!(app.drafts.is_empty());
     assert!(app.planning.edit_paths.is_empty());
@@ -258,6 +258,67 @@ impl Drop for LocalSourceFixture {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn relay_admits_native_sized_sources_only_as_a_neutral_recipient_draft() {
+    let fixture = LocalSourceFixture::new();
+    let content = "x".repeat(crate::providers::writes::MAX_BYTES);
+    for path in ["first.rs", "second.rs"] {
+        std::fs::write(fixture.0.join(path), &content).unwrap();
+    }
+    let mut app = App::new(fixture.0.to_str().unwrap().into(), 60, 18);
+    app.task_id = 7;
+    app.repository = Some(std::sync::Arc::new(fixture.report()));
+    app.workflows.chosen_decision = Some(workflows::ChosenDecision {
+        id: "chosen".into(),
+        text: "chosen requirements".into(),
+    });
+    app.input = "보존할 초안".into();
+    app.cursor = "보존할 ".len();
+    let before = (app.input.clone(), app.cursor);
+    app.stage_relay(super::super::relays::RelayRequest {
+        target_form: 3,
+        text: "Review these exact paths locally before changing anything.".into(),
+        paths: vec!["first.rs".into(), "second.rs".into()],
+        source: super::super::relays::RelaySource::Decision("chosen".into()),
+        command: None,
+    })
+    .unwrap();
+    let pending = app.workflow.relay.as_ref().unwrap();
+    assert_eq!(pending.request.paths.len(), 2);
+    assert!(!pending.confirm && !pending.reviewed && pending.target.is_none());
+    assert_eq!((app.input.clone(), app.cursor), before);
+    assert!(app.drafts.is_empty() && app.planning.edit_paths.is_empty());
+    assert!(app.planning.pending.is_none() && app.planning.work.is_none());
+    assert_eq!(
+        std::fs::read(fixture.0.join("first.rs")).unwrap(),
+        content.as_bytes()
+    );
+    assert_eq!(
+        std::fs::read(fixture.0.join("second.rs")).unwrap(),
+        content.as_bytes()
+    );
+
+    app.workflow.relay = None;
+    std::fs::write(
+        fixture.0.join("first.rs"),
+        "x".repeat(crate::providers::writes::MAX_BYTES + 1),
+    )
+    .unwrap();
+    assert!(
+        app.stage_relay(super::super::relays::RelayRequest {
+            target_form: 3,
+            text: "Oversized source must refuse without partial staging.".into(),
+            paths: vec!["first.rs".into(), "second.rs".into()],
+            source: super::super::relays::RelaySource::Decision("chosen".into()),
+            command: None,
+        })
+        .is_err()
+    );
+    assert!(app.workflow.relay.is_none() && app.drafts.is_empty());
+    assert!(app.planning.pending.is_none() && app.planning.work.is_none());
 }
 
 #[cfg(unix)]
@@ -716,15 +777,15 @@ fn role_action_relay_cannot_redirect_or_bypass_fix_scope_limits() {
         })
         .unwrap_err();
     assert!(error.contains("references only"));
-    let error = app
-        .stage_relay(RelayRequest {
+    assert!(
+        app.stage_relay(RelayRequest {
             target_form: 3,
             text: "Fix still needs bounded paths".into(),
             paths: Vec::new(),
             source: RelaySource::Review,
             command: None,
         })
-        .unwrap_err();
-    assert!(error.contains("1–8") || error.contains("POSIX"));
+        .is_err()
+    );
     assert!(app.workflow.relay.is_none());
 }

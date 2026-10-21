@@ -111,7 +111,7 @@ impl State {
             let value = &self.paths_editor.as_ref().expect("path editor").text;
             let paths: Result<Vec<String>, _> = serde_json::from_str(value);
             match paths {
-                Ok(paths) if !paths.is_empty() && paths.len() <= 16
+                Ok(paths) if paths.len() <= 16
                     && paths.iter().enumerate().all(|(index, path)| {
                         !path.is_empty() && path.len() <= 4096
                             && !path.chars().any(char::is_control)
@@ -120,9 +120,13 @@ impl State {
                     }) => {
                     self.edit_paths = paths.into_iter().map(PathBuf::from).collect();
                     self.paths_editor = None;
-                    self.notice = "Exact create/replace paths selected locally, including missing parents; no files captured or created, request sent, or permission granted.".into();
+                    self.notice = if self.edit_paths.is_empty() {
+                        "Exact path restriction cleared locally; Implement may propose workspace paths. No files captured or created, request sent, or permission granted."
+                    } else {
+                        "Exact create/replace paths selected locally, including missing parents; no files captured or created, request sent, or permission granted."
+                    }.into();
                 }
-                _ => self.notice = "Use a JSON array of 1–16 distinct root-relative paths; no parent/absolute/control components.".into(),
+                _ => self.notice = "Use a JSON array of up to 16 distinct root-relative paths, or [] for workspace proposals; no parent/absolute/control components.".into(),
             }
             return true;
         }

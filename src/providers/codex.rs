@@ -47,10 +47,14 @@ fn capture_writes(
         }
         return Ok(None);
     }
-    WriteSet::capture(root, data_dir, &input.edit_paths, exclusions).map(Some)
+    if input.edit_paths.is_empty() {
+        WriteSet::capture_workspace(root, data_dir, exclusions).map(Some)
+    } else {
+        WriteSet::capture(root, data_dir, &input.edit_paths, exclusions).map(Some)
+    }
 }
 
-fn proposed_write(writes: &WriteSet, params: &Value) -> Result<WriteProposal, String> {
+fn proposed_write(writes: &mut WriteSet, params: &Value) -> Result<WriteProposal, String> {
     if params.get("tool").and_then(Value::as_str) != Some(TOOL_NAME)
         || params
             .get("namespace")
@@ -73,7 +77,12 @@ fn proposed_write(writes: &WriteSet, params: &Value) -> Result<WriteProposal, St
         .get("content")
         .and_then(Value::as_str)
         .ok_or("Write content missing")?;
-    writes.propose(PathBuf::from(path), content.into())
+    let path = PathBuf::from(path);
+    let mut candidate = writes.clone();
+    candidate.admit_paths(std::slice::from_ref(&path))?;
+    let proposal = candidate.propose(path, content.into())?;
+    *writes = candidate;
+    Ok(proposal)
 }
 
 fn write_permission(proposal: &WriteProposal) -> PromptKind {
@@ -320,7 +329,7 @@ fn worker(
                     preview.blockers.push(safe(error));
                 }
                 if !input.inspect_models && input.operation == Operation::Implement {
-                    preview.trust.push("Controlled route: eevee_write_file creates or replaces only exact reviewed selected files after an exact content patch and allow-once. Creation includes only the displayed missing parents. Protected/symlink/hardlink paths and appeared targets/parents are refused. No grantRoot/session grant; native file-write and command escalation denied.".into());
+                    preview.trust.push("Controlled route: eevee_write_file proposes workspace-relative files, or only optional exact /paths selections. Each file is captured before exact content review and allow-once; at most 8 files, 64 KiB each. Creation includes only the displayed missing parents. Protected/symlink/hardlink paths and appeared targets/parents are refused. No directory/session grant; native file-write and command escalation denied.".into());
                     preview.trust.push("Provider readOnly/network-disabled policy is acknowledged, not an Eevee process sandbox. Independent provider/config/MCP reads or side effects are outside this tool's coverage. No workspace-write trust configuration is changed.".into());
                     preview.trust.push("Baseline distinguishes absent targets from existing current working bytes (including dirty user edits). No reset/commit/merge. Each creation or replacement is reviewed against the frozen scope; changed baselines require fresh consent.".into());
                     if input.resume.is_some() {
@@ -481,12 +490,12 @@ fn payload(
     let baseline = match (input.operation, writes) {
         (Operation::Implement, Some(writes)) => writes.payload(&input.excerpts),
         (Operation::Implement, None) => {
-            return Err("Implementation requires a captured selected write scope".into());
+            return Err("Implementation requires a frozen write scope".into());
         }
         (_, _) => json!([]),
     };
     let text = serde_json::to_string_pretty(&json!({
-        "purpose": if input.operation == Operation::Plan { "Plan the user's task. Do not implement changes. Ask the user when a decision is needed; report proposals as unverified planning, never as local execution evidence." } else { "Implement the approved requirement ONLY by calling eevee_write_file with an exact selected root-relative path and full proposed UTF-8 content. Create only targets captured as absent, including only their reviewed missing parents; replace only targets captured as existing. Preserve every unrelated dirty user change visible in write_baseline. Never use apply_patch, shell writes, MCP, delegation, commits or merge. Native filesystem writes and command escalations will be denied. Ask for user input if unclear. Every proposed creation or replacement requires a displayed exact patch and allow-once. Report results as unverified until the user reviews the working diff and deliberately chooses a local check." },
+        "purpose": if input.operation == Operation::Plan { "Plan the user's task. Do not implement changes. Ask the user when a decision is needed; report proposals as unverified planning, never as local execution evidence." } else { "Implement the approved requirement ONLY by calling eevee_write_file with a literal root-relative path and full proposed UTF-8 content (at most 64 KiB per file, 8 distinct targets). Empty edit_paths permits proposing new workspace targets; nonempty edit_paths is an exact restriction. Each proposed target and its current working baseline is frozen before user review. New targets must remain absent; only displayed missing parents may be created. Preserve unrelated dirty user changes. Never use apply_patch, shell writes, MCP, delegation, commits or merge. Native filesystem writes and command escalations will be denied. Ask for user input if unclear. Every creation or replacement requires a displayed exact patch and allow-once. Report results as unverified until the user reviews the working diff and deliberately chooses a local check." },
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
         "request": input.instruction(),
         "operation": input.operation,
@@ -1472,7 +1481,7 @@ impl Engine<'_> {
         (self.model, self.effort) = self.catalogue.select(&self.run.input.selection)?;
         let mut params = json!({"cwd":self.project,"model":self.model,"sandbox":"read-only","approvalPolicy":"on-request","approvalsReviewer":"user","config":{"model_reasoning_effort":self.effort,"features.multi_agent":false,"web_search":"disabled","allow_login_shell":false}});
         if self.run.input.operation == Operation::Implement {
-            params["dynamicTools"] = json!([{"type":"function","name":TOOL_NAME,"description":"The ONLY allowed implementation write route. Propose creating or replacing an exact selected UTF-8 file with full content, preserving unrelated dirty changes. Creation includes only reviewed missing parents. User reviews exact create/replace scope and patch and must allow once. Protected/unselected/stale/link paths and appeared targets/parents refused.","inputSchema":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}]);
+            params["dynamicTools"] = json!([{"type":"function","name":TOOL_NAME,"description":"The ONLY allowed implementation write route. Propose a literal root-relative UTF-8 file with exact full content, at most 64 KiB and 8 distinct files. Empty edit_paths allows workspace proposals; otherwise use only exact selected paths. Preserve unrelated dirty changes. Target, baseline and missing parents are frozen before exact review and allow-once. Protected, excluded, stale, link and appeared targets/parents refused. No directory write grant.","inputSchema":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}]);
         }
         let method = if let Some(id) = &self.run.input.resume {
             params["threadId"] = json!(id);
@@ -1979,7 +1988,7 @@ impl Engine<'_> {
         crate::providers::agent::revalidate_planning_trust(self.project, &self.run.trust)?;
         self.writes
             .as_ref()
-            .ok_or("Selected write scope missing")?
+            .ok_or("Frozen write scope missing")?
             .verify()
     }
     fn request_write(&mut self, id: Value, params: &Value) -> Result<(), String> {
@@ -1991,8 +2000,9 @@ impl Engine<'_> {
                 return Err("Concurrent write request refused".into());
             }
             self.revalidate_write_session()?;
+            let item_id = identity(params, "callId")?;
             let proposal = proposed_write(
-                self.writes.as_ref().ok_or("Selected write scope missing")?,
+                self.writes.as_mut().ok_or("Frozen write scope missing")?,
                 params,
             )?;
             let prompt = Prompt {
@@ -2000,7 +2010,7 @@ impl Engine<'_> {
                 request_id: id.clone(),
                 thread_id: self.thread_id.clone().unwrap(),
                 turn_id: self.turn_id.clone().unwrap(),
-                item_id: identity(params, "callId")?,
+                item_id,
                 kind: write_permission(&proposal),
             };
             Ok((prompt, proposal))
@@ -2086,7 +2096,7 @@ impl Engine<'_> {
             )
         };
         // Record actual filesystem results even when queuing the provider reply later fails.
-        self.journal(&format!("eevee-write-{}", prompt.item_id), "Codex-requested Eevee-controlled file write", "Only exact selected create/replace scope and missing parents are mediated; frozen baseline, path identity, current authority and exact patch revalidated. Provider-owned independent effects outside coverage; not a local check", &safe(&text), true)?;
+        self.journal(&format!("eevee-write-{}", prompt.item_id), "Codex-requested Eevee-controlled file write", "Only exact reviewed create/replace scope and missing parents are mediated; frozen baseline, path identity, current authority and exact patch revalidated. Provider-owned independent effects outside coverage; not a local check", &safe(&text), true)?;
         effects_notification?;
         self.queue(json!({"id":id,"result":{"success":success,"contentItems":[{"type":"inputText","text":text}]}}))?;
         emit(

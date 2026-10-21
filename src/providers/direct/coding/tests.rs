@@ -552,18 +552,34 @@ fn whole_call_set_and_late_terminal_failures_never_offer_partial_authority() {
                     json!({"error":{"message":"terminal failure after apparent completion"}}),
                 );
             }
-            let (url, server) = peer(vec![response]);
+            let responses = if late_error {
+                vec![response]
+            } else {
+                vec![
+                    response,
+                    wire(protocol, &[], "The entire invalid batch had no effects"),
+                ]
+            };
+            let (url, server) = peer(responses);
             let (mut run, connection) = fixture.prepare(protocol, &url);
             let ((outcome, _), events) = run_with_answers(&fixture, &mut run, &connection, true);
-            assert_ne!(outcome, Outcome::Completed);
-            assert_eq!(server.join().unwrap().len(), 1);
+            assert_eq!(outcome == Outcome::Completed, !late_error);
+            let requests = server.join().unwrap();
+            assert_eq!(requests.len(), if late_error { 1 } else { 2 });
+            if !late_error {
+                assert!(
+                    requests[1]
+                        .to_string()
+                        .contains("Entire proposal batch refused")
+                );
+                assert!(requests[1].to_string().contains("refused"));
+            }
             assert!(!fixture.workspace.project.join("selected.txt").exists());
-            assert!(!events.iter().any(|e| matches!(
-                e,
-                Event::Prompt { .. }
-                    | Event::NativeCompleted { .. }
-                    | Event::LocalEffectsUnknown { .. }
-            )));
+            assert!(
+                !events
+                    .iter()
+                    .any(|e| matches!(e, Event::Prompt { .. } | Event::LocalEffectsUnknown { .. }))
+            );
             assert!(events.iter().any(|e| matches!(e, Event::Usage { .. })));
         }
     }
@@ -722,7 +738,7 @@ fn permission_expiry_and_cancellation_never_create_missing_parents() {
 #[test]
 fn approved_create_rechecks_appeared_leaf_and_parent_before_any_effect() {
     for appeared_parent in [false, true] {
-        let fixture = Fixture::new(&["new/file.txt"]);
+        let fixture = Fixture::new(&[]);
         let (url, server) = peer(vec![wire(
             Protocol::Responses,
             &[("call", "new/file.txt", "replacement")],
@@ -775,7 +791,7 @@ fn approved_create_rechecks_appeared_leaf_and_parent_before_any_effect() {
 
 #[test]
 fn cancel_during_permission_closes_prompt_without_write_or_continuation() {
-    let fixture = Fixture::new(&["new/file.txt"]);
+    let fixture = Fixture::new(&[]);
     let (url, server) = peer(vec![wire(
         Protocol::Responses,
         &[("call", "new/file.txt", "content")],
@@ -836,7 +852,7 @@ fn remote_interruption_after_settled_write_does_not_invent_unknown_local_effects
 
 #[test]
 fn replayed_provider_call_cannot_authorize_another_write_in_later_round() {
-    let fixture = Fixture::new(&["selected.txt"]);
+    let fixture = Fixture::new(&[]);
     let (url, server) = peer(vec![
         wire(
             Protocol::Responses,
@@ -971,11 +987,10 @@ fn sixteen_call_limit_is_aggregate_across_rounds_not_per_response() {
 }
 
 #[test]
-fn metadata_plan_review_and_unscoped_implement_never_advertise_or_execute_tools() {
+fn metadata_plan_and_review_never_advertise_or_execute_tools() {
     let fixture = Fixture::new(&[]);
     for (operation, metadata) in [
         (Operation::Plan, false),
-        (Operation::Implement, false),
         (Operation::Review, false),
         (Operation::Implement, true),
     ] {
@@ -1028,6 +1043,263 @@ fn metadata_plan_review_and_unscoped_implement_never_advertise_or_execute_tools(
             assert!(stream.complete);
             assert!(stream.calls.finish(false).is_err());
         }
+    }
+}
+
+#[test]
+fn workspace_generation_supports_complete_content_and_successful_non_tool_stop_labels() {
+    for protocol in [
+        Protocol::Codex,
+        Protocol::Responses,
+        Protocol::ChatCompletions,
+        Protocol::Messages,
+        Protocol::Gemini,
+    ] {
+        let fixture = Fixture::new(&[]);
+        let content = "x".repeat(crate::providers::writes::MAX_BYTES);
+        let mut response = wire(
+            protocol,
+            &[("workspace-call", "generated/main.txt", &content)],
+            "",
+        );
+        if protocol == Protocol::ChatCompletions {
+            response = response.replace(
+                "\"finish_reason\":\"tool_calls\"",
+                "\"finish_reason\":\"stop\"",
+            );
+        }
+        if protocol == Protocol::Messages {
+            response = response.replace(
+                "\"stop_reason\":\"tool_use\"",
+                "\"stop_reason\":\"end_turn\"",
+            );
+        }
+        let (url, server) = peer(vec![
+            response,
+            wire(protocol, &[], "The reviewed file was created"),
+        ]);
+        let (mut run, connection) = fixture.prepare(protocol, &url);
+        let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, true);
+        assert_eq!(outcome, Outcome::Completed, "{protocol:?}: {message}");
+        assert_eq!(
+            std::fs::read_to_string(fixture.workspace.project.join("generated/main.txt")).unwrap(),
+            content
+        );
+        assert_eq!(server.join().unwrap().len(), 2);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::Dispatched { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::Prompt { .. }))
+                .count(),
+            1
+        );
+        let progress = events.iter().position(|event| matches!(event, Event::Status { message, .. } if message.contains("Generating file proposal")));
+        let approval = events
+            .iter()
+            .position(|event| matches!(event, Event::Prompt { .. }));
+        assert!(progress.is_some() && progress < approval);
+        assert!(events.iter().all(|event| !matches!(event, Event::Status { message, .. } if message.contains("generated/main.txt") || message.contains(&"x".repeat(100)))));
+        assert!(events.iter().any(|event| matches!(event, Event::NativeCompleted { conversation, .. } if conversation.messages.last().unwrap().text.as_ref() == "The reviewed file was created")));
+    }
+}
+
+#[test]
+fn semantic_batch_refusal_allows_corrected_proposals_without_valid_sibling_effects() {
+    for protocol in [
+        Protocol::Responses,
+        Protocol::ChatCompletions,
+        Protocol::Messages,
+        Protocol::Gemini,
+    ] {
+        for workspace in [false, true] {
+            let fixture = Fixture::new(if workspace {
+                &[]
+            } else {
+                &["allowed/final.txt"]
+            });
+            let invalid_path = if workspace {
+                "../escape.txt"
+            } else {
+                "foreign.txt"
+            };
+            let (url, server) = peer(vec![
+                wire(
+                    protocol,
+                    &[
+                        ("valid-but-refused", "allowed/final.txt", "must not land"),
+                        ("invalid", invalid_path, "no"),
+                    ],
+                    "",
+                ),
+                wire(
+                    protocol,
+                    &[("corrected", "allowed/final.txt", "corrected contents")],
+                    "",
+                ),
+                wire(protocol, &[], "Corrected proposal settled"),
+            ]);
+            let (mut run, connection) = fixture.prepare(protocol, &url);
+            let project = fixture.workspace.project.clone();
+            let ((outcome, message), events) = run_with_handler(
+                &fixture,
+                &mut run,
+                &connection,
+                move |generation, request, sender| {
+                    assert!(
+                        !project.join("allowed").exists(),
+                        "invalid batch must not create even a parent"
+                    );
+                    let PromptKind::Permission {
+                        options,
+                        description,
+                    } = &request.kind
+                    else {
+                        panic!("exact permission expected")
+                    };
+                    assert!(description.contains("corrected contents"));
+                    sender
+                        .send(Request::Answer {
+                            generation,
+                            request_id: request.request_id.clone(),
+                            answer: options[1].answer.clone(),
+                        })
+                        .unwrap();
+                },
+            );
+            assert_eq!(outcome, Outcome::Completed, "{message}");
+            assert_eq!(
+                std::fs::read_to_string(fixture.workspace.project.join("allowed/final.txt"))
+                    .unwrap(),
+                "corrected contents"
+            );
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|event| matches!(event, Event::Prompt { .. }))
+                    .count(),
+                1
+            );
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|event| matches!(event, Event::Dispatched { .. }))
+                    .count(),
+                1
+            );
+            let requests = server.join().unwrap();
+            assert_eq!(requests.len(), 3);
+            let continuation = requests[1].to_string();
+            assert!(continuation.contains("valid-but-refused") && continuation.contains("invalid"));
+            assert!(continuation.contains("Entire proposal batch refused"));
+        }
+    }
+}
+
+#[test]
+fn invalid_content_batch_does_not_enroll_workspace_targets_or_create_parents() {
+    let fixture = Fixture::new(&[]);
+    let (mut run, _) = fixture.prepare(Protocol::Responses, "https://example.invalid/v1");
+    let writes = run.writes.as_mut().unwrap();
+    let original = writes.payload(&[]);
+    for invalid in [
+        "x".repeat(crate::providers::writes::MAX_BYTES + 1),
+        "password=private-content-canary".into(),
+        "unsafe\u{001b}[31m".into(),
+        "bare\rcarriage-return".into(),
+    ] {
+        let mut calls = vec![
+            tools::Call {
+                id: Some("valid".into()),
+                path: "new/valid.txt".into(),
+                content: "valid sibling".into(),
+            },
+            tools::Call {
+                id: Some("invalid".into()),
+                path: "new/invalid.txt".into(),
+                content: invalid,
+            },
+        ];
+        let error = prepare_batch(writes, &mut calls).unwrap_err();
+        assert!(crate::providers::writes::semantic_proposal_refusal(&error));
+        assert_eq!(writes.payload(&[]), original);
+        assert!(!fixture.workspace.project.join("new").exists());
+    }
+}
+
+#[test]
+fn proposal_generation_status_is_opaque_and_chunk_throttled() {
+    let fixture = Fixture::new(&[]);
+    let (run, _) = fixture.prepare(Protocol::ChatCompletions, "https://example.invalid/v1");
+    let events = Arc::new(Mutex::new(VecDeque::new()));
+    let mut stream = Stream::new(Protocol::ChatCompletions);
+    stream.event("", &json!({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"private-call-id","type":"function","function":{"name":crate::providers::writes::TOOL_NAME,"arguments":"{\"path\":\"private-filename.txt\",\"content\":\""}}]}}]}).to_string()).unwrap();
+    stream.publish(&events, &run).unwrap();
+    let mut statuses = Vec::new();
+    statuses.extend(events.lock().drain(..));
+    for _ in 0..100 {
+        stream.event("", &json!({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"private-content-fragment"}}]}}]}).to_string()).unwrap();
+        stream.publish(&events, &run).unwrap();
+        statuses.extend(events.lock().drain(..));
+    }
+    assert_eq!(
+        statuses.len(),
+        1,
+        "small fragments do not flood status events"
+    );
+    assert!(matches!(&statuses[0], Event::Status { message, .. }
+        if message.contains("Generating file proposal")
+            && message.contains("no permission or write is implied")
+            && !message.contains("private-call-id")
+            && !message.contains("private-filename")
+            && !message.contains("private-content")));
+    assert!(
+        !fixture
+            .workspace
+            .project
+            .join("private-filename.txt")
+            .exists()
+    );
+}
+
+#[test]
+fn truncated_success_labels_never_execute_complete_sibling_calls() {
+    for protocol in [Protocol::ChatCompletions, Protocol::Messages] {
+        let fixture = Fixture::new(&[]);
+        let response = wire(
+            protocol,
+            &[("one", "new/one.txt", "no"), ("two", "new/two.txt", "no")],
+            "",
+        );
+        let response = if protocol == Protocol::ChatCompletions {
+            response.replace(
+                "\"finish_reason\":\"tool_calls\"",
+                "\"finish_reason\":\"length\"",
+            )
+        } else {
+            response.replace(
+                "\"stop_reason\":\"tool_use\"",
+                "\"stop_reason\":\"max_tokens\"",
+            )
+        };
+        let (url, server) = peer(vec![response]);
+        let (mut run, connection) = fixture.prepare(protocol, &url);
+        let ((outcome, _), events) = run_with_answers(&fixture, &mut run, &connection, true);
+        assert_ne!(outcome, Outcome::Completed);
+        assert_eq!(server.join().unwrap().len(), 1);
+        assert!(!fixture.workspace.project.join("new").exists());
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            Event::Prompt { .. }
+                | Event::NativeCompleted { .. }
+                | Event::LocalEffectsUnknown { .. }
+        )));
     }
 }
 
