@@ -101,6 +101,9 @@ ev --help
 | `/journal-discard` | After a definite terminal outcome, neutrally review discarding only provably unsaved failed journal write attempts. Committed observations remain; a coverage-gap notice remains visible. Unknown outcomes and ambiguous commits refuse; nothing is replayed. |
 | `/release-partner [name]` | Review removing an idle non-last partner's personal/draft/intended work state; retain tasks and evidence with historical name snapshots. |
 | `/suggestion-dismiss` / Forms picker `d` | Hide the current task's exact evidence-based form suggestion, including after restart; a new triggering run can recommend again. Does not select a form or start work. |
+| `/move` / form surface `m` | Open this partner/form's four-slot move menu; Enter stages the ordinary review, `d` opens optional details. Escape restores the original draft/caret. |
+| `/teach-move` / `/move-reminder` | Review teaching the current approved run, selected pins, last submitted user instruction or task facts / revisit forgotten and postponed moves. |
+| `/move-retry` / `/move-discard` | Retry the exact failed move-store operation or review discarding its unsaved intent; neither path runs the move. |
 | `/carry-over` / Companion `c` | Reopen the last form switch's retained-state counts and capability difference. The one-line strip clears on the next key/paste without consuming it; Companion explains C/P/H/F. |
 | `/goal` / `/next` / `/criteria` / `/criteria-edit` | Edit task facts, inspect criteria, or edit criteria directly |
 | `/tasks` / `/task-new` | Browse saved tasks / create one |
@@ -155,13 +158,15 @@ A canceled or disconnected tool-free native request releases local ownership onl
 
 Since Schema 10, task-independent preference rows remember nonsecret provider/model/effort, not credentials, sessions or permissions. `EV_PROVIDER` explicitly overrides startup routing. Exact configured/custom IDs remain usable without a successful catalogue; no model is invented as an observed default. Preference failures stay visible with `/storage-retry`; exit waits for commit. App-owned credentials are separately and explicitly persisted as described above.
 
-Versions **0.1.11 and 0.1.12 use Schema 13** for request-bound cooperation/write leases and durable relay provenance. Published v0.1.10 used Schema 11; the unreleased wave 3 source used Schema 12. Opening those older stores upgrades transactionally without rewriting evidence rows. **Back up before upgrading from Schema 11/12:** their older writers refuse Schema 13. v0.1.12 introduces no additional task-database migration.
+Published versions **0.1.11 and 0.1.12 use Schema 13** for request-bound cooperation/write leases and durable relay provenance. Published v0.1.10 used Schema 11; the unreleased wave 3 source used Schema 12. **Unreleased Wave 5 source uses Schema 14** for local moves, learning reminders, dispatch receipts and journal-linked usage. Upgrades are transactional and preserve existing task/evidence rows. **Back up before opening an older store with newer source:** Schema 11/12/13 writers refuse Schema 14, and in-place downgrade is unsupported. No new version or release is implied by the source migration.
+
+**Moves.** Each partner remembers up to four moves per form, visible across its project and personal scopes. Teach exact approved argv/cwd, reusable pin selectors, a submitted user-authored instruction or goal/criteria; previews never package provider output or memories. Move names are editable local labels, not capabilities or provider context. Every use revalidates current inputs and opens normal command, pin or full-receipt request review; task templates require explicit application. Repeating an eligible approved run or dispatched pin set three times creates a local suggestion, never automatic work. Not now waits three further uses, Never persists, and `/move-reminder` revisits forgotten/postponed moves. A full form offers an explicit scoped replacement or Give up learning. Details retain authoritative journal outcomes, separately showing denial/cancellation and unknown provider completion. Party teaching copies steps/provenance, not grants; TM export/import is not implemented.
 
 **Cooperation.** Up to three partners can own work on one task, with independent requests, transports, drafts, approvals, receipts and cancellation. Edit-capable work takes one durable per-task lease; another writer is refused with the owner's identity. Commands overlapping that lease are permanently labelled `revision moving`, never current verification. This coordinates Eevee-owned work, not arbitrary filesystem effects or a provider sandbox. Per-request provider usage/billing remains unknown when unreported; local payload estimates are labelled separately.
 
 **Form relays.** The specialist desk can stage supported hypotheses or review findings as a bounded Flareon fix, import a chosen Espeon decision as editable criteria, and reuse eligible passing checks as Leafeon baselines. Relays show source references and offer an idle matching partner instead of changing the sender's form; they never submit work or transfer permissions. Changes touching a relayed finding's ranges require fresh independent review, not automatic closure.
 
-Cancel-all and quit list every owned request with Stay neutral, then wait for terminal outcomes and durable journal/ownership settlement. Crash recovery clears stale ownership without replaying requests or restoring grants. Releasing an idle partner atomically repairs task leads and removes that partner's local drafts/current recipient intents; historical evidence keeps its name snapshot. Moves and pairings have not yet been introduced, so the review does not pretend they exist.
+Cancel-all and quit list every owned request with Stay neutral, then wait for terminal outcomes and durable journal/ownership settlement. Crash recovery clears stale ownership without replaying requests or restoring grants. Releasing an idle partner atomically repairs task leads and removes that partner's local drafts, moves, learning reminders and current recipient intents; historical evidence keeps its name snapshot. Pairings have not yet been introduced.
 
 Clean exit waits for local preference/history persistence without asking to cancel nonexistent work. Active requests/commands, unknown outcomes, failed journals and unsaved task drafts retain their own safety decisions.
 
@@ -322,8 +327,8 @@ Source layout, by role:
 | `src/main.rs`, `config.rs`, `domain.rs` | Entry point, CLI/config parsing, form identities |
 | `src/app.rs`, `src/app/` | Interaction state and key handling per surface; `app/planning/{picker,review,journal}.rs` separate planning responsibilities |
 | `src/ui.rs`, `src/ui/` | Rendering per surface; `ui/artwork.rs` sprites and native graphics |
-| `src/store/` | SQLite store: task/memory/journal/run persistence, schema/recovery/admission and transactional cooperation ownership in `work` |
-| `src/workspace/` | Local work: `repo`, `context`, `runner`, `receipt`, `privacy`, `handoff`, `memory`, `workflows` |
+| `src/store/` | SQLite task/memory/journal/run persistence, schema/recovery/admission, transactional cooperation in `work`, and bounded move/reminder/usage storage in `moves` |
+| `src/workspace/` | Local work: `repo`, `context`, `runner`, `receipt`, `privacy`, `handoff`, `memory`, `workflows`, and typed move validation/naming in `moves` |
 | `src/providers.rs`, `src/providers/` | Provider request/event contract; `acp`, `codex`, `claude`, `agent` preflight, `auth` |
 | `src/platform/` | OS boundary: `terminal`, `input`, `native`, `distribution` |
 

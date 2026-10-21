@@ -3,6 +3,7 @@ pub mod context;
 pub mod handoff;
 pub mod locations;
 pub mod memory;
+pub mod moves;
 pub mod privacy;
 pub mod receipt;
 pub mod repo;

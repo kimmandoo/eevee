@@ -2,6 +2,19 @@
 
 ## 2026-10-21
 
+### Unreleased — Wave 5 Moves
+
+- feat(moves): added four-slot partner/form inventories for approved literal runs, reviewed pin selectors, submitted user-authored requests and task templates, with project/personal ownership and restart persistence.
+- feat(ux): added direct grid/list move entry and ordinary review staging, independent Unicode naming, exact draft/caret return and saved move inventories in form-picker details.
+- fix(ux): kept learning choices and Unicode naming responsive while the prompt-display receipt was persisting, queued decisions behind that receipt and retained ordinary mutation/approval guards.
+- feat(learning): detected three distinct eligible approved runs or unordered dispatched pin sets locally and added idle-only learning, durable Never and three-more-use postponement.
+- feat(moves): added scoped fifth-slot replacement, forgotten/postponed reminders, revalidated identical-step relearning and same-form party teaching with retained teacher provenance.
+- feat(evidence): linked move records to actual committed journals and submission receipts, separated denied/cancelled outcomes and retained unknown provider completion without inventing exit-zero evidence.
+- feat(storage)!: upgraded older stores transactionally to bounded Schema 14 move/reminder/source/dispatch/usage tables, preserved task/evidence facts and retained byte-identical older-writer refusal; required backups for unsupported downgrade.
+- fix(providers): counted actual correlated native/CLI/ACP/SDK submission instead of queue acceptance, fenced receipt persistence against ownership release and required SDK bridge revision 4 without claiming live-account conformance.
+- fix(security): revalidated current contained run/pin paths off the reducer, refused linked/excluded/escaping inputs and secret/environment command forms, and invalidated late or superseded move staging without carrying grants.
+- docs(scope): kept Wave 5 unpublished and left TM export/import, Wave 6 and naming-rights/live-provider qualification outside the completed implementation scope.
+
 ## 0.1.12
 
 - feat(providers): added masked native credential, endpoint, protocol and model setup with explicit session-only or owner-private plaintext storage, identity-bound forgetting and ten separately selectable native/CLI/SDK/ACP routes.

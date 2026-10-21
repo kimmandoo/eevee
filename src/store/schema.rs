@@ -229,9 +229,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=13).contains(&version) {
+    if !(0..=14).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0 through 13"
+            "Unsupported database schema version {version}; this ev supports versions 0 through 14"
         ));
     }
     let mut statement = connection
@@ -350,6 +350,30 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
                         "excerpts",
                         "executions",
                         "memories",
+                        "partners",
+                        "provider_journal",
+                        "provider_preferences",
+                        "selections",
+                        "tasks",
+                    ])
+                    .all(|((kind, name), expected)| kind == "table" && name == expected) =>
+        {
+            Schema::Current
+        }
+        (14, objects)
+            if objects.len() == 14
+                && objects
+                    .iter()
+                    .zip([
+                        "active_work",
+                        "excerpts",
+                        "executions",
+                        "memories",
+                        "move_candidates",
+                        "move_dispatches",
+                        "move_sources",
+                        "move_usages",
+                        "moves",
                         "partners",
                         "provider_journal",
                         "provider_preferences",
@@ -529,6 +553,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
             if version >= 13 {
                 super::work::inspect_work(connection)?;
             }
+            if version >= 14 {
+                super::moves::inspect(connection)?;
+            }
             return Ok(schema);
         }
     };
@@ -631,6 +658,9 @@ pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), Str
                 PRIMARY KEY(task_id,partner));
              PRAGMA user_version=13;"
         ).map_err(|error| format!("Cannot migrate durable work ownership: {error}"))?;
+    }
+    if version < 14 {
+        super::moves::migrate(connection)?;
     }
     Ok(())
 }

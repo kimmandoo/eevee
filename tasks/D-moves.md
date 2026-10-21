@@ -12,7 +12,7 @@ Raising your own partners means each one learns your repeated work as named **mo
 
 ### MV01A — Move storage and teaching a run move
 
-- [ ] Teach a partner's Jolteon form a run move from an approved run.
+- [x] Teach a partner's Jolteon form a run move from an approved run.
 - **Priority:** 1. **Needs:** PT02A. **Builds on:** S03, R02.
 - **Change:** Add a `src/store/moves.rs` table (partner, form, name, kind, steps, scope, provenance, created) with at most four per partner per form. `Teach as move` after an approved run previews the exact argv/cwd and saves it with a placeholder name. Picker detail lists the partner's moves for that form. Add Moves to DESIGN_RULES' concept list.
 - **Accept:** Teach a run move, restart, and see it. Switch the partner away and back to Jolteon and it is still there; another partner doesn't see it. A fifth move is refused with the reason.
@@ -20,14 +20,14 @@ Raising your own partners means each one learns your repeated work as named **mo
 
 ### MV01B — Teach a pin-set move
 
-- [ ] Teach Vaporeon a reusable set of context pins.
+- [x] Teach Vaporeon a reusable set of context pins.
 - **Priority:** 1. **Needs:** MV01A. **Builds on:** C02.
 - **Change:** `Teach as move` from the basket stores project-relative paths/ranges, resolved again at use time.
 - **Accept:** Teach a three-pin set; the preview shows the paths, and excluded files are refused.
 
 ### MV01C — Teach request and task-template moves
 
-- [ ] Teach request forms and Eevee reusable templates.
+- [x] Teach request forms and Eevee reusable templates.
 - **Priority:** 2. **Needs:** MV01A. **Builds on:** A02, E01.
 - **Change:** After a sent request, store its user-authored instruction plus context selectors; for Eevee, store goal and criteria as a task template.
 - **Accept:** Teach an Espeon request and an Eevee template; their previews show only user-authored text.
@@ -35,14 +35,14 @@ Raising your own partners means each one learns your repeated work as named **mo
 
 ### MV02A — Move menu
 
-- [ ] Show a partner's moves in a battle-style menu.
+- [x] Show a partner's moves in a battle-style menu.
 - **Priority:** 1. **Needs:** MV01A. **Builds on:** UX01.
 - **Change:** `/move` and a form-surface key open a 2×2 grid (a list below 90 columns) with name, type accent, kind and last outcome.
 - **Accept:** Opens and closes with the draft and focus restored at both sizes. An empty menu says how to teach a move.
 
 ### MV02B — Use a move
 
-- [ ] Turn a chosen move into the normal pre-filled review.
+- [x] Turn a chosen move into the normal pre-filled review.
 - **Priority:** 1. **Needs:** MV02A. **Builds on:** R01, C02.
 - **Change:** Choosing a move opens the command review, pin preview or request preview, pre-filled.
 - **Accept:** Nothing runs before approval; missing pin files show as unavailable; a request move shows the full receipt.
@@ -50,7 +50,7 @@ Raising your own partners means each one learns your repeated work as named **mo
 
 ### MV03A — Detect repeated runs
 
-- [ ] Notice when the same approved run repeats.
+- [x] Notice when the same approved run repeats.
 - **Priority:** 1. **Needs:** MV01A. **Builds on:** R02.
 - **Change:** A local query finds the same normalized argv+cwd approved ≥3 times by the same partner in a project.
 - **Accept:** Three `cargo test --workspace` runs produce one candidate; different arguments don't merge; argv with secrets, env assignments or out-of-project absolute paths is never a candidate.
@@ -58,7 +58,7 @@ Raising your own partners means each one learns your repeated work as named **mo
 
 ### MV03B — "wants to learn a move!" prompt
 
-- [ ] Offer to learn a detected candidate.
+- [x] Offer to learn a detected candidate.
 - **Priority:** 1. **Needs:** MV03A, MV02B. **Builds on:** —.
 - **Change:** At an idle boundary show `Bolt wants to learn a move!` with the steps and their three sources: Learn (opens naming), Not now, Never for this.
 - **Accept:** The prompt appears once. Never survives a restart; Not now returns after three more uses.
@@ -66,14 +66,14 @@ Raising your own partners means each one learns your repeated work as named **mo
 
 ### MV03C — Detect repeated pin sets
 
-- [ ] Offer Vaporeon moves for repeated context selections.
+- [x] Offer Vaporeon moves for repeated context selections.
 - **Priority:** 2. **Needs:** MV03B, MV01B. **Builds on:** —.
 - **Change:** The same pin set used in ≥3 requests produces a learn prompt.
 - **Accept:** Three requests with identical pins produce one prompt; a reordered set counts as the same.
 
 ### MV04 — Forget a move when slots are full
 
-- [ ] Choose which move to forget when learning a fifth.
+- [x] Choose which move to forget when learning a fifth.
 - **Priority:** 2. **Needs:** MV03B. **Builds on:** —.
 - **Change:** Learning into a full form shows the four moves and the new one: forget one, or `Give up learning`.
 - **Accept:** The forgotten move leaves the menu and is still in the reminder list after a restart; giving up changes nothing.
@@ -81,7 +81,7 @@ Raising your own partners means each one learns your repeated work as named **mo
 
 ### MV05 — Move Reminder
 
-- [ ] Relearn a forgotten or postponed move.
+- [x] Relearn a forgotten or postponed move.
 - **Priority:** 2. **Needs:** MV04. **Builds on:** E03.
 - **Change:** A per-partner, per-form reminder list of forgotten and Not-now moves; relearning needs a free slot (or MV04's flow).
 - **Accept:** A relearned move has identical steps. Purging a project removes its reminders and keeps personal ones.
@@ -89,7 +89,7 @@ Raising your own partners means each one learns your repeated work as named **mo
 
 ### MV06 — Type-themed names
 
-- [ ] Suggest a fitting Pokémon move name and allow renaming.
+- [x] Suggest a fitting Pokémon move name and allow renaming.
 - **Priority:** 2. **Needs:** MV01A. **Builds on:** —.
 - **Change:** A fixed local list of canonical moves per type, matched by meaning where possible (test run → Thunderbolt, planning → Future Sight, review → Ice Beam), otherwise the first unused name. Names are freely renamable and unique per partner and form.
 - **Accept:** Three Jolteon moves get distinct suggestions; a CJK rename works; a duplicate name is refused.
@@ -97,7 +97,7 @@ Raising your own partners means each one learns your repeated work as named **mo
 
 ### MV07 — Move record
 
-- [ ] Show how a move has actually performed.
+- [x] Show how a move has actually performed.
 - **Priority:** 2. **Needs:** MV02B. **Builds on:** R02.
 - **Change:** Move detail shows uses, last result and revision, and observed outcomes as a count (`7/9 exited 0`). Denied and cancelled uses are listed separately.
 - **Accept:** Counts match the journal and survive a restart.
@@ -105,7 +105,7 @@ Raising your own partners means each one learns your repeated work as named **mo
 
 ### MV08A — Teach a move to a party member
 
-- [ ] Share a move with another partner directly.
+- [x] Share a move with another partner directly.
 - **Priority:** 2. **Needs:** MV01A, PT04B. **Builds on:** —.
 - **Change:** `Teach to <partner>` copies a move into that partner's slot for the same form, with provenance (`taught by Bolt`).
 - **Accept:** Mizu receives Bolt's move; a full target opens MV04's flow; Bolt's copy is unchanged.

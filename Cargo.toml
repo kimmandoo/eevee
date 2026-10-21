@@ -15,6 +15,7 @@ path = "src/main.rs"
 ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm_0_29", "layout-cache", "unstable-rendered-line-info"] }
 crossterm = "=0.29.0"
 unicode-segmentation = "=1.13.3"
+unicode-normalization = "=0.1.25"
 ratatui-image = { version = "=11.0.0", default-features = false }
 image = { version = "=0.25.9", default-features = false, features = ["png"] }
 base64-simd = "=0.8.0"
@@ -35,7 +36,6 @@ signal-hook = "=0.3.18"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_Threading"] }
-unicode-normalization = "=0.1.25"
 
 # Runner tests hash the >100 MiB debug test executable; unoptimized SHA-256 made admission
 # exceed bounded deadlines on loaded macOS runners.

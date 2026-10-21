@@ -287,6 +287,12 @@ impl App {
     }
 
     pub(super) fn request_navigation(&mut self, action: execution::Action) {
+        if !matches!(action, execution::Action::Quit) && self.moves.mutation_pending() {
+            self.notice =
+                "Wait for the local move operation to commit before changing tasks or forms."
+                    .into();
+            return;
+        }
         if self.memory.saving
             || self
                 .memory_request
@@ -460,6 +466,12 @@ impl App {
         }
     }
     pub fn settle_exit(&mut self) {
+        if self.quit_after_save && self.moves.failed.is_some() {
+            self.quit_after_save = false;
+            self.open_moves();
+            self.notice = "Move storage failed during exit. Retry or review discard; nothing was silently lost.".into();
+            return;
+        }
         if self.quit_after_save
             && matches!(self.storage, StorageState::Saved)
             && self.saved_revision == self.revision
@@ -468,6 +480,7 @@ impl App {
             && !self.sources.persistence_pending()
             && !self.execution_any_pending()
             && !self.planning_any_busy()
+            && !self.moves.persistence_pending()
         {
             if self.sources.store_failed || self.planning_any_journal_failed() {
                 self.quit_after_save = false;

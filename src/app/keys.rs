@@ -60,6 +60,7 @@ impl App {
                 }
                 self.handoff.invalidate_review();
                 self.sources.invalidate_review();
+                self.moves.invalidate_review();
                 true
             }
             Event::Paste(_)
@@ -86,6 +87,7 @@ impl App {
                 self.command_popup = None;
                 self.insert_input(&text)
             }
+            Event::Paste(text) if self.overlay == Some(Overlay::Moves) => self.move_paste(&text),
             Event::Paste(text) if self.overlay == Some(Overlay::Workflows) => {
                 self.workflow_paste(&text)
             }
@@ -684,6 +686,7 @@ impl App {
             || self.planning.editing
             || self.workflow.editor.is_some()
             || self.memory.editing()
+            || self.moves.editing()
             || self.handoff.editing
             || self.agents.connection_editing()
     }
@@ -806,6 +809,7 @@ impl App {
             return true;
         }
         match self.overlay {
+            Some(Overlay::Moves) => return self.move_key(key),
             Some(Overlay::Workflows) => return self.workflow_key(key),
             Some(Overlay::Memory) => return self.memory_key(key, now),
             Some(Overlay::Handoff) => return self.handoff_key(key),
@@ -883,6 +887,9 @@ impl App {
             }
             KeyCode::Char('n') if self.effective_focus() == Pane::Companion => {
                 self.open_nickname(self.lead().id);
+            }
+            KeyCode::Char('m') if self.effective_focus() == Pane::Workspace => {
+                self.open_moves();
             }
             KeyCode::Enter => match self.effective_focus() {
                 Pane::Companion => self.open_overlay(Overlay::Forms),
@@ -1095,6 +1102,12 @@ impl App {
     }
 
     pub(super) fn finish_request_quit(&mut self) {
+        self.cancel_pending_moves();
+        if self.moves.failed.is_some() {
+            self.open_moves();
+            self.notice = "Move storage failed. Retry or explicitly review discarding that local operation before exit.".into();
+            return;
+        }
         // A committed, clean task exits directly; only unsaved or failed
         // state needs the save/stay decision.
         if self.draft_dirty()
@@ -1102,12 +1115,16 @@ impl App {
             || self.sources.persistence_pending()
             || self.sources.store_failed
             || self.planning_any_journal_failed()
+            || self.moves.learning.is_some()
         {
             self.confirmation = Some(Confirmation {
                 kind: ConfirmationKind::Quit,
                 destructive: false,
             });
-        } else if self.planning_any_busy() || self.execution_any_pending() {
+        } else if self.planning_any_busy()
+            || self.execution_any_pending()
+            || self.moves.persistence_pending()
+        {
             self.quit_after_save = true;
             self.notice = "Finishing local persistence before exit…".into();
         } else {
@@ -1243,6 +1260,7 @@ impl App {
                             ) || self.sources.persistence_pending()
                                 || self.execution_any_pending()
                                 || self.planning_any_busy()
+                                || self.moves.persistence_pending()
                             {
                                 self.quit_after_save = true;
                             } else {

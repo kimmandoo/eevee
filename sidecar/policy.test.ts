@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, linkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { credentialRoute, consoleProfile, accountMatches, selectedWrite, selectedWriteIdentity, questionSchema, sdkOutcome, RunSchema, SelectionSchema, modelCatalogue, prepareModels, assertAppliedModel, SDKPackageSchema, assertInitialization, assertSessionPolicy } from './policy.ts';
+import { credentialRoute, consoleProfile, accountMatches, selectedWrite, selectedWriteIdentity, questionSchema, sdkOutcome, RunSchema, SelectionSchema, modelCatalogue, prepareModels, assertAppliedModel, SDKPackageSchema, assertInitialization, assertSessionPolicy, SDKDispatchReceipt, BRIDGE_POLICY } from './policy.ts';
 
 const compatibility = { sdkVersion: '0.3.999', cliVersion: '2.1.999', requireHooks: false };
 
@@ -132,10 +132,10 @@ test('catalogues reject duplicate identifiers, oversized fields and display cont
 });
 
 test('strict inspection commands cannot carry prompts, prior sessions, writes or unreviewed options', () => {
-  const command = { protocol: 1, type: 'run', generation: 1, task_id: 1, cwd: '/project', state_dir: '/state', prompt: '',
+  const command = { protocol: 1, type: 'run', generation: 1, task_id: 1, request_id: null, cwd: '/project', state_dir: '/state', prompt: '',
     operation: 'plan', edit_paths: [], resume: null, inspect_models: true, selection: { model: null, effort: null } };
   assert.equal(RunSchema.safeParse(command).success, true);
-  for (const changed of [{ prompt: 'must not send' }, { resume: '01234567-89ab-4cde-8123-456789abcdef' },
+  for (const changed of [{ request_id: 'claimed-inference' }, { prompt: 'must not send' }, { resume: '01234567-89ab-4cde-8123-456789abcdef' },
     { edit_paths: ['file.ts'] }, { operation: 'implement' }, { tools: ['Bash'] }, { selection: { model: null, effort: null, fallback: 'a' } }]) {
     assert.equal(RunSchema.safeParse({ ...command, ...changed }).success, false);
   }
@@ -240,4 +240,40 @@ test('missing live controls and unacknowledged mandatory hooks fail before model
     await assert.rejects(() => prepareModels(changed, { model: 'a', effort: null }, 'ANTHROPIC_API_KEY', 'firstParty', compatibility), /required control unavailable/);
   }
   assert.equal(modelsRequested, false);
+});
+
+test('dispatch receipts require admitted exact SDK submission acknowledgment, never bridge enqueue or metadata', () => {
+  const uuid = '01234567-89ab-4cde-8123-456789abcdef';
+  const ack = { type: 'user', isReplay: true, uuid };
+  const receipt = new SDKDispatchReceipt(uuid, 'frozen-request');
+  assert.equal(BRIDGE_POLICY.dispatch, 'correlated-sdk-submission');
+  assert.equal(receipt.observe(ack), undefined, 'failed admission never arms a receipt');
+  receipt.arm();
+  for (const message of [
+    { type: 'system', subtype: 'init', uuid },
+    { type: 'status', user_message_uuid: uuid },
+    { type: 'user', uuid },
+    { type: 'user', isReplay: true, uuid: 'older-history' },
+    { type: 'assistant', user_message_uuid: 'another-submission' },
+    { type: 'result', subtype: 'error_during_execution' },
+    { type: 'stream_event', uuid },
+    { type: 'run', request_id: 'frozen-request' },
+  ]) assert.equal(receipt.observe(message), undefined);
+  assert.equal(receipt.observe(ack), 'frozen-request');
+  assert.equal(receipt.observe(ack), undefined, 'duplicate acknowledgment never counts twice');
+  assert.equal(receipt.observe({ type: 'assistant', user_message_uuid: uuid }), undefined);
+});
+
+test('correlated SDK reply evidence covers streamed, assistant and error replies without inventing owner IDs', () => {
+  for (const type of ['stream_event', 'assistant', 'result']) {
+    const receipt = new SDKDispatchReceipt('fresh-sdk-message', 'immutable-owner-request');
+    receipt.arm();
+    assert.equal(receipt.observe({ type, user_message_uuid: 'fresh-sdk-message' }), 'immutable-owner-request');
+    assert.equal(receipt.observe({ type, user_message_uuid: 'fresh-sdk-message' }), undefined);
+    for (const id of [null, undefined]) {
+      const unclaimed = new SDKDispatchReceipt('fresh-sdk-message', id);
+      unclaimed.arm();
+      assert.equal(unclaimed.observe({ type, user_message_uuid: 'fresh-sdk-message' }), undefined);
+    }
+  }
 });

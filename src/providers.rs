@@ -240,6 +240,17 @@ pub(crate) fn native_request_text(task: &crate::store::Snapshot) -> &str {
 }
 
 impl Input {
+    pub(crate) fn dispatched(&self, generation: u64) -> Option<Event> {
+        if self.inspect_models || self.inspect_sessions {
+            return None;
+        }
+        self.work.as_ref().map(|work| Event::Dispatched {
+            generation,
+            task_id: self.task.id,
+            request_id: work.request_id.clone(),
+        })
+    }
+
     /// Revalidates immutable request ownership and committed task/context facts.
     /// Unclaimed requests retain the ordinary exact-snapshot admission boundary.
     pub fn validate_committed(&self, data_dir: &std::path::Path) -> Result<(), String> {
@@ -445,6 +456,13 @@ pub struct Prompt {
 #[derive(Clone, Debug)]
 pub enum Event {
     Preview(Preview),
+    /// Authoritative submission evidence for the immutable claimed request.
+    /// This does not establish remote completion or successful model execution.
+    Dispatched {
+        generation: u64,
+        task_id: i64,
+        request_id: String,
+    },
     Models {
         generation: u64,
         task_id: i64,
@@ -616,7 +634,7 @@ mod tests {
         }
     }
 
-    fn claimed(agent: Agent, operation: Operation, writing: bool) -> Input {
+    pub(super) fn claimed(agent: Agent, operation: Operation, writing: bool) -> Input {
         let mut input = review(agent);
         input.task.id = 7;
         input.operation = operation;
@@ -631,6 +649,26 @@ mod tests {
             writing,
         });
         input
+    }
+
+    #[test]
+    fn dispatch_receipts_preserve_frozen_claim_identity_and_omit_unclaimed_inspection() {
+        for agent in Agent::ALL {
+            let mut input = claimed(agent, Operation::Plan, false);
+            assert!(matches!(
+                input.dispatched(41),
+                Some(Event::Dispatched { generation: 41, task_id: 7, request_id })
+                    if request_id == "provider-admission-test"
+            ));
+            input.inspect_models = true;
+            assert!(input.dispatched(41).is_none());
+            input.inspect_models = false;
+            input.inspect_sessions = true;
+            assert!(input.dispatched(41).is_none());
+            input.inspect_sessions = false;
+            input.work = None;
+            assert!(input.dispatched(41).is_none());
+        }
     }
 
     #[test]

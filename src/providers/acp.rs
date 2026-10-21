@@ -1130,6 +1130,11 @@ impl Item {
     }
 }
 
+struct Wire {
+    bytes: Vec<u8>,
+    dispatch_receipt: bool,
+}
+
 struct Engine<'a> {
     process: crate::workspace::runner::native::Process,
     workspace: &'a Workspace,
@@ -1137,7 +1142,7 @@ struct Engine<'a> {
     events: &'a Events,
     stop: &'a AtomicBool,
     cancelled: &'a AtomicU64,
-    wire: VecDeque<Vec<u8>>,
+    wire: VecDeque<Wire>,
     wire_offset: usize,
     write_started: Option<Instant>,
     framer: Framer,
@@ -1421,7 +1426,12 @@ impl Engine<'_> {
             return Err("ACP output frame/queue limit exceeded".into());
         }
         bytes.push(b'\n');
-        self.wire.push_back(bytes);
+        let dispatch_receipt =
+            value.get("method").and_then(Value::as_str) == Some("session/prompt");
+        self.wire.push_back(Wire {
+            bytes,
+            dispatch_receipt,
+        });
         Ok(())
     }
     fn call(&mut self, kind: Call, method: &str, params: Value) -> Result<(), String> {
@@ -1445,18 +1455,24 @@ impl Engine<'_> {
             {
                 self.cancel()?;
             }
-            let Some(bytes) = self.wire.front() else {
+            let Some(frame) = self.wire.front() else {
                 break;
             };
+            let bytes = &frame.bytes;
             self.write_started.get_or_insert_with(Instant::now);
             match self.process.write_stdin(&bytes[self.wire_offset..]) {
                 Ok(0) => return Err("ACP stdin closed".into()),
                 Ok(count) => {
                     self.wire_offset += count;
                     if self.wire_offset == bytes.len() {
-                        self.wire.pop_front();
+                        let frame = self.wire.pop_front().expect("front frame was just written");
                         self.wire_offset = 0;
                         self.write_started = None;
+                        if frame.dispatch_receipt
+                            && let Some(event) = self.run.input.dispatched(self.run.generation)
+                        {
+                            emit(self.events, event)?;
+                        }
                     }
                 }
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,

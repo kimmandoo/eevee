@@ -159,6 +159,7 @@ impl App {
                 };
                 more |= index == 15;
                 self.execution_state_mut(id).runner_event(event);
+                self.move_run_prepared(id);
                 changed = true;
             }
         }
@@ -181,6 +182,7 @@ impl App {
             .run_owners
             .pop_front()
             .unwrap_or(self.lead.id);
+        let move_updated = matches!(&result, Ok(store::RunResponse::Updated(_)));
         let observations = match &result {
             Ok(store::RunResponse::Updated(record))
             | Ok(store::RunResponse::Purged { record, .. }) => vec![record.clone()],
@@ -194,6 +196,11 @@ impl App {
         {
             for record in observations.iter().rev() {
                 state.observe_record(record);
+            }
+        }
+        if move_updated {
+            for record in &observations {
+                self.move_run_committed(record);
             }
         }
         let ids: Vec<_> = self.party.iter().map(|partner| partner.id).collect();

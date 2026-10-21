@@ -139,7 +139,12 @@ def main():
             refused = launch(previous, 'previous-downgrade-refusal')
             wait_for(refused, 'Storage: save failed')
             refused.capture('newer-schema-refused')
-            finish(refused)
+            # This is an unsupported older writer, not the current runtime's
+            # clean-exit journey. Some published writers retain failed startup
+            # preferences and cannot settle a graceful quit against a newer
+            # schema. End this owned refusal probe without pretending otherwise.
+            refused.close()
+            result['older_writer_shutdown'] = 'owned refusal probe terminated; graceful old-runtime exit not asserted'
             assert database.read_bytes() == before_downgrade, 'Downgrade modified newer database bytes'
             assert snapshot(database) == (new_schema, after)
             result['cases'].append('actual-older-binary-refuses-newer-schema-byte-for-byte')

@@ -460,7 +460,7 @@ impl State {
         self.notice.push_str(" Authentication changed; the old-account session was revoked. Prepare a fresh request.");
     }
 
-    fn matches(&self, generation: u64, task: i64) -> bool {
+    pub(in crate::app) fn matches(&self, generation: u64, task: i64) -> bool {
         self.generation == Some(generation)
             && self.task == task
             && (self.front.is_none()

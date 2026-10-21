@@ -186,6 +186,25 @@ impl App {
 
     pub fn store_event(&mut self, event: store::Event) {
         match event {
+            store::Event::Moves {
+                task_id,
+                partner,
+                form,
+                result,
+            } => {
+                let validation = self.moves.inflight.as_ref().is_some_and(|request| {
+                    (request.task_id, request.partner, request.form) == (task_id, partner, form)
+                        && matches!(request.operation, store::moves::Operation::Validate { .. })
+                });
+                let accepted = result.is_ok();
+                if task_id == self.task_id {
+                    self.cache_picker_moves(partner, form, &result);
+                }
+                self.move_store_event(task_id, partner, form, result);
+                if validation {
+                    self.move_validation_finished(task_id, partner, form, accepted);
+                }
+            }
             store::Event::Work { request, result } => self.cooperation_work_event(request, result),
             store::Event::PartyReleased(result) => {
                 self.party_inflight = false;
@@ -346,6 +365,7 @@ impl App {
                 self.notice.clear();
             }
             store::Event::Saved(snapshot) => {
+                self.move_task_saved(&snapshot);
                 if self.task_id == 0 {
                     // The first save assigns an identity to this same local task.
                     if let Some(owner) = &mut self.temporary_editor_return
@@ -485,8 +505,11 @@ impl App {
                 }
             }
             store::Event::Context { task_id, result } => {
+                let captured = result.is_ok();
                 self.sources.stored(self.task_id, task_id, result);
-                if self.sources.take_return_to_composer()
+                let move_capture = self.move_capture_stored(task_id, captured);
+                if !move_capture
+                    && self.sources.take_return_to_composer()
                     && self.overlay == Some(Overlay::Sources)
                     && self.composer_return.is_some()
                 {

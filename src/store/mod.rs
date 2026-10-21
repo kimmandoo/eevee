@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 mod admission;
 mod journal;
 mod memories;
+pub mod moves;
 mod partners;
 mod preferences;
 mod recovery;
@@ -532,6 +533,12 @@ pub enum Event {
         task_id: i64,
         result: Result<Vec<crate::workspace::memory::Record>, String>,
     },
+    Moves {
+        task_id: i64,
+        partner: i64,
+        form: usize,
+        result: Result<moves::Response, String>,
+    },
 }
 
 struct Managed {
@@ -548,6 +555,7 @@ enum Command {
     Run(Box<RunRequest>),
     Journal(JournalRequest),
     Memory(MemoryRequest),
+    Moves(moves::Request),
     Party(PartyRequest),
     Work(WorkRequest),
     Preferences(PreferenceRequest),
@@ -666,6 +674,25 @@ impl Worker {
                 TrySendError::Full(Command::Journal(request))
                 | TrySendError::Disconnected(Command::Journal(request)),
             ) => {
+                *pending = Some(request);
+                false
+            }
+            Err(_) => unreachable!("try_send returns the submitted command"),
+        }
+    }
+
+    /// Uses the existing bounded storage queue, retaining requests on backpressure.
+    pub fn try_moves(&self, pending: &mut Option<moves::Request>) -> bool {
+        let Some(commands) = &self.commands else {
+            return false;
+        };
+        let Some(request) = pending.take() else {
+            return false;
+        };
+        match commands.try_send(Command::Moves(request)) {
+            Ok(()) => true,
+            Err(TrySendError::Full(Command::Moves(request)))
+            | Err(TrySendError::Disconnected(Command::Moves(request))) => {
                 *pending = Some(request);
                 false
             }
@@ -807,6 +834,12 @@ fn run(
             Command::Journal(request) => Event::Journal {
                 task_id: request.task_id,
                 result: state.journal_request(request).map_err(actionable),
+            },
+            Command::Moves(request) => Event::Moves {
+                task_id: request.task_id,
+                partner: request.partner,
+                form: request.form,
+                result: state.moves_request(request).map_err(actionable),
             },
             Command::Memory(request) => Event::Memory {
                 task_id: request.task_id,

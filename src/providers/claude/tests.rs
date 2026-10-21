@@ -36,15 +36,16 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
     };
     let inspection = json!({
         "type":"capabilities", "sdk_version":"1.5.0", "cli_version":"4.0.0",
-        "bridge_revision":3, "query":true,
+        "bridge_revision":4, "query":true,
         "policy":{"tools":"closed-allowlist","permissions":"default-host-once","mcp":"disabled",
-            "configuration":"isolated","authentication":"api-console-cloud-only"},
+            "configuration":"isolated","authentication":"api-console-cloud-only",
+            "dispatch":"correlated-sdk-submission"},
     });
     assert!(inspection_matches(&inspection, &versions));
     for (field, value) in [
         ("sdk_version", json!("1.5.1")),
         ("cli_version", json!("4.0.1")),
-        ("bridge_revision", json!(2)),
+        ("bridge_revision", json!(3)),
         ("query", json!(false)),
         ("policy", Value::Null),
     ] {
@@ -58,6 +59,7 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
         "mcp",
         "configuration",
         "authentication",
+        "dispatch",
     ] {
         let mut changed = inspection.clone();
         changed["policy"][field] = json!("unknown");
@@ -277,4 +279,43 @@ fn questions_are_distinct_from_tool_and_elicitation_answers() {
 fn terminal_controls_and_recognizable_credentials_are_never_rendered() {
     assert!(!safe("\u{1b}[31msecret token=canary\u{202e}").contains("\u{1b}"));
     assert!(!safe("token=canary").contains("canary"));
+}
+
+#[test]
+fn sdk_dispatch_frames_require_exact_frozen_owner_and_reject_duplicates_or_inspection() {
+    let input = crate::providers::tests::claimed(Agent::Claude, Operation::Plan, false);
+    let frame = json!({
+        "protocol":1, "type":"dispatched", "generation":31, "task_id":7,
+        "request_id":"provider-admission-test",
+    });
+    for (field, changed) in [
+        ("generation", json!(32)),
+        ("task_id", json!(8)),
+        ("request_id", json!("another-request")),
+        ("request_id", Value::Null),
+        ("type", json!("status")),
+    ] {
+        let mut value = frame.clone();
+        value[field] = changed;
+        let mut seen = false;
+        assert!(dispatch_receipt(&input, 31, &value, &mut seen).is_err());
+        assert!(!seen);
+    }
+    let mut seen = false;
+    assert!(matches!(
+        dispatch_receipt(&input, 31, &frame, &mut seen).unwrap(),
+        Event::Dispatched { generation:31, task_id:7, request_id }
+            if request_id == "provider-admission-test"
+    ));
+    assert!(seen);
+    assert!(dispatch_receipt(&input, 31, &frame, &mut seen).is_err());
+    for models in [false, true] {
+        let mut inspection = input.clone();
+        inspection.inspect_models = models;
+        inspection.inspect_sessions = !models;
+        assert!(dispatch_receipt(&inspection, 31, &frame, &mut false).is_err());
+    }
+    let mut unclaimed = input;
+    unclaimed.work = None;
+    assert!(dispatch_receipt(&unclaimed, 31, &frame, &mut false).is_err());
 }

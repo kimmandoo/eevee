@@ -12,6 +12,7 @@ export const SDKPackageSchema = z.object({
 export const BRIDGE_POLICY = {
   tools: 'closed-allowlist', permissions: 'default-host-once', mcp: 'disabled',
   configuration: 'isolated', authentication: 'api-console-cloud-only',
+  dispatch: 'correlated-sdk-submission',
 };
 export const FRAME_LIMIT = 2 * 1024 * 1024;
 export const READ_TOOLS = ['Read', 'Glob', 'Grep', 'AskUserQuestion'];
@@ -27,14 +28,45 @@ export const SelectionSchema = z.object({
 export type Selection = z.infer<typeof SelectionSchema>;
 export const RunSchema = z.object({
   protocol: z.literal(1), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().positive(),
+  request_id: boundedText(256).nullish(),
   prompt: z.string().max(FRAME_LIMIT / 2), cwd: z.string().min(1).max(4096), state_dir: z.string().min(1).max(4096),
   operation: z.enum(['plan', 'implement']), edit_paths: z.array(z.string().min(1).max(4096)).max(256),
   resume: z.string().uuid().nullish(), inspect_models: z.boolean(), selection: SelectionSchema,
 }).strict().superRefine((command, context) => {
-  if (command.inspect_models && (command.prompt !== '' || command.resume != null || command.edit_paths.length !== 0 || command.operation !== 'plan')) {
+  if (command.inspect_models && (command.request_id != null || command.prompt !== '' || command.resume != null || command.edit_paths.length !== 0 || command.operation !== 'plan')) {
     context.addIssue({ code: 'custom', message: 'Model inspection accepts no prompt, session or write scope' });
   }
 });
+
+const SubmissionAckSchema = z.object({
+  type: z.string(), uuid: z.string().optional(), isReplay: z.boolean().optional(),
+  user_message_uuid: z.string().optional(),
+});
+
+// Only a response tied to this fresh SDK message UUID proves query submission.
+// Initialization, iterator release, bridge enqueue and restored history do not.
+export class SDKDispatchReceipt {
+  private armed = false;
+  private sent = false;
+  private readonly uuid: string;
+  private readonly requestId: string | null | undefined;
+  constructor(uuid: string, requestId: string | null | undefined) {
+    this.uuid = uuid;
+    this.requestId = requestId;
+  }
+  arm(): void { this.armed = true; }
+  observe(message: unknown): string | undefined {
+    if (!this.armed || this.sent || this.requestId == null) return undefined;
+    const parsed = SubmissionAckSchema.safeParse(message);
+    if (!parsed.success) return undefined;
+    const value = parsed.data;
+    const acknowledged = value.type === 'user' && value.isReplay === true && value.uuid === this.uuid
+      || ['assistant', 'stream_event', 'result'].includes(value.type) && value.user_message_uuid === this.uuid;
+    if (!acknowledged) return undefined;
+    this.sent = true;
+    return this.requestId;
+  }
+}
 const ModelSchema = z.object({
   value: boundedText(256), resolvedModel: boundedText(256).optional(),
   displayName: boundedText(512).optional(), description: z.string().max(4096).refine(value =>

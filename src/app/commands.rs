@@ -450,6 +450,7 @@ impl App {
             Some(Overlay::Handoff) => self.handoff.command_choices(),
             Some(Overlay::Workflows) => self.workflow_command_choices(),
             Some(Overlay::Memory) => self.memory_command_choices(),
+            Some(Overlay::Moves) => self.moves.command_choices(),
             Some(Overlay::Tasks) => vec![
                 Choice::new("archive", "Archive selected task"),
                 Choice::new("restore", "Restore selected task"),
@@ -523,6 +524,24 @@ impl App {
             ("files", "Attach files / inspect source context"),
             ("tasks", "Saved tasks"),
             ("party", "Party roster"),
+            (
+                "move",
+                "This partner's four learned moves; nothing executed",
+            ),
+            ("teach-move", "Review teaching the current approved action"),
+            (
+                "move-reminder",
+                "Forgotten and postponed moves for this partner/form",
+            ),
+            (
+                "move-details",
+                "Inspect selected move steps, usage and local actions",
+            ),
+            ("move-retry", "Retry the exact failed local move operation"),
+            (
+                "move-discard",
+                "Review discarding an unsaved move operation",
+            ),
             ("nickname", "Edit a local-only partner nickname"),
             (
                 "lead",
@@ -1157,6 +1176,27 @@ impl App {
             return true;
         }
         self.command_popup = None;
+        if name == "deny"
+            && self.overlay == Some(Overlay::Execution)
+            && matches!(
+                self.execution.confirmation,
+                Some(super::execution::Confirmation::Approval)
+            )
+        {
+            self.move_run_denied();
+        }
+        if matches!(
+            name,
+            "move"
+                | "teach-move"
+                | "move-reminder"
+                | "move-details"
+                | "move-retry"
+                | "move-discard"
+        ) || self.overlay == Some(Overlay::Moves) && name.starts_with("move-")
+        {
+            return self.move_command(name);
+        }
         match name {
             "journal-discard" => {
                 self.request_journal_discard();
@@ -1389,6 +1429,7 @@ impl App {
             Some(Overlay::Handoff) => self.handoff.command_choices(),
             Some(Overlay::Workflows) => self.workflow_command_choices(),
             Some(Overlay::Memory) => self.memory_command_choices(),
+            Some(Overlay::Moves) => self.moves.command_choices(),
             Some(Overlay::Party) => self.party_command_choices(),
             _ => Vec::new(),
         };
@@ -1425,6 +1466,7 @@ impl App {
                 Some(Overlay::Handoff) => self.handoff_command(name),
                 Some(Overlay::Workflows) => self.workflow_command(name),
                 Some(Overlay::Memory) => self.memory_command(name),
+                Some(Overlay::Moves) => self.move_command(name),
                 Some(Overlay::Party) => self.party_command(name),
                 _ => false,
             };

@@ -398,12 +398,23 @@ impl State {
                     transaction
                         .execute("DELETE FROM memories WHERE task_id=?1", [id])
                         .map_err(|error| error.to_string())?;
+                    super::moves::purge_task(&transaction, *id)?;
                     transaction
                         .execute(
                             "DELETE FROM tasks WHERE project=?1 AND id=?2",
                             params![self.project, id],
                         )
                         .map_err(|error| format!("Cannot delete task: {error}"))?;
+                }
+                let remaining: i64 = transaction
+                    .query_row(
+                        "SELECT count(*) FROM tasks WHERE project=?1",
+                        [&self.project],
+                        |row| row.get(0),
+                    )
+                    .map_err(|error| error.to_string())?;
+                if remaining == 0 {
+                    super::moves::purge_project(&transaction, &self.project)?;
                 }
                 ids
             }
