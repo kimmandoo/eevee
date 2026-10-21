@@ -116,6 +116,26 @@ test('workspace admission is transactional, bounded and frozen through post-cons
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('host exclusion prefixes do not inherit write-target grammar or disable adjacent generation', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'eevee-sdk-exclusions-')));
+  try {
+    const scope = workspaceScope(root);
+    scope.excluded_paths = ['Context', 'unused.', 'unused ', 'con', 'literal:cache', 'unwritable\nname',
+      process.platform === 'win32' ? 'odd/cache' : 'odd\\cache'];
+    const policy = new SDKWritePolicy(root, scope);
+    assert.equal(policy.begin('excluded', 'Write', { file_path: 'context/new.ts', content: '' }), undefined);
+    const input = { file_path: 'Context-prefix.ts', content: 'export const value = 1;\r\n' };
+    assert.equal(policy.begin('neighbor', 'Write', input)?.kind, 'Create');
+    assert.equal(policy.approve('neighbor', 'Write', input, true, false), true);
+    writeFileSync(join(root, input.file_path), input.content);
+    assert.equal(policy.finish('neighbor', 'Write', input, true), true);
+    assert.equal(readFileSync(join(root, input.file_path), 'utf8'), input.content);
+    for (const prefix of ['/outside', '../outside', 'context/../outside', 'context//nested', 'context/']) {
+      assert.throws(() => new SDKWritePolicy(root, { ...workspaceScope(root), excluded_paths: [prefix] }));
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('workspace proposals create natural nested files only after exact one-shot approval', () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'eevee-sdk-workspace-')));
   try {
