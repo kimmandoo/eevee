@@ -16,10 +16,12 @@
 - feat(native): added scoped file tools and bounded native Responses, Chat Completions, Messages and Gemini continuations while retaining one writer lease, exact one-shot permissions, distinct reported round usage and public-only canonical history.
 - feat(sdk)!: required complete bridge revision 6 files with frozen typed create/replace/content/ancestor authority and independently enforced mandatory pre-tool checks.
 - fix(safety): retained blocking uncertainty for partial or ambiguous failed SDK writes instead of accepting a later successful model response.
-- fix(sdk): normalized native exclusion prefixes for strict IPC without weakening descendant protection or rejecting adjacent-prefix targets.
+- fix(sdk): normalized native exclusion prefixes for IPC and separated their syntax from writable-target grammar without weakening descendant protection or rejecting adjacent-prefix targets.
 - fix(ux): exposed new nested targets through existing path selection and wrapped complete creation/replacement scope in neutral English/Korean permission summaries without requiring end-scrolling.
 - fix(coding): prepared fresh controlled Codex threads for ordinary follow-up requests and kept compact once-only consent usable without hiding file or parent scope.
 - docs(upgrade): retained Schema 15 and documented complete SDK bridge replacement, full-directory backups and the limits of external agent policy.
+- docs(release): published v0.1.15 from the exact-commit Check/all-five-native qualified immutable packages and verified all eight public asset digests, seven manifest entries and five safe archives/notices.
+- test(runtime): verified the downloaded release through 24 bilingual generation journeys/98 behavior groups, native/ownership/Moves and scrolling/tooltips regressions, real migration/refusal/resume and 23 installation groups with all 34 installed terminal scenarios.
 
 
 ## 2026-10-21
