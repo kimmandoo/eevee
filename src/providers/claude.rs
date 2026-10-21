@@ -1130,7 +1130,23 @@ fn capture_write_scope(
             SdkWriteMode::Selected
         },
         protected_paths: vec![data, executable],
-        excluded_paths: exclusions.to_vec(),
+        excluded_paths: exclusions
+            .iter()
+            .map(|path| {
+                let mut text = String::with_capacity(path.as_os_str().len());
+                for part in path.components() {
+                    if !text.is_empty() {
+                        text.push('/');
+                    }
+                    text.push_str(
+                        part.as_os_str()
+                            .to_str()
+                            .expect("validated UTF-8 exclusion"),
+                    );
+                }
+                PathBuf::from(text)
+            })
+            .collect(),
         root_identity: Some(root_identity),
         files,
     })
