@@ -295,6 +295,8 @@ def main():
                 tempfile.TemporaryDirectory(prefix="upgrade-source-", dir=output) as temporary:
             package = Path(temporary)
             shutil.copytree(root / "src", package / "src")
+            shutil.copyfile(root / "build.rs", package / "build.rs")
+            shutil.copytree(root / "locales", package / "locales")
             shutil.copyfile(root / "Cargo.lock", package / "Cargo.lock")
             for installer in ("install.sh", "install.ps1"):
                 shutil.copyfile(root / installer, package / installer)

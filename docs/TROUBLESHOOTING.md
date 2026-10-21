@@ -1,10 +1,24 @@
 # Troubleshooting
 
+### [2026-10-22] Installed-terminal idle sampling preceded startup stream quiescence
+
+- **Context / Symptom:** The installed 100×30 missing-image case emitted two synchronized-update/reset/cursor-only frames during its idle sample. Before/after text and caret were unchanged; no continuing animation or production heartbeat was established.
+- **Root Cause:** A committed task header and a completed initial frame did not establish completion of asynchronous startup caches. The 120 ms stream boundary could admit a half-second idle sample before later startup output had drained.
+- **Solution:** Required an observed half-second quiet-stream boundary, bounded by the existing two-second settling deadline, before starting the unchanged fixed half-second zero-output measurement. Continuous repaint still fails settlement; any output inside the measurement still fails, without filtering or restarting its window. The complete actual-package check passed all 23 lifecycle groups and 34 installed terminal scenarios in `target/release-0114-installed-c`.
+- **Prevention / Reference:** Preserve actual control bytes and both captures when timing fails. The original evidence remains under `target/release-0114-installed-b/terminal/missing-cells-100x30`; no production code, tag or public asset was changed for this calibration.
+
+### [2026-10-22] Real installer-upgrade fixture omitted generated-catalog build inputs
+
+- **Context / Symptom:** The actual public-package lifecycle check passed fresh installation and ownership/integrity refusals, then its real older-version source fixture failed with `environment variable OUT_DIR not defined at compile time` and cascading missing catalog types.
+- **Root Cause:** The fixture copied `src`, manifests and installers but omitted the newly required `build.rs` and `locales` source inputs. The published executable and installer were not the failing boundary.
+- **Solution:** Copied the real build script and locale resources into the isolated source fixture, without copying generated output or relaxing compilation. The complete actual public-package check then passed all 23 installation/update/uninstall/artwork groups and 34 installed terminal scenarios, including a real older-version build and live owned-binary update. Original failure logs were retained; published assets were unchanged.
+- **Prevention / Reference:** Keep real source-build fixtures complete when introducing compile-time resources. Original evidence: `target/release-0114-installed/upgrade-build.log`; complete passing proof: `target/release-0114-installed-c/results.json`.
+
 ### [2026-10-21] Windows qualification rejected valid native failure-location paths
 
 - **Context / Symptom:** Native run `39618172959` passed Check and four native package rows, but Windows failed two record tests. The observed paths were `src\first.rs` / `src\second.rs`; assertions expected literal `src/first.rs` / `src/second.rs`.
 - **Root Cause:** Consumer regressions pinned POSIX serialization rather than native filesystem path identity. Windows correctly retained its native separators; production parsing, containment and failure aggregation were not the failing boundary.
-- **Solution:** Removed the three separator-string assertions and compared borrowed `Path` identities instead. Retained exact admitted-path counts, both distinct contained locations, rejected traversal/secret locations and the remaining location after output purge. Production paths were not rewritten. New full native qualification is required; the initial run's four packages cannot qualify a release.
+- **Solution:** Removed the three separator-string assertions and compared borrowed `Path` identities instead. Retained exact admitted-path counts, both distinct contained locations, rejected traversal/secret locations and the remaining location after output purge. Production paths were not rewritten. Fresh run `39621114639`, attempt 1, passed Check and all five native test/build/license/package/offline-install rows on `9d219f6047d8ebb4a345b33eea08797682e036c0`. The initial run's partial package set was not used.
 - **Prevention / Reference:** Test path identity semantically across platforms. Require Check and all five native rows for one exact commit/attempt; do not promote a partial green matrix.
 
 ### [2026-10-21] Ranking fixture edited a file before the process baseline settled
