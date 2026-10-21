@@ -271,6 +271,7 @@ impl State {
                     .map_err(|error| format!("Cannot repair a released partner's task: {error}"))?;
             }
         }
+        super::moves::release_partner(&transaction, partner)?;
         transaction
             .execute("DELETE FROM partners WHERE id=?1", [partner])
             .map_err(|error| format!("Cannot release the partner: {error}"))?;

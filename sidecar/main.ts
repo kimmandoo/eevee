@@ -3,10 +3,11 @@ import { readFileSync, mkdirSync, lstatSync, existsSync, realpathSync } from 'no
 import { dirname, join } from 'node:path';
 import { once } from 'node:events';
 import { isDeepStrictEqual } from 'node:util';
+import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { Query, CanUseTool, OnElicitation, Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { SDKPackageSchema, BRIDGE_POLICY, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, selectedWrite, selectedWriteIdentity, QuestionInputSchema, RunSchema, SDKPolicyError, querySelection, prepareModels, assertAppliedModel, assertSessionPolicy, credentialRoute, consoleProfile, sdkOutcome } from './policy.ts';
+import { SDKPackageSchema, BRIDGE_POLICY, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, selectedWrite, selectedWriteIdentity, QuestionInputSchema, RunSchema, SDKPolicyError, SDKDispatchReceipt, querySelection, prepareModels, assertAppliedModel, assertSessionPolicy, credentialRoute, consoleProfile, sdkOutcome } from './policy.ts';
 
 const require = createRequire(import.meta.url);
 const sdkEntry = realpathSync(require.resolve('@anthropic-ai/claude-agent-sdk'));
@@ -202,8 +203,10 @@ async function run(command: z.infer<typeof RunSchema>) {
     }] }] };
   }
   const authReady = Promise.withResolvers<boolean>();
+  const submissionId = randomUUID();
+  const dispatchReceipt = new SDKDispatchReceipt(submissionId, command.request_id);
   async function* onePrompt(): AsyncGenerator<SDKUserMessage> {
-    if (await authReady.promise && !cancelled && !command.inspect_models) yield { type: 'user', session_id: command.resume || '', message: { role: 'user', content: command.prompt }, parent_tool_use_id: null };
+    if (await authReady.promise && !cancelled && !command.inspect_models) yield { type: 'user', uuid: submissionId, session_id: command.resume || '', message: { role: 'user', content: command.prompt }, parent_tool_use_id: null };
   }
   current = query({ prompt: onePrompt(), options });
   let resultSeen = false;
@@ -223,8 +226,11 @@ async function run(command: z.infer<typeof RunSchema>) {
       return;
     }
     promptReleased = true;
+    dispatchReceipt.arm();
     authReady.resolve(true);
     for await (const message of current) {
+      const requestId = dispatchReceipt.observe(message);
+      if (requestId !== undefined) await emit({ type: 'dispatched', ...meta(), request_id: requestId });
       if (session && 'session_id' in message && message.session_id !== session) throw new Error('SDK message changed session identity');
       if (message.type === 'system' && message.subtype === 'init') {
         assertSessionPolicy(message, cliVersion, tools);
@@ -319,7 +325,7 @@ function fatal(_error: unknown) {
   void emit({ type: 'fatal', ...meta(), message: 'Claude SDK sidecar failed; raw diagnostics withheld; outcome unknown' }).finally(() => { current?.close(); process.exitCode = 1; process.stdin.pause(); }).catch(() => process.exit(1));
 }
 if (process.argv.includes('--inspect')) {
-  await emit({ type: 'capabilities', bridge_revision: 3, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
+  await emit({ type: 'capabilities', bridge_revision: 4, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
     query: typeof query === 'function', approvals: 'canUseTool with exact once/deny answers; no persistent rules', questions: 'AskUserQuestion single-select/free text',
     elicitation: 'distinct onElicitation; MCP disabled so decline/cancel only', resume: 'explicit same-task session ID only',
     usage: 'latest cumulative query-pipeline snapshot, not additive', confinement: 'agent policy; not OS sandbox', credential_route: credentialRoute(process.env) ?? 'unavailable' });

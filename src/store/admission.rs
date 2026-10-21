@@ -1,6 +1,16 @@
 //! Read-only admission checks for reviewed provider requests and reviews.
 use super::*;
 
+fn current_schema(connection: &Connection) -> Result<(), String> {
+    let version: i64 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    if version != 14 {
+        return Err("Read-only request admission requires schema 14; reopen storage to migrate before reviewing".into());
+    }
+    inspect(connection).map(|_| ())
+}
+
 /// Read-only, transaction-consistent admission check for a reviewed provider request.
 /// This grants no command/file permission and never repairs or migrates storage.
 pub fn validate_planning_input(
@@ -19,6 +29,7 @@ pub fn validate_planning_input(
     let transaction = connection
         .transaction()
         .map_err(|error| error.to_string())?;
+    current_schema(&transaction)?;
     validate_committed_task(&transaction, expected)?;
     let retained = excerpts(&transaction, expected.id)?;
     for (index, excerpt) in selected.iter().enumerate() {
@@ -51,6 +62,7 @@ pub fn validate_work_input(
     let transaction = connection
         .transaction()
         .map_err(|error| error.to_string())?;
+    current_schema(&transaction)?;
     validate_work_task(&transaction, expected, claim)?;
     let retained = excerpts(&transaction, expected.id)?;
     for (index, excerpt) in selected.iter().enumerate() {
@@ -163,6 +175,7 @@ pub fn review_run_observations(
     let transaction = connection
         .transaction()
         .map_err(|error| error.to_string())?;
+    current_schema(&transaction)?;
     if let Some(claim) = work {
         validate_work_task(&transaction, task, claim)?;
     } else {

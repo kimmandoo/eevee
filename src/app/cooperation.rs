@@ -337,6 +337,7 @@ impl App {
             writing: self.planning.operation == crate::providers::Operation::Implement
                 && !self.planning.agent.is_direct(),
         };
+        self.remember_move_request(&claim);
         self.planning.stage_work(claim);
     }
 
@@ -355,11 +356,14 @@ impl App {
         self.cooperation.drive_cursor = (self.cooperation.drive_cursor + 1) % len;
         for id in ids {
             let preference_free = self.cooperation.preference_owners.is_empty();
+            let move_receipt_pending = self.move_dispatch_pending(id);
             let state = self.planning_state_mut(id).expect("known partner slot");
             state.settle_work();
             if sent == 0
                 && !state.work_inflight
                 && state.work_error.is_none()
+                && !(move_receipt_pending
+                    && matches!(state.work_pending, Some(store::WorkRequest::Release(_))))
                 && store.try_work(&mut state.work_pending)
             {
                 state.work_inflight = true;
@@ -922,6 +926,33 @@ impl App {
         if state.owner().is_some_and(|owner| owner.partner != partner) {
             return false;
         }
+        let dispatched = match &event {
+            crate::providers::Event::Dispatched {
+                generation,
+                task_id,
+                request_id,
+            } if state.matches(*generation, *task_id)
+                && state.work.as_ref().is_some_and(|claim| {
+                    claim.task_id == *task_id
+                        && claim.owner.partner == partner
+                        && claim.request_id == *request_id
+                }) =>
+            {
+                Some(request_id.clone())
+            }
+            _ => None,
+        };
+        let move_finished = match &event {
+            crate::providers::Event::Finished {
+                generation,
+                task_id,
+                outcome,
+                ..
+            } if state.matches(*generation, *task_id) => {
+                state.work.clone().map(|claim| (claim, *outcome))
+            }
+            _ => None,
+        };
         let implemented = matches!(&event, crate::providers::Event::Finished { .. })
             && state.operation == crate::providers::Operation::Implement;
         let previous = if foreground_drawer
@@ -944,11 +975,17 @@ impl App {
                 .as_ref()
                 .is_none_or(|request| &request.request_id != previous)
         });
+        if let Some(request) = dispatched {
+            self.move_request_dispatched(partner, &request);
+        }
         if resolved {
             self.defer_approval();
             self.notice = "The displayed request resolved; /approvals deliberately opens the next pending request.".into();
         }
         self.repo_refresh |= implemented;
+        if let Some((claim, outcome)) = move_finished {
+            self.move_provider_finished(&claim, outcome);
+        }
         true
     }
 

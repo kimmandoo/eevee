@@ -9,6 +9,7 @@ pub mod execution;
 pub mod execution_relays;
 pub mod handoff;
 pub mod memory;
+pub mod moves;
 pub mod party;
 pub mod planning;
 pub mod relays;
@@ -21,6 +22,7 @@ mod cooperation_execution;
 mod editing;
 mod events;
 mod keys;
+mod move_staging;
 mod overlays;
 mod tasks;
 
@@ -62,6 +64,7 @@ pub enum Overlay {
     Party,
     PartyBoard,
     Memory,
+    Moves,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -240,6 +243,8 @@ pub struct App {
     pub workflows: crate::workspace::workflows::State,
     pub workflow: workflows::State,
     pub memory: memory::State,
+    pub moves: moves::State,
+    move_runtime: move_staging::State,
     pub memory_request: Option<store::MemoryRequest>,
     pub memory_loading: bool,
     pub command: String,
@@ -361,6 +366,8 @@ impl App {
             workflows: crate::workspace::workflows::State::default(),
             workflow: workflows::State::default(),
             memory: memory::State::default(),
+            moves: moves::State::default(),
+            move_runtime: move_staging::State::default(),
             memory_request: None,
             memory_loading: false,
             command: String::new(),

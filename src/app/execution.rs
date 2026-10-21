@@ -202,6 +202,8 @@ pub struct State {
     request_id: Option<String>,
     approval_review: Option<runner::Prepared>,
     pending_spec: Option<runner::CommandSpec>,
+    move_cwd: Option<std::path::PathBuf>,
+    pub move_origin: Option<(i64, u64)>,
     before_ready: Option<runner::InputSnapshot>,
     final_record: Option<runner::RunRecord>,
     final_ack: Option<String>,
@@ -266,6 +268,8 @@ impl Default for State {
             request_id: None,
             approval_review: None,
             pending_spec: None,
+            move_cwd: None,
+            move_origin: None,
             before_ready: None,
             final_record: None,
             final_ack: None,
@@ -590,6 +594,8 @@ impl State {
         self.affirmative = false;
         self.prepared = None;
         self.pending_spec = None;
+        self.move_cwd = None;
+        self.move_origin = None;
         self.before_ready = None;
         self.rerun_of = None;
         self.queue
@@ -672,6 +678,23 @@ impl State {
             }
         }
     }
+    /// Reuses normal preparation/approval, with a literal contained move cwd.
+    pub fn prepare_move_for(
+        &mut self,
+        task_id: i64,
+        owner: store::Attribution,
+        command: &str,
+        cwd: std::path::PathBuf,
+        origin: (i64, u64),
+    ) -> bool {
+        if !self.prepare_command_for(task_id, Some(owner), command) {
+            return false;
+        }
+        self.move_cwd = Some(cwd);
+        self.move_origin = Some(origin);
+        true
+    }
+
     /// Binds provenance before preparation; no prior approval is inherited.
     pub fn prepare_rerun_for(
         &mut self,
@@ -769,7 +792,12 @@ impl State {
         if let Some(before) = self.before_ready.take()
             && let Some(spec) = self.pending_spec.take()
         {
-            match worker.prepare_for(task_id, self.owner.clone(), spec, cwd.to_path_buf(), before) {
+            let result = if let Some(relative) = self.move_cwd.take() {
+                worker.prepare_move_for(task_id, self.owner.clone(), spec, cwd, &relative, before)
+            } else {
+                worker.prepare_for(task_id, self.owner.clone(), spec, cwd.to_path_buf(), before)
+            };
+            match result {
                 Ok(id) => { self.request_id = Some(id); self.notice = "Preparing exact command identity; approval remains pending, not granted.".into(); }
                 Err(error) => self.fail("Command", error, "Keep the draft and prepare again deliberately after resolving the prerequisite."),
             }

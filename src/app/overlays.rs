@@ -35,6 +35,9 @@ impl App {
     }
 
     pub(super) fn open_overlay(&mut self, overlay: Overlay) {
+        if self.overlay == Some(Overlay::Moves) && overlay != Overlay::Moves {
+            self.cancel_move_validation();
+        }
         if overlay != Overlay::Sources {
             self.pending_source_action = None;
         }
@@ -133,6 +136,12 @@ impl App {
     }
 
     pub(super) fn close_overlay(&mut self) {
+        if self.overlay == Some(Overlay::Moves) {
+            self.cancel_move_validation();
+        }
+        if self.overlay == Some(Overlay::Sources) {
+            self.cancel_move_pins();
+        }
         self.pending_source_action = None;
         self.pending_provider_picker = None;
         self.direct_sheet_return = None;

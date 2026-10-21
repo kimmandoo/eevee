@@ -5,6 +5,7 @@ mod cooperation;
 mod execution;
 mod handoff;
 mod memory;
+mod moves;
 mod planning;
 mod sources;
 mod workflows;
@@ -496,6 +497,8 @@ pub fn render(
             memory::render_small(frame, review_area, &mut app.memory, &paint);
         } else if app.overlay == Some(Overlay::Workflows) {
             workflows::render(frame, review_area, app, config, &paint);
+        } else if app.overlay == Some(Overlay::Moves) {
+            moves::render(frame, review_area, app, config, &paint);
         } else if app.overlay == Some(Overlay::PartyBoard) {
             cooperation::board(frame, review_area, app, config, &paint);
         }
@@ -614,6 +617,7 @@ pub fn render(
             Overlay::Handoff => handoff::render(frame, area, app, config, &paint),
             Overlay::Workflows => workflows::render(frame, area, app, config, &paint),
             Overlay::Memory => memory::render(frame, area, &mut app.memory, config, &paint),
+            Overlay::Moves => moves::render(frame, area, app, config, &paint),
             Overlay::Party => party(frame, area, app, config, &paint),
             Overlay::PartyBoard => cooperation::board(frame, area, app, config, &paint),
             Overlay::Images => images(frame, area, app, config, &paint, artwork, graphics_status),
@@ -1220,10 +1224,10 @@ fn forms(
             content.right().saturating_sub(x),
             content.height.saturating_sub(2),
         );
-        form_details(frame, detail, selected, config, artwork);
+        form_details(frame, detail, selected, app, config, artwork);
     } else {
         let list_width = content.width * 2 / 3;
-        let visible = if content.height < 20 { 5 } else { 9 };
+        let visible = if content.height < 20 { 3 } else { 9 };
         let start = selected.saturating_sub(visible / 2).min(9 - visible);
         for (row_index, index) in (start..start + visible).enumerate() {
             let form = &FORMS[index];
@@ -1261,19 +1265,28 @@ fn forms(
             3 + visible as u16,
             content.height.saturating_sub(3 + visible as u16),
         );
+        let role = format!("{} / {}", FORMS[selected].name, FORMS[selected].role);
         let value = format!(
-            "{} / {}\n/preview Role details",
-            FORMS[selected].name, FORMS[selected].role
+            "{}\n{}",
+            clipped(&role, info.width as usize),
+            picker_moves(app, selected, info.width)
         );
         text(frame, info, &value, paint.muted);
     }
 }
 
-fn form_details(frame: &mut Frame, area: Rect, index: usize, config: &Config, artwork: &Artwork) {
+fn form_details(
+    frame: &mut Frame,
+    area: Rect,
+    index: usize,
+    app: &App,
+    config: &Config,
+    artwork: &Artwork,
+) {
     let form = &FORMS[index];
     let paint = Paint::new(config, form, index);
     let value = format!(
-        "{} / {}\n{}\n\n{}\n\n{}\n{}\n\nArrows Preview\n/preview Role details",
+        "{} / {}\n{}\n\n{}\n\n{}\n{}\n\n{}\nArrows Preview / /preview Role details",
         form.name,
         form.element,
         form.role,
@@ -1286,7 +1299,8 @@ fn form_details(frame: &mut Frame, area: Rect, index: usize, config: &Config, ar
             4 => "Reviewed multi-agent planning: /provider",
             _ => "Provider specialist workflow: unavailable",
         },
-        artwork.status(index)
+        artwork.status(index),
+        picker_moves(app, index, area.width)
     );
     frame.render_widget(
         Paragraph::new(value)
@@ -1294,6 +1308,26 @@ fn form_details(frame: &mut Frame, area: Rect, index: usize, config: &Config, ar
             .wrap(Wrap { trim: false }),
         area,
     );
+}
+
+fn picker_moves(app: &App, form: usize, width: u16) -> String {
+    if app.task_id <= 0 {
+        return "Moves: save a task to teach an action.\n/preview Role details".into();
+    }
+    match app.picker_move_names(form) {
+        None => "Moves: loading local records…".into(),
+        Some(Err(_)) => "Moves unavailable; /move shows the storage error.".into(),
+        Some(Ok(names)) if names.is_empty() => "Moves: none in this partner/form.\n/teach-move teaches approved local work.\n/preview Role details".into(),
+        Some(Ok(names)) => {
+            let mut value="Moves / this partner:\n".to_owned();
+            for name in names {
+                value.push_str("- ");
+                value.push_str(&clipped(name,width.saturating_sub(2) as usize));
+                value.push('\n');
+            }
+            value
+        }
+    }
 }
 
 fn repository(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
@@ -2210,6 +2244,11 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
             "Context storage failed. The retained operation is not saved. Stay, fix storage, then v and s retry.",
             "Stay",
             "Exit despite unsaved context",
+        ),
+        ConfirmationKind::Quit if app.moves.learning.is_some() => (
+            "Exit and discard the unsaved move name/learning choice? Task drafts are saved; only committed moves survive.",
+            "Keep editing",
+            "Discard move draft and quit",
         ),
         ConfirmationKind::Quit => (
             "Exit? Save the applied task and retained drafts before closing.",

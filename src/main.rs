@@ -217,6 +217,7 @@ fn run(config: Config) -> io::Result<()> {
             }
             dirty |= app.refresh_suggestion();
             dirty |= app.refresh_carry_over();
+            dirty |= app.drive_moves();
             if dirty || animation_dirty {
                 ui::portrait_targets(
                     &app,
@@ -300,6 +301,9 @@ fn run(config: Config) -> io::Result<()> {
             if store.try_memory(&mut app.memory_request) {
                 outstanding_store += 1;
             }
+            if store.try_moves(&mut app.moves.pending) {
+                outstanding_store += 1;
+            }
             if agents.try_request(&mut app.agents.pending) {
                 outstanding_agents += 1;
             }
@@ -342,6 +346,8 @@ fn run(config: Config) -> io::Result<()> {
                 || app.memory_request.is_some()
                 || app.memory.pending.is_some()
                 || app.memory.saving
+                || app.moves.pending.is_some()
+                || app.moves.inflight.is_some()
                 || app.execution_any_pending()
                 || execution.values().any(runner::Worker::is_active)
                 || app.repo_refresh

@@ -698,6 +698,10 @@ fn implementation_items_are_explicitly_non_mutating_proposals() {
 }
 
 fn http_fixture(body: String) -> (String, JoinHandle<()>) {
+    http_status_fixture(200, body)
+}
+
+fn http_status_fixture(status: u16, body: String) -> (String, JoinHandle<()>) {
     use std::io::{Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
@@ -733,7 +737,7 @@ fn http_fixture(body: String) -> (String, JoinHandle<()>) {
             );
             request.extend_from_slice(&buffer[..count]);
         }
-        write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+        write!(socket, "HTTP/1.1 {status} Fixture\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
     });
     (url, server)
 }
@@ -1250,4 +1254,92 @@ fn goal_only_native_turn_remains_user_context_when_followed_by_a_request() {
         body["messages"][3]["content"],
         "Which parser boundary needs validation?"
     );
+}
+
+#[test]
+fn inference_headers_prove_one_frozen_dispatch_even_for_http_errors() {
+    let runtime = runtime();
+    for (protocol, status) in [
+        Protocol::Codex,
+        Protocol::Responses,
+        Protocol::ChatCompletions,
+        Protocol::Messages,
+        Protocol::Gemini,
+    ]
+    .into_iter()
+    .flat_map(|protocol| [200, 400, 401, 429, 500].map(|status| (protocol, status)))
+    {
+        let mut run = prepared();
+        run.input = Box::new(crate::providers::tests::claimed(
+            Agent::Compatible,
+            Operation::Plan,
+            false,
+        ));
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        let stopped = AtomicBool::new(false);
+        let cancelled = AtomicU64::new(0);
+        let control = control(&stopped, &cancelled);
+        let (url, server) = http_status_fixture(status, String::new());
+        let connection = config::test_connection(protocol, &url, Some("fixture-model"));
+        let response = runtime.block_on(async {
+            let client = http_client().unwrap();
+            wait_inference(
+                connection
+                    .request(&client, "POST", &connection.inference_url("fixture-model"))
+                    .body("reviewed instruction")
+                    .send(),
+                &run,
+                &events,
+                &control,
+            )
+            .await
+            .unwrap()
+        });
+        server.join().unwrap();
+        assert_eq!(response.status().as_u16(), status);
+        let events = events.lock();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            &events[0],
+            Event::Dispatched { generation: 7, task_id: 7, request_id }
+                if request_id == "provider-admission-test"
+        ));
+    }
+}
+
+#[test]
+fn failed_local_admission_and_unproven_transport_never_emit_dispatch_receipts() {
+    let mut run = prepared();
+    run.input = Box::new(crate::providers::tests::claimed(
+        Agent::Compatible,
+        Operation::Plan,
+        false,
+    ));
+    let events = Arc::new(Mutex::new(VecDeque::new()));
+    let stopped = AtomicBool::new(false);
+    let cancelled = AtomicU64::new(7);
+    let control = control(&stopped, &cancelled);
+    let (outcome, message) = dispatch(&workspace(), &mut run, &events, &control);
+    assert_eq!(outcome, Outcome::Cancelled);
+    assert!(message.contains("no HTTP request dispatched"));
+    assert!(events.lock().is_empty());
+
+    cancelled.store(0, Ordering::Release);
+    run.input.agent = Agent::Codex;
+    let (outcome, message) = dispatch(&workspace(), &mut run, &events, &control);
+    assert_eq!(outcome, Outcome::Failed);
+    assert!(message.contains("no HTTP request dispatched"));
+    assert!(events.lock().is_empty());
+    cancelled.store(7, Ordering::Release);
+
+    // Cancellation before response headers, including a partially transmitted
+    // request, supplies no authoritative receipt and does not invent one.
+    let result = runtime().block_on(wait_inference(
+        std::future::pending::<Result<reqwest::Response, reqwest::Error>>(),
+        &run,
+        &events,
+        &control,
+    ));
+    assert!(result.is_err());
+    assert!(events.lock().is_empty());
 }

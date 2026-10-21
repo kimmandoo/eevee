@@ -237,6 +237,7 @@ enum Command {
         cwd: PathBuf,
         before: InputSnapshot,
         partner: Option<crate::store::Attribution>,
+        move_root: Option<PathBuf>,
     },
     Dispatch {
         request_id: String,
@@ -295,6 +296,52 @@ impl Worker {
         cwd: PathBuf,
         before: InputSnapshot,
     ) -> Result<String, String> {
+        self.prepare_for_root(task_id, partner, spec, cwd, before, None)
+    }
+
+    pub fn prepare_move_for(
+        &self,
+        task_id: i64,
+        partner: Option<crate::store::Attribution>,
+        spec: CommandSpec,
+        root: &Path,
+        relative: &Path,
+        before: InputSnapshot,
+    ) -> Result<String, String> {
+        if relative.as_os_str().is_empty()
+            || !relative.components().all(|component| {
+                matches!(
+                    component,
+                    std::path::Component::Normal(_) | std::path::Component::CurDir
+                )
+            })
+        {
+            return Err("Move cwd must be a literal project-relative directory".into());
+        }
+        let cwd = if relative == Path::new(".") {
+            root.to_path_buf()
+        } else {
+            root.join(relative)
+        };
+        self.prepare_for_root(
+            task_id,
+            partner,
+            spec,
+            cwd,
+            before,
+            Some(root.to_path_buf()),
+        )
+    }
+
+    fn prepare_for_root(
+        &self,
+        task_id: i64,
+        partner: Option<crate::store::Attribution>,
+        spec: CommandSpec,
+        cwd: PathBuf,
+        before: InputSnapshot,
+        move_root: Option<PathBuf>,
+    ) -> Result<String, String> {
         validate_spec(&spec)?;
         if let Some(partner) = &partner {
             partner.validate()?;
@@ -330,6 +377,7 @@ impl Worker {
                 cwd,
                 before,
                 partner,
+                move_root,
             })
             .map_err(|_| "Runner queue is full or disconnected")?;
         gate.pending = Some(request_id.clone());
@@ -427,12 +475,19 @@ fn worker(
                 cwd,
                 before,
                 partner,
+                move_root,
             } => {
-                let result =
-                    prepare(request_id.clone(), task_id, spec, cwd, before).map(|mut prepared| {
-                        prepared.partner = partner;
-                        prepared
-                    });
+                let result = (|| {
+                    if let Some(root) = move_root.as_deref() {
+                        validate_move_cwd(root, &cwd)?;
+                    }
+                    let mut prepared = prepare(request_id.clone(), task_id, spec, cwd, before)?;
+                    if let Some(root) = move_root.as_deref() {
+                        validate_move_cwd(root, &prepared.cwd)?;
+                    }
+                    prepared.partner = partner;
+                    Ok(prepared)
+                })();
                 let current = gate.lock().pending.as_deref() == Some(&request_id);
                 if !current {
                     continue;
@@ -497,6 +552,35 @@ fn worker(
             }
         }
     }
+}
+
+fn validate_move_cwd(root: &Path, cwd: &Path) -> Result<(), String> {
+    let relative = cwd
+        .strip_prefix(root)
+        .map_err(|_| "Move cwd is outside the project root")?;
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        if !matches!(component, std::path::Component::Normal(_)) {
+            return Err("Move cwd has a nonliteral component".into());
+        }
+        current.push(component);
+        let metadata = fs::symlink_metadata(&current)
+            .map_err(|error| format!("Move cwd is unavailable: {error}"))?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err("Move cwd must not traverse linked directories".into());
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            if metadata.file_attributes() & 0x400 != 0 {
+                return Err("Move cwd must not traverse reparse points".into());
+            }
+        }
+    }
+    if fs::canonicalize(cwd).map_err(|error| format!("Move cwd: {error}"))? != cwd {
+        return Err("Move cwd is not the exact contained directory".into());
+    }
+    Ok(())
 }
 
 fn unique_id() -> String {

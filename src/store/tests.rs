@@ -523,7 +523,7 @@ fn migrates_documented_schema_zero_and_one_atomically() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            13
+            14
         );
         assert!(connection.prepare("SELECT * FROM goals").is_err());
         assert!(connection.prepare("SELECT * FROM projects").is_err());
@@ -540,7 +540,7 @@ fn newer_foreign_and_corrupt_databases_are_untouched() {
         } else {
             let connection = Connection::open(&path).unwrap();
             connection.execute_batch(if fixture == 0 {
-                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=14;"
+                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=15;"
                 } else {
                     "CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('keep');"
                 }).unwrap();
@@ -1032,7 +1032,7 @@ fn crash_during_migration(directory: &Directory, kind: &str) {
         )
         .unwrap();
     match kind {
-            "newer" => connection.execute_batch("PRAGMA user_version=14;").unwrap(),
+            "newer" => connection.execute_batch("PRAGMA user_version=15;").unwrap(),
             "foreign" => connection.execute_batch("CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('preserve');").unwrap(),
             "one" => connection.execute_batch(
                 "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL);
@@ -1095,7 +1095,7 @@ fn process_interruption_recovers_legacy_and_current_committed_tasks() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            13
+            14
         );
     }
 }
@@ -2974,7 +2974,17 @@ fn schema_six_migration_is_atomic_and_defaults_preserve_old_snapshots() {
     assert!(matches!(inspect(&connection).unwrap(), Schema::Current));
 }
 
+fn downgrade_moves(connection: &Connection) {
+    connection
+        .execute_batch(
+            "DROP TABLE moves; DROP TABLE move_candidates; DROP TABLE move_sources;
+         DROP TABLE move_usages; DROP TABLE move_dispatches; PRAGMA user_version=13;",
+        )
+        .unwrap();
+}
+
 fn downgrade_partners(connection: &Connection) {
+    downgrade_moves(connection);
     connection
         .execute_batch(
             "DROP TABLE provider_preferences;
@@ -3900,6 +3910,7 @@ fn nickname_store_enforces_unicode_write_boundaries_without_losing_the_original(
 fn schema_eight_migrates_request_drafts_without_changing_task_facts() {
     let mut connection = Connection::open_in_memory().unwrap();
     initialize(&mut connection).unwrap();
+    downgrade_moves(&connection);
     connection
         .execute_batch(
             "DROP TABLE active_work; DROP TABLE provider_preferences; PRAGMA user_version=8;",
@@ -3910,7 +3921,7 @@ fn schema_eight_migrates_request_drafts_without_changing_task_facts() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        13
+        14
     );
     let mut task = Snapshot::empty("/workspace".into());
     task.goal = "Stable task identity".into();
@@ -4026,6 +4037,7 @@ fn schema_nine_preference_migration_is_atomic_and_preserves_existing_data() {
     let task = store.save(snapshot("project", 1)).unwrap();
     drop(store);
     let mut connection = Connection::open(directory.0.join(DATABASE)).unwrap();
+    downgrade_moves(&connection);
     connection
         .execute_batch(
             "DROP TABLE active_work; DROP TABLE provider_preferences; PRAGMA user_version=9;",
@@ -4149,6 +4161,7 @@ fn schema_ten_dismissal_migration_only_changes_version_and_rolls_back_atomically
     connection
         .execute("UPDATE tasks SET navigation=?1", [navigation])
         .unwrap();
+    downgrade_moves(&connection);
     connection
         .execute_batch("DROP TABLE active_work; PRAGMA user_version=10;")
         .unwrap();
@@ -4176,7 +4189,7 @@ fn schema_ten_dismissal_migration_only_changes_version_and_rolls_back_atomically
             transaction
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            13
+            14
         );
         assert!(matches!(inspect(&transaction).unwrap(), Schema::Current));
         for (table, rows) in tables.iter().zip(&before) {
@@ -4198,7 +4211,7 @@ fn schema_ten_dismissal_migration_only_changes_version_and_rolls_back_atomically
         connection
             .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
             .unwrap(),
-        13
+        14
     );
     for (table, rows) in tables.iter().zip(&before) {
         assert_eq!(stored_table_rows(&connection, table), *rows, "{table}");
@@ -4752,6 +4765,7 @@ fn schema_twelve_work_migration_preserves_old_rows_and_transactional_fence() {
     store.save(snapshot("project", 1)).unwrap();
     drop(store);
     let mut connection = Connection::open(directory.0.join(DATABASE)).unwrap();
+    downgrade_moves(&connection);
     connection
         .execute_batch("DROP TABLE active_work; PRAGMA user_version=12;")
         .unwrap();
@@ -4777,7 +4791,7 @@ fn schema_twelve_work_migration_preserves_old_rows_and_transactional_fence() {
             transaction
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            13
+            14
         );
         for (table, rows) in tables.iter().zip(&before) {
             assert_eq!(stored_table_rows(&transaction, table), *rows, "{table}");

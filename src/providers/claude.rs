@@ -530,13 +530,35 @@ fn inspection_matches(value: &Value, versions: &SdkVersions) -> bool {
     value["type"] == "capabilities"
         && value["sdk_version"].as_str() == Some(versions.sdk.as_str())
         && value["cli_version"].as_str() == Some(versions.cli.as_str())
-        && value["bridge_revision"] == 3
+        && value["bridge_revision"] == 4
         && value["query"] == true
         && value["policy"]
             == json!({
                 "tools": "closed-allowlist", "permissions": "default-host-once", "mcp": "disabled",
                 "configuration": "isolated", "authentication": "api-console-cloud-only",
+                "dispatch": "correlated-sdk-submission",
             })
+}
+
+fn dispatch_receipt(
+    input: &Input,
+    generation: u64,
+    value: &Value,
+    seen: &mut bool,
+) -> Result<Event, String> {
+    if *seen
+        || value["type"] != "dispatched"
+        || value["generation"].as_u64() != Some(generation)
+        || value["task_id"].as_i64() != Some(input.task.id)
+        || value["request_id"].as_str() != input.work.as_ref().map(|work| work.request_id.as_str())
+    {
+        return Err("SDK dispatch receipt correlation mismatch or duplicate".into());
+    }
+    let event = input
+        .dispatched(generation)
+        .ok_or("SDK dispatch receipt requires a claimed inference request")?;
+    *seen = true;
+    Ok(event)
 }
 
 struct Trust {
@@ -1407,6 +1429,7 @@ fn transport(
         let mut thread_id = String::new();
         let mut items = SdkItems::default();
         let mut seen_prompts = HashSet::new();
+        let mut dispatch_receipt_seen = false;
         let journal_nonce = if run.input.inspect_models {
             0
         } else {
@@ -1416,6 +1439,7 @@ fn transport(
                 .as_nanos()
         };
         pipe.send(json!({"protocol":1,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
+            "request_id":if run.input.inspect_models { None } else { run.input.work.as_ref().map(|work| work.request_id.as_str()) },
             "prompt":if run.input.inspect_models { "" } else { run.text.as_str() },
             "operation":if run.input.inspect_models { "plan" } else { sdk_tool_policy(run.input.operation) },
             "edit_paths":if run.input.inspect_models { &[] as &[PathBuf] } else { run.input.edit_paths.as_slice() },
@@ -1504,6 +1528,10 @@ fn transport(
                         return Err("Claude event correlation mismatch".into());
                     }
                     match value["type"].as_str().unwrap_or("") {
+                        "dispatched" => {
+                            let event = dispatch_receipt(&run.input, run.generation, &value, &mut dispatch_receipt_seen)?;
+                            emit(events, event)?;
+                        }
                         "models" => {
                             if !run.input.inspect_models || models_seen || !thread_id.is_empty() {
                                 return Err("Unexpected/duplicate SDK model catalogue".into());

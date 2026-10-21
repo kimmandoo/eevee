@@ -1,5 +1,40 @@
 # Troubleshooting
 
+### [2026-10-21] Routine-admission fixtures respected the storage privacy projection
+
+- **Context / Symptom:** The actual smoke's `exact JSON argv saved` assertion waited for a recognizable credential-like argument to appear verbatim in SQLite. The store correctly persisted a masked command instead.
+- **Root Cause:** A command's raw live bytes and its privacy-filtered durable projection are not interchangeable. The fixture had asked the existing command-save barrier to acknowledge plaintext that storage intentionally did not retain.
+- **Solution:** Preserved redaction and did not claim those private argv were executed. Used nonsecret environment-assignment and out-of-project argument routines for actual approved-run admission checks; kept secret/masked-value refusal in typed-domain and committed-store regressions. All 26 final actual-TUI Moves groups passed without test SQL writes.
+- **Prevention / Reference:** Never disable privacy projection, persist secrets for a test, fabricate a journal or require a redacted execution fingerprint. Evidence: `target/wave5-moves-20261021-e/results.json`.
+
+### [2026-10-21] A learning prompt swallowed navigation while recording its display
+
+- **Context / Symptom:** Actual 120×36 and 60×18 journeys selected Never immediately after a six-use prompt, but opened the naming editor instead. The first Down event arrived while the prompt's durable Offered receipt was pending and was discarded.
+- **Root Cause:** A blanket move-persistence input guard treated prompt-display bookkeeping like an inventory mutation. Its acknowledgment could arrive between consecutive keys, changing which option the remaining keys selected.
+- **Solution:** Distinguished a single pending Offered receipt from blocking mutations/failures. Kept navigation, Unicode typing/paste and explicitly reviewed local choices responsive; later decisions remained FIFO-ordered behind the receipt. Added a three-choice pending-receipt regression, observed its RED `Learn` versus `Menu` failure, then passed it in the **926-test** integrated suite.
+- **Prevention / Reference:** The actual journey driver retained immediate selection without an artificial delay; all 26 final wide/compact groups passed. It compared observed revisions to real journals rather than requiring a nonexistent execution revision for pre-run denial and used the checklist's actual Enter control for the template reset case. No missing evidence was fabricated.
+
+### [2026-10-21] A refused older writer could not settle its startup preferences
+
+- **Context / Symptom:** The actual public v0.1.12 executable created Schema 13 facts, the Wave 5 candidate migrated them unchanged to Schema 14, and the old executable displayed `Storage: save failed`. The migration driver then failed with `application neither exited nor offered exit review`.
+- **Root Cause:** The published older runtime retained failed startup provider/model preferences against an unsupported newer store, so its ordinary graceful-exit persistence guard could not settle. This was not a failed migration or permission to downgrade; both executables still reported 0.1.12 because Wave 5 source was unreleased.
+- **Solution:** Ended only the driver's owned older-writer refusal probe explicitly, recorded that old-runtime graceful exit was not asserted, and checked the migrated database byte-for-byte after teardown. The new runtime still had to exit normally, preserve all exact task rows and resume after the refused downgrade. All three actual Schema 13→14 migration/refusal/resume checks passed.
+- **Prevention / Reference:** Back up before opening an older store with newer source. Restore a backup for older software; in-place downgrade is unsupported. Final evidence: `target/wave5-schema-20261021-c/results.json`; driver: `scripts/schema_upgrade_smoke.py`.
+
+### [2026-10-21] Move dispatch and asynchronous review ownership needed authoritative receipts
+
+- **Context / Symptom:** Integration review found that accepting a provider request into a worker queue was earlier than actual dispatch, a closed/reopened move sheet could adopt a late validation reply, and a failed move preparation could otherwise be confused with a later identical manual command.
+- **Root Cause:** Queue admission, view identity and prepared-command identity are different boundaries. SDK iterator release likewise does not prove a submitted model turn.
+- **Solution:** Added exact request-bound actual-dispatch events for native response headers and completed Codex/ACP prompt writes; required an admitted fresh-UUID-correlated SDK acknowledgment through bridge revision 4. Persisted pin receipts before releasing the work claim. Invalidated validation on leaving the owning sheet and bound acknowledgments to task/revision/partner/form/mode; tagged actual move preparations so a manual command cannot inherit move attribution.
+- **Prevention / Reference:** Rust behavioral regressions and all 17 credential-free SDK policy checks passed. Transport receipts do not prove model completion, billing or live-account compatibility.
+
+### [2026-10-21] Purged learning sources and portable paths exposed persistence boundaries
+
+- **Context / Symptom:** Review found that deleting source tasks could leave retained candidates stale below the three-use threshold, blocking strict reopening; command validation also needed to distinguish native argument paths from portable selector metadata.
+- **Root Cause:** Candidate updates had been limited to newly eligible counts. Assigned credential flags, bare relative symlink arguments and Windows-native paths do not all have the same syntax as serialized project-relative selectors.
+- **Solution:** Refreshed existing candidate counts/provenance even below threshold, retained zero-source reminders while project tasks remained and adjusted postponement for removed sources. Kept portable slash-delimited metadata separate from native path equality, reused shared secret redaction for assigned flags and checked bare/assigned path arguments for links while preserving literal argv and ordinary executable lookup. Worker-side filesystem checks and fresh runner identities remained mandatory.
+- **Prevention / Reference:** Strict store reopen/purge/threshold and secret/path/link behavioral regressions passed in the Rust suite. Windows-native runtime behavior remains unqualified on this Darwin host.
+
 ### [2026-10-21] Public Windows license had valid CRLF bytes
 
 - **Context / Symptom:** Public asset digests, checksum manifest and archive layouts passed, but a cross-platform byte comparison of the packaged Windows `LICENSE` against the POSIX checkout failed.

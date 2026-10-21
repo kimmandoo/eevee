@@ -1243,3 +1243,25 @@ fn idle_invalidation_never_allocates_runner_and_pending_taint_is_request_scoped(
         "a new explicit preparation never inherits old overlap"
     );
 }
+
+#[test]
+fn rejected_move_preparation_does_not_attribute_later_manual_command() {
+    let p = prepared();
+    let mut state = State {
+        task_id: 1,
+        request_id: Some(p.request_id.clone()),
+        move_origin: Some((7, 1)),
+        move_cwd: Some(".".into()),
+        ..State::default()
+    };
+    state.runner_event(runner::Event::Rejected {
+        request_id: p.request_id,
+        task_id: 1,
+        message: "Executable disappeared".into(),
+    });
+    let owner = store::Attribution::of(&store::Partner::default());
+    assert!(state.prepare_command_for(1, Some(owner), r#"["tool","中文 space;literal"]"#));
+    assert!(state.move_origin.is_none());
+    assert!(state.prepared.is_none());
+    assert!(state.confirmation.is_none());
+}

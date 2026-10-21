@@ -914,6 +914,7 @@ enum Call {
 struct Wire {
     bytes: Vec<u8>,
     refusal: bool,
+    dispatch_receipt: bool,
 }
 struct PendingCall {
     id: String,
@@ -1281,7 +1282,12 @@ impl Engine<'_> {
                 value.pointer("/result/decision").and_then(Value::as_str),
                 Some("decline" | "cancel")
             );
-        self.wire.push_back(Wire { bytes, refusal });
+        let dispatch_receipt = value.get("method").and_then(Value::as_str) == Some("turn/start");
+        self.wire.push_back(Wire {
+            bytes,
+            refusal,
+            dispatch_receipt,
+        });
         Ok(())
     }
     fn call(&mut self, kind: Call, method: &str, params: Value) -> Result<(), String> {
@@ -1317,10 +1323,15 @@ impl Engine<'_> {
                 Ok(n) => {
                     self.offset += n;
                     if self.offset == bytes.len() {
-                        self.wire.pop_front();
+                        let frame = self.wire.pop_front().expect("front frame was just written");
                         self.offset = 0;
                         self.write_deadline = (!self.wire.is_empty())
                             .then(|| Instant::now() + Duration::from_secs(5));
+                        if frame.dispatch_receipt
+                            && let Some(event) = self.run.input.dispatched(self.run.generation)
+                        {
+                            emit(self.events, event)?;
+                        }
                     }
                 }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,

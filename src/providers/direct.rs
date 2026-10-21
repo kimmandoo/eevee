@@ -766,6 +766,21 @@ async fn wait_http<T>(
         }
     }
 }
+async fn wait_inference(
+    future: impl Future<Output = Result<reqwest::Response, reqwest::Error>>,
+    run: &Prepared,
+    events: &Events,
+    control: &Control<'_>,
+) -> Result<reqwest::Response, String> {
+    let response = wait_http(future, control).await?;
+    // Headers prove transmission even when HTTP rejects the request. Transport
+    // errors alone cannot prove submission and retain their unknown outcome.
+    if let Some(event) = run.input.dispatched(run.generation) {
+        emit(events, event)?;
+    }
+    Ok(response)
+}
+
 fn validate_prepared(
     workspace: &Workspace,
     run: &Prepared,
@@ -889,7 +904,7 @@ async fn dispatch_async(
         .header("Accept", "text/event-stream")
         .body(std::mem::take(&mut run.payload))
         .send();
-    let mut response = match wait_http(response, control).await {
+    let mut response = match wait_inference(response, run, events, control).await {
         Ok(response) => response,
         Err(error) => {
             return (
