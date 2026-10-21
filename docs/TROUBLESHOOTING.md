@@ -10,8 +10,8 @@
 ### [2026-10-22] Native exclusion spelling did not match SDK boundary syntax
 
 - **Context / Symptom:** Valid exclusion prefixes such as `private/` and Windows `src\private` could pass host configuration validation but abort SDK policy construction before query admission.
-- **Root Cause:** Host exclusions were component-based native paths; IPC forwarded their original spelling to a consumer requiring canonical slash-separated prefixes.
-- **Solution:** Serialized validated normal components with `/`, removing trailing delimiters without changing exclusion boundaries. Regression coverage retains a denied descendant and an allowed adjacent-prefix path and checks bridge-compatible encoding on native platforms. Rust 1,135 tests and strict Clippy passed; full native qualification remains the release gate.
+- **Root Cause:** Host exclusions were component-based native prefixes, while IPC forwarded native spelling and the consumer incorrectly applied the stricter grammar of writable targets.
+- **Solution:** Serialized normal components with `/` and validated exclusion-prefix structure separately from write-target safety. Trailing/native separators, reserved or unwritable names no longer disabled the policy; absolute/traversing/malformed boundaries still refused. Denied descendants, adjacent permitted generation and actual byte-preserving writes remain covered. Rust 1,135 and SDK 34 cases passed; fresh all-native qualification remains the release gate.
 - **Prevention / Reference:** Keep filesystem-native addressing separate from IPC syntax, and do not weaken exact target or protected-path checks to accommodate display spelling.
 
 ### [2026-10-22] Controlled follow-ups reused an incompatible thread and compact consent overflowed

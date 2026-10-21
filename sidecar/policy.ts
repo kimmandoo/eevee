@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { lstatSync, realpathSync, readFileSync, readdirSync } from 'node:fs';
 import type { BigIntStats } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep, toNamespacedPath } from 'node:path';
+import { isAbsolute, join, parse, relative, resolve, sep, toNamespacedPath } from 'node:path';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { EffortLevel, ModelInfo } from '@anthropic-ai/claude-agent-sdk';
@@ -34,7 +34,7 @@ const IdentitySchema = z.string().min(1).max(256);
 export const WriteScopeSchema = z.object({
   mode: z.enum(['Selected', 'Workspace']),
   protected_paths: z.array(boundedText(4096)).max(256),
-  excluded_paths: z.array(boundedText(4096)).max(256),
+  excluded_paths: z.array(z.string().min(1).max(4096)).max(256),
   root_identity: IdentitySchema.nullable(),
   files: z.array(z.object({
     path: boundedText(4096), kind: z.enum(['Create', 'Replace']),
@@ -278,6 +278,12 @@ function exactRelative(path: string): boolean {
       part.length > 0 && part !== '.' && part !== '..' && !/[. ]$/.test(part) &&
       !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part));
 }
+function exactExclusion(path: string): boolean {
+  // Canonical host prefixes are not write targets: reserved or unwritable
+  // components can exclude nothing, but must not disable the whole policy.
+  return path.length > 0 && path.length <= 4096 && parse(path).root === '' &&
+    path.split('/').every(part => part.length > 0 && part !== '.' && part !== '..');
+}
 function protectedPath(path: string): boolean {
   return path.split('/').some(part => {
     const name = part.toLowerCase();
@@ -332,7 +338,7 @@ export class SDKWritePolicy {
     this.scope = structuredClone(WriteScopeSchema.parse(scope));
     if (this.scope.root_identity !== null && directoryIdentity(this.root) !== this.scope.root_identity) throw new SDKPolicyError('SDK frozen root changed');
     if (this.scope.mode === 'Workspace' && (this.scope.root_identity === null || this.scope.files.length !== 0)) throw new SDKPolicyError('Invalid initial workspace scope');
-    if (this.scope.excluded_paths.some(path => !exactRelative(path)) || this.scope.protected_paths.some(path => !isAbsolute(path))) throw new SDKPolicyError('Invalid SDK boundaries');
+    if (this.scope.excluded_paths.some(path => !exactExclusion(path)) || this.scope.protected_paths.some(path => !isAbsolute(path))) throw new SDKPolicyError('Invalid SDK boundaries');
     this.protectedPaths = [...this.scope.protected_paths, realpathSync(process.execPath), ...runtimePaths].map(path => realpathSync(path));
     if (new Set(this.scope.files.map(file => file.path)).size !== this.scope.files.length) throw new SDKPolicyError('Duplicate selected SDK paths');
     for (const file of this.scope.files) {
