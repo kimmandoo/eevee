@@ -387,36 +387,40 @@ mod tests {
     }
 
     #[test]
-    fn scoped_native_local_uncertainty_is_not_remote_only_or_canonical_success() {
-        for outcome in [Outcome::Completed, Outcome::Cancelled, Outcome::Unknown] {
-            let mut state = native();
-            state.set_operation(Operation::Implement);
-            state.edit_paths.push("missing/nested/new.rs".into());
-            let input = start(&mut state, &task("Create the selected new target"), 1);
-            assert_eq!(
-                input.edit_paths,
-                vec![std::path::PathBuf::from("missing/nested/new.rs")]
-            );
-            state.event(Event::LocalEffectsUnknown {
-                generation: 1,
-                task_id: 7,
-                message: "Filesystem publication outcome uncertain".into(),
-            });
-            state.event(Event::NativeCompleted {
-                generation: 1,
-                task_id: 7,
-                conversation: conversation(&input, "Unverified success claim"),
-            });
-            finish(&mut state, 1, outcome);
-            assert!(state.unknown_effects() && state.outcome_unknown() && state.owns_work());
-            assert!(
-                !state
-                    .native_histories
-                    .contains_key(&(Agent::Compatible, Operation::Implement))
-            );
-            state.switch_to = Some(Agent::Codex);
-            state.complete_switch();
-            assert!(state.unknown_effects() && state.owns_work());
+    fn native_local_uncertainty_is_not_remote_only_or_canonical_success() {
+        for selected in [false, true] {
+            for outcome in [Outcome::Completed, Outcome::Cancelled, Outcome::Unknown] {
+                let mut state = native();
+                state.set_operation(Operation::Implement);
+                if selected {
+                    state.edit_paths.push("missing/nested/new.rs".into());
+                }
+                let input = start(&mut state, &task("Create a new workspace target"), 1);
+                assert_eq!(input.edit_paths.is_empty(), !selected);
+                state.event(Event::LocalEffectsUnknown {
+                    generation: 1,
+                    task_id: 7,
+                    message: "Filesystem publication outcome uncertain".into(),
+                });
+                state.event(Event::NativeCompleted {
+                    generation: 1,
+                    task_id: 7,
+                    conversation: conversation(&input, "Unverified success claim"),
+                });
+                finish(&mut state, 1, outcome);
+                assert!(state.unknown_effects() && state.outcome_unknown() && state.owns_work());
+                assert!(
+                    !state
+                        .native_histories
+                        .contains_key(&(Agent::Compatible, Operation::Implement))
+                );
+                state.switch_to = Some(Agent::Codex);
+                state.complete_switch();
+                state.invalidate_authentication();
+                state.reset(8);
+                assert_eq!(state.task_id(), 7);
+                assert!(state.unknown_effects() && state.owns_work());
+            }
         }
     }
 

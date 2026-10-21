@@ -571,7 +571,7 @@ impl State {
         } else if operation == Operation::Review {
             "Independent Review selected locally. New always constructs fresh requirements/patch/evidence context and a separate provider session. Resume and source writes are unavailable; fixes require a deliberate implementation handoff.".into()
         } else if self.agent.is_direct() {
-            "Native role selected locally. Implement with /paths can create or replace selected files after exact one-shot approval; without paths it is proposal-only. Plan is read-only. Canonical chat stays in task/partner/role-scoped process memory, not a resumable provider session.".into()
+            "Native role selected locally. Implement can propose new or existing workspace paths for exact one-shot create/replace approval; /paths optionally restricts targets and [] clears the restriction. Plan/Review remain read-only. Canonical chat stays in task/partner/role-scoped process memory, not a resumable provider session.".into()
         } else {
             "Role policy selected locally. New/Resume requires fresh scope and executable consent; no permission carried.".into()
         };
@@ -1201,7 +1201,10 @@ impl State {
             ("effort", "Choose reasoning effort"),
             ("models-refresh", "Refresh provider model metadata"),
             ("sessions", "Inspect provider session metadata"),
-            ("paths", "Select exact new or existing write paths"),
+            (
+                "paths",
+                "Restrict exact write paths; [] allows workspace proposals",
+            ),
             ("provider-journal", "Open local provider journal"),
             ("handoff-clear", "Deselect portable handoff"),
             ("provider-codex", "Codex CLI method (tools / edits)"),
@@ -1373,17 +1376,11 @@ impl State {
             "role-implement" => self.set_operation(Operation::Implement),
             "role-review" => self.set_operation(Operation::Review),
             "paths" => {
-                let paths: Vec<_> = if self.edit_paths.is_empty() {
-                    excerpts
-                        .iter()
-                        .map(|excerpt| excerpt.path.clone())
-                        .collect()
-                } else {
-                    self.edit_paths
-                        .iter()
-                        .map(|path| path.to_string_lossy().into_owned())
-                        .collect()
-                };
+                let paths: Vec<_> = self
+                    .edit_paths
+                    .iter()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect();
                 let text = serde_json::to_string(&paths).unwrap_or_else(|_| "[]".into());
                 self.paths_editor = Some(Answer {
                     cursor: text.len(),

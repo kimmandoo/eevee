@@ -548,6 +548,19 @@ pub(super) fn render_summary(
     area.width >= 40 && area.height as usize >= lines.len()
 }
 
+fn write_scope_summary(state: &State, paint: &Paint) -> String {
+    if state.edit_paths.is_empty() {
+        paint
+            .hint(Message::ProvidersPlanningWorkspacePathProposals)
+            .into()
+    } else {
+        paint.format(
+            Template::ProvidersPlanningWritesSelectedPathsInspectExactScopeD,
+            &[("count", &state.edit_paths.len().to_string())],
+        )
+    }
+}
+
 fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
     if let Some(preview) = &state.preview {
         if state.agent.is_direct() {
@@ -577,20 +590,9 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
                 ),
                 if !state.inspect_models
                     && !state.inspect_sessions
-                    && crate::providers::writing_required(
-                        state.agent,
-                        state.operation,
-                        !state.edit_paths.is_empty(),
-                    )
+                    && crate::providers::writing_required(state.operation)
                 {
-                    paint.format(
-                        Template::ProvidersPlanningWritesSelectedPathsInspectExactScopeD,
-                        &[("count", &state.edit_paths.len().to_string())],
-                    )
-                } else if state.operation == Operation::Implement && !state.inspect_models {
-                    paint
-                        .hint(Message::ProvidersPlanningProposalOnlyNoToolsCommandsOrFile)
-                        .into()
+                    write_scope_summary(state, paint)
                 } else {
                     paint
                         .hint(Message::ProvidersPlanningTextResponseOnlyNoToolsOrLocal)
@@ -649,10 +651,7 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
                 && !state.inspect_sessions
                 && state.operation == Operation::Implement
             {
-                paint.format(
-                    Template::ProvidersPlanningWritesSelectedPathsInspectExactScopeD,
-                    &[("count", &(state.edit_paths.len()).to_string())],
-                )
+                write_scope_summary(state, paint)
             } else {
                 paint
                     .hint(Message::ProvidersPlanningNoSourceWriteGrantAgentPolicyNot)
@@ -2168,6 +2167,56 @@ mod tests {
                 .push("stale source".into());
             key(&mut app, &task, KeyCode::Char('y'));
             assert!(app.planning.pending.is_none());
+        }
+    }
+
+    #[test]
+    fn compact_generation_scope_contrasts_read_only_roles_and_metadata_in_both_languages() {
+        for tag in ["en", "ko"] {
+            let language = crate::i18n::Language::parse(tag).unwrap();
+            let mut config = config();
+            config.language = language;
+            let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
+            for agent in [
+                crate::providers::Agent::Compatible,
+                crate::providers::Agent::Codex,
+                crate::providers::Agent::Claude,
+            ] {
+                for operation in [Operation::Plan, Operation::Implement, Operation::Review] {
+                    let (mut app, _) = preview(60, 18);
+                    app.planning.agent = agent;
+                    app.planning.operation = operation;
+                    let scope = if operation == Operation::Implement {
+                        paint.hint(Message::ProvidersPlanningWorkspacePathProposals)
+                    } else if agent.is_direct() {
+                        paint.hint(Message::ProvidersPlanningTextResponseOnlyNoToolsOrLocal)
+                    } else {
+                        paint.hint(Message::ProvidersPlanningNoSourceWriteGrantAgentPolicyNot)
+                    };
+                    assert!(
+                        review_summary(&app.planning, &paint)
+                            .iter()
+                            .any(|line| line == scope)
+                    );
+                    let buffer = draw_language(&mut app, language);
+                    let rendered = (0..buffer.area.height)
+                        .map(|y| rendered_row(&buffer, buffer.area, y))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    if operation == Operation::Implement {
+                        assert!(rendered.contains(scope), "{rendered}");
+                    }
+                    assert!(app.planning.reviewed && !app.planning.affirmative);
+                    assert!(app.planning.pending.is_none());
+                    app.planning.inspect_models = true;
+                    let lines = review_summary(&app.planning, &paint);
+                    assert!(
+                        !lines.iter().any(|line| line
+                            == paint.hint(Message::ProvidersPlanningWorkspacePathProposals))
+                    );
+                    assert!(app.planning.pending.is_none());
+                }
+            }
         }
     }
 

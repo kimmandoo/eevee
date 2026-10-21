@@ -734,7 +734,7 @@ fn resolve_with<F: Fn(&str) -> Option<String>>(
         }
     };
     let description = format!(
-        "{}: {:?} at {}; {}; no host CLI required. Submitted input and bounded process-local conversation only. Selected-path Implement supports Eevee-mediated create/replace after exact one-shot approval; unscoped Implement, Plan, Review and metadata are non-writing. No shell, project hooks, MCP, hidden source or automatic edits. Request launch never refreshes credentials or changes storage. Account access and billing are not authenticated by configuration.",
+        "{}: {:?} at {}; {}; no host CLI required. Submitted input and bounded process-local conversation only. Implement supports workspace filename proposals, optionally restricted by /paths, with Eevee-mediated create/replace after exact one-shot approval (64 KiB per file). Plan, Review and metadata are non-writing. No shell, project hooks, MCP, hidden source or automatic edits. Request launch never refreshes credentials or changes storage. Account access and billing are not authenticated by configuration.",
         provider.label(),
         settings.protocol,
         settings.base_url,
@@ -882,7 +882,7 @@ pub(crate) fn guidance(provider: Agent) -> String {
         _ => "Select a native connection provider.",
     };
     format!(
-        "{guidance} Native Implement with selected paths supports Eevee-mediated file creation/replacement after exact one-shot approval. Unscoped Implement, Plan, Review and metadata remain proposal-only/non-writing. No shell, hooks or MCP. Setup offers session-only storage by default, or explicitly saved private local plaintext (not encrypted or an OS keychain). Configuration and metadata access do not prove inference, account access or billing."
+        "{guidance} Native Implement supports workspace filename proposals, optionally restricted by /paths, and Eevee-mediated file creation/replacement after exact one-shot approval (64 KiB per file). Plan, Review and metadata remain non-writing. No shell, hooks or MCP. Setup offers session-only storage by default, or explicitly saved private local plaintext (not encrypted or an OS keychain). Configuration and metadata access do not prove inference, account access or billing."
     )
 }
 
@@ -929,7 +929,7 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
     } else {
         "Credential source: own session/private local configuration when explicitly applied; otherwise the selected API-key environment variable. Configured is not authenticated. Passive discovery does not read credential files.".into()
     };
-    let boundary = "Native HTTP sends the explicitly submitted request and bounded process-local conversation. Implement with selected paths permits only Eevee-mediated create/replace of those exact paths after one-shot approval of each proposal. Unscoped Implement, Plan, Review and metadata do not write files. No shell, project hooks, MCP, hidden files, restart-resumable provider sessions or automatic edits.";
+    let boundary = "Native HTTP sends the explicitly submitted request and bounded process-local conversation. Implement supports project-relative workspace filename proposals within frozen privacy/exclusion boundaries; optional /paths restricts targets. Eevee-mediated create/replace requires exact one-shot approval of each complete proposal (64 KiB per file). Plan, Review and metadata do not write files. No shell, project hooks, MCP, hidden files, restart-resumable provider sessions or automatic edits.";
     agent::Profile {
         revision: 1,
         name: provider.label().into(),
@@ -947,7 +947,7 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
         probe_allowed: false,
         trust_preview: vec![configuration, credential_source, guidance(provider), boundary.into(), "Choosing model inspection or sending a request authorizes reading the selected credential and sending it only to the configured endpoint. Credentials are never logged; persistence requires explicit private-local save. Cancellation stops local waiting; it cannot promise a remote request stopped or was not billed. No retries or fallback.".into()],
         blockers: if available { Vec::new() } else { vec![guidance(provider)] },
-        capabilities: ["Plan", "Review", "Implement selected paths", "Models metadata"].into_iter().map(|action| agent::Capability {
+        capabilities: ["Plan", "Review", "Implement file proposals", "Models metadata"].into_iter().map(|action| agent::Capability {
             action: action.into(), boundary: boundary.into(), evidence: "Native protocol adapter; requires reviewed endpoint and explicit request".into(), blocker: "Configuration is not successful authentication; provider may reject credentials, model, quota or protocol".into(),
         }).collect(),
     }

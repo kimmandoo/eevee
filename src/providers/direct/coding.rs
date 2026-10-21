@@ -113,7 +113,7 @@ async fn inference_rounds(
             generation: run.generation,
             task_id: run.input.task.id,
             message: format!("Native HTTP round {round}/{ROUND_LIMIT}; requested model {model}; {}; no shell or command verification",
-                if run.writes.is_some() { "selected file tool requires a separate one-shot approval" } else { "no local write tools" }),
+                if run.writes.is_some() { "file proposals require separate exact one-shot approval" } else { "no local write tools" }),
         }).map_err(|error| (Outcome::Failed, error))?;
         // No retry, resend, redirect, model/account substitution or second dispatch receipt.
         let response = connection
@@ -173,7 +173,7 @@ async fn inference_rounds(
         stream
             .publish_usage(events, run, true)
             .map_err(|error| (Outcome::Failed, error))?;
-        let calls = stream
+        let mut calls = stream
             .calls
             .finish(run.writes.is_some())
             .map_err(|error| (Outcome::Failed, error))?;
@@ -197,64 +197,97 @@ async fn inference_rounds(
         if round == ROUND_LIMIT || call_count + calls.len() > TOOL_CALL_LIMIT {
             return Err((Outcome::Failed, "Native round/function-call limit reached; terminal call set not executed and no continuation sent".into()));
         }
-        let writes = run
-            .writes
-            .as_ref()
-            .ok_or_else(|| (Outcome::Failed, "Unadvertised native tools refused".into()))?;
-        {
-            let mut paths = HashSet::new();
-            for call in &calls {
-                if !paths.insert(&call.path)
-                    || call.id.as_ref().is_some_and(|id| seen_calls.contains(id))
-                {
-                    return Err((
-                        Outcome::Failed,
-                        "Repeated target or replayed native function-call identity refused".into(),
-                    ));
-                }
+        for call in &calls {
+            if call.id.as_ref().is_some_and(|id| seen_calls.contains(id)) {
+                return Err((
+                    Outcome::Failed,
+                    "Replayed native function-call identity refused".into(),
+                ));
             }
         }
         call_count += calls.len();
-        let mut results = Vec::with_capacity(calls.len());
-        // Validate every exact proposal before the first prompt; transfer the
-        // decoded full contents instead of copying them into another owner.
-        let proposals = calls
-            .into_iter()
-            .map(|call| {
-                writes
-                    .propose(call.path, call.content)
-                    .map(|proposal| (call.id, proposal))
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| (Outcome::Failed, error))?;
-        for (index, (call_id, proposal)) in proposals.into_iter().enumerate() {
-            let result = execute_write(
-                workspace,
-                run,
-                events,
-                control,
-                incoming,
-                connection,
-                revalidate,
-                round,
-                index,
-                call_id.as_deref(),
-                &proposal,
-            )
-            .map_err(|error| {
-                (
-                    if control.cancelled() {
-                        Outcome::Cancelled
-                    } else {
-                        Outcome::Failed
-                    },
-                    error,
-                )
-            })?;
-            if let Some(id) = call_id {
-                seen_calls.insert(id);
+        for call in &calls {
+            if let Some(id) = &call.id {
+                seen_calls.insert(id.clone());
             }
-            results.push(result);
+        }
+        // Recheck frozen authority before admission, and after any refusal.
+        // Only a semantic batch error with intact authority may be corrected.
+        validate_active(workspace, run, connection, control, revalidate).map_err(|error| {
+            (
+                if control.cancelled() {
+                    Outcome::Cancelled
+                } else {
+                    Outcome::Failed
+                },
+                error,
+            )
+        })?;
+        let proposals = prepare_batch(
+            run.writes
+                .as_mut()
+                .ok_or_else(|| (Outcome::Failed, "Unadvertised native tools refused".into()))?,
+            &mut calls,
+        );
+        let mut results = Vec::with_capacity(calls.len());
+        match proposals {
+            Err(error) => {
+                validate_active(workspace, run, connection, control, revalidate).map_err(
+                    |error| {
+                        (
+                            if control.cancelled() {
+                                Outcome::Cancelled
+                            } else {
+                                Outcome::Failed
+                            },
+                            error,
+                        )
+                    },
+                )?;
+                if !matches!(
+                    error.as_str(),
+                    "Repeated target in one proposal batch"
+                        | "Native proposal path exceeds its lexical bounds"
+                ) && !crate::providers::writes::semantic_proposal_refusal(&error)
+                {
+                    return Err((Outcome::Failed, error));
+                }
+                let message = format!(
+                    "Entire proposal batch refused before permissions or effects; no files or parents changed. Correct the batch: {}",
+                    safe(&error, true)
+                );
+                for call in calls {
+                    results.push(json!({"status":"refused","path":call.path,"message":message}));
+                }
+            }
+            Ok(proposals) => {
+                for (index, (call, proposal)) in calls.into_iter().zip(proposals).enumerate() {
+                    let result = execute_write(
+                        workspace,
+                        run,
+                        events,
+                        control,
+                        incoming,
+                        connection,
+                        revalidate,
+                        round,
+                        index,
+                        call.id.as_deref(),
+                        &proposal,
+                    )
+                    .map_err(|error| {
+                        (
+                            if control.cancelled() {
+                                Outcome::Cancelled
+                            } else {
+                                Outcome::Failed
+                            },
+                            error,
+                        )
+                    })?;
+                    results.push(result);
+                }
+            }
         }
         stream
             .calls
@@ -275,6 +308,37 @@ async fn inference_rounds(
         }
     }
     Err((Outcome::Failed, "Native HTTP round limit reached".into()))
+}
+
+fn prepare_batch(
+    writes: &mut WriteSet,
+    calls: &mut [tools::Call],
+) -> Result<Vec<WriteProposal>, String> {
+    if calls.iter().any(|call| {
+        call.path.to_str().is_none_or(|path| {
+            path.is_empty() || path.len() > tools::PATH_LIMIT || path.chars().any(char::is_control)
+        })
+    }) {
+        return Err("Native proposal path exceeds its lexical bounds".into());
+    }
+    let mut unique = HashSet::new();
+    let paths = calls
+        .iter()
+        .map(|call| call.path.clone())
+        .collect::<Vec<_>>();
+    if paths.iter().any(|path| !unique.insert(path)) {
+        return Err("Repeated target in one proposal batch".into());
+    }
+    let mut candidate = writes.clone();
+    candidate.admit_paths(&paths)?;
+    // Commit new authority only after the complete batch, including contents,
+    // validates. No prompt, effect or partial enrollment survives a refusal.
+    let proposals = calls
+        .iter_mut()
+        .map(|call| candidate.propose(call.path.clone(), std::mem::take(&mut call.content)))
+        .collect::<Result<Vec<_>, _>>()?;
+    *writes = candidate;
+    Ok(proposals)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -411,7 +475,7 @@ fn journal(
             turn_id: format!("eevee-native-request:{}", owner.request_id),
             item_id: item_id.clone(),
             origin: "Eevee-mediated native file tool".into(),
-            coverage: "Exact selected create/replace and approved parent scope only; observed local filesystem result, not command verification, commit or an OS sandbox".into(),
+            coverage: "Exact approved create/replace and parent scope only; observed local filesystem result, not command verification, commit or an OS sandbox".into(),
             text: safe(text, true),
             complete: true,
             partner: Some(owner.owner.clone()),

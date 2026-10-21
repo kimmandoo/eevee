@@ -32,8 +32,10 @@ UP, HOME, DELETE = ESC + '[A', ESC + '[H', ESC + '[3~'
 TOOL = 'eevee_write_file'
 FIRST = 'generated 界/cafe\u0301.py'
 EMPTY = 'generated 界/empty.txt'
-CONTENT = '# literal e\u0301 / café\nvalue = "public fixture"\n'
-REPLACEMENT = CONTENT + 'second = 2\n'
+LARGE = 'generated 界/large.py'
+LARGE_CONTENT = ''.join(f'generated_{index:04} = \"' + 'literal-code-' * 8 + '\"\r\n' for index in range(200))
+CONTENT = '# literal e\u0301 / café\r\nvalue = "public fixture"\r\n'
+REPLACEMENT = CONTENT + 'second = 2\r\n'
 CREATED = 'The reviewed fixture files were created.'
 REPLACED = 'The reviewed existing file was replaced.'
 DENIED = 'Denied fixture; no file was created.'
@@ -133,7 +135,7 @@ def response_plan(peer, *, calls=(), text='', number=0, gate=None):
                 if gate and not gate.hold(peer):
                     return
                 emit({'model': MODEL, 'choices': [{'index': 0, 'delta': {},
-                      'finish_reason': 'tool_calls' if calls else 'stop'}]})
+                      'finish_reason': 'stop'}]})
                 # Duplicate snapshots are one report, not extra consumption.
                 usage = {'prompt_tokens': 100 + number, 'completion_tokens': 10 + number}
                 for _ in range(2):
@@ -164,7 +166,7 @@ def response_plan(peer, *, calls=(), text='', number=0, gate=None):
                 if gate and not gate.hold(peer):
                     return
                 emit({'type': 'message_delta', 'delta': {
-                    'stop_reason': 'tool_use' if calls else 'end_turn'},
+                    'stop_reason': 'end_turn'},
                     'usage': {'output_tokens': 10 + number}}, 'message_delta')
                 emit({'type': 'message_stop'}, 'message_stop')
             else:
@@ -268,7 +270,7 @@ class CreationJourney(SurfaceJourney):
         assert self.snapshot()['executions'] == before['executions'], 'path selection ran a command'
         self.capture('selected-paths-' + str(posts))
 
-    def begin(self, request, plans):
+    def begin(self, request, plans, *, writing=True):
         self.write_request(request)
         before = len(self.peer.snapshot('POST'))
         for plan in plans:
@@ -291,9 +293,9 @@ class CreationJourney(SurfaceJourney):
 
         until(self.session, submitted, 'owned scoped implementation did not dispatch', timeout=40)
         claims = self.snapshot()['claims']
-        assert len(claims) == 1 and bool(claims[0]['writing']), 'native file tools bypassed writer lease'
+        assert len(claims) == 1 and bool(claims[0]['writing']) is writing, 'native operation bypassed its actual lease mode'
         body = self.peer.snapshot('POST')[before]['body']
-        assert body.get('tools'), 'scoped Implement did not advertise its file tool'
+        assert bool(body.get('tools')) is writing, 'native operation advertised the wrong tool capability'
         return before
 
     def permission(self, path, *, allow, kind='Create'):
@@ -340,15 +342,16 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
             wait_for(journey.session, 'Storage: saved')
             assert not any(journey.project.iterdir()), 'creation fixture did not start with an empty project'
             journey.setup_route()
-            journey.paths([FIRST, EMPTY])
-            request = 'Create the two selected fixture files; preserve literal Unicode and an empty second file.'
+            request = 'Generate three project files; propose their paths and preserve literal CRLF/Unicode and an empty file.'
             calls = [{'id': 'create-first', 'path': FIRST, 'content': CONTENT},
-                     {'id': 'create-empty', 'path': EMPTY, 'content': ''}]
+                     {'id': 'create-empty', 'path': EMPTY, 'content': ''},
+                     {'id': 'create-large', 'path': LARGE, 'content': LARGE_CONTENT}]
             first = journey.begin(request, [response_plan(peer, calls=calls, gate=gate),
                                             response_plan(peer, text=CREATED, number=1)])
             until(journey.session, gate.ready.is_set, 'fragmented tool round did not reach terminal gate')
             assert not (journey.project / FIRST).parent.exists(), 'stream fragments created a parent directory'
             assert not (journey.project / EMPTY).exists(), 'stream fragments created a file'
+            assert not (journey.project / LARGE).exists(), 'stream fragments created generated code'
             journey.capture('fragmented-arguments-no-effects-before-terminal')
             gate.release.set()
             journey.permission(FIRST, allow=True)
@@ -357,13 +360,18 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
             assert not (journey.project / EMPTY).exists()
             assert len(peer.snapshot('POST')) == first + 1, 'batch continued before every permission settled'
             journey.permission(EMPTY, allow=True)
-            journey.settled(CREATED, first + 2)
+            until(journey.session, lambda: (journey.project / EMPTY).is_file(), 'approved empty creation missing')
             assert (journey.project / EMPTY).read_bytes() == b''
+            assert not (journey.project / LARGE).exists()
+            assert len(peer.snapshot('POST')) == first + 1, 'batch continued before the large-file permission'
+            journey.permission(LARGE, allow=True)
+            journey.settled(CREATED, first + 2)
+            assert (journey.project / LARGE).read_bytes() == LARGE_CONTENT.encode()
             continuation = peer.snapshot('POST')[first + 1]['body']
             results = tool_results(protocol, continuation)
-            assert len(results) == 2 and set(call_ids(protocol, continuation)) == {'create-first', 'create-empty'}, continuation
+            assert len(results) == 3 and set(call_ids(protocol, continuation)) == {'create-first', 'create-empty', 'create-large'}, continuation
             rendered_results = json.dumps(results, ensure_ascii=False)
-            assert FIRST in rendered_results and EMPTY in rendered_results, 'real tool results lost exact paths'
+            assert all(path in rendered_results for path in (FIRST, EMPTY, LARGE)), 'real tool results lost exact paths'
             if protocol == 'gemini':
                 assert SIGNATURE in json.dumps(continuation), 'opaque call signature was not retained for continuation'
             reports = journey.usage()
@@ -374,7 +382,7 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
             assert all(m['report']['identity']['response'] is None for m in measurements), reports
             assert len({json.dumps(m['report']['identity'], sort_keys=True) for m in measurements}) == 2
             assert journey.receipts() == 1, 'tool continuation authored another request receipt'
-            result['cases'].append('empty-project nested Unicode/empty files; terminal-only complete batch; exact per-call approvals; shared parent; distinct round usage')
+            result['cases'].append('no-preselection empty-project generation; nested Unicode/CRLF/large/empty files; terminal-only exact approvals; shared parents; distinct round usage')
 
             journey.paths([FIRST])
             next_request = 'Replace only the selected file with the second reviewed fixture content.'
@@ -389,11 +397,35 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
             assert (journey.project / EMPTY).read_bytes() == b''
             result['cases'].append('later existing-file replacement preserves unrelated file and only public canonical history')
 
+            if advanced:
+                corrected = 'corrected/module.py'
+                corrected_content = 'corrected = True\r\n'
+                corrected_answer = 'The corrected proposal was created.'
+                journey.paths([corrected])
+                before = journey.begin('Respect the optional exact target restriction; correct any refused proposal.', [
+                    response_plan(peer, calls=[
+                        {'id': 'batch-valid', 'path': corrected, 'content': 'must not run\r\n'},
+                        {'id': 'batch-outside', 'path': 'not-in-restriction.txt', 'content': 'forbidden\r\n'}], number=4),
+                    response_plan(peer, calls=[
+                        {'id': 'batch-corrected', 'path': corrected, 'content': corrected_content}], number=5),
+                    response_plan(peer, text=corrected_answer, number=6)])
+                until(journey.session, lambda: len(peer.snapshot('POST')) == before + 2,
+                      'whole-batch refusal did not reach the next model round')
+                assert not (journey.project / corrected).parent.exists(), 'valid sibling executed beside an invalid proposal'
+                assert not (journey.project / 'not-in-restriction.txt').exists(), 'exact restriction was widened'
+                refused = tool_results(protocol, peer.snapshot('POST')[before + 1]['body'])
+                assert len(refused) == 2, 'not every refused batch call received a correlated result'
+                journey.permission(corrected, allow=True)
+                journey.settled(corrected_answer, before + 3)
+                assert (journey.project / corrected).read_bytes() == corrected_content.encode()
+                assert not (journey.project / 'not-in-restriction.txt').exists()
+                result['cases'].append('optional restriction; invalid whole batch performs zero writes; correlated refusal permits one newly reviewed model correction')
+
             denied = 'not-created/denied.txt'
-            journey.paths([denied])
-            before = journey.begin('Propose the selected denied fixture creation.', [response_plan(peer, calls=[
-                {'id': 'deny-create', 'path': denied, 'content': 'must not appear\n'}], number=4),
-                response_plan(peer, text=DENIED, number=5)])
+            journey.paths([])
+            before = journey.begin('Propose a new filename without a preselected target; deny its creation.', [response_plan(peer, calls=[
+                {'id': 'deny-create', 'path': denied, 'content': 'must not appear\n'}], number=7),
+                response_plan(peer, text=DENIED, number=8)])
             journey.permission(denied, allow=False)
             journey.settled(DENIED, before + 2)
             assert not (journey.project / denied).parent.exists(), 'denial created a directory or file'
@@ -403,7 +435,6 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
 
             if advanced:
                 collision = 'collision.txt'
-                journey.paths([collision])
                 before = journey.begin('Propose a file whose path will change before approval.', [response_plan(peer, calls=[
                     {'id': 'collide-create', 'path': collision, 'content': 'must not overwrite\n'}], number=6)])
                 journey.session.command('approvals')
@@ -415,6 +446,22 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
                 journey.settled(None, before + 1)
                 assert (journey.project / collision).read_bytes() == b'external user bytes\n'
                 result['cases'].append('a file appearing after preview/permission is preserved, never silently changed from Create to Replace')
+
+                files_before = {str(path.relative_to(journey.project)): hashlib.sha256(path.read_bytes()).hexdigest()
+                                for path in journey.project.rglob('*') if path.is_file()}
+                journey.session.command('role-plan')
+                journey.workspace()
+                gate.ready.clear()
+                gate.release.clear()
+                answer = 'Read-only fixture complete.'
+                before = journey.begin('Inspect the request without granting file tools.',
+                                       [response_plan(peer, text=answer, gate=gate, number=10)], writing=False)
+                until(journey.session, gate.ready.is_set, 'read-only response did not reach terminal gate')
+                gate.release.set()
+                journey.settled(answer, before + 1)
+                assert {str(path.relative_to(journey.project)): hashlib.sha256(path.read_bytes()).hexdigest()
+                        for path in journey.project.rglob('*') if path.is_file()} == files_before
+                result['cases'].append('switching to Plan removes write tools/lease and preserves every generated byte')
 
             journey.session.idle()
             journey.session.command('quit')
@@ -483,12 +530,6 @@ def codex_case(binary, output, size, language):
         journey.session.command('flareon')
         journey.workspace()
         journey.session.command('role-implement')
-        journey.workspace()
-        journey.session.command('paths')
-        wait_for(journey.session, 'JSON')
-        journey.session.send(UP * 16 + HOME + DELETE * 4096)
-        journey.session.paste(json.dumps([FIRST], ensure_ascii=False))
-        journey.session.send('\r')
         journey.workspace()
         assert not (journey.project / FIRST).parent.exists()
         before_original = journey.source.read_bytes()

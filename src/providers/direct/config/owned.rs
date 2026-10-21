@@ -194,7 +194,7 @@ pub(super) fn connection(provider: Agent, entry: Stored, now: u64) -> Result<Con
         account_id,
         residency: claims.residency,
         description: format!(
-            "{}: {:?}; explicit own native configuration; {}; configured only, not authenticated. Native selected-path Implement supports Eevee-mediated create/replace after exact one-shot approval. Unscoped Implement, Plan, Review and metadata do not write files. No shell, hooks, MCP or automatic edits. No automatic renewal, retry or account rotation.",
+            "{}: {:?}; explicit own native configuration; {}; configured only, not authenticated. Native Implement supports workspace filename proposals, optionally restricted by /paths, with Eevee-mediated create/replace after exact one-shot approval (64 KiB per file). Plan, Review and metadata do not write files. No shell, hooks, MCP or automatic edits. No automatic renewal, retry or account rotation.",
             provider.label(),
             protocol,
             if entry.keyless {

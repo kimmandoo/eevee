@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-22] Controlled follow-ups reused an incompatible thread and compact consent overflowed
+
+- **Context / Symptom:** Actual wide Codex creation denied neutrally, then the next ordinary Request was blocked because a resumed thread could not carry the dynamic write tool. At 60×18, a long auxiliary option-effect sentence consumed another row and hid Allow even though exact file/parent scope was visible.
+- **Root Cause:** Composer submission reused every owned non-Review thread, including controlled Implement. Permission producers supplied verbose option effects on top of complete immutable operation/path/parent headers.
+- **Solution:** Prepared a fresh controlled Codex thread for ordinary Implement follow-ups while retaining explicit resumed-implementation refusal. Shortened once-only option effects without truncating any scope or content. Frozen candidate B passed actual deny-then-create flows at 120×36 Unicode and 60×18 ASCII in English and Korean; unrelated existing bytes remained unchanged.
+- **Prevention / Reference:** Retain the two consecutive controlled turns and compact approval checks in `scripts/file_creation_smoke.py`. Original failures are preserved in `target/file-creation-a-{en,ko}`; passing focused proof is `target/file-creation-b-controlled/results.json`.
+
 ### [2026-10-22] Conservative name admission rejected distinct Unicode files
 
 - **Context / Symptom:** The integrated native coding regression refused `nested/empty.txt` and `nested/日本語.txt` before any mutation on macOS, although these were distinct targets.

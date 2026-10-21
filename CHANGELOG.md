@@ -10,6 +10,9 @@
 ## 0.1.15
 
 - feat(files): added shared approved file creation and replacement with exact absent/dirty baselines, reviewed missing-parent creation, sibling-parent authority and no-overwrite publication.
+- feat(coding): enabled model-proposed workspace filenames without mandatory path preselection while retaining optional exact restrictions and per-file content/parent approval.
+- fix(files): preserved literal CRLF, raised native/Codex files to 64 KiB with complete bounded review, and kept SDK approvals intact near the 256 KiB limit without duplicating large public tool arguments.
+- fix(native): accepted complete ordinary-stop tool calls, returned zero-effect whole-batch semantic refusals for model correction and displayed bounded generation progress without exposing private arguments.
 - feat(native): added scoped file tools and bounded native Responses, Chat Completions, Messages and Gemini continuations while retaining one writer lease, exact one-shot permissions, distinct reported round usage and public-only canonical history.
 - feat(sdk)!: required complete bridge revision 6 files with frozen typed create/replace/content/ancestor authority and independently enforced mandatory pre-tool checks.
 - fix(safety): retained blocking uncertainty for partial or ambiguous failed SDK writes instead of accepting a later successful model response.

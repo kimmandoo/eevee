@@ -100,10 +100,9 @@ pub enum Operation {
     Review,
 }
 
-/// Native Implement needs an explicit selected scope; external agents retain
-/// their implementation lease independently of their filesystem policy.
-pub(crate) fn writing_required(agent: Agent, operation: Operation, has_paths: bool) -> bool {
-    operation == Operation::Implement && (!agent.is_direct() || has_paths)
+/// Implement owns the durable writer lease, including model-proposed workspace paths.
+pub(crate) fn writing_required(operation: Operation) -> bool {
+    operation == Operation::Implement
 }
 
 /// Explicit local selection; None means the provider's advertised default.
@@ -334,9 +333,7 @@ impl Input {
         {
             return Err("Work claim task or immutable request owner does not match".into());
         }
-        if claim.writing
-            != writing_required(self.agent, self.operation, !self.edit_paths.is_empty())
-        {
+        if claim.writing != writing_required(self.operation) {
             return Err("Work claim writing lease does not match the provider operation".into());
         }
         Ok(())
@@ -746,17 +743,16 @@ mod tests {
     }
 
     #[test]
-    fn work_writing_lease_matches_operation_and_explicit_native_scope() {
+    fn work_writing_lease_matches_operation_independently_of_provider_and_paths() {
         for agent in Agent::ALL {
             for operation in [Operation::Plan, Operation::Implement, Operation::Review] {
                 for has_paths in [false, true] {
-                    let writing =
-                        operation == Operation::Implement && (!agent.is_direct() || has_paths);
+                    let writing = operation == Operation::Implement;
                     let mut input = claimed(agent, operation, writing);
                     if has_paths {
                         input.edit_paths.push("new/file.rs".into());
                     }
-                    assert_eq!(writing_required(agent, operation, has_paths), writing);
+                    assert_eq!(writing_required(operation), writing);
                     assert!(input.validate_work().is_ok(), "{agent:?} {operation:?}");
                     input.work.as_mut().unwrap().writing = !writing;
                     assert!(

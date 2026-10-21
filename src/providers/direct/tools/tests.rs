@@ -491,7 +491,7 @@ fn duplicate_ids_unknown_tools_and_unsupported_tool_types_are_rejected() {
 }
 
 #[test]
-fn strict_argument_objects_reject_missing_extra_duplicate_wrong_and_oversized_values() {
+fn strict_argument_objects_reject_missing_extra_duplicate_and_wrong_values() {
     for invalid in [
         "{}",
         "[]",
@@ -518,7 +518,8 @@ fn strict_argument_objects_reject_missing_extra_duplicate_wrong_and_oversized_va
             vec![response_call("one", &args(&path, &content))],
         )
         .unwrap();
-        assert!(calls.finish(true).is_err());
+        // Complete structurally valid arguments reach whole-batch semantic admission.
+        assert!(calls.finish(true).is_ok());
     }
     let mut calls = Calls::new(Protocol::Responses);
     assert!(
@@ -661,8 +662,13 @@ fn lifecycle_inconsistencies_cannot_be_promoted_to_effects() {
 }
 
 #[test]
-fn messages_tool_rounds_require_matching_stop_reasons() {
-    for reason in [None, Some("end_turn"), Some("tool_use")] {
+fn messages_tool_rounds_require_authoritative_successful_stop_reasons() {
+    for reason in [
+        None,
+        Some("end_turn"),
+        Some("stop_sequence"),
+        Some("tool_use"),
+    ] {
         let mut calls = Calls::new(Protocol::Messages);
         message_block(&mut calls, 0, json!({"type":"tool_use","id":"one","name":TOOL_NAME,"input":{"path":"src/new.rs","content":"new"}})).unwrap();
         message_close(&mut calls, 0);
@@ -672,7 +678,7 @@ fn messages_tool_rounds_require_matching_stop_reasons() {
                 .unwrap();
         }
         calls.observe("message_stop", &json!({})).unwrap();
-        assert_eq!(calls.finish(true).is_ok(), reason == Some("tool_use"));
+        assert_eq!(calls.finish(true).is_ok(), reason.is_some());
     }
     let mut calls = Calls::new(Protocol::Messages);
     calls
@@ -812,4 +818,83 @@ fn responses_authoritative_call_status_must_be_complete_when_present() {
             );
         }
     }
+}
+
+#[test]
+fn complete_fragmented_chat_calls_accept_stop_but_never_truncated_json() {
+    for complete in [false, true] {
+        let mut calls = Calls::new(Protocol::ChatCompletions);
+        chat_fragment(&mut calls, json!([{"index":0,"id":"one","type":"function","function":{"name":TOOL_NAME,"arguments":"{\"path\":\"new.txt\","}}]), None).unwrap();
+        chat_fragment(&mut calls, json!([{"index":0,"function":{"arguments":if complete { "\"content\":\"complete\"}" } else { "\"content\":\"incomplete" }}}]), None).unwrap();
+        chat_stop(&mut calls, "stop").unwrap();
+        assert_eq!(calls.finish(true).is_ok(), complete);
+        let mut body = json!({"messages":[]});
+        assert_eq!(
+            calls
+                .append_results(&mut body, &[result("refused")])
+                .is_ok(),
+            complete
+        );
+        if !complete {
+            assert_eq!(body, json!({"messages":[]}));
+        }
+    }
+}
+
+#[test]
+fn successful_messages_stop_labels_cannot_promote_truncated_arguments() {
+    for reason in ["tool_use", "end_turn", "stop_sequence"] {
+        let mut calls = Calls::new(Protocol::Messages);
+        message_block(
+            &mut calls,
+            0,
+            json!({"type":"tool_use","id":"one","name":TOOL_NAME,"input":{}}),
+        )
+        .unwrap();
+        message_delta(&mut calls, 0, json!({"type":"input_json_delta","partial_json":"{\"path\":\"new.txt\",\"content\":\"unfinished"})).unwrap();
+        message_close(&mut calls, 0);
+        calls
+            .observe("message_delta", &json!({"delta":{"stop_reason":reason}}))
+            .unwrap();
+        calls.observe("message_stop", &json!({})).unwrap();
+        assert!(calls.finish(true).is_err());
+        let mut body = json!({"messages":[]});
+        assert!(
+            calls
+                .append_results(&mut body, &[result("refused")])
+                .is_err()
+        );
+        assert_eq!(body, json!({"messages":[]}));
+    }
+}
+
+#[test]
+fn fully_escaped_sixty_four_kib_content_fits_arguments_without_truncation() {
+    let escaped = format!(
+        "{{\"path\":\"new.txt\",\"content\":\"{}\"}}",
+        "\\u0078".repeat(MAX_BYTES)
+    );
+    let mut calls = Calls::new(Protocol::ChatCompletions);
+    chat_fragment(&mut calls, json!([{"index":0,"id":"one","type":"function","function":{"name":TOOL_NAME,"arguments":escaped}}]), None).unwrap();
+    chat_stop(&mut calls, "stop").unwrap();
+    let decoded = calls.finish(true).unwrap();
+    assert_eq!(decoded[0].content, "x".repeat(MAX_BYTES));
+}
+
+#[test]
+fn wire_json_preserves_unique_keys_in_whole_arguments_and_terminal_metadata() {
+    for invalid in [
+        r#"{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_reason":"max_tokens"}}"#,
+        r#"{"content_block":{"type":"tool_use","id":"one","name":"eevee_write_file","input":{"path":"one.txt","path":"two.txt","content":"new"}}}"#,
+        r#"{"candidates":[{"content":{"parts":[{"functionCall":{"name":"eevee_write_file","args":{"path":"one.txt","content":"first","content":"second"}}}]}}]}"#,
+        r#"{"choices":[{"delta":{},"finish_reason":"stop","finish_reason":"length"}]}"#,
+        r#"{"complete":true} trailing"#,
+    ] {
+        assert!(frame(invalid).is_err());
+    }
+    let valid = r#"{"text":"こんにちは","usage":{"input_tokens":1,"output_tokens":2},"parts":[null,true,0,1.5]}"#;
+    assert_eq!(
+        frame(valid).unwrap(),
+        serde_json::from_str::<Value>(valid).unwrap()
+    );
 }

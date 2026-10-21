@@ -316,7 +316,7 @@ cmd-role-review = { "독립 검토 역할" }
 
 cmd-sessions = { "제공자 세션 메타데이터 확인" }
 
-cmd-paths = { "생성/교체할 정확한 경로 선택" }
+cmd-paths = { "정확한 쓰기 경로를 선택적으로 제한 · []로 작업공간 제안 허용" }
 
 cmd-models-refresh = { "모델 목록 새로 고침 검토" }
 

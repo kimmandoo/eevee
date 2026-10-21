@@ -355,11 +355,7 @@ impl App {
             ),
             writing: match &self.planning.pending {
                 Some(crate::providers::Request::Preview(input)) => {
-                    crate::providers::writing_required(
-                        input.agent,
-                        input.operation,
-                        !input.edit_paths.is_empty(),
-                    )
+                    crate::providers::writing_required(input.operation)
                 }
                 _ => false,
             },
@@ -1180,6 +1176,50 @@ mod tests {
     }
 
     #[test]
+    fn clearing_exact_paths_preserves_draft_caret_and_has_no_dispatch_or_grant() {
+        for agent in [
+            providers::Agent::Compatible,
+            providers::Agent::Codex,
+            providers::Agent::Claude,
+        ] {
+            let mut app = app();
+            app.planning.agent = agent;
+            app.planning.set_operation(providers::Operation::Implement);
+            app.planning.edit_paths = vec!["missing/nested/새.rs".into()];
+            app.input = "보존할 초안\nliteral /paths []\n".into();
+            app.cursor = "보존할 ".len();
+            let before = (app.input.clone(), app.cursor);
+            assert!(app.planning_command("paths"));
+            let characters = app
+                .planning
+                .paths_editor
+                .as_ref()
+                .unwrap()
+                .text
+                .chars()
+                .count();
+            app.planning_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+            for _ in 0..characters {
+                app.planning_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+            }
+            assert!(app.planning.paste("[]"));
+            assert_eq!(
+                app.planning.edit_paths,
+                vec![PathBuf::from("missing/nested/새.rs")]
+            );
+            assert_eq!((app.input.clone(), app.cursor), before);
+            assert!(app.planning_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+            assert!(app.planning.edit_paths.is_empty() && app.planning.paths_editor.is_none());
+            assert_eq!((app.input.clone(), app.cursor), before);
+            assert_eq!(app.planning.operation, providers::Operation::Implement);
+            assert!(app.planning.pending.is_none() && app.planning.work_pending.is_none());
+            assert!(app.planning.work.is_none() && app.planning.preview.is_none());
+            assert!(app.planning.pending_journal.is_empty() && !app.planning.busy());
+            assert_eq!(app.approval_count(), 0);
+        }
+    }
+
+    #[test]
     fn native_scope_takes_writer_claim_but_selection_and_metadata_do_not() {
         for agent in providers::Agent::ALL {
             for operation in [
@@ -1197,17 +1237,28 @@ mod tests {
                     assert!(app.planning.pending.is_none() && app.planning.work.is_none());
                     let task = app.tasks[0].clone();
                     app.planning.command("new", true, &task, &[], None);
+                    let Some(providers::Request::Preview(input)) = &app.planning.pending else {
+                        panic!("content preparation must freeze an input");
+                    };
+                    assert_eq!(input.operation, operation);
+                    assert_eq!(
+                        input.edit_paths.is_empty(),
+                        !has_paths || operation != providers::Operation::Implement
+                    );
+                    // Mutable role/selection changes cannot change the frozen request's lease.
+                    app.planning.operation = if operation == providers::Operation::Implement {
+                        providers::Operation::Plan
+                    } else {
+                        providers::Operation::Implement
+                    };
+                    app.planning.edit_paths.clear();
                     app.stage_provider_work();
                     let Some(store::WorkRequest::Acquire { claim, .. }) =
                         &app.planning.work_pending
                     else {
                         panic!("content preparation must stage a durable claim");
                     };
-                    assert_eq!(
-                        claim.writing,
-                        operation == providers::Operation::Implement
-                            && (!agent.is_direct() || has_paths)
-                    );
+                    assert_eq!(claim.writing, operation == providers::Operation::Implement);
                     let request = app.planning.work_pending.take().unwrap();
                     app.planning.work_event(
                         request,

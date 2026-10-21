@@ -1,5 +1,5 @@
-//! Worker-owned, selected-path create/replace authority. Handles and stale checks
-//! are not an OS sandbox or a compare-and-swap against uncooperative writers.
+//! Worker-owned, exact create/replace authority for selected or proposed paths.
+//! Retained handles and stale checks are not an OS sandbox or compare-and-swap.
 //! Name admission is read-only: native IDs and known directory capabilities
 //! reject established aliases before mutation. Unknown collation never merges
 //! identities: exact frozen entries and no-overwrite publication remain the
@@ -26,8 +26,9 @@ mod platform;
 
 pub(crate) const TOOL_NAME: &str = "eevee_write_file";
 pub(crate) const MAX_FILES: usize = 8;
-pub(crate) const MAX_BYTES: usize = 12 * 1024;
-const REVIEW_BYTES: usize = 32 * 1024;
+pub(crate) const MAX_BYTES: usize = 64 * 1024;
+const REVIEW_BYTES: usize = 256 * 1024;
+const REVIEW_LINES: usize = 32_768;
 
 // Capability-backed ASCII distinctions and conservative macOS normalization
 // rejection are admission checks, never lowercased filesystem identities.
@@ -35,6 +36,7 @@ const REVIEW_BYTES: usize = 32 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum NamePolicy {
     ByteSensitive,
+    #[cfg(any(target_os = "macos", windows))]
     AsciiSensitive,
     AsciiInsensitive,
     Unknown,
@@ -63,6 +65,7 @@ impl NamePolicy {
             return NameRelation::Unknown;
         }
         match self {
+            #[cfg(any(target_os = "macos", windows))]
             Self::AsciiSensitive => NameRelation::Distinct,
             Self::AsciiInsensitive if left.eq_ignore_ascii_case(right) => NameRelation::Equivalent,
             Self::AsciiInsensitive => NameRelation::Distinct,
@@ -182,20 +185,30 @@ impl Target {
                 self.path.display()
             ),
         };
-        for (prefix, text) in [
-            (
-                '-',
-                self.baseline
-                    .as_ref()
-                    .map_or("", |baseline| baseline.text.as_str()),
-            ),
-            ('+', content),
-        ] {
+        let baseline = self
+            .baseline
+            .as_ref()
+            .map_or("", |baseline| baseline.text.as_str());
+        let show_endings = baseline.contains("\r\n") || content.contains("\r\n");
+        patch.push_str(&format!(
+            "Line endings: baseline {}; proposed {}. When either side contains CRLF, every terminated line has a [CRLF] or [LF] review suffix (not file bytes); carriage-return controls are never rendered.\n",
+            line_endings(baseline),
+            line_endings(content),
+        ));
+        for (prefix, text) in [('-', baseline), ('+', content)] {
             for line in text.split_inclusive('\n') {
                 patch.push(prefix);
-                patch.push_str(line);
-                if !line.ends_with('\n') {
-                    patch.push_str("\n\\ No newline at end of file\n");
+                if let Some(body) = line.strip_suffix("\r\n") {
+                    patch.push_str(body);
+                    patch.push_str(" [CRLF]\n");
+                } else if show_endings && let Some(body) = line.strip_suffix('\n') {
+                    patch.push_str(body);
+                    patch.push_str(" [LF]\n");
+                } else {
+                    patch.push_str(line);
+                    if !line.ends_with('\n') {
+                        patch.push_str("\n\\ No newline at end of file\n");
+                    }
                 }
             }
         }
@@ -213,13 +226,55 @@ pub(crate) struct WriteSet {
     directories: BTreeMap<PathBuf, platform::Directory>,
     owned_directories: BTreeSet<PathBuf>,
     targets: Vec<Target>,
+    workspace: bool,
+    protected_paths: Vec<PathBuf>,
+    exclusions: Vec<PathBuf>,
+}
+
+fn line_endings(text: &str) -> String {
+    let crlf = text.matches("\r\n").count();
+    let lf = text.bytes().filter(|byte| *byte == b'\n').count() - crlf;
+    format!(
+        "{crlf} CRLF, {lf} LF, {} bytes, {}",
+        text.len(),
+        if text.is_empty() {
+            "empty"
+        } else if text.ends_with('\n') {
+            "final newline"
+        } else {
+            "no final newline"
+        }
+    )
+}
+
+fn review_fits(proposal: &WriteProposal) -> bool {
+    let description = proposal.description();
+    description.len() <= REVIEW_BYTES && description.lines().count() <= REVIEW_LINES
 }
 
 fn safe_text(text: &str) -> bool {
-    !text.chars().any(|character| {
-        (character.is_control() && !matches!(character, '\n' | '\t'))
+    !text.as_bytes().iter().enumerate().any(|(index, byte)| {
+        *byte == b'\r' && text.as_bytes().get(index + 1) != Some(&b'\n')
+    }) && !text.chars().any(|character| {
+        (character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
             || matches!(character, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
     }) && crate::workspace::privacy::redact(text) == text
+}
+
+/// Only explicit input refusals are retryable; native capture/identity failures
+/// are never treated as model-correctable merely because no write occurred.
+pub(crate) fn semantic_proposal_refusal(message: &str) -> bool {
+    matches!(
+        message,
+        "Protected, excluded, duplicate, conflicting or non-literal proposed write path refused"
+            | "Only an exact reviewed selected path may be written"
+            | "Controlled implementation permits at most 8 distinct file targets"
+            | "Selected working bytes are oversized, binary, credential-bearing or contain unsafe controls"
+            | "Filesystem-equivalent selected target/absent-parent aliases refused; select unambiguous paths"
+            | "Filesystem-equivalent or conflicting selected write paths refused"
+            | "Unsafe or oversized proposed UTF-8 content refused"
+            | "Exact content/path/parent review exceeds 256 KiB or 32768 lines; reduce the change"
+    )
 }
 
 fn allowed_path(path: &Path, exclusions: &[PathBuf]) -> bool {
@@ -450,6 +505,17 @@ impl WriteSet {
                     .into(),
             );
         }
+        let mut set = Self::capture_workspace(root, data_dir, exclusions)?;
+        set.admit_paths(paths)?;
+        set.workspace = false;
+        Ok(set)
+    }
+
+    pub(crate) fn capture_workspace(
+        root: &Path,
+        data_dir: &Path,
+        exclusions: &[PathBuf],
+    ) -> Result<Self, String> {
         let canonical = root
             .canonicalize()
             .map_err(|_| "Cannot bind the selected project root")?;
@@ -458,18 +524,7 @@ impl WriteSet {
             .map_err(|_| "Cannot identify the running executable")?
             .canonicalize()
             .map_err(|_| "Cannot bind the running executable")?;
-        for (index, path) in paths.iter().enumerate() {
-            if !allowed_path(path, exclusions)
-                || protected_prefix(&canonical.join(path), &private_data)
-                || protected_prefix(&canonical.join(path), &executable)
-                || paths[..index]
-                    .iter()
-                    .any(|other| path.starts_with(other) || other.starts_with(path))
-            {
-                return Err("Protected, excluded, duplicate, conflicting or non-literal selected write path refused".into());
-            }
-        }
-        let mut set = Self {
+        let set = Self {
             source_root: root.to_path_buf(),
             root: canonical.clone(),
             directories: BTreeMap::from([(
@@ -477,9 +532,55 @@ impl WriteSet {
                 platform::Directory::open_root(&canonical)?,
             )]),
             owned_directories: BTreeSet::new(),
-            targets: Vec::with_capacity(paths.len()),
+            targets: Vec::new(),
+            workspace: true,
+            protected_paths: vec![private_data, executable],
+            exclusions: exclusions.to_vec(),
         };
+        set.verify()?;
+        Ok(set)
+    }
+
+    /// Capture a whole proposal batch without changing disk or recapturing any
+    /// existing authority. The candidate is committed only after every check.
+    pub(crate) fn admit_paths(&mut self, paths: &[PathBuf]) -> Result<(), String> {
+        self.verify()?;
+        let mut additional = 0;
+        for (index, path) in paths.iter().enumerate() {
+            let known = self.targets.iter().any(|target| target.path == *path);
+            if !allowed_path(path, &self.exclusions)
+                || self
+                    .protected_paths
+                    .iter()
+                    .any(|protected| protected_prefix(&self.root.join(path), protected))
+                || paths[..index]
+                    .iter()
+                    .any(|other| path.starts_with(other) || other.starts_with(path))
+                || self.targets.iter().any(|target| {
+                    target.path != *path
+                        && (path.starts_with(&target.path) || target.path.starts_with(path))
+                })
+            {
+                return Err("Protected, excluded, duplicate, conflicting or non-literal proposed write path refused".into());
+            }
+            if !known {
+                if !self.workspace {
+                    return Err("Only an exact reviewed selected path may be written".into());
+                }
+                additional += 1;
+            }
+        }
+        if self.targets.len() + additional > MAX_FILES {
+            return Err("Controlled implementation permits at most 8 distinct file targets".into());
+        }
+        if additional == 0 {
+            return Ok(());
+        }
+        let mut set = self.clone();
         for path in paths {
+            if set.targets.iter().any(|target| target.path == *path) {
+                continue;
+            }
             let mut parent = PathBuf::new();
             let mut missing_parents = Vec::new();
             for part in path.parent().unwrap_or(Path::new("")).components() {
@@ -521,7 +622,8 @@ impl WriteSet {
             });
         }
         set.verify()?;
-        Ok(set)
+        *self = set;
+        Ok(())
     }
 
     fn verify_aliases(&self) -> Result<(), String> {
@@ -642,9 +744,9 @@ impl WriteSet {
             kind,
             directories: target.missing_parents.clone(),
         };
-        if proposal.description().len() > REVIEW_BYTES {
+        if !review_fits(&proposal) {
             return Err(
-                "Exact content/path/parent review exceeds 32 KiB; reduce selected change".into(),
+                "Exact content/path/parent review exceeds 256 KiB or 32768 lines; reduce the change".into(),
             );
         }
         Ok(proposal)
@@ -662,7 +764,7 @@ impl WriteSet {
             || proposal.kind != target.kind()
             || proposal.directories != target.missing_parents
             || proposal.patch != target.patch(&proposal.content)
-            || proposal.description().len() > REVIEW_BYTES
+            || !review_fits(proposal)
         {
             return Err("Exact reviewed create/replace proposal changed; no write"
                 .to_owned()

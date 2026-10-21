@@ -316,7 +316,7 @@ cmd-role-review = { "Independent review role" }
 
 cmd-sessions = { "Inspect provider session metadata" }
 
-cmd-paths = { "Select exact new or existing write paths" }
+cmd-paths = { "Optionally restrict exact write paths; [] clears to workspace proposals" }
 
 cmd-models-refresh = { "Review model catalogue refresh" }
 

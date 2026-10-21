@@ -3,7 +3,8 @@ import { readFileSync, mkdirSync, lstatSync, existsSync, realpathSync } from 'no
 import { dirname, join } from 'node:path';
 import { once } from 'node:events';
 import { isDeepStrictEqual } from 'node:util';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { Query, CanUseTool, OnElicitation, Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -114,6 +115,11 @@ function cleanEnvironment(configDir: string, externalCloud: boolean, profile: Re
   process.env.CLAUDE_AGENT_SDK_CLIENT_APP = 'eevee/1.0';
   process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
 }
+function inputMetadata(input: unknown) {
+  const bytes = Buffer.from(JSON.stringify(input) ?? 'null');
+  const path = input && typeof input === 'object' && 'file_path' in input && typeof input.file_path === 'string' ? input.file_path : undefined;
+  return { path, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
+}
 
 async function run(command: z.infer<typeof RunSchema>) {
   if (started) throw new Error('One sidecar accepts exactly one query; follow-up turns are not queued');
@@ -129,7 +135,8 @@ async function run(command: z.infer<typeof RunSchema>) {
   cleanEnvironment(command.state_dir, expectedProvider !== 'firstParty' && process.env.EEVEE_CLAUDE_CLOUD_AUTH === 'provider-chain', profile);
   controller = new AbortController();
   const tools = command.inspect_models ? [] : command.operation === 'implement' ? [...READ_TOOLS, 'Edit', 'Write'] : READ_TOOLS;
-  const writePolicy = new SDKWritePolicy(command.cwd, command.write_scope);
+  const writePolicy = new SDKWritePolicy(command.cwd, command.write_scope,
+    [realpathSync(command.state_dir), realpathSync(fileURLToPath(new URL('.', import.meta.url))), dirname(sdkEntry), nativePackage, cli]);
   const canUseTool: CanUseTool = async (tool, input, options) => {
     if (cancelled || options.signal.aborted || !tools.includes(tool)) return deny;
     const id = options.requestId || `permission-${++promptSequence}`;
@@ -197,7 +204,7 @@ async function run(command: z.infer<typeof RunSchema>) {
       const toolInput = z.record(z.string(), z.unknown()).safeParse(input.tool_input);
       if (cancelled || controller?.signal.aborted || !tools.includes(name) || ((name === 'Write' || name === 'Edit') &&
         (!toolInput.success || !writePolicy.preToolUse(input.tool_use_id, name, toolInput.data)))) {
-        return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Mandatory selected-path/tool policy' } };
+        return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Mandatory frozen-target/tool policy' } };
       }
       return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: 'Review this one operation in Eevee' } };
     }] }] };
@@ -273,9 +280,9 @@ async function run(command: z.infer<typeof RunSchema>) {
             await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: `${message.message.id}:${i}`, kind: 'message', text: block.text, complete: true });
           }
           if (block.type === 'tool_use') {
-            if (toolCalls.size >= 128 || Buffer.byteLength(JSON.stringify(block.input)) > 32 * 1024) throw new Error('SDK tool input retention bound');
+            if (toolCalls.has(block.id) || toolCalls.size >= 128 || Buffer.byteLength(JSON.stringify(block.input)) > FRAME_LIMIT / 2) throw new Error('SDK tool input retention bound');
             toolCalls.set(block.id, { tool: block.name, input: block.input });
-            await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: block.id, kind: 'tool', text: JSON.stringify({ provider: 'Claude Agent SDK', sdk_version: sdkVersion, tool: block.name, input: block.input, status: 'requested' }), complete: false });
+            await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: block.id, kind: 'tool', text: JSON.stringify({ provider: 'Claude Agent SDK', sdk_version: sdkVersion, tool: block.name, observation: 'Argument metadata only; exact input is reviewed separately for consent', input: inputMetadata(block.input), status: 'requested' }), complete: false });
           }
         }
       } else if (message.type === 'user' && Array.isArray(message.message.content)) {
@@ -289,7 +296,7 @@ async function run(command: z.infer<typeof RunSchema>) {
           }
           await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: block.tool_use_id, kind: 'tool', text: JSON.stringify({
             provider: 'Claude Agent SDK', sdk_version: sdkVersion, cli_version: cliVersion, coverage: 'provider-native tool result; not an Eevee local command/check or proof of confinement',
-            ...call, result: block.content, is_error: block.is_error, status: block.is_error ? 'failed' : 'completed',
+            tool: call?.tool, observation: 'Argument metadata only; exact input was reviewed separately for consent', input: inputMetadata(call?.input), result: block.content, is_error: block.is_error, status: block.is_error ? 'failed' : 'completed',
           }), complete: true });
         }
       } else if (message.type === 'result') {

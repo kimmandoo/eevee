@@ -21,6 +21,7 @@ const FRAME_LIMIT: usize = 2 * 1024 * 1024;
 const EVENTS_LIMIT: usize = 256;
 const OUTPUT_LIMIT: usize = 512 * 1024;
 const ITEM_LIMIT: usize = 32 * 1024;
+const APPROVAL_LIMIT: usize = 1024 * 1024;
 type Events = Arc<Mutex<VecDeque<Event>>>;
 struct Workspace {
     project: PathBuf,
@@ -867,11 +868,30 @@ fn sdk_tool_policy(operation: Operation) -> &'static str {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SdkWriteScope {
+    mode: SdkWriteMode,
+    protected_paths: Vec<PathBuf>,
+    excluded_paths: Vec<PathBuf>,
     root_identity: Option<String>,
     files: Vec<SdkWriteFile>,
+}
+impl SdkWriteScope {
+    fn empty_selected() -> Self {
+        Self {
+            mode: SdkWriteMode::Selected,
+            protected_paths: Vec::new(),
+            excluded_paths: Vec::new(),
+            root_identity: None,
+            files: Vec::new(),
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+enum SdkWriteMode {
+    Selected,
+    Workspace,
 }
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -938,19 +958,28 @@ fn capture_write_scope(
     exclusions: &[PathBuf],
 ) -> Result<SdkWriteScope, String> {
     if input.edit_paths.len() > 256
-        || (input.operation == Operation::Implement && input.edit_paths.is_empty())
         || (input.operation != Operation::Implement && !input.edit_paths.is_empty())
     {
-        return Err("Claude external-policy implementation requires explicit reviewed root-relative edit paths".into());
+        return Err("Claude edit paths are bounded and available only for Implement".into());
     }
-    if input.edit_paths.is_empty() {
-        return Ok(SdkWriteScope::default());
+    if input.operation != Operation::Implement {
+        return Ok(SdkWriteScope::empty_selected());
     }
     let root = Path::new(&input.task.project);
     let root_identity = sdk_directory_identity(root)?;
+    let data = fs::canonicalize(data_dir).map_err(|_| "SDK data protection unavailable")?;
     let executable = std::env::current_exe()
-        .ok()
-        .and_then(|path| fs::canonicalize(path).ok());
+        .and_then(fs::canonicalize)
+        .map_err(|_| "SDK executable protection unavailable")?;
+    if exclusions.iter().any(|path| {
+        path.as_os_str().is_empty()
+            || path
+                .components()
+                .any(|part| !matches!(part, Component::Normal(_)))
+            || path.to_str().is_none()
+    }) {
+        return Err("SDK exclusion must be an exact root-relative path".into());
+    }
     let mut files = Vec::with_capacity(input.edit_paths.len());
     for path in &input.edit_paths {
         let text = path.to_str().ok_or("SDK selected path is not UTF-8")?;
@@ -1011,7 +1040,7 @@ fn capture_write_scope(
             );
         }
         let full = root.join(path);
-        if full.starts_with(data_dir) || executable.as_ref().is_some_and(|exe| exe == &full) {
+        if full.starts_with(&data) || full == executable {
             return Err("SDK own data/runtime target refused".into());
         }
         let mut ancestors = Vec::new();
@@ -1095,6 +1124,13 @@ fn capture_write_scope(
         return Err("SDK root changed during capture".into());
     }
     Ok(SdkWriteScope {
+        mode: if input.edit_paths.is_empty() {
+            SdkWriteMode::Workspace
+        } else {
+            SdkWriteMode::Selected
+        },
+        protected_paths: vec![data, executable],
+        excluded_paths: exclusions.to_vec(),
         root_identity: Some(root_identity),
         files,
     })
@@ -1109,12 +1145,12 @@ fn payload(
         return serde_json::to_string(&json!({
             "intent": "inspect_models", "selection": input.selection,
             "effects": "Initialize the reviewed SDK/backend and query supportedModels(); may contact provider/auth services and create isolated SDK state. No task prompt, prior session, model turn or model journal.",
-        })).map(|text| (text, SdkWriteScope::default())).map_err(|_| "Could not encode Claude model inspection".into());
+        })).map(|text| (text, SdkWriteScope::empty_selected())).map_err(|_| "Could not encode Claude model inspection".into());
     }
     input.validate_review()?;
     input.validate_committed(data_dir)?;
     if let Some(text) = input.review_payload(data_dir, exclusions)? {
-        return Ok((text, SdkWriteScope::default()));
+        return Ok((text, SdkWriteScope::empty_selected()));
     }
     if let Some(document) = &input.handoff {
         crate::workspace::handoff::validate_dispatch(
@@ -1133,11 +1169,11 @@ fn payload(
     )?;
     let write_scope = capture_write_scope(data_dir, input, exclusions)?;
     let text = serde_json::to_string_pretty(&json!({
-        "purpose": if input.operation == Operation::Plan { "Plan only; no implementation tools are exposed." } else { "Implement only reviewed files, preserving existing dirty working content. This is external SDK agent policy, not strict OS confinement. Do not commit/merge. Report unverified patch for human diff review." },
+        "purpose": if input.operation == Operation::Plan { "Plan only; no implementation tools are exposed." } else { "Implement using exact per-operation approval of each file and missing parent. Empty selected paths permit safe project-relative file proposals; nonempty selected paths are an exact restriction. Preserve existing dirty working content. This is external SDK agent policy, not strict OS confinement. Do not commit/merge. Report unverified patch for human diff review." },
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
         "request": input.instruction(),
         "approved_memories": input.task.approved_memories,
-        "selected_sources": serde_json::from_str::<Value>(&sources.text).map_err(|_| "Invalid source envelope")?, "edit_baselines": write_scope.files, "handoff": input.handoff,
+        "selected_sources": serde_json::from_str::<Value>(&sources.text).map_err(|_| "Invalid source envelope")?, "write_mode": write_scope.mode, "edit_baselines": write_scope.files, "handoff": input.handoff,
     })).map_err(|_| "Could not encode Claude payload")?;
     if text.len() > FRAME_LIMIT / 2 || text.chars().any(|c| (c.is_control() && !matches!(c, '\n' | '\t')) ||
         matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')) || crate::workspace::privacy::redact(&text) != text {
@@ -1235,7 +1271,7 @@ fn worker(
                         "Filesystem settingSources=[]; no project/user CLAUDE.md/hooks/plugins/skills/MCP are loaded. MCP strict-empty; Agent/Task/Bash/web/worktree/delegation tools are mandatory-disabled. System executable configuration is refused. Host policy hook runs only in implementation. Inherited OS/runtime and provider cloud credential libraries remain external dependencies.".into(),
                         "Read/Glob/Grep are provider-native agent-policy tools, not excerpt-only reads or Eevee confinement; preapproved reads may bypass canUseTool. Explicit ask rules mediate supported requests. Deny/allow once only; no permission updates, login flows or automatic queue/resend. Interrupt requires observed terminal result; forced cleanup is outcome unknown, never rollback. One query is bounded to 16 SDK turns and estimated incremental USD 5; estimates are not invoices.".into(),
                         match input.operation {
-                            Operation::Implement => "EXTERNAL-POLICY IMPLEMENTATION: Write/Edit only, mandatory selected-path hook plus explicit user approval. No shell/delegation/MCP mutations. Symlinks are refused at check; SDK path checks are NOT atomic OS confinement. Consent accepts that external-policy boundary; inspect dirty baseline/current diff and deliberately verify; no auto commit/merge.".into(),
+                            Operation::Implement => "EXTERNAL-POLICY IMPLEMENTATION: Write/Edit proposals, mandatory frozen-target hook and exact one-shot user approval. Optional selected paths restrict targets; otherwise safe project-relative targets are captured before approval. No shell/delegation/MCP mutations. Symlinks are refused at check; SDK path checks are NOT atomic OS confinement. Consent accepts that external-policy boundary; inspect dirty baseline/current diff and deliberately verify; no auto commit/merge.".into(),
                             Operation::Plan => "PLAN: SDK tool exposure excludes all file-write/shell/delegation routes. This is verified configured agent tool policy, not filesystem/network isolation.".into(),
                             Operation::Review => "REVIEW: fresh requirements/patch/selected-observation context in a new session; no implementation history or Resume. Uses the reviewed SDK read-only tool policy: Write/Edit/Bash/delegation/MCP are unavailable independently of approval callbacks. Agent tool policy is not OS isolation.".into(),
                         },
@@ -1252,7 +1288,7 @@ fn worker(
                     input.selection.effort.as_deref().unwrap_or("provider default (not advertised)"),
                     if input.inspect_models { "MODEL INSPECTION ONLY: no prompt/history/model turn or journal; SDK initialization may contact provider/auth services, refresh credentials and create isolated SDK state. All tools are disabled; the SDK closes after bounded capabilities and terminal result." } else { "The selected model and effort belong to this immutable reviewed request." },
                 ));
-                let mut write_scope = SdkWriteScope::default();
+                let mut write_scope = SdkWriteScope::empty_selected();
                 match payload(data_dir, &input, exclusions) {
                     Ok((text, scope)) => {
                         preview.payload = text;
@@ -2002,7 +2038,7 @@ fn prompt_kind(value: &Value) -> Result<PromptKind, String> {
     if serde_json::to_vec(input)
         .map_err(|_| "Invalid SDK prompt")?
         .len()
-        > 64 * 1024
+        > APPROVAL_LIMIT
     {
         return Err("SDK prompt exceeds bound".into());
     }
@@ -2084,7 +2120,14 @@ fn prompt_kind(value: &Value) -> Result<PromptKind, String> {
             value["kind"].as_str().unwrap()
         )
     };
-    if description.len() > ITEM_LIMIT || safe(&description) != description {
+    if description.len() > APPROVAL_LIMIT
+        || description.lines().count() > 32768
+        || description.chars().any(|c| {
+            (c.is_control() && !matches!(c, '\n' | '\t'))
+                || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        })
+        || crate::workspace::privacy::redact(&description) != description
+    {
         return Err(
             "SDK permission details require truncation/redaction; no hidden grant offered".into(),
         );

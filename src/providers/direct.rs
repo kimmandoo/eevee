@@ -242,9 +242,11 @@ fn worker(
                     "Cancellation closes the local response reader; remote completion is not confirmed stopped. Each HTTP round has a bounded deadline; file permission has a separate five-minute expiry.".into(),
                 ], payload: String::new(), blockers: Vec::new() };
                 if native_writing(&input) {
-                    preview.trust.push("SCOPED IMPLEMENT: only eevee_write_file can create or replace the exact selected targets. Every complete content/patch and missing-parent scope requires a separate deny/allow-once permission. Eevee mediates these writes, not an OS sandbox. No command execution or verification.".into());
-                } else if input.operation == Operation::Implement {
-                    preview.trust.push("IMPLEMENT PROPOSAL ONLY: no selected write paths, so no tools or local writes are available. Select exact /paths for reviewed file creation/replacement.".into());
+                    preview.trust.push(if input.edit_paths.is_empty() {
+                        "WORKSPACE IMPLEMENT: the model may propose project-relative filenames within frozen privacy and exclusion boundaries. Every exact create/replace, complete content and missing-parent scope requires separate deny/allow-once permission. Optional /paths restricts proposals to selected files. Native file content limit: 64 KiB. No command execution or verification."
+                    } else {
+                        "SELECTED IMPLEMENT: only eevee_write_file can create or replace the exact selected targets. Every complete content and missing-parent scope requires separate deny/allow-once permission. Native file content limit: 64 KiB. No command execution or verification."
+                    }.into());
                 }
                 if input.inspect_models {
                     preview.trust.push("METADATA ONLY: bounded paginated model discovery; no task/source content or inference request. Explicit/configured models are not restricted to the discovered catalogue.".into());
@@ -372,23 +374,28 @@ fn validate_input(workspace: &Workspace, input: &Input) -> Result<(), String> {
     Ok(())
 }
 fn native_writing(input: &Input) -> bool {
-    !input.inspect_models
-        && !input.inspect_sessions
-        && input.operation == Operation::Implement
-        && !input.edit_paths.is_empty()
+    !input.inspect_models && !input.inspect_sessions && super::writing_required(input.operation)
 }
 fn capture_writes(workspace: &Workspace, input: &Input) -> Result<Option<WriteSet>, String> {
     if native_writing(input) {
         input.validate_committed(&workspace.data_dir)?;
         if input.work.as_ref().is_none_or(|claim| !claim.writing) {
-            return Err("Scoped native implementation requires its durable writer lease".into());
+            return Err("Native implementation requires its durable writer lease".into());
         }
-        WriteSet::capture(
-            &workspace.project,
-            &workspace.data_dir,
-            &input.edit_paths,
-            &workspace.exclusions,
-        )
+        if input.edit_paths.is_empty() {
+            WriteSet::capture_workspace(
+                &workspace.project,
+                &workspace.data_dir,
+                &workspace.exclusions,
+            )
+        } else {
+            WriteSet::capture(
+                &workspace.project,
+                &workspace.data_dir,
+                &input.edit_paths,
+                &workspace.exclusions,
+            )
+        }
         .map(Some)
     } else {
         Ok(None)
@@ -401,9 +408,7 @@ fn payload(
     writes: Option<&WriteSet>,
 ) -> Result<String, String> {
     if writes.is_some() != native_writing(input) {
-        return Err(
-            "Native tool capability differs from the frozen selected implementation scope".into(),
-        );
+        return Err("Native tool capability differs from the frozen implementation scope".into());
     }
     input.validate_selection()?;
     validate_conversation(input, &connection.conversation_scope())?;
@@ -458,10 +463,10 @@ fn payload(
             "selected_sources": serde_json::from_str::<Value>(&sources.text).map_err(|_| "Invalid selected source payload")?,
         })).map_err(|_| "Cannot encode native context")?;
         (
-            if writes.is_some() {
-                "Implement only through eevee_write_file for the explicit selected scope. Supply exact complete UTF-8 file content; preserve unrelated dirty baseline changes. Each create/replace and missing-parent scope requires a new one-shot user permission. Tool results report actual local effects, not command verification."
-            } else if input.operation == Operation::Implement {
-                "Propose implementation changes only. No write scope was selected; describe patches for the user to apply."
+            if writes.is_some() && input.edit_paths.is_empty() {
+                "Implement through eevee_write_file with model-proposed project-relative filenames inside the frozen workspace privacy/exclusion boundaries. Supply exact complete UTF-8 content, at most 64 KiB per file; preserve unrelated dirty baseline changes. Every create/replace and missing-parent scope requires a new one-shot user permission. Invalid whole batches have no effects; correct the refused batch rather than repeating it. Tool results report actual local effects, not command verification."
+            } else if writes.is_some() {
+                "Implement only through eevee_write_file for the explicit selected paths. Supply exact complete UTF-8 content, at most 64 KiB per file; preserve unrelated dirty baseline changes. Each create/replace and missing-parent scope requires a new one-shot user permission. Invalid whole batches have no effects; correct the refused batch. Tool results report actual local effects, not command verification."
             } else {
                 "Answer the user's current request directly. Provide a plan when requested; do not turn ordinary conversation into task planning."
             },
@@ -1295,6 +1300,7 @@ struct Stream {
     prefix: String,
     wire_bytes: usize,
     wire_limit: usize,
+    proposal_progress: Option<(usize, usize)>,
 }
 impl Stream {
     fn new(protocol: Protocol) -> Self {
@@ -1313,6 +1319,7 @@ impl Stream {
             prefix: String::new(),
             wire_bytes: 0,
             wire_limit: STREAM_LIMIT,
+            proposal_progress: None,
         }
     }
     fn append(&mut self, text: &str) -> Result<(), String> {
@@ -1412,8 +1419,7 @@ impl Stream {
             }
             return Err("Provider ended stream without an authoritative successful finish".into());
         }
-        let value: Value =
-            serde_json::from_str(data).map_err(|_| "Native SSE data is not valid JSON")?;
+        let value = tools::frame(data)?;
         let kind = value.get("type").and_then(Value::as_str).unwrap_or(event);
         // Terminal errors can still report consumed tokens (for example an
         // output limit). Retain them before any outcome/error handling;
@@ -1722,6 +1728,23 @@ impl Stream {
     }
     fn publish(&mut self, events: &Events, run: &Prepared) -> Result<(), String> {
         self.publish_model(events, run)?;
+        if run.writes.is_some()
+            && let Some(progress) = self.calls.proposal_progress()
+            && self.proposal_progress != Some(progress)
+        {
+            emit(
+                events,
+                Event::Status {
+                    generation: run.generation,
+                    task_id: run.input.task.id,
+                    message: format!(
+                        "Generating file proposal(s), HTTP round {}/{}; {} candidate call(s). Arguments remain private; no permission or write is implied.",
+                        self.round, ROUND_LIMIT, progress.0
+                    ),
+                },
+            )?;
+            self.proposal_progress = Some(progress);
+        }
         self.publish_text(events, run, false)
     }
     fn publish_text(&self, events: &Events, run: &Prepared, complete: bool) -> Result<(), String> {
@@ -1747,11 +1770,7 @@ impl Stream {
         text: String,
         complete: bool,
     ) -> Result<(), String> {
-        let text = if run.input.operation == Operation::Implement && run.writes.is_none() {
-            format!("IMPLEMENT PROPOSAL ONLY — no local files changed or tools executed.\n\n{text}")
-        } else {
-            text
-        };
+        // Displayed output is public model text, never tool arguments or a write receipt.
         let request: std::borrow::Cow<'_, str> = match run.input.work.as_ref() {
             Some(claim) => claim.request_id.as_str().into(),
             None => run.generation.to_string().into(),

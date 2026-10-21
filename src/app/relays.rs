@@ -182,15 +182,14 @@ impl App {
         if request.target_form != 3 && request.target_form != 6 {
             return Ok(Vec::new());
         }
-        if !cfg!(unix) {
-            return Err("Controlled writes are POSIX-only.".into());
+        if !cfg!(any(unix, windows)) {
+            return Err("Controlled writes require a supported native filesystem backend.".into());
         }
-        if request.paths.is_empty() || request.paths.len() > 8 {
+        if request.paths.is_empty() || request.paths.len() > crate::providers::writes::MAX_FILES {
             return Err(
                 "Controlled-write scope requires 1–8 files; limit hit, nothing trimmed.".into(),
             );
         }
-        let mut bytes = 0;
         let mut ranges = Vec::new();
         let mut seen = Vec::new();
         for path in &request.paths {
@@ -208,15 +207,9 @@ impl App {
             let (content, _) = repo::read_source(
                 &report.repository.root,
                 path,
-                12 * 1024,
+                crate::providers::writes::MAX_BYTES,
                 &AtomicBool::new(false),
             )?;
-            bytes += content.len();
-            if bytes > 12 * 1024 {
-                return Err(
-                    "Controlled-write scope exceeds 12 KiB; limit hit, nothing trimmed.".into(),
-                );
-            }
             let text = String::from_utf8(content)
                 .map_err(|_| "Controlled-write scope must be UTF-8 text")?;
             if text.contains('\0') {
