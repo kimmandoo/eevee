@@ -17,6 +17,7 @@
 - fix(ux): measured scrollable viewports to keep compact detail rows reachable, retained learned move previews and pinned complete consent scope without mandatory end-scrolling.
 - feat(usage): retained optional scoped native/Codex reports and required SDK bridge revision 5 correlation without fabricating totals or double-counting cumulative/subset counters.
 - docs(upgrade): documented full-data-directory backup, unsupported Schema 15 downgrade and the complete SDK bridge revision 5 update; verified actual Schema 14 migration, byte-identical older-writer refusal and current resume.
+- test(records): compared failure locations by native path identity instead of POSIX-only serialized separators during cross-platform qualification.
 
 
 ## 0.1.13

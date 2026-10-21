@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-21] Windows qualification rejected valid native failure-location paths
+
+- **Context / Symptom:** Native run `39618172959` passed Check and four native package rows, but Windows failed two record tests. The observed paths were `src\first.rs` / `src\second.rs`; assertions expected literal `src/first.rs` / `src/second.rs`.
+- **Root Cause:** Consumer regressions pinned POSIX serialization rather than native filesystem path identity. Windows correctly retained its native separators; production parsing, containment and failure aggregation were not the failing boundary.
+- **Solution:** Removed the three separator-string assertions and compared borrowed `Path` identities instead. Retained exact admitted-path counts, both distinct contained locations, rejected traversal/secret locations and the remaining location after output purge. Production paths were not rewritten. New full native qualification is required; the initial run's four packages cannot qualify a release.
+- **Prevention / Reference:** Test path identity semantically across platforms. Require Check and all five native rows for one exact commit/attempt; do not promote a partial green matrix.
+
 ### [2026-10-21] Ranking fixture edited a file before the process baseline settled
 
 - **Context / Symptom:** A seeded fixture ranked every Python file as changed, or missed the intended `changed.py` edit in the compact Korean journey.
