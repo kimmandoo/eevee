@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-21] Manual release qualification required the supported Python runtime
+
+- **Context / Symptom:** Importing the release qualifier from the analysis host failed with `ModuleNotFoundError: No module named 'tomllib'`.
+- **Root Cause:** `release_assets.py` used standard-library TOML support available in the declared CI Python runtime, but not in the analysis interpreter. This was an interpreter mismatch, not a release-artifact or qualification failure.
+- **Solution:** Invoked the unchanged strict qualifier through the existing `target/waves-venv/bin/python`. It validated commit `88cc5a81430337cf8c8386bfb082adf855246a40`, native run `39542438158` attempt 1 and all five immutable artifact IDs; publication then promoted those IDs successfully.
+- **Prevention / Reference:** Use the supported Python runtime for release scripts. Do not relax qualification checks, rewrite TOML parsing or install a substitute into system Python to work around the caller's interpreter.
+
 ### [2026-10-21] Routine-admission fixtures respected the storage privacy projection
 
 - **Context / Symptom:** The actual smoke's `exact JSON argv saved` assertion waited for a recognizable credential-like argument to appear verbatim in SQLite. The store correctly persisted a masked command instead.
