@@ -1,5 +1,19 @@
 # Troubleshooting
 
+### [2026-10-22] Conservative name admission rejected distinct Unicode files
+
+- **Context / Symptom:** The integrated native coding regression refused `nested/empty.txt` and `nested/日本語.txt` before any mutation on macOS, although these were distinct targets.
+- **Root Cause:** Unknown Unicode collation was treated as established aliasing. Separately, global post-publication scope verification could turn an unrelated selected-path change into a false uncertain result after a known exact write.
+- **Solution:** Rejected established native/ASCII and macOS normalization aliases during read-only admission without merging path identities. Unproven collation retains exact frozen names and atomic no-overwrite enforcement; an observed alias becomes stale, never a replacement grant. Post-write validation now checks the retained written object/content/name rather than unrelated targets. All 1,111 Rust tests passed with two ignored after integration.
+- **Prevention / Reference:** Native filesystem collation is not universal Unicode lowercasing. Unknown collations may be rejected later as stale, but must not authorize overwrites or mislabel known writes as ambiguous effects.
+
+### [2026-10-22] Failed SDK writes could leave untracked parent directories
+
+- **Context / Symptom:** A newly supported nested Write could create parents or partial content and then return an SDK tool error. Accepting that result allowed later successful model text to terminate normally despite unresolved local effects.
+- **Root Cause:** The policy cleared the approved operation on every failed tool result without comparing the actual root, ancestor and leaf state against the frozen pre-operation fingerprint.
+- **Solution:** Accepted failed writes/edits as settled only when their fresh filesystem fingerprint was unchanged. Changed or unreadable state now follows the production bridge fatal/host unknown path; failures never seed successful sibling-parent authority. All 29 SDK policy cases passed, including actual production bridge IPC with a synthetic SDK proving later success could not overwrite the fatal outcome. No live model or original credential was used.
+- **Prevention / Reference:** Keep provider tool success/failure separate from established filesystem effects. External SDK policy is observational, not atomic OS confinement.
+
 ### [2026-10-22] Installed-terminal idle sampling preceded startup stream quiescence
 
 - **Context / Symptom:** The installed 100×30 missing-image case emitted two synchronized-update/reset/cursor-only frames during its idle sample. Before/after text and caret were unchanged; no continuing animation or production heartbeat was established.

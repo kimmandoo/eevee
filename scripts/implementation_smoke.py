@@ -102,7 +102,7 @@ def main():
 
             session = launch('controlled-patch')
             session.command('goal')
-            session.paste('Fix add(a,b) in calculator.py so it returns a+b. Use ONLY eevee_edit_file with full replacement content. '
+            session.paste('Fix add(a,b) in calculator.py so it returns a+b. Use ONLY eevee_write_file with full create-or-replace content for the selected path. '
                           'Preserve the exact pre-existing user comment and all other files. Do not run commands or checks; '
                           'I will verify through the local runner afterward. Ask approval for the exact patch and stop if denied.')
             session.send('\r')

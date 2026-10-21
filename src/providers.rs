@@ -5,6 +5,7 @@ pub mod auth;
 pub mod claude;
 pub mod codex;
 pub mod direct;
+pub(crate) mod writes;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -50,7 +51,7 @@ impl Agent {
             Self::OpenCode => "OpenCode ACP",
             Self::Gemini => "Gemini ACP",
             Self::Devin => "Devin ACP",
-            Self::ChatGPT => "Codex · native (no tools)",
+            Self::ChatGPT => "Codex · native",
             Self::OpenAI => "OpenAI API",
             Self::Anthropic => "Anthropic API",
             Self::Google => "Google Gemini API",
@@ -97,6 +98,12 @@ pub enum Operation {
     Plan,
     Implement,
     Review,
+}
+
+/// Native Implement needs an explicit selected scope; external agents retain
+/// their implementation lease independently of their filesystem policy.
+pub(crate) fn writing_required(agent: Agent, operation: Operation, has_paths: bool) -> bool {
+    operation == Operation::Implement && (!agent.is_direct() || has_paths)
 }
 
 /// Explicit local selection; None means the provider's advertised default.
@@ -327,7 +334,9 @@ impl Input {
         {
             return Err("Work claim task or immutable request owner does not match".into());
         }
-        if claim.writing != (self.operation == Operation::Implement && !self.agent.is_direct()) {
+        if claim.writing
+            != writing_required(self.agent, self.operation, !self.edit_paths.is_empty())
+        {
             return Err("Work claim writing lease does not match the provider operation".into());
         }
         Ok(())
@@ -573,6 +582,13 @@ pub enum Event {
         generation: u64,
         request_id: Value,
     },
+    /// A mediated filesystem operation could not establish its complete local outcome.
+    /// Remote model uncertainty alone never produces this event.
+    LocalEffectsUnknown {
+        generation: u64,
+        task_id: i64,
+        message: String,
+    },
     Finished {
         generation: u64,
         task_id: i64,
@@ -730,20 +746,27 @@ mod tests {
     }
 
     #[test]
-    fn work_writing_lease_matches_only_agent_implementation_not_native_proposals() {
+    fn work_writing_lease_matches_operation_and_explicit_native_scope() {
         for agent in Agent::ALL {
             for operation in [Operation::Plan, Operation::Implement, Operation::Review] {
-                let writing = operation == Operation::Implement && !agent.is_direct();
-                let mut input = claimed(agent, operation, writing);
-                assert!(input.validate_work().is_ok(), "{agent:?} {operation:?}");
-                input.work.as_mut().unwrap().writing = !writing;
-                assert!(
-                    input
-                        .validate_committed(std::path::Path::new("unopened-data"))
-                        .unwrap_err()
-                        .contains("writing lease"),
-                    "{agent:?} {operation:?}"
-                );
+                for has_paths in [false, true] {
+                    let writing =
+                        operation == Operation::Implement && (!agent.is_direct() || has_paths);
+                    let mut input = claimed(agent, operation, writing);
+                    if has_paths {
+                        input.edit_paths.push("new/file.rs".into());
+                    }
+                    assert_eq!(writing_required(agent, operation, has_paths), writing);
+                    assert!(input.validate_work().is_ok(), "{agent:?} {operation:?}");
+                    input.work.as_mut().unwrap().writing = !writing;
+                    assert!(
+                        input
+                            .validate_committed(std::path::Path::new("unopened-data"))
+                            .unwrap_err()
+                            .contains("writing lease"),
+                        "{agent:?} {operation:?}"
+                    );
+                }
             }
         }
     }

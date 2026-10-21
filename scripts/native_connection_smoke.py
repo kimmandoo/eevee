@@ -185,6 +185,10 @@ class Peer:
                     self.wfile.write((prefix + 'data: ' + json.dumps(value) + '\n\n').encode())
                     self.wfile.flush()
 
+                if mode == 'custom':
+                    answer(self, event, row)
+                    return
+
                 text = answer if mode == 'complete' else PARTIAL
                 if protocol == 'responses':
                     event({'type': 'response.output_text.delta', 'delta': text})

@@ -373,6 +373,12 @@ fn open_snapshot_file(path: &Path) -> io::Result<File> {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
     options.open(path)
 }
 fn identity(path: &Path) -> Result<crate::workspace::runner::ExecutableIdentity, String> {
@@ -530,7 +536,7 @@ fn inspection_matches(value: &Value, versions: &SdkVersions) -> bool {
     value["type"] == "capabilities"
         && value["sdk_version"].as_str() == Some(versions.sdk.as_str())
         && value["cli_version"].as_str() == Some(versions.cli.as_str())
-        && value["bridge_revision"] == 5
+        && value["bridge_revision"] == 6
         && value["query"] == true
         && value["policy"]
             == json!({
@@ -861,18 +867,254 @@ fn sdk_tool_policy(operation: Operation) -> &'static str {
     }
 }
 
-fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<String, String> {
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SdkWriteScope {
+    root_identity: Option<String>,
+    files: Vec<SdkWriteFile>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SdkWriteFile {
+    path: String,
+    kind: SdkWriteKind,
+    identity: Option<String>,
+    sha256: Option<String>,
+    working_content: Option<String>,
+    ancestors: Vec<SdkWriteAncestor>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+enum SdkWriteKind {
+    Create,
+    Replace,
+}
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SdkWriteAncestor {
+    path: String,
+    identity: Option<String>,
+}
+fn sdk_directory_identity(path: &Path) -> Result<String, String> {
+    let metadata = fs::symlink_metadata(path).map_err(|_| "SDK ancestor unavailable")?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err("SDK ancestor must be a non-link directory".into());
+    }
+    crate::workspace::runner::native::directory_identity(path)
+        .map_err(|_| "SDK ancestor identity/reparse validation failed".into())
+}
+fn sdk_regular(file: &File) -> Result<(), String> {
+    let metadata = file
+        .metadata()
+        .map_err(|_| "SDK file metadata unavailable")?;
+    if !metadata.is_file() || metadata.len() > 256 * 1024 {
+        return Err("SDK edit baseline exceeds bounded regular-file policy".into());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.nlink() != 1 {
+            return Err("SDK hard-link alias refused".into());
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_REPARSE_POINT, GetFileInformationByHandle,
+        };
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0
+            || info.nNumberOfLinks != 1
+            || info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        {
+            return Err("SDK hard-link/reparse alias refused".into());
+        }
+    }
+    Ok(())
+}
+fn capture_write_scope(
+    data_dir: &Path,
+    input: &Input,
+    exclusions: &[PathBuf],
+) -> Result<SdkWriteScope, String> {
+    if input.edit_paths.len() > 256
+        || (input.operation == Operation::Implement && input.edit_paths.is_empty())
+        || (input.operation != Operation::Implement && !input.edit_paths.is_empty())
+    {
+        return Err("Claude external-policy implementation requires explicit reviewed root-relative edit paths".into());
+    }
+    if input.edit_paths.is_empty() {
+        return Ok(SdkWriteScope::default());
+    }
+    let root = Path::new(&input.task.project);
+    let root_identity = sdk_directory_identity(root)?;
+    let executable = std::env::current_exe()
+        .ok()
+        .and_then(|path| fs::canonicalize(path).ok());
+    let mut files = Vec::with_capacity(input.edit_paths.len());
+    for path in &input.edit_paths {
+        let text = path.to_str().ok_or("SDK selected path is not UTF-8")?;
+        if text.is_empty()
+            || text.len() > 4096
+            || text
+                .chars()
+                .any(|c| c.is_control() || matches!(c, '\\' | ':'))
+            || text.split('/').any(|part| {
+                let lower = part.to_ascii_lowercase();
+                let stem = lower.split('.').next().unwrap_or_default();
+                part.is_empty()
+                    || matches!(part, "." | "..")
+                    || part.ends_with('.')
+                    || part.ends_with(' ')
+                    || matches!(
+                        stem,
+                        "con"
+                            | "prn"
+                            | "aux"
+                            | "nul"
+                            | "com1"
+                            | "com2"
+                            | "com3"
+                            | "com4"
+                            | "com5"
+                            | "com6"
+                            | "com7"
+                            | "com8"
+                            | "com9"
+                            | "lpt1"
+                            | "lpt2"
+                            | "lpt3"
+                            | "lpt4"
+                            | "lpt5"
+                            | "lpt6"
+                            | "lpt7"
+                            | "lpt8"
+                            | "lpt9"
+                    )
+                    || matches!(
+                        lower.as_str(),
+                        ".claude"
+                            | ".codex"
+                            | ".gemini"
+                            | ".opencode"
+                            | ".ds_store"
+                            | ".ev-install"
+                    )
+            })
+            || path
+                .components()
+                .any(|part| !matches!(part, Component::Normal(_)))
+            || crate::workspace::context::excluded(path, exclusions)
+        {
+            return Err(
+                "Implementation path is not a permitted root-relative selected file".into(),
+            );
+        }
+        let full = root.join(path);
+        if full.starts_with(data_dir) || executable.as_ref().is_some_and(|exe| exe == &full) {
+            return Err("SDK own data/runtime target refused".into());
+        }
+        let mut ancestors = Vec::new();
+        let mut relative = PathBuf::new();
+        let mut missing = false;
+        let parts: Vec<_> = path.components().collect();
+        for component in &parts[..parts.len() - 1] {
+            relative.push(component.as_os_str());
+            let current = root.join(&relative);
+            let identity = match fs::symlink_metadata(&current) {
+                Ok(_) if !missing => Some(sdk_directory_identity(&current)?),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    missing = true;
+                    None
+                }
+                _ => {
+                    return Err("SDK selected parent appeared or is not a regular directory".into());
+                }
+            };
+            ancestors.push(SdkWriteAncestor {
+                path: relative
+                    .to_str()
+                    .ok_or("SDK ancestor is not UTF-8")?
+                    .replace('\\', "/"),
+                identity,
+            });
+        }
+        let (kind, identity, sha256, working_content) = match fs::symlink_metadata(&full) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                (SdkWriteKind::Create, None, None, None)
+            }
+            Ok(metadata) if !missing && !metadata.file_type().is_symlink() => {
+                let mut file =
+                    open_snapshot_file(&full).map_err(|_| "SDK baseline open refused")?;
+                sdk_regular(&file)?;
+                let before = file.metadata().map_err(|_| "SDK baseline unavailable")?;
+                let identity = crate::workspace::runner::native::file_identity(&file)
+                    .map_err(|_| "SDK file identity unavailable")?;
+                let mut content = String::new();
+                Read::by_ref(&mut file)
+                    .take(256 * 1024 + 1)
+                    .read_to_string(&mut content)
+                    .map_err(|_| "SDK baseline is not bounded UTF-8")?;
+                let after = file.metadata().map_err(|_| "SDK baseline changed")?;
+                let path_file =
+                    open_snapshot_file(&full).map_err(|_| "SDK baseline path changed")?;
+                sdk_regular(&path_file)?;
+                if content.len() > 256 * 1024
+                    || content.len() as u64 != before.len()
+                    || before.len() != after.len()
+                    || before.modified().ok() != after.modified().ok()
+                    || crate::workspace::runner::native::file_identity(&path_file)
+                        .ok()
+                        .as_ref()
+                        != Some(&identity)
+                {
+                    return Err("SDK baseline changed while reading".into());
+                }
+                (
+                    SdkWriteKind::Replace,
+                    Some(identity),
+                    Some(format!("{:x}", Sha256::digest(content.as_bytes()))),
+                    Some(content),
+                )
+            }
+            _ => {
+                return Err("SDK baseline target is not an absent or regular selected file".into());
+            }
+        };
+        files.push(SdkWriteFile {
+            path: text.replace('\\', "/"),
+            kind,
+            identity,
+            sha256,
+            working_content,
+            ancestors,
+        });
+    }
+    crate::providers::writes::verify_path_names(root, &input.edit_paths)?;
+    if sdk_directory_identity(root)? != root_identity {
+        return Err("SDK root changed during capture".into());
+    }
+    Ok(SdkWriteScope {
+        root_identity: Some(root_identity),
+        files,
+    })
+}
+fn payload(
+    data_dir: &Path,
+    input: &Input,
+    exclusions: &[PathBuf],
+) -> Result<(String, SdkWriteScope), String> {
     input.validate_selection()?;
     if input.inspect_models {
         return serde_json::to_string(&json!({
             "intent": "inspect_models", "selection": input.selection,
             "effects": "Initialize the reviewed SDK/backend and query supportedModels(); may contact provider/auth services and create isolated SDK state. No task prompt, prior session, model turn or model journal.",
-        })).map_err(|_| "Could not encode Claude model inspection".into());
+        })).map(|text| (text, SdkWriteScope::default())).map_err(|_| "Could not encode Claude model inspection".into());
     }
     input.validate_review()?;
     input.validate_committed(data_dir)?;
     if let Some(text) = input.review_payload(data_dir, exclusions)? {
-        return Ok(text);
+        return Ok((text, SdkWriteScope::default()));
     }
     if let Some(document) = &input.handoff {
         crate::workspace::handoff::validate_dispatch(
@@ -889,114 +1131,26 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
         &input.excerpts,
         exclusions,
     )?;
-    if input.edit_paths.len() > 256
-        || (input.operation == Operation::Implement && input.edit_paths.is_empty())
-        || (input.operation != Operation::Implement && !input.edit_paths.is_empty())
-    {
-        return Err("Claude external-policy implementation requires explicit reviewed root-relative edit paths".into());
-    }
-    let mut baselines = Vec::with_capacity(input.edit_paths.len());
-    for (index, path) in input.edit_paths.iter().enumerate() {
-        if path
-            .components()
-            .any(|c| !matches!(c, Component::Normal(_)))
-            || crate::workspace::context::excluded(path, exclusions)
-            || path.components().any(|c| {
-                matches!(
-                    c.as_os_str()
-                        .to_string_lossy()
-                        .to_ascii_lowercase()
-                        .as_str(),
-                    ".claude" | ".codex" | ".gemini" | ".opencode"
-                )
-            })
-            || input.edit_paths[..index].contains(path)
-        {
-            return Err(
-                "Implementation path is not a permitted root-relative selected file".into(),
-            );
-        }
-        let full = Path::new(&input.task.project).join(path);
-        let mut current = PathBuf::from(&input.task.project);
-        for component in path.components() {
-            current.push(component.as_os_str());
-            if fs::symlink_metadata(&current).is_ok_and(|m| m.file_type().is_symlink()) {
-                return Err(
-                    "Selected SDK edit path contains a symlink; external-policy edit refused"
-                        .into(),
-                );
-            }
-        }
-        let (text, file_id) = match open_snapshot_file(&full) {
-            Ok(mut file) => {
-                let before = file
-                    .metadata()
-                    .map_err(|_| "SDK edit baseline metadata unavailable")?;
-                if !before.is_file() || before.len() > 256 * 1024 {
-                    return Err("SDK edit baseline exceeds bounded regular-file policy".into());
-                }
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::MetadataExt;
-                    if before.nlink() != 1 {
-                        return Err("SDK selected edit hard-link alias refused".into());
-                    }
-                }
-                let file_id = crate::workspace::runner::native::file_identity(&file)
-                    .map_err(|_| "SDK edit file identity unavailable")?;
-                let mut text = String::new();
-                Read::by_ref(&mut file)
-                    .take(256 * 1024 + 1)
-                    .read_to_string(&mut text)
-                    .map_err(|_| "SDK baseline is not bounded UTF-8")?;
-                let after = file.metadata().map_err(|_| "SDK edit baseline changed")?;
-                if text.len() > 256 * 1024
-                    || before.len() != after.len()
-                    || before.modified().ok() != after.modified().ok()
-                {
-                    return Err("SDK edit baseline changed while reading".into());
-                }
-                (Some(text), file_id)
-            }
-            Err(error)
-                if error.kind() == io::ErrorKind::NotFound
-                    && full.parent().is_some_and(|p| p.is_dir()) =>
-            {
-                (
-                    None,
-                    crate::workspace::runner::native::directory_identity(
-                        full.parent().ok_or("SDK new-file parent unavailable")?,
-                    )
-                    .map_err(|_| "SDK new-file parent identity unavailable")?,
-                )
-            }
-            _ => {
-                return Err(
-                    "SDK baseline must be bounded UTF-8 or a new file in an existing directory"
-                        .into(),
-                );
-            }
-        };
-        baselines.push(json!({"path":path,"working_content":text,"file_identity":file_id,"state":"reviewed user working content, including dirty edits; not a clean checkout"}));
-    }
+    let write_scope = capture_write_scope(data_dir, input, exclusions)?;
     let text = serde_json::to_string_pretty(&json!({
         "purpose": if input.operation == Operation::Plan { "Plan only; no implementation tools are exposed." } else { "Implement only reviewed files, preserving existing dirty working content. This is external SDK agent policy, not strict OS confinement. Do not commit/merge. Report unverified patch for human diff review." },
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
         "request": input.instruction(),
         "approved_memories": input.task.approved_memories,
-        "selected_sources": serde_json::from_str::<Value>(&sources.text).map_err(|_| "Invalid source envelope")?, "edit_baselines": baselines, "handoff": input.handoff,
+        "selected_sources": serde_json::from_str::<Value>(&sources.text).map_err(|_| "Invalid source envelope")?, "edit_baselines": write_scope.files, "handoff": input.handoff,
     })).map_err(|_| "Could not encode Claude payload")?;
     if text.len() > FRAME_LIMIT / 2 || text.chars().any(|c| (c.is_control() && !matches!(c, '\n' | '\t')) ||
         matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')) || crate::workspace::privacy::redact(&text) != text {
         return Err("Claude payload exceeds bound or contains credential/display-control text; review source/task content".into());
     }
-    Ok(text)
+    Ok((text, write_scope))
 }
 struct Prepared {
     generation: u64,
     input: Box<Input>,
     trust: Trust,
     text: String,
+    write_scope: SdkWriteScope,
 }
 fn worker(
     workspace: Workspace,
@@ -1098,8 +1252,12 @@ fn worker(
                     input.selection.effort.as_deref().unwrap_or("provider default (not advertised)"),
                     if input.inspect_models { "MODEL INSPECTION ONLY: no prompt/history/model turn or journal; SDK initialization may contact provider/auth services, refresh credentials and create isolated SDK state. All tools are disabled; the SDK closes after bounded capabilities and terminal result." } else { "The selected model and effort belong to this immutable reviewed request." },
                 ));
+                let mut write_scope = SdkWriteScope::default();
                 match payload(data_dir, &input, exclusions) {
-                    Ok(text) => preview.payload = text,
+                    Ok((text, scope)) => {
+                        preview.payload = text;
+                        write_scope = scope;
+                    }
                     Err(error) => preview.blockers.push(safe(&error)),
                 }
                 if preview.blockers.is_empty()
@@ -1110,6 +1268,7 @@ fn worker(
                         input,
                         trust,
                         text: preview.payload.clone(),
+                        write_scope,
                     });
                 }
                 for line in &mut preview.trust {
@@ -1495,7 +1654,8 @@ fn transport(
         }
         revalidate(project, data_dir, &run.trust)?;
         credential_route()?;
-        if payload(data_dir, &run.input, exclusions)? != run.text {
+        let (current_text, current_scope) = payload(data_dir, &run.input, exclusions)?;
+        if current_text != run.text || current_scope != run.write_scope {
             return Err(
                 "Task/source/edit baseline/handoff changed; preview Claude again before dispatch"
                     .into(),
@@ -1559,7 +1719,8 @@ fn transport(
             return Err("SDK inspect process-tree cleanup unknown; no model sent".into());
         }
         revalidate(project, data_dir, &run.trust)?;
-        if payload(data_dir, &run.input, exclusions)? != run.text {
+        let (current_text, current_scope) = payload(data_dir, &run.input, exclusions)?;
+        if current_text != run.text || current_scope != run.write_scope {
             return Err("Context changed during SDK inspection; preview again".into());
         }
         if stop.load(Ordering::Acquire) || cancelled.load(Ordering::Acquire) == run.generation {
@@ -1588,11 +1749,11 @@ fn transport(
                 .as_nanos()
         };
         let mut usage = SdkTurnUsage::begin(&run.input, sessions)?;
-        pipe.send(json!({"protocol":1,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
+        pipe.send(json!({"protocol":1,"bridge_revision":6,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
             "request_id":if run.input.inspect_models { None } else { run.input.work.as_ref().map(|work| work.request_id.as_str()) },
             "prompt":if run.input.inspect_models { "" } else { run.text.as_str() },
             "operation":if run.input.inspect_models { "plan" } else { sdk_tool_policy(run.input.operation) },
-            "edit_paths":if run.input.inspect_models { &[] as &[PathBuf] } else { run.input.edit_paths.as_slice() },
+            "write_scope":run.write_scope,
             "resume":run.input.resume,"inspect_models":run.input.inspect_models,"selection":run.input.selection}))?;
         dispatched = true;
         let mut cancelling: Option<Instant> = None;
@@ -1897,10 +2058,32 @@ fn prompt_kind(value: &Value) -> Result<PromptKind, String> {
     if !matches!(value["kind"].as_str(), Some("approval" | "elicitation")) {
         return Err("Unsupported SDK callback kind".into());
     }
-    let description = format!(
-        "Claude {} request: {input}",
-        value["kind"].as_str().unwrap()
-    );
+    let description = if matches!(input["tool"].as_str(), Some("Write" | "Edit")) {
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Scope {
+            kind: SdkWriteKind,
+            path: String,
+            directories: Vec<String>,
+        }
+        let scope: Scope = serde_json::from_value(input["scope"].clone())
+            .map_err(|_| "SDK write prompt lacks typed create/replace scope")?;
+        format!(
+            "Kind: {:?}\nPath: {}\nMissing parents: {}\nExternal SDK policy, not OS confinement.\nClaude approval request: {input}",
+            scope.kind,
+            scope.path,
+            if scope.directories.is_empty() {
+                "none".into()
+            } else {
+                scope.directories.join(", ")
+            }
+        )
+    } else {
+        format!(
+            "Claude {} request: {input}",
+            value["kind"].as_str().unwrap()
+        )
+    };
     if description.len() > ITEM_LIMIT || safe(&description) != description {
         return Err(
             "SDK permission details require truncation/redaction; no hidden grant offered".into(),
@@ -1933,9 +2116,9 @@ fn prompt_kind(value: &Value) -> Result<PromptKind, String> {
         offered.push(PermissionOption {
             label: safe(option["label"].as_str().unwrap_or("Deny")),
             description: if index == 0 {
-                "Default-to-no; no persistent permission update".into()
+                "No grant; no saved rule.".into()
             } else {
-                "One exact provider response only; no saved grant".into()
+                "Only this exact tool input, once.".into()
             },
             answer: answer.clone(),
         });

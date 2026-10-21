@@ -290,7 +290,7 @@ cmd-sylveon = { "Sylveon 폼 선택" }
 
 cmd-provider-codex = { "Codex CLI 방식 (도구 / 편집)" }
 
-cmd-provider-chatgpt = { "Codex 네이티브 방식 (응답 / 도구 없음)" }
+cmd-provider-chatgpt = { "Codex 네이티브 방식 (범위 코딩 / 대화)" }
 
 cmd-provider-claude = { "Claude 선택" }
 
@@ -316,7 +316,7 @@ cmd-role-review = { "독립 검토 역할" }
 
 cmd-sessions = { "제공자 세션 메타데이터 확인" }
 
-cmd-paths = { "선택한 쓰기 경로 편집" }
+cmd-paths = { "생성/교체할 정확한 경로 선택" }
 
 cmd-models-refresh = { "모델 목록 새로 고침 검토" }
 

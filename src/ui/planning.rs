@@ -271,7 +271,22 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             summary.insert(1, format!("Request: {request}"));
         }
         let body = row(content, 1, content.height.saturating_sub(4));
-        state.reviewed = render_summary(frame, body, &summary, paint);
+        state.reviewed = if matches!(
+            state.request.as_ref().map(|request| &request.kind),
+            Some(PromptKind::Permission { .. })
+        ) {
+            let paragraph = Paragraph::new(summary.join("\n"))
+                .style(paint.surface)
+                .wrap(Wrap { trim: false });
+            let visible = frame.area().width >= 60
+                && frame.area().height >= 18
+                && body.width >= 40
+                && paragraph.line_count(body.width.max(1)) <= usize::from(body.height);
+            frame.render_widget(paragraph, body);
+            visible
+        } else {
+            render_summary(frame, body, &summary, paint)
+        };
         state.scroll = 0;
         state.scroll_max = 0;
         review_controls(frame, content, state, paint);
@@ -560,7 +575,19 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
                         .as_deref()
                         .unwrap_or("unavailable; inspect blocker")
                 ),
-                if state.operation == Operation::Implement {
+                if !state.inspect_models
+                    && !state.inspect_sessions
+                    && crate::providers::writing_required(
+                        state.agent,
+                        state.operation,
+                        !state.edit_paths.is_empty(),
+                    )
+                {
+                    paint.format(
+                        Template::ProvidersPlanningWritesSelectedPathsInspectExactScopeD,
+                        &[("count", &state.edit_paths.len().to_string())],
+                    )
+                } else if state.operation == Operation::Implement && !state.inspect_models {
                     paint
                         .hint(Message::ProvidersPlanningProposalOnlyNoToolsCommandsOrFile)
                         .into()
@@ -618,7 +645,10 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
                     ],
                 )
             },
-            if state.operation == Operation::Implement {
+            if !state.inspect_models
+                && !state.inspect_sessions
+                && state.operation == Operation::Implement
+            {
                 paint.format(
                     Template::ProvidersPlanningWritesSelectedPathsInspectExactScopeD,
                     &[("count", &(state.edit_paths.len()).to_string())],
@@ -662,30 +692,26 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
             description,
             options,
         } => {
-            lines.push(paint.format(
-                Template::ProvidersPlanningWhoWantsPermissionDescription,
-                &[("owner", &(who)), ("description", (description))],
-            ));
+            // Description is untrusted display, never parsed as authority.
+            // Producers put complete operation/path/directory scope first;
+            // wrapping and fit-gating ensure no approved scope is clipped.
+            lines.extend(
+                description
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .take(3)
+                    .map(str::to_owned),
+            );
             if let Some(option) = options.get(state.option) {
-                lines.push(format!("Selected: {}", option.label));
-                lines.push(format!("Effect: {}", option.description));
-            }
-            if options.len() == 2 {
                 lines.push(paint.format(
-                    Template::ProvidersPlanningAAllowOnce,
-                    &[("description", &(options[1].description))],
+                    Template::ProvidersPlanningSelectedPermission,
+                    &[("label", &option.label)],
+                ));
+                lines.push(paint.format(
+                    Template::ProvidersPlanningPermissionEffect,
+                    &[("description", &option.description)],
                 ));
             }
-            lines.push(
-                paint
-                    .hint(Message::ProvidersPlanningOneRequestOnlyNoFutureOtherProvider)
-                    .into(),
-            );
-            lines.push(
-                paint
-                    .hint(Message::ProvidersPlanningProviderPolicyIsNotOsIsolation)
-                    .into(),
-            );
             lines.push(
                 paint
                     .hint(Message::ProvidersPlanningDDetailsCompleteRequestAndExactOptions)
@@ -1640,7 +1666,12 @@ mod tests {
     }
 
     fn draw(app: &mut App) -> ratatui::buffer::Buffer {
-        let config = config();
+        draw_language(app, crate::i18n::Language::ENGLISH)
+    }
+
+    fn draw_language(app: &mut App, language: crate::i18n::Language) -> ratatui::buffer::Buffer {
+        let mut config = config();
+        config.language = language;
         let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
         let mut terminal = Terminal::new(TestBackend::new(app.width, app.height)).unwrap();
         terminal
@@ -1660,11 +1691,14 @@ mod tests {
     }
 
     fn rendered_row(buffer: &ratatui::buffer::Buffer, area: Rect, offset: u16) -> String {
-        (area.x..area.right())
-            .map(|x| buffer[(x, area.y + offset)].symbol())
-            .collect::<String>()
-            .trim_end()
-            .to_owned()
+        let mut row = String::new();
+        let mut x = area.x;
+        while x < area.right() {
+            let symbol = buffer[(x, area.y + offset)].symbol();
+            row.push_str(symbol);
+            x += ratatui::text::Span::raw(symbol).width().max(1) as u16;
+        }
+        row.trim_end().to_owned()
     }
 
     fn draw_home(app: &mut App) -> String {
@@ -2138,10 +2172,16 @@ mod tests {
     }
 
     #[test]
-    fn long_permission_can_allow_once_without_scrolling_and_cannot_repeat() {
-        for size in [(60, 18), (120, 36)] {
-            let (mut app, task) = preview(size.0, size.1);
-            draw(&mut app);
+    fn complete_creation_scope_is_visible_and_permission_is_one_shot() {
+        for (width, height, tag) in [
+            (60, 18, "en"),
+            (120, 36, "en"),
+            (60, 18, "ko"),
+            (120, 36, "ko"),
+        ] {
+            let language = crate::i18n::Language::parse(tag).unwrap();
+            let (mut app, task) = preview(width, height);
+            draw_language(&mut app, language);
             key(&mut app, &task, KeyCode::Char('y'));
             assert!(matches!(
                 app.planning.pending.take(),
@@ -2157,7 +2197,7 @@ mod tests {
                     turn_id: "turn".into(),
                     item_id: "item".into(),
                     kind: PromptKind::Permission {
-                        description: "exact scope\n".repeat(1000),
+                        description: format!("Create\nPath: new/새.rs\nCreate directories: new\n--- /dev/null\n+++ new/새.rs\n{}", "+exact content\n".repeat(1000)),
                         options: vec![
                             PermissionOption {
                                 label: "Deny".into(),
@@ -2173,10 +2213,59 @@ mod tests {
                     },
                 },
             });
-            draw(&mut app);
+            let buffer = draw_language(&mut app, language);
+            let screen = (0..buffer.area.height)
+                .map(|y| rendered_row(&buffer, buffer.area, y))
+                .collect::<Vec<_>>()
+                .join("\n");
+            for scope in ["Create", "Path: new/새.rs", "Create directories: new"] {
+                assert!(screen.contains(scope), "{screen}");
+            }
             assert!(app.planning.reviewed);
             assert_eq!(app.planning.scroll, 0);
             assert_eq!(app.planning.option, 0);
+            key(&mut app, &task, KeyCode::Char('d'));
+            draw_language(&mut app, language);
+            key(&mut app, &task, KeyCode::PageDown);
+            let buffer = draw_language(&mut app, language);
+            let screen = (0..buffer.area.height)
+                .map(|y| rendered_row(&buffer, buffer.area, y))
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(screen.contains("--- /dev/null"), "{screen}");
+            assert!(app.planning.scroll_max > 0 && !app.planning.reviewed);
+            key(&mut app, &task, KeyCode::Char('a'));
+            assert!(app.planning.pending.is_none());
+            key(&mut app, &task, KeyCode::Char('d'));
+            draw_language(&mut app, language);
+            let saved_scope = match &mut app.planning.request.as_mut().unwrap().kind {
+                PromptKind::Permission { description, .. } => std::mem::replace(
+                    description,
+                    format!(
+                        "Create\nPath: {}\nCreate directories: new",
+                        "nested/".repeat(200)
+                    ),
+                ),
+                _ => unreachable!(),
+            };
+            draw_language(&mut app, language);
+            assert!(
+                !app.planning.reviewed,
+                "clipped scope must never arm permission"
+            );
+            key(&mut app, &task, KeyCode::Char('a'));
+            assert!(app.planning.pending.is_none());
+            if let PromptKind::Permission { description, .. } =
+                &mut app.planning.request.as_mut().unwrap().kind
+            {
+                *description = saved_scope;
+            }
+            app.width = 59;
+            draw_language(&mut app, language);
+            key(&mut app, &task, KeyCode::Char('a'));
+            assert!(!app.planning.reviewed && app.planning.pending.is_none());
+            app.width = width;
+            draw_language(&mut app, language);
             assert!(!app.planning.paste("a"));
             app.planning.key(
                 KeyEvent::new_with_kind(
@@ -2423,7 +2512,7 @@ mod tests {
         });
         let text = screen(&draw(&mut app));
         assert!(app.planning.reviewed, "summary fits 60x18:\n{text}");
-        assert!(text.contains("Bolt (Jolteon) wants permission"), "{text}");
+        assert!(text.contains("Bolt (Jolteon)"), "{text}");
         assert!(text.contains("Deny") && text.contains("Allow"), "{text}");
 
         let (mut app, _) = bolt_prompt(PromptKind::Approval {

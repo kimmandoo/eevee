@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Deterministic controlled-edit Codex JSONL peer; not provider conformance.
+"""Deterministic controlled-write Codex JSONL peer; not provider conformance.
 
 Disposable smoke fixtures use --fake-peer and the EV_COOP_* environment only.
-The runtime still performs the real reviewed replacement and durable journal.
+The runtime still performs the real reviewed create-or-replace write and durable journal.
 """
 import json
 import os
@@ -114,7 +114,7 @@ def peer():
             params = dict(threadId=thread, turnId=turn, itemId="question", callId="edit-call")
             if mode == "edit":
                 method = "item/tool/call"
-                params.update(tool="eevee_edit_file", arguments=dict(path=os.environ["EV_COOP_EDIT_PATH"], content=os.environ["EV_COOP_EDIT_CONTENT"]))
+                params.update(tool="eevee_write_file", arguments=dict(path=os.environ["EV_COOP_EDIT_PATH"], content=os.environ["EV_COOP_EDIT_CONTENT"]))
             elif mode == "question":
                 method = "item/tool/requestUserInput"
                 params.update(isBlocking=True, questions=[dict(id="choice", header="Owner input", question="Literal answer for " + marker, options=[], isOther=True, isSecret=False)])

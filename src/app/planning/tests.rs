@@ -33,6 +33,108 @@ fn command(state: &mut State, name: &str, large: bool) {
 }
 
 #[test]
+fn exact_new_paths_are_local_selection_and_only_implement_receives_scope() {
+    for agent in [Agent::Compatible, Agent::Codex, Agent::Claude] {
+        for operation in [Operation::Plan, Operation::Implement, Operation::Review] {
+            let mut state = State::new();
+            state.reset(7);
+            state.agent = agent;
+            command(&mut state, "paths", true);
+            let answer = state.paths_editor.as_mut().unwrap();
+            answer.text = r#"["missing/nested/새.rs","empty.rs"]"#.into();
+            answer.cursor = answer.text.len();
+            press(&mut state, KeyCode::Enter, false);
+            assert!(state.edit_paths.is_empty() && state.paths_editor.is_some());
+            press(&mut state, KeyCode::Enter, true);
+            let paths = vec![
+                PathBuf::from("missing/nested/새.rs"),
+                PathBuf::from("empty.rs"),
+            ];
+            assert_eq!(state.edit_paths, paths);
+            assert!(state.pending.is_none() && state.work.is_none());
+            assert!(state.preview.is_none() && !state.active && state.pending_journal.is_empty());
+            state.set_operation(operation);
+            command(&mut state, "new", true);
+            let Some(Request::Preview(input)) = state.pending.take() else {
+                panic!("local preparation must produce an input");
+            };
+            assert_eq!(
+                input.edit_paths,
+                if operation == Operation::Implement {
+                    paths
+                } else {
+                    vec![]
+                }
+            );
+            assert_eq!(input.operation, operation);
+        }
+    }
+}
+
+#[test]
+fn local_effect_uncertainty_is_correlated_and_survives_terminal_route_and_reset() {
+    for outcome in [Outcome::Completed, Outcome::Cancelled, Outcome::Unknown] {
+        let mut state = active();
+        state.work = Some(store::WorkClaim {
+            task_id: 7,
+            owner: store::Attribution::of(&store::Partner::default()),
+            request_id: "owned-local-write".into(),
+            writing: true,
+        });
+        state.work_acquired = true;
+        state.event(journal_event(11, "local-write-outcome"));
+        for (generation, task_id) in [(10, 7), (11, 8)] {
+            state.event(Event::LocalEffectsUnknown {
+                generation,
+                task_id,
+                message: "foreign uncertainty".into(),
+            });
+            assert!(!state.unknown_effects());
+        }
+        state.event(Event::LocalEffectsUnknown {
+            generation: 11,
+            task_id: 7,
+            message: "Partial local write; effects unknown".into(),
+        });
+        assert!(state.unknown_effects() && state.outcome_unknown());
+        state.event(Event::Finished {
+            generation: 11,
+            task_id: 7,
+            outcome,
+            message: "transport settled".into(),
+        });
+        let store::JournalOperation::Put(record) =
+            &state.pending_journal.front().unwrap().operation
+        else {
+            panic!("the actual outcome must remain queued");
+        };
+        let saved = (**record).clone();
+        state.journal_started();
+        state.journal_event(7, Ok(store::JournalResponse::Saved(saved)));
+        assert!(state.pending_journal.is_empty() && state.journal_inflight.is_empty());
+        state.settle_work();
+        let release = state
+            .work_pending
+            .take()
+            .expect("known local transport releases the durable reservation");
+        state.work_event(release, Ok(vec![]));
+        assert!(state.work.is_none() && state.unknown_effects());
+        state.switch_to = Some(Agent::Compatible);
+        state.complete_switch();
+        state.invalidate_authentication();
+        state.reset(8);
+        assert_eq!(state.task_id(), 7);
+        assert!(state.unknown_effects() && state.outcome_unknown() && state.owns_work());
+        assert!(state.pending.is_none());
+        state.prepare(false, false, false, &task(), &[], None);
+        assert!(
+            state.pending.is_none(),
+            "a route change cannot erase local uncertainty"
+        );
+    }
+}
+
+#[test]
 fn native_model_acknowledgment_does_not_create_a_resumable_session() {
     let mut state = State::new();
     state.reset(7);
@@ -954,6 +1056,14 @@ fn active_account_change_preserves_submitted_bytes_and_revokes_every_terminal_se
             "A terminal old-account session cannot silently become New."
         );
         command(&mut state, "new", true);
+        if outcome == Outcome::Unknown {
+            assert!(state.unknown_effects());
+            assert!(
+                state.pending.is_none(),
+                "Changing credentials cannot clear unknown external effects."
+            );
+            continue;
+        }
         let Some(Request::Preview(future)) = state.pending.take() else {
             panic!("Only a deliberate fresh request can use the replacement credential.");
         };

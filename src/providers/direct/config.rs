@@ -734,7 +734,7 @@ fn resolve_with<F: Fn(&str) -> Option<String>>(
         }
     };
     let description = format!(
-        "{}: {:?} at {}; {}; no host CLI required. Submitted input and bounded process-local conversation only; no provider tools, project hooks, hidden source or automatic edits. Request launch never refreshes credentials or changes storage. Account access and billing are not authenticated by configuration.",
+        "{}: {:?} at {}; {}; no host CLI required. Submitted input and bounded process-local conversation only. Selected-path Implement supports Eevee-mediated create/replace after exact one-shot approval; unscoped Implement, Plan, Review and metadata are non-writing. No shell, project hooks, MCP, hidden source or automatic edits. Request launch never refreshes credentials or changes storage. Account access and billing are not authenticated by configuration.",
         provider.label(),
         settings.protocol,
         settings.base_url,
@@ -865,7 +865,7 @@ pub(crate) fn configured(provider: Agent) -> bool {
 pub(crate) fn guidance(provider: Agent) -> String {
     let guidance = match provider {
         Agent::ChatGPT => {
-            "Native ChatGPT uses a provider access token, not an OpenAI API key. Enter a current token here, use CODEX_ACCESS_TOKEN (+ optional CODEX_ACCOUNT_ID), or explicitly delegate browser/device login to the official Codex CLI and use its read-only CODEX_HOME/auth.json. No app-owned ChatGPT OAuth client is available; without Codex, supply an access token or choose OpenAI API with separate API billing. Keychain-only login is not readable. Tokens can expire; renew through the provider, then replace the token or log in again. Eevee does not refresh tokens or modify the provider store. Native has no tools or edits; the separate Codex CLI route retains coding capabilities."
+            "Native ChatGPT uses a provider access token, not an OpenAI API key. Enter a current token here, use CODEX_ACCESS_TOKEN (+ optional CODEX_ACCOUNT_ID), or explicitly delegate browser/device login to the official Codex CLI and use its read-only CODEX_HOME/auth.json. No app-owned ChatGPT OAuth client is available; without Codex, supply an access token or choose OpenAI API with separate API billing. Keychain-only login is not readable. Tokens can expire; renew through the provider, then replace the token or log in again. Eevee does not refresh tokens or modify the provider store."
         }
         Agent::OpenAI => {
             "Enter an OpenAI API key here, or use OPENAI_API_KEY; optional OPENAI_BASE_URL and OPENAI_MODEL. This is metered API access, not ChatGPT subscription authentication."
@@ -882,7 +882,7 @@ pub(crate) fn guidance(provider: Agent) -> String {
         _ => "Select a native connection provider.",
     };
     format!(
-        "{guidance} Setup offers session-only storage by default, or explicitly saved private local plaintext (not encrypted or an OS keychain). Configuration and metadata access do not prove inference, account access or billing."
+        "{guidance} Native Implement with selected paths supports Eevee-mediated file creation/replacement after exact one-shot approval. Unscoped Implement, Plan, Review and metadata remain proposal-only/non-writing. No shell, hooks or MCP. Setup offers session-only storage by default, or explicitly saved private local plaintext (not encrypted or an OS keychain). Configuration and metadata access do not prove inference, account access or billing."
     )
 }
 
@@ -929,7 +929,7 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
     } else {
         "Credential source: own session/private local configuration when explicitly applied; otherwise the selected API-key environment variable. Configured is not authenticated. Passive discovery does not read credential files.".into()
     };
-    let boundary = "Native tool-free HTTP: the explicitly submitted request and bounded process-local conversation are sent. No project hooks/tools, hidden files, restart-resumable provider sessions or automatic edits. Implement returns proposals only; choose an existing controlled CLI implementation for writes.";
+    let boundary = "Native HTTP sends the explicitly submitted request and bounded process-local conversation. Implement with selected paths permits only Eevee-mediated create/replace of those exact paths after one-shot approval of each proposal. Unscoped Implement, Plan, Review and metadata do not write files. No shell, project hooks, MCP, hidden files, restart-resumable provider sessions or automatic edits.";
     agent::Profile {
         revision: 1,
         name: provider.label().into(),
@@ -947,7 +947,7 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
         probe_allowed: false,
         trust_preview: vec![configuration, credential_source, guidance(provider), boundary.into(), "Choosing model inspection or sending a request authorizes reading the selected credential and sending it only to the configured endpoint. Credentials are never logged; persistence requires explicit private-local save. Cancellation stops local waiting; it cannot promise a remote request stopped or was not billed. No retries or fallback.".into()],
         blockers: if available { Vec::new() } else { vec![guidance(provider)] },
-        capabilities: ["Plan", "Review", "Implement proposals", "Models metadata"].into_iter().map(|action| agent::Capability {
+        capabilities: ["Plan", "Review", "Implement selected paths", "Models metadata"].into_iter().map(|action| agent::Capability {
             action: action.into(), boundary: boundary.into(), evidence: "Native protocol adapter; requires reviewed endpoint and explicit request".into(), blocker: "Configuration is not successful authentication; provider may reject credentials, model, quota or protocol".into(),
         }).collect(),
     }
@@ -1180,6 +1180,33 @@ mod tests {
         )
         .unwrap();
         assert_ne!(connection.fingerprint(), other.fingerprint());
+    }
+
+    #[test]
+    fn reviewed_disclosures_change_dispatch_consent_but_not_endpoint_authorization() {
+        let mut connection = resolve_with(
+            Agent::OpenAI,
+            &input(&[("OPENAI_API_KEY", "isolated-test-key")]),
+        )
+        .unwrap();
+        let fingerprint = connection.fingerprint();
+        let conversation_scope = connection.conversation_scope();
+        let url = connection.inference_url("explicit-model");
+        connection.description = "Reviewed selected-path coding disclosure".into();
+        assert_ne!(connection.fingerprint(), fingerprint);
+        assert_eq!(connection.conversation_scope(), conversation_scope);
+        assert_eq!(connection.inference_url("explicit-model"), url);
+        let client = reqwest::Client::new();
+        let request = connection.request(&client, "POST", &url).build().unwrap();
+        assert_eq!(
+            header(&request, "Authorization"),
+            Some("Bearer isolated-test-key")
+        );
+        let unrelated = connection
+            .request(&client, "POST", "https://unrelated.invalid/v1/responses")
+            .build()
+            .unwrap();
+        assert!(header(&unrelated, "Authorization").is_none());
     }
 
     #[test]

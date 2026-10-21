@@ -12,6 +12,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use crate::providers::writes::{TOOL_NAME, WriteFailure, WriteProposal, WriteSet};
 use crate::providers::{
     Agent, Event, Input, ItemKind, ModelCatalogue, ModelOption, ModelSelection, Operation, Outcome,
     PermissionOption, Preview, Prompt, PromptKind, Question, QuestionOption, Request,
@@ -31,247 +32,66 @@ const EVENT_RESERVE: usize = 16;
 const RPC_TIMEOUT: Duration = Duration::from_secs(20);
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(3);
 
-const EDIT_BYTES: usize = 12 * 1024;
-#[derive(Clone, Debug, PartialEq)]
-struct EditBaseline {
-    path: PathBuf,
-    text: String,
-    digest: String,
-    identity: String,
-}
-struct PendingEdit {
-    path: PathBuf,
-    content: String,
-    patch: String,
-}
-
-fn edit_path_allowed(path: &Path, selected: &[PathBuf], exclusions: &[PathBuf]) -> bool {
-    !path.as_os_str().is_empty()
-        && path.to_str().is_some()
-        && path.to_str().is_some_and(|text| safe(text) == text)
-        && path
-            .components()
-            .all(|c| matches!(c, std::path::Component::Normal(_)))
-        && selected.iter().any(|p| p == path)
-        && !exclusions.iter().any(|prefix| {
-            let mut actual = path.components();
-            prefix.components().all(|excluded| {
-                actual.next().is_some_and(|part| {
-                    match (part.as_os_str().to_str(), excluded.as_os_str().to_str()) {
-                        (Some(a), Some(b)) => a
-                            .chars()
-                            .flat_map(char::to_lowercase)
-                            .eq(b.chars().flat_map(char::to_lowercase)),
-                        _ => false,
-                    }
-                })
-            })
-        })
-        && !path.components().any(|c| {
-            let name = c.as_os_str().to_string_lossy().to_ascii_lowercase();
-            name == ".git"
-                || matches!(
-                    name.as_str(),
-                    ".codex" | ".claude" | ".gemini" | ".opencode"
-                )
-                || name == ".env"
-                || name.starts_with(".env.")
-                || name.contains("secret")
-                || name.contains("credential")
-                || name.starts_with("id_")
-                || name.starts_with("private_key")
-                || name.ends_with(".pem")
-                || name.ends_with(".key")
-                || matches!(name.as_str(), ".npmrc" | ".netrc" | ".pypirc")
-        })
-}
-fn edit_digest(text: &str) -> String {
-    use sha2::{Digest, Sha256};
-    format!("{:x}", Sha256::digest(text.as_bytes()))
-}
-#[cfg(unix)]
-fn open_edit_file(root: &Path, path: &Path, write: bool) -> Result<std::fs::File, String> {
-    use std::os::fd::{AsRawFd, FromRawFd};
-    use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::OpenOptionsExt;
-    let mut directory = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(root)
-        .map_err(|_| "Edit root cannot be opened without following links")?;
-    let mut components = path.components().peekable();
-    while let Some(component) = components.next() {
-        if !matches!(component, std::path::Component::Normal(_)) {
-            return Err("Edit path is not strictly root-relative".into());
-        }
-        let name = std::ffi::CString::new(component.as_os_str().as_bytes())
-            .map_err(|_| "Invalid edit path")?;
-        let final_file = components.peek().is_none();
-        let flags = (if final_file && write {
-            libc::O_RDWR
-        } else {
-            libc::O_RDONLY
-        }) | libc::O_NOFOLLOW
-            | libc::O_CLOEXEC
-            | libc::O_NONBLOCK
-            | if final_file { 0 } else { libc::O_DIRECTORY };
-        let fd = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags) };
-        if fd < 0 {
-            return Err("Edit path is missing, linked, or inaccessible; review again".into());
-        }
-        directory = unsafe { std::fs::File::from_raw_fd(fd) };
-    }
-    Ok(directory)
-}
-#[cfg(not(unix))]
-fn open_edit_file(_: &Path, _: &Path, _: bool) -> Result<std::fs::File, String> {
-    Err("Controlled implementation is unavailable on this OS: no qualified anchored write route; use manual handoff".into())
-}
-fn read_edit_file(root: &Path, path: &Path) -> Result<EditBaseline, String> {
-    use std::io::Read;
-    let mut file = open_edit_file(root, path, false)?;
-    let before = file
-        .metadata()
-        .map_err(|_| "Cannot inspect edit baseline")?;
-    if !before.is_file() || before.len() > EDIT_BYTES as u64 {
-        return Err("Edit requires an existing regular UTF-8 file at most 12 KiB".into());
-    }
-    #[cfg(unix)]
-    let identity = {
-        use std::os::unix::fs::MetadataExt;
-        if before.nlink() != 1 {
-            return Err("Hardlinked edit files are refused".into());
-        }
-        format!(
-            "{}:{}:{}:{}",
-            before.dev(),
-            before.ino(),
-            before.ctime(),
-            before.ctime_nsec()
-        )
-    };
-    #[cfg(not(unix))]
-    let identity = String::new();
-    let mut text = String::new();
-    (&mut file)
-        .take((EDIT_BYTES + 1) as u64)
-        .read_to_string(&mut text)
-        .map_err(|_| "Edit baseline is not readable UTF-8")?;
-    if text.len() > EDIT_BYTES || text.contains('\0') || safe(&text) != text {
-        return Err(
-            "Edit baseline is oversized, binary, credential-bearing, or contains unsafe controls"
-                .into(),
-        );
-    }
-    let after = file
-        .metadata()
-        .map_err(|_| "Cannot revalidate edit baseline")?;
-    if before.len() != after.len() || before.modified().ok() != after.modified().ok() {
-        return Err("Edit baseline changed while captured".into());
-    }
-    Ok(EditBaseline {
-        path: path.into(),
-        digest: edit_digest(&text),
-        text,
-        identity,
-    })
-}
-fn capture_edit_baseline(
+fn capture_writes(
     root: &Path,
+    data_dir: &Path,
     input: &Input,
     exclusions: &[PathBuf],
-) -> Result<Vec<EditBaseline>, String> {
+) -> Result<Option<WriteSet>, String> {
+    if input.inspect_models {
+        return Ok(None);
+    }
     if input.operation != Operation::Implement {
         if !input.edit_paths.is_empty() {
             return Err("Plan and Review requests cannot carry write paths".into());
         }
-        return Ok(Vec::new());
+        return Ok(None);
     }
-    if input.edit_paths.is_empty() || input.edit_paths.len() > 8 {
-        return Err("Implementation requires 1–8 deliberately selected existing files".into());
-    }
-    let mut files = Vec::new();
-    for path in &input.edit_paths {
-        if !edit_path_allowed(path, &input.edit_paths, exclusions)
-            || files.iter().any(|f: &EditBaseline| f.path == *path)
-        {
-            return Err("Protected, duplicate, excluded or non-relative edit path refused".into());
-        }
-        files.push(read_edit_file(root, path)?);
-    }
-    Ok(files)
+    WriteSet::capture(root, data_dir, &input.edit_paths, exclusions).map(Some)
 }
-fn replacement_patch(before: &EditBaseline, after: &str) -> String {
-    let mut patch = format!(
-        "--- a/{}\n+++ b/{}\n@@ exact full-file replacement; baseline sha256={} @@\n",
-        before.path.display(),
-        before.path.display(),
-        before.digest
-    );
-    for (prefix, text) in [('-', before.text.as_str()), ('+', after)] {
-        for line in text.split_inclusive('\n') {
-            patch.push(prefix);
-            patch.push_str(line);
-            if !line.ends_with('\n') {
-                patch.push_str("\n\\ No newline at end of file\n");
-            }
-        }
-    }
-    patch
-}
-fn apply_replacement(
-    root: &Path,
-    before: &EditBaseline,
-    after: &str,
-) -> Result<EditBaseline, String> {
-    use std::io::{Read, Seek, SeekFrom, Write};
-    if read_edit_file(root, &before.path)? != *before {
-        return Err("Stale patch refused: working bytes or path identity changed; no write".into());
-    }
-    let mut file = open_edit_file(root, &before.path, true)?;
-    #[cfg(unix)]
+
+fn proposed_write(writes: &WriteSet, params: &Value) -> Result<WriteProposal, String> {
+    if params.get("tool").and_then(Value::as_str) != Some(TOOL_NAME)
+        || params
+            .get("namespace")
+            .is_some_and(|value| !value.is_null())
     {
-        use std::os::fd::AsRawFd;
-        use std::os::unix::fs::MetadataExt;
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Err("Edit file is busy; no write".into());
-        }
-        let metadata = file
-            .metadata()
-            .map_err(|_| "Cannot inspect writable edit handle")?;
-        let identity = format!(
-            "{}:{}:{}:{}",
-            metadata.dev(),
-            metadata.ino(),
-            metadata.ctime(),
-            metadata.ctime_nsec()
-        );
-        if !metadata.is_file() || metadata.nlink() != 1 || identity != before.identity {
-            return Err("Writable file identity changed; no write".into());
-        }
+        return Err("Unadvertised dynamic tool refused".into());
     }
-    let mut current = String::new();
-    (&mut file)
-        .take((EDIT_BYTES + 1) as u64)
-        .read_to_string(&mut current)
-        .map_err(|_| "Cannot validate writable edit handle")?;
-    if current != before.text || read_edit_file(root, &before.path)? != *before {
-        return Err("Stale working-file patch refused; no write".into());
+    let arguments = params
+        .get("arguments")
+        .and_then(Value::as_object)
+        .ok_or("Write tool requires an arguments object")?;
+    if arguments.len() != 2 {
+        return Err("Only exact path/content arguments are accepted".into());
     }
-    file.seek(SeekFrom::Start(0))
-        .and_then(|_| file.write_all(after.as_bytes()))
-        .and_then(|_| file.set_len(after.len() as u64))
-        .and_then(|_| file.sync_all())
-        .map_err(
-            |_| "File write failed after approval; inspect working diff, partial changes possible",
-        )?;
-    let actual = read_edit_file(root, &before.path)?;
-    if actual.text != after {
-        return Err(
-            "Post-write file identity/content changed; inspect diff, outcome unknown".into(),
-        );
+    let path = arguments
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or("Write path missing")?;
+    let content = arguments
+        .get("content")
+        .and_then(Value::as_str)
+        .ok_or("Write content missing")?;
+    writes.propose(PathBuf::from(path), content.into())
+}
+
+fn write_permission(proposal: &WriteProposal) -> PromptKind {
+    PromptKind::Permission {
+        description: proposal.description(),
+        options: vec![
+            PermissionOption {
+                label: "Deny".into(),
+                description: "Do not write this file.".into(),
+                answer: json!({"decision":"decline"}),
+            },
+            PermissionOption {
+                label: "Allow once".into(),
+                description: "Only this exact file and reviewed parents.".into(),
+                answer: json!({"decision":"accept"}),
+            },
+        ],
     }
-    Ok(actual)
 }
 type Events = Arc<Mutex<VecDeque<Event>>>;
 pub struct Worker {
@@ -381,7 +201,7 @@ struct Prepared {
     input: Box<Input>,
     trust: crate::providers::agent::PlanningTrust,
     text: String,
-    baseline: Vec<EditBaseline>,
+    writes: Option<WriteSet>,
 }
 fn emit(events: &Events, event: Event) -> Result<(), String> {
     let mut queue = events.lock();
@@ -495,18 +315,14 @@ fn worker(
                 if input.inspect_models {
                     preview.trust.push("CATALOGUE ONLY: launch the qualified Codex app-server and initialize/account/read/config/read/model/list. Retain only nonsecret configured model/provider/effort. Provider configuration/authentication and network access may be used; no login/auth refresh, thread start/resume, prompt, model turn, edit or journal.".into());
                 }
-                let baseline = if input.inspect_models {
-                    Ok(Vec::new())
-                } else {
-                    capture_edit_baseline(project, &input, exclusions)
-                };
-                if let Err(error) = &baseline {
+                let writes = capture_writes(project, data_dir, &input, exclusions);
+                if let Err(error) = &writes {
                     preview.blockers.push(safe(error));
                 }
                 if !input.inspect_models && input.operation == Operation::Implement {
-                    preview.trust.push("Controlled route: eevee_edit_file replaces only exact reviewed existing regular files after an exact before/after patch and allow-once. Protected/symlink/hardlink paths refused. No grantRoot/session grant; native file-edit and command escalation denied.".into());
+                    preview.trust.push("Controlled route: eevee_write_file creates or replaces only exact reviewed selected files after an exact content patch and allow-once. Creation includes only the displayed missing parents. Protected/symlink/hardlink paths and appeared targets/parents are refused. No grantRoot/session grant; native file-write and command escalation denied.".into());
                     preview.trust.push("Provider readOnly/network-disabled policy is acknowledged, not an Eevee process sandbox. Independent provider/config/MCP reads or side effects are outside this tool's coverage. No workspace-write trust configuration is changed.".into());
-                    preview.trust.push("Baseline includes current working bytes (including dirty user edits). No reset/commit/merge. Each replacement is reviewed against those bytes; changed baselines require fresh consent.".into());
+                    preview.trust.push("Baseline distinguishes absent targets from existing current working bytes (including dirty user edits). No reset/commit/merge. Each creation or replacement is reviewed against the frozen scope; changed baselines require fresh consent.".into());
                     if input.resume.is_some() {
                         preview.blockers.push("Controlled implementation requires a fresh thread; planning/resumed threads do not carry the dynamic write tool".into());
                     }
@@ -530,7 +346,12 @@ fn worker(
                 {
                     preview.blockers.push("Session thread bound reached; restart Eevee before creating another thread".into());
                 }
-                match payload(data_dir, &input, exclusions) {
+                match payload(
+                    data_dir,
+                    &input,
+                    exclusions,
+                    writes.as_ref().ok().and_then(Option::as_ref),
+                ) {
                     Ok(text) => preview.payload = text,
                     Err(error) => preview.blockers.push(safe(&error)),
                 }
@@ -542,7 +363,7 @@ fn worker(
                         input,
                         trust,
                         text: preview.payload.clone(),
-                        baseline: baseline.unwrap_or_default(),
+                        writes: writes.unwrap_or_default(),
                     });
                 }
                 let _ = emit(&events, Event::Preview(preview));
@@ -621,7 +442,12 @@ fn worker(
     }
     busy.store(false, Ordering::Release);
 }
-fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<String, String> {
+fn payload(
+    data_dir: &Path,
+    input: &Input,
+    exclusions: &[PathBuf],
+    writes: Option<&WriteSet>,
+) -> Result<String, String> {
     input.validate_selection()?;
     if input.inspect_models {
         return serde_json::to_string_pretty(&json!({
@@ -652,15 +478,21 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
             exclusions,
         )?;
     }
-    let baseline = capture_edit_baseline(Path::new(&input.task.project), input, exclusions)?;
+    let baseline = match (input.operation, writes) {
+        (Operation::Implement, Some(writes)) => writes.payload(&input.excerpts),
+        (Operation::Implement, None) => {
+            return Err("Implementation requires a captured selected write scope".into());
+        }
+        (_, _) => json!([]),
+    };
     let text = serde_json::to_string_pretty(&json!({
-        "purpose": if input.operation == Operation::Plan { "Plan the user's task. Do not implement changes. Ask the user when a decision is needed; report proposals as unverified planning, never as local execution evidence." } else { "Implement the approved requirement ONLY by calling eevee_edit_file with an exact selected root-relative path and full proposed replacement UTF-8 content. Preserve every unrelated existing dirty user change visible in edit_baseline. Never use apply_patch, shell writes, MCP, delegation, commits or merge. Native filesystem writes and command escalations will be denied. Ask for user input if unclear. Every proposed replacement requires a displayed exact patch and allow-once. Report results as unverified until the user reviews the working diff and chooses a local check." },
+        "purpose": if input.operation == Operation::Plan { "Plan the user's task. Do not implement changes. Ask the user when a decision is needed; report proposals as unverified planning, never as local execution evidence." } else { "Implement the approved requirement ONLY by calling eevee_write_file with an exact selected root-relative path and full proposed UTF-8 content. Create only targets captured as absent, including only their reviewed missing parents; replace only targets captured as existing. Preserve every unrelated dirty user change visible in write_baseline. Never use apply_patch, shell writes, MCP, delegation, commits or merge. Native filesystem writes and command escalations will be denied. Ask for user input if unclear. Every proposed creation or replacement requires a displayed exact patch and allow-once. Report results as unverified until the user reviews the working diff and deliberately chooses a local check." },
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
         "request": input.instruction(),
         "operation": input.operation,
         "selection": input.selection,
         "edit_paths": input.edit_paths,
-        "edit_baseline": baseline.iter().map(|b| baseline_entry(b, &input.excerpts)).collect::<Vec<_>>(),
+        "write_baseline": baseline,
         "handoff": input.handoff,
         "approved_memories": input.task.approved_memories,
         "selected_sources": serde_json::from_str::<Value>(&sources.text).map_err(|_| "Source payload is not valid JSON")?
@@ -680,31 +512,6 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
         );
     }
     Ok(text)
-}
-
-/// One `edit_baseline` entry; byte-identical whole-file captures already in
-/// `selected_sources` are cited by id instead of duplicating their text.
-fn baseline_entry(
-    baseline: &EditBaseline,
-    excerpts: &[crate::workspace::context::Excerpt],
-) -> Value {
-    let shared = excerpts.iter().find(|excerpt| {
-        excerpt.path == baseline.path.to_string_lossy()
-            && excerpt.start_line == 1
-            && excerpt.text == baseline.text
-    });
-    match shared {
-        Some(excerpt) => json!({
-            "path": baseline.path,
-            "sha256": baseline.digest,
-            "working_content_same_as_capture": excerpt.id,
-        }),
-        None => json!({
-            "path": baseline.path,
-            "sha256": baseline.digest,
-            "working_content": baseline.text,
-        }),
-    }
 }
 
 /// A complete bounded provider snapshot, never a guessed or cached dispatch default.
@@ -1121,8 +928,8 @@ struct Engine<'a> {
     interrupt_sent: bool,
     cancelling: Option<Instant>,
     terminal: Option<(Outcome, String)>,
-    edit_baseline: Vec<EditBaseline>,
-    pending_edit: Option<PendingEdit>,
+    writes: Option<WriteSet>,
+    pending_write: Option<WriteProposal>,
     journal_session: String,
 }
 fn run_transport(
@@ -1201,8 +1008,8 @@ fn run_transport(
         interrupt_sent: false,
         cancelling: None,
         terminal: None,
-        edit_baseline: run.baseline.clone(),
-        pending_edit: None,
+        writes: run.writes.clone(),
+        pending_write: None,
         journal_session: format!(
             "{}-{}",
             std::process::id(),
@@ -1427,12 +1234,10 @@ fn revalidate(
     run: &Prepared,
 ) -> Result<(), String> {
     run.input.validate_selection()?;
-    if !run.input.inspect_models
-        && capture_edit_baseline(project, &run.input, exclusions)? != run.baseline
-    {
-        return Err("Selected edit path identity or working baseline changed; no dispatch. Review a fresh preview".into());
+    if let Some(writes) = &run.writes {
+        writes.verify()?;
     }
-    if payload(data_dir, &run.input, exclusions)? != run.text {
+    if payload(data_dir, &run.input, exclusions, run.writes.as_ref())? != run.text {
         return Err(
             "Outgoing payload changed since review; no dispatch. Review a fresh preview".into(),
         );
@@ -1667,7 +1472,7 @@ impl Engine<'_> {
         (self.model, self.effort) = self.catalogue.select(&self.run.input.selection)?;
         let mut params = json!({"cwd":self.project,"model":self.model,"sandbox":"read-only","approvalPolicy":"on-request","approvalsReviewer":"user","config":{"model_reasoning_effort":self.effort,"features.multi_agent":false,"web_search":"disabled","allow_login_shell":false}});
         if self.run.input.operation == Operation::Implement {
-            params["dynamicTools"] = json!([{"type":"function","name":"eevee_edit_file","description":"The ONLY allowed implementation write route. Propose replacing an exact selected existing UTF-8 file with full content, preserving unrelated dirty changes. User reviews exact before/after patch and must allow once. Protected/unselected/stale/link paths denied without writing.","inputSchema":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}]);
+            params["dynamicTools"] = json!([{"type":"function","name":TOOL_NAME,"description":"The ONLY allowed implementation write route. Propose creating or replacing an exact selected UTF-8 file with full content, preserving unrelated dirty changes. Creation includes only reviewed missing parents. User reviews exact create/replace scope and patch and must allow once. Protected/unselected/stale/link paths and appeared targets/parents refused.","inputSchema":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}]);
         }
         let method = if let Some(id) = &self.run.input.resume {
             params["threadId"] = json!(id);
@@ -1783,7 +1588,7 @@ impl Engine<'_> {
                     .position(|prompt| Some(&prompt.request_id) == params.get("requestId"))
             {
                 let prompt = self.prompts.remove(index);
-                self.pending_edit = None;
+                self.pending_write = None;
                 emit(
                     self.events,
                     Event::PromptClosed {
@@ -1946,7 +1751,7 @@ impl Engine<'_> {
                     .and_then(Value::as_str)
                     .unwrap_or("unknown");
                 return self.item(identity(item, "id")?, ItemKind::Tool,
-                    &format!("Native file-edit activity: {status}. Eevee denies native file-change approval; only reviewed eevee_edit_file writes are permitted."),
+                    &format!("Native file-write activity: {status}. Eevee denies native file-change approval; only reviewed eevee_write_file writes are permitted."),
                     complete, false);
             }
             Some("collabAgentToolCall" | "subAgentActivity" | "webSearch") => {
@@ -2137,6 +1942,7 @@ impl Engine<'_> {
         text: &str,
         complete: bool,
     ) -> Result<(), String> {
+        use sha2::{Digest, Sha256};
         emit(
             self.events,
             Event::Journal {
@@ -2144,10 +1950,10 @@ impl Engine<'_> {
                 task_id: self.run.input.task.id,
                 record: crate::store::ProviderRecord {
                     id: format!(
-                        "codex-{}-{}-{}",
+                        "codex-{}-{}-{:x}",
                         self.journal_session,
                         self.run.generation,
-                        edit_digest(item_id)
+                        Sha256::digest(item_id.as_bytes())
                     ),
                     agent: Agent::Codex,
                     generation: self.run.generation,
@@ -2168,83 +1974,39 @@ impl Engine<'_> {
             },
         )
     }
-    fn revalidate_edit_session(&self) -> Result<(), String> {
+    fn revalidate_write_session(&self) -> Result<(), String> {
         self.run.input.validate_committed(self.data_dir)?;
         crate::providers::agent::revalidate_planning_trust(self.project, &self.run.trust)?;
-        for before in &self.edit_baseline {
-            if read_edit_file(self.project, &before.path)? != *before {
-                return Err("Selected working file changed since review; pending patch refused without writing".into());
-            }
-        }
-        Ok(())
+        self.writes
+            .as_ref()
+            .ok_or("Selected write scope missing")?
+            .verify()
     }
-    fn request_edit(&mut self, id: Value, params: &Value) -> Result<(), String> {
-        let prepared = (|| -> Result<(Prompt, PendingEdit), String> {
-            if self.run.input.operation != Operation::Implement
-                || params.get("tool").and_then(Value::as_str) != Some("eevee_edit_file")
-                || params.get("namespace").is_some_and(|v| !v.is_null())
-            {
-                return Err("Unadvertised dynamic tool refused".into());
+    fn request_write(&mut self, id: Value, params: &Value) -> Result<(), String> {
+        let prepared = (|| -> Result<(Prompt, WriteProposal), String> {
+            if self.run.input.operation != Operation::Implement {
+                return Err("This operation does not permit dynamic writes".into());
             }
-            if !self.prompts.is_empty() || self.pending_edit.is_some() {
+            if !self.prompts.is_empty() || self.pending_write.is_some() {
                 return Err("Concurrent write request refused".into());
             }
-            self.revalidate_edit_session()?;
-            let arguments = params
-                .get("arguments")
-                .and_then(Value::as_object)
-                .ok_or("Edit tool requires an arguments object")?;
-            if arguments.len() != 2 {
-                return Err("Only exact path/content arguments are accepted".into());
-            }
-            let path = PathBuf::from(
-                arguments
-                    .get("path")
-                    .and_then(Value::as_str)
-                    .ok_or("Edit path missing")?,
-            );
-            let content = arguments
-                .get("content")
-                .and_then(Value::as_str)
-                .ok_or("Edit content missing")?;
-            if !edit_path_allowed(&path, &self.run.input.edit_paths, self.exclusions) {
-                return Err("Protected/unselected path refused; no file opened for writing".into());
-            }
-            if content.len() > EDIT_BYTES || content.contains('\0') || safe(content) != content {
-                return Err("Unsafe or oversized replacement refused".into());
-            }
-            let before = self
-                .edit_baseline
-                .iter()
-                .find(|b| b.path == path)
-                .ok_or("Selected edit baseline missing")?;
-            let patch = replacement_patch(before, content);
-            if patch.len() > ITEM_LIMIT {
-                return Err("Exact patch exceeds the review bound; reduce change".into());
-            }
-            let item_id = identity(params, "callId")?;
+            self.revalidate_write_session()?;
+            let proposal = proposed_write(
+                self.writes.as_ref().ok_or("Selected write scope missing")?,
+                params,
+            )?;
             let prompt = Prompt {
                 arrival: super::approval_arrival(),
-                request_id: id.clone(), thread_id: self.thread_id.clone().unwrap(), turn_id: self.turn_id.clone().unwrap(), item_id,
-                kind: PromptKind::Permission {
-                    description: format!("Eevee-controlled file replacement; exact selected path: {}\nBaseline includes dirty user edits. Only this replacement is allowed once; no provider-native write grant. Review requirement and preserve unrelated lines.\n{patch}", path.display()),
-                    options: vec![
-                        PermissionOption { label: "Deny".into(), description: "No write; tell provider this tool call was denied".into(), answer: json!({"decision":"decline"}) },
-                        PermissionOption { label: "Allow once".into(), description: "Apply this exact patch after revalidating working bytes and path identity".into(), answer: json!({"decision":"accept"}) },
-                    ],
-                },
+                request_id: id.clone(),
+                thread_id: self.thread_id.clone().unwrap(),
+                turn_id: self.turn_id.clone().unwrap(),
+                item_id: identity(params, "callId")?,
+                kind: write_permission(&proposal),
             };
-            Ok((
-                prompt,
-                PendingEdit {
-                    path,
-                    content: content.into(),
-                    patch,
-                },
-            ))
+            Ok((prompt, proposal))
         })();
         match prepared {
-            Ok((prompt, edit)) => {
+            Ok((prompt, proposal)) => {
                 emit(
                     self.events,
                     Event::Prompt {
@@ -2254,69 +2016,79 @@ impl Engine<'_> {
                     },
                 )?;
                 self.prompts.push(prompt);
-                self.pending_edit = Some(edit);
+                self.pending_write = Some(proposal);
                 Ok(())
             }
             Err(error) => {
                 self.queue(json!({"id":id,"result":{"success":false,"contentItems":[{"type":"inputText","text":error}]}}))?;
-                self.status("Dynamic write request refused; no write permission or side effect through Eevee route")
+                self.status("Dynamic write tool call refused; this tool call made no Eevee filesystem changes")
             }
         }
     }
-    fn answer_edit(
+    fn answer_write(
         &mut self,
         generation: u64,
         id: Value,
         answer: Value,
         index: usize,
     ) -> Result<(), String> {
-        let edit = self
-            .pending_edit
+        let proposal = self
+            .pending_write
             .take()
-            .ok_or("Edit request is no longer pending")?;
+            .ok_or("Write request is no longer pending")?;
         let prompt = self.prompts.remove(index);
         let mut success = false;
+        let mut effects_notification = Ok(());
         let text = if answer.get("decision").and_then(Value::as_str) == Some("accept") {
-            let applied = (|| {
-                self.revalidate_edit_session()?;
+            let ready = (|| -> Result<(), String> {
+                self.revalidate_write_session()?;
                 if self.cancelled.load(Ordering::Acquire) == generation
                     || self.stop.load(Ordering::Acquire)
                 {
-                    return Err("Cancelled edit refused before write".into());
+                    return Err("Cancelled write refused before filesystem effects".into());
                 }
-                if !edit_path_allowed(&edit.path, &self.run.input.edit_paths, self.exclusions) {
-                    return Err("Edit scope changed; no write".into());
+                if self.events.lock().len() > EVENTS_LIMIT - 5 {
+                    return Err("Write refused before filesystem effects: event queue cannot retain the local result and terminal state".into());
                 }
-                let baseline = self
-                    .edit_baseline
-                    .iter_mut()
-                    .find(|b| b.path == edit.path)
-                    .ok_or("Edit baseline missing")?;
-                if replacement_patch(baseline, &edit.content) != edit.patch {
-                    return Err("Exact reviewed patch changed; no write".into());
-                }
-                *baseline = apply_replacement(self.project, baseline, &edit.content)?;
-                Ok::<_, String>(())
+                Ok(())
             })();
+            let applied = match ready {
+                Ok(()) => self.writes.as_mut().unwrap().apply(&proposal),
+                Err(message) => Err(WriteFailure {
+                    message,
+                    uncertain: false,
+                }),
+            };
             match applied {
-                Ok(()) => {
+                Ok(result) => {
                     success = true;
-                    format!(
-                        "Applied reviewed replacement to {}. User must inspect working diff and choose a local check; no commit or verification occurred.\n{}",
-                        edit.path.display(),
-                        edit.patch
-                    )
+                    result.message
                 }
-                Err(error) => format!("Patch refused/failed: {error}"),
+                Err(error) => {
+                    if error.uncertain {
+                        effects_notification = emit(
+                            self.events,
+                            Event::LocalEffectsUnknown {
+                                generation,
+                                task_id: self.run.input.task.id,
+                                message: error.message.clone(),
+                            },
+                        );
+                        self.terminal = Some((Outcome::Unknown, error.message.clone()));
+                    }
+                    format!("Reviewed write failed: {}", error.message)
+                }
             }
         } else {
             format!(
-                "User denied edit to {}; no Eevee write occurred",
-                edit.path.display()
+                "This tool call to {} was denied; it made no Eevee filesystem changes",
+                proposal.path.display()
             )
         };
+        // Record actual filesystem results even when queuing the provider reply later fails.
+        self.journal(&format!("eevee-write-{}", prompt.item_id), "Codex-requested Eevee-controlled file write", "Only exact selected create/replace scope and missing parents are mediated; frozen baseline, path identity, current authority and exact patch revalidated. Provider-owned independent effects outside coverage; not a local check", &safe(&text), true)?;
+        effects_notification?;
         self.queue(json!({"id":id,"result":{"success":success,"contentItems":[{"type":"inputText","text":text}]}}))?;
-        self.journal(&format!("eevee-edit-{}", prompt.item_id), "Codex-requested Eevee-controlled file edit", "Only exact existing selected regular file replacement is mediated; baseline, path identity and exact patch revalidated. Provider-owned independent effects outside coverage; not a local check", &safe(&text), true)?;
         emit(
             self.events,
             Event::PromptClosed {
@@ -2361,7 +2133,7 @@ impl Engine<'_> {
         }
         self.run.input.validate_committed(self.data_dir)?;
         if method == "item/tool/call" {
-            return self.request_edit(id, params);
+            return self.request_write(id, params);
         }
         if method == "item/commandExecution/requestApproval"
             && self.run.input.operation != Operation::Plan
@@ -2512,13 +2284,13 @@ impl Engine<'_> {
         }
         // Grant scope and immutable input/config remain valid at approval/answer dispatch as well.
         self.run.input.validate_committed(self.data_dir)?;
-        if self.pending_edit.is_some() {
-            return self.answer_edit(generation, id, answer, index);
+        if self.pending_write.is_some() {
+            return self.answer_write(generation, id, answer, index);
         }
         if self.run.input.operation != Operation::Implement {
             revalidate(self.project, self.data_dir, self.exclusions, self.run)?;
         } else {
-            self.revalidate_edit_session()?;
+            self.revalidate_write_session()?;
         }
         if self.cancelled.load(Ordering::Acquire) == self.run.generation {
             return self.cancel();
@@ -2534,7 +2306,7 @@ impl Engine<'_> {
         )
     }
     fn close_prompts(&mut self) {
-        self.pending_edit = None;
+        self.pending_write = None;
         for prompt in self.prompts.drain(..) {
             let _ = emit(
                 self.events,
@@ -2551,7 +2323,7 @@ impl Engine<'_> {
         }
         self.cancelling = Some(Instant::now());
         self.discard_grants()?;
-        self.pending_edit = None;
+        self.pending_write = None;
         let prompts = std::mem::take(&mut self.prompts);
         for prompt in prompts {
             self.refuse(

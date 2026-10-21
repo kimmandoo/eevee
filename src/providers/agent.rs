@@ -415,7 +415,7 @@ fn capabilities(index: usize) -> Vec<Capability> {
             (
                 "Command/file/permission requests",
                 "Eevee-mediated callbacks",
-                "Plan: supported command deny/allow-once; Implement: selected-file Eevee dynamic tool with exact patch approval, native edits/escalation refused",
+                "Plan: supported command deny/allow-once; Implement: exact selected-path creation/replacement and missing parents via Eevee tool with patch approval; native edits/escalation refused",
                 "Not every provider/MCP/hook action necessarily reaches a callback",
             ),
             (
@@ -475,7 +475,7 @@ fn capabilities(index: usize) -> Vec<Capability> {
         result.push(Capability {
             action: action.into(),
             boundary: if action == "Filesystem/network restrictions" { "Observed/external — no Eevee confinement" } else { "Eevee-mediated protocol callbacks / provider-owned tools" }.into(),
-            evidence: if index == 1 { "Optional official SDK sidecar bridge revision 5; exact SDK-message UUID acknowledgment proves claimed request submission; tool/config policy separate from callbacks" }
+            evidence: if index == 1 { "Optional official SDK sidecar bridge revision 6; selected new/existing paths and missing parents use external Write/Edit policy, not OS confinement; exact SDK-message UUID acknowledgment proves claimed request submission; tool/config policy separate from callbacks" }
                 else { "Negotiated ACP v1; exact once-only permission IDs; fs/terminal callbacks disabled" }.into(),
             blocker: "Requires supported runtime/auth/capability qualification after explicit consent; installation alone is not support".into(),
         });

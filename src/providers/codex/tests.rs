@@ -1,5 +1,45 @@
 use super::*;
 
+#[cfg(unix)]
+struct WriteFixture {
+    root: PathBuf,
+    data: PathBuf,
+}
+
+#[cfg(unix)]
+impl WriteFixture {
+    fn new() -> Self {
+        let root = std::env::temp_dir().join(format!(
+            "eevee-codex-write-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        let data = root.join(".eevee-data");
+        std::fs::create_dir(&data).unwrap();
+        Self { root, data }
+    }
+
+    fn capture(&self, paths: &[&str]) -> Result<WriteSet, String> {
+        let paths = paths
+            .iter()
+            .map(|path| PathBuf::from(*path))
+            .collect::<Vec<_>>();
+        WriteSet::capture(&self.root, &self.data, &paths, &[])
+    }
+}
+
+#[cfg(unix)]
+impl Drop for WriteFixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
 #[test]
 fn cumulative_streams_release_words_without_exposing_split_secrets() {
     assert_eq!(safe_stream("First ordinary ", false), "First ordinary ");
@@ -461,7 +501,7 @@ fn model_inspection_has_no_task_prompt_or_source_or_edit_lookup() {
         credential: None,
     };
     input.task.goal = "private-task-goal-canary".into();
-    let text = payload(Path::new("unopened-data"), &input, &[]).unwrap();
+    let text = payload(Path::new("unopened-data"), &input, &[], None).unwrap();
     assert!(!text.contains("private-task-goal-canary"));
     assert!(!text.contains("never-read.txt"));
     let preview: Value = serde_json::from_str(&text).unwrap();
@@ -474,11 +514,11 @@ fn model_inspection_has_no_task_prompt_or_source_or_edit_lookup() {
         Some("high")
     );
     input.resume = Some("owned-thread".into());
-    assert!(payload(Path::new("unopened-data"), &input, &[]).is_err());
+    assert!(payload(Path::new("unopened-data"), &input, &[], None).is_err());
 }
 
 #[test]
-fn review_has_no_edit_baseline_and_refuses_selected_write_paths() {
+fn review_has_no_write_baseline_and_refuses_selected_write_paths() {
     let mut input = Input {
         task: crate::store::Snapshot::empty("unopened-project".into()),
         work: None,
@@ -497,35 +537,50 @@ fn review_has_no_edit_baseline_and_refuses_selected_write_paths() {
         credential: None,
     };
     let root = Path::new(&input.task.project);
-    assert!(capture_edit_baseline(root, &input, &[]).unwrap().is_empty());
+    assert!(
+        capture_writes(root, Path::new("unopened-data"), &input, &[])
+            .unwrap()
+            .is_none()
+    );
     input.edit_paths.push("src/file.rs".into());
-    assert!(capture_edit_baseline(root, &input, &[]).is_err());
+    assert!(capture_writes(root, Path::new("unopened-data"), &input, &[]).is_err());
 }
 
+#[cfg(unix)]
 #[test]
 fn controlled_route_refuses_protected_unselected_and_escaping_paths() {
-    let paths = vec![
-        PathBuf::from("src/main.rs"),
-        PathBuf::from(".git/config"),
-        PathBuf::from(".env"),
-        PathBuf::from("credentials.json"),
-    ];
-    assert!(edit_path_allowed(Path::new("src/main.rs"), &paths, &[]));
+    let fixture = WriteFixture::new();
+    let writes = fixture.capture(&["src/main.rs"]).unwrap();
+    assert!(
+        writes
+            .propose("src/main.rs".into(), "selected\n".into())
+            .is_ok()
+    );
     for path in [
         ".git/config",
         ".env",
         "credentials.json",
         "../main.rs",
         "/tmp/outside",
-        "src/unselected.rs",
+        ".DS_Store",
+        ".ev-install/file",
     ] {
-        assert!(!edit_path_allowed(Path::new(path), &paths, &[]));
+        assert!(fixture.capture(&[path]).is_err(), "{path}");
     }
-    assert!(!edit_path_allowed(
-        Path::new("src/main.rs"),
-        &paths,
-        &[PathBuf::from("src")]
-    ));
+    assert!(
+        writes
+            .propose("src/unselected.rs".into(), "outside grant\n".into())
+            .is_err()
+    );
+    assert!(
+        WriteSet::capture(
+            &fixture.root,
+            &fixture.data,
+            &["src/main.rs".into()],
+            &["src".into()],
+        )
+        .is_err()
+    );
 }
 #[test]
 fn terminal_turn_does_not_finalize_unfinished_native_tools() {
@@ -555,55 +610,68 @@ fn terminal_turn_does_not_finalize_unfinished_native_tools() {
 #[cfg(unix)]
 #[test]
 fn exact_dirty_baseline_preserved_and_stale_or_linked_write_has_no_side_effect() {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("eevee-edit-{}-{nonce}", std::process::id()));
-    std::fs::create_dir(&root).unwrap();
-    let path = root.join("target.txt");
+    let fixture = WriteFixture::new();
+    let path = fixture.root.join("target.txt");
     std::fs::write(&path, "user dirty line\nold requirement\n").unwrap();
-    let baseline = read_edit_file(&root, Path::new("target.txt")).unwrap();
+    let mut writes = fixture.capture(&["target.txt"]).unwrap();
+    assert_eq!(
+        writes.payload(&[])[0]["working_content"],
+        "user dirty line\nold requirement\n"
+    );
     let after = "user dirty line\nnew requirement\n";
-    let patch = replacement_patch(&baseline, after);
-    assert!(
-        patch.contains("-user dirty line\n-old requirement\n+user dirty line\n+new requirement\n")
-    );
-    let applied = apply_replacement(&root, &baseline, after).unwrap();
-    assert_eq!(applied.text, after);
+    let proposal = proposed_write(
+        &writes,
+        &json!({
+            "tool": TOOL_NAME,
+            "arguments": {"path": "target.txt", "content": after},
+        }),
+    )
+    .unwrap();
+    assert!(proposal.patch.contains("-old requirement\n"));
+    assert!(proposal.patch.contains("+new requirement\n"));
+    writes.apply(&proposal).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), after);
+    let stale = writes
+        .propose("target.txt".into(), "must not overwrite".into())
+        .unwrap();
     std::fs::write(&path, "later user change\n").unwrap();
-    assert!(apply_replacement(&root, &applied, "must not overwrite").is_err());
+    let failure = writes.apply(&stale).unwrap_err();
+    assert!(!failure.uncertain);
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),
         "later user change\n"
     );
-    std::os::unix::fs::symlink("target.txt", root.join("linked.txt")).unwrap();
-    assert!(read_edit_file(&root, Path::new("linked.txt")).is_err());
-    std::fs::hard_link(&path, root.join("hard.txt")).unwrap();
-    assert!(read_edit_file(&root, Path::new("target.txt")).is_err());
+    std::os::unix::fs::symlink("target.txt", fixture.root.join("linked.txt")).unwrap();
+    assert!(fixture.capture(&["linked.txt"]).is_err());
+    std::fs::hard_link(&path, fixture.root.join("hard.txt")).unwrap();
+    assert!(fixture.capture(&["target.txt"]).is_err());
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),
         "later user change\n"
     );
-    std::fs::remove_dir_all(root).unwrap();
 }
+#[cfg(unix)]
 #[test]
-fn exact_edit_permissions_do_not_offer_persistent_grants() {
-    let kind = PromptKind::Permission {
-        description: "exact patch".into(),
-        options: vec![
-            PermissionOption {
-                label: "Deny".into(),
-                description: String::new(),
-                answer: json!({"decision":"decline"}),
-            },
-            PermissionOption {
-                label: "Allow once".into(),
-                description: String::new(),
-                answer: json!({"decision":"accept"}),
-            },
-        ],
+fn exact_write_permissions_do_not_offer_persistent_grants() {
+    let fixture = WriteFixture::new();
+    let writes = fixture.capture(&["nested/new.txt"]).unwrap();
+    let proposal = writes
+        .propose("nested/new.txt".into(), "새 내용\n".into())
+        .unwrap();
+    let kind = write_permission(&proposal);
+    let PromptKind::Permission {
+        description,
+        options,
+    } = &kind
+    else {
+        panic!("Expected permission")
     };
+    assert_eq!(description, &proposal.description());
+    assert!(description.contains(&proposal.patch));
+    assert_eq!(options.len(), 2);
+    assert_eq!(options[0].answer, json!({"decision":"decline"}));
+    assert_eq!(options[1].answer, json!({"decision":"accept"}));
+    assert!(!fixture.root.join("nested").exists());
     assert!(validate_answer(&kind, &json!({"decision":"decline"})).is_ok());
     assert!(validate_answer(&kind, &json!({"decision":"accept"})).is_ok());
     for answer in [
@@ -613,6 +681,146 @@ fn exact_edit_permissions_do_not_offer_persistent_grants() {
     ] {
         assert!(validate_answer(&kind, &answer).is_err());
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn codex_create_scope_supports_empty_unicode_siblings_and_later_replacement() {
+    use crate::providers::writes::WriteKind;
+    let fixture = WriteFixture::new();
+    let mut writes = fixture
+        .capture(&["새 폴더/하위/empty.txt", "새 폴더/하위/sibling.txt"])
+        .unwrap();
+    let empty = proposed_write(
+        &writes,
+        &json!({
+            "tool": TOOL_NAME,
+            "arguments": {"path": "새 폴더/하위/empty.txt", "content": ""},
+        }),
+    )
+    .unwrap();
+    assert_eq!(empty.kind, WriteKind::Create);
+    assert_eq!(
+        empty.directories,
+        vec![PathBuf::from("새 폴더"), PathBuf::from("새 폴더/하위")]
+    );
+    assert!(empty.patch.starts_with("--- /dev/null\n"));
+    let permission = write_permission(&empty);
+    assert!(validate_answer(&permission, &json!({"decision":"decline"})).is_ok());
+    assert!(!fixture.root.join("새 폴더").exists());
+    assert!(validate_answer(&permission, &json!({"decision":"accept"})).is_ok());
+    writes.apply(&empty).unwrap();
+    assert_eq!(
+        std::fs::read(fixture.root.join("새 폴더/하위/empty.txt")).unwrap(),
+        b""
+    );
+    writes.verify().unwrap();
+    let sibling = proposed_write(
+        &writes,
+        &json!({
+            "tool": TOOL_NAME,
+            "arguments": {"path": "새 폴더/하위/sibling.txt", "content": "안녕하세요\n"},
+        }),
+    )
+    .unwrap();
+    assert_eq!(sibling.kind, WriteKind::Create);
+    writes.apply(&sibling).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("새 폴더/하위/sibling.txt")).unwrap(),
+        "안녕하세요\n"
+    );
+    let replacement = proposed_write(
+        &writes,
+        &json!({
+            "tool": TOOL_NAME,
+            "arguments": {"path": "새 폴더/하위/empty.txt", "content": "now nonempty\n"},
+        }),
+    )
+    .unwrap();
+    assert_eq!(replacement.kind, WriteKind::Replace);
+    assert!(replacement.directories.is_empty());
+    assert!(
+        replacement
+            .patch
+            .starts_with("--- a/새 폴더/하위/empty.txt\n")
+    );
+    writes.apply(&replacement).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("새 폴더/하위/empty.txt")).unwrap(),
+        "now nonempty\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn codex_write_arguments_and_permission_answers_never_expand_selected_authority() {
+    let fixture = WriteFixture::new();
+    let writes = fixture.capture(&["only.txt"]).unwrap();
+    for params in [
+        json!({"tool":"unadvertised-tool","arguments":{"path":"only.txt","content":"text"}}),
+        json!({"tool":TOOL_NAME,"namespace":"other","arguments":{"path":"only.txt","content":"text"}}),
+        json!({"tool":TOOL_NAME,"arguments":{"path":"only.txt","content":"text","grantRoot":"/"}}),
+        json!({"tool":TOOL_NAME,"arguments":{"path":"unselected.txt","content":"text"}}),
+        json!({"tool":TOOL_NAME,"arguments":{"path":"only.txt","content":null}}),
+        json!({"tool":TOOL_NAME,"arguments":"{\"path\":\"only.txt\",\"content\":\"text\"}"}),
+    ] {
+        assert!(proposed_write(&writes, &params).is_err());
+    }
+    let proposal = proposed_write(
+        &writes,
+        &json!({
+            "tool": TOOL_NAME,
+            "arguments": {"path": "only.txt", "content": "text"},
+        }),
+    )
+    .unwrap();
+    let permission = write_permission(&proposal);
+    for answer in [
+        json!({"decision":"accept","path":"unselected.txt"}),
+        json!({"decision":"accept","content":"different"}),
+        json!({"decision":"accept","grantRoot":"/"}),
+        json!({"decision":"acceptForSession"}),
+    ] {
+        assert!(validate_answer(&permission, &answer).is_err());
+    }
+    assert!(!fixture.root.join("only.txt").exists());
+    assert!(!fixture.root.join("unselected.txt").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn codex_creation_refuses_appeared_targets_and_parents_without_adopting_them() {
+    let fixture = WriteFixture::new();
+    let mut writes = fixture.capture(&["new-parent/file.txt"]).unwrap();
+    let proposal = proposed_write(
+        &writes,
+        &json!({
+            "tool": TOOL_NAME,
+            "arguments": {"path": "new-parent/file.txt", "content": "must not publish"},
+        }),
+    )
+    .unwrap();
+    std::fs::create_dir(fixture.root.join("new-parent")).unwrap();
+    assert!(writes.verify().is_err());
+    assert!(!writes.apply(&proposal).unwrap_err().uncertain);
+    assert!(!fixture.root.join("new-parent/file.txt").exists());
+
+    let mut writes = fixture.capture(&["appeared.txt"]).unwrap();
+    let proposal = proposed_write(
+        &writes,
+        &json!({
+            "tool": TOOL_NAME,
+            "arguments": {"path": "appeared.txt", "content": "must not replace"},
+        }),
+    )
+    .unwrap();
+    std::fs::write(fixture.root.join("appeared.txt"), "").unwrap();
+    assert!(writes.verify().is_err());
+    assert!(!writes.apply(&proposal).unwrap_err().uncertain);
+    assert_eq!(
+        std::fs::read(fixture.root.join("appeared.txt")).unwrap(),
+        b""
+    );
 }
 #[test]
 fn bounded_events_replace_item_snapshots_and_reserve_terminal_capacity() {
@@ -852,7 +1060,7 @@ fn outbound_task_facts_do_not_leak_generated_provider_session_provenance() {
         conversation: None,
         credential: None,
     };
-    let text = payload(&data, &input, &[]).unwrap();
+    let text = payload(&data, &input, &[], None).unwrap();
     let outgoing: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(
         outgoing
@@ -868,47 +1076,52 @@ fn outbound_task_facts_do_not_leak_generated_provider_session_provenance() {
     }
     drop(worker);
 }
+#[cfg(unix)]
 #[test]
 fn baseline_cites_identical_selected_capture_instead_of_resending_bytes() {
     use crate::workspace::context::Excerpt;
-    let baseline = EditBaseline {
-        path: PathBuf::from("src/lib.rs"),
-        text: "fn answer() -> u8 { 42 }\n".into(),
-        digest: "ab".repeat(32),
-        identity: "identity".into(),
-    };
+    let fixture = WriteFixture::new();
+    std::fs::create_dir(fixture.root.join("src")).unwrap();
+    let text = "fn answer() -> u8 { 42 }\n";
+    std::fs::write(fixture.root.join("src/lib.rs"), text).unwrap();
+    let baseline = fixture.capture(&["src/lib.rs"]).unwrap();
+    use sha2::{Digest, Sha256};
     let pinned = Excerpt {
         origin_run: None,
         id: 77,
         task_id: 1,
-        root: "/repo".into(),
+        root: fixture.root.to_str().unwrap().into(),
         path: "src/lib.rs".into(),
         start_line: 1,
         end_line: 1,
-        source_sha256: [0; 32],
+        source_sha256: Sha256::digest(text.as_bytes()).into(),
         text: "fn answer() -> u8 { 42 }\n".into(),
         available: true,
     };
     // Whole-file pin with identical text -> citation, not duplication.
-    let entry = baseline_entry(&baseline, std::slice::from_ref(&pinned));
+    let payload = baseline.payload(std::slice::from_ref(&pinned));
+    let entry = &payload[0];
     assert_eq!(entry["working_content_same_as_capture"], 77);
     assert!(entry.get("working_content").is_none());
     // A partial range never replaces the baseline's current bytes.
     let mut partial = pinned.clone();
     partial.start_line = 2;
     partial.text = "fn".into();
-    let entry = baseline_entry(&baseline, &[partial]);
+    let payload = baseline.payload(&[partial]);
+    let entry = &payload[0];
     assert!(entry.get("working_content_same_as_capture").is_none());
     assert_eq!(entry["working_content"], "fn answer() -> u8 { 42 }\n");
     // Same path with different content stays separate (distinct evidence).
     let mut changed = pinned.clone();
     changed.text = "fn answer() -> u8 { 43 }\n".into();
-    let entry = baseline_entry(&baseline, &[changed]);
+    let payload = baseline.payload(&[changed]);
+    let entry = &payload[0];
     assert!(entry.get("working_content_same_as_capture").is_none());
     // A different path with identical text also stays separate.
     let mut other = pinned;
     other.path = "src/other.rs".into();
-    let entry = baseline_entry(&baseline, &[other]);
+    let payload = baseline.payload(&[other]);
+    let entry = &payload[0];
     assert!(entry.get("working_content_same_as_capture").is_none());
 }
 

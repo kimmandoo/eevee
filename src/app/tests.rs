@@ -3121,6 +3121,36 @@ fn cancelling_an_owner_switch_keeps_the_draft_and_editing_scope() {
 }
 
 #[test]
+fn selecting_new_nested_paths_preserves_request_bytes_and_caret_without_dispatch() {
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = app();
+        app.width = width;
+        app.height = height;
+        app.command("flareon");
+        app.open_editor(store::EditorField::Request);
+        type_text(&mut app, "create 새 파일 without altering this draft");
+        key(&mut app, KeyCode::Left);
+        key(&mut app, KeyCode::Left);
+        let draft = (app.input.clone(), app.cursor);
+        app.command("paths");
+        let editor = app.planning.paths_editor.as_mut().unwrap();
+        editor.text = r#"["not-created/nested/새.rs"]"#.into();
+        editor.cursor = editor.text.len();
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(
+            app.planning.edit_paths,
+            vec![std::path::PathBuf::from("not-created/nested/새.rs")]
+        );
+        // Scope selection retains the owned draft; reopen its normal editor.
+        app.open_editor(store::EditorField::Request);
+        assert_eq!((app.input.clone(), app.cursor), draft);
+        assert!(app.planning.paths_editor.is_none());
+        assert!(app.planning.pending.is_none() && app.planning.work.is_none());
+        assert!(app.pending_request.is_none() && !app.execution.busy());
+    }
+}
+
+#[test]
 fn returning_to_eevee_preserves_task_content_and_drafts() {
     for (width, height) in [(120, 36), (60, 18)] {
         for form in ["flareon", "umbreon", "sylveon"] {
