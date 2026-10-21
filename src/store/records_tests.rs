@@ -2,6 +2,7 @@ use super::*;
 use crate::workspace::runner::{
     CommandSpec, ExecutableIdentity, InputSnapshot, Prepared, RunRecord, RunState, TreeOutcome,
 };
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[test]
@@ -301,12 +302,9 @@ fn deduped_failures_scan_all_spool_pages_and_lines_deliver_once_across_restart()
         signature.first_seen == first.ended_at_ms.unwrap().min(i64::MAX as u64) as i64
     }));
     assert_eq!(records.activities.len(), 1);
-    assert!(
-        records
-            .signatures
-            .iter()
-            .all(|signature| signature.paths == vec!["src/lib.rs"])
-    );
+    assert!(records.signatures.iter().all(|signature| {
+        signature.paths.len() == 1 && Path::new(&signature.paths[0]) == Path::new("src/lib.rs")
+    }));
     call(
         &mut state,
         task.id,
@@ -1302,14 +1300,19 @@ fn test_name_signatures_aggregate_contained_failure_paths_without_changing_ident
     let records = load(&mut state, task.id, None);
     assert_eq!(records.signatures.len(), 1);
     assert_eq!(records.signatures[0].seen_count, 2);
-    assert_eq!(
-        records.signatures[0].paths,
-        vec!["src/first.rs", "src/second.rs"]
-    );
+    let paths = &records.signatures[0].paths;
+    assert_eq!(paths.len(), 2);
+    for expected in [Path::new("src/first.rs"), Path::new("src/second.rs")] {
+        assert!(paths.iter().any(|path| Path::new(path) == expected));
+    }
     state.purge_output(task.id, &first.prepared.run_id).unwrap();
     let records = load(&mut state, task.id, None);
     assert_eq!(records.signatures[0].seen_count, 1);
-    assert_eq!(records.signatures[0].paths, vec!["src/second.rs"]);
+    assert_eq!(records.signatures[0].paths.len(), 1);
+    assert_eq!(
+        Path::new(&records.signatures[0].paths[0]),
+        Path::new("src/second.rs")
+    );
 }
 
 #[test]
