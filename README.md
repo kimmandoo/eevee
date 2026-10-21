@@ -158,7 +158,7 @@ A canceled or disconnected tool-free native request releases local ownership onl
 
 Since Schema 10, task-independent preference rows remember nonsecret provider/model/effort, not credentials, sessions or permissions. `EV_PROVIDER` explicitly overrides startup routing. Exact configured/custom IDs remain usable without a successful catalogue; no model is invented as an observed default. Preference failures stay visible with `/storage-retry`; exit waits for commit. App-owned credentials are separately and explicitly persisted as described above.
 
-Published versions **0.1.11 and 0.1.12 use Schema 13** for request-bound cooperation/write leases and durable relay provenance. Published v0.1.10 used Schema 11; the unreleased wave 3 source used Schema 12. **Unreleased Wave 5 source uses Schema 14** for local moves, learning reminders, dispatch receipts and journal-linked usage. Upgrades are transactional and preserve existing task/evidence rows. **Back up before opening an older store with newer source:** Schema 11/12/13 writers refuse Schema 14, and in-place downgrade is unsupported. No new version or release is implied by the source migration.
+Published versions **0.1.11 and 0.1.12 use Schema 13** for request-bound cooperation/write leases and durable relay provenance. **Version 0.1.13 uses Schema 14** for local moves, learning reminders, dispatch receipts and journal-linked usage. Published v0.1.10 used Schema 11; the unreleased wave 3 source used Schema 12. Upgrades are transactional and preserve existing task/evidence rows. **Back up the entire Eevee data directory before first opening an older store with v0.1.13:** Schema 11/12/13 writers refuse Schema 14; in-place downgrade is unsupported. Restore the backup to use an older writer. For Claude Agent, update the complete sidecar files to **bridge revision 4**, not just the SDK dependency; older bridges refuse before a prompt.
 
 **Moves.** Each partner remembers up to four moves per form, visible across its project and personal scopes. Teach exact approved argv/cwd, reusable pin selectors, a submitted user-authored instruction or goal/criteria; previews never package provider output or memories. Move names are editable local labels, not capabilities or provider context. Every use revalidates current inputs and opens normal command, pin or full-receipt request review; task templates require explicit application. Repeating an eligible approved run or dispatched pin set three times creates a local suggestion, never automatic work. Not now waits three further uses, Never persists, and `/move-reminder` revisits forgotten/postponed moves. A full form offers an explicit scoped replacement or Give up learning. Details retain authoritative journal outcomes, separately showing denial/cancellation and unknown provider completion. Party teaching copies steps/provenance, not grants; TM export/import is not implemented.
 
@@ -233,19 +233,19 @@ Sprites are nine original PokeAPI images that installers download and hash-verif
 
 | Machine | Package |
 | --- | --- |
-| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.12/ev-darwin-arm64.tar.gz) |
-| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.12/ev-darwin-x86_64.tar.gz) |
-| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.12/ev-linux-x86_64.tar.gz) |
-| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.12/ev-linux-arm64.tar.gz) |
-| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.12/ev-windows-x86_64.zip) |
+| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.13/ev-darwin-arm64.tar.gz) |
+| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.13/ev-darwin-x86_64.tar.gz) |
+| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.13/ev-linux-x86_64.tar.gz) |
+| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.13/ev-linux-arm64.tar.gz) |
+| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.13/ev-windows-x86_64.zip) |
 
 Installers verify SHA-256, refuse to overwrite commands they don't own, and never edit your shell profile or persistent PATH — the last step on each platform is yours.
 
 ### macOS
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.12/install.sh
-sh ./install-ev.sh --version v0.1.12          # installs to ~/.local/bin/ev
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.13/install.sh
+sh ./install-ev.sh --version v0.1.13          # installs to ~/.local/bin/ev
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && exec zsh
 ```
 
@@ -254,8 +254,8 @@ Builds are not notarized. The script installs via `curl`, which sets no quaranti
 ### Linux and WSL
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.12/install.sh
-sh ./install-ev.sh --version v0.1.12          # installs to ~/.local/bin/ev
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.13/install.sh
+sh ./install-ev.sh --version v0.1.13          # installs to ~/.local/bin/ev
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && exec bash
 ```
 
@@ -266,7 +266,7 @@ Inside WSL, use this Linux build, not the Windows one. For provider sign-in on W
 Run in **PowerShell** (5.1 or 7, no admin). Windows blocks downloaded `.ps1` files by default, so run the installer as a script block instead of `.\install.ps1`:
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.12/install.ps1))) -Version v0.1.12
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.13/install.ps1))) -Version v0.1.13
 ```
 
 It installs `%LOCALAPPDATA%\ev\bin\ev.exe`. Use it right away, and keep it on PATH for new terminals:
@@ -276,7 +276,7 @@ $env:PATH = "$env:LOCALAPPDATA\ev\bin;" + $env:PATH
 [Environment]::SetEnvironmentVariable('Path', "$env:LOCALAPPDATA\ev\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')
 ```
 
-Prefer a saved script? Run it with a process-only bypass: `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-ev.ps1 -Version v0.1.12`. Windows Terminal shows the sprites (Sixel); other consoles fall back to text.
+Prefer a saved script? Run it with a process-only bypass: `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-ev.ps1 -Version v0.1.13`. Windows Terminal shows the sprites (Sixel); other consoles fall back to text.
 
 ### Offline
 

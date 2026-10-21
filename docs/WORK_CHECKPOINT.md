@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-21 — Wave 5 v0.1.13 release (active)
+
+- **User scope:** Publish the completed Wave 5 implementation; preserve the installed user command, private data, credentials and `.DS_Store`.
+- **Starting state:** `main` at `b24102146fc3053cd3191f18fd307d6701c481f7`, one commit ahead of origin; only `.DS_Store` untracked. Public latest v0.1.12 / Schema 13.
+- **Active plan:** `docs/IMPLEMENTATION_PLAN.md` → “Active request — v0.1.13 Wave 5 release”. Prepare version/notes, Schema 14 backup and bridge 4 instructions; record the name/art distribution review; qualify the exact main commit on Check and all five native rows; promote immutable packages; verify public assets/install/actual Moves and old-schema refusal.
+- **Exact next action:** Commit/push the v0.1.13 candidate, await exact-commit Check/all-five-native qualification and the versioned local Moves matrix before tagging. No tag/publication has occurred.
+- **Source evidence:** Rust 1.90.0 fmt check, locked strict all-feature/all-target Clippy, **926 tests / 2 ignored**, release build, **17** SDK policy and Python release checks (**14 passed / 3 platform skips**) passed. Immutable `target/v0113-local-candidate/ev` reported `ev 0.1.13`, SHA256 `db2a22ad29cab3d8df5b7d7d2e857b725e84c38ba4c8c9de661ca10c7b530f42`. Fresh public-package evidence remains required. Names/art review records rights boundaries, not legal clearance; live-account and GUI-terminal acceptance remain separate.
+
 ## 2026-10-21 — Wave 5 Moves (complete; not released)
 
 - **User scope / completion:** Completed all 13 Wave 5 tasks: MV01A/MV01B/MV01C, MV02A/MV02B, MV03A/MV03B/MV03C, MV04/MV05/MV06/MV07 and MV08A. MV08B TM export/import remains in its separate export track. No publication was requested.

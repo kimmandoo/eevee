@@ -2,7 +2,7 @@
 
 ## 2026-10-21
 
-### Unreleased — Wave 5 Moves
+## 0.1.13
 
 - feat(moves): added four-slot partner/form inventories for approved literal runs, reviewed pin selectors, submitted user-authored requests and task templates, with project/personal ownership and restart persistence.
 - feat(ux): added direct grid/list move entry and ordinary review staging, independent Unicode naming, exact draft/caret return and saved move inventories in form-picker details.
@@ -13,7 +13,8 @@
 - feat(storage)!: upgraded older stores transactionally to bounded Schema 14 move/reminder/source/dispatch/usage tables, preserved task/evidence facts and retained byte-identical older-writer refusal; required backups for unsupported downgrade.
 - fix(providers): counted actual correlated native/CLI/ACP/SDK submission instead of queue acceptance, fenced receipt persistence against ownership release and required SDK bridge revision 4 without claiming live-account conformance.
 - fix(security): revalidated current contained run/pin paths off the reducer, refused linked/excluded/escaping inputs and secret/environment command forms, and invalidated late or superseded move staging without carrying grants.
-- docs(scope): kept Wave 5 unpublished and left TM export/import, Wave 6 and naming-rights/live-provider qualification outside the completed implementation scope.
+- docs(release): prepared Wave 5 distribution with Schema 14 backup/downgrade warnings, complete SDK bridge revision 4 update instructions and a recorded canonical-name inventory/rights-boundary review; left TM export/import, Wave 6 and live-provider qualification separate.
+- docs(upgrade): required a full Eevee data-directory backup before the first Schema 14 open, documented backup restoration instead of in-place downgrade, and required complete SDK bridge revision 4 files rather than a dependency-only update.
 
 ## 0.1.12
 
