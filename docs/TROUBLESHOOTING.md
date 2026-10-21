@@ -1,5 +1,19 @@
 # Troubleshooting
 
+### [2026-10-22] Retained Windows publication handles blocked their own verification
+
+- **Context / Symptom:** Native run `39641905695` failed ten Windows write/continuation regressions with `The process cannot access the file because it is being used by another process. (os error 32)` after publication. Linux Check also rejected a platform-unused collation enum variant.
+- **Root Cause:** Publication correctly retained its DELETE-access staging handle for native identity and rename protection, but the new read-only verification handle did not share that existing DELETE access. Dropping authority to reread would have weakened the safety boundary.
+- **Solution:** Allowed read-only verification handles to coexist with existing native access while retained writer/ancestor handles continued excluding competing writes/deletion. Applied actual platform cfg to the enum instead of suppressing warnings. Fresh run `39647421794`, attempt 1, passed Check and all five native test/build/license/package/offline-install rows on source `436c23460861c957eb9d9764e0994e6418c7ad9a`; the failed package set was not promoted.
+- **Prevention / Reference:** Windows share flags must accommodate retained handles' requested access, not merely the new handle's access. Retain the real Windows publication/identity regressions and require fresh exact-commit all-platform qualification after subsequent changes.
+
+### [2026-10-22] Native exclusion spelling did not match SDK boundary syntax
+
+- **Context / Symptom:** Valid exclusion prefixes such as `private/` and Windows `src\private` could pass host configuration validation but abort SDK policy construction before query admission.
+- **Root Cause:** Host exclusions were component-based native paths; IPC forwarded their original spelling to a consumer requiring canonical slash-separated prefixes.
+- **Solution:** Serialized validated normal components with `/`, removing trailing delimiters without changing exclusion boundaries. Regression coverage retains a denied descendant and an allowed adjacent-prefix path and checks bridge-compatible encoding on native platforms. Rust 1,135 tests and strict Clippy passed; full native qualification remains the release gate.
+- **Prevention / Reference:** Keep filesystem-native addressing separate from IPC syntax, and do not weaken exact target or protected-path checks to accommodate display spelling.
+
 ### [2026-10-22] Controlled follow-ups reused an incompatible thread and compact consent overflowed
 
 - **Context / Symptom:** Actual wide Codex creation denied neutrally, then the next ordinary Request was blocked because a resumed thread could not carry the dynamic write tool. At 60×18, a long auxiliary option-effect sentence consumed another row and hid Allow even though exact file/parent scope was visible.

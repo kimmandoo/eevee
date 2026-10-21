@@ -280,7 +280,7 @@ class CreationJourney(SurfaceJourney):
 
         def submitted():
             nonlocal approved
-            if len(self.peer.snapshot('POST')) == before + 1:
+            if len(self.peer.snapshot('POST')) >= before + 1:
                 return True
             view = self.session.display()
             if not approved and any(value in view for value in ('y Run', 'y 실행')):

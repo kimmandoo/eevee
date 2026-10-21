@@ -761,7 +761,6 @@ fn sdk_workspace_scope_freezes_root_and_all_privacy_boundaries_without_targets()
         Some(sdk_directory_identity(&root).unwrap())
     );
     assert!(scope.files.is_empty());
-    assert_eq!(scope.excluded_paths, exclusions);
     assert!(
         scope
             .protected_paths
@@ -813,4 +812,23 @@ fn sdk_large_literal_permission_preserves_crlf_and_near_file_limit_without_trunc
         altered["updatedInput"]["content"] = json!(content.replace("\r\n", "\n"));
         assert!(provider_answer(&kind, altered).is_err());
     }
+}
+
+#[test]
+fn sdk_native_exclusion_prefixes_remain_valid_boundaries_at_the_bridge() {
+    let root = SdkTestDirectory::new();
+    let data = SdkTestDirectory::new();
+    let mut input = crate::providers::tests::claimed(Agent::Claude, Operation::Implement, false);
+    input.task.project = root.path().to_str().unwrap().into();
+    input.edit_paths.clear();
+    let mut prefix = PathBuf::from("src").join("private");
+    prefix.push("");
+    let scope = capture_write_scope(data.path(), &input, std::slice::from_ref(&prefix)).unwrap();
+    // IPC uses canonical components, not native separators or a trailing delimiter.
+    let wire = serde_json::to_value(scope).unwrap();
+    assert_eq!(wire["excluded_paths"], json!(["src/private"]));
+    input.edit_paths = vec!["src/private/secret.txt".into()];
+    assert!(capture_write_scope(data.path(), &input, std::slice::from_ref(&prefix)).is_err());
+    input.edit_paths = vec!["src/private-extra/visible.txt".into()];
+    assert!(capture_write_scope(data.path(), &input, &[prefix]).is_ok());
 }
