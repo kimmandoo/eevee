@@ -314,3 +314,12 @@ All 13 tasks completed as one integrated Schema 14 / bridge revision 4 cutover t
 
 Observed local fixtures: two identical approved runs produced no candidate; the third produced one with three real sources; different argv remained separate; Not now returned at use six and Never remained suppressed after restart/use seven. Three dispatched identical pin sets, including reordered selectors, produced one candidate. Three approved public environment-assignment/out-of-root argument routines each stayed ineligible; secret/masked argv were refused in typed-domain and committed-store regressions. Exact caret return, missing/excluded pins, scope replacement/relearn/purge, immutable teacher provenance/full-target copying, consent resize/paste/repeat safety and idle/terminal restoration passed. No release, installation/credential mutation, strategy change or Wave 6 work occurred. Await a new user-selected task.
 
+
+## Active request — v0.1.13 Wave 5 release (2026-10-21)
+
+1. Preserve the completed Wave 5 cutover and user data; prepare v0.1.13 metadata, full-data-directory Schema 14 backup/downgrade warning and complete SDK bridge revision 4 update instructions. Record the canonical-name/art package-scope review without claiming legal clearance.
+2. Run the versioned local source checks and actual Moves runtime; commit and push the release candidate. Require one successful exact-commit main push with Check and all five native test/build/license/package/offline-install rows.
+3. Tag only that qualified commit as v0.1.13. Let the release workflow promote its immutable artifact IDs without rebuilding or replacing published bytes.
+4. Verify public asset digests, checksum manifest, safe archive contents/notices, source-identical installers and backup/bridge notes. Exercise a disposable public installation, actual downloaded Moves runtime and real Schema 13→14 upgrade/refusal/resume; preserve the user's installation and credentials.
+5. Record actual CI/public/runtime evidence, limitations and resolved issues in the existing docs/checkpoint/changelog; commit the session handoff. Do not start Wave 6 or TM export/import.
+

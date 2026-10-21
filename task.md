@@ -17,7 +17,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 ## Status
 
 - **Released:** 0.1.12 (tags v0.1.0–v0.1.12), preserving complete wave 3/4 cooperation and adding private native connection setup, canonical native follow-ups, direct action/editor returns and compact UX corrections. Schema 13 is unchanged from v0.1.11. Exact-commit five-native qualification, public assets, installed 34-scenario runtime, 176 native groups, 24 cooperation groups, auth/graphics and real upgrade/continuity journeys passed.
-- **Latest user request — complete:** Implemented all 13 Wave 5 Moves tasks: MV01A → MV01B → MV02A → MV02B → MV03A → MV03B → MV06 → MV04 → MV05 → MV07 → MV01C → MV03C → MV08A. All 26 actual-TUI acceptance groups passed at 120×36 and 60×18 ASCII. No release requested; MV08B remains in the separate export track. No next implementation task is active.
+- **Active user request:** Release the completed 13-task Wave 5 implementation as v0.1.13. Require fresh exact-commit Check/all-five-native qualification, immutable artifact promotion and public checksum/install/Moves/schema verification. Preserve the installed user command/data; do not start Wave 6 or MV08B.
 - **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B/PT04C, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, PT07A/PT07B/PT07C, PT08A/PT08B, PT09, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV01C, EV02, EV10A, EV10B, EV14, EV12, EV13A, EV13B, EV15, EV16, PT10, MV01A/MV01B/MV01C, MV02A/MV02B, MV03A/MV03B/MV03C, MV04/MV05/MV06/MV07, MV08A and the first code-structure pass (index below). **Open:** 54 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.
@@ -40,7 +40,7 @@ EV10A retained failure locations · EV10B run-linked guarded captures · EV14 fr
 
 ### Cross-cutting watch-outs
 
-- **Schema:** Published v0.1.10 uses Schema 11; completed wave 3 used Schema 12. Published v0.1.11/v0.1.12 remain Schema 13; unreleased Wave 5 source uses Schema 14 for bounded moves/reminders/dispatch/source/usage records. Transactional upgrades preserve existing task/evidence rows. Older Schema 11/12/13 writers refuse newer stores before mutation; back up before opening with newer source because in-place downgrade is unsupported. No new release is implied by this source migration.
+- **Schema:** Published v0.1.10 uses Schema 11; completed wave 3 used Schema 12. Published v0.1.11/v0.1.12 remain Schema 13; the v0.1.13 release candidate uses Schema 14 for bounded moves/reminders/dispatch/source/usage records. Transactional upgrades preserve existing task/evidence rows. Older Schema 11/12/13 writers refuse newer stores before mutation; back up the complete data directory before upgrade because in-place downgrade is unsupported. SDK users also need the complete revision 4 bridge files.
 - **Packets:** Partner flavor (nicknames, partner names, move names, dialogue, ribbons, routes) never enters provider packets or handoffs. The receipt must show zero flavor bytes.
 - **Facts first:** Pokémon-style copy wraps a factual line (command, exit code, permission scope), never replaces it. Monochrome, ASCII and linear layouts keep the same information.
 - **No fake progression:** No XP, levels, affection, streaks, hunger or random unlocks. Raising partners means learned moves, nicknames and real records. Add each new concept (Moves, Dex) to DESIGN_RULES when it ships.

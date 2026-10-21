@@ -49,3 +49,21 @@ Eevee and other Pokémon names and character-related marks remain with their res
 Making the source repository public does not resolve artwork, naming, trademark, commercial-use, or provider-service eligibility. Version 0.1.0 distributes original code and dependency notices without franchise image bytes; that software release is not artwork/trademark clearance or a grant of provider access. Before a use requiring additional permission, obtain the relevant authorization or replace/remove the affected artwork and branding; this notice is not a substitute for that authorization.
 
 When adding or replacing an asset, record its actual source, fixed version, owner/notice, applicable permission, modifications and package scope. Do not copy character artwork into the source tree or release archive under the project's software license.
+
+### 2026-10-21 — Wave 5 move-name distribution review
+
+Reviewed the nine fixed eight-name vocabularies and semantic suggestions in `src/workspace/moves.rs` for v0.1.13. These are editable local text labels, not executable capabilities, provider context, franchise artwork or an assertion of game mechanics. No image, sound, font or official logo was added to the source or native packages by Moves.
+
+| Type | Fixed labels reviewed |
+| --- | --- |
+| Normal | Helping Hand; Quick Attack; Swift; Tackle; Baton Pass; Work Up; Protect; Last Resort |
+| Water | Surf; Water Pulse; Aqua Ring; Muddy Water; Hydro Pump; Aqua Tail; Whirlpool; Water Gun |
+| Electric | Thunderbolt; Charge Beam; Thunder Wave; Discharge; Volt Switch; Spark; Thunder; Electro Ball |
+| Fire | Flamethrower; Flame Charge; Fire Fang; Flare Blitz; Fire Spin; Ember; Heat Wave; Will-O-Wisp |
+| Psychic | Future Sight; Psychic; Calm Mind; Psybeam; Stored Power; Reflect; Light Screen; Psyshock |
+| Dark | Foul Play; Snarl; Dark Pulse; Payback; Bite; Assurance; Taunt; Pursuit |
+| Grass | Leaf Blade; Giga Drain; Synthesis; Razor Leaf; Magical Leaf; Energy Ball; Seed Bomb; Leaf Storm |
+| Ice | Ice Beam; Icy Wind; Blizzard; Ice Shard; Frost Breath; Haze; Aurora Veil; Freeze-Dry |
+| Fairy | Moonblast; Dazzling Gleam; Draining Kiss; Misty Terrain; Fairy Wind; Charm; Disarming Voice; Baby-Doll Eyes |
+
+The review retained the existing independent/unofficial/no-endorsement disclosure and image-free software-package boundary. Names and related marks remain subject to third-party rights; this inventory is **not legal clearance**, an affiliation claim, commercial-use permission or a license to franchise names/artwork. Obtain any necessary permission before uses that require it. The software release does not complete Q01's separate live-provider/whole-product qualification or grant provider access.

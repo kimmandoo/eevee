@@ -30,7 +30,7 @@ Blocked until the user prepares permitted authentication. Never substitute claud
 - **Needs:** A07.
 - **Accept:** Empty/missing, ready/running, permission/question, cancellation/unknown, save failure, stale evidence, handoff and party states (concurrent partners, approval queue, write lease) across sizes, themes and CJK content. Every controlled action names its enforcement boundary. A naming/art-rights review (including MV06 move names) happens before distribution.
 - **Status:** Five native rows passed at `d198fa5`; specialist journeys pass in all themes/layouts; the Codex and Codex→OpenCode live rows pass. Claude/Gemini rows are missing.
-- **Move-name inventory:** review all nine fixed eight-name lists and their semantic suggestions in `src/workspace/moves.rs` before future distribution. They are local labels, not a rights clearance; this implementation did not complete Q01 or publish a release.
+- **Move-name inventory:** the 2026-10-21 v0.1.13 distribution review recorded all nine fixed eight-name lists and the no-artwork/no-endorsement boundary in [asset licensing](../docs/ASSET_LICENSES.md#2026-10-21--wave-5-move-name-distribution-review). It did not establish legal clearance or complete Q01's live-provider/whole-product acceptance.
 
 ### Q02 — Measured native and token efficiency
 
