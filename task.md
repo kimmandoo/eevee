@@ -8,8 +8,8 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 | [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 0 |
 | [C-relays.md](tasks/C-relays.md) | Form relays | 0 |
 | [D-moves.md](tasks/D-moves.md) | Moves: teaching and learning skills | 1 |
-| [E-partner-record.md](tasks/E-partner-record.md) | Partner record and flavor | 13 |
-| [F-context-tools.md](tasks/F-context-tools.md) | Context, token economy and tool calling | 19 |
+| [E-partner-record.md](tasks/E-partner-record.md) | Partner record and flavor | 3 |
+| [F-context-tools.md](tasks/F-context-tools.md) | Context, token economy and tool calling | 16 |
 | [G-ux-platform.md](tasks/G-ux-platform.md) | UX, platform and release | 7 |
 | [H-provider-acceptance.md](tasks/H-provider-acceptance.md) | Provider acceptance (blocked) | 6 |
 | [R-code-structure.md](tasks/R-code-structure.md) | Code structure | 7 |
@@ -17,10 +17,10 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 ## Status
 
 - **Released:** [0.1.13](https://github.com/kimmandoo/eevee/releases/tag/v0.1.13) (tags v0.1.0–v0.1.13), including all 13 Wave 5 Moves tasks, Schema 14 and SDK bridge revision 4. Exact-commit Check/all-five-native qualification and immutable publication passed; public asset/hash/archive checks, 23 installation groups with 34 installed terminal scenarios, 26 Moves, 176 native-protocol, 24 cooperation and three actual Schema 13→14 migration/refusal/resume cases passed.
-- **Latest user request — complete:** Published and publicly verified v0.1.13. The user's installation, credentials, private data and `.DS_Store` were preserved. No next implementation task is active; Wave 6 and MV08B require a new request.
-- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B/PT04C, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, PT07A/PT07B/PT07C, PT08A/PT08B, PT09, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV01C, EV02, EV10A, EV10B, EV14, EV12, EV13A, EV13B, EV15, EV16, PT10, MV01A/MV01B/MV01C, MV02A/MV02B, MV03A/MV03B/MV03C, MV04/MV05/MV06/MV07, MV08A and the first code-structure pass (index below). **Open:** 54 small tasks. **Dropped:** T05.
+- **Latest user request — release active:** All ten Wave 6 tasks plus C03A/C03B/T01A, response navigation and extensible Fluent tooltips passed source acceptance for v0.1.14 / Schema 15 / SDK bridge 5. All thirteen IDs passed English/Korean actual-TUI journeys at 120×36 Unicode and 60×18 ASCII, including project isolation/purge. T01A additionally passed exactly three authorized real read-only Codex turns with owned-session resumes. Exact-commit native qualification, publication and actual public installation/runtime verification remain; public v0.1.13 is unchanged.
+- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B/PT04C, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, PT07A/PT07B/PT07C, PT08A/PT08B, PT09, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV01C, EV02, EV10A, EV10B, EV14, EV12, EV13A, EV13B, EV15, EV16, PT10, MV01A/MV01B/MV01C, MV02A/MV02B, MV03A/MV03B/MV03C, MV04/MV05/MV06/MV07, MV08A, C03A/C03B/T01A, EV05/EV06/PK02/EV08A/EV08B/PK05A/PK05B/EV09/EV17/EV11 and the first code-structure pass (index below). **Open:** 41 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
-- **Partially implemented:** T01 (local receipt), T03 (in-packet dedup), A04/A06/A07 adapters.
+- **Partially implemented:** T01's remaining context-comparison/receipt track, T03 (in-packet dedup), A04/A06/A07 adapters.
 
 ### Completed index (referenced by "Builds on")
 
@@ -29,6 +29,14 @@ V01 sanctuary layout · P01 native terminal lifecycle · V02A/V02B species art a
 EV07 guarded return to Eevee · PK01 personal partner nicknames · EV01A evidence-based form suggestions · EV01B picker recommendation and durable dismissal · EV02 nonblocking form carry-over.
 
 EV10A retained failure locations · EV10B run-linked guarded captures · EV14 freshly approved stale reruns · EV12 supported hypothesis fixes · EV13A finding fixes · EV13B range addressing and independent re-review · EV15 decision-linked criteria · EV16 retained refactor baselines · PT10 reference-only party relays · EV01C idle partner hints.
+
+C03A removable attachment chips · C03B exact chip previews/staleness/wire budget · EV05 factual form artifacts · EV06 attributed non-evidence routes · PK02 store-backed partner summary · PK05A redacted project failure signatures · PK05B supported historical resolution leads.
+
+T01A durable scoped provider usage and actual owned Codex resume reconciliation · EV08A exactly-once factual finished-run lines.
+
+EV08B exactly-once review/handoff/staleness lines and persistent off preference.
+
+EV09 explicitly approved exact-repeat instruction memories · EV17 project/partner/form provider-model pairings · EV11 cached form-specific attachment ranking with unchanged match sets.
 
 ## How to pick work
 
@@ -40,7 +48,8 @@ EV10A retained failure locations · EV10B run-linked guarded captures · EV14 fr
 
 ### Cross-cutting watch-outs
 
-- **Schema:** Published v0.1.10 uses Schema 11; completed wave 3 used Schema 12. Published v0.1.11/v0.1.12 use Schema 13 and v0.1.13 uses Schema 14 for bounded moves/reminders/dispatch/source/usage records. Transactional upgrades preserve existing task/evidence rows. Cleanly exit all instances and back up the complete data directory before upgrade: older writers refuse Schema 14, in-place downgrade is unsupported, and an old writer requires its backup restored. SDK users need complete bridge revision 4 files, not only a dependency update.
+- **Schema 15 upgrade:** v0.1.14 uses Schema 15 and complete SDK bridge revision 5. Back up database, journals and output together before first open; older writers refuse, and downgrade requires restoring the backup. New routes are not execution evidence. Actual public-v0.1.13 Schema 14→15 migration, byte-identical older-writer refusal and current resume passed on the qualified source candidate.
+- **Schema history:** Published v0.1.10 uses Schema 11; completed wave 3 used Schema 12. Published v0.1.11/v0.1.12 use Schema 13 and v0.1.13 uses Schema 14 for bounded moves/reminders/dispatch/source/usage records. Transactional upgrades preserve existing task/evidence rows. Cleanly exit all instances and back up the complete data directory before upgrade; an older writer requires its backup restored. Historical v0.1.13 required complete bridge revision 4 files; v0.1.14 requires revision 5, not only a dependency update.
 - **Packets:** Partner flavor (nicknames, partner names, move names, dialogue, ribbons, routes) never enters provider packets or handoffs. The receipt must show zero flavor bytes.
 - **Facts first:** Pokémon-style copy wraps a factual line (command, exit code, permission scope), never replaces it. Monochrome, ASCII and linear layouts keep the same information.
 - **No fake progression:** No XP, levels, affection, streaks, hunger or random unlocks. Raising partners means learned moves, nicknames and real records. Add each new concept (Moves, Dex) to DESIGN_RULES when it ships.

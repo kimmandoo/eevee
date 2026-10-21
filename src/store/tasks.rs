@@ -3,6 +3,14 @@ use super::*;
 
 impl State {
     pub(super) fn reopen(&mut self) -> Event {
+        self.reopen_with_baseline(false)
+    }
+
+    pub(super) fn reopen_startup(&mut self) -> Event {
+        self.reopen_with_baseline(true)
+    }
+
+    fn reopen_with_baseline(&mut self, startup: bool) -> Event {
         if let Some(connection) = &self.connection
             && let Err(message) = no_active(connection, None)
         {
@@ -12,7 +20,12 @@ impl State {
             };
         }
         self.connection.take();
-        match self.open_and_load() {
+        let opened = if startup {
+            self.open_and_load()
+        } else {
+            self.open_and_load_with_baseline(false)
+        };
+        match opened {
             Ok(snapshot) => Event::Loaded(snapshot),
             Err(error) => Event::Failed {
                 revision: None,
@@ -22,6 +35,10 @@ impl State {
     }
 
     pub(super) fn open_and_load(&mut self) -> Result<Project, String> {
+        self.open_and_load_with_baseline(true)
+    }
+
+    fn open_and_load_with_baseline(&mut self, startup: bool) -> Result<Project, String> {
         if self.project.is_empty() {
             return Err("The canonical Unicode project identity is empty".into());
         }
@@ -73,12 +90,14 @@ impl State {
         initialize(&mut connection)?;
         reconcile_runs(&mut connection, &self.data_dir)?;
         set_quota(&connection, self.policy)?;
+        super::records::baseline(&mut connection, &self.data_dir, &self.project, startup)?;
         let snapshot = load(&connection, &self.project)?;
         self.connection = Some(connection);
         Ok(snapshot)
     }
 
     pub(super) fn save(&mut self, mut snapshot: Snapshot) -> Result<Snapshot, String> {
+        let local_records = std::mem::take(&mut snapshot.local_records);
         validate(&snapshot)?;
         if snapshot.project != self.project {
             return Err(
@@ -111,7 +130,7 @@ impl State {
             {
                 return Err("Refusing a stale or conflicting revision; reload the committed task before saving".into());
             }
-            if snapshot == previous {
+            if snapshot == previous && local_records.is_empty() {
                 transaction
                     .commit()
                     .map_err(|error| format!("Cannot commit save transaction: {error}"))?;
@@ -187,12 +206,15 @@ impl State {
             snapshot.id
         };
         set_partner_form(&transaction, snapshot.lead_partner, snapshot.form)?;
+        snapshot.id = id;
+        super::records::save_intents(&transaction, &snapshot, &local_records)?;
         enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
         transaction
             .commit()
             .map_err(|error| format!("Cannot commit the task: {error}"))?;
         snapshot.id = id;
         snapshot.updated_at = updated_at;
+        snapshot.local_records = local_records;
         Ok(snapshot)
     }
 
@@ -399,6 +421,7 @@ impl State {
                         .execute("DELETE FROM memories WHERE task_id=?1", [id])
                         .map_err(|error| error.to_string())?;
                     super::moves::purge_task(&transaction, *id)?;
+                    super::records::purge_task(&transaction, &self.project, *id)?;
                     transaction
                         .execute(
                             "DELETE FROM tasks WHERE project=?1 AND id=?2",
@@ -415,6 +438,7 @@ impl State {
                     .map_err(|error| error.to_string())?;
                 if remaining == 0 {
                     super::moves::purge_project(&transaction, &self.project)?;
+                    super::records::purge_project(&transaction, &self.project)?;
                 }
                 ids
             }
@@ -878,6 +902,7 @@ pub(super) fn snapshot_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Snapshot
         memory_draft: json_column(row, 16, MAX_MEMORY_BYTES)?,
         approved_memories: json_column(row, 17, MAX_WORKFLOW_BYTES)?,
         workflow_draft: json_column(row, 18, MAX_WORKFLOW_BYTES)?,
+        local_records: Vec::new(),
     })
 }
 

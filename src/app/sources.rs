@@ -44,6 +44,22 @@ enum Mutation {
     Purge(i64),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RankReason {
+    Failure,
+    Changed,
+    Tests,
+    ChangedTests,
+}
+
+#[derive(Default)]
+struct Rankings {
+    changed: std::collections::BTreeSet<std::path::PathBuf>,
+    failures: std::collections::BTreeSet<std::path::PathBuf>,
+    orders: [Vec<usize>; 9],
+    reasons: [Vec<Option<RankReason>>; 9],
+}
+
 #[derive(Default)]
 pub struct State {
     pub mode: Mode,
@@ -73,11 +89,200 @@ pub struct State {
     last_mutation: Option<Mutation>,
     payload_page: usize,
     pending_origin_run: Option<String>,
+    producer: Option<store::Attribution>,
+    capture_producer: Option<store::Attribution>,
+    pub chip_focus: Option<i64>,
+    pub observations: Vec<context::Observation>,
+    pub wire: Option<context::WireReceipt>,
+    rankings: Rankings,
 }
 
 impl State {
+    /// Updates only the next capture's producer, never an in-flight capture.
+    pub fn set_producer(&mut self, producer: Option<store::Attribution>) {
+        self.producer = producer;
+    }
+
+    /// Shared initiation hook for move/workflow captures. Freezes attribution
+    /// before the request can leave the UI, including backpressure and retry.
+    pub fn begin_capture(
+        &mut self,
+        task_id: i64,
+        operation: context::Operation,
+    ) -> Result<(), String> {
+        if self.busy() || self.store_failed {
+            return Err("Finish or retry the pending context operation first.".into());
+        }
+        if !matches!(
+            &operation,
+            context::Operation::Inspect { .. } | context::Operation::InspectFile { .. }
+        ) {
+            return Err("Capture initiation requires an exact source inspection.".into());
+        }
+        self.queue(task_id, operation);
+        Ok(())
+    }
+
+    pub fn set_rank_facts(
+        &mut self,
+        changed: std::collections::BTreeSet<std::path::PathBuf>,
+        failures: std::collections::BTreeSet<std::path::PathBuf>,
+    ) {
+        self.rankings.changed = changed;
+        self.rankings.failures = failures;
+        self.rebuild_rankings();
+    }
+
+    pub fn set_failure_paths(&mut self, failures: impl IntoIterator<Item = std::path::PathBuf>) {
+        self.rankings.failures = failures.into_iter().take(10_000).collect();
+        self.rebuild_rankings();
+    }
+
+    fn rebuild_rankings(&mut self) {
+        for reasons in &mut self.rankings.reasons {
+            reasons.clear();
+            reasons.resize(self.files.len(), None);
+        }
+        let changed_stems: std::collections::BTreeSet<_> = self
+            .rankings
+            .changed
+            .iter()
+            .filter_map(|path| source_stem(path))
+            .collect();
+        for (index, file) in self.files.iter().enumerate() {
+            let changed = self.rankings.changed.contains(&file.path);
+            let failed = self.rankings.failures.contains(&file.path);
+            let tests = test_path(&file.path)
+                && source_stem(&file.path).is_some_and(|stem| changed_stems.contains(stem));
+            if failed {
+                self.rankings.reasons[5][index] = Some(RankReason::Failure);
+            }
+            if changed {
+                self.rankings.reasons[3][index] = Some(RankReason::Changed);
+                self.rankings.reasons[6][index] = Some(RankReason::Changed);
+            }
+            self.rankings.reasons[7][index] = match (changed, tests) {
+                (true, true) => Some(RankReason::ChangedTests),
+                (true, false) => Some(RankReason::Changed),
+                (false, true) => Some(RankReason::Tests),
+                _ => None,
+            };
+        }
+        for form in 0..9 {
+            let order = &mut self.rankings.orders[form];
+            order.clear();
+            order.extend(0..self.files.len());
+            order.sort_unstable_by_key(|index| {
+                (
+                    match self.rankings.reasons[form][*index] {
+                        Some(RankReason::ChangedTests) => 0,
+                        Some(RankReason::Failure | RankReason::Changed) => 1,
+                        Some(RankReason::Tests) => 2,
+                        None => 3,
+                    },
+                    *index,
+                )
+            });
+        }
+    }
+
+    pub fn ranked_files(&self, form: usize) -> impl Iterator<Item = usize> + '_ {
+        let order = &self.rankings.orders[form.min(8)];
+        // Test fixtures and a newly hydrated catalogue can precede rank facts.
+        (0..self.files.len()).map(move |position| order.get(position).copied().unwrap_or(position))
+    }
+
+    pub fn rank_reason(&self, form: usize, index: usize) -> Option<RankReason> {
+        self.rankings.reasons[form.min(8)]
+            .get(index)
+            .copied()
+            .flatten()
+    }
+
+    pub fn observe_captures(&mut self, task_id: i64, report: Option<&Arc<repo::Report>>) {
+        if self.busy() || self.store_failed || self.basket.is_empty() {
+            return;
+        }
+        self.observations.clear();
+        if let Some(report) = report {
+            self.queue(
+                task_id,
+                context::Operation::Check {
+                    report: Arc::clone(report),
+                    excerpts: self.basket.clone(),
+                },
+            );
+        } else {
+            self.observations = self
+                .basket
+                .iter()
+                .map(|capture| context::Observation {
+                    id: capture.id,
+                    freshness: context::Freshness::Unavailable(
+                        "Repository evidence unavailable".into(),
+                    ),
+                })
+                .collect();
+        }
+    }
+
+    /// Call only with the worker-produced immutable request preview.
+    pub fn set_wire_request(&mut self, payload: &str) -> Result<(), String> {
+        self.wire = None;
+        self.wire = Some(context::wire_receipt(payload)?);
+        Ok(())
+    }
+
+    pub fn clear_wire_request(&mut self) {
+        self.wire = None;
+    }
+
+    pub fn focus_chip(&mut self, reverse: bool) -> bool {
+        if self.basket.is_empty() {
+            self.chip_focus = None;
+            return false;
+        }
+        let current = self
+            .chip_focus
+            .and_then(|id| self.basket.iter().position(|row| row.id == id));
+        let index = match current {
+            Some(index) if reverse => (index + self.basket.len() - 1) % self.basket.len(),
+            Some(index) => (index + 1) % self.basket.len(),
+            None if reverse => self.basket.len() - 1,
+            None => 0,
+        };
+        self.chip_focus = Some(self.basket[index].id);
+        true
+    }
+
+    /// Exact capture lookup: distinct ranges in one file are independent chips.
+    pub fn inspect_chip(&mut self, id: i64, remove: bool, task_id: i64) -> bool {
+        if self.busy() || self.store_failed {
+            return false;
+        }
+        let Some(index) = self.basket.iter().position(|capture| capture.id == id) else {
+            return false;
+        };
+        self.basket_selection = index;
+        self.mode = Mode::Basket;
+        self.basket_detail();
+        if remove {
+            self.command("unpin", task_id, None);
+        }
+        true
+    }
+
+    pub fn show_basket(&mut self) {
+        self.mode = Mode::Basket;
+        self.basket_detail();
+    }
+
     pub fn reset(&mut self, task_id: i64) {
-        *self = Self::default();
+        let producer = self.producer.take();
+        *self = Self {
+            producer,
+            ..Self::default()
+        };
         if task_id > 0 {
             self.queue_store(task_id, store::ContextOperation::Load);
         }
@@ -104,7 +309,12 @@ impl State {
             .iter()
             .position(|excerpt| std::path::Path::new(&excerpt.path) == source.path)
     }
-    pub fn catalogue(&mut self, task_id: i64, report: Option<&Arc<repo::Report>>) {
+    pub fn catalogue(
+        &mut self,
+        task_id: i64,
+        report: Option<&Arc<repo::Report>>,
+        repository_pending: bool,
+    ) {
         if self.store_failed {
             self.error =
                 "Context save failed. Open /files and press Enter to retry the retained operation."
@@ -116,8 +326,20 @@ impl State {
             return;
         }
         let Some(report) = report else {
-            self.await_refresh = true;
-            self.status = "Waiting for repository evidence; /repo shows its error layer.".into();
+            // Missing evidence is not itself an outstanding inspection. Only
+            // wait when the root actually owns a queued or loading refresh.
+            self.await_refresh = repository_pending;
+            if repository_pending {
+                self.error.clear();
+                self.status =
+                    "Waiting for repository evidence; /repo shows its error layer.".into();
+            } else {
+                self.status =
+                    "Repository evidence unavailable; /repo shows its error layer.".into();
+                self.error =
+                    "Repository inspection unavailable. /repo shows details; /refresh retries."
+                        .into();
+            }
             return;
         };
         if self.source_busy || self.persistence_pending() {
@@ -139,6 +361,12 @@ impl State {
         );
     }
     fn queue(&mut self, task_id: i64, operation: context::Operation) {
+        if matches!(
+            &operation,
+            context::Operation::Inspect { .. } | context::Operation::InspectFile { .. }
+        ) {
+            self.capture_producer.clone_from(&self.producer);
+        }
         self.pending = Some(context::Request { task_id, operation });
         self.source_busy = true;
         self.error.clear();
@@ -159,20 +387,46 @@ impl State {
                 _ => None,
             };
         }
-        self.pending_store = Some(store::ContextRequest { task_id, operation });
+        let producer = matches!(&operation, store::ContextOperation::Pin(_))
+            .then(|| self.capture_producer.clone())
+            .flatten();
+        self.pending_store = Some(store::ContextRequest {
+            task_id,
+            producer,
+            operation,
+        });
         self.store_busy = true;
         self.error.clear();
     }
     pub fn observed_repository(&mut self, task_id: i64, report: Option<&Arc<repo::Report>>) {
+        let changed = report
+            .map(|report| {
+                report
+                    .current
+                    .files
+                    .iter()
+                    .filter(|(_, identity)| identity.dirty == Some(true))
+                    .map(|(path, _)| path.clone())
+                    .chain(report.changes.iter().map(|change| change.path.clone()))
+                    .take(10_000)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let failures = std::mem::take(&mut self.rankings.failures);
+        self.set_rank_facts(changed, failures);
+        self.observations.clear();
+        self.wire = None;
         if self.await_refresh {
             self.await_refresh = false;
             if report.is_some() {
-                self.catalogue(task_id, report);
+                self.catalogue(task_id, report, false);
             } else {
                 self.error =
                     "Repository inspection unavailable. /repo shows details; /refresh retries."
                         .into();
             }
+        } else {
+            self.observe_captures(task_id, report);
         }
     }
     pub fn event(&mut self, task_id: i64, event: context::Event) {
@@ -183,6 +437,7 @@ impl State {
         match event.result {
             Ok(context::Response::Catalogue(files)) => {
                 self.files = files;
+                self.rebuild_rankings();
                 self.file_selection = self.file_selection.min(self.files.len().saturating_sub(1));
                 self.status = format!(
                     "{} eligible files / ignored, excluded, binary and linked paths omitted",
@@ -198,6 +453,14 @@ impl State {
                 self.mode = Mode::Preview;
                 self.status =
                     "Review local capture / Enter attaches / nothing sent to provider".into();
+            }
+            Ok(context::Response::Checked(observations)) => {
+                self.observations = observations;
+                self.status =
+                    "Explicit source-worker check complete; sources may change afterwards.".into();
+                if self.mode == Mode::Basket {
+                    self.basket_detail();
+                }
             }
             Ok(context::Response::Assembled(payload)) => {
                 self.pending_payload = Some(payload);
@@ -230,6 +493,14 @@ impl State {
         match result {
             Ok(rows) => {
                 self.basket = rows;
+                self.wire = None;
+                self.observations.clear();
+                if self
+                    .chip_focus
+                    .is_some_and(|id| !self.basket.iter().any(|row| row.id == id))
+                {
+                    self.chip_focus = None;
+                }
                 self.basket_selection = self
                     .basket_selection
                     .min(self.basket.len().saturating_sub(1));
@@ -805,7 +1076,7 @@ impl State {
                 EditKind::Search => {
                     self.query = editor.text;
                     self.file_selection = 0;
-                    self.catalogue(task_id, report);
+                    self.catalogue(task_id, report, self.await_refresh);
                 }
                 EditKind::Range => {
                     let range = editor.text.split_once(':').and_then(|(a, b)| {
@@ -886,6 +1157,29 @@ impl State {
                 "No saved attachments. Tab opens files; Enter reviews a file before attaching."
                     .into()
             });
+        if let Some(capture) = self.basket.get(self.basket_selection) {
+            let freshness = self
+                .observations
+                .iter()
+                .find(|row| row.id == capture.id)
+                .map(|row| match &row.freshness {
+                    context::Freshness::Current => {
+                        "CURRENT at last explicit worker check; dispatch revalidates".into()
+                    }
+                    context::Freshness::Stale(reason) => format!("STALE: {reason}"),
+                    context::Freshness::Unavailable(reason) => format!("UNAVAILABLE: {reason}"),
+                })
+                .unwrap_or_else(|| {
+                    "NOT CHECKED: captured bytes are not a live-watch assertion".into()
+                });
+            let wire = self.wire.as_ref().and_then(|receipt| receipt.captures.iter()
+                .find(|row| row.id == capture.id).map(|row| format!(
+                    "{} serialized entry bytes / ~{} tokens ({}) / includes native outer escaping\n{} B all capture entries + {} B shared envelope/other fields = {} B actual frozen request\nProvider-added context/history/reads are not counted or constrained.",
+                    row.bytes, row.estimated_tokens, crate::workspace::receipt::ESTIMATOR,
+                    receipt.total_bytes - receipt.other_bytes, receipt.other_bytes, receipt.total_bytes,
+                ))).unwrap_or_else(|| "Serialized request contribution unavailable until an immutable provider preview is prepared; raw text bytes are not wire bytes".into());
+            self.detail.insert_str(0, &format!("{freshness}\n{wire}\n"));
+        }
     }
     fn payload_detail(&mut self) {
         let Some(payload) = &self.payload else {
@@ -922,9 +1216,41 @@ impl State {
     }
 }
 
+fn source_stem(path: &std::path::Path) -> Option<&str> {
+    let name = path.file_stem()?.to_str()?;
+    let name = name.strip_prefix("test_").unwrap_or(name);
+    Some(
+        name.strip_suffix("_test")
+            .or_else(|| name.strip_suffix(".test"))
+            .or_else(|| name.strip_suffix(".spec"))
+            .unwrap_or(name),
+    )
+}
+
+fn test_path(path: &std::path::Path) -> bool {
+    path.components().any(|component| {
+        let Some(name) = component.as_os_str().to_str() else {
+            return false;
+        };
+        let bytes = name.as_bytes();
+        ["test", "tests", "__tests__", "spec", "specs"]
+            .iter()
+            .any(|candidate| name.eq_ignore_ascii_case(candidate))
+            || bytes
+                .get(..5)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"test_"))
+            || bytes
+                .get(bytes.len().saturating_sub(8)..)
+                .is_some_and(|suffix| suffix.eq_ignore_ascii_case(b"_test.rs"))
+            || bytes.windows(6).any(|window| {
+                window.eq_ignore_ascii_case(b".test.") || window.eq_ignore_ascii_case(b".spec.")
+            })
+    })
+}
+
 fn excerpt_detail(excerpt: &context::Excerpt) -> String {
     let mut value = format!(
-        "#{} / {:?}\nTask {} / root {:?}\nLines {}:{} inclusive / {} bytes\n{}\n\n{}",
+        "#{} / {:?}\nTask {} / root {:?}\nLines {}:{} inclusive / {} captured UTF-8 bytes\n{}\n\nExact captured bytes / escaped display (not reread from the current file):\n{:?}",
         excerpt.id,
         excerpt.path,
         excerpt.task_id,
@@ -986,7 +1312,7 @@ mod tests {
         state.key(enter, 7, None);
         assert!(matches!(
             &state.pending_store,
-            Some(store::ContextRequest { task_id: 7, operation: store::ContextOperation::Pin(saved) })
+            Some(store::ContextRequest { task_id: 7, operation: store::ContextOperation::Pin(saved), .. })
                 if saved == &excerpt
         ));
         assert!(state.basket.is_empty());
@@ -1027,6 +1353,48 @@ mod tests {
         state.stored(7, 7, Ok(vec![capture()]));
         assert_eq!(state.basket.len(), 1);
         assert!(!state.take_return_to_composer());
+    }
+
+    #[test]
+    fn missing_repository_waits_only_for_an_owned_inspection() {
+        for repository_pending in [false, true] {
+            let mut state = State::default();
+            state.catalogue(7, None, repository_pending);
+            assert_eq!(state.await_refresh, repository_pending);
+            assert_eq!(state.busy(), repository_pending);
+            assert!(state.pending.is_none() && state.pending_store.is_none());
+            assert!(!state.source_busy && !state.store_busy);
+            if repository_pending {
+                assert!(state.error.is_empty());
+                state.observed_repository(7, None);
+                assert!(!state.busy());
+            }
+            assert!(state.error.contains("Repository inspection unavailable"));
+            state.catalogue(7, None, false);
+            assert!(!state.busy());
+            assert!(state.status.contains("unavailable"));
+            state.command("search", 7, None);
+            state.paste("literal-filter");
+            state.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), 7, None);
+            assert_eq!(state.query, "literal-filter");
+            assert!(!state.busy());
+            assert!(state.error.contains("Repository inspection unavailable"));
+        }
+    }
+
+    #[test]
+    fn unavailable_repository_does_not_release_real_source_or_store_work() {
+        for (source_busy, store_busy) in [(true, false), (false, true)] {
+            let mut state = State {
+                source_busy,
+                store_busy,
+                ..State::default()
+            };
+            state.catalogue(7, None, false);
+            assert!(state.busy());
+            assert_eq!(state.source_busy, source_busy);
+            assert_eq!(state.store_busy, store_busy);
+        }
     }
 
     #[test]
@@ -1072,5 +1440,137 @@ mod tests {
         state.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), 1, None);
         assert!(state.confirmation.is_none());
         assert!(state.pending_store.is_none());
+    }
+
+    #[test]
+    fn exact_capture_focus_and_removal_never_confuse_two_ranges_of_one_file() {
+        let mut first = capture();
+        first.id = 41;
+        let mut second = first.clone();
+        second.id = 42;
+        second.start_line = 4;
+        second.end_line = 5;
+        second.text = "four\nfive\n".into();
+        let mut state = State {
+            basket: vec![first.clone(), second.clone()],
+            ..State::default()
+        };
+        assert!(state.focus_chip(false));
+        assert_eq!(state.chip_focus, Some(41));
+        assert!(state.focus_chip(false));
+        assert_eq!(state.chip_focus, Some(42));
+        assert!(state.inspect_chip(42, true, 7));
+        assert_eq!(state.confirmation.as_ref().unwrap().id, 42);
+        assert_eq!(state.basket_selection, 1);
+        assert!(state.detail.contains(&format!("{:?}", second.text)));
+        assert!(state.pending_store.is_none());
+        state.confirmation = None;
+        state.stored(7, 7, Ok(vec![first.clone()]));
+        assert_eq!(state.basket, vec![first]);
+        assert_eq!(state.chip_focus, None);
+        assert!(!state.inspect_chip(42, true, 7));
+    }
+
+    #[test]
+    fn ranking_changes_order_and_reasons_but_never_catalogue_membership() {
+        let mut state = State {
+            files: [
+                "a/failure.rs",
+                "b/changed.rs",
+                "tests/changed.rs",
+                "tests/unrelated.rs",
+            ]
+            .into_iter()
+            .map(|path| context::Source {
+                path: path.into(),
+                bytes: 1,
+                sha256: [0; 32],
+            })
+            .collect(),
+            ..State::default()
+        };
+        state.rankings.changed = [std::path::PathBuf::from("b/changed.rs")]
+            .into_iter()
+            .collect();
+        state.set_failure_paths([
+            std::path::PathBuf::from("a/failure.rs"),
+            std::path::PathBuf::from(".env"),
+        ]);
+        assert_eq!(state.ranked_files(5).next(), Some(0));
+        assert_eq!(state.rank_reason(5, 0), Some(RankReason::Failure));
+        assert_eq!(state.ranked_files(3).next(), Some(1));
+        assert_eq!(state.ranked_files(6).next(), Some(1));
+        assert_eq!(state.rank_reason(7, 2), Some(RankReason::Tests));
+        assert_eq!(state.rank_reason(7, 3), None);
+        for form in 0..9 {
+            let mut members: Vec<_> = state.ranked_files(form).collect();
+            members.sort_unstable();
+            assert_eq!(members, vec![0, 1, 2, 3]);
+        }
+    }
+
+    #[test]
+    fn capture_producer_survives_lead_change_and_failed_pin_retry() {
+        let owner = store::Attribution {
+            partner: 1,
+            name: "First".into(),
+            form: 5,
+        };
+        let next = store::Attribution {
+            partner: 2,
+            name: "Second".into(),
+            form: 3,
+        };
+        let snapshot = Arc::new(repo::Snapshot {
+            head: None,
+            files: Default::default(),
+            working_diff: Default::default(),
+            complete: true,
+            stable: true,
+            warnings: Vec::new(),
+        });
+        let report = Arc::new(repo::Report {
+            repository: repo::RepositoryIdentity {
+                root: "/workspace".into(),
+                git_dir: "/workspace/.git".into(),
+            },
+            baseline: Arc::clone(&snapshot),
+            current: snapshot,
+            changes: Vec::new(),
+            initial: true,
+        });
+        let mut state = State::default();
+        state.set_producer(Some(owner.clone()));
+        state.queue(
+            7,
+            context::Operation::InspectFile {
+                report,
+                path: "sample.rs".into(),
+            },
+        );
+        state.set_producer(Some(next));
+        state.event(
+            7,
+            context::Event {
+                task_id: 7,
+                result: Ok(context::Response::Inspected(capture())),
+            },
+        );
+        state.preview_reviewed = true;
+        state.command("attach", 7, None);
+        assert_eq!(
+            state.pending_store.as_ref().unwrap().producer.as_ref(),
+            Some(&owner)
+        );
+        state.stored(7, 7, Err("disk full".into()));
+        state.command("journal-retry", 7, None);
+        assert_eq!(
+            state.pending_store.as_ref().unwrap().producer.as_ref(),
+            Some(&owner)
+        );
+        assert!(matches!(
+            &state.pending_store.as_ref().unwrap().operation,
+            store::ContextOperation::Pin(_)
+        ));
     }
 }

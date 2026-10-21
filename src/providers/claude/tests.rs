@@ -36,16 +36,16 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
     };
     let inspection = json!({
         "type":"capabilities", "sdk_version":"1.5.0", "cli_version":"4.0.0",
-        "bridge_revision":4, "query":true,
+        "bridge_revision":5, "query":true,
         "policy":{"tools":"closed-allowlist","permissions":"default-host-once","mcp":"disabled",
             "configuration":"isolated","authentication":"api-console-cloud-only",
-            "dispatch":"correlated-sdk-submission"},
+            "dispatch":"correlated-sdk-submission","usage":"correlated-sdk-snapshots"},
     });
     assert!(inspection_matches(&inspection, &versions));
     for (field, value) in [
         ("sdk_version", json!("1.5.1")),
         ("cli_version", json!("4.0.1")),
-        ("bridge_revision", json!(3)),
+        ("bridge_revision", json!(4)),
         ("query", json!(false)),
         ("policy", Value::Null),
     ] {
@@ -60,6 +60,7 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
         "configuration",
         "authentication",
         "dispatch",
+        "usage",
     ] {
         let mut changed = inspection.clone();
         changed["policy"][field] = json!("unknown");
@@ -286,36 +287,281 @@ fn sdk_dispatch_frames_require_exact_frozen_owner_and_reject_duplicates_or_inspe
     let input = crate::providers::tests::claimed(Agent::Claude, Operation::Plan, false);
     let frame = json!({
         "protocol":1, "type":"dispatched", "generation":31, "task_id":7,
-        "request_id":"provider-admission-test",
+        "request_id":"provider-admission-test", "submission_id":"11234567-89ab-4cde-8123-456789abcdef",
     });
     for (field, changed) in [
         ("generation", json!(32)),
         ("task_id", json!(8)),
         ("request_id", json!("another-request")),
         ("request_id", Value::Null),
+        ("submission_id", Value::Null),
+        ("submission_id", json!("not-a-uuid")),
         ("type", json!("status")),
     ] {
         let mut value = frame.clone();
         value[field] = changed;
-        let mut seen = false;
+        let mut seen = None;
         assert!(dispatch_receipt(&input, 31, &value, &mut seen).is_err());
-        assert!(!seen);
+        assert!(seen.is_none());
     }
-    let mut seen = false;
+    let mut seen = None;
     assert!(matches!(
         dispatch_receipt(&input, 31, &frame, &mut seen).unwrap(),
         Event::Dispatched { generation:31, task_id:7, request_id }
             if request_id == "provider-admission-test"
     ));
-    assert!(seen);
+    assert_eq!(seen.as_deref(), frame["submission_id"].as_str());
     assert!(dispatch_receipt(&input, 31, &frame, &mut seen).is_err());
     for models in [false, true] {
         let mut inspection = input.clone();
         inspection.inspect_models = models;
         inspection.inspect_sessions = !models;
-        assert!(dispatch_receipt(&inspection, 31, &frame, &mut false).is_err());
+        assert!(dispatch_receipt(&inspection, 31, &frame, &mut None).is_err());
     }
     let mut unclaimed = input;
     unclaimed.work = None;
-    assert!(dispatch_receipt(&unclaimed, 31, &frame, &mut false).is_err());
+    assert!(dispatch_receipt(&unclaimed, 31, &frame, &mut None).is_err());
+}
+
+fn sdk_usage_fixture(submission: &str, scope: &str, input: u64, baseline: Option<u64>) -> Value {
+    json!({
+        "protocol":1,"type":"usage","generation":31,"task_id":7,
+        "request_id":"provider-admission-test","submission_id":submission,
+        "session_id":"01234567-89ab-4cde-8123-456789abcdef",
+        "report":{
+            "identity":{"session":"01234567-89ab-4cde-8123-456789abcdef","turn":submission,"response":null,"event":"sdk-result"},
+            "scope":scope,"kind":"Snapshot",
+            "counters":{"input":input,"output":null,"cache_read":null,"cache_write":null,"reasoning":null},
+            "baseline":baseline.map(|input| json!({"input":input,"output":null,"cache_read":null,"cache_write":null,"reasoning":null})),
+            "model":if scope == "ModelPipeline" { Some("provider-model-alias") } else { None },
+            "tokenizer":null,
+            "semantics":{"cache_read_in_input":false,"cache_write_in_input":false,"reasoning_in_output":null},
+            "complete":true,
+        }
+    })
+}
+
+fn sdk_decoded_report(
+    input: &Input,
+    submission: &str,
+    frame: &Value,
+) -> crate::workspace::usage::Report {
+    let Event::Usage {
+        generation: 31,
+        task_id: 7,
+        report,
+    } = usage_event(
+        input,
+        31,
+        "01234567-89ab-4cde-8123-456789abcdef",
+        Some(submission),
+        frame,
+    )
+    .unwrap()
+    else {
+        panic!("expected typed SDK usage");
+    };
+    report
+}
+
+fn sdk_worker_report(
+    usage: &mut SdkTurnUsage,
+    input: &Input,
+    submission: &str,
+    frame: &Value,
+) -> crate::workspace::usage::Report {
+    let event = usage_event(
+        input,
+        31,
+        "01234567-89ab-4cde-8123-456789abcdef",
+        Some(submission),
+        frame,
+    )
+    .unwrap();
+    let Event::Usage { report, .. } = usage.observe(event).unwrap() else {
+        panic!("expected correlated worker usage");
+    };
+    report
+}
+
+#[test]
+fn sdk_usage_requires_acknowledged_current_uuid_and_frozen_request() {
+    let input = crate::providers::tests::claimed(Agent::Claude, Operation::Plan, false);
+    let submission = "11234567-89ab-4cde-8123-456789abcdef";
+    let frame = sdk_usage_fixture(submission, "MainLoopTurn", 10, None);
+    let session = frame["session_id"].as_str().unwrap();
+    assert!(usage_event(&input, 31, session, None, &frame).is_err());
+    for (field, value) in [
+        ("generation", json!(32)),
+        ("task_id", json!(8)),
+        ("session_id", json!("other-session")),
+        ("request_id", json!("another-request")),
+        ("submission_id", json!("prior-turn")),
+        (
+            "report",
+            json!({"scope":"query-pipeline cumulative snapshot"}),
+        ),
+    ] {
+        let mut changed = frame.clone();
+        changed[field] = value;
+        assert!(usage_event(&input, 31, session, Some(submission), &changed).is_err());
+    }
+    let mut changed = frame.clone();
+    changed["report"]["identity"]["turn"] = json!("prior-history-uuid");
+    assert!(usage_event(&input, 31, session, Some(submission), &changed).is_err());
+    let mut unclaimed = input.clone();
+    unclaimed.work = None;
+    assert!(usage_event(&unclaimed, 31, session, Some(submission), &frame).is_err());
+    for models in [false, true] {
+        let mut inspection = input.clone();
+        inspection.inspect_models = models;
+        inspection.inspect_sessions = !models;
+        assert!(usage_event(&inspection, 31, session, Some(submission), &frame).is_err());
+    }
+    let report = sdk_decoded_report(&input, submission, &frame);
+    assert_eq!(report.counters.output, None);
+    assert_eq!(report.model, None);
+    assert_eq!(report.tokenizer, None);
+}
+
+#[test]
+fn sdk_worker_retains_completed_owned_resume_baselines_without_overlapping_scopes() {
+    use crate::workspace::usage::Record;
+    let mut input = crate::providers::tests::claimed(Agent::Claude, Operation::Plan, false);
+    let owner = input.work.as_ref().unwrap().owner.clone();
+    let session = "01234567-89ab-4cde-8123-456789abcdef";
+    let mut sessions = HashMap::new();
+    let first_id = "11234567-89ab-4cde-8123-456789abcdef";
+    let second_id = "21234567-89ab-4cde-8123-456789abcdef";
+    let resume_id = "31234567-89ab-4cde-8123-456789abcdef";
+    let mut usage = SdkTurnUsage::begin(&input, &mut sessions).unwrap();
+    sessions.insert(
+        session.into(),
+        SdkSession {
+            task_id: 7,
+            ..SdkSession::default()
+        },
+    );
+    let mut first = Record::new("request-1".into(), 7, owner.clone(), Agent::Claude);
+    for (scope, total) in [("MainLoopTurn", 10), ("ModelPipeline", 100)] {
+        first
+            .apply_retained(sdk_worker_report(
+                &mut usage,
+                &input,
+                first_id,
+                &sdk_usage_fixture(first_id, scope, total, None),
+            ))
+            .unwrap();
+    }
+    usage.finish(sessions.get_mut(session).unwrap(), Outcome::Completed);
+    assert_eq!(first.measurements[0].attributable.input, Some(10));
+    assert_eq!(first.measurements[1].attributable.input, None);
+
+    // Each query has a fresh sidecar ledger: raw pipeline baseline is null.
+    // The existing worker privately freezes its last complete same-model total.
+    input.resume = Some(session.into());
+    let mut usage = SdkTurnUsage::begin(&input, &mut sessions).unwrap();
+    assert!(sessions[session].model_totals.is_empty());
+    let mut second = Record::new("request-2".into(), 7, owner.clone(), Agent::Claude);
+    second
+        .apply_retained(sdk_worker_report(
+            &mut usage,
+            &input,
+            second_id,
+            &sdk_usage_fixture(second_id, "MainLoopTurn", 20, None),
+        ))
+        .unwrap();
+    let frame = sdk_usage_fixture(second_id, "ModelPipeline", 120, None);
+    let cumulative = sdk_worker_report(&mut usage, &input, second_id, &frame);
+    assert_eq!(cumulative.baseline.unwrap().input, Some(100));
+    assert_eq!(cumulative.identity.session.as_deref(), Some(session));
+    assert_eq!(cumulative.model.as_deref(), Some("provider-model-alias"));
+    assert!(second.apply_retained(cumulative.clone()).unwrap());
+    assert!(!second.apply_retained(cumulative).unwrap());
+    let mut partial = frame;
+    partial["report"]["counters"]["input"] = Value::Null;
+    partial["report"]["counters"]["output"] = json!(9);
+    second
+        .apply_retained(sdk_worker_report(&mut usage, &input, second_id, &partial))
+        .unwrap();
+    usage.finish(sessions.get_mut(session).unwrap(), Outcome::Completed);
+    assert_eq!(second.measurements.len(), 2);
+    assert_eq!(second.measurements[0].attributable.input, Some(20));
+    assert_eq!(second.measurements[1].attributable.input, Some(20));
+    assert_eq!(second.measurements[1].attributable.output, None);
+    assert_eq!(
+        sessions[session].model_totals["provider-model-alias"].input,
+        Some(120)
+    );
+
+    let mut usage = SdkTurnUsage::begin(&input, &mut sessions).unwrap();
+    let mut resumed = Record::new("request-resumed".into(), 7, owner, Agent::Claude);
+    for (scope, total) in [("MainLoopTurn", 7), ("ModelPipeline", 127)] {
+        resumed
+            .apply_retained(sdk_worker_report(
+                &mut usage,
+                &input,
+                resume_id,
+                &sdk_usage_fixture(resume_id, scope, total, None),
+            ))
+            .unwrap();
+    }
+    assert_eq!(resumed.measurements[0].attributable.input, Some(7));
+    assert_eq!(resumed.measurements[1].attributable.input, Some(7));
+}
+
+#[test]
+fn sdk_resume_unknown_models_failed_turns_and_wrong_owners_never_seed_baselines() {
+    let mut input = crate::providers::tests::claimed(Agent::Claude, Operation::Plan, false);
+    let session = "01234567-89ab-4cde-8123-456789abcdef";
+    let submission = "11234567-89ab-4cde-8123-456789abcdef";
+    input.resume = Some(session.into());
+    let mut sessions = HashMap::from([(
+        session.into(),
+        SdkSession {
+            task_id: 7,
+            ..SdkSession::default()
+        },
+    )]);
+    let mut usage = SdkTurnUsage::begin(&input, &mut sessions).unwrap();
+    let frame = sdk_usage_fixture(submission, "ModelPipeline", 1007, None);
+    let unknown = sdk_worker_report(&mut usage, &input, submission, &frame);
+    assert!(
+        unknown.baseline.is_none(),
+        "external history is not an observed baseline"
+    );
+    usage.finish(sessions.get_mut(session).unwrap(), Outcome::Completed);
+
+    let mut wrong_owner = input.clone();
+    wrong_owner.task.id = 8;
+    assert!(SdkTurnUsage::begin(&wrong_owner, &mut sessions).is_err());
+    let mut usage = SdkTurnUsage::begin(&input, &mut sessions).unwrap();
+    let mut changed_model = frame.clone();
+    changed_model["report"]["model"] = json!("different-reported-model");
+    assert!(
+        sdk_worker_report(&mut usage, &input, submission, &changed_model)
+            .baseline
+            .is_none()
+    );
+    let mut failed = frame.clone();
+    failed["report"]["complete"] = json!(false);
+    let report = sdk_worker_report(&mut usage, &input, submission, &failed);
+    assert_eq!(report.baseline.unwrap().input, Some(1007));
+    assert!(!report.complete);
+    usage.finish(sessions.get_mut(session).unwrap(), Outcome::Failed);
+    let mut usage = SdkTurnUsage::begin(&input, &mut sessions).unwrap();
+    assert!(
+        sdk_worker_report(&mut usage, &input, submission, &frame)
+            .baseline
+            .is_none()
+    );
+
+    // A complete-looking usage observation cannot refresh a failed/unknown
+    // turn. Nor may a sidecar invent its own private historical baseline.
+    usage.finish(sessions.get_mut(session).unwrap(), Outcome::Unknown);
+    let mut usage = SdkTurnUsage::begin(&input, &mut sessions).unwrap();
+    let forged = sdk_usage_fixture(submission, "ModelPipeline", 1008, Some(1007));
+    let event = usage_event(&input, 31, session, Some(submission), &forged).unwrap();
+    assert!(usage.observe(event).is_err());
+    assert!(sessions[session].model_totals.is_empty());
 }

@@ -30,6 +30,8 @@ struct Draft {
     text: String,
     original: String,
     cursor: usize,
+    #[serde(default)]
+    habit_sources: Vec<String>,
 }
 
 pub struct State {
@@ -52,6 +54,8 @@ pub struct State {
     pub project: String,
     target: Option<(i64, u64)>,
     original: String,
+    habit_binding: Option<(String, i64, u64)>,
+    pub habit_sources: Vec<String>,
 }
 
 impl Default for State {
@@ -69,6 +73,8 @@ impl State {
             saving: false, reviewed: false, affirmative: false, scroll: 0,
             scroll_max: 0, task_id: 0, project: String::new(), target: None,
             original: String::new(), show_help: false,
+            habit_binding: None,
+            habit_sources: Vec::new(),
         }
     }
 
@@ -144,6 +150,54 @@ impl State {
         Ok(())
     }
 
+    /// Uses the existing S02 review/approval gate; no record or binding exists
+    /// until the worker acknowledges the exact approved project-memory proposal.
+    pub fn propose_habit(
+        &mut self,
+        habit: &crate::workspace::records::Habit,
+    ) -> Result<(), String> {
+        if !super::habits::eligible(habit) || habit.memory.is_some() {
+            return Err(
+                "This instruction is not an available repeated-instruction proposal.".into(),
+            );
+        }
+        if self.selected_ids.len() >= memory::MAX_SELECTED {
+            return Err(
+                "Deselect one memory before approving and selecting this instruction.".into(),
+            );
+        }
+        self.propose(
+            &habit.instruction,
+            Provenance {
+                kind: SourceKind::UserAuthored,
+                reference: format!("habit:{}", habit.key),
+                task_id: self.task_id,
+            },
+            false,
+        )?;
+        self.candidate.as_mut().expect("proposed habit").scope = Scope::Project;
+        self.habit_sources = habit
+            .sources
+            .iter()
+            .take(3)
+            .map(|source| format!("{} (task #{})", source.request_id, source.task_id))
+            .collect();
+        self.notice = self.habit_disclosure();
+        Ok(())
+    }
+
+    /// The parent queues BindInstructionMemory through the sole records worker.
+    pub fn take_habit_binding(&mut self) -> Option<(String, i64, u64)> {
+        self.habit_binding.take()
+    }
+
+    pub fn habit_disclosure(&self) -> String {
+        format!(
+            "Review repeated authored instruction; submitted request sources: {}. Approval saves and selects a project memory, binds this exact instruction, and substitutes that memory reference for an exact repeat in a future current instruction. Drafts and past/provider history remain unchanged. Editing, deleting or deselecting the memory disables substitution. Explicit approval is required.",
+            self.habit_sources.join(", "),
+        )
+    }
+
     pub fn receive_records(&mut self, records: Vec<Record>) {
         if records.len() > memory::MAX_RECORDS
             || records
@@ -176,6 +230,15 @@ impl State {
             }
             return;
         }
+        let habit_proposal = (self.mode == Mode::Preview && self.target.is_none())
+            .then(|| self.candidate.clone())
+            .flatten()
+            .filter(|proposal| {
+                proposal.scope == Scope::Project
+                    && proposal.provenance.reference.starts_with("habit:")
+                    && proposal.content == self.original
+                    && proposal.content == self.draft
+            });
         self.saving = false;
         self.pending = None;
         self.invalidate_review();
@@ -184,6 +247,22 @@ impl State {
                 self.receive_records(records);
                 self.selected_ids
                     .retain(|id| self.records.iter().any(|record| record.id == *id));
+                if let Some(proposal) = habit_proposal
+                    && let Some(record) = self.records.iter().find(|record| {
+                        record.project == self.project && record.proposal == proposal
+                    })
+                    && (self.selected_ids.contains(&record.id)
+                        || self.selected_ids.len() < memory::MAX_SELECTED)
+                {
+                    if !self.selected_ids.contains(&record.id) {
+                        self.selected_ids.push(record.id);
+                    }
+                    self.habit_binding = Some((
+                        proposal.provenance.reference["habit:".len()..].into(),
+                        record.id,
+                        record.revision,
+                    ));
+                }
                 self.clear_draft();
                 self.notice = "Memory change committed. Context uses only /select-memory selections of approved memories; prior requests/exports are unchanged.".into();
             }
@@ -203,6 +282,7 @@ impl State {
             "scroll": self.scroll, "mode": self.mode, "candidate": self.candidate,
             "target": self.target, "text": self.draft, "original": self.original,
             "cursor": self.cursor,
+            "habit_sources": self.habit_sources,
         })
     }
 
@@ -214,6 +294,12 @@ impl State {
             .map_err(|_| "Invalid memory draft; nothing was restored.")?;
         if draft.version != 1 || draft.task_id != self.task_id || draft.project != self.project {
             return Err("Memory draft belongs to a different task/project or schema.".into());
+        }
+        if draft.habit_sources.len() > 3 {
+            return Err("Habit draft has too many source references.".into());
+        }
+        for source in &draft.habit_sources {
+            memory::validate_text(source, memory::MAX_REFERENCE_BYTES)?;
         }
         if draft.selected_ids.len() > memory::MAX_SELECTED
             || draft
@@ -254,6 +340,7 @@ impl State {
         self.target = draft.target;
         self.draft = draft.text;
         self.original = draft.original;
+        self.habit_sources = draft.habit_sources;
         self.cursor = self
             .draft
             .grapheme_indices(true)
@@ -264,6 +351,13 @@ impl State {
             .unwrap_or(0);
         self.invalidate_review();
         self.notice = "Task-scoped memory draft and selection restored; no approval was restored or replayed.".into();
+        if self
+            .candidate
+            .as_ref()
+            .is_some_and(|proposal| proposal.provenance.reference.starts_with("habit:"))
+        {
+            self.notice = self.habit_disclosure();
+        }
         Ok(())
     }
 
@@ -271,6 +365,7 @@ impl State {
         self.mode = Mode::Browse;
         self.candidate = None;
         self.target = None;
+        self.habit_sources.clear();
         self.draft.clear();
         self.original.clear();
         self.cursor = 0;
@@ -369,6 +464,13 @@ impl State {
         self.scroll = 0;
         self.invalidate_review();
         self.notice = "Not saved. Review the displayed scope; y Approve / n Edit. /verbose shows exact content and provenance.".into();
+        if self
+            .candidate
+            .as_ref()
+            .is_some_and(|proposal| proposal.provenance.reference.starts_with("habit:"))
+        {
+            self.notice = self.habit_disclosure();
+        }
     }
 
     fn editor_key(&mut self, key: KeyEvent) -> bool {
@@ -544,7 +646,9 @@ impl State {
                 self.notice = "Delete only this approved memory? Review affected scope. Stay is selected; no deletion yet.".into();
             }
             "memory-scope" => {
-                if let Some(candidate) = &mut self.candidate {
+                if let Some(candidate) = &mut self.candidate
+                    && !candidate.provenance.reference.starts_with("habit:")
+                {
                     candidate.scope = candidate.scope.next();
                 }
                 self.scroll = 0;
@@ -983,5 +1087,78 @@ mod tests {
                 expected_revision: 3
             })
         ));
+    }
+
+    fn habit() -> crate::workspace::records::Habit {
+        use crate::workspace::records::{self, Habit, InstructionSource};
+        let (key, instruction) = records::instruction_key("Keep focused tests.").unwrap();
+        Habit {
+            key,
+            instruction,
+            sources: (1..=3)
+                .map(|id| InstructionSource {
+                    request_id: format!("submitted-{id}"),
+                    task_id: 7,
+                    owner: crate::store::Attribution {
+                        partner: 1,
+                        name: "Bolt".into(),
+                        form: 8,
+                    },
+                    at: id,
+                })
+                .collect(),
+            dismissed: false,
+            memory: None,
+        }
+    }
+
+    #[test]
+    fn habit_requires_explicit_approval_then_selects_only_committed_exact_memory() {
+        let mut state = state();
+        let habit = habit();
+        state.propose_habit(&habit).unwrap();
+        assert_eq!(state.candidate.as_ref().unwrap().scope, Scope::Project);
+        assert_eq!(state.habit_sources.len(), 3);
+        assert!(state.notice.contains("substitutes"));
+        assert!(state.selected_ids.is_empty());
+        assert!(state.take_habit_binding().is_none());
+        key(&mut state, KeyCode::Enter);
+        assert!(state.pending.is_none());
+        state.reviewed = true;
+        key(&mut state, KeyCode::Right);
+        key(&mut state, KeyCode::Enter);
+        let proposal = state.candidate.clone().unwrap();
+        state.finish(Ok(vec![Record {
+            id: 19,
+            revision: 1,
+            project: "/project/a".into(),
+            task_id: None,
+            proposal,
+        }]));
+        assert_eq!(state.selected_ids, vec![19]);
+        assert_eq!(state.take_habit_binding(), Some((habit.key, 19, 1)));
+        assert!(state.take_habit_binding().is_none());
+    }
+
+    #[test]
+    fn habit_failure_and_restart_keep_sources_but_never_replay_approval() {
+        let mut original = state();
+        original.propose_habit(&habit()).unwrap();
+        original.reviewed = true;
+        key(&mut original, KeyCode::Right);
+        key(&mut original, KeyCode::Enter);
+        original.finish(Err("storage full".into()));
+        assert!(original.take_habit_binding().is_none());
+        assert!(original.selected_ids.is_empty());
+        let saved = original.draft_snapshot();
+        let mut restored = state();
+        restored.restore_draft(&saved).unwrap();
+        assert_eq!(restored.habit_sources, original.habit_sources);
+        assert!(restored.notice.contains("submitted-1"));
+        assert!(restored.notice.contains("Explicit approval"));
+        assert!(restored.pending.is_none());
+        assert!(!restored.reviewed);
+        assert!(!restored.affirmative);
+        assert!(restored.take_habit_binding().is_none());
     }
 }

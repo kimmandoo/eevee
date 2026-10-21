@@ -124,7 +124,7 @@ pub use windows::{capture_mode, enable_vt_input, restore_mode};
 // native console records for Alt-code releases, repeats and supplementary input.
 mod decoding {
     use super::{GraphicsCapabilities, Instant, QUERY_TIMEOUT};
-    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
     use std::collections::VecDeque;
     const END: &str = "\x1b[201~";
     const MAX_PASTE: usize = 64 * 1024;
@@ -142,6 +142,8 @@ mod decoding {
         reply_overflow: bool,
         expired_escape: bool,
         detached_escape: bool,
+        mouse_sgr: bool,
+        mouse_x10: Option<([u8; 3], usize)>,
         queued: VecDeque<Event>,
     }
 
@@ -227,15 +229,35 @@ mod decoding {
             let sequence = std::mem::take(&mut self.sequence);
             if sequence == "\x1b" {
                 // Escape has a bounded ambiguity wait, but a very late reply
-                // can still continue with '[' or '_'. Retain that possibility
-                // so its printable suffix never becomes composer input.
-                self.expired_escape = self.query_deadline.is_some();
+                // or mouse frame can still continue with '[' or '_'. Retain
+                // framing so its printable suffix never becomes composer input.
+                self.expired_escape = true;
                 Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
             } else if sequence == "\x1bO" {
                 Event::Key(KeyEvent::new(KeyCode::Char('O'), KeyModifiers::ALT))
             } else {
                 Event::Paste(sequence)
             }
+        }
+
+        /// X10 coordinates are bytes, not UTF-8. The POSIX reader calls this
+        /// before text decoding, but only after the exact CSI M introducer.
+        pub(super) fn mouse_byte(&mut self, byte: u8) -> Option<Event> {
+            let (bytes, length) = self.mouse_x10.as_mut()?;
+            bytes[*length] = byte;
+            *length += 1;
+            if *length != 3 {
+                return None;
+            }
+            let (bytes, _) = self.mouse_x10.take().expect("complete X10 report");
+            let button = bytes[0].checked_sub(32)?;
+            let column = u16::from(bytes[1].checked_sub(33)?);
+            let row = u16::from(bytes[2].checked_sub(33)?);
+            wheel(button, column, row)
+        }
+
+        pub(super) fn expects_mouse_byte(&self) -> bool {
+            self.mouse_x10.is_some()
         }
 
         pub fn character(&mut self, character: char, modifiers: KeyModifiers) -> Option<Event> {
@@ -255,6 +277,27 @@ mod decoding {
                     return Some(Event::Paste(self.paste.take().expect("active paste")));
                 }
                 return None;
+            }
+            if self.expects_mouse_byte() {
+                // Windows delivers VT characters as UTF-16 console records.
+                // Non-byte characters invalidate, but still consume, this slot.
+                return self.mouse_byte(u8::try_from(character as u32).unwrap_or(0));
+            }
+            if self.mouse_sgr {
+                let ended = matches!(character, 'M' | 'm');
+                if !self.reply_overflow {
+                    self.sequence.push(character);
+                    self.reply_overflow = self.sequence.len() > 64;
+                }
+                if !ended {
+                    return None;
+                }
+                self.mouse_sgr = false;
+                self.detached_escape = false;
+                let sequence = std::mem::take(&mut self.sequence);
+                return (!std::mem::take(&mut self.reply_overflow) && character == 'M')
+                    .then(|| sgr_wheel(&sequence))
+                    .flatten();
             }
             if std::mem::take(&mut self.expired_escape) && matches!(character, '[' | '_') {
                 self.sequence.push('\x1b');
@@ -304,6 +347,16 @@ mod decoding {
                 ) {
                     return None;
                 }
+                if self.sequence == "\x1b[<" {
+                    self.mouse_sgr = true;
+                    return None;
+                }
+                if self.sequence == "\x1b[M" {
+                    self.sequence.clear();
+                    self.detached_escape = false;
+                    self.mouse_x10 = Some(([0; 3], 0));
+                    return None;
+                }
                 if self.sequence == "\x1b[200~" {
                     self.sequence.clear();
                     self.paste = Some(String::new());
@@ -344,6 +397,53 @@ mod decoding {
         pub fn is_pasting(&self) -> bool {
             self.paste.is_some()
         }
+
+        #[cfg(windows)]
+        pub fn is_mouse_report(&self) -> bool {
+            self.mouse_sgr || self.expects_mouse_byte()
+        }
+    }
+
+    fn wheel(button: u8, column: u16, row: u16) -> Option<Event> {
+        let kind = match button & !28 {
+            64 => MouseEventKind::ScrollUp,
+            65 => MouseEventKind::ScrollDown,
+            _ => return None,
+        };
+        let mut modifiers = KeyModifiers::NONE;
+        if button & 4 != 0 {
+            modifiers |= KeyModifiers::SHIFT;
+        }
+        if button & 8 != 0 {
+            modifiers |= KeyModifiers::ALT;
+        }
+        if button & 16 != 0 {
+            modifiers |= KeyModifiers::CONTROL;
+        }
+        Some(Event::Mouse(MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers,
+        }))
+    }
+
+    fn sgr_wheel(sequence: &str) -> Option<Event> {
+        let body = sequence.strip_prefix("\x1b[<")?.strip_suffix('M')?;
+        let mut parts = body.split(';');
+        let button = parts.next()?;
+        let column = parts.next()?;
+        let row = parts.next()?;
+        if parts.next().is_some()
+            || [button, column, row]
+                .iter()
+                .any(|part| part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()))
+        {
+            return None;
+        }
+        let coordinate =
+            |value: &str| u16::try_from(value.parse::<u32>().ok()?.checked_sub(1)?).ok();
+        wheel(button.parse().ok()?, coordinate(column)?, coordinate(row)?)
     }
 
     fn key(character: char, modifiers: KeyModifiers) -> Event {
@@ -466,6 +566,117 @@ mod decoding {
             }
             events
         }
+        fn mouse(kind: MouseEventKind, column: u16, row: u16, modifiers: KeyModifiers) -> Event {
+            Event::Mouse(MouseEvent {
+                kind,
+                column,
+                row,
+                modifiers,
+            })
+        }
+
+        #[test]
+        fn wheel_frames_are_consumer_visible_at_every_fragment_boundary() {
+            for (frame, expected) in [
+                (
+                    "\x1b[<64;1;1M",
+                    mouse(MouseEventKind::ScrollUp, 0, 0, KeyModifiers::NONE),
+                ),
+                (
+                    "\x1b[<93;65536;65536M",
+                    mouse(
+                        MouseEventKind::ScrollDown,
+                        u16::MAX,
+                        u16::MAX,
+                        KeyModifiers::SHIFT | KeyModifiers::ALT | KeyModifiers::CONTROL,
+                    ),
+                ),
+                (
+                    "\x1b[M`!\"",
+                    mouse(MouseEventKind::ScrollUp, 0, 1, KeyModifiers::NONE),
+                ),
+                (
+                    "\x1b[M}#%",
+                    mouse(
+                        MouseEventKind::ScrollDown,
+                        2,
+                        4,
+                        KeyModifiers::SHIFT | KeyModifiers::ALT | KeyModifiers::CONTROL,
+                    ),
+                ),
+            ] {
+                for split in 0..frame.len() {
+                    let mut decoder = Decoder::default();
+                    assert!(feed(&mut decoder, &frame[..split]).is_empty());
+                    assert_eq!(feed(&mut decoder, &frame[split..]), vec![expected.clone()]);
+                    assert!(!decoder.has_escape());
+                }
+                let mut decoder = Decoder::default();
+                assert_eq!(
+                    feed(&mut decoder, &format!("{frame}{frame}q")),
+                    vec![expected.clone(), expected, key('q', KeyModifiers::NONE)]
+                );
+            }
+        }
+
+        #[test]
+        fn mouse_buttons_releases_drags_and_malformed_frames_never_type_or_approve() {
+            for frame in [
+                "\x1b[<0;2;3M",
+                "\x1b[<3;2;3m",
+                "\x1b[<64;2;3m",
+                "\x1b[<96;2;3M",
+                "\x1b[<66;2;3M",
+                "\x1b[<128;2;3M",
+                "\x1b[<256;2;3M",
+                "\x1b[<64;0;3M",
+                "\x1b[<64;2;65537M",
+                "\x1b[<64;-1;3M",
+                "\x1b[<64;+1;3M",
+                "\x1b[<64;;3M",
+                "\x1b[<64;1;2;3M",
+                "\x1b[<64;bad;\r1M",
+                "\x1b[M !!",
+                "\x1b[M@!!",
+                "\x1b[Mc!!",
+                "\x1b[M`\r!",
+            ] {
+                let mut decoder = Decoder::default();
+                assert!(feed(&mut decoder, frame).is_empty(), "{frame:?}");
+                assert_eq!(feed(&mut decoder, "q"), vec![key('q', KeyModifiers::NONE)]);
+            }
+            let mut decoder = Decoder::default();
+            assert!(feed(&mut decoder, &format!("\x1b[<64;{}", "9".repeat(4096))).is_empty());
+            assert!(decoder.sequence.len() <= 65);
+            assert!(feed(&mut decoder, ";1M").is_empty());
+            assert_eq!(feed(&mut decoder, "q"), vec![key('q', KeyModifiers::NONE)]);
+        }
+
+        #[test]
+        fn mouse_looking_paste_and_graphics_payloads_remain_in_their_own_envelopes() {
+            let mut decoder = Decoder::default();
+            let payload = "\x1b[<64;1;1M\x1b[M`!!\r";
+            assert_eq!(
+                feed(&mut decoder, &format!("\x1b[200~{payload}\x1b[201~")),
+                vec![Event::Paste(payload.into())]
+            );
+            assert!(feed(&mut decoder, &format!("\x1b_Gi=99;{payload}\x1b\\")).is_empty());
+            assert_eq!(feed(&mut decoder, "q"), vec![key('q', KeyModifiers::NONE)]);
+        }
+
+        #[test]
+        fn late_mouse_suffix_is_consumed_after_escape_ambiguity_expires() {
+            for frame in ["\x1b[<64;1;1M", "\x1b[M`!!"] {
+                let mut decoder = Decoder::default();
+                assert!(feed(&mut decoder, "\x1b").is_empty());
+                assert_eq!(decoder.escape_timeout(), key('\x1b', KeyModifiers::NONE));
+                assert_eq!(
+                    feed(&mut decoder, &frame[1..]),
+                    vec![mouse(MouseEventKind::ScrollUp, 0, 0, KeyModifiers::NONE)]
+                );
+            }
+        }
+
         #[test]
         fn function_navigation_decodes_ss3_csi_and_modified_keys_without_typing_letters() {
             let mut decoder = Decoder::default();
@@ -710,7 +921,7 @@ mod decoding {
 #[cfg(windows)]
 mod windows {
     use super::{Event, decoding::Decoder, io};
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
     use std::time::{Duration, Instant};
     use windows_sys::Win32::{
         Foundation::{HANDLE, INVALID_HANDLE_VALUE, WAIT_FAILED, WAIT_TIMEOUT},
@@ -736,7 +947,14 @@ mod windows {
         }
     }
     pub fn enable_vt_input() -> io::Result<()> {
-        restore_mode(capture_mode()? | ENABLE_WINDOW_INPUT | ENABLE_VIRTUAL_TERMINAL_INPUT)
+        restore_mode(
+            (capture_mode()?
+                | ENABLE_WINDOW_INPUT
+                | ENABLE_VIRTUAL_TERMINAL_INPUT
+                | ENABLE_MOUSE_INPUT
+                | ENABLE_EXTENDED_FLAGS)
+                & !ENABLE_QUICK_EDIT_MODE,
+        )
     }
     pub fn restore_mode(mode: u32) -> io::Result<()> {
         // SAFETY: mode is a console input mode, not a pointer or external command.
@@ -755,6 +973,70 @@ mod windows {
             Ok(())
         }
     }
+    fn modifiers(state: u32) -> KeyModifiers {
+        let mut modifiers = KeyModifiers::NONE;
+        if state & SHIFT_PRESSED != 0 {
+            modifiers |= KeyModifiers::SHIFT;
+        }
+        if state & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED) != 0 {
+            modifiers |= KeyModifiers::CONTROL;
+        }
+        if state & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED) != 0 {
+            modifiers |= KeyModifiers::ALT;
+        }
+        modifiers
+    }
+
+    fn viewport() -> io::Result<SMALL_RECT> {
+        let mut info: CONSOLE_SCREEN_BUFFER_INFO = unsafe { std::mem::zeroed() };
+        // SAFETY: stdout belongs to this console and info is writable.
+        if unsafe { GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &mut info) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(info.srWindow)
+    }
+
+    fn native_wheel(
+        record: MOUSE_EVENT_RECORD,
+        viewport: SMALL_RECT,
+        remainder: &mut i32,
+    ) -> Option<(MouseEvent, u16)> {
+        if record.dwEventFlags != MOUSE_WHEELED
+            || record.dwMousePosition.X < viewport.Left
+            || record.dwMousePosition.X > viewport.Right
+            || record.dwMousePosition.Y < viewport.Top
+            || record.dwMousePosition.Y > viewport.Bottom
+        {
+            return None;
+        }
+        let delta = i32::from((record.dwButtonState >> 16) as i16);
+        *remainder += delta;
+        let steps = *remainder / 120;
+        *remainder %= 120;
+        if steps == 0 {
+            return None;
+        }
+        Some((
+            MouseEvent {
+                kind: if steps > 0 {
+                    MouseEventKind::ScrollUp
+                } else {
+                    MouseEventKind::ScrollDown
+                },
+                column: (i32::from(record.dwMousePosition.X) - i32::from(viewport.Left)) as u16,
+                row: (i32::from(record.dwMousePosition.Y) - i32::from(viewport.Top)) as u16,
+                modifiers: modifiers(record.dwControlKeyState),
+            },
+            steps.unsigned_abs() as u16,
+        ))
+    }
+
+    // Console hosts may deliver native mouse records or VT KEY_EVENT records.
+    // Select the first wheel transport for this input ownership interval; never
+    // merge them with timing heuristics, which could duplicate a gesture.
+    fn accept_wheel(source: &mut Option<bool>, native: bool) -> bool {
+        *source.get_or_insert(native) == native
+    }
 
     pub struct ConsoleInput {
         handle: HANDLE,
@@ -763,6 +1045,9 @@ mod windows {
         pending: Option<(KEY_EVENT_RECORD, u16)>,
         queued: Option<Event>,
         escape_started: Option<Instant>,
+        mouse_native: Option<bool>,
+        wheel_remainder: i32,
+        wheel_pending: Option<(MouseEvent, u16)>,
     }
     impl ConsoleInput {
         pub fn new() -> io::Result<Self> {
@@ -773,6 +1058,9 @@ mod windows {
                 pending: None,
                 queued: None,
                 escape_started: None,
+                mouse_native: None,
+                wheel_remainder: 0,
+                wheel_pending: None,
             })
         }
         pub fn read(&mut self) -> io::Result<Option<Event>> {
@@ -789,6 +1077,12 @@ mod windows {
             let mut expired_records = None;
             if let Some(event) = self.queued.take() {
                 return Ok(Some(event));
+            }
+            if let Some((event, remaining)) = self.wheel_pending.take() {
+                if remaining > 1 {
+                    self.wheel_pending = Some((event, remaining - 1));
+                }
+                return Ok(Some(Event::Mouse(event)));
             }
             loop {
                 self.decoder.expire_graphics_query();
@@ -889,6 +1183,29 @@ mod windows {
                         let (width, height) = crossterm::terminal::size()?;
                         return Ok(Some(Event::Resize(width, height)));
                     }
+                    if u32::from(record.EventType) == MOUSE_EVENT {
+                        // SAFETY: the union tag is checked before reading.
+                        let mouse = unsafe { record.Event.MouseEvent };
+                        if self.decoder.is_pasting()
+                            || mouse.dwEventFlags != MOUSE_WHEELED
+                            || (mouse.dwButtonState >> 16) as i16 == 0
+                            || self.mouse_native == Some(false)
+                        {
+                            continue;
+                        }
+                        if let Some((event, steps)) =
+                            native_wheel(mouse, viewport()?, &mut self.wheel_remainder)
+                        {
+                            if !accept_wheel(&mut self.mouse_native, true) {
+                                continue;
+                            }
+                            if steps > 1 {
+                                self.wheel_pending = Some((event, steps - 1));
+                            }
+                            return Ok(Some(Event::Mouse(event)));
+                        }
+                        continue;
+                    }
                     if u32::from(record.EventType) != KEY_EVENT {
                         continue;
                     }
@@ -906,16 +1223,7 @@ mod windows {
                     continue;
                 }
                 let state = key.dwControlKeyState;
-                let mut modifiers = KeyModifiers::NONE;
-                if state & SHIFT_PRESSED != 0 {
-                    modifiers |= KeyModifiers::SHIFT;
-                }
-                if state & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED) != 0 {
-                    modifiers |= KeyModifiers::CONTROL;
-                }
-                if state & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED) != 0 {
-                    modifiers |= KeyModifiers::ALT;
-                }
+                let mut modifiers = modifiers(state);
                 if alt_code
                     || (code >= 32
                         && state & RIGHT_ALT_PRESSED != 0
@@ -947,6 +1255,11 @@ mod windows {
                     let decoded = self.decoder.character(character, modifiers);
                     self.escape_started = self.decoder.has_escape().then(Instant::now);
                     if let Some(mut event) = decoded {
+                        if matches!(event, Event::Mouse(_))
+                            && !accept_wheel(&mut self.mouse_native, false)
+                        {
+                            continue;
+                        }
                         if repeated && let Event::Key(key) = &mut event {
                             key.kind = crossterm::event::KeyEventKind::Repeat;
                         }
@@ -955,6 +1268,12 @@ mod windows {
                     continue;
                 }
                 if self.decoder.is_pasting() {
+                    continue;
+                }
+                if self.decoder.is_mouse_report() {
+                    if self.decoder.expects_mouse_byte() {
+                        self.decoder.mouse_byte(0);
+                    }
                     continue;
                 }
                 let code = match key.wVirtualKeyCode {
@@ -991,6 +1310,61 @@ mod windows {
                     event.kind = crossterm::event::KeyEventKind::Repeat;
                 }
                 return Ok(Some(Event::Key(event)));
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn report(delta: i16, x: i16, y: i16) -> MOUSE_EVENT_RECORD {
+            MOUSE_EVENT_RECORD {
+                dwMousePosition: COORD { X: x, Y: y },
+                dwButtonState: u32::from(delta as u16) << 16,
+                dwControlKeyState: SHIFT_PRESSED | LEFT_ALT_PRESSED | RIGHT_CTRL_PRESSED,
+                dwEventFlags: MOUSE_WHEELED,
+            }
+        }
+
+        #[test]
+        fn native_wheel_uses_viewport_coordinates_modifiers_and_signed_notches() {
+            let viewport = SMALL_RECT {
+                Left: 10,
+                Top: 30,
+                Right: 89,
+                Bottom: 53,
+            };
+            let mut remainder = 0;
+            assert!(native_wheel(report(60, 12, 34), viewport, &mut remainder).is_none());
+            let (event, steps) =
+                native_wheel(report(180, 12, 34), viewport, &mut remainder).unwrap();
+            assert_eq!(steps, 2);
+            assert_eq!(event.kind, MouseEventKind::ScrollUp);
+            assert_eq!((event.column, event.row), (2, 4));
+            assert_eq!(
+                event.modifiers,
+                KeyModifiers::SHIFT | KeyModifiers::ALT | KeyModifiers::CONTROL
+            );
+            let (event, steps) =
+                native_wheel(report(-120, 89, 53), viewport, &mut remainder).unwrap();
+            assert_eq!(event.kind, MouseEventKind::ScrollDown);
+            assert_eq!((event.column, event.row, steps), (79, 23, 1));
+            assert!(native_wheel(report(120, 9, 34), viewport, &mut remainder).is_none());
+            let mut motion = report(120, 12, 34);
+            motion.dwEventFlags = MOUSE_MOVED;
+            assert!(native_wheel(motion, viewport, &mut remainder).is_none());
+            assert_eq!(remainder, 0);
+        }
+
+        #[test]
+        fn one_mouse_transport_prevents_native_vt_duplicates_in_either_order() {
+            for first in [false, true] {
+                let mut source = None;
+                assert!(accept_wheel(&mut source, first));
+                assert!(!accept_wheel(&mut source, !first));
+                assert!(accept_wheel(&mut source, first));
+                assert!(!accept_wheel(&mut source, !first));
             }
         }
     }

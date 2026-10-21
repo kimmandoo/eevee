@@ -6,6 +6,8 @@ pub mod memory;
 pub mod moves;
 pub mod privacy;
 pub mod receipt;
+pub mod records;
 pub mod repo;
 pub mod runner;
+pub mod usage;
 pub mod workflows;

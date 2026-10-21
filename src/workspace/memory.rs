@@ -5,7 +5,6 @@ pub const MAX_CONTENT_BYTES: usize = 4096;
 pub const MAX_REFERENCE_BYTES: usize = 1024;
 pub const MAX_RECORDS: usize = 256;
 pub const MAX_SELECTED: usize = 32;
-pub const ERASURE_NOTICE: &str = "Deletion removes this memory from future Eevee context. Prior requests, exports, provider history, SQLite/WAL and backups are outside this local deletion; secure erasure is not promised. Deleting its source task preserves approved project/personal memories.";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

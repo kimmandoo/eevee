@@ -23,7 +23,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         text(
             frame,
             area,
-            "Moves: need 60 x 18\nDraft retained. Resize to review or change moves.\nEsc Back / Ctrl+C quit",
+            paint.hint(crate::i18n::Message::DesksMovesMovesNeedXDraftRetainedResizeTo),
             paint.accent,
         );
         return;
@@ -35,7 +35,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         area.height.saturating_sub(4),
     );
     frame.render_widget(Clear, area);
-    let block = panel(" Moves / local reusable actions ", config, paint, true);
+    let block = panel(
+        paint.hint(crate::i18n::Message::DesksMovesPanel),
+        config,
+        paint,
+        true,
+    );
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let partner = app
@@ -60,9 +65,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let notice = if app.moves.failed.is_some() {
         app.moves.failed_error.as_str()
     } else if app.moves.persistence_pending() {
-        "Loading/saving local move facts. No action is approved."
+        paint.hint(crate::i18n::Message::DesksMovesLoadingSavingLocalMoveFactsNoAction)
     } else if app.moves.notice.is_empty() {
-        "Names are labels only. Every use needs its normal review."
+        paint.hint(crate::i18n::Message::DesksMovesNamesAreLabelsOnlyEveryUseNeeds)
     } else {
         &app.moves.notice
     };
@@ -76,9 +81,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             frame,
             row(body, 0, 3),
             if app.moves.failure_discard {
-                "Discard this unsaved move change or usage receipt?\nIt will not be recorded. Local execution journal stays.\nStay is neutral. Exact failed request is below."
+                paint.hint(crate::i18n::Message::DesksMovesDiscardThisUnsavedMoveChangeOrUsage)
             } else {
-                "Move storage failed; the exact request is retained.\nNo automatic retry or silent discard.\nRetry unchanged, or review what discarding would lose."
+                paint.hint(crate::i18n::Message::DesksMovesMoveStorageFailedTheExactRequestIs)
             },
             paint.accent,
         );
@@ -99,11 +104,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             frame,
             footer,
             if !app.moves.failure_discard {
-                "r Retry exact request / d Review discard / Esc Stay\nPgUp/PgDn Exact request / Enter Stay"
+                paint.hint(crate::i18n::Message::DesksMovesRRetryExactRequestDReviewDiscard)
             } else if app.moves.affirmative {
-                "Stay / [Discard unsaved request] / Enter Discard\nLeft/Right Choose / Esc Stay / PgUp/PgDn Details"
+                paint
+                    .hint(crate::i18n::Message::DesksMovesStayDiscardUnsavedRequestEnterDiscardLeft)
             } else {
-                "[Stay] / Discard unsaved request / Enter Stay\nLeft/Right Choose / y Discard / Esc Stay"
+                paint.hint(crate::i18n::Message::DesksMovesStayDiscardUnsavedRequestEnterStayLeft)
             },
             paint.accent,
         );
@@ -116,7 +122,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 text(
                     frame,
                     body,
-                    "No moves in this form yet.\n/teach-move: teach from approved local work, selected pins, a sent user-authored request, or the task card.\nMove Reminder keeps forgotten and postponed moves.",
+                    paint.hint(crate::i18n::Message::DesksMovesNoMovesInThisFormYetTeach),
                     paint.surface,
                 );
             } else if wide {
@@ -189,7 +195,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             text(
                 frame,
                 footer,
-                "Arrows Choose / Enter Review/use / d Details\n t Teach / r Reminder / Esc Back (draft retained)",
+                paint.hint(crate::i18n::Message::DesksMovesArrowsChooseEnterReviewUseDDetails),
                 paint.accent,
             );
         }
@@ -198,22 +204,26 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             let details = app
                 .moves
                 .selected_record()
-                .map(|record| record_details(record, &app.moves))
-                .unwrap_or_else(|| "Move no longer available. Esc to return.".into());
+                .map(|record| record_details(record, &app.moves, paint))
+                .unwrap_or_else(|| {
+                    paint
+                        .hint(crate::i18n::Message::DesksMovesMoveNoLongerAvailableEscToReturn)
+                        .into()
+                });
             render_details(frame, body, &details, &mut app.moves, paint);
             let actions = [
-                "Use (normal review)",
-                "Rename",
-                "Forget",
-                "Teach to partner",
+                paint.hint(crate::i18n::Message::DesksMovesUseNormalReview),
+                paint.hint(crate::i18n::Message::DesksMovesRename),
+                paint.hint(crate::i18n::Message::DesksMovesForget),
+                paint.hint(crate::i18n::Message::DesksMovesTeachToPartner),
             ];
             let selected = app.moves.selected.min(actions.len() - 1);
             text(
                 frame,
                 footer,
-                &format!(
-                    "Up/Down Action: > {} / Enter\nPgUp/PgDn Details / u Use / r Rename / f Forget / t Teach / Esc",
-                    actions[selected]
+                &paint.format(
+                    crate::i18n::Template::DesksMovesActionControls,
+                    &[("action", (actions[selected]))],
                 ),
                 paint.accent,
             );
@@ -222,7 +232,8 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             let forgotten_count = app.moves.reminders().count();
             let postponed_count = app.moves.postponed().count();
             let mut lines = vec![
-                "Forgotten / postponed in this partner and form. Relearn revalidates exact steps."
+                paint
+                    .hint(crate::i18n::Message::DesksMovesForgottenPostponedInThisPartnerAndForm)
                     .into(),
             ];
             for (index, record) in app.moves.reminders().enumerate() {
@@ -243,30 +254,61 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 ));
             }
             if forgotten_count == 0 && postponed_count == 0 {
-                lines.push("No forgotten or postponed moves.".into());
+                lines.push(
+                    paint
+                        .hint(crate::i18n::Message::DesksMovesNoForgottenOrPostponedMoves)
+                        .into(),
+                );
             }
             render_selection(frame, body, &lines, app.moves.selected + 1, paint);
             text(
                 frame,
                 footer,
-                "Up/Down Choose / Enter Relearn or inspect candidate\nEsc Back / no approvals are restored",
+                paint.hint(crate::i18n::Message::DesksMovesUpDownChooseEnterRelearnOrInspect),
                 paint.accent,
             );
         }
         Mode::Learn => {
-            let details = app.moves.offered.as_ref().map(|candidate| format!("{} wants to learn a move!\n{} observed sources (not a correctness verdict)\n{}\nSources:\n{}", partner, candidate.uses, proposal_details(&candidate.proposal), candidate.sources.iter().map(|s| format!("- {s}")).collect::<Vec<_>>().join("\n"))).unwrap_or_else(|| "Candidate unavailable.".into());
+            let details = app
+                .moves
+                .offered
+                .as_ref()
+                .map(|candidate| {
+                    paint.format(
+                        crate::i18n::Template::DesksMovesLearnDetails,
+                        &[
+                            ("partner", &(partner)),
+                            ("sources-count", &(candidate.uses).to_string()),
+                            ("proposal", &(proposal_details(&candidate.proposal, paint))),
+                            (
+                                "sources",
+                                &(candidate
+                                    .sources
+                                    .iter()
+                                    .map(|s| format!("- {s}"))
+                                    .collect::<Vec<_>>()
+                                    .join("\n")),
+                            ),
+                        ],
+                    )
+                })
+                .unwrap_or_else(|| {
+                    paint
+                        .hint(crate::i18n::Message::DesksMovesCandidateUnavailable)
+                        .into()
+                });
             render_details(frame, body, &details, &mut app.moves, paint);
             let actions = [
-                "Not now (offer after 3 more uses)",
-                "Learn (choose name)",
-                "Never for this action",
+                paint.hint(crate::i18n::Message::DesksMovesNotNowOfferAfterMoreUses),
+                paint.hint(crate::i18n::Message::DesksMovesLearnChooseName),
+                paint.hint(crate::i18n::Message::DesksMovesNeverForThisAction),
             ];
             text(
                 frame,
                 footer,
-                &format!(
-                    "Up/Down > {} / Enter\nPgUp/PgDn Sources / Esc Not now",
-                    actions[app.moves.selected.min(2)]
+                &paint.format(
+                    crate::i18n::Template::DesksMovesLearnControls,
+                    &[("action", (actions[app.moves.selected.min(2)]))],
                 ),
                 paint.accent,
             );
@@ -278,7 +320,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 .filter(|p| p.id != app.lead().id)
                 .collect();
             let mut lines = vec![
-                "Copy exact steps into the target's same form. Source copy stays unchanged.".into(),
+                paint
+                    .hint(crate::i18n::Message::DesksMovesCopyExactStepsIntoTheTargetS)
+                    .into(),
             ];
             for (index, target) in targets.iter().enumerate() {
                 lines.push(format!(
@@ -288,13 +332,17 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 ));
             }
             if targets.is_empty() {
-                lines.push("No other party members. Add a partner in /party first.".into());
+                lines.push(
+                    paint
+                        .hint(crate::i18n::Message::DesksMovesNoOtherPartyMembersAddAPartner)
+                        .into(),
+                );
             }
             render_selection(frame, body, &lines, app.moves.selected + 1, paint);
             text(
                 frame,
                 footer,
-                "Up/Down Target / Enter Review copy / Esc Cancel\nTarget full? Choose an exact move to forget, or Give up.",
+                paint.hint(crate::i18n::Message::DesksMovesUpDownTargetEnterReviewCopyEsc),
                 paint.accent,
             );
         }
@@ -302,32 +350,36 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             text(
                 frame,
                 body,
-                "Loading the chosen partner's actual move slots.\nNo copy, forgetting, or execution has happened.",
+                paint.hint(crate::i18n::Message::DesksMovesLoadingTheChosenPartnerSActualMove),
                 paint.surface,
             );
             text(
                 frame,
                 footer,
-                "Esc Back / wait for the local store",
+                paint.hint(crate::i18n::Message::DesksMovesEscBackWaitForTheLocalStore),
                 paint.accent,
             );
         }
         Mode::Replace => {
             let active = app.moves.active();
             let mut lines = vec![
-                "Four slots are occupied across project and personal scope.".into(),
-                format!(
-                    "{} Give up learning (changes nothing)",
-                    marker(0, app.moves.selected)
+                paint
+                    .hint(crate::i18n::Message::DesksMovesFourSlotsAreOccupiedAcrossProjectAnd)
+                    .into(),
+                paint.format(
+                    crate::i18n::Template::DesksMovesGiveUp,
+                    &[("marker", (marker(0, app.moves.selected)))],
                 ),
             ];
             for (index, record) in active.enumerate() {
-                lines.push(format!(
-                    "{} Forget {} / {} / revision {}",
-                    marker(index + 1, app.moves.selected),
-                    record.proposal.name,
-                    record.proposal.scope.label(),
-                    record.revision
+                lines.push(paint.format(
+                    crate::i18n::Template::DesksMovesReplaceRow,
+                    &[
+                        ("marker", (marker(index + 1, app.moves.selected))),
+                        ("name", &(record.proposal.name)),
+                        ("scope", (record.proposal.scope.label())),
+                        ("revision", &(record.revision).to_string()),
+                    ],
                 ));
             }
             if let Some(learning) = &app.moves.learning {
@@ -342,12 +394,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             text(
                 frame,
                 footer,
-                "Up/Down Choose / Enter Review exact replacement\nEsc Give up / nothing changes until explicit confirmation",
+                paint.hint(crate::i18n::Message::DesksMovesUpDownChooseEnterReviewExactReplacement),
                 paint.accent,
             );
         }
         Mode::Review | Mode::Forget => {
-            let (summary, details) = review_details(&app.moves, &partner);
+            let (summary, details) = review_details(&app.moves, &partner, paint);
             // Effect and owner stay visible while long exact steps are scrolled.
             let summary = summary
                 .lines()
@@ -362,12 +414,17 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 app.moves.affirmative = false;
             }
             let controls = if !app.moves.reviewed {
-                "Resize to see the local change summary\nEnter Stay / Esc Cancel (no change)"
+                paint
+                    .hint(crate::i18n::Message::DesksMovesResizeToSeeTheLocalChangeSummary)
                     .to_owned()
             } else if app.moves.affirmative {
-                "Stay / [Confirm local change] / Enter Confirm\nLeft/Right Choose / PgUp/PgDn Details / Esc Cancel".into()
+                paint
+                    .hint(crate::i18n::Message::DesksMovesStayConfirmLocalChangeEnterConfirmLeft)
+                    .into()
             } else {
-                "[Stay] / Confirm local change / Enter Stay\nLeft/Right Choose / y Confirm / Esc Cancel".into()
+                paint
+                    .hint(crate::i18n::Message::DesksMovesStayConfirmLocalChangeEnterStayLeft)
+                    .into()
             };
             text(frame, footer, &controls, paint.accent);
         }
@@ -375,14 +432,18 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             text(
                 frame,
                 row(body, 0, 3),
-                "Replace this task's goal and criteria.\nNo tools or model request. Apply changes both fields.\nFull template and source facts are below.",
+                paint.hint(crate::i18n::Message::DesksMovesReplaceThisTaskSGoalAndCriteria),
                 paint.accent,
             );
             let details = app
                 .moves
                 .selected_record()
-                .map(|r| proposal_details(&r.proposal))
-                .unwrap_or_else(|| "Move unavailable.".into());
+                .map(|r| proposal_details(&r.proposal, paint))
+                .unwrap_or_else(|| {
+                    paint
+                        .hint(crate::i18n::Message::DesksMovesMoveUnavailable)
+                        .into()
+                });
             render_details(
                 frame,
                 row(body, 3, body.height.saturating_sub(3)),
@@ -398,11 +459,11 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 frame,
                 footer,
                 if !app.moves.reviewed {
-                    "Resize to review the task change / Enter Stay\nEsc Cancel / no fields changed"
+                    paint.hint(crate::i18n::Message::DesksMovesResizeToReviewTheTaskChangeEnter)
                 } else if app.moves.affirmative {
-                    "Stay / [Apply template] / Enter Apply\nLeft/Right Choose / Esc Cancel / PgUp/PgDn Details"
+                    paint.hint(crate::i18n::Message::DesksMovesStayApplyTemplateEnterApplyLeftRight)
                 } else {
-                    "[Stay] / Apply template / Enter Stay\nLeft/Right Choose / y Apply / PgUp/PgDn Details"
+                    paint.hint(crate::i18n::Message::DesksMovesStayApplyTemplateEnterStayLeftRight)
                 },
                 paint.accent,
             );
@@ -449,9 +510,9 @@ fn render_details(frame: &mut Frame, area: Rect, details: &str, state: &mut Stat
 fn render_name(frame: &mut Frame, body: Rect, footer: Rect, state: &State, paint: &Paint) {
     let learning = state.learning.as_ref();
     let action = if matches!(learning, Some(Learning::Rename(_))) {
-        "Rename (label only)"
+        paint.hint(crate::i18n::Message::DesksMovesRenameLabelOnly)
     } else {
-        "Move name"
+        paint.hint(crate::i18n::Message::DesksMovesMoveName)
     };
     text(frame, row(body, 0, 1), action, paint.accent);
     let input = row(body, 1, body.height.saturating_sub(3).max(1));
@@ -484,27 +545,32 @@ fn render_name(frame: &mut Frame, body: Rect, footer: Rect, state: &State, paint
     text(
         frame,
         row(body, body.height.saturating_sub(2), 2),
-        &format!(
-            "{} Scope: {}{}\nNames never enter provider packets or grant approval.",
-            if state.scope_focus { ">" } else { " " },
-            state.scope.label(),
-            if matches!(learning, Some(Learning::Teach(_))) {
-                " (Left/Right changes scope)"
-            } else {
-                " (unchanged)"
-            }
+        &paint.format(
+            crate::i18n::Template::DesksMovesNameScope,
+            &[
+                ("marker", (if state.scope_focus { ">" } else { " " })),
+                ("scope", (state.scope.label())),
+                (
+                    "change",
+                    (if matches!(learning, Some(Learning::Teach(_))) {
+                        paint.hint(crate::i18n::Message::DesksMovesLeftRightChangesScope)
+                    } else {
+                        paint.hint(crate::i18n::Message::DesksMovesUnchanged)
+                    }),
+                ),
+            ],
         ),
         paint.muted,
     );
     text(
         frame,
         footer,
-        "Type name / Tab Name or Scope / Enter Review\nEsc Give up (no change) / CJK and grapheme-safe editing",
+        paint.hint(crate::i18n::Message::DesksMovesTypeNameTabNameOrScopeEnter),
         paint.accent,
     );
 }
 
-pub(super) fn proposal_details(proposal: &Proposal) -> String {
+pub(super) fn proposal_details(proposal: &Proposal, paint: &Paint) -> String {
     let mut text = format!(
         "{} / {} / {}\nPartner #{} / {} form\n",
         proposal.name,
@@ -515,11 +581,14 @@ pub(super) fn proposal_details(proposal: &Proposal) -> String {
     );
     match &proposal.steps {
         Steps::Run { argv, cwd } => {
-            text.push_str(&format!("Exact argv: {argv:?}\nProject-relative cwd: {cwd}\nNormal command preparation and approval are required.\n"));
+            text.push_str(&paint.format(
+                crate::i18n::Template::DesksMovesRunDetails,
+                &[("argv", &format!("{:?}", argv)), ("cwd", (cwd))],
+            ));
         }
         Steps::Pins { pins } => {
             text.push_str(
-                "Pins are resolved again at use; unavailable or excluded files are refused.\n",
+                paint.hint(crate::i18n::Message::DesksMovesPinsAreResolvedAgainAtUseUnavailable),
             );
             for pin in pins {
                 text.push_str(&format!(
@@ -529,16 +598,21 @@ pub(super) fn proposal_details(proposal: &Proposal) -> String {
             }
         }
         Steps::Request { instruction, pins } => {
-            text.push_str("User-authored instruction only (not provider output):\n");
+            text.push_str(paint.hint(
+                crate::i18n::Message::DesksMovesUserAuthoredInstructionOnlyNotProviderOutput,
+            ));
             text.push_str(instruction);
-            text.push_str("\nContext selectors:\n");
+            text.push_str(paint.hint(crate::i18n::Message::DesksMovesContextSelectors));
             for pin in pins {
                 text.push_str(&format!(
                     "{}:{}-{}\n",
                     pin.path, pin.start_line, pin.end_line
                 ));
             }
-            text.push_str("Normal full request receipt is required before dispatch.\n");
+            text.push_str(
+                paint
+                    .hint(crate::i18n::Message::DesksMovesNormalFullRequestReceiptIsRequiredBefore),
+            );
         }
         Steps::Task { goal, criteria } => {
             text.push_str(&format!("Goal:\n{goal}\nCriteria:\n"));
@@ -566,7 +640,7 @@ pub(super) fn proposal_details(proposal: &Proposal) -> String {
     }
     text
 }
-fn record_details(record: &Record, state: &State) -> String {
+fn record_details(record: &Record, state: &State, paint: &Paint) -> String {
     let usages = state.usages.iter().filter(|u| u.move_id == record.id);
     let count = |outcome: Outcome| usages.clone().filter(|u| u.outcome == outcome).count();
     let exited_zero = usages
@@ -584,24 +658,29 @@ fn record_details(record: &Record, state: &State) -> String {
                 || (u.run_id.is_none() && u.outcome == Outcome::Succeeded)
         })
         .count();
-    let mut text = format!(
-        "{}\nMove #{} / revision {} / {}\nUses: {} / {}/{} exited 0\nExit 0 is not correctness. No power, accuracy, or level.\nDenied: {} / Cancelled: {} / Unknown: {}\nPending: {} / Completed without an exit verdict: {}\n",
-        proposal_details(&record.proposal),
-        record.id,
-        record.revision,
-        if record.forgotten {
-            "forgotten"
-        } else {
-            "active"
-        },
-        usages.clone().count(),
-        exited_zero,
-        exited_zero + failed,
-        count(Outcome::Denied),
-        count(Outcome::Cancelled),
-        count(Outcome::Unknown),
-        count(Outcome::Pending),
-        completed
+    let mut text = paint.format(
+        crate::i18n::Template::DesksMovesUsageDetails,
+        &[
+            ("proposal", &(proposal_details(&record.proposal, paint))),
+            ("id", &(record.id).to_string()),
+            ("revision", &(record.revision).to_string()),
+            (
+                "status",
+                (if record.forgotten {
+                    "forgotten"
+                } else {
+                    "active"
+                }),
+            ),
+            ("uses", &(usages.clone().count()).to_string()),
+            ("exited-zero", &(exited_zero).to_string()),
+            ("exited-total", &(exited_zero + failed).to_string()),
+            ("denied", &(count(Outcome::Denied)).to_string()),
+            ("cancelled", &(count(Outcome::Cancelled)).to_string()),
+            ("unknown", &(count(Outcome::Unknown)).to_string()),
+            ("pending", &(count(Outcome::Pending)).to_string()),
+            ("completed", &(completed).to_string()),
+        ],
     );
     if let Some(last) = state.last_usage(record.id) {
         text.push_str(&format!(
@@ -611,7 +690,7 @@ fn record_details(record: &Record, state: &State) -> String {
         ));
     }
     if usages.clone().next().is_none() {
-        text.push_str("No journal-linked uses recorded.\n");
+        text.push_str(paint.hint(crate::i18n::Message::DesksMovesNoJournalLinkedUsesRecorded));
     }
     for usage in usages.rev() {
         text.push_str(&format!(
@@ -627,38 +706,75 @@ fn record_details(record: &Record, state: &State) -> String {
     }
     text
 }
-fn review_details(state: &State, partner: &str) -> (String, String) {
+fn review_details(state: &State, partner: &str, paint: &Paint) -> (String, String) {
     if state.mode == Mode::Forget {
-        return state.selected_record().map(|record| (format!("Forget {} / move #{}.\nOwner: {} / label: {}\nIdentical steps stay in Reminder; no execution.", record.proposal.scope.label(), record.id, clipped(partner, 16), clipped(&record.proposal.name, 20)), record_details(record, state))).unwrap_or_else(|| ("Move unavailable.".into(), String::new()));
+        return state
+            .selected_record()
+            .map(|record| {
+                (
+                    paint.format(
+                        crate::i18n::Template::DesksMovesForgetSummary,
+                        &[
+                            ("scope", (record.proposal.scope.label())),
+                            ("id", &(record.id).to_string()),
+                            ("owner", &(clipped(partner, 16))),
+                            ("name", &(clipped(&record.proposal.name, 20))),
+                        ],
+                    ),
+                    record_details(record, state, paint),
+                )
+            })
+            .unwrap_or_else(|| {
+                (
+                    paint
+                        .hint(crate::i18n::Message::DesksMovesMoveUnavailable)
+                        .into(),
+                    String::new(),
+                )
+            });
     }
     let Some(learning) = &state.learning else {
-        return ("No change selected.".into(), String::new());
+        return (
+            paint
+                .hint(crate::i18n::Message::DesksMovesNoChangeSelected)
+                .into(),
+            String::new(),
+        );
     };
     let mut proposal = learning.proposal().clone();
     proposal.name.clone_from(&state.name);
     proposal.scope = state.scope;
     let action = match learning {
-        Learning::Teach(_) => "Teach",
-        Learning::Relearn(_) => "Relearn identical steps",
-        Learning::Rename(_) => "Rename label",
+        Learning::Teach(_) => paint.hint(crate::i18n::Message::DesksMovesTeach),
+        Learning::Relearn(_) => paint.hint(crate::i18n::Message::DesksMovesRelearnIdenticalSteps),
+        Learning::Rename(_) => paint.hint(crate::i18n::Message::DesksMovesRenameLabel),
     };
-    let mut summary = format!(
-        "{action} / {} / {}.\nNo execution or approvals; exact facts below.",
-        state.scope.label(),
-        clipped(partner, 16)
+    let mut summary = paint.format(
+        crate::i18n::Template::DesksMovesChangeSummary,
+        &[
+            ("action", (action)),
+            ("scope", (state.scope.label())),
+            ("owner", &(clipped(partner, 16))),
+        ],
     );
-    let mut details = proposal_details(&proposal);
+    let mut details = proposal_details(&proposal, paint);
     if let Some((id, revision)) = state.replacement
         && let Some(record) = state.records.iter().find(|r| r.id == id)
     {
-        summary.push_str(&format!(
-            "\nForgets {} move #{} into Reminder.",
-            record.proposal.scope.label(),
-            record.id
+        summary.push_str(&paint.format(
+            crate::i18n::Template::DesksMovesReplacementSummary,
+            &[
+                ("scope", (record.proposal.scope.label())),
+                ("id", &(record.id).to_string()),
+            ],
         ));
-        details.push_str(&format!(
-            "\nEXACT REPLACEMENT: move #{id}, revision {revision}\n{}",
-            proposal_details(&record.proposal)
+        details.push_str(&paint.format(
+            crate::i18n::Template::DesksMovesReplacementDetails,
+            &[
+                ("id", &(id).to_string()),
+                ("revision", &(revision).to_string()),
+                ("proposal", &(proposal_details(&record.proposal, paint))),
+            ],
         ));
     }
     (summary, details)
@@ -698,7 +814,8 @@ mod tests {
     }
     #[test]
     fn preview_keeps_exact_selectors_and_teacher_sources() {
-        let preview = proposal_details(&record().proposal);
+        let paint = &Paint::new(&config(), &FORMS[1], 1);
+        let preview = proposal_details(&record().proposal, paint);
         assert!(preview.contains("src/lib.rs:2-4"));
         assert!(preview.contains("request:source"));
         assert!(preview.contains("Taught by Mizu (partner #2)"));
@@ -706,6 +823,7 @@ mod tests {
     }
     #[test]
     fn usage_summary_separates_denied_cancelled_unknown_and_exit_zero() {
+        let paint = &Paint::new(&config(), &FORMS[1], 1);
         let mut state = State::default();
         for (index, result) in [
             Outcome::Succeeded,
@@ -728,7 +846,7 @@ mod tests {
                 revision: Some("abc123".into()),
             });
         }
-        let detail = record_details(&record(), &state);
+        let detail = record_details(&record(), &state, paint);
         assert!(detail.contains("1/2 exited 0"));
         assert!(detail.contains("Denied: 1 / Cancelled: 1 / Unknown: 1"));
         assert!(detail.contains("run:4"));
@@ -737,6 +855,7 @@ mod tests {
     }
     #[test]
     fn replacement_summary_names_scope_and_exact_target() {
+        let paint = &Paint::new(&config(), &FORMS[1], 1);
         let record = record();
         let mut state = State::default();
         state.mode = Mode::Review;
@@ -745,7 +864,7 @@ mod tests {
         state.scope = Scope::Personal;
         state.replacement = Some((1, 2));
         state.records.push(record);
-        let (summary, details) = review_details(&state, "Bolt");
+        let (summary, details) = review_details(&state, "Bolt", paint);
         assert!(summary.contains("Bolt"));
         assert!(summary.contains("Forgets Project move #1"));
         assert!(details.contains("move #1, revision 2"));
@@ -753,6 +872,7 @@ mod tests {
     fn config() -> Config {
         Config {
             ascii: true,
+            language: crate::i18n::Language::ENGLISH,
             no_animation: true,
             theme: crate::config::Theme::Dark,
             color: crate::config::ColorMode::Mono,
@@ -842,6 +962,7 @@ mod tests {
     }
     #[test]
     fn provider_success_is_never_labeled_as_local_exit_zero() {
+        let paint = &Paint::new(&config(), &FORMS[1], 1);
         let mut state = State::default();
         state.usages.push(Usage {
             id: "use:request".into(),
@@ -853,7 +974,7 @@ mod tests {
             outcome: Outcome::Succeeded,
             revision: None,
         });
-        let detail = record_details(&record(), &state);
+        let detail = record_details(&record(), &state, paint);
         assert!(detail.contains("0/0 exited 0"));
         assert!(detail.contains("Completed without an exit verdict: 1"));
         assert_eq!(

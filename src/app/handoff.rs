@@ -38,6 +38,7 @@ pub struct State {
     /// Explicit copy into the existing editor; it is not an automatic save.
     pub decision: Option<String>,
     pub candidate: Option<Document>,
+    pub ready_generation: u64,
     pub notice: String,
     pub preview: String,
     pub scroll: u16,
@@ -66,6 +67,7 @@ impl State {
             output: None,
             decision: None,
             candidate: None,
+            ready_generation: 0,
             notice:
                 "Local-only handoff. /export-json /export-markdown /import-handoff. No CLI or model starts."
                     .into(),
@@ -196,6 +198,7 @@ impl State {
     fn review(&mut self, document: Document, format: Format) -> Result<(), String> {
         self.preview = handoff::encode(&document, format)?;
         self.candidate = Some(document);
+        self.ready_generation = self.ready_generation.saturating_add(1);
         self.scroll = 0;
         self.scroll_max = 0;
         self.selected_decision = 0;

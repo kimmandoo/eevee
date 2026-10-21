@@ -103,6 +103,7 @@ impl App {
             return self.input_truncated != was_truncated;
         }
         self.input.insert_str(self.cursor, &inserted);
+        self.sources.clear_wire_request();
         self.cursor += inserted.len();
         // A combining insertion can merge with the following grapheme.
         self.cursor = self

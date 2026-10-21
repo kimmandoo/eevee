@@ -7,11 +7,14 @@ pub(crate) mod cooperation_journal;
 pub mod cooperation_ui;
 pub mod execution;
 pub mod execution_relays;
+pub mod habits;
 pub mod handoff;
 pub mod memory;
 pub mod moves;
+pub mod pairings;
 pub mod party;
 pub mod planning;
+pub mod records;
 pub mod relays;
 pub mod sources;
 pub mod suggestions;
@@ -25,6 +28,7 @@ mod keys;
 mod move_staging;
 mod overlays;
 mod tasks;
+mod usage;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::text::Span;
@@ -65,6 +69,7 @@ pub enum Overlay {
     PartyBoard,
     Memory,
     Moves,
+    Records,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -244,6 +249,7 @@ pub struct App {
     pub workflow: workflows::State,
     pub memory: memory::State,
     pub moves: moves::State,
+    pub records: records::State,
     move_runtime: move_staging::State,
     pub memory_request: Option<store::MemoryRequest>,
     pub memory_loading: bool,
@@ -269,6 +275,7 @@ pub struct App {
     // Companion, workspace, inspector, help, and local preview respectively.
     surface_scroll: [u16; 5],
     surface_scroll_max: [u16; 5],
+    surface_scroll_page: [u16; 5],
 }
 
 impl App {
@@ -367,6 +374,7 @@ impl App {
             workflow: workflows::State::default(),
             memory: memory::State::default(),
             moves: moves::State::default(),
+            records: records::State::default(),
             move_runtime: move_staging::State::default(),
             memory_request: None,
             memory_loading: false,
@@ -388,6 +396,7 @@ impl App {
             preferred_column: None,
             surface_scroll: [0; 5],
             surface_scroll_max: [0; 5],
+            surface_scroll_page: [1; 5],
         };
         app.sync_front();
         app
@@ -468,6 +477,17 @@ impl App {
     /// selection follows so it opens on the form that is actually active.
     pub(super) fn set_form(&mut self, form: usize) {
         if self.lead.form != form {
+            if self.overlay == Some(Overlay::Forms)
+                && self.selected == form
+                && let Some(trigger) = self
+                    .visible_suggestion()
+                    .filter(|suggestion| suggestion.form == form)
+                    .map(|suggestion| suggestion.trigger.clone())
+            {
+                self.record_suggested_form_switch(self.lead.form, form, trigger);
+            } else {
+                self.record_form_switch(self.lead.form, form);
+            }
             self.carry_over.pending = Some((self.lead.form, form));
             self.carry_over.pending_visible = true;
             self.previous_form = Some(self.lead.form);
@@ -487,7 +507,10 @@ impl App {
     /// Point the planning slot binder at the current lead; a request that is
     /// already prepared keeps the owner it bound (PT06A).
     pub(super) fn sync_front(&mut self) {
-        self.planning.front = Some(self.attribution());
+        let owner = self.attribution();
+        self.sources.set_producer(Some(owner.clone()));
+        self.planning.front = Some(owner);
+        self.sources.clear_wire_request();
     }
 
     /// Flip the lead partner back to the form it left (Backspace / `/back-form`).
@@ -511,11 +534,12 @@ impl App {
         self.surface_scroll[surface.index()]
     }
 
-    /// Supply the last useful rendered line offset, not the total line count.
-    /// Called by layout after wrapping/viewport measurement, with no I/O here.
-    pub fn set_scroll_max(&mut self, surface: ScrollSurface, maximum: u16) {
+    /// Cache the measured offset bound and visible rows; paging overlaps one row.
+    /// Layout supplies both values without IO or persistence.
+    pub fn set_scroll_viewport(&mut self, surface: ScrollSurface, maximum: u16, rows: u16) {
         let index = surface.index();
         self.surface_scroll_max[index] = maximum;
+        self.surface_scroll_page[index] = rows.saturating_sub(1).max(1);
         self.surface_scroll[index] = self.surface_scroll[index].min(maximum);
     }
 }

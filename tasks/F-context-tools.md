@@ -4,7 +4,7 @@ Local deterministic optimizer only: no optimizer-initiated network, hosted summa
 
 ### C03A — Attachment chips
 
-- [ ] Show and remove `@` attachments as chips.
+- [x] Show and remove `@` attachments as chips.
 - **Priority:** 1. **Needs:** —. **Builds on:** C02, A02.
 - **Change:** Compact removable file/range chips in the composer, keyboard-navigable, restored after a restart.
 - **Accept:** Attach a file and a range, remove one by keyboard, restart, and recover the rest. Long Unicode names keep remove/inspect visible.
@@ -12,7 +12,7 @@ Local deterministic optimizer only: no optimizer-initiated network, hosted summa
 
 ### C03B — Chip preview, staleness and budget
 
-- [ ] Inspect exactly what each chip sends.
+- [x] Inspect exactly what each chip sends.
 - **Priority:** 1. **Needs:** C03A. **Builds on:** C02.
 - **Change:** Per-chip content preview, stale/unavailable markers, exact bytes and a labelled token estimate; reuse dispatch revalidation.
 - **Accept:** A source change goes stale before send; a missing capture blocks assembly; displayed bytes equal the serialized request.
@@ -20,11 +20,11 @@ Local deterministic optimizer only: no optimizer-initiated network, hosted summa
 
 ### T01A — Provider usage reconciliation
 
-- [ ] Record provider-reported usage per turn without double counting.
+- [x] Record provider-reported usage per turn without double counting.
 - **Priority:** 1. **Needs:** C03B. **Builds on:** A02, R02.
 - **Change:** Store input/output/cache/reasoning usage from supported events; delta, final and repeated events count once. Name the model and tokenizer.
 - **Accept:** Two real turns and a resume reconcile against provider events.
-- **Status:** The 0.1.1 local receipt (exact bytes per section, `eevee-local-v1` estimate) already ships.
+- **Status:** Verified three explicitly authorized read-only Codex 0.147.0 turns, including two actual owned-session resumes, on macOS arm64 on 2026-10-21. Persisted response counters matched reported events and resumed session deltas without overlapping sums. Unreported model/tokenizer metadata remained unknown; billing stayed provider-owned. SDK revision-5 contract/policy evidence is separate from live SDK conformance.
 - **Watch out:** Unavailable prices produce no invented cost; opaque provider input is not attributed to selected files.
 
 ### T01B — Before/after selection comparison

@@ -173,7 +173,11 @@ impl App {
     pub fn planning_storage_failed(&self) -> bool {
         std::iter::once(&self.planning)
             .chain(self.cooperation.parked.values())
-            .any(|state| state.work_error.is_some() || state.preference_error().is_some())
+            .any(|state| {
+                state.work_error.is_some()
+                    || state.preference_error().is_some()
+                    || state.usage.error.is_some()
+            })
     }
 
     pub fn work_rows(&self) -> Vec<WorkRow> {
@@ -195,15 +199,23 @@ impl App {
                     "outcome unknown"
                 } else if state.journal_failed() {
                     "journal failed"
+                } else if state.usage.error.is_some() {
+                    "usage save failed"
                 } else if waiting {
                     "waiting"
                 } else if state.cancelling {
                     "cancelling"
+                } else if state.usage_pending() && !state.transport_pending() {
+                    "saving usage"
                 } else {
                     "working"
                 },
                 detail: if state.journal_failed() {
                     state.journal_notice.clone()
+                } else if let Some(error) = &state.usage.error {
+                    format!("Provider usage storage failed: {error}. /storage-retry retries storage only.")
+                } else if state.usage_pending() && !state.transport_pending() {
+                    "Provider transport settled; waiting for the exact request's reported-usage storage acknowledgement.".into()
                 } else {
                     state.notice.clone()
                 },
@@ -318,6 +330,10 @@ impl App {
         if !content {
             return;
         }
+        let replacement = self.record_instruction_replacement();
+        if let Some(crate::providers::Request::Preview(input)) = &mut self.planning.pending {
+            input.instruction_override = replacement;
+        }
         static REQUEST: AtomicU64 = AtomicU64::new(1);
         let claim = store::WorkClaim {
             task_id: self.task_id,
@@ -375,6 +391,9 @@ impl App {
                 sent += 1;
             }
             let state = self.planning_state_mut(id).expect("known partner slot");
+            if sent == 0 && state.try_usage(store) {
+                sent += 1;
+            }
             if sent == 0
                 && let Some(request) = state.pending_journal.front().cloned()
             {
@@ -545,9 +564,17 @@ impl App {
             .pop_front()
             .unwrap_or(self.lead.id);
         let failed = result.is_err();
+        let purged = matches!(&result, Ok(store::JournalResponse::Purged));
         if let Some(state) = self.planning_state_mut(id) {
             state.journal_event(task, result);
             state.settle_work();
+        }
+        if purged {
+            for owner in self.planning_ids() {
+                if let Some(state) = self.planning_state_mut(owner) {
+                    state.usage_purged(task);
+                }
+            }
         }
         if failed {
             self.notice = format!(
@@ -555,6 +582,14 @@ impl App {
             );
         }
         self.settle_cooperation();
+    }
+
+    pub(super) fn cancel_record_quit(&mut self) {
+        self.quit = false;
+        self.quit_after_save = false;
+        self.records.quit_waiting = false;
+        self.cooperation.quit_preferences_waiting = false;
+        self.cooperation.quitting = false;
     }
 
     pub fn preferences_allow_quit(&mut self, requested: bool) -> bool {
@@ -592,6 +627,7 @@ impl App {
             let state = self.planning_state_mut(id).expect("known partner slot");
             state.retry_preferences();
             state.work_error = None;
+            state.retry_usage();
         }
     }
 
@@ -893,7 +929,7 @@ impl App {
             return;
         }
         if self.planning_storage_failed() {
-            self.notice = "Cancellation waits for ownership release or preference storage. /storage-retry retries storage only.".into();
+            self.notice = "Cancellation waits for ownership release, preference, or reported-usage storage. /storage-retry retries storage only.".into();
             return;
         }
         if self.planning_any_busy() || self.execution_any_pending() {
@@ -919,6 +955,17 @@ impl App {
 
 impl App {
     pub fn provider_event(&mut self, partner: i64, event: crate::providers::Event) -> bool {
+        let content_preview = partner == self.lead.id
+            && matches!(&event,
+            crate::providers::Event::Preview(preview)
+                if self.planning.accepts_preview(preview)
+                    && !self.planning.inspect_models && !self.planning.inspect_sessions);
+        if content_preview
+            && let crate::providers::Event::Preview(preview) = &event
+            && let Err(error) = self.sources.set_wire_request(&preview.payload)
+        {
+            self.sources.status = format!("Exact request receipt unavailable: {error}");
+        }
         let foreground_drawer = partner == self.lead.id && self.overlay == Some(Overlay::Planning);
         let Some(state) = self.planning_state_mut(partner) else {
             return false;
@@ -977,6 +1024,7 @@ impl App {
         });
         if let Some(request) = dispatched {
             self.move_request_dispatched(partner, &request);
+            self.record_request_dispatched(partner, &request);
         }
         if resolved {
             self.defer_approval();

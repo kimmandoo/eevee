@@ -21,7 +21,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         text(
             frame,
             area,
-            "Specialist desk: need 60 x 18\nDraft retained. Resize to edit or apply.\nEsc Back / Ctrl+C quit or cancel review",
+            paint.hint(crate::i18n::Message::DesksWorkflowsSpecialistDeskNeedXDraftRetainedResize),
             paint.accent,
         );
         return;
@@ -39,18 +39,23 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     };
     let area = centered(area, 116, height);
     frame.render_widget(Clear, area);
-    let block = panel(" Specialist desk / local decisions ", config, paint, true);
+    let block = panel(
+        paint.hint(crate::i18n::Message::DesksWorkflowsPanel),
+        config,
+        paint,
+        true,
+    );
     let content = block.inner(area);
     frame.render_widget(block, area);
     let tabs = match app.workflow.tab {
-        Tab::Diagnosis => "[Diagnosis]  Refactor  Review  Recipe",
-        Tab::Refactor => "Diagnosis  [Refactor]  Review  Recipe",
-        Tab::Review => "Diagnosis  Refactor  [Review]  Recipe",
-        Tab::Recipe => "Diagnosis  Refactor  Review  [Recipe]",
+        Tab::Diagnosis => paint.hint(crate::i18n::Message::DesksWorkflowsDiagnosisTab),
+        Tab::Refactor => paint.hint(crate::i18n::Message::DesksWorkflowsRefactorTab),
+        Tab::Review => paint.hint(crate::i18n::Message::DesksWorkflowsReviewTab),
+        Tab::Recipe => paint.hint(crate::i18n::Message::DesksWorkflowsRecipeTab),
     };
     text(frame, row(content, 0, 1), tabs, paint.accent);
     let notice = if app.workflow.notice.is_empty() {
-        "Local notes, real evidence. No automatic command or model request."
+        paint.hint(crate::i18n::Message::DesksWorkflowsLocalNotesRealEvidenceNoAutomaticCommand)
     } else {
         &app.workflow.notice
     };
@@ -69,21 +74,20 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         let selected = pending.selected.min(targets.len().saturating_sub(1));
         let confirm = pending.confirm;
         let details = if confirm {
-            format!(
-                "{}\nStage references only. No call, run, permission or session.\nProposed paths (still need approval): {:?}\nSource: {:?}\n{}{}",
-                targets
-                    .iter()
-                    .find(|t| Some(t.0) == pending.target)
-                    .map_or("Chosen target no longer idle", |t| t.1.as_str()),
-                pending.request.paths,
-                pending.request.source,
-                if pending.request.command.is_some() {
-                    "Command draft replacement is included in this neutral review; no approval carries over.\n"
-                } else {
-                    ""
-                },
-                pending.request.text
-            )
+            paint.format(crate::i18n::Template::DesksWorkflowsRelayPreview, &[
+    ("target", (targets
+                .iter()
+                .find(|t| Some(t.0) == pending.target)
+                .map_or(paint.hint(crate::i18n::Message::DesksWorkflowsChosenTargetNoLongerIdle), |t| t.1.as_str()))),
+    ("paths", &format!("{:?}", pending.request.paths)),
+    ("source", &format!("{:?}", pending.request.source)),
+    ("replacement", (if pending.request.command.is_some() {
+                paint.hint(crate::i18n::Message::DesksWorkflowsCommandDraftReplacementIsIncludedInThis)
+            } else {
+                ""
+            })),
+    ("request", &(pending.request.text)),
+])
         } else {
             targets
                 .iter()
@@ -109,16 +113,40 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             frame,
             footer,
             if confirm {
-                "[Stay] / y Stage / Esc Cancel / PgUp/PgDn Details\nEnter Stay (drafts unchanged)"
+                paint.hint(crate::i18n::Message::DesksWorkflowsStayYStageEscCancelPgupPgdn)
             } else {
-                "Up/Down Target / Enter Review / Esc Cancel\nOnly idle partners in the target form are offered"
+                paint.hint(crate::i18n::Message::DesksWorkflowsUpDownTargetEnterReviewEscCancel)
             },
             paint.accent,
         );
         return;
     }
     if let Some(field) = app.workflow.editor {
-        text(frame, row(body, 0, 1), field.label(), paint.accent);
+        text(
+            frame,
+            row(body, 0, 1),
+            paint.hint(match field {
+                crate::app::workflows::Field::Hypothesis => {
+                    crate::i18n::Message::DesksWorkflowsFieldHypothesis
+                }
+                crate::app::workflows::Field::Contract => {
+                    crate::i18n::Message::DesksWorkflowsFieldContract
+                }
+                crate::app::workflows::Field::Finding => {
+                    crate::i18n::Message::DesksWorkflowsFieldFinding
+                }
+                crate::app::workflows::Field::Action => {
+                    crate::i18n::Message::DesksWorkflowsFieldAction
+                }
+                crate::app::workflows::Field::RecipePath => {
+                    crate::i18n::Message::DesksWorkflowsFieldRecipePath
+                }
+                crate::app::workflows::Field::Criteria => {
+                    crate::i18n::Message::DesksWorkflowsFieldCriteria
+                }
+            }),
+            paint.accent,
+        );
         let input = row(body, 1, body.height.saturating_sub(2));
         let (lines, (caret_row, caret_column)) = editor_rows(
             app.workflow.value(field),
@@ -146,9 +174,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             frame,
             row(body, body.height.saturating_sub(1), 1),
             if app.workflow.editor_done {
-                "> [Done editing / retain draft]"
+                paint.hint(crate::i18n::Message::DesksWorkflowsDoneEditingSelected)
             } else {
-                "  Done editing / retain draft"
+                paint.hint(crate::i18n::Message::DesksWorkflowsDoneEditing)
             },
             if app.workflow.editor_done {
                 paint.accent
@@ -159,16 +187,17 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         text(
             frame,
             footer,
-            "Ctrl+S Done / Tab control / Enter newline\nEsc Back (draft retained)",
+            paint.hint(crate::i18n::Message::DesksWorkflowsCtrlSDoneTabControlEnterNewline),
             paint.accent,
         );
         return;
     }
     if app.workflow.preview {
         let effect = if app.workflow.criteria_preview {
-            "Confirm decision-linked criteria only.\nNew items remain unverified; duplicates skipped."
+            paint
+                .hint(crate::i18n::Message::DesksWorkflowsConfirmDecisionLinkedCriteriaOnlyNewItems)
         } else {
-            "Stage plan, criteria and Next action only.\nNo tools, provider calls, writes or permissions."
+            paint.hint(crate::i18n::Message::DesksWorkflowsStagePlanCriteriaAndNextActionOnly)
         };
         let preview = if app.workflow.criteria_preview {
             app.workflow_criteria_preview()
@@ -176,12 +205,19 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             format!("{effect}\n\n{}", app.workflow_recipe_preview())
         } else {
             app.workflow.recipe.as_ref().map_or_else(
-                || "No recipe loaded.".into(),
+                || {
+                    paint
+                        .hint(crate::i18n::Message::DesksWorkflowsNoRecipeLoaded)
+                        .into()
+                },
                 |recipe| {
-                    format!(
-                        "{effect}\n\n{} / {} steps\n/verbose Full plan and scope",
-                        clipped(&recipe.name, 80),
-                        recipe.steps.len()
+                    paint.format(
+                        crate::i18n::Template::DesksWorkflowsRecipeSummary,
+                        &[
+                            ("effect", (effect)),
+                            ("name", &(clipped(&recipe.name, 80))),
+                            ("steps", &(recipe.steps.len()).to_string()),
+                        ],
                     )
                 },
             )
@@ -203,28 +239,39 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             app.workflow.reviewed =
                 body.height >= 3 && (app.workflow.criteria_preview || !compact || max == 0);
         }
-        let footer_text = format!(
-            "{} / {} | {}\ny Apply / n Back / Left/Right Choose / Enter",
-            if app.workflow.affirmative {
-                "Stay"
-            } else {
-                "[Stay]"
-            },
-            if app.workflow.affirmative {
-                "[Apply plan only]"
-            } else {
-                "Apply plan only"
-            },
-            if app.workflow.reviewed {
-                "/verbose Details"
-            } else {
-                "Enlarge to review scope"
-            }
+        let footer_text = paint.format(
+            crate::i18n::Template::DesksWorkflowsApplyControls,
+            &[
+                (
+                    "stay",
+                    (if app.workflow.affirmative {
+                        paint.hint(crate::i18n::Message::CommonStay)
+                    } else {
+                        paint.hint(crate::i18n::Message::CommonStaySelected)
+                    }),
+                ),
+                (
+                    "apply",
+                    (if app.workflow.affirmative {
+                        paint.hint(crate::i18n::Message::DesksWorkflowsApplyPlanOnlySelected)
+                    } else {
+                        paint.hint(crate::i18n::Message::DesksWorkflowsApplyPlanOnly)
+                    }),
+                ),
+                (
+                    "details",
+                    (if app.workflow.reviewed {
+                        paint.hint(crate::i18n::Message::DesksHandoffVerboseDetails)
+                    } else {
+                        paint.hint(crate::i18n::Message::CommonEnlargeReview)
+                    }),
+                ),
+            ],
         );
         text(frame, footer, &footer_text, paint.accent);
         return;
     }
-    let rows = app.workflow_rows();
+    let rows = app.workflow_rows(paint.language);
     let selected = if app.workflow.chooser.is_some() {
         app.workflow.evidence
     } else {
@@ -281,11 +328,11 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 crate::workspace::workflows::EvidenceRef::Run { .. }
             ) && *status == crate::workspace::workflows::EvidenceStatus::Stale
         }) {
-            "/rerun Rerun with Jolteon / Commands\nUp/Down / Enter / PgUp/PgDn details / Esc Back"
+            paint.hint(crate::i18n::Message::DesksWorkflowsRerunRerunWithJolteonCommandsUpDown)
         } else if app.workflow.chooser.is_some() {
-            "Up/Down evidence / Enter attach /open-evidence\nLeft/Right Supporting/Refuting / Esc Back"
+            paint.hint(crate::i18n::Message::DesksWorkflowsUpDownEvidenceEnterAttachOpenEvidence)
         } else {
-            "/ Commands / Left/Right tabs / Up/Down actions / Enter\nPgUp/PgDn details / Esc Back"
+            paint.hint(crate::i18n::Message::DesksWorkflowsCommandsLeftRightTabsUpDownActions)
         },
         paint.accent,
     );

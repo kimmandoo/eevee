@@ -19,6 +19,11 @@ const ALTERNATE: u8 = 2;
 const CURSOR: u8 = 4;
 const PASTE: u8 = 8;
 const SYNCHRONIZED: u8 = 32;
+const MOUSE: u8 = 64;
+// Normal button tracking, not motion tracking. Keep SGR coordinates explicit;
+// Crossterm's EnableMouseCapture also requests drag/all-motion modes.
+const ENABLE_MOUSE: &[u8] = b"\x1b[?1000h\x1b[?1006h";
+const DISABLE_MOUSE: &[u8] = b"\x1b[?1000l\x1b[?1006l";
 const BEGIN_FRAME: &[u8] = b"\x1b[?2026h";
 const END_FRAME: &[u8] = b"\x1b[?2026l";
 #[cfg(windows)]
@@ -73,6 +78,21 @@ fn end_frame(active: &AtomicU8, output: &mut impl Write) -> io::Result<()> {
     }
     Ok(())
 }
+fn enable_mouse(active: &AtomicU8, output: &mut impl Write) -> io::Result<()> {
+    active.fetch_or(MOUSE, Ordering::SeqCst);
+    output.write_all(ENABLE_MOUSE)?;
+    output.flush()
+}
+
+fn disable_mouse(active: &AtomicU8, output: &mut impl Write) -> io::Result<()> {
+    if active.load(Ordering::SeqCst) & MOUSE != 0 {
+        output.write_all(DISABLE_MOUSE)?;
+        output.flush()?;
+        // A partial write/failed flush retains ownership for final restoration.
+        active.fetch_and(!MOUSE, Ordering::SeqCst);
+    }
+    Ok(())
+}
 
 impl Modes {
     pub fn frame(&self) -> io::Result<Frame<'_, Stdout>> {
@@ -89,6 +109,9 @@ impl Modes {
         // enabled. Normalize OS state, not only Crossterm's cached mode flag.
         disable_raw_mode()?;
         self.restore()?;
+        let mut stdout = io::stdout();
+        self.active.fetch_or(MOUSE, Ordering::SeqCst);
+        disable_mouse(&self.active, &mut stdout)?;
         execute!(
             io::stdout(),
             DisableBracketedPaste,
@@ -119,6 +142,7 @@ impl Modes {
         execute!(stdout, Hide)?;
         self.active.fetch_or(PASTE, Ordering::SeqCst);
         execute!(stdout, EnableBracketedPaste)?;
+        enable_mouse(&self.active, &mut stdout)?;
         Ok(())
     }
 
@@ -131,8 +155,15 @@ impl Modes {
             "end synchronized frame",
             end_frame(&self.active, &mut stdout),
         );
-        // Preserve a failed End claim for another restoration attempt.
-        let active = self.active.fetch_and(SYNCHRONIZED, Ordering::SeqCst);
+        record(
+            &mut error,
+            "disable mouse tracking",
+            disable_mouse(&self.active, &mut stdout),
+        );
+        // Preserve failed output claims for another restoration attempt.
+        let active = self
+            .active
+            .fetch_and(SYNCHRONIZED | MOUSE, Ordering::SeqCst);
         record(&mut error, "clear owned graphics", (self.cleanup)());
         if active & RAW != 0 {
             record(&mut error, "disable raw mode", disable_raw_mode());
@@ -367,5 +398,71 @@ mod tests {
         });
         assert_eq!(output.bytes, END_FRAME);
         assert_eq!(active.load(Ordering::SeqCst), RAW);
+    }
+
+    #[test]
+    fn mouse_tracking_releases_for_suspension_and_reenters_without_motion_modes() {
+        let active = AtomicU8::new(RAW | ALTERNATE | PASTE);
+        let mut output = Output::default();
+        enable_mouse(&active, &mut output).unwrap();
+        assert_eq!(
+            active.load(Ordering::SeqCst),
+            RAW | ALTERNATE | PASTE | MOUSE
+        );
+        disable_mouse(&active, &mut output).unwrap();
+        // The native UI owns the terminal here. Reentry claims a fresh capture.
+        assert_eq!(active.load(Ordering::SeqCst), RAW | ALTERNATE | PASTE);
+        enable_mouse(&active, &mut output).unwrap();
+        disable_mouse(&active, &mut output).unwrap();
+        disable_mouse(&active, &mut output).unwrap();
+        assert_eq!(
+            output.bytes,
+            b"\x1b[?1000h\x1b[?1006h\x1b[?1000l\x1b[?1006l\x1b[?1000h\x1b[?1006h\x1b[?1000l\x1b[?1006l"
+        );
+        assert_eq!(active.load(Ordering::SeqCst), RAW | ALTERNATE | PASTE);
+    }
+
+    #[test]
+    fn failed_mouse_enable_and_disable_retain_cleanup_ownership() {
+        for fail_flush in [false, true] {
+            let active = AtomicU8::new(RAW);
+            let mut output = Output {
+                fail_next: !fail_flush,
+                fail_flush,
+                ..Output::default()
+            };
+            assert!(enable_mouse(&active, &mut output).is_err());
+            assert_eq!(active.load(Ordering::SeqCst), RAW | MOUSE);
+            disable_mouse(&active, &mut output).unwrap();
+            assert_eq!(active.load(Ordering::SeqCst), RAW);
+            assert!(output.bytes.ends_with(DISABLE_MOUSE));
+
+            enable_mouse(&active, &mut output).unwrap();
+            output.fail_flush = fail_flush;
+            output.fail_next = !fail_flush;
+            assert!(disable_mouse(&active, &mut output).is_err());
+            assert_eq!(active.load(Ordering::SeqCst), RAW | MOUSE);
+            // Mirrors restore's retained claims after an I/O failure.
+            active.fetch_and(SYNCHRONIZED | MOUSE, Ordering::SeqCst);
+            disable_mouse(&active, &mut output).unwrap();
+            assert_eq!(active.load(Ordering::SeqCst), 0);
+        }
+    }
+
+    #[test]
+    fn mouse_cleanup_claim_is_idempotent_for_panic_and_final_restoration() {
+        let active = AtomicU8::new(SYNCHRONIZED);
+        let mut output = Output::default();
+        enable_mouse(&active, &mut output).unwrap();
+        // The same ordered helpers run on panic, normal/error exit and suspend.
+        end_frame(&active, &mut output).unwrap();
+        disable_mouse(&active, &mut output).unwrap();
+        end_frame(&active, &mut output).unwrap();
+        disable_mouse(&active, &mut output).unwrap();
+        assert_eq!(
+            output.bytes,
+            b"\x1b[?1000h\x1b[?1006h\x1b[?2026l\x1b[?1000l\x1b[?1006l"
+        );
+        assert_eq!(active.load(Ordering::SeqCst), 0);
     }
 }

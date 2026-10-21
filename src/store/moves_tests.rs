@@ -1214,6 +1214,7 @@ fn last_task_purge_removes_project_moves_sources_and_uses_but_not_personal_recor
 }
 
 fn remove_move_schema(connection: &Connection) {
+    super::super::records::remove_schema(connection);
     connection.execute_batch("DROP TABLE moves; DROP TABLE move_candidates; DROP TABLE move_sources; DROP TABLE move_usages; DROP TABLE move_dispatches; PRAGMA user_version=13;").unwrap();
 }
 #[test]
@@ -1251,7 +1252,7 @@ fn schema_thirteen_upgrade_is_atomic_preserves_facts_and_backfills_real_history(
             transaction
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            14
+            15
         );
     }
     assert_eq!(
@@ -1282,7 +1283,7 @@ fn readonly_admission_refuses_older_and_newer_schema_without_migration_or_writes
     let fixture = Fixture::new();
     let mut store = fixture.open();
     let task = fixture.task(&mut store, 2);
-    for version in [13, 15] {
+    for version in [14, 16] {
         store
             .connection
             .as_ref()
@@ -1294,7 +1295,7 @@ fn readonly_admission_refuses_older_and_newer_schema_without_migration_or_writes
         assert!(
             validate_planning_input(&store.data_dir, &task, &[])
                 .unwrap_err()
-                .contains("schema 14")
+                .contains("schema 15")
         );
         assert_eq!(fs::read(&path).unwrap(), before);
     }
@@ -1302,7 +1303,7 @@ fn readonly_admission_refuses_older_and_newer_schema_without_migration_or_writes
         .connection
         .as_ref()
         .unwrap()
-        .pragma_update(None, "user_version", 14)
+        .pragma_update(None, "user_version", 15)
         .unwrap();
     validate_planning_input(&store.data_dir, &task, &[]).unwrap();
     store

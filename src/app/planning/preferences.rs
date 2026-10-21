@@ -8,6 +8,7 @@ pub(super) struct Preferences {
     loaded: bool,
     restore_required: bool,
     remembered_selection: Option<(Agent, super::ModelSelection)>,
+    global_default: Option<(Agent, super::ModelSelection)>,
     dirty: bool,
     explicit_provider: bool,
     provider_changed: bool,
@@ -24,6 +25,9 @@ impl State {
     }
 
     pub(super) fn preference_changed(&mut self) {
+        self.remembered_pairing = None;
+        self.preferences.global_default = None;
+        self.pairing_offer = true;
         self.preferences.provider_changed = true;
         self.selections.insert(self.agent, self.selection.clone());
         self.preferences.remembered_selection = Some((self.agent, self.selection.clone()));
@@ -37,6 +41,10 @@ impl State {
     /// Records the selected route actually used for content, not metadata inspection.
     /// Repeated turns do not write unchanged preferences or silently retry a failed save.
     pub fn remember_used_selection(&mut self) {
+        // A deliberate pairing is a local preselection, not a new global default.
+        if self.remembered_pairing.is_some() {
+            return;
+        }
         if self
             .preferences
             .remembered_selection
@@ -47,6 +55,7 @@ impl State {
         {
             return;
         }
+        self.preferences.global_default = None;
         self.preferences.remembered_selection = Some((self.agent, self.selection.clone()));
         self.preferences.provider_changed = true;
         self.selections.insert(self.agent, self.selection.clone());
@@ -57,9 +66,33 @@ impl State {
 
     fn preference_snapshot(&self) -> store::ProviderPreferences {
         store::ProviderPreferences {
-            provider: self.agent,
+            provider: if self.remembered_pairing.is_some() {
+                self.preferences
+                    .remembered_selection
+                    .as_ref()
+                    .map_or(self.agent, |(agent, _)| *agent)
+            } else {
+                self.agent
+            },
             selections: self.selections.clone(),
         }
+    }
+
+    pub(super) fn global_selection(&mut self) -> Option<(Agent, super::ModelSelection)> {
+        if !self.preferences.loaded {
+            return None;
+        }
+        if self.preferences.global_default.is_none() {
+            self.preferences.global_default = Some((self.agent, self.selection.clone()));
+        }
+        self.preferences.global_default.clone()
+    }
+
+    pub(super) fn global_route(&self) -> (Agent, &super::ModelSelection) {
+        if let Some(route) = &self.preferences.global_default {
+            return (route.0, &route.1);
+        }
+        (self.agent, &self.selection)
     }
 
     pub fn preference_request(&mut self) -> &mut Option<store::PreferenceRequest> {
@@ -87,6 +120,21 @@ impl State {
             if !self.preferences.dirty_routes.contains(agent) {
                 self.selections.insert(*agent, selection.clone());
             }
+        }
+        // A clean parked slot can receive the committed global route before it
+        // ever has a pairing. Its passive current route is not a new default.
+        if !self.preferences.dirty
+            && (self.remembered_pairing.is_some()
+                || !self.preferences.explicit_provider
+                || self.preferences.provider_changed)
+        {
+            let selection = saved
+                .selections
+                .get(&saved.provider)
+                .cloned()
+                .unwrap_or_default();
+            self.preferences.global_default = Some((saved.provider, selection.clone()));
+            self.preferences.remembered_selection = Some((saved.provider, selection));
         }
         if matches!(
             self.preferences.pending,
@@ -127,14 +175,17 @@ impl State {
                         .selections
                         .extend(std::mem::take(&mut self.selections));
                     self.selections = saved.selections;
-                    if !self.preferences.explicit_provider && !self.preferences.provider_changed {
-                        self.agent = saved.provider;
+                    if self.remembered_pairing.is_none() {
+                        if !self.preferences.explicit_provider && !self.preferences.provider_changed
+                        {
+                            self.agent = saved.provider;
+                        }
+                        self.selection = self
+                            .selections
+                            .get(&self.agent)
+                            .cloned()
+                            .unwrap_or_default();
                     }
-                    self.selection = self
-                        .selections
-                        .get(&self.agent)
-                        .cloned()
-                        .unwrap_or_default();
                 }
                 self.preferences.loaded = true;
             }
@@ -144,9 +195,9 @@ impl State {
                         saved.selections.get(agent) != self.selections.get(agent)
                     })
                 });
-                self.preferences.dirty = !saved.as_ref().is_some_and(|saved| {
-                    saved.provider == self.agent && saved.selections == self.selections
-                });
+                self.preferences.dirty = !saved
+                    .as_ref()
+                    .is_some_and(|saved| *saved == self.preference_snapshot());
             }
         }
     }

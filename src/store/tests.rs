@@ -523,7 +523,7 @@ fn migrates_documented_schema_zero_and_one_atomically() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            14
+            15
         );
         assert!(connection.prepare("SELECT * FROM goals").is_err());
         assert!(connection.prepare("SELECT * FROM projects").is_err());
@@ -540,7 +540,7 @@ fn newer_foreign_and_corrupt_databases_are_untouched() {
         } else {
             let connection = Connection::open(&path).unwrap();
             connection.execute_batch(if fixture == 0 {
-                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=15;"
+                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=16;"
                 } else {
                     "CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('keep');"
                 }).unwrap();
@@ -1032,7 +1032,7 @@ fn crash_during_migration(directory: &Directory, kind: &str) {
         )
         .unwrap();
     match kind {
-            "newer" => connection.execute_batch("PRAGMA user_version=15;").unwrap(),
+            "newer" => connection.execute_batch("PRAGMA user_version=16;").unwrap(),
             "foreign" => connection.execute_batch("CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('preserve');").unwrap(),
             "one" => connection.execute_batch(
                 "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL);
@@ -1095,7 +1095,7 @@ fn process_interruption_recovers_legacy_and_current_committed_tasks() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            14
+            15
         );
     }
 }
@@ -1455,7 +1455,8 @@ fn state(directory: &Directory, project: &str, policy: Policy) -> State {
         connection: None,
         lock: None,
     };
-    assert!(matches!(state.reopen(), Event::Loaded(_)));
+    let reopened = state.reopen();
+    assert!(matches!(reopened, Event::Loaded(_)), "{reopened:?}");
     state
 }
 
@@ -2088,6 +2089,7 @@ fn context_is_independent_masked_task_owned_and_purge_preserves_unavailable_meta
     let source = directory.0.join("source.rs");
     fs::write(&source, "password=source-value\n").unwrap();
     let pin = |task_id| ContextRequest {
+        producer: None,
         task_id,
         operation: ContextOperation::Pin(captured_excerpt(
             task_id,
@@ -2115,6 +2117,7 @@ fn context_is_independent_masked_task_owned_and_purge_preserves_unavailable_meta
         store
             .context(ContextRequest {
                 task_id: first.id,
+                producer: None,
                 operation: ContextOperation::Load
             })
             .unwrap(),
@@ -2124,12 +2127,14 @@ fn context_is_independent_masked_task_owned_and_purge_preserves_unavailable_meta
         store
             .context(ContextRequest {
                 task_id: second.id,
+                producer: None,
                 operation: ContextOperation::Remove(one[0].id)
             })
             .is_err()
     );
     let purged = store
         .context(ContextRequest {
+            producer: None,
             task_id: first.id,
             operation: ContextOperation::Purge(vec![one[0].id]),
         })
@@ -2139,6 +2144,7 @@ fn context_is_independent_masked_task_owned_and_purge_preserves_unavailable_meta
         store
             .context(ContextRequest {
                 task_id: first.id,
+                producer: None,
                 operation: ContextOperation::Validate(one)
             })
             .is_err()
@@ -2147,6 +2153,7 @@ fn context_is_independent_masked_task_owned_and_purge_preserves_unavailable_meta
         store
             .context(ContextRequest {
                 task_id: second.id,
+                producer: None,
                 operation: ContextOperation::Load
             })
             .unwrap(),
@@ -2166,6 +2173,7 @@ fn context_is_independent_masked_task_owned_and_purge_preserves_unavailable_meta
         store
             .context(ContextRequest {
                 task_id: second.id,
+                producer: None,
                 operation: ContextOperation::Load
             })
             .unwrap(),
@@ -2563,6 +2571,7 @@ fn excerpt_capacity_and_lowered_quota_never_evict_and_still_allow_explicit_recla
     for _ in 0..crate::workspace::context::MAX_EXCERPTS {
         store
             .context(ContextRequest {
+                producer: None,
                 task_id: task.id,
                 operation: ContextOperation::Pin(captured_excerpt(task.id, &source, "visible\n")),
             })
@@ -2572,12 +2581,14 @@ fn excerpt_capacity_and_lowered_quota_never_evict_and_still_allow_explicit_recla
         store
             .context(ContextRequest {
                 task_id: task.id,
+                producer: None,
                 operation: ContextOperation::Pin(captured_excerpt(task.id, &source, "visible\n"))
             })
             .is_err()
     );
     let basket = store
         .context(ContextRequest {
+            producer: None,
             task_id: task.id,
             operation: ContextOperation::Load,
         })
@@ -2586,6 +2597,7 @@ fn excerpt_capacity_and_lowered_quota_never_evict_and_still_allow_explicit_recla
     store.policy.quota_bytes = 1;
     let reduced = store
         .context(ContextRequest {
+            producer: None,
             task_id: task.id,
             operation: ContextOperation::Remove(basket[0].id),
         })
@@ -2593,6 +2605,7 @@ fn excerpt_capacity_and_lowered_quota_never_evict_and_still_allow_explicit_recla
     assert_eq!(reduced.len(), 15);
     let purged = store
         .context(ContextRequest {
+            producer: None,
             task_id: task.id,
             operation: ContextOperation::Purge(vec![basket[1].id]),
         })
@@ -2704,6 +2717,7 @@ fn deletion_preview_lists_exact_owned_artifacts_without_mutation_and_rechecks_ac
     fs::write(&source, "visible\n").unwrap();
     let basket = store
         .context(ContextRequest {
+            producer: None,
             task_id: task.id,
             operation: ContextOperation::Pin(captured_excerpt(task.id, &source, "visible\n")),
         })
@@ -2715,6 +2729,7 @@ fn deletion_preview_lists_exact_owned_artifacts_without_mutation_and_rechecks_ac
         store
             .context(ContextRequest {
                 task_id: task.id,
+                producer: None,
                 operation: ContextOperation::Purge(vec![basket[0].id])
             })
             .is_err()
@@ -2772,6 +2787,7 @@ fn planning_admission_rejects_changed_task_and_purged_context() {
     fs::write(&source, "visible\n").unwrap();
     let basket = store
         .context(ContextRequest {
+            producer: None,
             task_id: saved.id,
             operation: ContextOperation::Pin(captured_excerpt(saved.id, &source, "visible\n")),
         })
@@ -2779,6 +2795,7 @@ fn planning_admission_rejects_changed_task_and_purged_context() {
     validate_planning_input(&store.data_dir, &saved, &basket).unwrap();
     store
         .context(ContextRequest {
+            producer: None,
             task_id: saved.id,
             operation: ContextOperation::Purge(vec![basket[0].id]),
         })
@@ -2975,6 +2992,7 @@ fn schema_six_migration_is_atomic_and_defaults_preserve_old_snapshots() {
 }
 
 fn downgrade_moves(connection: &Connection) {
+    super::records::remove_schema(connection);
     connection
         .execute_batch(
             "DROP TABLE moves; DROP TABLE move_candidates; DROP TABLE move_sources;
@@ -3921,7 +3939,7 @@ fn schema_eight_migrates_request_drafts_without_changing_task_facts() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        14
+        15
     );
     let mut task = Snapshot::empty("/workspace".into());
     task.goal = "Stable task identity".into();
@@ -4103,6 +4121,7 @@ fn schema_ten_dismissal_migration_only_changes_version_and_rolls_back_atomically
     store.select(task.id).unwrap();
     store
         .context(ContextRequest {
+            producer: None,
             task_id: task.id,
             operation: ContextOperation::Pin(captured_excerpt(
                 task.id,
@@ -4189,7 +4208,7 @@ fn schema_ten_dismissal_migration_only_changes_version_and_rolls_back_atomically
             transaction
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            14
+            15
         );
         assert!(matches!(inspect(&transaction).unwrap(), Schema::Current));
         for (table, rows) in tables.iter().zip(&before) {
@@ -4211,7 +4230,7 @@ fn schema_ten_dismissal_migration_only_changes_version_and_rolls_back_atomically
         connection
             .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
             .unwrap(),
-        14
+        15
     );
     for (table, rows) in tables.iter().zip(&before) {
         assert_eq!(stored_table_rows(&connection, table), *rows, "{table}");
@@ -4502,6 +4521,7 @@ fn location_pin_requires_a_task_owned_run_and_retains_its_origin_after_reopen() 
     excerpt.origin_run = Some(prepared.run_id.clone());
     let captured = storage
         .context(ContextRequest {
+            producer: None,
             task_id: first.id,
             operation: ContextOperation::Pin(excerpt.clone()),
         })
@@ -4511,6 +4531,7 @@ fn location_pin_requires_a_task_owned_run_and_retains_its_origin_after_reopen() 
         storage
             .context(ContextRequest {
                 task_id: second.id,
+                producer: None,
                 operation: ContextOperation::Pin(excerpt),
             })
             .is_err()
@@ -4521,6 +4542,7 @@ fn location_pin_requires_a_task_owned_run_and_retains_its_origin_after_reopen() 
         reopened
             .context(ContextRequest {
                 task_id: first.id,
+                producer: None,
                 operation: ContextOperation::Load,
             })
             .unwrap(),
@@ -4683,6 +4705,7 @@ fn claims_guard_selected_capture_identity_and_destructive_boundaries() {
     fs::write(&source, "visible\n").unwrap();
     let basket = store
         .context(ContextRequest {
+            producer: None,
             task_id: task.id,
             operation: ContextOperation::Pin(captured_excerpt(task.id, &source, "visible\n")),
         })
@@ -4713,6 +4736,7 @@ fn claims_guard_selected_capture_identity_and_destructive_boundaries() {
         store
             .context(ContextRequest {
                 task_id: task.id,
+                producer: None,
                 operation: ContextOperation::Remove(basket[0].id)
             })
             .is_err()
@@ -4722,6 +4746,7 @@ fn claims_guard_selected_capture_identity_and_destructive_boundaries() {
         .unwrap();
     store
         .context(ContextRequest {
+            producer: None,
             task_id: task.id,
             operation: ContextOperation::Remove(basket[0].id),
         })
@@ -4791,7 +4816,7 @@ fn schema_twelve_work_migration_preserves_old_rows_and_transactional_fence() {
             transaction
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            14
+            15
         );
         for (table, rows) in tables.iter().zip(&before) {
             assert_eq!(stored_table_rows(&transaction, table), *rows, "{table}");

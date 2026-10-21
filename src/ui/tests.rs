@@ -27,6 +27,7 @@ fn contrast(foreground: Color, background: Color) -> f64 {
 fn all_true_color_forms_keep_readable_text_and_selection() {
     for theme in [Theme::Dark, Theme::Light] {
         let config = Config {
+            language: crate::i18n::Language::ENGLISH,
             ascii: false,
             no_animation: false,
             theme,
@@ -170,6 +171,7 @@ fn compact_palette_shows_blocker_and_keys_without_mutating_draft() {
     use ratatui::{Terminal, backend::TestBackend};
 
     let config = Config {
+        language: crate::i18n::Language::ENGLISH,
         ascii: true,
         no_animation: false,
         theme: Theme::Dark,
@@ -228,6 +230,7 @@ fn compact_palette_shows_blocker_and_keys_without_mutating_draft() {
 
 fn home_config() -> Config {
     Config {
+        language: crate::i18n::Language::ENGLISH,
         ascii: true,
         no_animation: true,
         theme: Theme::Dark,
@@ -457,6 +460,7 @@ fn attachment_capture_requires_visible_review_and_fresh_render_after_resize() {
     assert!(matches!(&app.sources.pending_store,
         Some(crate::store::ContextRequest {
             task_id: 7, operation: crate::store::ContextOperation::Pin(capture),
+            ..
         }) if capture.text == "safe capture\n"));
     assert!(app.sources.basket.is_empty());
     assert!(app.planning.pending.is_none());
@@ -1011,6 +1015,7 @@ fn source_purge_requires_a_current_visible_scope_after_resize() {
         Some(crate::store::ContextRequest {
             task_id: 7,
             operation: crate::store::ContextOperation::Purge(ids),
+            ..
         }) if ids == &[91]));
 }
 
@@ -1841,5 +1846,128 @@ fn task_and_criteria_navigation_remains_visible_in_the_reserved_footer() {
             assert!(app.planning.pending.is_none());
             assert!(!app.execution.busy());
         }
+    }
+}
+
+#[test]
+fn source_pages_cover_every_detail_row_at_the_rendered_sheet_size() {
+    use ratatui::{Terminal, backend::TestBackend};
+    use std::collections::BTreeSet;
+
+    let config = home_config();
+    let paint = Paint::new(&config, &FORMS[0], 0);
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = App::new("/workspace".into(), width, height);
+        app.overlay = Some(Overlay::Sources);
+        app.sources.mode = crate::app::sources::Mode::Basket;
+        app.sources.detail = (0..40)
+            .map(|index| format!("detail-row-{index:03}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        let mut seen = BTreeSet::new();
+        for _ in 0..40 {
+            terminal
+                .draw(|frame| {
+                    sources::render(
+                        frame,
+                        Rect::new(0, 2, width, height - 4),
+                        &mut app,
+                        &config,
+                        &paint,
+                    );
+                })
+                .unwrap();
+            let text = screen_text(&terminal);
+            for index in 0..40 {
+                if text.contains(&format!("detail-row-{index:03}")) {
+                    seen.insert(index);
+                }
+            }
+            let previous = app.scroll_for(ScrollSurface::Preview);
+            app.update(Event::Key(KeyEvent::new(
+                KeyCode::PageDown,
+                KeyModifiers::NONE,
+            )));
+            if previous == app.scroll_for(ScrollSurface::Preview) {
+                break;
+            }
+        }
+        assert_eq!(
+            seen,
+            (0..40).collect(),
+            "{width}x{height} skipped detail rows"
+        );
+    }
+}
+
+#[test]
+fn record_discard_uses_visible_summary_not_end_scroll_and_invalidates_tiny_consent() {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let config = home_config();
+    let paint = Paint::new(&config, &FORMS[0], 0);
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = App::new("/workspace".into(), width, height);
+        app.overlay = Some(Overlay::Records);
+        app.records.mode = crate::app::records::Mode::Discard;
+        app.records.failed = Some(crate::store::records::Request {
+            task_id: 7,
+            operation: crate::store::records::Operation::ObserveInstruction {
+                request_id: "request-other-owner".into(),
+                owner: crate::store::Attribution {
+                    partner: 2,
+                    name: "Other owner".into(),
+                    form: 4,
+                },
+                instruction: "retained authored bytes".repeat(100),
+            },
+        });
+        app.records.failed_error = "retained failed-write detail\n".repeat(100);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
+            .unwrap();
+        assert!(app.records.reviewed);
+        assert_eq!(app.records.scroll, 0);
+        assert!(app.records.scroll_max > 0);
+        assert!(!app.records.affirmative);
+        let visible = screen_text(&terminal);
+        assert!(
+            visible.contains("request-other-owner"),
+            "failed request identity was buried by error details"
+        );
+        assert!(
+            visible.contains("#7") && visible.contains("#2"),
+            "actual task/partner scope did not render"
+        );
+        app.record_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert!(app.records.affirmative);
+        app.record_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        assert!(!app.records.affirmative);
+        app.record_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(
+            app.records.failed.is_some(),
+            "neutral Enter discarded an owned write"
+        );
+
+        app.records.enter(crate::app::records::Mode::Discard);
+        let mut tiny = Terminal::new(TestBackend::new(20, 6)).unwrap();
+        tiny.draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
+            .unwrap();
+        app.record_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        app.record_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(
+            app.records.failed.is_some(),
+            "unrendered summary admitted discard"
+        );
+
+        app.records.enter(crate::app::records::Mode::Discard);
+        terminal
+            .draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
+            .unwrap();
+        app.record_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        app.record_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(app.records.failed.is_none());
     }
 }

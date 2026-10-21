@@ -531,6 +531,8 @@ class Session:
         if not WINDOWS:
             assert modes.get(1049, False if not tui else None) is False, "alternate screen was not left"
         assert modes.get(2004, False if not tui else None) is False, "bracketed paste was not disabled"
+        for mode in (1000, 1006):
+            assert modes.get(mode, False) is False, f"mouse mode {mode} was not disabled"
         self.events.append({"status": self.status, "restoration": native, "final_vt_modes": modes})
         return self.status
 

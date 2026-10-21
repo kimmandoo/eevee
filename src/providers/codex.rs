@@ -1,5 +1,8 @@
 //! Explicitly trusted, protocol-qualified Codex planning and client-controlled implementation.
 //! Provider sandbox policy is not an Eevee sandbox; no provider credentials/configuration are written.
+//! Usage retains latest-response and cumulative-session snapshots separately. Only
+//! observed completed owned-turn totals provide a later request's baseline;
+//! unknown resumed history is never attributed to the current instruction.
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -13,6 +16,7 @@ use crate::providers::{
     Agent, Event, Input, ItemKind, ModelCatalogue, ModelOption, ModelSelection, Operation, Outcome,
     PermissionOption, Preview, Prompt, PromptKind, Question, QuestionOption, Request,
 };
+use crate::workspace::usage::{Counters, Identity, Kind, Report, Scope, Semantics};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 
@@ -441,7 +445,7 @@ fn worker(
     let mut prepared: Option<Prepared> = None;
     let mut generation = 0u64;
     let mut preview_owner = None;
-    let mut threads: HashMap<String, i64> = HashMap::new();
+    let mut threads: HashMap<String, OwnedThread> = HashMap::new();
     while !stop.load(Ordering::Acquire) {
         let request = match incoming.recv_timeout(Duration::from_millis(20)) {
             Ok(request) => request,
@@ -515,11 +519,9 @@ fn worker(
                         .blockers
                         .push("Task project differs from the trusted worker project".into());
                 }
-                if input
-                    .resume
-                    .as_ref()
-                    .is_some_and(|id| threads.get(id) != Some(&input.task.id))
-                {
+                if input.resume.as_ref().is_some_and(|id| {
+                    threads.get(id).map(|thread| thread.task_id) != Some(input.task.id)
+                }) {
                     preview.blockers.push("Resume refused: thread was not started for this task in the current Eevee session".into());
                 }
                 if !input.inspect_models
@@ -654,7 +656,7 @@ fn payload(data_dir: &Path, input: &Input, exclusions: &[PathBuf]) -> Result<Str
     let text = serde_json::to_string_pretty(&json!({
         "purpose": if input.operation == Operation::Plan { "Plan the user's task. Do not implement changes. Ask the user when a decision is needed; report proposals as unverified planning, never as local execution evidence." } else { "Implement the approved requirement ONLY by calling eevee_edit_file with an exact selected root-relative path and full proposed replacement UTF-8 content. Preserve every unrelated existing dirty user change visible in edit_baseline. Never use apply_patch, shell writes, MCP, delegation, commits or merge. Native filesystem writes and command escalations will be denied. Ask for user input if unclear. Every proposed replacement requires a displayed exact patch and allow-once. Report results as unverified until the user reviews the working diff and chooses a local check." },
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
-        "request": input.task.request_text(),
+        "request": input.instruction(),
         "operation": input.operation,
         "selection": input.selection,
         "edit_paths": input.edit_paths,
@@ -900,6 +902,166 @@ impl ModelListing {
     }
 }
 
+struct OwnedThread {
+    task_id: i64,
+    usage: Option<UsageBaseline>,
+}
+
+#[derive(Clone)]
+struct UsageBaseline {
+    turn_id: String,
+    counters: Counters,
+}
+
+/// Codex's `last` is the latest model response, not an agentic turn total.
+/// Both wire counters are snapshots; repeated notifications never add tokens.
+#[derive(Default)]
+struct UsageSnapshots {
+    baseline: Option<UsageBaseline>,
+    last: Option<Counters>,
+    total: Option<Counters>,
+    complete: bool,
+}
+
+fn usage_counters(value: &Value) -> Result<Counters, String> {
+    if !value.is_object() {
+        return Err("Protocol token usage breakdown is not an object".into());
+    }
+    let count = |key: &str| match value.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| "Protocol token usage counter is not a nonnegative integer".to_owned()),
+    };
+    Ok(Counters {
+        input: count("inputTokens")?,
+        output: count("outputTokens")?,
+        cache_read: count("cachedInputTokens")?,
+        cache_write: count("cacheWriteInputTokens")?,
+        reasoning: count("reasoningOutputTokens")?,
+    })
+}
+
+fn merge_usage(target: &mut Option<Counters>, update: Counters) {
+    if update.is_unknown() {
+        return;
+    }
+    let target = target.get_or_insert_with(Counters::default);
+    macro_rules! field {
+        ($name:ident) => {
+            if update.$name.is_some() {
+                target.$name = update.$name;
+            }
+        };
+    }
+    field!(input);
+    field!(output);
+    field!(cache_read);
+    field!(cache_write);
+    field!(reasoning);
+}
+
+impl UsageSnapshots {
+    fn observe(
+        &mut self,
+        params: &Value,
+        thread_id: Option<&str>,
+        turn_id: Option<&str>,
+        dispatched: bool,
+    ) -> Result<(), String> {
+        if thread_id.is_none() || thread_id != params.get("threadId").and_then(Value::as_str) {
+            return Ok(());
+        }
+        let expected_turn = if dispatched {
+            turn_id
+        } else {
+            self.baseline
+                .as_ref()
+                .map(|baseline| baseline.turn_id.as_str())
+        };
+        if expected_turn.is_none() || expected_turn != params.get("turnId").and_then(Value::as_str)
+        {
+            return Ok(());
+        }
+        let usage = params
+            .get("tokenUsage")
+            .filter(|value| value.is_object())
+            .ok_or("Protocol token usage notification missing tokenUsage")?;
+        let parse = |key: &str| match usage.get(key) {
+            None | Some(Value::Null) => Ok(None),
+            Some(value) => usage_counters(value).map(Some),
+        };
+        let last = parse("last")?;
+        let total = parse("total")?;
+        if !dispatched {
+            // Only an already-observed historical turn can refresh its baseline.
+            // A notification from an unknown resumed turn cannot establish ownership.
+            if let Some(total) = total {
+                let mut baseline = self.baseline.as_ref().map(|base| base.counters);
+                merge_usage(&mut baseline, total);
+                if let Some(counters) = baseline {
+                    self.baseline.as_mut().unwrap().counters = counters;
+                }
+            }
+            return Ok(());
+        }
+        if let Some(last) = last {
+            merge_usage(&mut self.last, last);
+        }
+        if let Some(total) = total {
+            merge_usage(&mut self.total, total);
+        }
+        Ok(())
+    }
+
+    fn emit(
+        &self,
+        events: &Events,
+        generation: u64,
+        task_id: i64,
+        thread_id: &str,
+        turn_id: &str,
+    ) -> Result<(), String> {
+        for (scope, counters) in [(Scope::Response, &self.last), (Scope::Session, &self.total)] {
+            let Some(counters) = counters else { continue };
+            emit(
+                events,
+                Event::Usage {
+                    generation,
+                    task_id,
+                    report: Report {
+                        identity: Identity {
+                            session: Some(thread_id.to_owned()),
+                            turn: Some(turn_id.to_owned()),
+                            ..Identity::default()
+                        },
+                        scope,
+                        kind: Kind::Snapshot,
+                        counters: *counters,
+                        baseline: if scope == Scope::Session {
+                            self.baseline.as_ref().map(|base| base.counters)
+                        } else {
+                            None
+                        },
+                        // The usage notification does not report a model or tokenizer.
+                        // Selected/acknowledged thread settings are not response metadata.
+                        model: None,
+                        tokenizer: None,
+                        semantics: Semantics {
+                            cache_read_in_input: Some(true),
+                            cache_write_in_input: None,
+                            reasoning_in_output: Some(true),
+                        },
+                        complete: self.complete,
+                    },
+                },
+            )?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Call {
     Initialize,
@@ -942,8 +1104,9 @@ struct Engine<'a> {
     calls: Vec<PendingCall>,
     sequence: u64,
     thread_id: Option<String>,
-    threads: &'a mut HashMap<String, i64>,
+    threads: &'a mut HashMap<String, OwnedThread>,
     turn_id: Option<String>,
+    usage: UsageSnapshots,
     model: String,
     effort: Option<String>,
     account: String,
@@ -969,7 +1132,7 @@ fn run_transport(
     events: &Events,
     stop: &AtomicBool,
     cancelled: &AtomicU64,
-    threads: &mut HashMap<String, i64>,
+    threads: &mut HashMap<String, OwnedThread>,
 ) -> (Outcome, String) {
     let Workspace {
         project,
@@ -1023,6 +1186,7 @@ fn run_transport(
         thread_id: None,
         threads,
         turn_id: None,
+        usage: UsageSnapshots::default(),
         model: String::new(),
         effort: None,
         account: String::new(),
@@ -1181,16 +1345,46 @@ fn run_transport(
             thread::sleep(Duration::from_millis(5));
         }
     })();
-    let result = if run.input.inspect_models {
+    let mut result = if run.input.inspect_models {
         result
     } else {
         engine.journal_partial_tools().and(result)
     };
+    if let (Some(thread_id), Some(turn_id)) = (&engine.thread_id, &engine.turn_id) {
+        result = engine
+            .usage
+            .emit(
+                events,
+                run.generation,
+                run.input.task.id,
+                thread_id,
+                turn_id,
+            )
+            .and(result);
+    }
     if let Some(id) = &engine.thread_id {
-        engine
+        let thread = engine
             .threads
             .entry(id.clone())
-            .or_insert(run.input.task.id);
+            .or_insert_with(|| OwnedThread {
+                task_id: run.input.task.id,
+                usage: None,
+            });
+        if engine.dispatched {
+            // Failed/unknown transport cannot provide a final baseline for a later request.
+            thread.usage = if engine.usage.complete {
+                engine
+                    .turn_id
+                    .as_ref()
+                    .zip(engine.usage.total.as_ref())
+                    .map(|(turn_id, counters)| UsageBaseline {
+                        turn_id: turn_id.clone(),
+                        counters: *counters,
+                    })
+            } else {
+                None
+            };
+        }
     }
     engine.close_prompts();
     let tree_exited = engine.teardown();
@@ -1453,6 +1647,7 @@ impl Engine<'_> {
                     return Err("Provider new thread reused an existing identity; no ownership transfer".into());
                 }
                 self.thread_id = Some(id.clone());
+                self.usage.baseline = self.threads.get(&id).and_then(|thread| thread.usage.clone());
                 emit(self.events, Event::Thread { generation: self.run.generation, task_id: self.run.input.task.id, thread_id: id.clone(), model: safe(&self.model), account: self.account.clone() })?;
                 // Refresh the complete provider snapshot after startup, before the one turn.
                 self.catalogue.refresh();
@@ -1553,6 +1748,14 @@ impl Engine<'_> {
                 return Err("Catalogue inspection refused provider authentication recovery or model reroute".into());
             }
             return Ok(());
+        }
+        if method == "thread/tokenUsage/updated" {
+            return self.usage.observe(
+                params,
+                self.thread_id.as_deref(),
+                self.turn_id.as_deref(),
+                self.dispatched,
+            );
         }
         if method == "turn/started" || method == "turn/completed" {
             if !self.dispatched
@@ -1881,6 +2084,7 @@ impl Engine<'_> {
             "inProgress" => return Ok(()),
             _ => return Err("Protocol turn has unknown status".into()),
         };
+        self.usage.complete = true;
         let mut capture_error = None;
         if let Some(items) = turn.get("items").and_then(Value::as_array) {
             for item in items {
