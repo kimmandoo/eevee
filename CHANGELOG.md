@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-23
+
+- docs(release): published v0.1.19 from source `63f1007` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
+- test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
+- docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
 ## 2026-10-22
 
 - feat(evolution): displayed a localized one-time previous-to-next form popup without preempting file approval/live code, consuming typed drafts or replaying task restores.

@@ -680,6 +680,11 @@ def exercise_ui(session, size, cwd):
     session.command("forms")
     session.command("role-sylveon")
     await_saved(session)
+    if "Evolution!" in session.display():
+        session.capture("selected-form-evolution-popup")
+        session.send(ESC)  # Acknowledge the nonmodal receipt before inspecting the covered goal.
+        await_saved(session)
+    session.capture("selected-form-goal-preserved")
     assert "smoke_goal" in session.display(), "form selection lost the goal"
     session.command("goal")
     session.paste(" changed")
