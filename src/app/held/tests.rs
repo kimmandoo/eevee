@@ -9,13 +9,19 @@ use crate::{
     },
 };
 
+const PROJECT: &str = if cfg!(windows) {
+    r"C:\fixture"
+} else {
+    "/fixture"
+};
+
 fn app() -> App {
-    let mut app = App::new("/fixture".into(), 120, 36);
+    let mut app = App::new(PROJECT.into(), 120, 36);
     app.task_id = 7;
     app.storage = StorageState::Saved;
     app.repo_loading = false;
     app.records.loaded = true;
-    app.memory.reset(7, "/fixture");
+    app.memory.reset(7, PROJECT);
     app.saved_revision = app.revision;
     app.overlay = Some(crate::app::Overlay::Memory);
     app
@@ -25,7 +31,7 @@ fn note(scope: memory::Scope) -> memory::Record {
     memory::Record {
         id: 31,
         revision: 4,
-        project: "/fixture".into(),
+        project: PROJECT.into(),
         task_id: (scope == memory::Scope::Task).then_some(7),
         proposal: memory::Proposal {
             scope,
@@ -60,7 +66,7 @@ fn capture(app: &mut App) -> context::Excerpt {
         origin_run: None,
         id: 0,
         task_id: 7,
-        root: "/fixture".into(),
+        root: PROJECT.into(),
         path: "sample.rs".into(),
         start_line: 1,
         end_line: 1,
@@ -96,9 +102,9 @@ fn capture(app: &mut App) -> context::Excerpt {
     });
     app.repository = Some(Arc::new(repo::Report {
         repository: repo::RepositoryIdentity {
-            root: "/fixture".into(),
-            git_root: Some("/fixture".into()),
-            git_dir: Some("/fixture/.git".into()),
+            root: PROJECT.into(),
+            git_root: Some(PROJECT.into()),
+            git_dir: Some(std::path::Path::new(PROJECT).join(".git")),
             storage_root: None,
         },
         baseline: snapshot.clone(),
@@ -133,13 +139,13 @@ fn stored_source_boundary_disables_held_file_availability_without_rewriting_capt
     assert!(app.held_available(&target));
     std::sync::Arc::make_mut(app.repository.as_mut().unwrap())
         .repository
-        .storage_root = Some(std::path::PathBuf::from("/fixture"));
+        .storage_root = Some(std::path::PathBuf::from(PROJECT));
     assert!(!app.held_available(&target));
     assert_eq!(app.sources.preview.as_ref(), Some(&original));
 }
 
 fn input(app: &App) -> providers::Input {
-    let mut task = store::Snapshot::empty("/fixture".into());
+    let mut task = store::Snapshot::empty(PROJECT.into());
     task.id = app.task_id;
     task.lead_partner = app.attribution().partner;
     task.form = app.form();
@@ -237,7 +243,7 @@ fn dismissed_proposal_stays_dismissed_on_refresh_but_reappears_on_new_visit() {
     assert_eq!(app.held_status(), Status::Dismissed);
     assert!(app.memory.selected_ids.is_empty());
     app.task_id = 8;
-    app.memory.reset(8, "/fixture");
+    app.memory.reset(8, PROJECT);
     app.memory.records = vec![note(memory::Scope::Project)];
     app.reconcile_held();
     assert_eq!(app.held_status(), Status::Proposed);
@@ -554,7 +560,7 @@ fn automatic_submit_proposes_new_form_slot_without_retroactive_inclusion() {
     assert!(app.save_requested);
     assert!(app.planning.pending.is_none());
     assert!(!app.execution.busy());
-    let snapshot = app.snapshot("/fixture");
+    let snapshot = app.snapshot(PROJECT);
     assert!(snapshot.approved_memories.is_empty());
     assert!(app.planning.command("new", true, &snapshot, &[], None));
     let Some(providers::Request::Preview(packet)) = app.planning.pending.take() else {

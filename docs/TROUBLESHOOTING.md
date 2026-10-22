@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-23] Windows qualification rejected a POSIX-only held-file fixture
+
+- **Context / Symptom:** Native run `39833784492` passed Check and all four macOS/Linux rows, but Windows failed `saving_reviewed_file_never_pins_capture` before the held preference could be queued (1,243 passed, one failed, two ignored). No release tag was created.
+- **Root Cause:** The unit fixture used `/fixture` for its app, memory, source and repository identities. On Windows this is rooted but not a fully qualified path with a volume; the existing source-capture validator correctly refused it.
+- **Solution:** Used one platform-valid fixture project identity for every related app/memory/source/report/request field, with a Windows volume-qualified path. Production source validation, native CI commands and assertions were unchanged.
+- **Prevention / Reference:** Require all five native rows at the corrected exact source commit; do not reuse the four earlier successful artifacts or skip the Windows case.
+
 ### [2026-10-23] Runtime drivers confused visible surfaces and newly introduced empty tables
 
 - **Context / Symptom:** The root journey could not see the beginning of the long `/init` draft. ACP journeys reported missing file identity while their captures showed an exact file approval, not the transcript. Schema16→18 reported `Migration rewrote retained evidence`.
