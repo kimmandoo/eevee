@@ -981,7 +981,7 @@ fn plain_project_discovery_read_generate_and_reviewed_edit_preserve_dirty_crlf()
     let mut set = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
     let names = set
         .observe_tool(&FileTool::List {
-            query: ".rs".into(),
+            query: "src/".into(),
             offset: 0,
         })
         .unwrap();
@@ -1250,7 +1250,7 @@ fn git_inventory_keeps_native_unicode_spelling_for_generated_sources() {
     assert_eq!(read["content"], "value = 1\r\n");
     let names = set
         .observe_tool(&FileTool::List {
-            query: "generated".into(),
+            query: "generated/".into(),
             offset: 0,
         })
         .unwrap();

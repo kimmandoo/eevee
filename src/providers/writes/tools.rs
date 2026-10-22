@@ -260,9 +260,23 @@ impl WriteSet {
                     pending.push((path, child));
                 } else if let Ok(file) = directory.open_file(&name, false)
                     && platform::file_stamp(&file).is_ok()
-                    && path.to_str().is_some_and(|text| text.contains(query))
+                    && let Ok(name) = path.into_os_string().into_string()
                 {
-                    paths.push(path);
+                    #[cfg(windows)]
+                    let name = {
+                        let mut name = name;
+                        // Only the wire spelling changes; native identity stays untouched.
+                        // ASCII separator replacement preserves length and UTF-8 boundaries.
+                        for index in 0..name.len() {
+                            if name.as_bytes()[index] == b'\\' {
+                                name.replace_range(index..index + 1, "/");
+                            }
+                        }
+                        name
+                    };
+                    if name.contains(query) {
+                        paths.push(name);
+                    }
                 }
             }
             directory.verify()?;
