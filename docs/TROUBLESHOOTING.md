@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-23] Installed terminal harness mistook a visible evolution popup for lost goal data
+
+- **Context / Symptom:** The actual public v0.1.19 installation reached its full terminal harness; 120×36, 100×30 and 70×24 passed, while 60×18 stopped at `form selection lost the goal`.
+- **Root Cause:** Decoding the retained failing ANSI record showed the complete nonmodal Eevee→Sylveon evolution popup over the compact workspace. The old harness demanded the goal be immediately visible without acknowledging the newly requested popup; the failure did not establish data loss.
+- **Solution:** Updated the real form-selection journey to capture and acknowledge the visible receipt with Escape, then inspect the original goal and continue its existing edit/discard/idle/lifecycle assertions. Kept the first failed evidence and used a fresh installation output directory; the published executable/tag was not rebuilt or changed.
+- **Prevention / Reference:** Distinguish temporary occlusion from durable-state loss. Preserve substantive goal/draft checks after deliberately dismissing a transient view instead of deleting or weakening them.
+
 ### [2026-10-22] Evolution notification competed with compact work surfaces
 
 - **Context / Symptom:** Combined popup checks exposed a compact notification overlapping composer identity and retained-response fixtures still displaying the new transition receipt. An unseen transition could also have been consumed by input intended for another sheet.
