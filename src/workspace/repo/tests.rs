@@ -102,6 +102,290 @@ fn report(event: Event) -> Arc<Report> {
 }
 
 #[test]
+fn application_storage_is_pruned_before_git_and_filesystem_content_capture() {
+    for git in [true, false] {
+        let fixture = if git {
+            Fixture::git()
+        } else {
+            Fixture::directory()
+        };
+        let data = fixture.0.join("local-data");
+        fs::create_dir(&data).unwrap();
+        fixture.write("public.rs", b"public\n");
+        fixture.write(
+            "local-data/ev-run-retained.output",
+            b"PRIVATE_RETAINED_OUTPUT\n",
+        );
+        if git {
+            fixture.commit();
+            fixture.write(
+                "local-data/ev-run-retained.output",
+                b"PRIVATE_CHANGED_OUTPUT\n",
+            );
+        }
+        let mut state = fixture.state(Limits {
+            total_file_bytes: b"public\n".len(),
+            ..Limits::default()
+        });
+        state.data_dir = Some(data.clone());
+        let observed = report(state.refresh());
+        assert_eq!(observed.repository.storage_root.as_ref(), Some(&data));
+        assert_eq!(observed.current.files.len(), 1);
+        assert!(matches!(
+            observed.current.files[Path::new("public.rs")].state,
+            FileState::Regular { .. }
+        ));
+        assert!(!observed.current.working_diff.text.contains("PRIVATE_"));
+        assert_eq!(
+            observe_inputs(&fixture.0, &data).unwrap(),
+            fingerprint(&observed)
+        );
+        if git {
+            assert!(observed.current.complete && observed.current.stable);
+        }
+        for project in [&fixture.0, &data] {
+            let mut inside = State::new(
+                project.clone(),
+                Limits::default(),
+                Arc::new(AtomicBool::new(false)),
+            );
+            inside.data_dir = Some(fixture.0.clone());
+            assert!(matches!(inside.refresh(), Event::Failed { .. }));
+            assert!(inside.baseline.is_none());
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn application_storage_aliases_bind_to_the_real_absolute_boundary() {
+    let fixture = Fixture::directory();
+    let data = fixture.0.join("local-data");
+    fs::create_dir(&data).unwrap();
+    fixture.write("local-data/retained.txt", b"private output\n");
+    fixture.write("public.rs", b"public source\n");
+    let alias = fixture.0.join("storage-alias");
+    std::os::unix::fs::symlink(&data, &alias).unwrap();
+    let mut state = fixture.state(Limits::default());
+    state.data_dir = Some(alias);
+    let observed = report(state.refresh());
+    assert_eq!(observed.repository.storage_root, Some(data));
+    assert_eq!(observed.current.files.len(), 1);
+    assert!(observed.current.files.contains_key(Path::new("public.rs")));
+}
+
+#[test]
+fn protected_launch_ancestors_refuse_git_and_filesystem_source_observation() {
+    for git in [true, false] {
+        let fixture = if git {
+            Fixture::git()
+        } else {
+            Fixture::directory()
+        };
+        let project = fixture.0.join("secrets").join("nested");
+        fs::create_dir_all(&project).unwrap();
+        fs::write(project.join("recovery.txt"), b"opaque recovery bytes\n").unwrap();
+        let mut state = State::new(
+            project.clone(),
+            Limits::default(),
+            Arc::new(AtomicBool::new(false)),
+        );
+        assert!(matches!(state.refresh(), Event::Failed { .. }));
+        assert!(state.baseline.is_none());
+        let stopped = AtomicBool::new(false);
+        assert!(source_paths(&project, &stopped).is_err());
+        assert!(read_source(&project, Path::new("recovery.txt"), 1024, &stopped).is_err());
+        assert_eq!(
+            fs::read(project.join("recovery.txt")).unwrap(),
+            b"opaque recovery bytes\n"
+        );
+    }
+}
+
+#[test]
+fn nested_git_project_names_are_native_literal_paths_not_pathspecs() {
+    let fixture = Fixture::git();
+    let project = fixture.0.join("app [scope] 中文");
+    let sibling = fixture.0.join("app s 中文");
+    fs::create_dir(&project).unwrap();
+    fs::create_dir(&sibling).unwrap();
+    fs::write(project.join("e\u{301}.rs"), b"literal project\n").unwrap();
+    fs::write(sibling.join("outside.rs"), b"must not match a glob\n").unwrap();
+    fixture.commit();
+    let mut state = State::new(
+        project.clone(),
+        Limits::default(),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let observed = report(state.refresh());
+    assert_eq!(observed.repository.root, project);
+    assert_eq!(
+        observed.current.files.len(),
+        1,
+        "{:?}",
+        observed.current.files.keys()
+    );
+    assert!(
+        observed
+            .current
+            .files
+            .contains_key(Path::new("e\u{301}.rs"))
+    );
+    assert!(observed.current.complete && observed.current.stable);
+    let file = &observed.current.files[Path::new("e\u{301}.rs")];
+    assert!(file.tracked && file.head.is_some());
+    assert_eq!(file.index.len(), 1);
+    assert_eq!(
+        file.dirty,
+        Some(false),
+        "native spelling is not an untracked addition"
+    );
+    assert!(source_visible(&project, Path::new("e\u{301}.rs"), &AtomicBool::new(false)).unwrap());
+}
+
+#[test]
+fn nested_project_inventory_and_diff_never_include_enclosing_siblings() {
+    let fixture = Fixture::git();
+    fs::create_dir_all(fixture.0.join("app/src")).unwrap();
+    fs::create_dir(fixture.0.join("sibling")).unwrap();
+    fixture.write("app/src/current.rs", b"old project bytes\n");
+    fixture.write("sibling/private.rs", b"sibling original bytes\n");
+    fixture.commit();
+    fixture.write("app/src/current.rs", b"new project bytes\n");
+    fixture.write("sibling/private.rs", b"SIBLING_CONTENT_MUST_NOT_APPEAR\n");
+    fixture.write(
+        "sibling/untracked.rs",
+        b"SIBLING_UNTRACKED_MUST_NOT_APPEAR\n",
+    );
+    fixture.write("app/new.rs", b"project addition\n");
+    let project = fixture.0.join("app");
+    let mut state = State::new(
+        project.clone(),
+        Limits::default(),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let observed = report(state.refresh());
+    assert_eq!(observed.repository.root, project);
+    assert_eq!(observed.repository.git_root.as_ref(), Some(&fixture.0));
+    assert_eq!(observed.repository.git_dir, Some(fixture.0.join(".git")));
+    assert_eq!(observed.current.files.len(), 2);
+    assert!(
+        observed
+            .current
+            .files
+            .contains_key(Path::new("src/current.rs"))
+    );
+    assert!(observed.current.files.contains_key(Path::new("new.rs")));
+    assert!(
+        observed
+            .current
+            .working_diff
+            .text
+            .contains("old project bytes")
+    );
+    assert!(
+        observed
+            .current
+            .working_diff
+            .text
+            .contains("new project bytes")
+    );
+    assert!(!observed.current.working_diff.text.contains("SIBLING"));
+    assert!(observed.current.complete && observed.current.stable);
+    let before = fingerprint(&observed);
+    fixture.write("sibling/private.rs", b"another outside change\n");
+    let after = report(state.refresh());
+    assert_eq!(fingerprint(&after), before);
+    assert_eq!(
+        observe_inputs(&project, &fixture.0.join("local-data")).unwrap(),
+        before
+    );
+}
+
+#[test]
+fn filesystem_catalogue_is_bounded_private_and_never_git_evidence() {
+    let fixture = Fixture::directory();
+    fs::create_dir(fixture.0.join("src")).unwrap();
+    fs::create_dir(fixture.0.join("secrets")).unwrap();
+    fixture.write("src/current.rs", b"public local source\n");
+    fixture.write(".env", b"password=never catalogue\n");
+    fixture.write("secrets/hidden.rs", b"hidden credential subtree\n");
+    let mut state = fixture.state(Limits::default());
+    let observed = report(state.refresh());
+    assert_eq!(observed.current.files.len(), 1);
+    assert!(
+        observed
+            .current
+            .files
+            .contains_key(Path::new("src/current.rs"))
+    );
+    assert!(!fingerprint(&observed).complete);
+    assert!(
+        observe_inputs(&fixture.0, &fixture.0.join("local-data"))
+            .unwrap()
+            .fingerprint
+            .is_none()
+    );
+    assert!(revalidate_review(&observed).is_err());
+    assert_eq!(
+        read_source(
+            &fixture.0,
+            Path::new("src/current.rs"),
+            1024,
+            &AtomicBool::new(false)
+        )
+        .unwrap()
+        .0,
+        b"public local source\n"
+    );
+    let bounded = report(
+        fixture
+            .state(Limits {
+                files: 1,
+                ..Limits::default()
+            })
+            .refresh(),
+    );
+    assert!(bounded.current.files.len() <= 1);
+    assert!(
+        bounded
+            .current
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("bound"))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn canonical_aliases_controls_and_non_git_links_preserve_project_identity() {
+    use std::os::unix::fs::symlink;
+    let fixture = Fixture::directory();
+    let project = fixture.0.join("actual\tproject\n");
+    fs::create_dir(&project).unwrap();
+    fs::write(project.join("visible.rs"), b"inside\n").unwrap();
+    fixture.write("outside.rs", b"outside\n");
+    symlink(fixture.0.join("outside.rs"), project.join("linked.rs")).unwrap();
+    symlink(&fixture.0, project.join("linked-directory")).unwrap();
+    let alias = fixture.0.join("alias");
+    symlink(&project, &alias).unwrap();
+    let mut state = State::new(alias, Limits::default(), Arc::new(AtomicBool::new(false)));
+    let observed = report(state.refresh());
+    assert_eq!(observed.repository.root, project);
+    assert_eq!(observed.current.files.len(), 1);
+    assert!(observed.current.files.contains_key(Path::new("visible.rs")));
+    assert!(
+        read_source(
+            &project,
+            Path::new("linked.rs"),
+            1024,
+            &AtomicBool::new(false)
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn dirty_baseline_external_changes_and_original_bytes_are_preserved() {
     let fixture = Fixture::git();
     fixture.write("tracked 中文.txt", b"committed\r\n");
@@ -180,14 +464,28 @@ fn dirty_baseline_external_changes_and_original_bytes_are_preserved() {
 fn worker_reports_non_git_without_creating_or_losing_task_data() {
     let fixture = Fixture::directory();
     fixture.write("task draft.txt", b"my local task\r\n");
-    let worker = Worker::start(fixture.0.clone()).unwrap();
+    let worker = Worker::start(fixture.0.clone(), fixture.0.join("local-data")).unwrap();
     let event = worker
         .events
         .as_ref()
         .unwrap()
         .recv_timeout(Duration::from_secs(15))
         .unwrap();
-    assert!(matches!(event, Event::Unsupported { .. }));
+    let report = report(event);
+    assert_eq!(report.repository.root, fixture.0);
+    assert!(report.repository.git_root.is_none());
+    assert!(report.repository.git_dir.is_none());
+    assert!(
+        report
+            .current
+            .files
+            .contains_key(Path::new("task draft.txt"))
+    );
+    assert!(report.current.head.is_none());
+    assert!(report.current.working_diff.unavailable.is_some());
+    let fingerprint = fingerprint(&report);
+    assert!(fingerprint.fingerprint.is_none());
+    assert!(!fingerprint.complete && !fingerprint.stable);
     assert_eq!(
         fs::read(fixture.0.join("task draft.txt")).unwrap(),
         b"my local task\r\n"
@@ -199,7 +497,7 @@ fn worker_reports_non_git_without_creating_or_losing_task_data() {
 fn actual_worker_refresh_keeps_initial_baseline() {
     let fixture = Fixture::git();
     fixture.write("before.txt", b"before");
-    let worker = Worker::start(fixture.0.clone()).unwrap();
+    let worker = Worker::start(fixture.0.clone(), fixture.0.join("local-data")).unwrap();
     let initial = report(
         worker
             .events

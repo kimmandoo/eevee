@@ -1,4 +1,4 @@
-//! Read-only, session-local repository evidence. No task data or repository bytes are written.
+//! Read-only, session-local project sources and separately identified Git evidence.
 //!
 //! Git is used only for metadata and raw object reads. In particular, `status` and working-tree
 //! `diff` are deliberately not used: they can execute repository-configured clean/process filters.
@@ -14,6 +14,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
+use super::runner;
 use sha2::{Digest, Sha256};
 
 const COMMAND_CAPACITY: usize = 2;
@@ -24,9 +25,54 @@ const SCAN_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RepositoryIdentity {
-    /// Canonical native paths; never lowercased or lossily normalized.
+    /// Canonical launch folder; Git discovery never widens project authority.
     pub root: PathBuf,
-    pub git_dir: PathBuf,
+    /// Enclosing Git identity, absent for an ordinary filesystem project.
+    pub git_root: Option<PathBuf>,
+    pub git_dir: Option<PathBuf>,
+    /// Frozen canonical application-storage boundary; never source context.
+    pub storage_root: Option<PathBuf>,
+}
+
+impl RepositoryIdentity {
+    pub(crate) fn excludes_source(&self, relative: &Path) -> bool {
+        self.storage_root.as_ref().is_some_and(|storage| {
+            super::context::excluded_prefix(&self.root.join(relative), storage)
+        })
+    }
+}
+
+/// Resolve an absolute storage boundary before it exists without creating it.
+fn storage_root(path: &Path) -> Result<PathBuf, String> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| error.to_string())?
+            .join(path)
+    };
+    let mut ancestor = absolute.as_path();
+    let mut missing = Vec::new();
+    loop {
+        match fs::canonicalize(ancestor) {
+            Ok(mut canonical) => {
+                for name in missing.into_iter().rev() {
+                    canonical.push(name);
+                }
+                return Ok(canonical);
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let name = ancestor
+                    .file_name()
+                    .ok_or("Cannot bind application storage boundary")?;
+                missing.push(name);
+                ancestor = ancestor
+                    .parent()
+                    .ok_or("Cannot bind application storage boundary")?;
+            }
+            Err(error) => return Err(format!("Cannot bind application storage boundary: {error}")),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,7 +110,7 @@ pub enum FileState {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileIdentity {
-    /// Repository-relative, native path. Combine with RepositoryIdentity::root for display only.
+    /// Project-relative native path, resolved only against RepositoryIdentity::root.
     pub path: PathBuf,
     pub tracked: bool,
     pub head: Option<ObjectIdentity>,
@@ -143,6 +189,111 @@ pub enum Event {
         message: String,
     },
 }
+pub(crate) fn fingerprint(report: &Report) -> runner::InputSnapshot {
+    if report.repository.git_dir.is_none() {
+        return runner::InputSnapshot {
+            fingerprint: None,
+            complete: false,
+            stable: false,
+        };
+    }
+    fn part(hash: &mut Sha256, bytes: &[u8]) {
+        hash.update((bytes.len() as u64).to_le_bytes());
+        hash.update(bytes);
+    }
+    fn path(hash: &mut Sha256, path: &Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            part(hash, path.as_os_str().as_bytes());
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStrExt;
+            hash.update((path.as_os_str().encode_wide().count() as u64).to_le_bytes());
+            for unit in path.as_os_str().encode_wide() {
+                hash.update(unit.to_le_bytes());
+            }
+        }
+    }
+    let snapshot = &report.current;
+    let mut hash = Sha256::new();
+    part(&mut hash, b"eevee-source-v1");
+    path(&mut hash, &report.repository.root);
+    if let Some(git_root) = &report.repository.git_root {
+        path(&mut hash, git_root);
+    }
+    if let Some(git_dir) = &report.repository.git_dir {
+        path(&mut hash, git_dir);
+    }
+    part(&mut hash, snapshot.head.as_deref().unwrap_or("").as_bytes());
+    let mut complete = snapshot.complete;
+    for (name, file) in &snapshot.files {
+        path(&mut hash, name);
+        if name.to_str().is_none() {
+            complete = false;
+        }
+        hash.update([u8::from(file.tracked)]);
+        if let Some(head) = &file.head {
+            hash.update([1]);
+            part(&mut hash, head.oid.as_bytes());
+            part(&mut hash, head.mode.as_bytes());
+        } else {
+            hash.update([0]);
+        }
+        hash.update((file.index.len() as u64).to_le_bytes());
+        for index in &file.index {
+            hash.update([index.stage]);
+            part(&mut hash, index.object.oid.as_bytes());
+            part(&mut hash, index.object.mode.as_bytes());
+        }
+        match &file.state {
+            FileState::Regular {
+                sha256,
+                bytes,
+                binary,
+                executable,
+            } => {
+                hash.update([1, u8::from(*binary), u8::from(*executable)]);
+                hash.update(bytes.to_le_bytes());
+                hash.update(sha256);
+            }
+            FileState::Symlink { target, sha256 } => {
+                hash.update([2]);
+                path(&mut hash, target);
+                hash.update(sha256);
+            }
+            FileState::Missing => hash.update([3]),
+            FileState::Unavailable { .. } => {
+                hash.update([4]);
+                complete = false;
+            }
+        }
+    }
+    runner::InputSnapshot {
+        fingerprint: Some(format!("{:x}", hash.finalize())),
+        complete,
+        stable: snapshot.stable,
+    }
+}
+
+/// Fresh bounded observation for worker-side evidence admission, never UI rendering.
+pub(crate) fn observe_inputs(
+    directory: &Path,
+    data_dir: &Path,
+) -> Result<runner::InputSnapshot, String> {
+    let mut state = State::new(
+        directory.to_path_buf(),
+        Limits::default(),
+        Arc::new(AtomicBool::new(false)),
+    );
+    state.data_dir = Some(data_dir.to_path_buf());
+    match state.observe()? {
+        Event::Updated(report) => Ok(fingerprint(&report)),
+        Event::Unsupported { reason, .. } => Err(reason),
+        Event::Failed { message, .. } => Err(message),
+    }
+}
 
 pub struct Worker {
     commands: Option<SyncSender<()>>,
@@ -152,11 +303,15 @@ pub struct Worker {
 
 impl Worker {
     /// Performs no filesystem or Git I/O on the calling/UI thread. Start and refresh emit events.
-    pub fn start(directory: PathBuf) -> io::Result<Self> {
-        Self::start_with_limits(directory, Limits::default())
+    pub fn start(directory: PathBuf, data_dir: PathBuf) -> io::Result<Self> {
+        Self::start_with_limits(directory, data_dir, Limits::default())
     }
 
-    fn start_with_limits(directory: PathBuf, limits: Limits) -> io::Result<Self> {
+    fn start_with_limits(
+        directory: PathBuf,
+        data_dir: PathBuf,
+        limits: Limits,
+    ) -> io::Result<Self> {
         let (commands, incoming) = mpsc::sync_channel(COMMAND_CAPACITY);
         let (outgoing, events) = mpsc::sync_channel(EVENT_CAPACITY);
         let stopped = Arc::new(AtomicBool::new(false));
@@ -165,6 +320,7 @@ impl Worker {
             .name("ev-repo".into())
             .spawn(move || {
                 let mut state = State::new(directory, limits, cancellation);
+                state.data_dir = Some(data_dir);
                 if outgoing.send(state.refresh()).is_err() {
                     return;
                 }
@@ -229,6 +385,7 @@ impl Default for Limits {
 
 struct State {
     directory: PathBuf,
+    data_dir: Option<PathBuf>,
     limits: Limits,
     stopped: Arc<AtomicBool>,
     repository: Option<RepositoryIdentity>,
@@ -240,6 +397,7 @@ impl State {
     fn new(directory: PathBuf, limits: Limits, stopped: Arc<AtomicBool>) -> Self {
         Self {
             directory,
+            data_dir: None,
             limits,
             stopped,
             repository: None,
@@ -268,37 +426,62 @@ impl State {
         if !directory.is_dir() {
             return Err("Repository location is not a directory".into());
         }
-        let git = Git::new(&directory, &self.stopped, deadline)?;
-        let probe = git.run(&["rev-parse", "--is-inside-work-tree"], None, 1024)?;
-        if !probe.success || probe.stdout.bytes != b"true\n" {
+        super::context::validate_project_root(&directory)?;
+        let storage_root = self.data_dir.as_deref().map(storage_root).transpose()?;
+        if storage_root
+            .as_ref()
+            .is_some_and(|storage| super::context::excluded_prefix(&directory, storage))
+        {
+            return Err(
+                "Project sources are inside application storage; source inspection is refused"
+                    .into(),
+            );
+        }
+        let has_git_marker = has_git_marker(&directory)?;
+        if !has_git_marker
+            && directory.ancestors().any(|ancestor| {
+                ancestor.join("HEAD").is_file()
+                    && ancestor.join("objects").is_dir()
+                    && ancestor.join("refs").is_dir()
+            })
+        {
             if self.baseline.is_some() {
+                return Err(
+                    "Project became a bare Git repository; original baseline retained".into(),
+                );
+            }
+            return Ok(Event::Unsupported {
+                path: directory,
+                reason: "Bare Git repositories have no supported working tree".into(),
+            });
+        }
+        let repository = if has_git_marker {
+            let git = Git::new(&directory, &self.stopped, deadline)?;
+            let probe = git.run(&["rev-parse", "--is-inside-work-tree"], None, 1024)?;
+            if !probe.success || probe.stdout.bytes != b"true\n" {
                 return Err(format!(
-                    "Repository is no longer available: {}",
+                    "Git working tree unavailable: {}",
                     probe.diagnostic()
                 ));
             }
-            // Do not turn permission/corruption/ownership failures into a non-Git success state.
-            let diagnostic = probe.diagnostic();
-            if probe.success || diagnostic.contains("not a git repository") {
-                return Ok(Event::Unsupported {
-                    path: directory,
-                    reason: if probe.success {
-                        "Bare Git repositories have no supported working tree".into()
-                    } else {
-                        "Not a Git repository; the local task remains available".into()
-                    },
-                });
+            let root = git.required(&["rev-parse", "--show-toplevel"], None, 64 * 1024)?;
+            let git_dir = git.required(&["rev-parse", "--absolute-git-dir"], None, 64 * 1024)?;
+            if root.truncated || git_dir.truncated {
+                return Err("Canonical repository path exceeded the output bound".into());
             }
-            return Err(diagnostic);
-        }
-        let root = git.required(&["rev-parse", "--show-toplevel"], None, 64 * 1024)?;
-        let git_dir = git.required(&["rev-parse", "--absolute-git-dir"], None, 64 * 1024)?;
-        if root.truncated || git_dir.truncated {
-            return Err("Canonical repository path exceeded the output bound".into());
-        }
-        let repository = RepositoryIdentity {
-            root: canonical_git_path(&root.bytes)?,
-            git_dir: canonical_git_path(&git_dir.bytes)?,
+            RepositoryIdentity {
+                root: directory,
+                git_root: Some(canonical_git_path(&root.bytes)?),
+                git_dir: Some(canonical_git_path(&git_dir.bytes)?),
+                storage_root,
+            }
+        } else {
+            RepositoryIdentity {
+                root: directory,
+                git_root: None,
+                git_dir: None,
+                storage_root,
+            }
         };
         let root_stamp = Stamp::from(&fs::metadata(&repository.root).map_err(|e| e.to_string())?);
         if self
@@ -312,13 +495,19 @@ impl State {
         {
             return Err("Repository identity changed; the original baseline was retained".into());
         }
-        let git = Git::new(&repository.root, &self.stopped, deadline)?;
-        let snapshot = Arc::new(capture(&repository, &git, self.limits)?);
+        let snapshot = Arc::new(if repository.git_dir.is_some() {
+            let git = Git::new(&repository.root, &self.stopped, deadline)?;
+            capture(&repository, &git, self.limits)?
+        } else {
+            capture_directory(&repository, &self.stopped, deadline, self.limits)?
+        });
         let after_root = fs::metadata(&repository.root).map_err(|e| e.to_string())?;
         if !root_stamp.same_node(&Stamp::from(&after_root))
             || fs::canonicalize(&repository.root).map_err(|e| e.to_string())? != repository.root
-            || fs::canonicalize(&repository.git_dir).map_err(|e| e.to_string())?
-                != repository.git_dir
+            || repository
+                .git_dir
+                .as_ref()
+                .is_some_and(|path| fs::canonicalize(path).ok().as_ref() != Some(path))
         {
             return Err("Repository identity changed during capture; baseline retained".into());
         }
@@ -340,6 +529,10 @@ impl State {
 /// Re-observe the whole reviewed patch at provider admission, including additions
 /// and deletions that are not in the selected source basket.
 pub(crate) fn revalidate_review(report: &Report) -> Result<(), String> {
+    super::context::validate_project_root(&report.repository.root)?;
+    if report.repository.git_dir.is_none() {
+        return Err("Git review evidence is unavailable for this filesystem project.".into());
+    }
     let stopped = AtomicBool::new(false);
     let git = Git::new(
         &report.repository.root,
@@ -434,8 +627,11 @@ impl<'a> Git<'a> {
             .args([
                 "--no-pager",
                 "--no-optional-locks",
+                "--literal-pathspecs",
                 "-c",
                 "core.fsmonitor=false",
+                "-c",
+                "core.precomposeunicode=false",
                 "-c",
                 "core.hooksPath=",
                 "-c",
@@ -624,6 +820,48 @@ fn relative_path(bytes: &[u8]) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Git can store a precomposed name while macOS exposes the same directory entry
+/// in decomposed form. Ask the opened native handle for its spelling; never
+/// normalize Unicode or merge names merely because their text looks equivalent.
+fn inventory_path(root: &Path, path: PathBuf) -> Result<PathBuf, String> {
+    #[cfg(target_os = "macos")]
+    if !path.as_os_str().as_encoded_bytes().is_ascii() {
+        use std::os::fd::AsRawFd;
+        // This uses the source reader's component-by-component no-follow open.
+        // Missing, linked or unreadable entries retain their Git name and will
+        // be classified by the ordinary capture guards, never read via a link.
+        let Ok(file) = open_regular(root, &path) else {
+            return Ok(path);
+        };
+        let mut buffer = [0u8; libc::PATH_MAX as usize];
+        // SAFETY: file owns a live descriptor and F_GETPATH receives PATH_MAX bytes.
+        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) } == -1 {
+            return Err("Native Git filename identity could not be resolved".into());
+        }
+        let length = buffer
+            .iter()
+            .position(|byte| *byte == 0)
+            .ok_or("Native Git filename exceeded the path bound")?;
+        let native = native_path(&buffer[..length])?;
+        let native_root = native
+            .ancestors()
+            .nth(path.components().count())
+            .ok_or("Native Git filename escaped the project namespace")?;
+        let expected = fs::metadata(root).map_err(|error| error.to_string())?;
+        let observed = fs::metadata(native_root).map_err(|error| error.to_string())?;
+        if !Stamp::from(&expected).same_node(&Stamp::from(&observed)) {
+            return Err("Native Git filename escaped the project root".into());
+        }
+        return Ok(native
+            .strip_prefix(native_root)
+            .map_err(|_| "Native Git filename escaped the project root")?
+            .to_path_buf());
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = root;
+    Ok(path)
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Entry {
     head: Option<ObjectIdentity>,
@@ -639,7 +877,23 @@ struct Inventory {
     complete: bool,
 }
 
-fn inventory(git: &Git<'_>, limits: Limits) -> Result<Inventory, String> {
+fn inventory_source_path(
+    repository: &RepositoryIdentity,
+    bytes: &[u8],
+) -> Result<Option<PathBuf>, String> {
+    let path = relative_path(bytes)?;
+    if repository.excludes_source(&path) {
+        return Ok(None);
+    }
+    let path = inventory_path(&repository.root, path)?;
+    Ok((!repository.excludes_source(&path)).then_some(path))
+}
+
+fn inventory(
+    git: &Git<'_>,
+    limits: Limits,
+    repository: &RepositoryIdentity,
+) -> Result<Inventory, String> {
     let head = git.run(&["rev-parse", "--verify", "-q", "HEAD"], None, 1024)?;
     let head = if head.success {
         Some(
@@ -662,35 +916,52 @@ fn inventory(git: &Git<'_>, limits: Limits) -> Result<Inventory, String> {
     inventory.complete &= !index.truncated;
     for record in complete_records(&index.bytes) {
         let (header, path) = split_record(record)?;
+        let Some(path) = inventory_source_path(repository, path)? else {
+            continue;
+        };
         let fields = ascii_fields(header)?;
         if fields.len() != 3 || !valid_oid(fields[1]) {
             return Err("Invalid Git index record".into());
         }
-        let entry = bounded_entry(&mut inventory, relative_path(path)?, limits.files);
+        let entry = bounded_entry(&mut inventory, path, limits.files);
         if let Some(entry) = entry {
+            let stage = fields[2].parse().map_err(|_| "Invalid Git index stage")?;
+            if entry.index.iter().any(|index| index.stage == stage) {
+                return Err(
+                    "Distinct Git index names resolve to one native source identity".into(),
+                );
+            }
             entry.index.push(IndexEntry {
                 object: ObjectIdentity {
                     mode: fields[0].into(),
                     oid: fields[1].into(),
                 },
-                stage: fields[2].parse().map_err(|_| "Invalid Git index stage")?,
+                stage,
             });
         }
     }
     if let Some(head) = inventory.head.clone() {
         let tree = git.required(
-            &["ls-tree", "-r", "-l", "-z", "--full-tree", &head],
+            &["ls-tree", "-r", "-l", "-z", &head],
             None,
             limits.inventory_bytes,
         )?;
         inventory.complete &= !tree.truncated;
         for record in complete_records(&tree.bytes) {
             let (header, path) = split_record(record)?;
+            let Some(path) = inventory_source_path(repository, path)? else {
+                continue;
+            };
             let fields = ascii_fields(header)?;
             if fields.len() != 4 || !valid_oid(fields[2]) {
                 return Err("Invalid Git tree record".into());
             }
-            if let Some(entry) = bounded_entry(&mut inventory, relative_path(path)?, limits.files) {
+            if let Some(entry) = bounded_entry(&mut inventory, path, limits.files) {
+                if entry.head.is_some() {
+                    return Err(
+                        "Distinct Git tree names resolve to one native source identity".into(),
+                    );
+                }
                 entry.head = Some(ObjectIdentity {
                     mode: fields[0].into(),
                     oid: fields[2].into(),
@@ -710,8 +981,13 @@ fn inventory(git: &Git<'_>, limits: Limits) -> Result<Inventory, String> {
     )?;
     inventory.complete &= !untracked.truncated;
     for path in complete_records(&untracked.bytes) {
-        if let Some(entry) = bounded_entry(&mut inventory, relative_path(path)?, limits.files) {
-            entry.untracked = true;
+        let Some(path) = inventory_source_path(repository, path)? else {
+            continue;
+        };
+        if let Some(entry) = bounded_entry(&mut inventory, path, limits.files) {
+            // Git's raw working-tree spelling can alias its tracked precomposed
+            // spelling on macOS; that is one tracked file, not an addition.
+            entry.untracked = entry.head.is_none() && entry.index.is_empty();
         }
     }
     Ok(inventory)
@@ -1032,7 +1308,7 @@ fn capture_file(
         bytes: None,
         stamp: None,
     };
-    match read_file(root, path, remaining, git, limits) {
+    match read_file(root, path, remaining, git.stopped, git.deadline, limits) {
         Ok(captured) => captured,
         Err(reason) => unavailable(reason),
     }
@@ -1042,10 +1318,11 @@ fn read_file(
     root: &Path,
     path: &Path,
     remaining: &mut usize,
-    git: &Git<'_>,
+    stopped: &AtomicBool,
+    deadline: Instant,
     limits: Limits,
 ) -> Result<FileCapture, String> {
-    git.check_deadline()?;
+    check_scan(stopped, deadline)?;
     validate_ancestors(root, path)?;
     let full = root.join(path);
     let before = match fs::symlink_metadata(&full) {
@@ -1103,7 +1380,7 @@ fn read_file(
     let mut buffer = [0; 8192];
     let mut binary = false;
     loop {
-        git.check_deadline()?;
+        check_scan(stopped, deadline)?;
         let count = file.read(&mut buffer).map_err(|e| e.to_string())?;
         if count == 0 {
             break;
@@ -1145,6 +1422,17 @@ fn read_file(
     })
 }
 
+fn has_git_marker(root: &Path) -> Result<bool, String> {
+    for ancestor in root.ancestors() {
+        match fs::symlink_metadata(ancestor.join(".git")) {
+            Ok(_) => return Ok(true),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("Cannot inspect project Git boundary: {error}")),
+        }
+    }
+    Ok(false)
+}
+
 /// Rechecks current Git ignore/inventory membership, rather than trusting a stale
 /// catalogue after an ignore-file edit. The path is literal, never a pathspec.
 pub(crate) fn source_visible(
@@ -1152,7 +1440,13 @@ pub(crate) fn source_visible(
     relative: &Path,
     stopped: &AtomicBool,
 ) -> Result<bool, String> {
+    super::context::validate_project_root(root)?;
     let path = source_path(relative)?;
+    if !has_git_marker(root)? {
+        validate_ancestors(root, relative)?;
+        return Ok(fs::symlink_metadata(root.join(relative))
+            .is_ok_and(|metadata| metadata.is_file() && !link_or_reparse(&metadata)));
+    }
     // Git's inventory uses '/' even when the native Windows identity uses '\'.
     // Keep stored identities untouched; translate only the Git query boundary.
     #[cfg(windows)]
@@ -1163,10 +1457,13 @@ pub(crate) fn source_visible(
     };
     #[cfg(windows)]
     let path: &str = &git_path;
+    #[cfg(target_os = "macos")]
+    if !path.is_ascii() {
+        return Ok(source_paths(root, stopped)?.is_some_and(|paths| paths.contains(relative)));
+    }
     let git = Git::new(root, stopped, Instant::now() + COMMAND_TIMEOUT)?;
     let captured = git.required(
         &[
-            "--literal-pathspecs",
             "ls-files",
             "--cached",
             "--others",
@@ -1190,17 +1487,13 @@ pub(crate) fn source_paths(
     root: &Path,
     stopped: &AtomicBool,
 ) -> Result<Option<BTreeSet<PathBuf>>, String> {
-    if !root
-        .ancestors()
-        .any(|ancestor| fs::symlink_metadata(ancestor.join(".git")).is_ok())
-    {
+    super::context::validate_project_root(root)?;
+    if !has_git_marker(root)? {
         return Ok(None);
     }
     let git = Git::new(root, stopped, Instant::now() + COMMAND_TIMEOUT)?;
     let output = git.required(
         &[
-            "-c",
-            "core.precomposeunicode=false",
             "ls-files",
             "--cached",
             "--others",
@@ -1216,7 +1509,7 @@ pub(crate) fn source_paths(
         return Err("Source filename inventory exceeds 512 KiB; select a smaller project".into());
     }
     complete_records(&output.bytes)
-        .map(relative_path)
+        .map(|bytes| inventory_path(root, relative_path(bytes)?))
         .collect::<Result<BTreeSet<_>, _>>()
         .map(Some)
 }
@@ -1243,6 +1536,7 @@ pub(crate) fn read_source(
     max_bytes: usize,
     stopped: &AtomicBool,
 ) -> Result<(Vec<u8>, [u8; 32]), String> {
+    super::context::validate_project_root(root)?;
     source_path(relative)?;
     let before = fs::symlink_metadata(root).map_err(|error| error.to_string())?;
     if !before.is_dir()
@@ -1252,13 +1546,13 @@ pub(crate) fn read_source(
         return Err("Repository root is linked or no longer canonical".into());
     }
     let stamp = Stamp::from(&before);
-    let git = Git::new(root, stopped, Instant::now() + COMMAND_TIMEOUT)?;
+    let deadline = Instant::now() + COMMAND_TIMEOUT;
     let limits = Limits {
         file_bytes: max_bytes,
         ..Limits::default()
     };
     let mut remaining = max_bytes;
-    let captured = read_file(root, relative, &mut remaining, &git, limits)?;
+    let captured = read_file(root, relative, &mut remaining, stopped, deadline, limits)?;
     let after = fs::symlink_metadata(root).map_err(|error| error.to_string())?;
     if !stamp.same_node(&Stamp::from(&after))
         || link_or_reparse(&after)
@@ -1272,15 +1566,121 @@ pub(crate) fn read_source(
     }
 }
 
+fn check_scan(stopped: &AtomicBool, deadline: Instant) -> Result<(), String> {
+    if stopped.load(Ordering::Relaxed) {
+        Err("Project inspection cancelled".into())
+    } else if Instant::now() >= deadline {
+        Err("Project inspection exceeded its deadline".into())
+    } else {
+        Ok(())
+    }
+}
+
+/// A bounded source catalogue, not Git or verification evidence. Credential paths
+/// are pruned before traversal; file reads use the same no-follow handle guard.
+fn capture_directory(
+    repository: &RepositoryIdentity,
+    stopped: &AtomicBool,
+    deadline: Instant,
+    limits: Limits,
+) -> Result<Snapshot, String> {
+    let root = &repository.root;
+    let mut pending = vec![PathBuf::new()];
+    let mut files = BTreeMap::new();
+    let mut remaining = limits.total_file_bytes;
+    let mut entries = 0usize;
+    let mut names = 0usize;
+    let mut warnings = vec![
+        "Filesystem-only project: bounded source catalogue; Git diff and verification fingerprints are unavailable.".into(),
+    ];
+    'walk: while let Some(directory) = pending.pop() {
+        check_scan(stopped, deadline)?;
+        let full = root.join(&directory);
+        let metadata = fs::symlink_metadata(&full).map_err(|error| error.to_string())?;
+        if link_or_reparse(&metadata)
+            || !metadata.is_dir()
+            || fs::canonicalize(&full).map_err(|error| error.to_string())? != full
+        {
+            return Err("Project directory changed or became linked during capture".into());
+        }
+        for entry in fs::read_dir(&full).map_err(|error| error.to_string())? {
+            check_scan(stopped, deadline)?;
+            let entry = entry.map_err(|error| error.to_string())?;
+            let relative = directory.join(entry.file_name());
+            entries += 1;
+            names = names.saturating_add(relative.as_os_str().as_encoded_bytes().len());
+            if entries > limits.files || names > limits.inventory_bytes {
+                warnings.push(
+                    "Filesystem catalogue reached its entry/path bound; omitted paths are unknown."
+                        .into(),
+                );
+                break 'walk;
+            }
+            if repository.excludes_source(&relative)
+                || super::context::excluded(&relative, &[])
+                || relative
+                    .to_str()
+                    .is_none_or(|path| super::privacy::redact(path) != path)
+            {
+                continue;
+            }
+            let metadata = fs::symlink_metadata(entry.path()).map_err(|error| error.to_string())?;
+            if link_or_reparse(&metadata) {
+                continue;
+            }
+            if metadata.is_dir() {
+                if relative.components().count() < 64 {
+                    pending.push(relative);
+                } else {
+                    warnings.push("Filesystem catalogue directory-depth bound reached.".into());
+                }
+                continue;
+            }
+            if !metadata.is_file() {
+                continue;
+            }
+            let state = match read_file(root, &relative, &mut remaining, stopped, deadline, limits)
+            {
+                Ok(capture) => capture.state,
+                Err(reason) => FileState::Unavailable { reason },
+            };
+            files.insert(
+                relative.clone(),
+                FileIdentity {
+                    path: relative,
+                    tracked: false,
+                    head: None,
+                    index: Vec::new(),
+                    state,
+                    dirty: None,
+                },
+            );
+        }
+    }
+    Ok(Snapshot {
+        head: None,
+        files,
+        working_diff: WorkingDiff {
+            unavailable: Some(
+                "No Git working tree; filesystem sources are not diff evidence.".into(),
+            ),
+            ..WorkingDiff::default()
+        },
+        complete: false,
+        stable: false,
+        warnings,
+    })
+}
+
 fn capture(
     repository: &RepositoryIdentity,
     git: &Git<'_>,
     limits: Limits,
 ) -> Result<Snapshot, String> {
-    let before = inventory(git, limits)?;
+    let before = inventory(git, limits, repository)?;
     let mut diff = DiffBuilder::new(limits.diff_bytes);
     diff.push("Raw HEAD → working tree diff; no filters/textconv. Index identities are recorded separately.\n");
-    let mut warnings = vec!["Ignored untracked files and submodule contents are outside coverage. Observations are not an atomic snapshot.".into()];
+    let mut warnings = vec!["Ignored untracked files, submodule contents and application storage are outside coverage. Observations are not an atomic snapshot.".into()];
     let objects = match head_objects(git, &before, limits) {
         Ok(objects) => objects,
         Err(reason) => {
@@ -1327,7 +1727,7 @@ fn capture(
             },
         );
     }
-    let after = inventory(git, limits)?;
+    let after = inventory(git, limits, repository)?;
     let mut stable = before == after;
     for (path, stamp) in stamps {
         let now = validate_ancestors(&repository.root, &path).and_then(|()| {

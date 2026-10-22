@@ -34,7 +34,9 @@ fn report(revision: u8, dirty: bool) -> Arc<repo::Report> {
     Arc::new(repo::Report {
         repository: repo::RepositoryIdentity {
             root: PathBuf::from("/fixture"),
-            git_dir: PathBuf::from("/fixture/.git"),
+            git_root: Some(PathBuf::from("/fixture")),
+            git_dir: Some(PathBuf::from("/fixture/.git")),
+            storage_root: None,
         },
         baseline: snapshot.clone(),
         current: snapshot,
@@ -75,7 +77,7 @@ fn app() -> App {
 
 // Explicit persisted-journal fixtures, not claims that a process was executed.
 fn run(app: &App, id: &str, start: u64) -> runner::RunRecord {
-    let current = execution::fingerprint(app.repository.as_deref().unwrap());
+    let current = repo::fingerprint(app.repository.as_deref().unwrap());
     let prepared = runner::Prepared {
         approval_arrival: crate::providers::approval_arrival(),
         request_id: format!("request-{id}"),
@@ -400,7 +402,7 @@ impl Drop for SourceFixture {
 }
 
 fn reviewed(app: &mut App) {
-    let current = execution::fingerprint(app.repository.as_deref().unwrap());
+    let current = repo::fingerprint(app.repository.as_deref().unwrap());
     let view = workflows::EvidenceView {
         task_id: app.task_id,
         excerpts: &app.sources.basket,

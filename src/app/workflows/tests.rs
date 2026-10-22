@@ -245,7 +245,9 @@ impl LocalSourceFixture {
         crate::workspace::repo::Report {
             repository: crate::workspace::repo::RepositoryIdentity {
                 root: self.0.clone(),
-                git_dir: self.0.join(".git"),
+                git_root: Some(self.0.clone()),
+                git_dir: Some(self.0.join(".git")),
+                storage_root: None,
             },
             baseline: snapshot.clone(),
             current: snapshot,

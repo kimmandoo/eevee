@@ -41,11 +41,7 @@ impl App {
             self.notice = "Resolve retained operations or provider outcome before preparing /init; drafts kept.".into();
             return;
         }
-        let project = self
-            .repository
-            .as_ref()
-            .map(|report| report.repository.root.to_string_lossy())
-            .unwrap_or_else(|| std::borrow::Cow::Borrowed(self.cwd.as_str()));
+        let project = self.cwd.as_str();
         let request = format!(
             "Prepare a project-initialization proposal for the current project at {project:?}.\n\n\
              Inspect the repository before making claims: identify its structure, languages, existing project guidance (including any AGENTS.md), coding conventions, and documented build, test, lint and formatting commands. Cite the files supporting your findings; label unknowns and do not invent commands or results. Do not run build/test commands just to prepare this guide.\n\n\

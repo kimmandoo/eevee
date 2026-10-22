@@ -121,7 +121,10 @@ def run(binary, output, root, size, ascii_mode, protocol, language):
             preview_rows = journey.session.display().splitlines()
             assert any(label in '\n'.join(preview_rows) for label in ('[FILE]', '[파일]')), 'file preview lacked explicit file identity'
             marker = 'STREAM_STAGE_ONE' if protocol != 'gemini' else 'STREAM_STAGE_TWO'
-            assert any(line.lstrip().startswith('| ') and marker in line for line in preview_rows), 'generated source looked like ordinary prose'
+            code_rows = [line.lstrip() for line in preview_rows if marker in line]
+            assert any(line.startswith(('| ', '> ')) for line in code_rows), 'generated source looked like ordinary prose'
+            if protocol != 'gemini':
+                assert any(line.startswith('> ') for line in code_rows), 'actual arriving code lacked its writing-edge indicator'
             if protocol != 'gemini':
                 assert 'STREAM_STAGE_TWO' not in journey.session.display(), 'fixture delivered later code before the first gate'
             journey.capture('live-code-before-complete-input')

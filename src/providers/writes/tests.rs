@@ -14,7 +14,7 @@ pub(super) fn after_leaf_write() {
     }
 }
 
-fn on_after_leaf_write(hook: impl FnOnce() + 'static) {
+pub(super) fn on_after_leaf_write(hook: impl FnOnce() + 'static) {
     AFTER_LEAF_WRITE.with(|slot| {
         assert!(slot.borrow_mut().replace(Box::new(hook)).is_none());
     });
@@ -57,6 +57,39 @@ impl Drop for Project {
     fn drop(&mut self) {
         std::fs::remove_dir_all(&self.root).unwrap();
     }
+}
+
+#[test]
+fn launching_inside_protected_directories_cannot_create_read_or_write_authority() {
+    let project = Project::new();
+    for private in [
+        ".codex",
+        ".claude",
+        ".gemini",
+        ".opencode",
+        ".ssh",
+        "secrets",
+    ] {
+        let nested = project.root.join(private).join("nested");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("opaque.txt"), b"unrecognizable private bytes").unwrap();
+        assert!(WriteSet::capture_workspace(&nested, &project.data, &[]).is_err());
+        assert!(WriteSet::capture_readonly(&nested, &project.data, &[]).is_err());
+        assert_eq!(
+            std::fs::read(nested.join("opaque.txt")).unwrap(),
+            b"unrecognizable private bytes"
+        );
+    }
+    let mut allowed = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    std::fs::write(project.root.join("public.txt"), b"public bytes").unwrap();
+    let result = allowed
+        .observe_tool(&FileTool::Read {
+            path: "public.txt".into(),
+            start_line: 1,
+            end_line: 0,
+        })
+        .unwrap();
+    assert_eq!(result["content"], "public bytes");
 }
 
 #[test]

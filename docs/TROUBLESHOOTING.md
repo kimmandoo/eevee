@@ -1,5 +1,54 @@
 # Troubleshooting
 
+### [2026-10-23] Runtime drivers confused visible surfaces and newly introduced empty tables
+
+- **Context / Symptom:** The root journey could not see the beginning of the long `/init` draft. ACP journeys reported missing file identity while their captures showed an exact file approval, not the transcript. Schema16→18 reported `Migration rewrote retained evidence`.
+- **Root Cause:** The initialized request's caret correctly left its first line above the viewport. After deferring an approval, `/response` deliberately reopened its pending Planning review; a source-text-only predicate matched the consent excerpt. Migration comparison treated an absent predecessor held table as different from a newly created empty table; retained rows were unchanged.
+- **Solution:** Observed `/init`'s existing preparation acknowledgment and captured its read-only proposal. Stayed on the inline transcript after ACP deferral, required typed code outside consent and verified that navigation sent no decision or file effect. Canonicalized absent optional held/ribbon tables to empty snapshots while retaining exact row comparison and genuine old-writer byte-preservation checks.
+- **Verification:** Actual three-project source journeys, all 24 bilingual ACP journeys and both genuine Schema16/17→18 preservation/refusal/resume paths passed with the same frozen executable. Kept the first-failure captures; no product approval or migration guard was weakened.
+
+### [2026-10-23] Project-local application data was eligible as ordinary source context
+
+- **Context / Symptom:** Boundary review traced custom `--data-dir ./local-data` retained text outputs into ordinary source browsing and explicit attachment. Existing held-item persistence and file tools protected storage, but ordinary context did not. This required explicit attachment, not automatic upload.
+- **Root Cause:** Source inventory, capture and ordinary attachment admission used relative exclusions without the application's absolute storage boundary. Launching at or below the data directory could not be protected with a relative prefix alone.
+- **Solution:** Froze canonical storage identity in internal repository/context policy, pruned it before traversal and content reads, and checked native Git path resolution again before reading objects. Refused new private-storage pins and previously committed private-storage attachments at shared provider admission. Preserved historical rows and retained bytes; moved ordinary test source fixtures out of their private store directories.
+- **Prevention / Reference:** Regressions cover equal/ancestor/aliased storage roots, untouched retained output, valid public-source recovery and genuine legacy attachment admission. The actual project-scope driver filters private output to zero eligible sources before capturing the public source.
+
+### [2026-10-23] Native Git filenames duplicated a decomposed macOS source
+
+- **Context / Symptom:** The literal nested-project regression returned two changes for one Unicode source when Git and the filesystem represented its name differently.
+- **Root Cause:** Git's precomposed index spelling and the working tree's native decomposed spelling were treated as different source identities. Metacharacters in a nested cwd also required literal Git pathspec treatment.
+- **Solution:** Resolved admitted Git names to the native opened-handle path on macOS, retained original object identities for baseline content, and used literal scoped Git pathspecs. Checked protected-storage boundaries before and after native resolution without normalizing Unicode or case-folding filesystem identity.
+- **Prevention / Reference:** The full Rust suite passed the literal metacharacter/Unicode project regression and protected-storage boundary cases.
+
+### [2026-10-23] SDK known refusals and inaccessible descendants blocked recovery
+
+- **Context / Symptom:** Integration review traced a known pre-execution source/write refusal into a fatal unknown result when the SDK later returned its ordinary error. Host discovery could also lose all safe sibling results because one descendant directory could not be enumerated.
+- **Root Cause:** The result ledger recorded user denials only after successful enrollment, omitting mandatory-hook/early callback refusals. Directory traversal caught no per-descendant permission errors.
+- **Solution:** Added an exact bounded pre-execution refusal ledger accepting only its matching nonreplayed error result, without overwriting approved/possibly partial effects. Discovery skips EACCES/EPERM descendants with incomplete coverage while preserving requested-root/identity failures. Also preserved built-in protected-directory checks across canonical root ancestors, so launching inside a private store cannot erase its protected path prefix.
+- **Verification:** All 44 sidecar policy/actual production-IPC cases passed, including refusal-result recovery into real valid create/edit, known failed versus partial effects, real inaccessible-directory glob/grep recovery and protected-root no-dispatch. No account/model call was made.
+
+### [2026-10-23] Nested launches widened context and changed exclusion meaning
+
+- **Context / Symptom:** The actual preceding binary launched in a nested Unicode/metacharacter folder showed three source candidates instead of the one project-local allowed file: its own configured-excluded file, the current source with a parent-relative prefix, and a sibling project's file. Retained RED evidence is `target/project-scope-before`.
+- **Root Cause:** Tasks and file tools used canonical invocation cwd, while repository observation promoted context inventory to Git toplevel. The same relative exclusion then referred to a different physical location; initialization and some diagnostic/rerun paths also reused the wrong root.
+- **Solution:** Kept canonical launch-folder identity as the project, separated optional enclosing Git metadata, scoped inventory/diffs and exclusions to project-relative paths, and retained bounded filesystem browsing without inventing Git evidence in plain folders. Historical enclosing-root captures remain unchanged and stale; request admission refuses mismatched report/capture roots instead of rebasing them. Kept exact cwd identity separate from escaped UI labels.
+- **Prevention / Reference:** `scripts/project_scope_smoke.py` exercises actual nested/plain-folder capture, initialization and canonical/control-character identity. Source/dispatch regressions cover literal paths, sibling exclusion and historical scope refusal.
+
+### [2026-10-23] Compact milestone inspector buried its original evidence
+
+- **Context / Symptom:** The actual 60×18 milestone journey displayed only disclosure and event-list text before the fixed controls. The selected original source could not be identified on the first page; a rendered first-screen evidence regression failed in both-language coverage.
+- **Root Cause:** The inspector rendered its long disclaimer and all three event headings before the selected receipt's evidence identity. Scrolling worked, but initial inspection prioritized explanation over facts.
+- **Solution:** Rendered the selected factual event and original artifact/move identity first, then ownership, freshness and supporting detail, with other event headings and the full disclosure below. Kept paging and fixed controls. Updated the common smoke driver's known non-consent drawers so returning from the ordinary evidence inspector through its existing Ribbons return frame was handled without dismissing an unknown dialog.
+- **Prevention / Reference:** `compact_ribbon_inspection_shows_original_evidence_without_paging` protects minimum-size original-source visibility; the paging regression separately covers every retained evidence row.
+
+### [2026-10-23] Milestone harness confused path aliases, restored inspection and durable acknowledgment
+
+- **Context / Symptom:** A new milestone journey reported `actual handoff receipt did not commit` despite a successful actual export; the retained read-only database capture contained that exact receipt. The Schema17 migration journey could not see its goal behind the restored approved-memory sheet. An existing workflow journey observed `Recorded Accept` before its database row changed.
+- **Root Cause:** The new fixture used Darwin's `/var` spelling while durable project ownership was canonical `/private/var`, so an exact-identity filter hid real rows. Migration correctly restored the predecessor's memory-inspection navigation. The accepted-review notice described local reducer state, not the single writer's eventual commit acknowledgment.
+- **Solution:** Canonicalized the disposable fixture root like the existing records driver, without weakening product path identity. Bound export proof to the exact compact-document digest and revision. Captured and closed only the known committed non-consent memory inspector before checking preserved goal data. Changed workflow acceptance to wait for the real committed review rather than treating a visible notice as persistence proof.
+- **Prevention / Reference:** Keep actual database identity, navigational occlusion and committed acknowledgment separate. Preserve failed terminal/SQLite captures and genuine predecessor binaries; never synthesize a schema or insert fixture milestone rows.
+
 ### [2026-10-23] Held configuration was inspectable but absent from the compact workspace
 
 - **Context / Symptom:** Actual 60×18 captures showed no saved/proposed item in the normal workspace even though `/held` correctly showed the configuration and frozen receipt. A targeted rendered regression also showed the old strip had a status but no file identity, and dismissal left that strip painted.

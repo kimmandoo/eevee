@@ -1644,3 +1644,6 @@ fn legacy_handoff_without_typed_revision_remains_unknown_despite_retained_detail
     assert_eq!(receipt.artifact.handoff_revision, None);
     assert_eq!(receipt.freshness, Freshness::Ambiguous);
 }
+
+#[path = "ribbons_tests.rs"]
+mod ribbons;

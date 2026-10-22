@@ -229,9 +229,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=17).contains(&version) {
+    if !(0..=18).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0 through 17"
+            "Unsupported database schema version {version}; this ev supports versions 0 through 18"
         ));
     }
     let mut statement = connection
@@ -384,8 +384,15 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
         {
             Schema::Current
         }
-        (15..=17, objects)
-            if objects.len() == (if version >= 17 { 28 } else { 27 })
+        (15..=18, objects)
+            if objects.len()
+                == (if version >= 18 {
+                    29
+                } else if version >= 17 {
+                    28
+                } else {
+                    27
+                })
                 && objects
                     .iter()
                     .zip(
@@ -416,11 +423,15 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
                             "provider_preferences",
                             "provider_usage",
                             "provider_usage_events",
+                            "ribbons",
                             "selections",
                             "tasks",
                         ]
                         .into_iter()
-                        .filter(|name| version >= 17 || *name != "held_items"),
+                        .filter(|name| {
+                            (version >= 17 || *name != "held_items")
+                                && (version >= 18 || *name != "ribbons")
+                        }),
                     )
                     .all(|((kind, name), expected)| kind == "table" && name == expected) =>
         {
@@ -606,6 +617,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
             if version >= 17 {
                 super::held::inspect(connection)?;
             }
+            if version >= 18 {
+                super::ribbons::inspect(connection)?;
+            }
             return Ok(schema);
         }
     };
@@ -727,6 +741,9 @@ pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), Str
     }
     if version < 17 {
         super::held::migrate(connection)?;
+    }
+    if version < 18 {
+        super::ribbons::migrate(connection)?;
     }
     Ok(())
 }

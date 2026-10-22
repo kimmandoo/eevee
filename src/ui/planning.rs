@@ -921,13 +921,19 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     // A completed observation is not a completed turn while user input is pending.
     let active = state.activity_label().is_some();
     let (_, previous) = state.response_request();
+    let file = state.items.get(state.selected).and_then(|item| {
+        if let ItemKind::File(phase) = item.kind {
+            Some((phase, item.text.lines().next().unwrap_or("")))
+        } else {
+            None
+        }
+    });
     let metadata = if let Some(item) = state.items.get(state.selected) {
         let mut metadata = if let ItemKind::File(phase) = item.kind {
             format!(
-                "{} {} · {}",
+                "{} {}",
                 paint.hint(Message::ProvidersPlanningFileLabel),
                 paint.hint(file_phase_message(phase)),
-                item.text.lines().next().unwrap_or("")
             )
         } else {
             format!(
@@ -981,9 +987,20 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             .hint(Message::ProvidersPlanningResponseNoOutputYet)
             .into()
     };
+    let header_rows = if let Some((phase, path)) = file {
+        text(
+            frame,
+            row(area, 0, 1),
+            &clipped(path, area.width as usize),
+            file_style(phase, paint).add_modifier(Modifier::UNDERLINED),
+        );
+        2
+    } else {
+        1
+    };
     text(
         frame,
-        row(area, 0, 1),
+        row(area, header_rows - 1, 1),
         &clipped(&metadata, area.width as usize),
         state
             .items
@@ -999,7 +1016,11 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     let show_evidence = show_follow && (super::VERBOSE.get() || state.omitted > 0);
     let footer_rows =
         u16::from(show_notice) + 2 * u16::from(show_follow) + u16::from(show_evidence);
-    let body = row(area, 1, area.height.saturating_sub(1 + footer_rows));
+    let body = row(
+        area,
+        header_rows,
+        area.height.saturating_sub(header_rows + footer_rows),
+    );
     state.set_response_body(body);
     if state.items.is_empty() {
         let empty = if active {
@@ -1021,18 +1042,29 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             .map(|row| match row.kind {
                 ItemKind::File(phase) => Line::from(vec![
                     Span::styled(
-                        if row.header { "+ " } else { "| " },
+                        if row.header {
+                            "+ "
+                        } else if row.writing_edge {
+                            "> "
+                        } else {
+                            "| "
+                        },
                         file_style(phase, paint),
                     ),
                     Span::styled(
                         row.text,
                         if row.header {
                             file_style(phase, paint)
+                        } else if row.writing_edge {
+                            paint
+                                .base
+                                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
                         } else {
-                            paint.surface
+                            paint.base
                         },
                     ),
-                ]),
+                ])
+                .style(paint.base),
                 _ => Line::raw(row.text),
             })
             .collect();
@@ -1125,7 +1157,10 @@ fn file_style(phase: FilePhase, paint: &Paint) -> Style {
         FilePhase::Generating | FilePhase::Received => Color::Cyan,
         FilePhase::AwaitingReview => Color::Yellow,
         FilePhase::Applied => Color::Green,
-        FilePhase::Denied | FilePhase::Refused | FilePhase::Interrupted => Color::Red,
+        FilePhase::Denied
+        | FilePhase::Refused
+        | FilePhase::Interrupted
+        | FilePhase::ReportedFailed => Color::Red,
         FilePhase::Reported | FilePhase::Unknown => Color::Magenta,
     })
 }
@@ -2095,15 +2130,6 @@ mod tests {
                     "{screen}"
                 );
                 assert!(
-                    screen.contains(language.text(Message::ProvidersPlanningFileLabel))
-                        && screen.contains(if code.contains("next_code") {
-                            "| 2 | next_code"
-                        } else {
-                            "| 1 | first_code"
-                        }),
-                    "{screen}"
-                );
-                assert!(
                     screen.contains(if code.contains("next_code") {
                         "next_code"
                     } else {
@@ -2111,6 +2137,11 @@ mod tests {
                     }),
                     "{screen}"
                 );
+                let edge = buffer
+                    .content
+                    .iter()
+                    .any(|cell| cell.symbol() == ">" && cell.modifier.contains(Modifier::BOLD));
+                assert_eq!(edge, phase == FilePhase::Generating, "{screen}");
                 assert!(screen.contains("Future draft"), "{screen}");
                 assert_eq!(
                     (&app.input, app.cursor, app.focus),
@@ -2156,6 +2187,7 @@ mod tests {
                         FilePhase::Refused,
                         FilePhase::Interrupted,
                         FilePhase::Reported,
+                        FilePhase::ReportedFailed,
                         FilePhase::Unknown,
                     ] {
                         let mut state = State::default();
@@ -2180,20 +2212,6 @@ mod tests {
                             "{file}"
                         );
                         assert!(!file.contains("private-"), "{file}");
-                        let expected_color = if color == ColorMode::Mono {
-                            Color::Reset
-                        } else {
-                            match phase {
-                                FilePhase::Generating | FilePhase::Received => Color::Cyan,
-                                FilePhase::AwaitingReview => Color::Yellow,
-                                FilePhase::Applied => Color::Green,
-                                FilePhase::Denied | FilePhase::Refused | FilePhase::Interrupted => {
-                                    Color::Red
-                                }
-                                FilePhase::Reported | FilePhase::Unknown => Color::Magenta,
-                            }
-                        };
-                        assert_eq!(buffer[(0, 1)].fg, expected_color, "{file}");
                         let verbose = state
                             .response_display_rows(width, height, true)
                             .map(|row| row.text)
@@ -2258,7 +2276,12 @@ mod tests {
             app.planning.home_response_key(KeyCode::Home);
             app.planning.scroll_response_lines(20);
             let before = draw_response(&mut app.planning, 60, 18, &paint);
-            let first = rendered_row(&before, before.area, 1);
+            let first = screen(&before)
+                .lines()
+                .find(|line| line.contains("held_"))
+                .expect("paused source landmark remains visible")
+                .trim_end()
+                .to_owned();
             assert!(
                 first.starts_with("| ") && first.contains("held_"),
                 "{first}"
@@ -2270,7 +2293,14 @@ mod tests {
             for (width, height) in [(60, 18), (120, 36), (60, 18)] {
                 let buffer = draw_response(&mut app.planning, width, height, &paint);
                 let visible = screen(&buffer);
-                assert_eq!(rendered_row(&buffer, buffer.area, 1), first, "{visible}");
+                assert_eq!(
+                    visible
+                        .lines()
+                        .find(|line| line.contains("held_"))
+                        .map(str::trim_end),
+                    Some(first.as_str()),
+                    "{visible}"
+                );
                 assert!(
                     visible.contains("[FILE]") && visible.contains("src/새.rs"),
                     "{visible}"

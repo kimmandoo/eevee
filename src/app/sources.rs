@@ -553,35 +553,41 @@ impl State {
         task_id: i64,
         report: &Arc<repo::Report>,
         location: &crate::workspace::locations::Location,
+        run_cwd: &std::path::Path,
         run: String,
     ) -> Result<(), String> {
         if self.busy() || self.store_failed {
             return Err("Finish or retry the pending context operation first.".into());
         }
         let path = std::path::Path::new(&location.path);
-        let relative = if path.is_absolute() {
-            path.strip_prefix(&report.repository.root)
-                .map_err(|_| "Location is outside the current repository root.")?
-        } else {
+        let absolute;
+        let path = if path.is_absolute() {
             path
+        } else {
+            if !run_cwd.is_absolute() || !run_cwd.starts_with(&report.repository.root) {
+                return Err("The diagnostic run directory is outside the current project.".into());
+            }
+            absolute = run_cwd.join(path);
+            &absolute
         };
-        if location.line == 0
-            || relative.as_os_str().is_empty()
-            || !relative.components().all(|part| {
-                matches!(
-                    part,
-                    std::path::Component::Normal(_) | std::path::Component::CurDir
-                )
-            })
-        {
-            return Err(
-                "Location must name a contained repository-relative file and positive line.".into(),
-            );
+        let relative = path
+            .strip_prefix(&report.repository.root)
+            .map_err(|_| "Location is outside the current project root.")?;
+        if location.line == 0 || location.path.len() > 32 * 1024 {
+            return Err("Location must name a bounded contained file and positive line.".into());
         }
-        let relative: std::path::PathBuf = relative
-            .components()
-            .filter(|part| !matches!(part, std::path::Component::CurDir))
-            .collect();
+        let mut normalized = std::path::PathBuf::new();
+        for component in relative.components() {
+            match component {
+                std::path::Component::Normal(name) => normalized.push(name),
+                std::path::Component::CurDir => {}
+                std::path::Component::ParentDir if normalized.pop() => {}
+                _ => return Err("Location escapes the current project root.".into()),
+            }
+        }
+        if normalized.as_os_str().is_empty() {
+            return Err("Location must name a file inside the current project.".into());
+        }
         self.preview = None;
         self.preview_reviewed = false;
         self.return_after_attach = false;
@@ -590,7 +596,7 @@ impl State {
             task_id,
             context::Operation::Inspect {
                 report: Arc::clone(report),
-                path: relative,
+                path: normalized,
                 start_line: location.line.saturating_sub(3).max(1),
                 end_line: location.line,
             },
@@ -1163,8 +1169,8 @@ impl State {
     }
     fn file_detail(&mut self) {
         self.detail = self.files.get(self.file_selection).map(|source|
-            format!("Repository-relative path: {:?}\n{} bytes / SHA-256 bytes: {:02x?}\nEnter reviews the whole file before attaching; r chooses bounded lines; i inspects line 1. Binary, oversized, credential and excluded paths remain ineligible.", source.path, source.bytes, source.sha256))
-            .unwrap_or_else(|| "No eligible files match this filename filter. s edits the filter; /refresh refreshes repository evidence.".into());
+            format!("Project-relative path: {:?}\n{} bytes / SHA-256 bytes: {:02x?}\nEnter reviews the whole file before attaching; r chooses bounded lines; i inspects line 1. Binary, oversized, credential and excluded paths remain ineligible.", source.path, source.bytes, source.sha256))
+            .unwrap_or_else(|| "No eligible files match this filename filter. s edits the filter; /refresh refreshes project source evidence.".into());
     }
     fn basket_detail(&mut self) {
         self.detail = self
@@ -1550,7 +1556,9 @@ mod tests {
         let report = Arc::new(repo::Report {
             repository: repo::RepositoryIdentity {
                 root: "/workspace".into(),
-                git_dir: "/workspace/.git".into(),
+                git_root: Some("/workspace".into()),
+                git_dir: Some("/workspace/.git".into()),
+                storage_root: None,
             },
             baseline: Arc::clone(&snapshot),
             current: snapshot,
@@ -1590,5 +1598,116 @@ mod tests {
             &state.pending_store.as_ref().unwrap().operation,
             store::ContextOperation::Pin(_)
         ));
+    }
+
+    #[test]
+    fn diagnostics_resolve_against_actual_run_directory_with_project_containment() {
+        let enclosing = std::env::temp_dir().join("ev-diagnostic-scope");
+        let project = enclosing.join("project");
+        let snapshot = Arc::new(repo::Snapshot {
+            head: None,
+            files: Default::default(),
+            working_diff: Default::default(),
+            complete: false,
+            stable: false,
+            warnings: Vec::new(),
+        });
+        let report = Arc::new(repo::Report {
+            repository: repo::RepositoryIdentity {
+                root: project.clone(),
+                git_root: Some(enclosing.clone()),
+                git_dir: Some(enclosing.join(".git")),
+                storage_root: None,
+            },
+            baseline: Arc::clone(&snapshot),
+            current: snapshot,
+            changes: Vec::new(),
+            initial: true,
+        });
+        let location = crate::workspace::locations::Location {
+            path: "src/current.rs".into(),
+            line: 4,
+            column: Some(1),
+        };
+        let mut state = State::default();
+        state
+            .inspect_location(
+                7,
+                &report,
+                &location,
+                &project.join("subdir"),
+                "r-test-run".into(),
+            )
+            .unwrap();
+        let context::Operation::Inspect {
+            path,
+            start_line,
+            end_line,
+            ..
+        } = &state.pending.as_ref().unwrap().operation
+        else {
+            panic!("expected diagnostic capture");
+        };
+        assert_eq!(path, std::path::Path::new("subdir/src/current.rs"));
+        assert_eq!((*start_line, *end_line), (1, 4));
+        let mut state = State::default();
+        let parent_relative = crate::workspace::locations::Location {
+            path: "../src/main.c".into(),
+            line: 12,
+            column: Some(3),
+        };
+        state
+            .inspect_location(
+                7,
+                &report,
+                &parent_relative,
+                &project.join("build"),
+                "r-test-run".into(),
+            )
+            .unwrap();
+        let context::Operation::Inspect { path, .. } = &state.pending.as_ref().unwrap().operation
+        else {
+            panic!("expected contained parent-relative diagnostic capture");
+        };
+        assert_eq!(path, std::path::Path::new("src/main.c"));
+        let mut state = State::default();
+        let escaping = crate::workspace::locations::Location {
+            path: "../../sibling/main.c".into(),
+            ..parent_relative
+        };
+        assert!(
+            state
+                .inspect_location(
+                    7,
+                    &report,
+                    &escaping,
+                    &project.join("build"),
+                    "r-test-run".into()
+                )
+                .is_err()
+        );
+        assert!(state.pending.is_none());
+        let mut state = State::default();
+        assert!(
+            state
+                .inspect_location(
+                    7,
+                    &report,
+                    &location,
+                    &enclosing.join("sibling"),
+                    "r-test-run".into()
+                )
+                .is_err()
+        );
+        let outside = crate::workspace::locations::Location {
+            path: enclosing.join("sibling/source.rs").to_str().unwrap().into(),
+            ..location
+        };
+        assert!(
+            state
+                .inspect_location(7, &report, &outside, &project, "r-test-run".into())
+                .is_err()
+        );
+        assert!(state.pending.is_none());
     }
 }

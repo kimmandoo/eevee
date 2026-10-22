@@ -4,9 +4,9 @@ use std::collections::VecDeque;
 use std::path::Path;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use sha2::{Digest, Sha256};
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::workspace::repo::fingerprint;
 use crate::{store, workspace::repo, workspace::runner};
 
 const LIVE_BYTES: usize = 256 * 1024;
@@ -1367,14 +1367,8 @@ impl State {
                         super::execution_relays::retained_rerun_spec(record).err()
                     }) {
                         Some(reason)
-                    } else if !self.selected_record().is_some_and(|record| {
-                        self.latest.complete
-                            && self.latest.stable
-                            && (record.revision_moving
-                                || record.after.fingerprint.is_some()
-                                    && record.after.fingerprint != self.latest.fingerprint)
-                    }) {
-                        Some("Select a stale run after refreshing source observation.")
+                    } else if self.selected_record().is_none() {
+                        Some("Select a retained run first.")
                     } else {
                         None
                     }
@@ -2140,81 +2134,6 @@ pub fn evidence_label(record: &runner::RunRecord, latest: &runner::InputSnapshot
         );
     }
     labels.join(" · ")
-}
-pub fn fingerprint(report: &repo::Report) -> runner::InputSnapshot {
-    fn part(hash: &mut Sha256, bytes: &[u8]) {
-        hash.update((bytes.len() as u64).to_le_bytes());
-        hash.update(bytes);
-    }
-    fn path(hash: &mut Sha256, path: &Path) {
-        #[cfg(unix)]
-        {
-            use std::os::unix::ffi::OsStrExt;
-            part(hash, path.as_os_str().as_bytes());
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::ffi::OsStrExt;
-            hash.update((path.as_os_str().encode_wide().count() as u64).to_le_bytes());
-            for unit in path.as_os_str().encode_wide() {
-                hash.update(unit.to_le_bytes());
-            }
-        }
-    }
-    let snapshot = &report.current;
-    let mut hash = Sha256::new();
-    part(&mut hash, b"eevee-source-v1");
-    path(&mut hash, &report.repository.root);
-    path(&mut hash, &report.repository.git_dir);
-    part(&mut hash, snapshot.head.as_deref().unwrap_or("").as_bytes());
-    let mut complete = snapshot.complete;
-    for (name, file) in &snapshot.files {
-        path(&mut hash, name);
-        if name.to_str().is_none() {
-            complete = false;
-        }
-        hash.update([u8::from(file.tracked)]);
-        if let Some(head) = &file.head {
-            hash.update([1]);
-            part(&mut hash, head.oid.as_bytes());
-            part(&mut hash, head.mode.as_bytes());
-        } else {
-            hash.update([0]);
-        }
-        hash.update((file.index.len() as u64).to_le_bytes());
-        for index in &file.index {
-            hash.update([index.stage]);
-            part(&mut hash, index.object.oid.as_bytes());
-            part(&mut hash, index.object.mode.as_bytes());
-        }
-        match &file.state {
-            repo::FileState::Regular {
-                sha256,
-                bytes,
-                binary,
-                executable,
-            } => {
-                hash.update([1, u8::from(*binary), u8::from(*executable)]);
-                hash.update(bytes.to_le_bytes());
-                hash.update(sha256);
-            }
-            repo::FileState::Symlink { target, sha256 } => {
-                hash.update([2]);
-                path(&mut hash, target);
-                hash.update(sha256);
-            }
-            repo::FileState::Missing => hash.update([3]),
-            repo::FileState::Unavailable { .. } => {
-                hash.update([4]);
-                complete = false;
-            }
-        }
-    }
-    runner::InputSnapshot {
-        fingerprint: Some(format!("{:x}", hash.finalize())),
-        complete,
-        stable: snapshot.stable,
-    }
 }
 
 #[cfg(test)]

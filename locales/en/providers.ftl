@@ -852,6 +852,8 @@ providers-planning-file-interrupted = { "Interrupted · no confirmed save" }
 
 providers-planning-file-reported = { "Reported · unverified" }
 
+providers-planning-file-reported-failed = { "Provider reported failure · inspect effects" }
+
 providers-planning-file-unknown = { "Unknown · inspect effects" }
 
 providers-planning-complete = { "complete" }

@@ -621,7 +621,10 @@ fn readonly_roles_capture_real_source_without_mutation_targets_or_writer_lease()
         .unwrap();
         let (_worker, mut input) = fixture.claimed_input(operation);
         if operation == Operation::Review {
-            input.report = Some(crate::providers::tests::repository_report(&fixture.root));
+            input.report = Some(crate::providers::tests::repository_report(
+                &fixture.root,
+                &fixture.data,
+            ));
         }
         assert!(!input.work.as_ref().unwrap().writing);
         let mut scope = capture_writes(&fixture.root, &fixture.data, &input, &[])

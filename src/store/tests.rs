@@ -2072,12 +2072,42 @@ fn prepared_run(task_id: i64, root: &Path, suffix: &str) -> crate::workspace::ru
 }
 
 #[test]
+fn ordinary_pin_refuses_application_storage_without_mutating_retained_data() {
+    let directory = Directory::new();
+    let sources = Directory::new();
+    let project = sources.0.canonicalize().unwrap();
+    let project = project.to_str().unwrap();
+    let mut store = state(&directory, project, Policy::default());
+    let task = store.save(snapshot(project, 1)).unwrap();
+    let private = directory.0.join("ev-run-retained.output");
+    fs::write(&private, b"other task private output\n").unwrap();
+    let request = |path: &Path, text: &str| ContextRequest {
+        producer: None,
+        task_id: task.id,
+        operation: ContextOperation::Pin(captured_excerpt(task.id, path, text)),
+    };
+    assert!(
+        store
+            .context(request(&private, "other task private output\n"))
+            .is_err()
+    );
+    assert_eq!(fs::read(&private).unwrap(), b"other task private output\n");
+    let public = Path::new(project).join("source.rs");
+    fs::write(&public, b"public source\n").unwrap();
+    let basket = store.context(request(&public, "public source\n")).unwrap();
+    assert_eq!(basket.len(), 1);
+    assert_eq!(basket[0].path, "source.rs");
+    assert_eq!(basket[0].text, "public source\n");
+}
+
+#[test]
 fn context_is_independent_masked_task_owned_and_purge_preserves_unavailable_metadata() {
     let directory = Directory::new();
     let mut store = state(&directory, "project", Policy::default());
     let first = store.save(snapshot("project", 1)).unwrap();
     let second = store.save(snapshot("project", 1)).unwrap();
-    let source = directory.0.join("source.rs");
+    let sources = Directory::new();
+    let source = sources.0.join("source.rs");
     fs::write(&source, "password=source-value\n").unwrap();
     let pin = |task_id| ContextRequest {
         producer: None,
@@ -2557,7 +2587,8 @@ fn excerpt_capacity_and_lowered_quota_never_evict_and_still_allow_explicit_recla
     let directory = Directory::new();
     let mut store = state(&directory, "project", Policy::default());
     let task = store.save(snapshot("project", 1)).unwrap();
-    let source = store.data_dir.join("source.rs");
+    let sources = Directory::new();
+    let source = sources.0.join("source.rs");
     fs::write(&source, "visible\n").unwrap();
     for _ in 0..crate::workspace::context::MAX_EXCERPTS {
         store
@@ -2704,7 +2735,8 @@ fn deletion_preview_lists_exact_owned_artifacts_without_mutation_and_rechecks_ac
     let directory = Directory::new();
     let mut store = state(&directory, "project", Policy::default());
     let task = store.save(snapshot("project", 1)).unwrap();
-    let source = store.data_dir.join("source.rs");
+    let sources = Directory::new();
+    let source = sources.0.join("source.rs");
     fs::write(&source, "visible\n").unwrap();
     let basket = store
         .context(ContextRequest {
@@ -2774,7 +2806,8 @@ fn planning_admission_rejects_changed_task_and_purged_context() {
     let mut store = state(&directory, "project", Policy::default());
     let saved = store.save(snapshot("project", 1)).unwrap();
     validate_planning_input(&store.data_dir, &saved, &[]).unwrap();
-    let source = directory.0.join("source.rs");
+    let sources = Directory::new();
+    let source = sources.0.join("source.rs");
     fs::write(&source, "visible\n").unwrap();
     let basket = store
         .context(ContextRequest {
@@ -4107,13 +4140,14 @@ fn schema_ten_dismissal_migration_preserves_rows_and_rolls_back_atomically() {
     original.auto_form = false;
     let task = store.save(original).unwrap();
     store.select(task.id).unwrap();
+    let sources = Directory::new();
     store
         .context(ContextRequest {
             producer: None,
             task_id: task.id,
             operation: ContextOperation::Pin(captured_excerpt(
                 task.id,
-                &directory.0.join("source.txt"),
+                &sources.0.join("source.txt"),
                 "unchanged source evidence",
             )),
         })
@@ -4508,7 +4542,8 @@ fn location_pin_requires_a_task_owned_run_and_retains_its_origin_after_reopen() 
             },
         })
         .unwrap();
-    let source = directory.0.join("source.rs");
+    let sources = Directory::new();
+    let source = sources.0.join("source.rs");
     let mut excerpt = captured_excerpt(first.id, &source, "source\n");
     excerpt.origin_run = Some(prepared.run_id.clone());
     let captured = storage
@@ -4693,7 +4728,8 @@ fn claims_guard_selected_capture_identity_and_destructive_boundaries() {
     let directory = Directory::new();
     let mut store = state(&directory, "project", Policy::default());
     let task = store.save(snapshot("project", 1)).unwrap();
-    let source = directory.0.join("source.rs");
+    let sources = Directory::new();
+    let source = sources.0.join("source.rs");
     fs::write(&source, "visible\n").unwrap();
     let basket = store
         .context(ContextRequest {
@@ -4939,6 +4975,7 @@ fn schema15_auto_form_migration_is_conservative_atomic_and_preserves_all_other_r
             "UPDATE sqlite_sequence SET seq=700 WHERE name='partners';
              ALTER TABLE partners DROP COLUMN auto_form;
              DROP TABLE held_items;
+             DROP TABLE ribbons;
              PRAGMA user_version=15;",
         )
         .unwrap();

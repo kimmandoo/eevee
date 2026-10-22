@@ -5,7 +5,7 @@ fn current_schema(connection: &Connection) -> Result<(), String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if version != 17 {
+    if version != 18 {
         return Err("Read-only request admission requires the current schema; reopen storage to migrate before reviewing".into());
     }
     inspect(connection).map(|_| ())

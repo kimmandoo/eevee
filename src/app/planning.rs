@@ -46,6 +46,7 @@ pub(crate) fn file_phase_message(phase: FilePhase) -> crate::i18n::Message {
         FilePhase::Refused => Message::ProvidersPlanningFileRefused,
         FilePhase::Interrupted => Message::ProvidersPlanningFileInterrupted,
         FilePhase::Reported => Message::ProvidersPlanningFileReported,
+        FilePhase::ReportedFailed => Message::ProvidersPlanningFileReportedFailed,
         FilePhase::Unknown => Message::ProvidersPlanningFileUnknown,
     }
 }
@@ -554,17 +555,14 @@ impl State {
     }
 
     /// Ordinary coding offers reviewed tools, not a grant to mutate files.
-    /// Explicit role choices always win; unsupported external routes stay Plan.
+    /// Explicit role choices win; external agents retain their reviewed policy boundary.
     pub fn prepare_ordinary_operation(&mut self, form: usize) {
         if self.operation_explicit || self.busy() {
             return;
         }
         let operation = match form {
-            3 | 6 => Operation::Implement,
+            0 | 3 | 6 => Operation::Implement,
             7 => Operation::Review,
-            0 if self.agent.is_direct() || matches!(self.agent, Agent::Codex | Agent::Claude) => {
-                Operation::Implement
-            }
             _ => Operation::Plan,
         };
         self.set_operation(operation);
@@ -649,7 +647,7 @@ impl State {
         self.omitted = session.omitted;
         self.submitted_request = session.submitted_request;
         self.notice = if self.agent.is_direct() && operation == Operation::Review {
-            "Independent native Review selected locally. Each request constructs fresh requirements/patch/evidence context without prior chat. No tools, source writes or resumable provider session; fixes require a deliberate implementation handoff.".into()
+            "Independent native Review selected locally. Each request constructs fresh requirements/patch/evidence context without prior chat. Bounded project read/list tools only; no source writes or resumable provider session. Fixes require a deliberate implementation handoff.".into()
         } else if operation == Operation::Review {
             "Independent Review selected locally. New always constructs fresh requirements/patch/evidence context and a separate provider session. Resume and source writes are unavailable; fixes require a deliberate implementation handoff.".into()
         } else if self.agent.is_direct() {
@@ -894,6 +892,7 @@ impl State {
                                 | FilePhase::Refused
                                 | FilePhase::Interrupted
                                 | FilePhase::Reported
+                                | FilePhase::ReportedFailed
                                 | FilePhase::Unknown
                         )
                     ))

@@ -4,6 +4,24 @@ Date: 2026-10-13
 Status: 25 of 31 tasks passed their scoped gates, including P02 and U01/L01/G01/S01/S02/S03. Schema-6 specialist, memory and recipe journeys passed all five native installed-runtime rows at `d198fa5`; all eleven build/smoke/policy jobs passed. Local real independent Codex review and measured release workloads also passed. Full A04/A06/A07 and therefore Q01/Q02/P03 remain pending on permitted Claude/Gemini authentication and their required conformance rows. The separately authorized 0.1.0 core release promotes the exact qualified packages.
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
 
+## Active request — current-folder coding and provider UX parity, then release
+
+- Complete the already implemented PK06 actual-runtime gate without dropping its source/hide/purge requirements.
+- Trace current working directory through project/task identity, repository observation, provider/session launch and all actual file tools. Keep explicit project ownership consistent for nested, non-Git and Unicode paths; never widen a project silently to its repository parent.
+- Compare every supported provider route's read/list/create/edit authority and approval/generated-file/result surfaces. Reuse shared owned tools and existing explicit consent; capability gaps must fail honestly rather than claim identical effects without enforcement.
+- Make real generated code visually distinct from prose: stable file identity and lifecycle, fast progressive display of actual received code, and clear generating/not-saved, approval and applied outcomes. Preserve continuous transcript scrolling, paused anchors and the future draft; never simulate token streaming for whole-response protocols or fabricate saved effects.
+- Implement evidence-backed project/file-operation and shallow UX fixes; exercise actual transport/PTY/filesystem cases for each affected protocol and English/Korean compact/wide surfaces. Keep live-account conformance separate and preserve original credentials/private data.
+- Update contracts, task/handoff/changelog and version, commit, qualify the exact source/native packages, publish immutable assets, and verify the downloaded release. The user's latest request authorizes this release; earlier no-release scope no longer applies.
+- Local implementation is verified on frozen v0.1.20 candidate A: canonical nested/plain/control-root and private-storage journeys, all three ACP callback routes in both sizes/languages, 44 SDK cases, generated-code/approval/scroll/native protocols and genuine Schema16/17→18 continuity. Exact-source native qualification and immutable publication/download verification remain the active release step.
+
+## Completed task — PK06 factual milestone ribbons
+
+- Selected the next ready task after PK04: PK06 needs completed PK02 and builds on G01/S01; PK03 remains blocked by UX04B.
+- Record one historical first-recorded accepted-review, verified-handoff and explicitly learned-move milestone per project, attributed to the actual producing partner and linked to authoritative retained evidence. Reuse effective review/source/run guards and actual commit paths; requested verdicts, unverified exports, previews, candidates and legacy unknown attribution never qualify.
+- Keep the feature optional factual history, not progression: no counts, streaks, scores, unlocks, automatic actions, popup or timer. Show concise summary lines and a shallow localized evidence inspector, durable individual hide/show, truthful current/stale/unavailable state, and no provider/portable-handoff metadata.
+- Schema 18 adds bounded reference receipts on the existing writer. Preserve Schema 17 data, strict admission/quota, first-only dedup and content-free purge tombstones; final project purge removes everything. Full data-directory backup remains required.
+- Passed all 24 English/Korean 120×36/60×18 actual milestone groups, rejected unverified sources, exact evidence identity, hide/restart/project scope/purge and no-effect/no-flavor boundaries. Frozen B passed 1,263 tests/two ignored and seven genuine Schema17→18 preservation/refusal/resume cases. The later user request expands the session to current-folder/provider UX improvements and a combined release; no unrelated next backlog task is started.
+
 ## Completed task — PK04 held files and approved memories
 
 - Selected the first ready recommended task: PK04 needs completed C03A and EV02. PK03 still needs UX04B; the v0.1.19 evolution popup is not a reduced-motion animation implementation.

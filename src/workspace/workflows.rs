@@ -90,7 +90,7 @@ impl EvidenceRef {
         Ok(reference)
     }
 
-    fn validate(&self, owner: i64) -> Result<(), String> {
+    pub(crate) fn validate(&self, owner: i64) -> Result<(), String> {
         match self {
             Self::Source {
                 task_id,

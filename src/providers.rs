@@ -310,6 +310,27 @@ impl Input {
     /// Revalidates immutable request ownership and committed task/context facts.
     /// Unclaimed requests retain the ordinary exact-snapshot admission boundary.
     pub fn validate_committed(&self, data_dir: &std::path::Path) -> Result<(), String> {
+        if self.report.as_ref().is_some_and(|report| {
+            report.repository.root != std::path::Path::new(&self.task.project)
+        }) || self
+            .excerpts
+            .iter()
+            .any(|excerpt| excerpt.root != self.task.project)
+        {
+            return Err("Context belongs to a different project root; capture it again from the current folder before sending".into());
+        }
+        if !self.excerpts.is_empty() {
+            let storage = data_dir
+                .canonicalize()
+                .map_err(|_| "Protected application storage is unavailable")?;
+            if self.excerpts.iter().any(|excerpt| {
+                std::path::Path::new(&excerpt.root)
+                    .join(&excerpt.path)
+                    .starts_with(&storage)
+            }) {
+                return Err("Application storage cannot be sent as project source context; remove that attachment".into());
+            }
+        }
         self.validate_work()?;
         self.validate_instruction_override()?;
         match &self.work {
@@ -464,6 +485,7 @@ pub enum FilePhase {
     Refused,
     Interrupted,
     Reported,
+    ReportedFailed,
     Unknown,
 }
 
@@ -989,6 +1011,102 @@ mod tests {
     }
 
     #[test]
+    fn committed_historical_attachments_cannot_send_application_storage() {
+        use crate::store::Event;
+        use sha2::Digest;
+        use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = std::env::temp_dir().join(format!(
+            "ev-private-context-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let root = Cleanup(root.canonicalize().unwrap());
+        let data = root.0.join("local-data");
+        let worker = crate::store::Worker::start(
+            data.clone(),
+            root.0.to_str().unwrap().into(),
+            crate::store::Policy::default(),
+        )
+        .unwrap();
+        let next = || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                if let Some(event) = worker.try_event() {
+                    return event;
+                }
+                assert!(Instant::now() < deadline, "Store acknowledgement timed out");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        };
+        assert!(matches!(next(), Event::Loaded(_)));
+        let mut input = review(Agent::Codex);
+        input.operation = Operation::Plan;
+        input.task = crate::store::Snapshot::empty(root.0.to_str().unwrap().into());
+        input.task.goal = "Keep private storage out of source context".into();
+        input.task.revision = 1;
+        let mut pending = Some(input.task.clone());
+        assert!(worker.try_save(&mut pending));
+        let Event::Saved(task) = next() else {
+            panic!("Expected saved task")
+        };
+        input.task = task;
+        drop(worker);
+        input.validate_committed(&data).unwrap();
+        let private = data.join("ev-run-retained.output");
+        std::fs::write(&private, b"private task output").unwrap();
+        let mut excerpt = crate::workspace::context::Excerpt {
+            id: 1,
+            task_id: input.task.id,
+            root: input.task.project.clone(),
+            path: "local-data/ev-run-retained.output".into(),
+            start_line: 1,
+            end_line: 1,
+            source_sha256: sha2::Sha256::digest(b"private task output").into(),
+            text: "private task output".into(),
+            available: true,
+            origin_run: None,
+        };
+        // Emulate a valid attachment persisted before storage was excluded.
+        let connection = rusqlite::Connection::open(data.join("workbench.sqlite3")).unwrap();
+        connection
+            .execute(
+                "INSERT INTO excerpts(id,task_id,record) VALUES (?1,?2,?3)",
+                rusqlite::params![
+                    excerpt.id,
+                    excerpt.task_id,
+                    serde_json::to_string(&excerpt).unwrap()
+                ],
+            )
+            .unwrap();
+        input.excerpts = vec![excerpt.clone()];
+        crate::store::validate_planning_input(&data, &input.task, &input.excerpts).unwrap();
+        assert!(input.validate_committed(&data).is_err());
+        assert_eq!(std::fs::read(&private).unwrap(), b"private task output");
+        excerpt.path = "source.rs".into();
+        excerpt.text = "public source".into();
+        excerpt.source_sha256 = sha2::Sha256::digest(excerpt.text.as_bytes()).into();
+        std::fs::write(root.0.join(&excerpt.path), &excerpt.text).unwrap();
+        connection
+            .execute(
+                "UPDATE excerpts SET record=?1 WHERE id=?2",
+                rusqlite::params![serde_json::to_string(&excerpt).unwrap(), excerpt.id],
+            )
+            .unwrap();
+        input.excerpts = vec![excerpt];
+        input.validate_committed(&data).unwrap();
+    }
+
+    #[test]
     fn managed_review_admits_only_fresh_no_write_supported_provider_requests() {
         for agent in [Agent::Codex, Agent::Claude] {
             let mut input = review(agent);
@@ -1204,6 +1322,7 @@ mod tests {
     }
     pub(super) fn repository_report(
         project: &std::path::Path,
+        data_dir: &std::path::Path,
     ) -> Arc<crate::workspace::repo::Report> {
         assert!(
             std::process::Command::new("git")
@@ -1213,7 +1332,9 @@ mod tests {
                 .unwrap()
                 .success()
         );
-        let worker = crate::workspace::repo::Worker::start(project.to_path_buf()).unwrap();
+        let worker =
+            crate::workspace::repo::Worker::start(project.to_path_buf(), data_dir.to_path_buf())
+                .unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
         loop {
             if let Some(event) = worker.try_event() {

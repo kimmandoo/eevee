@@ -33,8 +33,15 @@ fn command(state: &mut State, name: &str, large: bool) {
 }
 
 #[test]
-fn ordinary_coding_never_overrides_explicit_read_only_or_expands_external_routes() {
-    for agent in [Agent::Compatible, Agent::Codex, Agent::Claude] {
+fn ordinary_coding_requires_writer_ownership_without_overriding_explicit_readonly() {
+    for agent in [
+        Agent::Compatible,
+        Agent::Codex,
+        Agent::Claude,
+        Agent::OpenCode,
+        Agent::Gemini,
+        Agent::Devin,
+    ] {
         let mut state = State::new();
         state.reset(7);
         state.agent = agent;
@@ -71,8 +78,8 @@ fn ordinary_coding_never_overrides_explicit_read_only_or_expands_external_routes
         let Some(Request::Preview(input)) = state.pending.take() else {
             panic!("missing external preparation")
         };
-        assert_eq!(input.operation, Operation::Plan);
-        assert!(!crate::providers::writing_required(input.operation));
+        assert_eq!(input.operation, Operation::Implement);
+        assert!(crate::providers::writing_required(input.operation));
     }
 }
 
@@ -2693,6 +2700,7 @@ fn file_cards_settle_only_owned_unfinished_stages_and_never_become_decisions() {
             FilePhase::Denied,
             FilePhase::Refused,
             FilePhase::Reported,
+            FilePhase::ReportedFailed,
             FilePhase::Unknown,
         ];
         for (index, phase) in phases.into_iter().enumerate() {

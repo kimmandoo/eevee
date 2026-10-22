@@ -2790,6 +2790,35 @@ fn reset_does_not_transfer_or_cancel_another_partners_command() {
 }
 
 #[test]
+fn init_uses_current_project_even_with_enclosing_git_observation() {
+    let mut app = request_app();
+    app.cwd = "/workspace/nested-project".into();
+    let snapshot = std::sync::Arc::new(repo::Snapshot {
+        head: None,
+        files: Default::default(),
+        working_diff: Default::default(),
+        complete: true,
+        stable: true,
+        warnings: Vec::new(),
+    });
+    app.repository = Some(std::sync::Arc::new(repo::Report {
+        repository: repo::RepositoryIdentity {
+            root: "/workspace/nested-project".into(),
+            git_root: Some("/workspace".into()),
+            git_dir: Some("/workspace/.git".into()),
+            storage_root: None,
+        },
+        baseline: snapshot.clone(),
+        current: snapshot,
+        changes: Vec::new(),
+        initial: true,
+    }));
+    app.command("init");
+    assert!(app.input.starts_with("Prepare a project-initialization proposal for the current project at \"/workspace/nested-project\"."));
+    assert!(app.planning.pending.is_none());
+}
+
+#[test]
 fn init_prepares_editable_plan_request_without_sending_or_writing() {
     let mut app = request_app();
     app.set_form(3);

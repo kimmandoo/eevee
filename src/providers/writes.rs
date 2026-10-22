@@ -556,6 +556,7 @@ impl WriteSet {
         let canonical = root
             .canonicalize()
             .map_err(|_| "Cannot bind the selected project root")?;
+        context::validate_project_root(&canonical)?;
         let private_data = absolute_frozen_path(data_dir)?;
         let executable = std::env::current_exe()
             .map_err(|_| "Cannot identify the running executable")?
@@ -1004,3 +1005,8 @@ impl WriteSet {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(crate) fn test_after_leaf_write(hook: impl FnOnce() + 'static) {
+    tests::on_after_leaf_write(hook);
+}

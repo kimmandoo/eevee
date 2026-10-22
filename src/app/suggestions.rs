@@ -44,7 +44,7 @@ impl Cache {
         }
         self.report = report.cloned();
         self.current = report
-            .map(|report| execution::fingerprint(report))
+            .map(|report| repo::fingerprint(report))
             .unwrap_or_default();
         self.observed_diff = report.is_some_and(|report| {
             !report.changes.is_empty()

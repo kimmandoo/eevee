@@ -537,15 +537,15 @@ fn inspection_matches(value: &Value, versions: &SdkVersions) -> bool {
     value["type"] == "capabilities"
         && value["sdk_version"].as_str() == Some(versions.sdk.as_str())
         && value["cli_version"].as_str() == Some(versions.cli.as_str())
-        && value["bridge_revision"] == 8
+        && value["bridge_revision"] == 9
         && value["query"] == true
         && value["policy"]
             == json!({
-                "tools": "closed-allowlist", "permissions": "default-host-once", "mcp": "disabled",
+                "tools": "closed-allowlist", "permissions": "default-host-once", "mcp": "host-discovery-only",
                 "configuration": "isolated", "authentication": "api-console-cloud-only",
                 "dispatch": "correlated-sdk-submission",
                 "usage": "correlated-sdk-snapshots",
-                "file_preview": "display-only-correlated-arguments",
+                "file_preview": "display-only-correlated-arguments-outcomes",
             })
 }
 
@@ -860,7 +860,7 @@ fn revalidate(project: &Path, data_dir: &Path, old: &Trust) -> Result<(), String
     Ok(())
 }
 // The sidecar's "plan" policy exposes only read/question tools and
-// mandatory-disables writes, shell, delegation and MCP. Review deliberately
+// mandatory-disables writes, shell, delegation and external MCP. Review deliberately
 // reuses that policy, not its prompt or provider session.
 fn sdk_tool_policy(operation: Operation) -> &'static str {
     match operation {
@@ -1183,7 +1183,7 @@ fn payload(
     )?;
     let write_scope = capture_write_scope(data_dir, input, exclusions)?;
     let text = serde_json::to_string_pretty(&json!({
-        "purpose": if input.operation == Operation::Plan { "Plan only; no implementation tools are exposed." } else { "Implement using exact per-operation approval of each file and missing parent. Empty selected paths permit safe project-relative file proposals; nonempty selected paths are an exact restriction. Preserve existing dirty working content. This is external SDK agent policy, not strict OS confinement. Do not commit/merge. Report unverified patch for human diff review." },
+        "purpose": if input.operation == Operation::Plan { "Answer the request directly; inspect safe source when useful. Produce a plan only when requested. No implementation tools are exposed." } else { "Answer the request directly and inspect safe source when useful. When changes are requested, implement using exact per-operation approval of each file and missing parent. Empty selected paths permit safe project-relative file proposals; nonempty selected paths are an exact restriction. Preserve existing dirty working content. This is external SDK agent policy, not strict OS confinement. Do not commit/merge. Report unverified patch for human diff review." },
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
         "request": input.instruction(),
         "approved_memories": input.task.approved_memories,
@@ -1282,12 +1282,12 @@ fn worker(
                         } else {
                             "CLOUD AUTH: only explicitly selected environment/bearer/web-identity/credential-file routes are admitted; HOME and Claude configuration are isolated. Profile/SSO/default ADC discovery requires EEVEE_CLAUDE_CLOUD_AUTH=provider-chain and a fresh preview. Effective SDK backend is checked before prompt release.".into()
                         },
-                        "Filesystem settingSources=[]; no project/user CLAUDE.md/hooks/plugins/skills/MCP are loaded. MCP strict-empty; Agent/Task/Bash/web/worktree/delegation tools are mandatory-disabled. System executable configuration is refused. Host policy hook runs only in implementation. Inherited OS/runtime and provider cloud credential libraries remain external dependencies.".into(),
-                        "Read/Glob/Grep are provider-native agent-policy tools, not excerpt-only reads or Eevee confinement; preapproved reads may bypass canUseTool. Explicit ask rules mediate supported requests. Deny/allow once only; no permission updates, login flows or automatic queue/resend. Interrupt requires observed terminal result; forced cleanup is outcome unknown, never rollback. One query is bounded to 16 SDK turns and estimated incremental USD 5; estimates are not invoices.".into(),
+                        "Filesystem settingSources=[]; no project/user CLAUDE.md/hooks/plugins/skills/external MCP are loaded. MCP is strict host-only: one in-process bounded read-only source discovery tool; no external servers. Agent/Task/Bash/web/worktree/delegation tools are mandatory-disabled. System executable configuration is refused. Mandatory host policy hooks cover reads and writes in every noninspection operation. Inherited OS/runtime and provider cloud credential libraries remain external dependencies.".into(),
+                        "Read/Glob/Grep are provider-native agent-policy tools, not excerpt-only reads or Eevee confinement; preapproved reads may bypass canUseTool but not mandatory host admission. Root discovery uses host-filtered safe filenames/literal matches, omitting protected/excluded/linked/credential-bearing entries without weakening native subtree checks. Explicit ask rules mediate supported requests. Deny/allow once only; no permission updates, login flows or automatic queue/resend. Interrupt requires observed terminal result; forced cleanup is outcome unknown, never rollback. One query is bounded to 16 SDK turns and estimated incremental USD 5; estimates are not invoices.".into(),
                         match input.operation {
                             Operation::Implement => "EXTERNAL-POLICY IMPLEMENTATION: Write/Edit proposals, mandatory frozen-target hook and exact one-shot user approval. Optional selected paths restrict targets; otherwise safe project-relative targets are captured before approval. No shell/delegation/MCP mutations. Symlinks are refused at check; SDK path checks are NOT atomic OS confinement. Consent accepts that external-policy boundary; inspect dirty baseline/current diff and deliberately verify; no auto commit/merge.".into(),
                             Operation::Plan => "PLAN: SDK tool exposure excludes all file-write/shell/delegation routes. This is verified configured agent tool policy, not filesystem/network isolation.".into(),
-                            Operation::Review => "REVIEW: fresh requirements/patch/selected-observation context in a new session; no implementation history or Resume. Uses the reviewed SDK read-only tool policy: Write/Edit/Bash/delegation/MCP are unavailable independently of approval callbacks. Agent tool policy is not OS isolation.".into(),
+                            Operation::Review => "REVIEW: fresh requirements/patch/selected-observation context in a new session; no implementation history or Resume. Uses the reviewed SDK read-only tool policy: Write/Edit/Bash/delegation/external MCP are unavailable independently of approval callbacks. Only host-owned safe source discovery is exposed through MCP. Agent tool policy is not OS isolation.".into(),
                         },
                         if input.operation == Operation::Review { "Review never sends a provider session ID or resumes prior history. A fix requires a deliberate separate implementation handoff.".into() } else { "Resume includes provider-owned prior transcript, not just the selected context. Same-task/session/current policy only. UUID-correlated main-loop per-turn usage is separate from cumulative model-pipeline snapshots. Restored pipeline totals are never current charges without an observed pre-submission baseline; this one-query sidecar cannot infer that baseline from prior history.".into() },
                     ]),
@@ -1750,7 +1750,12 @@ impl SdkFilePreviews {
         }
         if matches!(
             call.phase,
-            FilePhase::Denied | FilePhase::Refused | FilePhase::Reported | FilePhase::Interrupted
+            FilePhase::Denied
+                | FilePhase::Refused
+                | FilePhase::Reported
+                | FilePhase::ReportedFailed
+                | FilePhase::Unknown
+                | FilePhase::Interrupted
         ) {
             return Ok(None);
         }
@@ -1803,6 +1808,8 @@ impl SdkFilePreviews {
             "denied" => call.phase = FilePhase::Denied,
             "refused" => call.phase = FilePhase::Refused,
             "reported" => call.phase = FilePhase::Reported,
+            "reported_failed" => call.phase = FilePhase::ReportedFailed,
+            "unknown" => call.phase = FilePhase::Unknown,
             "interrupted" => call.phase = FilePhase::Interrupted,
             _ => return Err("Unsupported SDK file preview stage".into()),
         }
@@ -1934,7 +1941,7 @@ fn transport(
                 .as_nanos()
         };
         let mut usage = SdkTurnUsage::begin(&run.input, sessions)?;
-        pipe.send(json!({"protocol":1,"bridge_revision":8,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
+        pipe.send(json!({"protocol":1,"bridge_revision":9,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
             "request_id":if run.input.inspect_models { None } else { run.input.work.as_ref().map(|work| work.request_id.as_str()) },
             "prompt":if run.input.inspect_models { "" } else { run.text.as_str() },
             "operation":if run.input.inspect_models { "plan" } else { sdk_tool_policy(run.input.operation) },

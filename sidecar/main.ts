@@ -5,17 +5,17 @@ import { once } from 'node:events';
 import { isDeepStrictEqual } from 'node:util';
 import { randomUUID, createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query, createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { Query, CanUseTool, OnElicitation, Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { SDKPackageSchema, BRIDGE_POLICY, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, SDKWritePolicy, SDKFilePreviews, QuestionInputSchema, RunSchema, SDKPolicyError, SDKDispatchReceipt, SDKUsageLedger, querySelection, prepareModels, assertAppliedModel, assertSessionPolicy, credentialRoute, consoleProfile, sdkOutcome } from './policy.ts';
+import { SDKPackageSchema, BRIDGE_POLICY, FRAME_LIMIT, READ_TOOLS, DISCOVERY_SERVER, DISCOVERY_TOOL, DiscoverySchema, DENIED_TOOLS, SDKWritePolicy, SDKFilePreviews, QuestionInputSchema, RunSchema, SDKPolicyError, SDKDispatchReceipt, SDKUsageLedger, querySelection, prepareModels, assertAppliedModel, assertSessionPolicy, credentialRoute, consoleProfile, sdkOutcome } from './policy.ts';
 import type { FilePreviewFrame } from './policy.ts';
 
 const require = createRequire(import.meta.url);
 const sdkEntry = realpathSync(require.resolve('@anthropic-ai/claude-agent-sdk'));
 const sdkPackage = SDKPackageSchema.parse(JSON.parse(readFileSync(join(dirname(sdkEntry), 'package.json'), 'utf8')));
 const { version: sdkVersion, claudeCodeVersion: cliVersion } = sdkPackage;
-if (typeof query !== 'function') throw new Error('SDK query export unavailable');
+if (typeof query !== 'function' || typeof createSdkMcpServer !== 'function' || typeof sdkTool !== 'function') throw new Error('Required SDK query/custom-tool exports unavailable');
 if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('Native TypeScript sidecar requires Node 24 or later');
 const report = z.object({ header: z.object({ glibcVersionRuntime: z.string().optional() }) }).parse(process.report.getReport());
 const platform = `${process.platform}-${process.arch}${process.platform === 'linux' && report.header.glibcVersionRuntime === undefined ? '-musl' : ''}`;
@@ -136,15 +136,31 @@ async function run(command: z.infer<typeof RunSchema>) {
     process.env.CLAUDE_CODE_USE_VERTEX === '1' ? 'vertex' : 'firstParty';
   cleanEnvironment(command.state_dir, expectedProvider !== 'firstParty' && process.env.EEVEE_CLAUDE_CLOUD_AUTH === 'provider-chain', profile);
   controller = new AbortController();
-  const tools = command.inspect_models ? [] : command.operation === 'implement' ? [...READ_TOOLS, 'Edit', 'Write'] : READ_TOOLS;
+  const tools = command.inspect_models ? [] : [...READ_TOOLS, DISCOVERY_TOOL, ...(command.operation === 'implement' ? ['Edit', 'Write'] : [])];
   const writePolicy = new SDKWritePolicy(command.cwd, command.write_scope,
     [realpathSync(command.state_dir), realpathSync(fileURLToPath(new URL('.', import.meta.url))), dirname(sdkEntry), nativePackage, cli]);
   const filePreviews = new SDKFilePreviews(!command.inspect_models && command.operation === 'implement');
   const previewFrames = async (frames: FilePreviewFrame[]) => {
     for (const frame of frames) await emit({ ...frame, ...meta(), session_id: session });
   };
+  const discovery = command.inspect_models ? undefined : createSdkMcpServer({
+    name: DISCOVERY_SERVER, version: '1.0.0', alwaysLoad: true, timeout: 10_000,
+    tools: [sdkTool('discover',
+      'List safe project files with a simple glob, or search literal text in safe project files. Use this for root discovery, including Git projects. Excluded, protected, linked and credential-bearing files are omitted. Results are bounded; narrow path/glob when truncated. No mutation authority.',
+      DiscoverySchema.shape, async input => {
+        if (cancelled || controller?.signal.aborted) return { isError: true, content: [{ type: 'text' as const, text: 'Discovery cancelled' }] };
+        try {
+          return { content: [{ type: 'text' as const, text: JSON.stringify(writePolicy.discover(input)) }] };
+        } catch {
+          return { isError: true, content: [{ type: 'text' as const, text: 'Safe discovery unavailable: use a current literal project path, simple relative glob and literal grep text' }] };
+        }
+      }, { annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }, alwaysLoad: true })],
+  });
   const canUseTool: CanUseTool = async (tool, input, options) => {
-    if (cancelled || options.signal.aborted || !tools.includes(tool)) return deny;
+    if (cancelled || options.signal.aborted || !tools.includes(tool)) {
+      writePolicy.refuse(options.toolUseID, tool, input);
+      return deny;
+    }
     if (['Read', 'Glob', 'Grep'].includes(tool)) {
       const admission = writePolicy.readAdmission(tool, input);
       if (!admission.allowed) return { behavior: 'deny', message: admission.reason };
@@ -168,7 +184,7 @@ async function run(command: z.infer<typeof RunSchema>) {
     if (writes) await previewFrames(filePreviews.complete(options.toolUseID, tool, input));
     const scope = writes ? writePolicy.begin(options.toolUseID, tool, input) : undefined;
     if (writes && scope === undefined) {
-      await previewFrames(filePreviews.phase(options.toolUseID, 'refused'));
+      if (writePolicy.refuse(options.toolUseID, tool, input)) await previewFrames(filePreviews.phase(options.toolUseID, 'refused'));
       return { behavior: 'deny', message: 'Stale, concurrent, duplicate or out-of-scope write refused' };
     }
     let approved = false;
@@ -200,9 +216,9 @@ async function run(command: z.infer<typeof RunSchema>) {
   };
   const onElicitation: OnElicitation = async (request, options) => {
     if (command.inspect_models) return { action: 'cancel' };
-    // MCP is mandatory-disabled. Never turn elicitation into a tool grant or open a login URL.
+    // External MCP is mandatory-disabled. The sole host discovery tool never elicits.
     const answer = await ask(options.requestId, request.serverName, { request, options: [{ label: 'Decline', answer: { action: 'decline' } },
-      { label: 'Cancel', answer: { action: 'cancel' } }], reason: 'MCP disabled; acceptance/URL login unsupported' }, 'elicitation', options.signal,
+      { label: 'Cancel', answer: { action: 'cancel' } }], reason: 'External MCP and elicitation acceptance/URL login unsupported' }, 'elicitation', options.signal,
       { action: 'cancel' }, a => ElicitationSchema.safeParse(a).success);
     return ElicitationSchema.parse(answer);
   };
@@ -211,18 +227,18 @@ async function run(command: z.infer<typeof RunSchema>) {
     ...querySelection(command.selection),
     pathToClaudeCodeExecutable: cli, abortController: controller,
     permissionMode: 'default', permissionPrompts: 'host', allowDangerouslySkipPermissions: false,
-    tools, allowedTools: [], disallowedTools: [...DENIED_TOOLS, ...(command.operation === 'plan' ? ['Edit', 'Write'] : [])],
-    settingSources: [], settings: { disableAllHooks: true, permissions: { ask: tools } },
-    strictMcpConfig: true, mcpServers: {}, plugins: [], skills: [], agents: {},
+    tools: tools.filter(name => name !== DISCOVERY_TOOL), allowedTools: [], disallowedTools: [...DENIED_TOOLS, ...(command.operation === 'plan' ? ['Edit', 'Write'] : [])],
+    settingSources: [], settings: { disableAllHooks: true, disableClaudeAiConnectors: true, permissions: { ask: tools } },
+    strictMcpConfig: true, mcpServers: discovery ? { [DISCOVERY_SERVER]: discovery } : {}, plugins: [], skills: [], agents: {},
     canUseTool, onElicitation, maxTurns: 16, maxBudgetUsd: 5, includePartialMessages: true,
     promptSuggestions: false, agentProgressSummaries: false,
-    systemPrompt: 'You are Claude Agent in Eevee. Use only reviewed task context and exposed tools. Do not delegate, load extra configuration, or persist permission rules. Tool observations are provider-native, not verified Eevee local runs.',
+    systemPrompt: 'You are Claude Agent in Eevee. Answer ordinary questions directly and inspect source when useful; plan only when the request asks for a plan. Use only reviewed task context and exposed tools. Use mcp__eevee_source__discover for safe root file listing/glob or literal grep, then Read exact safe paths. Native Glob/Grep refuse any unsafe subtree. Do not delegate, load extra configuration, or persist permission rules. Tool observations are provider-native, not verified Eevee local runs.',
     stderr: () => {},
   };
   // Host-owned mandatory hooks cover native/preapproved reads as well as writes.
   // No filesystem project hooks or persistent permission rules are loaded.
   if (!command.inspect_models) {
-    options.settings = { permissions: { ask: tools }, disableAllHooks: false };
+    options.settings = { permissions: { ask: tools }, disableAllHooks: false, disableClaudeAiConnectors: true };
     options.hooks = { PreToolUse: [{ hooks: [async (input) => {
       if (input.hook_event_name !== 'PreToolUse') return { continue: false };
       const name = input.tool_name;
@@ -233,6 +249,10 @@ async function run(command: z.infer<typeof RunSchema>) {
         (observation !== undefined && !observation.allowed) || ((name === 'Write' || name === 'Edit') &&
         (!toolInput.success || !writePolicy.preToolUse(input.tool_use_id, name, toolInput.data))) ||
         (['Read', 'Glob', 'Grep'].includes(name) && !toolInput.success)) {
+        if (writePolicy.refuse(input.tool_use_id, name, input.tool_input)) {
+          await previewFrames(filePreviews.complete(input.tool_use_id, name, input.tool_input));
+          await previewFrames(filePreviews.phase(input.tool_use_id, 'refused'));
+        }
         return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny',
           permissionDecisionReason: observation?.reason ?? 'Mandatory frozen-target/tool policy' } };
       }
@@ -328,9 +348,10 @@ async function run(command: z.infer<typeof RunSchema>) {
           toolCalls.delete(block.tool_use_id);
           if (call && (call.tool === 'Write' || call.tool === 'Edit') &&
             !writePolicy.finish(block.tool_use_id, call.tool, call.input, block.is_error !== true, 'isReplay' in message && message.isReplay === true)) {
+            await previewFrames(filePreviews.phase(block.tool_use_id, 'unknown'));
             throw new Error('SDK write result lacks exact approved authority or a verified filesystem outcome');
           }
-          await previewFrames(filePreviews.phase(block.tool_use_id, 'reported'));
+          await previewFrames(filePreviews.phase(block.tool_use_id, block.is_error === true ? 'reported_failed' : 'reported'));
           await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: block.tool_use_id, kind: 'tool', text: JSON.stringify({
             provider: 'Claude Agent SDK', sdk_version: sdkVersion, cli_version: cliVersion, coverage: 'provider-native tool result; not an Eevee local command/check or proof of confinement',
             tool: call?.tool, observation: 'Argument metadata only; exact input was reviewed separately for consent', input: inputMetadata(call?.input), result: block.content, is_error: block.is_error, status: block.is_error ? 'failed' : 'completed',
@@ -377,9 +398,9 @@ function fatal(_error: unknown) {
   void emit({ type: 'fatal', ...meta(), message: 'Claude SDK sidecar failed; raw diagnostics withheld; outcome unknown' }).finally(() => { current?.close(); process.exitCode = 1; process.stdin.pause(); }).catch(() => process.exit(1));
 }
 if (process.argv.includes('--inspect')) {
-  await emit({ type: 'capabilities', bridge_revision: 8, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
+  await emit({ type: 'capabilities', bridge_revision: 9, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
     query: typeof query === 'function', approvals: 'canUseTool with exact once/deny answers; no persistent rules', questions: 'AskUserQuestion single-select/free text',
-    elicitation: 'distinct onElicitation; MCP disabled so decline/cancel only', resume: 'explicit same-task session ID only',
+    elicitation: 'distinct onElicitation; external MCP disabled so decline/cancel only', resume: 'explicit same-task session ID only',
     usage: 'UUID-correlated main-loop turn and cumulative model-pipeline snapshots; owned completed baselines retained by host, unobserved resumed baseline unknown', confinement: 'agent policy; not OS sandbox', credential_route: credentialRoute(process.env) ?? 'unavailable' });
 } else {
   let bytes = Buffer.alloc(0);

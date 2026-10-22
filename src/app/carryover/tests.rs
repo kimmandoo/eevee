@@ -72,7 +72,9 @@ impl Fixture {
         Arc::new(repo::Report {
             repository: repo::RepositoryIdentity {
                 root: self.0.clone(),
-                git_dir: self.0.join(".git"),
+                git_root: Some(self.0.clone()),
+                git_dir: Some(self.0.join(".git")),
+                storage_root: None,
             },
             baseline: snapshot.clone(),
             current: snapshot,
@@ -88,7 +90,7 @@ impl Drop for Fixture {
 }
 
 fn run(app: &App) -> runner::RunRecord {
-    let current = execution::fingerprint(app.repository.as_deref().unwrap());
+    let current = repo::fingerprint(app.repository.as_deref().unwrap());
     let prepared = runner::Prepared {
         approval_arrival: crate::providers::approval_arrival(),
         request_id: "request-fixture".into(),

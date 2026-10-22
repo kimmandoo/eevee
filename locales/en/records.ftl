@@ -139,3 +139,36 @@ records-discard-summary = Discard unsaved write: { $identity }
     Committed work and other queued writes remain.
 records-compact-marker = { $status } · { $count } artifacts · { $producer }
 records-project-setting = This project's local setting
+ribbons-title = Ribbons / project history
+ribbons-history = Historical records / selected evidence below
+ribbons-disclosure = First recorded qualified events, not present correctness. Local only; no permissions or work are started here.
+ribbons-empty = No qualified historical milestone has been recorded in this project.
+ribbons-accepted-review = Effective accepted review recorded
+ribbons-verified-handoff = Verified handoff recorded
+ribbons-learned-move = Explicitly learned move recorded
+ribbons-line = { $kind } / { $name } / { $status }
+ribbons-details = Task #{ $task } / producer #{ $partner } { $name } / { $form }
+    Recorded { $date } UTC
+    Evidence now: { $status }
+    { $reason }
+ribbons-hidden = Hidden from partner summary; evidence retained.
+ribbons-visible = Visible in partner summary when flavor is on.
+ribbons-foreign-task = Different source task. Enter opens Tasks only; select it deliberately to resume. Current task stays unchanged.
+ribbons-artifact = Retained artifact: { $id }
+ribbons-move = Original move #{ $id } / revision { $revision }
+ribbons-foreign-owner = Different producer or form. Enter opens the ordinary party/form picker only; no lead or form is changed.
+ribbons-open-artifact = Enter opens the source task's ordinary review/handoff inspector when already on that task; never exports or sends.
+ribbons-open-move = Enter opens ordinary move details/menu for this owner/form only. Deleted sources are not replaced.
+ribbons-controls = Up/Down select / h hide/show / Enter inspect
+    PgUp/PgDn page / Home/End / Esc back
+ribbons-visibility = historical-line visibility
+ribbons-visibility-detail = { $kind } / hidden = { $hidden }
+    Only local summary visibility changes; no evidence is deleted.
+ribbons-help = Inspect this project's historical milestones, including hidden records and current source status.
+ribbons-help-hide = Hide the selected ribbon from automatic summary lines; keep its historical evidence.
+ribbons-help-show = Show the selected ribbon in partner summaries when local flavor is enabled.
+ribbons-help-inspect = Open selected evidence through ordinary local navigation, never resume a task or change its producer implicitly.
+ribbons-source-unavailable = The original source is unavailable or ambiguous. Historical details remain here; no replacement source was opened.
+ribbons-hidden-tag = [hidden]{ " " }
+ribbons-source-evidence = Source / task #{ $task } / capture #{ $excerpt } / { $path }:{ $start }-{ $end }
+ribbons-run-evidence = Run / task #{ $task } / { $run }

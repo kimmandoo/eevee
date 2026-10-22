@@ -29,8 +29,14 @@ def snapshot(database):
         version = connection.execute('PRAGMA user_version').fetchone()[0]
         tasks = [dict(row) for row in connection.execute('SELECT * FROM tasks ORDER BY id')]
         partners = [dict(row) for row in connection.execute('SELECT * FROM partners ORDER BY id')]
+        available = {row[0] for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")}
+        tables = ['excerpts', 'executions', 'provider_journal', 'memories']
         evidence = {table: [dict(row) for row in connection.execute(f'SELECT * FROM {table} ORDER BY rowid')]
-                    for table in ('excerpts', 'executions', 'provider_journal')}
+                    for table in tables}
+        for table in ('held_items', 'ribbons'):
+            evidence[table] = [
+                dict(row) for row in connection.execute(f'SELECT * FROM {table} ORDER BY rowid')
+            ] if table in available else []
     return {'schema': version, 'tasks': tasks, 'partners': partners, 'evidence': evidence}
 
 
@@ -200,6 +206,19 @@ def main():
             until(old, lambda: snapshot(database)['partners'][2]['nickname'] == 'Intake 漢字'
                   and 'Storage: saved' in old.display(), 'Historical Eevee nickname did not commit')
             select_lead(old, 1, historical=True)
+            if snapshot(database)['schema'] >= 17:
+                previous_action(old, 'memory')
+                previous_action(old, 'create-memory')
+                old.paste('Retain this exact approved memory reference through migration.')
+                old.send('\r')
+                wait_for(old, 'Approve')
+                old.send('\x1b[6~' * 12 + '\x1b[C\r')
+                until(old, lambda: len(snapshot(database)['evidence']['memories']) == 1,
+                      'Historical approved memory did not commit')
+                previous_action(old, 'held-set-memory')
+                until(old, lambda: len(snapshot(database)['evidence']['held_items']) == 1,
+                      'Actual Schema17 predecessor did not save its held reference')
+                old.send('\x1b')
             old.capture('previous-task')
             old.send('\x03')  # Structural safe exit works on prior releases.
             confirm_exit(old)
@@ -219,6 +238,12 @@ def main():
 
             upgraded = launch(current, 'current-upgrade')
             wait_for(upgraded, 'Storage: saved')
+            if 'Approved memories / explicit local curation' in upgraded.display():
+                upgraded.capture('restored-predecessor-memory-inspection')
+                for _ in range(4):
+                    if 'Approved memories / explicit local curation' not in upgraded.display():
+                        break
+                    upgraded.send('\x1b')  # Close only this known committed, non-consent inspection.
             wait_for(upgraded, 'schema continuity 漢字')
             upgraded.capture('migrated-task')
             migrated = snapshot(database)
@@ -231,6 +256,9 @@ def main():
             for column in ('drafts', 'partner_drafts'):
                 assert migrated['tasks'][0][column] == before['tasks'][0][column], column
             assert migrated['evidence'] == before['evidence'], 'Migration rewrote retained evidence'
+            if before['evidence'].get('held_items'):
+                assert migrated['evidence']['held_items'] == before['evidence']['held_items']
+                result['cases'].append('real-predecessor-held-memory-reference-preserved')
             for prior, retained in zip(before['partners'], migrated['partners'], strict=True):
                 assert {key: retained[key] for key in prior} == prior, \
                     'Migration changed a preexisting partner column'

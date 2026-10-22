@@ -82,28 +82,30 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(config: Config) -> io::Result<()> {
-    let project = std::env::current_dir()?.canonicalize()?;
+/// Canonical identity is never terminal-sanitized; renderers own display escaping.
+fn project_identity(directory: &std::path::Path) -> io::Result<(std::path::PathBuf, String)> {
+    let project = directory.canonicalize()?;
     let cwd = project
         .to_str()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "project path must be Unicode"))?
         .to_owned();
+    Ok((project, cwd))
+}
+
+fn run(config: Config) -> io::Result<()> {
+    let (project, cwd) = project_identity(&std::env::current_dir()?)?;
     let mut artwork = artwork::Artwork::load(&config);
     terminal::run(native::cleanup, |terminal, modes| {
         let store =
             store::Worker::start(config.data_dir.clone(), cwd.clone(), config.storage_policy)?;
-        let repository = repo::Worker::start(project.clone())?;
+        let repository = repo::Worker::start(project.clone(), config.data_dir.clone())?;
         let sources = context::Worker::start(config.context_exclusions.clone())?;
         let mut execution = std::collections::BTreeMap::new();
         let agents = agent::Worker::start(project.clone())?;
         let artwork_worker = artwork::Worker::start(config.clone())?;
         let mut planning = std::collections::BTreeMap::new();
         let size = terminal.size()?;
-        let mut app = App::new(
-            cwd.chars().filter(|c| !c.is_control()).collect(),
-            size.width,
-            size.height,
-        );
+        let mut app = App::new(cwd.clone(), size.width, size.height);
         app.planning.set_startup_provider(
             providers::direct::config::preferred_agent(),
             std::env::var_os("EV_PROVIDER").is_some(),
@@ -546,4 +548,34 @@ fn run(config: Config) -> io::Result<()> {
             }
         }
     })
+}
+
+#[cfg(all(test, unix))]
+mod project_identity_tests {
+    use super::*;
+
+    #[test]
+    fn canonical_launch_alias_preserves_control_characters_in_app_identity() {
+        let fixture = std::env::temp_dir().join(format!(
+            "ev-project-identity-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        std::fs::create_dir(&fixture).unwrap();
+        let actual = fixture.join("project\twith\ncontrols");
+        std::fs::create_dir(&actual).unwrap();
+        let alias = fixture.join("alias");
+        std::os::unix::fs::symlink(&actual, &alias).unwrap();
+        let (root, cwd) = project_identity(&alias).unwrap();
+        assert_eq!(root, actual.canonicalize().unwrap());
+        assert_eq!(std::path::Path::new(&cwd), root);
+        assert!(cwd.contains('\t') && cwd.contains('\n'));
+        let app = App::new(cwd.clone(), 120, 36);
+        assert_eq!(app.cwd, cwd);
+        assert_eq!(project_identity(&root).unwrap(), (root, cwd));
+        std::fs::remove_dir_all(fixture).unwrap();
+    }
 }
