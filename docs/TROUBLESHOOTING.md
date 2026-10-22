@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-23] Successful workflow retained an incomplete native job record
+
+- **Context / Symptom:** Corrected-source run `39835415051` concluded `completed/success`, and every Linux ARM64 step—including upload and `Complete job`—reported success. Its job `120022311546` nevertheless remained `in_progress` with null conclusion/completion time. The strict release qualifier refused `Unqualified native job: Build / linux-arm64`.
+- **Root Cause:** GitHub's aggregate workflow result and persisted per-job completion metadata disagreed. A successful watcher result was insufficient to establish the required single-attempt native artifact provenance.
+- **Solution:** Kept qualification unchanged and published no tag from that run. Recorded the service inconsistency in a documentation-only source commit and requested a fresh complete main-push qualification with new artifact identities, preserving the earlier diagnostic evidence.
+- **Prevention / Reference:** Admit only a run whose Check and all five job records, steps, attempt and artifact timestamps satisfy the existing qualifier. Never substitute workflow-level success or combine packages across runs.
+
 ### [2026-10-23] Windows qualification rejected a POSIX-only held-file fixture
 
 - **Context / Symptom:** Native run `39833784492` passed Check and all four macOS/Linux rows, but Windows failed `saving_reviewed_file_never_pins_capture` before the held preference could be queued (1,243 passed, one failed, two ignored). No release tag was created.
