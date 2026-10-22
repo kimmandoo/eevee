@@ -10,6 +10,8 @@ Display-only file previews use the existing owned chronological transcript, not 
 
 Generating, received, waiting approval, applied, denied/refused, interrupted, reported and unknown states are distinct. File previews never become copied decisions, canonical assistant text or retained source evidence. Schema 16 is unchanged. Replace the complete bridge/policy/dependency files together; no authenticated all-provider conformance is implied.
 
+Published v0.1.18 passed same-source Check/all-five-native qualification and immutable promotion. Bridge 8 passed **39 policy/production-IPC cases** without account login or model calls. The actual downloaded host passed sixteen bilingual/protocol/size staged-file journeys/64 groups, literal approved writes, no-effect partial/cancel boundaries, private-ID/credential filtering, paused output and exact future draft/caret; ordinary file, evolution, scrolling, native protocol and multi-owner regressions also passed. These remain deterministic transport/UI/filesystem checks, not new authenticated SDK or all-provider conformance.
+
 ### v0.1.17 automatic roles and coding boundary
 
 v0.1.17 retains **SDK bridge revision 7** with protocol-1 IPC and complete bridge/policy/dependency files. Schema 16 stores each partner's automatic/manual form mode. Automatic role selection occurs only at an explicit ordinary Request send, before frozen ownership; it never changes the provider/model, restores a form pairing, grants a mutation or executes a command. Read-only Native/Codex roles expose only bounded read/list tools under a nonwriting lease; Implement retains four tools and exact once-only file consent. Necessary role-context changes start fresh owned sessions while old displayed evidence stays attributed.

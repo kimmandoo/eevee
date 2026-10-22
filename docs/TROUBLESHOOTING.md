@@ -8,6 +8,12 @@
 - **Prevention / Reference:** The gated actual driver requires the first code inline before any `/response` or latest-navigation action. Added a compact whole-surface regression covering generated/applied cards, retained transition/carry-over state, draft/caret and old-request isolation.
 - **Display follow-through:** Actual captures also exposed CRLF source rendered with replacement markers and a filename that scrolled above the compact code tail. Normalized only CRLF display pairs (not file bytes or standalone controls), kept the filename beside the file lifecycle header, and preserved explicit carry-over inspection separately from automatic chrome. The stream fixture now splits exactly at its first-code gate instead of letting an aggregated transport fragment deliver both stages at once; cancellation exit follows the real all-owner unknown-outcome review.
 
+### [2026-10-22] Language-server queries exited before returning symbols
+
+- **Context / Symptom:** Both the initial Rust symbols request and exported `ItemKind` references request failed because `rust-analyzer` exited with code 0 before returning results.
+- **Root Cause:** The server terminated during the query; its underlying cause was not established. No reference results were available and an empty result was not treated as evidence that there were no callers.
+- **Solution:** Used bounded repository searches for exhaustive consumers, then pinned-toolchain compilation, behavior tests and actual terminal journeys. No editor/server configuration or user environment was changed.
+
 ### [2026-10-22] Preview saturation preempted a critical uncertain-effect journal
 
 - **Context / Symptom:** Integrated live-preview tests failed the existing saturated-event safety regression: `LocalEffectsUnknown` and terminal settlement remained, but the authoritative failure journal count was zero.
