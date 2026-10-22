@@ -36,7 +36,7 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
     };
     let inspection = json!({
         "type":"capabilities", "sdk_version":"1.5.0", "cli_version":"4.0.0",
-        "bridge_revision":6, "query":true,
+        "bridge_revision":7, "query":true,
         "policy":{"tools":"closed-allowlist","permissions":"default-host-once","mcp":"disabled",
             "configuration":"isolated","authentication":"api-console-cloud-only",
             "dispatch":"correlated-sdk-submission","usage":"correlated-sdk-snapshots"},
@@ -775,10 +775,15 @@ fn sdk_workspace_scope_freezes_root_and_all_privacy_boundaries_without_targets()
     assert!(capture_write_scope(&data, &input, &[]).is_err());
     input.edit_paths.clear();
     input.operation = Operation::Plan;
-    assert_eq!(
-        capture_write_scope(&data, &input, &[]).unwrap(),
-        SdkWriteScope::empty_selected()
-    );
+    for operation in [Operation::Plan, Operation::Review] {
+        input.operation = operation;
+        let read_scope = capture_write_scope(&data, &input, &exclusions).unwrap();
+        assert_eq!(read_scope.mode, SdkWriteMode::Selected);
+        assert!(read_scope.files.is_empty());
+        assert_eq!(read_scope.root_identity, scope.root_identity);
+        assert_eq!(read_scope.protected_paths, scope.protected_paths);
+        assert_eq!(read_scope.excluded_paths, scope.excluded_paths);
+    }
     let mut wire = serde_json::to_value(scope).unwrap();
     for field in ["mode", "protected_paths", "excluded_paths"] {
         let mut missing = wire.clone();

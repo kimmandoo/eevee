@@ -480,7 +480,7 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
       });
       const closed = once(child, 'close');
       child.stdin!.write(JSON.stringify({
-        protocol: 1, bridge_revision: 6, type: 'run', generation: 1, task_id: 1, request_id: 'submission',
+        protocol: 1, bridge_revision: 7, type: 'run', generation: 1, task_id: 1, request_id: 'submission',
         prompt: 'Deterministic failed operation', cwd: root, state_dir: join(fixture, 'state'),
         operation: 'implement', write_scope: workspaceScope(root), inspect_models: false,
         selection: { model: null, effort: null },
@@ -592,7 +592,7 @@ test('catalogues reject duplicate identifiers, oversized fields and display cont
 });
 
 test('strict inspection commands cannot carry prompts, prior sessions, writes or unreviewed options', () => {
-  const command = { protocol: 1, bridge_revision: 6, type: 'run', generation: 1, task_id: 1, request_id: null, cwd: '/project', state_dir: '/state', prompt: '',
+  const command = { protocol: 1, bridge_revision: 7, type: 'run', generation: 1, task_id: 1, request_id: null, cwd: '/project', state_dir: '/state', prompt: '',
     operation: 'plan', write_scope: { mode: 'Selected', protected_paths: [], excluded_paths: [], root_identity: null, files: [] }, resume: null, inspect_models: true, selection: { model: null, effort: null } };
   assert.equal(RunSchema.safeParse(command).success, true);
   for (const changed of [{ request_id: 'claimed-inference' }, { prompt: 'must not send' }, { resume: '01234567-89ab-4cde-8123-456789abcdef' },
@@ -834,4 +834,72 @@ test('failed correlated results preserve reported usage without establishing a c
   assert.ok(reports.every(value => !value.report.complete));
   ledger.submitted(submittedSecond, 'next-request');
   assert.equal(ledger.observe(usageResult(submittedSecond, 20, 120))[1].report.baseline, null);
+});
+
+test('observational SDK tools preserve project/privacy boundaries without enrolling writes', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'eevee-source-policy-')));
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'eevee-source-outside-')));
+  try {
+    mkdirSync(join(root, 'src'));
+    mkdirSync(join(root, 'private'));
+    mkdirSync(join(root, 'excluded'));
+    writeFileSync(join(root, 'src', 'safe.ts'), '// dirty\r\nexport const value = 1;\r\n');
+    writeFileSync(join(root, 'private', 'state.txt'), 'private');
+    writeFileSync(join(root, 'excluded', 'context.txt'), 'excluded');
+    writeFileSync(join(root, '.env'), 'credential');
+    writeFileSync(join(root, 'auth.json'), '{}');
+    writeFileSync(join(root, 'token.txt'), 'password=private-value');
+    writeFileSync(join(root, 'large.txt'), 'x'.repeat(256 * 1024 + 1));
+    writeFileSync(join(outside, 'file.txt'), 'outside');
+    const scope = reviewedScope(root, []);
+    scope.protected_paths.push(join(root, 'private'));
+    scope.excluded_paths.push('excluded');
+    const policy = new SDKWritePolicy(root, scope);
+    assert.equal(policy.readAdmission('Read', { file_path: join(root, 'src', 'safe.ts') }).allowed, true);
+    assert.equal(policy.readAdmission('Grep', { path: 'src/safe.ts', pattern: 'value' }).allowed, true);
+    assert.equal(policy.readAdmission('Glob', { path: 'src', pattern: '**/*.ts' }).allowed, true);
+    for (const path of ['.env', 'auth.json', 'private/state.txt', 'excluded/context.txt',
+      'token.txt', 'large.txt', '../outside.txt', join(outside, 'file.txt')]) {
+      assert.equal(policy.readAdmission('Read', { file_path: path }).allowed, false, path);
+    }
+    assert.equal(policy.preToolUse('no-authority-from-read', 'Write', { file_path: 'src/safe.ts', content: 'changed' }), false);
+    assert.equal(readFileSync(join(root, 'src', 'safe.ts'), 'utf8'), '// dirty\r\nexport const value = 1;\r\n');
+  } finally { rmSync(root, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true }); }
+});
+
+test('unsafe recursive SDK discovery returns actionable actual safe filenames rather than empty success', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'eevee-discovery-policy-')));
+  try {
+    mkdirSync(join(root, '.git'));
+    mkdirSync(join(root, 'src'));
+    writeFileSync(join(root, '.git', 'config'), 'private repository configuration');
+    writeFileSync(join(root, 'src', 'visible.ts'), 'export const visible = true;\n');
+    const policy = new SDKWritePolicy(root, reviewedScope(root, []));
+    const result = policy.readAdmission('Glob', { pattern: '**/*.ts' });
+    assert.equal(result.allowed, false);
+    assert.match(result.reason, /src\/visible\.ts/);
+    assert.doesNotMatch(result.reason, /\.git\/config/);
+    assert.equal(policy.readAdmission('Glob', { path: 'src', pattern: '*.ts' }).allowed, true);
+    assert.equal(policy.readAdmission('Grep', { path: 'src', pattern: 'visible' }).allowed, true);
+    for (const pattern of ['../*', '{src,/outside}/*', '[.][.]/*', '/outside/*']) {
+      assert.equal(policy.readAdmission('Glob', { path: root, pattern }).allowed, false);
+    }
+    if (process.platform !== 'win32') {
+      symlinkSync('src', join(root, 'alias'));
+      assert.equal(policy.readAdmission('Read', { file_path: 'alias/visible.ts' }).allowed, false);
+      linkSync(join(root, 'src', 'visible.ts'), join(root, 'hard.ts'));
+      assert.equal(policy.readAdmission('Read', { file_path: 'hard.ts' }).allowed, false);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('noninspection SDK planning requires frozen observational root even without mutation targets', () => {
+  const command = { protocol: 1, bridge_revision: 7, type: 'run', generation: 1, task_id: 1,
+    request_id: 'owned-request', cwd: '/project', state_dir: '/state', prompt: 'Read project context',
+    operation: 'plan', write_scope: { mode: 'Selected', protected_paths: ['/state'],
+      excluded_paths: ['private'], root_identity: '1:2', files: [] },
+    resume: null, inspect_models: false, selection: { model: null, effort: null } };
+  assert.equal(RunSchema.safeParse(command).success, true);
+  assert.equal(RunSchema.safeParse({ ...command, write_scope: { ...command.write_scope, root_identity: null } }).success, false);
+  assert.equal(RunSchema.safeParse({ ...command, bridge_revision: 6 }).success, false);
 });

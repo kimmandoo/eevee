@@ -194,6 +194,11 @@ async fn inference_rounds(
                 }
             ));
         }
+        // Each completed model round is a chronological display segment.
+        // The accumulated public prefix belongs only to canonical history.
+        stream
+            .publish_text(events, run, true)
+            .map_err(|error| (Outcome::Failed, error))?;
         if round == ROUND_LIMIT || call_count + calls.len() > TOOL_CALL_LIMIT {
             return Err((Outcome::Failed, "Native round/function-call limit reached; terminal call set not executed and no continuation sent".into()));
         }
@@ -257,24 +262,25 @@ async fn inference_rounds(
                     safe(&error, true)
                 );
                 for call in calls {
-                    results.push(json!({"status":"refused","path":call.path,"message":message}));
+                    results.push(
+                        json!({"status":"refused","path":call.tool.path(),"message":message}),
+                    );
                 }
             }
             Ok(proposals) => {
                 for (index, (call, proposal)) in calls.into_iter().zip(proposals).enumerate() {
-                    let result = execute_write(
-                        workspace,
-                        run,
-                        events,
-                        control,
-                        incoming,
-                        connection,
-                        revalidate,
-                        round,
-                        index,
-                        call.id.as_deref(),
-                        &proposal,
-                    )
+                    let result = if let Some(proposal) = proposal {
+                        execute_write(
+                            workspace, run, events, control, incoming, connection, revalidate,
+                            round, index, call.id.as_deref(), &proposal,
+                        )
+                    } else {
+                        let scope = run.writes.as_mut().ok_or_else(|| (Outcome::Failed, "Frozen file scope missing".into()))?;
+                        Ok(match scope.observe_tool(&call.tool) {
+                            Ok(result) => result,
+                            Err(error) => json!({"status":"refused","path":call.tool.path(),"message":safe(&error, true)}),
+                        })
+                    }
                     .map_err(|error| {
                         (
                             if control.cancelled() {
@@ -313,29 +319,45 @@ async fn inference_rounds(
 fn prepare_batch(
     writes: &mut WriteSet,
     calls: &mut [tools::Call],
-) -> Result<Vec<WriteProposal>, String> {
-    if calls.iter().any(|call| {
-        call.path.to_str().is_none_or(|path| {
-            path.is_empty() || path.len() > tools::PATH_LIMIT || path.chars().any(char::is_control)
+) -> Result<Vec<Option<WriteProposal>>, String> {
+    if calls.iter().any(|call| call.tool.invalid()) {
+        return Err("File tool arguments must exactly match the advertised schema".into());
+    }
+    if calls
+        .iter()
+        .filter(|call| call.tool.mutating())
+        .any(|call| {
+            call.tool.path().to_str().is_none_or(|path| {
+                path.is_empty()
+                    || path.len() > tools::PATH_LIMIT
+                    || path.chars().any(char::is_control)
+            })
         })
-    }) {
+    {
         return Err("Native proposal path exceeds its lexical bounds".into());
     }
     let mut unique = HashSet::new();
     let paths = calls
         .iter()
-        .map(|call| call.path.clone())
+        .filter(|call| call.tool.mutating())
+        .map(|call| call.tool.path().to_path_buf())
         .collect::<Vec<_>>();
     if paths.iter().any(|path| !unique.insert(path)) {
         return Err("Repeated target in one proposal batch".into());
     }
     let mut candidate = writes.clone();
     candidate.admit_paths(&paths)?;
-    // Commit new authority only after the complete batch, including contents,
-    // validates. No prompt, effect or partial enrollment survives a refusal.
+    // Observations never enroll targets. Every mutating proposal is preflighted
+    // before any permission or effect, including when mixed with source calls.
     let proposals = calls
         .iter_mut()
-        .map(|call| candidate.propose(call.path.clone(), std::mem::take(&mut call.content)))
+        .map(|call| {
+            if call.tool.mutating() {
+                candidate.propose_tool(&mut call.tool).map(Some)
+            } else {
+                Ok(None)
+            }
+        })
         .collect::<Result<Vec<_>, _>>()?;
     *writes = candidate;
     Ok(proposals)
@@ -457,6 +479,7 @@ fn journal(
     round: usize,
     index: usize,
     text: &str,
+    receipt: Option<&str>,
 ) -> Result<(), String> {
     let owner = run
         .input
@@ -476,7 +499,7 @@ fn journal(
             item_id: item_id.clone(),
             origin: "Eevee-mediated native file tool".into(),
             coverage: "Exact approved create/replace and parent scope only; observed local filesystem result, not command verification, commit or an OS sandbox".into(),
-            text: safe(text, true),
+            text: safe(receipt.unwrap_or(text), true),
             complete: true,
             partner: Some(owner.owner.clone()),
         },
@@ -530,10 +553,12 @@ fn execute_write(
                 round,
                 index,
                 &format!("{}: {error}", proposal.path.display()),
+                None,
             )?;
             return Err(error);
         }
     };
+    let mut receipt = None;
     let result = if !allowed {
         json!({"status":"denied", "path":proposal.path, "message":"User denied this exact file proposal; no Eevee write occurred"})
     } else if let Err(error) = validate_active(workspace, run, connection, control, revalidate) {
@@ -541,15 +566,18 @@ fn execute_write(
     } else {
         let writes = run.writes.as_mut().ok_or("Native file scope disappeared")?;
         match writes.apply(proposal) {
-            Ok(applied) => json!({"status":"success", "effect":"applied", "path":applied.path,
-                "kind":format!("{:?}", applied.kind), "directories":applied.directories,
-                "message":applied.message}),
+            Ok(applied) => {
+                receipt = Some(applied.receipt());
+                json!({"status":"success", "effect":"applied", "path":applied.path,
+                    "kind":format!("{:?}", applied.kind), "directories":applied.directories,
+                    "source_sha256":applied.source_sha256, "message":applied.message})
+            }
             Err(failure) => failed_write(run, events, round, index, proposal, failure)?,
         }
     };
     let text =
         serde_json::to_string(&result).map_err(|_| "Cannot encode actual native file result")?;
-    journal(run, events, round, index, &text)?;
+    journal(run, events, round, index, &text, receipt.as_deref())?;
     Ok(result)
 }
 
@@ -585,6 +613,7 @@ fn failed_write(
             proposal.path.display(),
             failure.message
         ),
+        None,
     )?;
     Err(format!(
         "Local filesystem effects remain uncertain: {}",

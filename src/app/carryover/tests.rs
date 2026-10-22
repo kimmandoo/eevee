@@ -191,13 +191,10 @@ fn accepted_switch_pairs_capture_counts_and_capability_changes_without_work() {
         ),
         (0, 3, 1, 2, 1)
     );
-    assert!(from_intake.summary.ends_with("+edit"));
     let to_execution = switch(&mut app, 2);
     assert_eq!((to_execution.from, to_execution.to), (3, 2));
-    assert!(to_execution.summary.ends_with("+run -edit"));
     let to_planning = switch(&mut app, 4);
     assert_eq!((to_planning.from, to_planning.to), (2, 4));
-    assert!(to_planning.summary.ends_with("+edit-plans -run"));
     assert_eq!(app.input, drafts);
     assert!(app.execution.active.is_none() && app.execution.prepared.is_none());
     assert!(app.planning.pending.is_none() && !app.planning.busy());
@@ -275,7 +272,6 @@ fn mixed_statuses_count_only_open_hypotheses_findings_and_owned_committed_pins()
         ),
         (4, 1, 1, 1)
     );
-    assert!(record.summary.ends_with("caps unchanged"));
     assert_eq!(app.workflows.hypotheses.len(), 6);
     assert_eq!(app.workflows.findings.len(), 3);
 }

@@ -955,7 +955,7 @@ impl App {
     fn role_owner(&self, name: &str) -> Option<usize> {
         match name {
             "command-edit" if self.form() != 2 => Some(2),
-            "paths" | "role-implement" if !matches!(self.form(), 3 | 6) => Some(3),
+            "paths" | "role-implement" if !matches!(self.form(), 0 | 3 | 6) => Some(3),
             _ => None,
         }
     }
@@ -1424,6 +1424,7 @@ impl App {
                 return self.planning_command("provider-journal");
             }
             "session-new" | "session-resume" => {
+                self.planning.prepare_ordinary_operation(self.form());
                 self.open_overlay(Overlay::Planning);
                 return self.planning_command(if name == "session-new" {
                     "new"

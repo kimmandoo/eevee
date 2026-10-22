@@ -1,5 +1,26 @@
 # Troubleshooting
 
+### [2026-10-22] Ordinary requests never advertised coding tools
+
+- **Context / Symptom:** The user still could not create files after v0.1.15. An actual ordinary-composer probe sent `"tools": null` and acquired a non-writing lease (`target/ordinary-generation-before`).
+- **Root Cause:** Previous creation fixtures explicitly selected Flareon/Implement, while the normal Eevee entry retained Plan. Native coding also exposed only full-file write, without project discovery/read/targeted edit; optional `/paths` still routed ordinary Eevee away from its coding flow.
+- **Solution:** Resolved implicit supported-route coding at ordinary and advanced preparation, preserved explicit Plan/Review, synchronized restored form policies, and admitted local restrictions from Eevee. Added bounded real list/read/write/read-hash edit workflows, truthful read/write disclosures and shared exact mutation consent. The revised runtime driver begins without implementation-role setup and checks actual bytes, not model claims.
+- **Prevention / Reference:** Verify first-use entry separately from executor correctness; keep explicit read-only and unsupported-route checks. Native/controlled fixtures do not establish paid/live-model conformance.
+
+### [2026-10-22] Continuous output hid continuation text and compact trailing lines
+
+- **Context / Symptom:** Reusing an earlier assistant item after tool receipts could hide the final answer while following. Restored sessions could reuse another transcript's row offset; a one-row compact viewport followed a synthetic blank row after a terminal newline.
+- **Root Cause:** Item-selection paging assumptions survived in arrival order, cached-anchor fallback and line splitting. Separating native display rounds also required preserving credential context from preceding rounds.
+- **Solution:** Added chronological native round segments, kept cumulative credential redaction when projecting each segment, followed real continuations after tool receipts, and reanchored restored selected items. Ignored only the structural trailing newline row while preserving intentional blank lines. Actual PTY verification checks both-direction cross-response navigation, paused append/reflow and raw saved draft/caret bytes; surface-only Unicode comparisons normalize terminal graphemes rather than changing provider/file data.
+- **Prevention / Reference:** Exercise compact single-row output and model-text → tool → final-text transitions. Do not require a particular paragraph to remain visible after a viewport-sized page move.
+
+### [2026-10-22] Native Git filename spelling and obsolete patch receipts broke follow-up reads
+
+- **Context / Symptom:** A controlled write created a decomposed-Unicode filename, but discovery omitted it and the next read refused it as absent/ignored. Workflow relay verification also found no retained author after an actual approved write.
+- **Root Cause:** Git's macOS precomposition changed inventory spelling relative to native directory names. A downstream author decoder still expected the obsolete 12-KiB prose/diff receipt instead of current creation/replacement results.
+- **Solution:** Requested native Unicode spelling for inventory without modifying repository/global configuration, retained ignore/protection checks and used logarithmic inventory prefix lookup. Emitted compact verified post-write digest receipts for mediated mutations and removed the obsolete prose decoder; provider claims, reads, failures and denials remain non-authoritative. Post-write hashes come from the already verified retained baseline, not a second inference/hash or parsed display wording.
+- **Prevention / Reference:** Keep generated-file readback and exact dirty CRLF preservation in real controlled/native loops. Historical migration handling remains historical; current authorship requires current trusted producer metadata.
+
 ### [2026-10-22] Retained Windows publication handles blocked their own verification
 
 - **Context / Symptom:** Native run `39641905695` failed ten Windows write/continuation regressions with `The process cannot access the file because it is being used by another process. (os error 32)` after publication. Linux Check also rejected a platform-unused collation enum variant.

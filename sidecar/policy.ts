@@ -45,7 +45,7 @@ export const WriteScopeSchema = z.object({
 }).strict();
 export type WriteScope = z.infer<typeof WriteScopeSchema>;
 export const RunSchema = z.object({
-  protocol: z.literal(1), bridge_revision: z.literal(6), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().positive(),
+  protocol: z.literal(1), bridge_revision: z.literal(7), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().positive(),
   request_id: boundedText(256).nullish(),
   prompt: z.string().max(FRAME_LIMIT / 2), cwd: z.string().min(1).max(4096), state_dir: z.string().min(1).max(4096),
   operation: z.enum(['plan', 'implement']), write_scope: WriteScopeSchema,
@@ -54,6 +54,7 @@ export const RunSchema = z.object({
   const scope = command.write_scope;
   if ((command.operation === 'plan' && (scope.mode !== 'Selected' || scope.files.length !== 0)) ||
     (command.operation === 'implement' && (scope.root_identity === null || (scope.mode === 'Selected' ? scope.files.length === 0 : scope.files.length !== 0))) ||
+    (!command.inspect_models && scope.root_identity === null) ||
     (command.inspect_models && (command.request_id != null || command.prompt !== '' || command.resume != null || scope.files.length !== 0 || command.operation !== 'plan'))) {
     context.addIssue({ code: 'custom', message: 'Invalid inspection/operation write scope' });
   }
@@ -287,7 +288,7 @@ function exactExclusion(path: string): boolean {
 function protectedPath(path: string): boolean {
   return path.split('/').some(part => {
     const name = part.toLowerCase();
-    return ['.git', '.claude', '.codex', '.gemini', '.opencode', '.npmrc', '.netrc', '.pypirc', '.ds_store', '.ev-install'].includes(name) ||
+    return ['.git', '.claude', '.codex', '.gemini', '.opencode', '.npmrc', '.netrc', '.pypirc', '.ds_store', '.ev-install', 'auth.json', 'oauth_creds.json'].includes(name) ||
       name === '.env' || name.startsWith('.env.') || name.startsWith('id_') || name.includes('secret') ||
       name.includes('credential') || name.startsWith('private_key') || name.endsWith('.pem') || name.endsWith('.key');
   });
@@ -326,6 +327,7 @@ export class SDKWritePolicy {
   private readonly root: string;
   private readonly scope: WriteScope;
   private readonly ownedParents = new Map<string, string>();
+  private readonly readRootIdentity: string;
   private readonly protectedPaths: string[];
   private readonly ancestorLedger = new Map<string, string | null>();
   private uncertain = false;
@@ -335,6 +337,7 @@ export class SDKWritePolicy {
   constructor(cwd: string, scope: WriteScope, runtimePaths: string[] = []) {
     this.root = realpathSync(cwd);
     if (toNamespacedPath(resolve(cwd)) !== toNamespacedPath(this.root) || directoryIdentity(this.root) === undefined) throw new SDKPolicyError('SDK cwd must be a canonical non-link directory');
+    this.readRootIdentity = directoryIdentity(this.root)!;
     this.scope = structuredClone(WriteScopeSchema.parse(scope));
     if (this.scope.root_identity !== null && directoryIdentity(this.root) !== this.scope.root_identity) throw new SDKPolicyError('SDK frozen root changed');
     if (this.scope.mode === 'Workspace' && (this.scope.root_identity === null || this.scope.files.length !== 0)) throw new SDKPolicyError('Invalid initial workspace scope');
@@ -369,6 +372,87 @@ export class SDKWritePolicy {
     };
     return this.protectedPaths.some(boundary => within(full, boundary)) ||
       this.scope.excluded_paths.some(boundary => within(full, resolve(this.root, boundary))) ? undefined : path;
+  }
+  // Observations never enroll mutation targets or refresh their baselines.
+  // This is mandatory agent policy, not a race-free OS filesystem sandbox.
+  readAdmission(tool: string, input: Record<string, unknown>): { allowed: boolean; reason: string } {
+    const refusal = (reason: string) => ({ allowed: false, reason });
+    if (!['Read', 'Glob', 'Grep'].includes(tool) || directoryIdentity(this.root) !== this.readRootIdentity) {
+      return refusal('Source tool or frozen project root is unavailable');
+    }
+    const unsafeContent = (text: string) =>
+      /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(text) ||
+      /-----BEGIN [^\r\n]*PRIVATE KEY-----|(?:^|[^A-Za-z0-9_])(?:sk-|gh[pousr]_|github_pat_|xox[bpar]-|AKIA|ASIA|AIza)[^\s"'`,;<>]{4,}|bearer[ \t]+[^\s"'`,;<>]+|(?:[A-Za-z0-9_-]+_)?(?:password|passwd|pwd|secret|token|api[_-]?key|access_key|private_key|client_secret|authorization)["']?\s*[:=]\s*["']?[^\s"',;}\]]+|:\/\/[^\s/?#]+@/im.test(text);
+    const safeFile = (path: string) => {
+      const state = fileState(resolve(this.root, path));
+      return state !== undefined && !unsafeContent(state.content);
+    };
+    const ancestors = (path: string) => {
+      const parts = path.split('/');
+      return parts.slice(0, -1).every((_, index) =>
+        directoryIdentity(resolve(this.root, ...parts.slice(0, index + 1))) !== undefined);
+    };
+    if (tool === 'Read') {
+      const path = this.path(input.file_path);
+      return path !== undefined && ancestors(path) && safeFile(path) &&
+        directoryIdentity(this.root) === this.readRootIdentity ?
+        { allowed: true, reason: 'Bounded safe project source; read permission only' } :
+        refusal('Read requires an existing safe UTF-8 project file (256 KiB maximum), with no links, excluded/protected paths or recognizable credentials; use a literal project path');
+    }
+    const pattern = tool === 'Glob' ? input.pattern : input.glob;
+    if ((tool === 'Glob' && typeof pattern !== 'string') ||
+      (pattern !== undefined && (typeof pattern !== 'string' || pattern.length > 4096 || isAbsolute(pattern) ||
+        /[\\:{}()!|\[\]\p{Cc}]/u.test(pattern) || pattern.split('/').some(part => part === '.' || part.includes('..'))))) {
+      return refusal('Discovery supports simple project-relative * and ? patterns, without parent traversal or alternate absolute paths');
+    }
+    const candidate = input.path ?? this.root;
+    if (typeof candidate !== 'string') return refusal('Source search requires a literal project path');
+    const rootSearch = candidate === this.root || candidate === '.';
+    const path = rootSearch ? '' : this.path(candidate);
+    if (path === undefined || (path !== '' && !ancestors(path))) {
+      return refusal('Source search path is outside, protected, excluded or linked; choose a safe project file/directory');
+    }
+    const full = resolve(this.root, path);
+    if (directoryIdentity(full) === undefined) {
+      return path !== '' && safeFile(path) ? { allowed: true, reason: 'Safe exact source file search' } :
+        refusal('Source search target must be a safe regular file or directory');
+    }
+    const pending = [{ path, identity: directoryIdentity(full)!, depth: 0 }];
+    const retained: { path: string; identity: string }[] = [];
+    const catalogue: string[] = [];
+    let blocked = false;
+    let entries = 0;
+    let bytes = 0;
+    while (pending.length) {
+      const directory = pending.pop()!;
+      if (directory.depth > 64 || directoryIdentity(resolve(this.root, directory.path)) !== directory.identity) {
+        return refusal('Source search tree changed or exceeds 64 levels; narrow the search');
+      }
+      let names: string[];
+      try { names = readdirSync(resolve(this.root, directory.path)).sort(); }
+      catch { return refusal('Source search directory is unavailable'); }
+      entries += names.length;
+      if (entries > 10000) return refusal('Source discovery exceeds 10000 entries; choose a narrower safe directory');
+      for (const name of names) {
+        const child = directory.path ? `${directory.path}/${name}` : name;
+        if (this.path(child) !== child) { blocked = true; continue; }
+        const identity = directoryIdentity(resolve(this.root, child));
+        if (identity !== undefined) {
+          pending.push({ path: child, identity, depth: directory.depth + 1 });
+        } else {
+          const state = fileState(resolve(this.root, child));
+          if (!state || unsafeContent(state.content)) { blocked = true; continue; }
+          bytes += Buffer.byteLength(state.content);
+          if (bytes > 2 * 1024 * 1024) return refusal('Source search exceeds 2 MiB of bounded source; narrow the search');
+          if (catalogue.length < 128) catalogue.push(child);
+        }
+      }
+      retained.push(directory);
+    }
+    if (retained.some(directory => directoryIdentity(resolve(this.root, directory.path)) !== directory.identity) ||
+      directoryIdentity(this.root) !== this.readRootIdentity) return refusal('Source search tree changed; try a fresh narrower search');
+    if (blocked) return refusal(`Recursive native source search could include protected/excluded/linked/credential-bearing files. Use Read on a safe filename or search a narrower safe directory. Actual bounded safe filename catalogue (up to 128): ${JSON.stringify(catalogue.sort())}`);
+    return { allowed: true, reason: 'Bounded safe source tree; no mutation authority' };
   }
   private capture(path: string): WriteScope['files'][number] | undefined {
     if (this.scope.mode !== 'Workspace' || this.scope.files.length >= 256 || directoryIdentity(this.root) !== this.scope.root_identity) return undefined;

@@ -197,65 +197,39 @@ pub struct PatchAuthor {
     pub record_id: String,
 }
 
-/// Only the hardcoded Eevee-controlled success origin is decoded. Provider
-/// messages/native-tool observations use distinct origins and cannot claim it.
-/// Matching current source identity is separately required when using attribution.
+/// Only actual host-mediated write origins can establish authorship. Reads,
+/// provider messages and external tools cannot supply this verified digest.
 pub fn controlled_patch_author(record: &crate::store::ProviderRecord) -> Option<PatchAuthor> {
-    if record.agent != crate::providers::Agent::Codex
-        || !record.complete
-        || record.origin != "Codex-requested Eevee-controlled file edit"
-        || !record.item_id.starts_with("eevee-edit-")
-        || !record.text.starts_with("Applied reviewed replacement to ")
-        || record.text.len() > 64 * 1024
-    {
+    let mediated = if record.agent == crate::providers::Agent::Codex {
+        record.origin == "Codex-requested Eevee-controlled file write"
+            && record.item_id.starts_with("eevee-write-")
+    } else {
+        record.agent.is_direct()
+            && record.origin == "Eevee-mediated native file tool"
+            && record.item_id.starts_with("eevee-native-write:")
+    };
+    if !mediated || !record.complete || record.text.len() > 8192 {
         return None;
     }
-    let owner = record.partner.as_ref().filter(|p| p.partner > 0)?;
-    let mut lines = record.text.split_inclusive('\n');
-    lines.next()?;
-    let path = lines
-        .next()?
-        .trim_end_matches('\n')
-        .strip_prefix("--- a/")?;
+    let owner = record.partner.as_ref().filter(|owner| owner.partner > 0)?;
+    let receipt: serde_json::Value = serde_json::from_str(&record.text).ok()?;
+    if receipt.get("status")?.as_str()? != "success" {
+        return None;
+    }
+    let path = receipt.get("path")?.as_str()?;
     relative_path(path).ok()?;
-    if lines
-        .next()?
-        .trim_end_matches('\n')
-        .strip_prefix("+++ b/")?
-        != path
-    {
+    let bytes = receipt.get("source_sha256")?.as_array()?;
+    if bytes.len() != 32 {
         return None;
     }
-    if !lines
-        .next()?
-        .starts_with("@@ exact full-file replacement; baseline sha256=")
-    {
-        return None;
+    let mut source_sha256 = [0; 32];
+    for (slot, value) in source_sha256.iter_mut().zip(bytes) {
+        *slot = u8::try_from(value.as_u64()?).ok()?;
     }
-    let mut replacement = String::new();
-    let mut new_line = false;
-    for line in lines {
-        if let Some(text) = line.strip_prefix('+') {
-            if replacement.len().saturating_add(text.len()) > 12 * 1024 {
-                return None;
-            }
-            replacement.push_str(text);
-            new_line = true;
-        } else if line.starts_with('-') {
-            new_line = false;
-        } else if line.trim_end_matches('\n') == "\\ No newline at end of file" {
-            if new_line && replacement.ends_with('\n') {
-                replacement.pop();
-            }
-        } else {
-            return None;
-        }
-    }
-    use sha2::{Digest, Sha256};
     Some(PatchAuthor {
         partner: owner.partner,
         path: path.into(),
-        source_sha256: Sha256::digest(replacement.as_bytes()).into(),
+        source_sha256,
         record_id: record.id.clone(),
     })
 }

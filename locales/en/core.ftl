@@ -70,10 +70,10 @@ core-help-content =
     { " Enter      Send request / select / confirm" }
     { " Esc        Back (drafts are kept)" }
     { " Tab        Switch pane" }
-    { " Wheel      Scroll response under the pointer" }
-    { " PgUp/PgDn  Page response or details" }
-    { " Alt+Home/End  Top / latest response" }
-    { " Alt+Up/Down   Previous / next output item" }
+    { " Wheel      Scroll transcript under the pointer" }
+    { " PgUp/PgDn  Scroll transcript or details" }
+    { " Alt+Home/End  Transcript start / follow latest" }
+    { " Alt+Up/Down   Inspect previous / next item" }
     { " Shift+drag    Terminal selection (if supported)" }
     { " Shift+Enter, Ctrl+N  Newline" }
     { " Ctrl+S     Keep draft locally" }

@@ -245,7 +245,7 @@ fn worker(
                     preview.trust.push(if input.edit_paths.is_empty() {
                         "WORKSPACE IMPLEMENT: the model may propose project-relative filenames within frozen privacy and exclusion boundaries. Every exact create/replace, complete content and missing-parent scope requires separate deny/allow-once permission. Optional /paths restricts proposals to selected files. Native file content limit: 64 KiB. No command execution or verification."
                     } else {
-                        "SELECTED IMPLEMENT: only eevee_write_file can create or replace the exact selected targets. Every complete content and missing-parent scope requires separate deny/allow-once permission. Native file content limit: 64 KiB. No command execution or verification."
+                        "SELECTED IMPLEMENT: source read/list tools can inspect safe project files, but only reviewed write/edit proposals can change exact selected targets. Every complete content and missing-parent scope requires separate deny/allow-once permission. Native file content limit: 64 KiB. No command execution or verification."
                     }.into());
                 }
                 if input.inspect_models {
@@ -464,9 +464,9 @@ fn payload(
         })).map_err(|_| "Cannot encode native context")?;
         (
             if writes.is_some() && input.edit_paths.is_empty() {
-                "Implement through eevee_write_file with model-proposed project-relative filenames inside the frozen workspace privacy/exclusion boundaries. Supply exact complete UTF-8 content, at most 64 KiB per file; preserve unrelated dirty baseline changes. Every create/replace and missing-parent scope requires a new one-shot user permission. Invalid whole batches have no effects; correct the refused batch rather than repeating it. Tool results report actual local effects, not command verification."
+                "Answer the user's current request directly; do not turn ordinary conversation into planning or unnecessary tool calls. When project context is needed, discover filenames with eevee_list_files and inspect actual bytes with eevee_read_file. When file changes are requested, actually call eevee_write_file to create files or eevee_edit_file for a unique literal edit using the preceding read sha256; fenced code alone does not create a file. Stay inside frozen workspace privacy/exclusion boundaries. Full-content writes are at most 64 KiB per file and must preserve unrelated dirty bytes; use targeted edit rather than replacing a file from a partial read. Every write/edit and missing-parent scope requires a new one-shot permission. Invalid whole mutation batches have no effects; correct refusals. Tool results report actual local effects, not verification."
             } else if writes.is_some() {
-                "Implement only through eevee_write_file for the explicit selected paths. Supply exact complete UTF-8 content, at most 64 KiB per file; preserve unrelated dirty baseline changes. Each create/replace and missing-parent scope requires a new one-shot user permission. Invalid whole batches have no effects; correct the refused batch. Tool results report actual local effects, not command verification."
+                "Answer the user's current request directly; do not force ordinary conversation into planning or unnecessary tool calls. When file changes are requested, actually use eevee_write_file or eevee_edit_file only for explicit selected paths, not merely fenced code. eevee_read_file and eevee_list_files may inspect other safe project context when needed without authorizing writes. Targeted edit requires the preceding read sha256 and a unique literal old_text; full files are at most 64 KiB. Preserve unrelated dirty bytes; do not replace a file from only partial read context. Each resulting complete content and missing-parent scope requires a new one-shot permission. Invalid whole mutation batches have no effects; correct refusals. Tool results report actual local effects, not verification."
             } else {
                 "Answer the user's current request directly. Provide a plan when requested; do not turn ordinary conversation into task planning."
             },
@@ -480,7 +480,7 @@ fn payload(
         );
     }
     let capability = if writes.is_some() {
-        "Only eevee_write_file is available. No shell, processes, project hooks, MCP, checks or commits. Treat denial/refusal as no grant; never request an alternate tool or claim verification. Report writes only from actual tool results."
+        "Available tools: eevee_list_files, eevee_read_file, eevee_write_file, eevee_edit_file. Reads/discovery grant no write authority. No shell, processes, project hooks, MCP, checks or commits. Treat denial/refusal as no grant; never request an alternate write route or claim verification. Report writes only from actual tool results."
     } else {
         "No tools or local execution are available. Never claim files changed, commands ran, or checks passed."
     };
@@ -1748,11 +1748,15 @@ impl Stream {
         self.publish_text(events, run, false)
     }
     fn publish_text(&self, events: &Events, run: &Prepared, complete: bool) -> Result<(), String> {
-        let text = self.public_text();
-        if text.is_empty() {
+        if self.text.is_empty() {
             return Ok(());
         }
-        self.publish_display(events, run, safe(&text, complete), complete)
+        let text = if self.prefix.is_empty() {
+            safe(&self.text, complete)
+        } else {
+            safe_from(&self.public_text(), complete, self.prefix.len() + 2)
+        };
+        self.publish_display(events, run, text, complete)
     }
     fn public_text(&self) -> String {
         let mut text = String::with_capacity(self.prefix.len() + self.text.len() + 2);
@@ -1784,7 +1788,7 @@ impl Stream {
                 // A transport may be recreated between turns; its generation
                 // alone cannot identify retained responses across requests.
                 turn_id: format!("native-request-{request}"),
-                item_id: format!("native-response-{request}"),
+                item_id: format!("native-response-{request}-round-{}", self.round),
                 kind: ItemKind::Message,
                 text,
                 complete,
@@ -1824,7 +1828,7 @@ impl Stream {
                 },
             )?;
         }
-        self.publish_display(events, run, text, true)
+        self.publish_text(events, run, true)
     }
 }
 fn private_or_controls(text: &str) -> bool {
@@ -1834,8 +1838,12 @@ fn private_or_controls(text: &str) -> bool {
 }
 
 fn safe(text: &str, complete: bool) -> String {
-    // Sanitize the cumulative text, not individual deltas: credentials and escape sequences can span chunks.
-    crate::workspace::privacy::redact_stream(text, complete).chars().map(|c| {
+    safe_from(text, complete, 0)
+}
+
+fn safe_from(text: &str, complete: bool, from: usize) -> String {
+    // Segment rendering must retain cumulative credential/escape context.
+    crate::workspace::privacy::redact_stream_from(text, complete, from).chars().map(|c| {
         if (c.is_control() && c != '\n' && c != '\t') || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}') { '\u{fffd}' } else { c }
     }).collect()
 }

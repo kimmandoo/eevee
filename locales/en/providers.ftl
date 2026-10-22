@@ -121,7 +121,7 @@ providers-planning-immutable-request-unavailable-inspect-exact-payload-details =
 
 providers-planning-eevee-sends-the-exact-http-payload-below =
     { "" }
-    { "Eevee sends the exact initial HTTP payload below with scoped credential headers. Implement exposes bounded file-proposal tools for new or existing workspace paths; optional /paths restricts exact targets and [] clears that restriction. Each exact change and missing parent directory needs separate one-shot permission. Native/Codex writes allow at most eight files and 64 KiB per file; the SDK separately allows 256 files and 256 KiB per file. Plan, Review and metadata do not expose writes. No shell, project hooks/MCP or implicit source reads. This is not a universal OS sandbox. The service owns authentication, usage charges, retention and internal behavior. Cancellation is not a guaranteed remote stop. No automatic retry." }
+    { "Eevee sends the exact initial HTTP payload below with scoped credential headers. Coding tools may discover and read bounded safe project files; requested changes require separate exact content/parent approval. Optional /paths restricts write targets; [] clears only that restriction. Native/Codex writes allow eight files up to 64 KiB each; SDK writes separately allow 256 files up to 256 KiB. Explicit Plan/Review and metadata remain non-writing. No automatic whole-project upload, shell, project hooks/MCP or code execution is added. This is not a universal OS sandbox. The service owns authentication, charges, retention and internal behavior; cancellation does not guarantee remote stop. No automatic retry." }
     { "" }
 
 providers-planning-eevee-sends-the-exact-payload-below-it =
@@ -214,7 +214,7 @@ providers-planning-enter-sends-an-independent-review-request-no = { "Enter sends
 
 providers-planning-type-a-request-below-enter-sends-commands = { "Type a request below. Enter sends; commands and file changes require separate approval." }
 
-providers-planning-wheel-pgup-dn-alt-up-down-item = { "Wheel/PgUp/Dn | Alt+Up/Down item | Alt+Home top" }
+providers-planning-wheel-pgup-dn-alt-up-down-item = { "Wheel/PgUp/Dn transcript | Alt+Up/Down inspect | Alt+Home top" }
 
 providers-planning-decision-reviews-a-complete-proposal-locally = { "/decision reviews a complete proposal locally" }
 
@@ -579,6 +579,10 @@ providers-planning-candidate-default-uses-provider-configuration =
 providers-planning-earlier-items-omitted-decision-reviews-a-complete = { $count }{ " earlier items omitted · /decision reviews a complete proposal" }
 
 providers-planning-start-end-total-alt-end-latest = { $status }{ $new }{ " " }{ $start }{ "-" }{ $end }{ "/" }{ $total }{ " | Alt+End latest" }
+
+providers-planning-transcript-segment =
+    { $kind }{ " · " }{ $owner }{ " · " }{ $item }
+    { "Request: " }{ $request }
 
 providers-planning-secret-answers-hidden-in-review = { $count }{ " secret answers hidden in review." }
 

@@ -33,6 +33,50 @@ fn command(state: &mut State, name: &str, large: bool) {
 }
 
 #[test]
+fn ordinary_coding_never_overrides_explicit_read_only_or_expands_external_routes() {
+    for agent in [Agent::Compatible, Agent::Codex, Agent::Claude] {
+        let mut state = State::new();
+        state.reset(7);
+        state.agent = agent;
+        state.set_operation(Operation::Plan);
+        state.prepare_ordinary_operation(0);
+        command(&mut state, "new", true);
+        let Some(Request::Preview(input)) = state.pending.take() else {
+            panic!("missing preparation")
+        };
+        assert_eq!(input.operation, Operation::Plan);
+        assert!(!crate::providers::writing_required(input.operation));
+        let mut state = State::new();
+        state.reset(7);
+        state.agent = agent;
+        state.select_form_operation(6);
+        command(&mut state, "new", true);
+        let Some(Request::Preview(input)) = state.pending.take() else {
+            panic!("missing implementation preparation")
+        };
+        assert!(crate::providers::writing_required(input.operation));
+        let mut state = State::new();
+        state.reset(7);
+        state.agent = agent;
+        state.set_operation(Operation::Review);
+        state.prepare_ordinary_operation(0);
+        assert_eq!(state.operation, Operation::Review);
+    }
+    for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
+        let mut state = State::new();
+        state.reset(7);
+        state.agent = agent;
+        state.prepare_ordinary_operation(0);
+        command(&mut state, "new", true);
+        let Some(Request::Preview(input)) = state.pending.take() else {
+            panic!("missing external preparation")
+        };
+        assert_eq!(input.operation, Operation::Plan);
+        assert!(!crate::providers::writing_required(input.operation));
+    }
+}
+
+#[test]
 fn exact_new_paths_are_local_selection_and_only_implement_receives_scope() {
     for agent in [Agent::Compatible, Agent::Codex, Agent::Claude] {
         for operation in [Operation::Plan, Operation::Implement, Operation::Review] {
@@ -2371,6 +2415,7 @@ fn message() -> Item {
         text: "Visible decision".into(),
         complete: true,
         request: "Original request".into(),
+        owner: None,
     }
 }
 
@@ -2811,7 +2856,7 @@ fn newest_response_follows_but_older_selection_stays_until_end() {
     press(&mut state, KeyCode::End, true);
     assert_eq!(state.items[state.selected].item_id, "third");
     assert_eq!(
-        state.response_rows(40, 2, false).collect::<Vec<_>>(),
+        state.response_rows(40, 1, false).collect::<Vec<_>>(),
         ["third response"]
     );
 }
@@ -2938,8 +2983,9 @@ fn bounded_output_keeps_the_manually_selected_item_and_scroll() {
     let mut state = active();
     state.submitted_request = "Bounded request".into();
     streamed(&mut state, "pinned", "one\ntwo\nthree", true);
+    state.response_rows(40, 1, false).count();
     press(&mut state, KeyCode::Home, true);
-    state.response_scroll = 1;
+    assert!(state.scroll_response_lines(1));
     for index in 0..ITEM_LIMIT + 3 {
         streamed(&mut state, &format!("item-{index}"), "new", false);
     }
@@ -2949,7 +2995,6 @@ fn bounded_output_keeps_the_manually_selected_item_and_scroll() {
         state.response_rows(40, 1, false).collect::<Vec<_>>(),
         ["two"]
     );
-    assert_eq!(state.scroll, 1);
     assert_eq!(state.omitted, 4);
     assert_eq!(Arc::strong_count(&state.submitted_request), ITEM_LIMIT + 1);
 }
@@ -2981,7 +3026,7 @@ fn response_layout_reflows_unicode_without_copying_or_splitting_graphemes() {
 }
 
 #[test]
-fn tool_updates_do_not_replace_the_response_and_hidden_cache_stays_fresh() {
+fn tool_observations_share_the_transcript_and_hidden_cache_stays_fresh() {
     let mut state = active();
     streamed(&mut state, "first", "first response", true);
     state.response_rows(40, 2, false).count();
@@ -2995,15 +3040,13 @@ fn tool_updates_do_not_replace_the_response_and_hidden_cache_stays_fresh() {
         text: "tool observation".into(),
         complete: false,
     });
-    assert_eq!(state.selected, 0);
-    assert!(state.new_output);
-    reply_key(&mut state, KeyCode::Down);
-    // The user navigates back before another render. Invalidation must track
-    // the cached item's identity, not just the currently selected index.
-    streamed(&mut state, "first", "replacement\nwith two rows", true);
+    assert_eq!(state.selected, 1);
+    assert!(!state.new_output);
+    // An explicit inspection jump pauses before an older item changes.
     reply_key(&mut state, KeyCode::Up);
+    streamed(&mut state, "first", "replacement\nwith two rows", true);
     assert_eq!(
-        state.response_rows(40, 3, false).collect::<Vec<_>>(),
+        state.response_rows(40, 2, false).collect::<Vec<_>>(),
         ["replacement", "with two rows"]
     );
 }
@@ -3059,38 +3102,50 @@ fn verbose_response_retains_provenance_without_stale_cached_content() {
 }
 
 #[test]
-fn response_lines_and_viewport_pages_never_navigate_between_items() {
+fn response_lines_and_viewport_pages_traverse_attributed_item_boundaries() {
     let mut state = active();
+    state.submitted_request = "First input".into();
     streamed(&mut state, "older", "old response", true);
+    state.submitted_request = "Second input".into();
     streamed(
         &mut state,
-        "selected",
+        "newer",
         "0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11",
         false,
     );
-    state.response_rows(40, 4, false).count();
-    assert_eq!(state.response_position(), (9, 12, 12));
-    press(&mut state, KeyCode::Up, true);
-    assert_eq!(state.selected, 1);
-    assert_eq!(state.response_rows(40, 4, false).next(), Some("7"));
-    press(&mut state, KeyCode::PageUp, true);
-    assert_eq!(state.response_rows(40, 4, false).next(), Some("4"));
+    state.response_rows(120, 8, false).count();
+    let (_, _, total) = state.response_position();
+    assert!(total > 13, "attribution participates in the same layout");
+    assert!(state.scroll_response_lines(-10_000));
+    let top = state
+        .response_rows(120, 8, false)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    assert!(
+        top.iter().any(|line| line == "old response") && top.iter().any(|line| line == "0"),
+        "{top:?}"
+    );
+    assert!(top.iter().any(|line| line.contains("older")));
+    assert!(top.iter().any(|line| line.contains("newer")));
+    let start = state.response_position().0;
     press(&mut state, KeyCode::PageDown, true);
-    assert_eq!(state.response_rows(40, 4, false).next(), Some("7"));
-    state.response_rows(40, 2, false).count();
-    press(&mut state, KeyCode::PageUp, true);
-    assert_eq!(state.response_rows(40, 2, false).next(), Some("6"));
+    state.response_rows(120, 8, false).count();
+    assert_eq!(state.response_position().0, start + 7);
     assert_eq!(state.selected, 1);
-    assert!(!state.following);
+    press(&mut state, KeyCode::PageUp, true);
+    assert_eq!(state.response_rows(120, 8, false).collect::<Vec<_>>(), top);
+    assert_eq!(state.selected, 0);
+    assert!(!state.following, "manual traversal never resumes following");
+    reply_key(&mut state, KeyCode::Down);
+    assert_eq!(state.response_rows(120, 2, false).next(), Some("0"));
     reply_key(&mut state, KeyCode::Up);
-    assert_eq!(state.items[state.selected].item_id, "older");
     assert_eq!(
-        state.response_rows(40, 2, false).next(),
+        state.response_rows(120, 2, false).next(),
         Some("old response")
     );
-    reply_key(&mut state, KeyCode::Down);
-    assert_eq!(state.items[state.selected].item_id, "selected");
-    assert_eq!(state.response_rows(40, 2, false).next(), Some("0"));
+    press(&mut state, KeyCode::End, true);
+    assert_eq!(state.response_rows(120, 1, false).next(), Some("11"));
+    assert!(state.following && !state.new_output);
 }
 
 #[test]
@@ -3420,7 +3475,205 @@ fn fresh_turn_dispatch_keeps_manually_selected_previous_response_until_explicit_
     );
     reply_key(&mut state, KeyCode::End);
     assert_eq!(
-        state.response_rows(40, 2, false).collect::<Vec<_>>(),
+        state.response_rows(40, 1, false).collect::<Vec<_>>(),
         ["new response"]
     );
+}
+
+#[test]
+fn later_segment_anchor_survives_earlier_growth_new_segments_and_reflow() {
+    let mut state = active();
+    streamed(&mut state, "earlier", "earlier", false);
+    streamed(
+        &mut state,
+        "reading",
+        "start\n界界e\u{301}界界e\u{301}\nend\ntail",
+        false,
+    );
+    state.response_rows(4, 1, false).count();
+    assert!(state.scroll_response_lines(-3));
+    let held = state.response_rows(4, 1, false).next().unwrap().to_owned();
+    assert_eq!(state.items[state.selected].item_id, "reading");
+    streamed(&mut state, "earlier", &"earlier grew\n".repeat(30), true);
+    streamed(&mut state, "latest", "latest tail", false);
+    assert_eq!(state.response_rows(4, 1, false).next(), Some(held.as_str()));
+    state.response_rows(20, 1, false).count();
+    assert_eq!(state.response_rows(4, 1, false).next(), Some(held.as_str()));
+    assert_eq!(state.items[state.selected].item_id, "reading");
+    assert!(state.new_output && !state.following);
+    press(&mut state, KeyCode::End, true);
+    assert_eq!(
+        state.response_rows(120, 1, false).next(),
+        Some("latest tail")
+    );
+}
+
+#[test]
+fn transcript_segments_retain_origin_owner_and_replayed_turn_request() {
+    let mut state = active();
+    let first = store::Attribution {
+        partner: 1,
+        name: "First".into(),
+        form: 0,
+    };
+    let second = store::Attribution {
+        partner: 2,
+        name: "Second".into(),
+        form: 3,
+    };
+    state.slots.insert(
+        1,
+        Slot {
+            owner: first.clone(),
+            task: 7,
+            generation: Some(11),
+        },
+    );
+    state.submitted_request = "Original literal request".into();
+    streamed(&mut state, "original", "original answer", true);
+    state.slots.clear();
+    state.slots.insert(
+        2,
+        Slot {
+            owner: second.clone(),
+            task: 7,
+            generation: Some(11),
+        },
+    );
+    state.front = Some(second.clone());
+    state.submitted_request = "New literal request".into();
+    streamed(&mut state, "replayed", "original turn observation", true);
+    state.event(Event::Item {
+        generation: 11,
+        task_id: 7,
+        thread_id: "thread".into(),
+        turn_id: "new-turn".into(),
+        item_id: "new-item".into(),
+        kind: ItemKind::Message,
+        text: "new answer".into(),
+        complete: true,
+    });
+    assert_eq!(state.items[0].owner.as_ref(), Some(&first));
+    assert_eq!(state.items[1].owner.as_ref(), Some(&first));
+    assert_eq!(state.items[2].owner.as_ref(), Some(&second));
+    assert!(Arc::ptr_eq(
+        &state.items[0].request,
+        &state.items[1].request
+    ));
+    assert!(!Arc::ptr_eq(
+        &state.items[0].request,
+        &state.items[2].request
+    ));
+    state.response_rows(120, 20, false).count();
+    press(&mut state, KeyCode::Home, true);
+    let transcript = state
+        .response_rows(120, 20, false)
+        .collect::<Vec<_>>()
+        .join("\n");
+    for attribution in [
+        "First",
+        "Second",
+        "Original literal request",
+        "New literal request",
+        "original",
+        "replayed",
+        "new-item",
+    ] {
+        assert!(transcript.contains(attribution), "{transcript}");
+    }
+}
+
+#[test]
+fn restored_session_reanchors_to_its_selected_response_instead_of_foreign_rows() {
+    let item = |id: &str, text: &str| Item {
+        thread_id: id.into(),
+        turn_id: "turn".into(),
+        item_id: id.into(),
+        kind: ItemKind::Message,
+        text: text.into(),
+        complete: true,
+        request: Arc::from(id),
+        owner: None,
+    };
+    let mut state = State::new();
+    state.reset(7);
+    state.items = vec![item(
+        "old",
+        "old zero\nold one\nold two\nold three\nold four",
+    )];
+    state.response_rows(80, 1, false).count();
+    press(&mut state, KeyCode::Home, true);
+    for _ in 0..3 {
+        press(&mut state, KeyCode::Down, true);
+    }
+    assert_eq!(state.response_rows(80, 1, false).next(), Some("old three"));
+    state.sessions.insert(
+        (state.agent, Operation::Implement),
+        Session {
+            items: vec![
+                item(
+                    "other",
+                    "unrelated zero\nunrelated one\nunrelated two\nunrelated three",
+                ),
+                item("selected", "selected restored answer\nselected tail"),
+            ],
+            selected: 1,
+            ..Session::default()
+        },
+    );
+    state.set_operation(Operation::Implement);
+    assert_eq!(
+        state.response_rows(80, 1, false).next(),
+        Some("selected restored answer")
+    );
+    assert_eq!(state.response_request().0, "selected");
+}
+
+#[test]
+fn continued_assistant_after_tool_receipts_is_visible_without_moving_a_paused_reader() {
+    for paused in [false, true] {
+        let mut state = active();
+        streamed(&mut state, "answer", "starting\nheld line", false);
+        state.response_rows(80, 1, false).count();
+        if paused {
+            press(&mut state, KeyCode::Home, true);
+        }
+        state.event(Event::Item {
+            generation: 11,
+            task_id: 7,
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "tool".into(),
+            kind: ItemKind::Tool,
+            text: "actual tool receipt".into(),
+            complete: true,
+        });
+        streamed(
+            &mut state,
+            "answer",
+            "starting\nheld line\nfinal answer after tools",
+            true,
+        );
+        assert_eq!(
+            state.response_rows(80, 1, false).next(),
+            Some(if paused {
+                "starting"
+            } else {
+                "final answer after tools"
+            })
+        );
+        assert_eq!(state.following, !paused);
+    }
+}
+
+#[test]
+fn one_row_follow_shows_completed_text_instead_of_a_synthetic_newline_row() {
+    let mut state = active();
+    streamed(&mut state, "answer", "visible final line\n", false);
+    assert_eq!(
+        state.response_rows(60, 1, false).next(),
+        Some("visible final line")
+    );
+    streamed(&mut state, "answer", "visible final line\n\n", true);
+    assert_eq!(state.response_rows(60, 1, false).next(), Some(""));
 }

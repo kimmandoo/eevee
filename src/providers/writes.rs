@@ -1,4 +1,4 @@
-//! Worker-owned, exact create/replace authority for selected or proposed paths.
+//! Worker-owned bounded project observations and exact create/replace authority.
 //! Retained handles and stale checks are not an OS sandbox or compare-and-swap.
 //! Name admission is read-only: native IDs and known directory capabilities
 //! reject established aliases before mutation. Unknown collation never merges
@@ -23,6 +23,9 @@ mod platform;
 #[cfg(windows)]
 #[path = "writes/windows.rs"]
 mod platform;
+
+mod tools;
+pub(crate) use tools::{FileTool, ToolKind, definitions};
 
 pub(crate) const TOOL_NAME: &str = "eevee_write_file";
 pub(crate) const MAX_FILES: usize = 8;
@@ -128,6 +131,13 @@ pub(crate) struct WriteResult {
     pub kind: WriteKind,
     pub path: PathBuf,
     pub directories: Vec<PathBuf>,
+    pub source_sha256: [u8; 32],
+}
+
+impl WriteResult {
+    pub(crate) fn receipt(&self) -> String {
+        json!({"status":"success","path":self.path,"source_sha256":self.source_sha256}).to_string()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -229,6 +239,7 @@ pub(crate) struct WriteSet {
     workspace: bool,
     protected_paths: Vec<PathBuf>,
     exclusions: Vec<PathBuf>,
+    observed: BTreeMap<PathBuf, std::sync::Arc<Baseline>>,
 }
 
 fn line_endings(text: &str) -> String {
@@ -274,6 +285,12 @@ pub(crate) fn semantic_proposal_refusal(message: &str) -> bool {
             | "Filesystem-equivalent or conflicting selected write paths refused"
             | "Unsafe or oversized proposed UTF-8 content refused"
             | "Exact content/path/parent review exceeds 256 KiB or 32768 lines; reduce the change"
+            | "Source changed since read; read the file again before proposing a write"
+            | "Edit requires a preceding successful read of this exact path"
+            | "Edit sha256 does not match the preceding source read; read again"
+            | "Edit old_text must be nonempty and match exactly once; read and select an unambiguous literal span"
+            | "Edit text exceeds the 64 KiB file bound"
+            | "File tool arguments must exactly match the advertised schema"
     )
 }
 
@@ -360,12 +377,12 @@ fn protected_prefix(path: &Path, protected: &Path) -> bool {
             candidate
                 .as_os_str()
                 .to_string_lossy()
-                .chars()
+                .nfd()
                 .flat_map(char::to_lowercase)
                 .eq(part
                     .as_os_str()
                     .to_string_lossy()
-                    .chars()
+                    .nfd()
                     .flat_map(char::to_lowercase))
         })
     })
@@ -536,6 +553,7 @@ impl WriteSet {
             workspace: true,
             protected_paths: vec![private_data, executable],
             exclusions: exclusions.to_vec(),
+            observed: BTreeMap::new(),
         };
         set.verify()?;
         Ok(set)
@@ -620,6 +638,18 @@ impl WriteSet {
                 missing_parents,
                 baseline,
             });
+            if let Some(observed) = set.observed.get(path)
+                && set
+                    .targets
+                    .last()
+                    .and_then(|target| target.baseline.as_ref())
+                    != Some(observed.as_ref())
+            {
+                return Err(
+                    "Source changed since read; read the file again before proposing a write"
+                        .into(),
+                );
+            }
         }
         set.verify()?;
         *self = set;
@@ -732,6 +762,18 @@ impl WriteSet {
             .iter()
             .find(|target| target.path == path)
             .ok_or("Only an exact reviewed selected path may be written")?;
+        if let Some(observed) = self.observed.get(&path)
+            && self
+                .targets
+                .iter()
+                .find(|target| target.path == path)
+                .and_then(|target| target.baseline.as_ref())
+                != Some(observed.as_ref())
+        {
+            return Err(
+                "Source changed since read; read the file again before proposing a write".into(),
+            );
+        }
         if content.len() > MAX_BYTES || !safe_text(&content) {
             return Err("Unsafe or oversized proposed UTF-8 content refused".into());
         }
@@ -773,9 +815,9 @@ impl WriteSet {
         let mut created = Vec::new();
         let outcome = self.apply_exact(proposal, &mut created);
         match outcome {
-            Ok(()) => Ok(WriteResult {
+            Ok(source_sha256) => Ok(WriteResult {
                 message: format!(
-                    "Applied reviewed {} to {}{}; inspect the working diff. No local check, commit or verification occurred.\n{}",
+                    "Applied reviewed {} to {}{}; inspect the working diff. No local check, commit or verification occurred.",
                     proposal.kind.name(),
                     proposal.path.display(),
                     if created.is_empty() {
@@ -789,12 +831,12 @@ impl WriteSet {
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         )
-                    },
-                    proposal.patch
+                    }
                 ),
                 kind: proposal.kind,
                 path: proposal.path.clone(),
                 directories: created,
+                source_sha256,
             }),
             Err(mut failure) => {
                 if !created.is_empty() {
@@ -819,7 +861,7 @@ impl WriteSet {
         &mut self,
         proposal: &WriteProposal,
         created: &mut Vec<PathBuf>,
-    ) -> Result<(), WriteFailure> {
+    ) -> Result<[u8; 32], WriteFailure> {
         for missing in &proposal.directories {
             if self.owned_directories.contains(missing) {
                 continue;
@@ -899,11 +941,13 @@ impl WriteSet {
                 message: "Write occurred but selected baseline was lost".into(),
                 uncertain: true,
             })?;
+        let source_sha256 = actual.hash;
         target.baseline = Some(actual);
         target.missing_parents.clear();
+        self.observed.remove(&proposal.path);
         // Other selected targets may have changed after this exact leaf write.
         // They make future proposals stale, not this established local outcome.
-        Ok(())
+        Ok(source_sha256)
     }
 }
 

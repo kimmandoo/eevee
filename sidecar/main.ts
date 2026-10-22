@@ -139,6 +139,10 @@ async function run(command: z.infer<typeof RunSchema>) {
     [realpathSync(command.state_dir), realpathSync(fileURLToPath(new URL('.', import.meta.url))), dirname(sdkEntry), nativePackage, cli]);
   const canUseTool: CanUseTool = async (tool, input, options) => {
     if (cancelled || options.signal.aborted || !tools.includes(tool)) return deny;
+    if (['Read', 'Glob', 'Grep'].includes(tool)) {
+      const admission = writePolicy.readAdmission(tool, input);
+      if (!admission.allowed) return { behavior: 'deny', message: admission.reason };
+    }
     const id = options.requestId || `permission-${++promptSequence}`;
     if (tool === 'AskUserQuestion') {
       const questions = QuestionInputSchema.safeParse(input);
@@ -168,7 +172,12 @@ async function run(command: z.infer<typeof RunSchema>) {
         approved = writePolicy.approve(options.toolUseID, tool, input, permission.behavior === 'allow', cancelled || options.signal.aborted);
         return approved ? allowed : deny;
       }
-      return cancelled || options.signal.aborted ? deny : permission;
+      if (cancelled || options.signal.aborted) return deny;
+      if (['Read', 'Glob', 'Grep'].includes(tool)) {
+        const admission = writePolicy.readAdmission(tool, input);
+        if (!admission.allowed) return { behavior: 'deny', message: admission.reason };
+      }
+      return permission;
     } finally {
       if (writes && !approved) writePolicy.approve(options.toolUseID, tool, input, false, true);
     }
@@ -194,17 +203,22 @@ async function run(command: z.infer<typeof RunSchema>) {
     systemPrompt: 'You are Claude Agent in Eevee. Use only reviewed task context and exposed tools. Do not delegate, load extra configuration, or persist permission rules. Tool observations are provider-native, not verified Eevee local runs.',
     stderr: () => {},
   };
-  // Host-owned policy hook never executes project hooks. disableAllHooks disables filesystem hooks;
-  // mandatory tools exposure blocks every mutation route in Plan independent of hook invocation.
-  if (!command.inspect_models && command.operation === 'implement') {
+  // Host-owned mandatory hooks cover native/preapproved reads as well as writes.
+  // No filesystem project hooks or persistent permission rules are loaded.
+  if (!command.inspect_models) {
     options.settings = { permissions: { ask: tools }, disableAllHooks: false };
     options.hooks = { PreToolUse: [{ hooks: [async (input) => {
       if (input.hook_event_name !== 'PreToolUse') return { continue: false };
       const name = input.tool_name;
       const toolInput = z.record(z.string(), z.unknown()).safeParse(input.tool_input);
-      if (cancelled || controller?.signal.aborted || !tools.includes(name) || ((name === 'Write' || name === 'Edit') &&
-        (!toolInput.success || !writePolicy.preToolUse(input.tool_use_id, name, toolInput.data)))) {
-        return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Mandatory frozen-target/tool policy' } };
+      const observation = toolInput.success && ['Read', 'Glob', 'Grep'].includes(name) ?
+        writePolicy.readAdmission(name, toolInput.data) : undefined;
+      if (cancelled || controller?.signal.aborted || !tools.includes(name) ||
+        (observation !== undefined && !observation.allowed) || ((name === 'Write' || name === 'Edit') &&
+        (!toolInput.success || !writePolicy.preToolUse(input.tool_use_id, name, toolInput.data))) ||
+        (['Read', 'Glob', 'Grep'].includes(name) && !toolInput.success)) {
+        return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny',
+          permissionDecisionReason: observation?.reason ?? 'Mandatory frozen-target/tool policy' } };
       }
       return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: 'Review this one operation in Eevee' } };
     }] }] };
@@ -340,7 +354,7 @@ function fatal(_error: unknown) {
   void emit({ type: 'fatal', ...meta(), message: 'Claude SDK sidecar failed; raw diagnostics withheld; outcome unknown' }).finally(() => { current?.close(); process.exitCode = 1; process.stdin.pause(); }).catch(() => process.exit(1));
 }
 if (process.argv.includes('--inspect')) {
-  await emit({ type: 'capabilities', bridge_revision: 6, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
+  await emit({ type: 'capabilities', bridge_revision: 7, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
     query: typeof query === 'function', approvals: 'canUseTool with exact once/deny answers; no persistent rules', questions: 'AskUserQuestion single-select/free text',
     elicitation: 'distinct onElicitation; MCP disabled so decline/cancel only', resume: 'explicit same-task session ID only',
     usage: 'UUID-correlated main-loop turn and cumulative model-pipeline snapshots; owned completed baselines retained by host, unobserved resumed baseline unknown', confinement: 'agent policy; not OS sandbox', credential_route: credentialRoute(process.env) ?? 'unavailable' });

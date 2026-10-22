@@ -1,53 +1,46 @@
 //! Bounded, request-local tool transcripts. Opaque provider metadata never becomes a Call.
 use std::collections::{BTreeMap, HashSet};
+#[cfg(test)]
 use std::path::PathBuf;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{BODY_LIMIT, Protocol};
-use crate::providers::writes::{MAX_BYTES, TOOL_NAME};
+#[cfg(test)]
+use crate::providers::writes::TOOL_NAME;
+use crate::providers::writes::{FileTool, MAX_BYTES, ToolKind, definitions};
 
 const CALL_LIMIT: usize = 16;
 const ID_LIMIT: usize = 256;
 const NAME_LIMIT: usize = 128;
 pub(super) const PATH_LIMIT: usize = 4096;
 // JSON may escape every source byte as a six-byte Unicode escape.
-const ARGUMENT_LIMIT: usize = 6 * (MAX_BYTES + PATH_LIMIT) + 128;
+const ARGUMENT_LIMIT: usize = 6 * (2 * MAX_BYTES + PATH_LIMIT) + 256;
 
 pub(super) struct Call {
     pub(super) id: Option<String>,
-    pub(super) path: PathBuf,
-    pub(super) content: String,
+    pub(super) tool: FileTool,
 }
 
 pub(super) fn advertise(body: &mut Value, protocol: Protocol) {
-    let parameters = json!({
-        "type":"object",
-        "properties":{
-            "path":{"type":"string","description":"Exact project-relative file path, within any selected-path restriction."},
-            "content":{"type":"string","description":"Complete intended UTF-8 file contents, not a patch."}
-        },
-        "required":["path","content"],
-        "additionalProperties":false
-    });
-    let description = "Propose creating or replacing one project-relative file with complete contents (at most 64 KiB). Exact local permission and frozen workspace or selected-path scope checks are required before any write.";
+    let declarations = definitions();
     body["tools"] = match protocol {
-        Protocol::Responses | Protocol::Codex => json!([{
-            "type":"function","name":TOOL_NAME,"description":description,
-            "parameters":parameters,"strict":true
-        }]),
-        Protocol::ChatCompletions => json!([{
-            "type":"function","function":{
-                "name":TOOL_NAME,"description":description,"parameters":parameters,"strict":true
-            }
-        }]),
-        Protocol::Messages => json!([{
-            "name":TOOL_NAME,"description":description,"input_schema":parameters
-        }]),
-        Protocol::Gemini => json!([{"functionDeclarations":[{
-            "name":TOOL_NAME,"description":description,"parametersJsonSchema":parameters
-        }]}]),
+        Protocol::Responses | Protocol::Codex => Value::Array(declarations.into_iter().map(|mut entry| {
+            entry["type"] = json!("function");
+            entry["strict"] = json!(true);
+            entry
+        }).collect()),
+        Protocol::ChatCompletions => Value::Array(declarations.into_iter().map(|mut entry| {
+            entry["strict"] = json!(true);
+            json!({"type":"function","function":entry})
+        }).collect()),
+        Protocol::Messages => Value::Array(declarations.into_iter().map(|entry| {
+            json!({"name":entry["name"],"description":entry["description"],"input_schema":entry["parameters"]})
+        }).collect()),
+        Protocol::Gemini => json!([{"functionDeclarations":declarations.into_iter().map(|entry| {
+            json!({"name":entry["name"],"description":entry["description"],"parametersJsonSchema":entry["parameters"]})
+        }).collect::<Vec<_>>()}]),
     };
     if matches!(protocol, Protocol::Responses | Protocol::Codex) {
         // Stateless Responses continuations need encrypted reasoning, not a server-side conversation.
@@ -811,9 +804,9 @@ impl Calls {
                     .zip(results)
                     .map(|(call, result)| {
                         let mut response = if result["status"] == "success" {
-                            json!({"name":TOOL_NAME,"response":{"output":result}})
+                            json!({"name":call.tool.kind().name(),"response":{"output":result}})
                         } else {
-                            json!({"name":TOOL_NAME,"response":{"error":result}})
+                            json!({"name":call.tool.kind().name(),"response":{"error":result}})
                         };
                         if let Some(id) = &call.id {
                             response["id"] = Value::String(id.clone());
@@ -962,7 +955,7 @@ fn append(target: &mut String, fragment: &str, limit: usize) -> Result<(), Strin
 }
 
 fn validate_name(name: &str) -> Result<(), String> {
-    if name.len() > NAME_LIMIT || name != TOOL_NAME {
+    if name.len() > NAME_LIMIT || ToolKind::parse(name).is_err() {
         return Err("Unsupported tool name".into());
     }
     Ok(())
@@ -1031,47 +1024,28 @@ fn contiguous(indices: impl Iterator<Item = usize>) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Arguments {
-    path: String,
-    content: String,
-}
-
-fn decode(json: &str) -> Result<Arguments, String> {
+fn decode(json: &str) -> Result<Value, String> {
     if json.len() > ARGUMENT_LIMIT {
         return Err("Tool arguments exceed capacity".into());
     }
-    if !json.trim_start().starts_with('{') {
-        return Err("Tool arguments must be an object".into());
-    }
-    serde_json::from_str(json)
-        .map_err(|_| "Tool arguments must be exactly one path/content JSON object".into())
+    arguments_value(&frame(json)?)
 }
 
-fn arguments_value(value: &Value) -> Result<Arguments, String> {
+fn arguments_value(value: &Value) -> Result<Value, String> {
     if encoded_len(value)? > ARGUMENT_LIMIT {
         return Err("Tool arguments exceed capacity".into());
     }
-    let object = value
-        .as_object()
-        .ok_or("Tool arguments must be an object")?;
-    if object.len() != 2 {
-        return Err("Tool arguments must contain only path and content".into());
+    if !value.is_object() {
+        return Err("Tool arguments must be an object".into());
     }
-    let path = string(value, "path")?;
-    let content = string(value, "content")?;
-    Ok(Arguments {
-        path: path.into(),
-        content: content.into(),
-    })
+    Ok(value.clone())
 }
 
 fn push_call(
     calls: &mut Vec<Call>,
     id: Option<&str>,
     name: &str,
-    args: Arguments,
+    args: Value,
 ) -> Result<(), String> {
     if calls.len() >= CALL_LIMIT {
         return Err("Too many tool calls".into());
@@ -1082,8 +1056,9 @@ fn push_call(
     }
     calls.push(Call {
         id: id.map(str::to_owned),
-        path: PathBuf::from(args.path),
-        content: args.content,
+        tool: FileTool::parse(name, args).unwrap_or(FileTool::Invalid {
+            kind: ToolKind::parse(name)?,
+        }),
     });
     Ok(())
 }

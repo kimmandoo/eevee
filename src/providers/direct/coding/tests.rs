@@ -1217,13 +1217,17 @@ fn invalid_content_batch_does_not_enroll_workspace_targets_or_create_parents() {
         let mut calls = vec![
             tools::Call {
                 id: Some("valid".into()),
-                path: "new/valid.txt".into(),
-                content: "valid sibling".into(),
+                tool: crate::providers::writes::FileTool::Write {
+                    path: "new/valid.txt".into(),
+                    content: "valid sibling".into(),
+                },
             },
             tools::Call {
                 id: Some("invalid".into()),
-                path: "new/invalid.txt".into(),
-                content: invalid,
+                tool: crate::providers::writes::FileTool::Write {
+                    path: "new/invalid.txt".into(),
+                    content: invalid,
+                },
             },
         ];
         let error = prepare_batch(writes, &mut calls).unwrap_err();
@@ -1509,4 +1513,45 @@ fn saturated_ordinary_event_capacity_cannot_hide_local_uncertainty_or_terminal_s
         1
     );
     assert!(matches!(queue.back(), Some(Event::Finished { .. })));
+}
+
+#[test]
+fn mixed_read_and_invalid_edit_batch_never_enrolls_or_creates_valid_write() {
+    let fixture = Fixture::new(&[]);
+    let (mut run, _) = fixture.prepare(Protocol::Responses, "https://example.invalid/v1");
+    let scope = run.writes.as_mut().unwrap();
+    let mut calls = vec![
+        tools::Call {
+            id: Some("read".into()),
+            tool: crate::providers::writes::FileTool::Read {
+                path: "context.rs".into(),
+                start_line: 1,
+                end_line: 0,
+            },
+        },
+        tools::Call {
+            id: Some("create".into()),
+            tool: crate::providers::writes::FileTool::Write {
+                path: "generated/new.rs".into(),
+                content: "fn generated() {}\n".into(),
+            },
+        },
+        tools::Call {
+            id: Some("bad-edit".into()),
+            tool: crate::providers::writes::FileTool::Edit {
+                path: "existing.rs".into(),
+                sha256: "0".repeat(64),
+                old_text: "old".into(),
+                new_text: "new".into(),
+            },
+        },
+    ];
+    std::fs::write(fixture.workspace.project.join("existing.rs"), "old").unwrap();
+    assert!(prepare_batch(scope, &mut calls).is_err());
+    assert_eq!(scope.payload(&[]), json!([]));
+    assert!(!fixture.workspace.project.join("generated").exists());
+    assert_eq!(
+        std::fs::read(fixture.workspace.project.join("existing.rs")).unwrap(),
+        b"old"
+    );
 }

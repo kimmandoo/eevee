@@ -21,6 +21,7 @@ def peer():
     thread, turn = "coop-thread-" + str(os.getpid()), "coop-turn-" + str(os.getpid())
     marker, completed, asked = None, False, False
     observation_count, observations_sent, turn_count = 0, 0, 0
+    tool_chain, tool_step, tool_waiting = None, 0, False
     cwd = os.getcwd()
     def record(kind, **fields):
         with log.open("a", encoding="utf-8") as stream:
@@ -56,6 +57,9 @@ def peer():
             params = packet.get("params", {})
             if method is None and identity is not None:
                 record("answer", request_id=identity, result=packet.get("result"), error=packet.get("error"))
+                if tool_chain is not None and identity == f"{marker}-tool-{tool_step}":
+                    tool_waiting = False
+                    tool_step += 1
                 continue
             if identity is None:
                 continue
@@ -73,6 +77,7 @@ def peer():
                 markers = re.findall(r"COOP_[A-Z0-9_]+", text)
                 marker = markers[-1] if markers else "COOP_UNKNOWN"
                 completed, asked = False, False
+                tool_chain, tool_step, tool_waiting = None, 0, False
                 turn_count += 1
                 turn = f"coop-turn-{os.getpid()}-{turn_count}"
                 result = dict(turn=dict(id=turn, status="inProgress", items=[]))
@@ -110,6 +115,11 @@ def peer():
         if prompt.exists() and not asked:
             asked = True
             mode = prompt.read_text().strip()
+            if mode.startswith("["):
+                tool_chain = json.loads(mode)
+                if not 1 <= len(tool_chain) <= 8:
+                    raise ValueError("Fixture tool chain must have one to eight operations")
+                continue
             request_id = marker + "-request"
             params = dict(threadId=thread, turnId=turn, itemId="question", callId="edit-call")
             if mode == "edit":
@@ -125,6 +135,15 @@ def peer():
                 raise ValueError("Unsupported controlled fixture prompt: " + mode)
             emit(dict(id=request_id, method=method, params=params))
             record("prompt", request_id=request_id, mode=mode)
+        if tool_chain is not None and not tool_waiting and tool_step < len(tool_chain):
+            call = tool_chain[tool_step]
+            request_id = f"{marker}-tool-{tool_step}"
+            emit(dict(id=request_id, method="item/tool/call",
+                      params=dict(threadId=thread, turnId=turn,
+                                  itemId=f"source-tool-{tool_step}", callId=f"source-call-{tool_step}",
+                                  tool=call["name"], arguments=call["arguments"])))
+            tool_waiting = True
+            record("prompt", request_id=request_id, mode=call["name"])
         if (control / (marker + ".finish")).exists():
             finish()
 

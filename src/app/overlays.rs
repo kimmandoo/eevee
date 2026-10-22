@@ -56,13 +56,6 @@ impl App {
         if self.overlay != Some(overlay) {
             self.clear_approval_focus();
         }
-        if overlay == Overlay::Planning && matches!(self.form(), 3 | 4 | 7) {
-            self.planning.set_operation(match self.form() {
-                3 => crate::providers::Operation::Implement,
-                7 => crate::providers::Operation::Review,
-                _ => crate::providers::Operation::Plan,
-            });
-        }
         if overlay == Overlay::Workflows {
             self.workflow_open();
         }

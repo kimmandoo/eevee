@@ -1879,3 +1879,25 @@ fn gemini_usage_at_eof_without_stop_remains_partial() {
     );
     assert!(stream.publish_final(&events, &run, "same-account").is_err());
 }
+
+#[test]
+fn chronological_round_segments_keep_private_context_without_repeating_prior_text() {
+    let events = Arc::new(Mutex::new(VecDeque::new()));
+    let run = prepared();
+    let mut stream = Stream::new(Protocol::ChatCompletions);
+    stream.round = 2;
+    stream.prefix = "Earlier public explanation.\n-----BEGIN RSA PRIVATE KEY-----".into();
+    stream.text = "opaque-key-material\n-----END RSA PRIVATE KEY-----\nFinal public answer.".into();
+    stream.publish_text(&events, &run, true).unwrap();
+    let queue = events.lock();
+    let text = queue
+        .iter()
+        .find_map(|event| match event {
+            Event::Item { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(!text.contains("opaque-key-material"));
+    assert!(!text.contains("Earlier public explanation"));
+    assert!(text.contains("Final public answer."));
+}

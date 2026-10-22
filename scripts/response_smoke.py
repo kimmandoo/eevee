@@ -16,6 +16,7 @@ import sqlite3
 import tempfile
 import threading
 import traceback
+import unicodedata
 from unittest.mock import patch
 
 import native_connection_smoke
@@ -248,7 +249,7 @@ def run(binary, output, root, size, ascii_mode, language="en"):
             assert not session.screen.cursor.hidden
             assert (session.screen.cursor.x, session.screen.cursor.y) == caret
             session.capture("wheel-paused-draft-caret-kept")
-            cases.append("wheel scroll paused the selected response without moving draft caret or focus")
+            cases.append("wheel scroll paused the transcript without moving draft caret or focus")
 
             wheel(session, "up", (0, 0), 3)
             assert response_view(session)["body"] == paused["body"]
@@ -327,11 +328,70 @@ def run(binary, output, root, size, ascii_mode, language="en"):
                                 ("user", expected_draft)], messages
             session.send(ALT_END)
             wait_for(session, SECOND_ANSWER)
+            boundary_rows = list(response_view(session)["body"])
+            # No response-selection key: ordinary pages must cross both ways
+            # through the segment boundary, including its attribution rows.
+            for _ in range(32):
+                session.send(PAGE_UP)
+                crossed = response_view(session)
+                boundary_rows.extend(crossed["body"])
+                if re.search(r"R\d{3}w", "\n".join(crossed["body"])) and SECOND_ANSWER not in "\n".join(crossed["body"]):
+                    break
+            else:
+                raise AssertionError("page movement could not reach the preceding response\n" + session.display())
+            assert surface["paused"] in crossed["status"]
+            assert SECOND_ANSWER not in "\n".join(crossed["body"])
+            boundary_anchor = re.search(r"R\d{3}w\d{2}", "\n".join(crossed["body"])).group()
+            session.resize(other_size)
+            assert boundary_anchor in "\n".join(response_view(session)["body"])
+            session.resize(size)
+            assert response_view(session)["body"] == crossed["body"]
+            session.capture("continuous-previous-segment-resize-anchor")
+            for _ in range(32):
+                session.send(PAGE_DOWN)
+                boundary_rows.extend(response_view(session)["body"])
+                if SECOND_ANSWER in "\n".join(response_view(session)["body"]):
+                    break
+            else:
+                raise AssertionError("page movement could not return across the response boundary\n" + session.display())
+            assert surface["paused"] in response_view(session)["status"], "manual bottom resumed follow"
+            # Wheel navigation traverses the same boundary, not a separate item page.
+            for _ in range(32):
+                wheel(session, "up", response_view(session)["point"])
+                if re.search(r"R\d{3}w", "\n".join(response_view(session)["body"])) and SECOND_ANSWER not in "\n".join(response_view(session)["body"]):
+                    break
+            else:
+                raise AssertionError("wheel could not cross the response boundary\n" + session.display())
+            for _ in range(32):
+                wheel(session, "down", response_view(session)["point"])
+                if SECOND_ANSWER in "\n".join(response_view(session)["body"]):
+                    break
+            else:
+                raise AssertionError("wheel could not return to the newer response\n" + session.display())
+            session.capture("continuous-boundary-pages-and-wheel")
+            assert unicodedata.normalize("NFC", expected_draft) in unicodedata.normalize("NFC", "\n".join(boundary_rows)), "segment request attribution was not traversable"
+            session.send(ESC)
+            for _ in range(64):
+                session.send(UP)
+                line_view = response_view(session)
+                if re.search(r"R\d{3}w", "\n".join(line_view["body"])) and SECOND_ANSWER not in "\n".join(line_view["body"]):
+                    break
+            else:
+                raise AssertionError("line navigation could not cross the response boundary\n" + session.display())
+            for _ in range(64):
+                session.send(DOWN)
+                if SECOND_ANSWER in "\n".join(response_view(session)["body"]):
+                    break
+            else:
+                raise AssertionError("line navigation could not return across the response boundary\n" + session.display())
+            assert len(peer.snapshot("POST")) == 2 and journey.snapshot()["executions"] == 0
+            cases.append("pages and wheel crossed response boundaries both ways; paused resize retained the anchor without dispatch")
             session.send(ALT_UP)
-            assert surface["previous"] in session.display()
             session.send(ALT_HOME)
-            wait_for(session, "R000w00")
-            cases.append("new turn preserved the old reading location; explicit latest/reply/top keys navigated without resends")
+            top = response_view(session)["body"]
+            session.send(PAGE_UP)
+            assert response_view(session)["body"] == top, "transcript Home did not clamp at the first row"
+            cases.append("new turn preserved the old reading location; explicit latest/inspect/top keys remained local")
 
             session.send(ESC)
             at_top = response_view(session)
