@@ -2662,6 +2662,180 @@ fn streamed(state: &mut State, id: &str, text: &str, complete: bool) {
     });
 }
 
+fn file_snapshot(state: &mut State, id: &str, phase: FilePhase, text: &str) {
+    state.event(Event::Item {
+        generation: 11,
+        task_id: 7,
+        thread_id: "thread".into(),
+        turn_id: "turn".into(),
+        item_id: id.into(),
+        kind: ItemKind::File(phase),
+        text: text.into(),
+        complete: phase != FilePhase::Generating,
+    });
+}
+
+#[test]
+fn file_cards_settle_only_owned_unfinished_stages_and_never_become_decisions() {
+    for outcome in [
+        Outcome::Completed,
+        Outcome::Failed,
+        Outcome::Cancelled,
+        Outcome::Unknown,
+    ] {
+        let mut state = active();
+        state.submitted_request = "owned request".into();
+        let phases = [
+            FilePhase::Generating,
+            FilePhase::Received,
+            FilePhase::AwaitingReview,
+            FilePhase::Applied,
+            FilePhase::Denied,
+            FilePhase::Refused,
+            FilePhase::Reported,
+            FilePhase::Unknown,
+        ];
+        for (index, phase) in phases.into_iter().enumerate() {
+            file_snapshot(
+                &mut state,
+                &index.to_string(),
+                phase,
+                "src/example.rs\n1 | observed",
+            );
+        }
+        let mut retained = message();
+        retained.kind = ItemKind::File(FilePhase::Generating);
+        state.items.push(retained);
+        state.event(Event::Finished {
+            generation: 11,
+            task_id: 7,
+            outcome,
+            message: "terminal".into(),
+        });
+        for (index, original) in phases.into_iter().enumerate() {
+            let expected = match original {
+                FilePhase::Generating | FilePhase::AwaitingReview => {
+                    if outcome == Outcome::Unknown {
+                        FilePhase::Unknown
+                    } else {
+                        FilePhase::Interrupted
+                    }
+                }
+                FilePhase::Received if outcome != Outcome::Completed => {
+                    if outcome == Outcome::Unknown {
+                        FilePhase::Unknown
+                    } else {
+                        FilePhase::Interrupted
+                    }
+                }
+                _ => original,
+            };
+            assert_eq!(state.items[index].kind, ItemKind::File(expected));
+            state.selected = index;
+            command(&mut state, "decision", true);
+            assert!(state.decision.is_none());
+        }
+        assert_eq!(
+            state.items.last().unwrap().kind,
+            ItemKind::File(FilePhase::Generating)
+        );
+        assert!(state.pending_journal.is_empty() && state.native_histories.is_empty());
+    }
+}
+
+#[test]
+fn cancellation_retains_real_file_outcomes_and_rejects_late_generation() {
+    let mut state = active();
+    state.submitted_request = "request".into();
+    file_snapshot(
+        &mut state,
+        "write",
+        FilePhase::AwaitingReview,
+        "new.rs\n1 | proposal",
+    );
+    assert!(state.cancel());
+    assert_eq!(state.items[0].kind, ItemKind::File(FilePhase::Interrupted));
+    file_snapshot(
+        &mut state,
+        "write",
+        FilePhase::Generating,
+        "new.rs\n1 | stale",
+    );
+    assert_eq!(state.items[0].text, "new.rs\n1 | proposal");
+    file_snapshot(
+        &mut state,
+        "write",
+        FilePhase::Applied,
+        "new.rs\n1 | proposal",
+    );
+    state.event(Event::Finished {
+        generation: 11,
+        task_id: 7,
+        outcome: Outcome::Cancelled,
+        message: "cancel settled after receipt".into(),
+    });
+    assert_eq!(state.items[0].kind, ItemKind::File(FilePhase::Applied));
+    assert!(state.items[0].complete && state.pending_journal.is_empty());
+}
+
+#[test]
+fn file_card_updates_keep_chronology_owner_and_paused_transcript_anchor() {
+    let mut state = active();
+    state.submitted_request = "first request".into();
+    let owner = store::Attribution::of(&store::Partner::default());
+    state.slots.insert(
+        owner.partner,
+        Slot {
+            owner: owner.clone(),
+            task: 7,
+            generation: Some(11),
+        },
+    );
+    streamed(&mut state, "before", "held first\nheld second", true);
+    file_snapshot(
+        &mut state,
+        "write",
+        FilePhase::Generating,
+        "new.rs\n1 | first",
+    );
+    streamed(&mut state, "after", "latest response", true);
+    state.response_rows(60, 2, false).count();
+    press(&mut state, KeyCode::Home, true);
+    state.scroll_response_lines(2);
+    let held = state
+        .response_rows(60, 2, false)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    state.submitted_request = "later request".into();
+    state.slots.get_mut(&owner.partner).unwrap().owner.name = "Later owner".into();
+    file_snapshot(
+        &mut state,
+        "write",
+        FilePhase::Received,
+        "new.rs\n1 | first\n2 | second",
+    );
+    assert_eq!(
+        state
+            .items
+            .iter()
+            .map(|item| item.item_id.as_str())
+            .collect::<Vec<_>>(),
+        ["before", "write", "after"]
+    );
+    assert_eq!(state.items[1].owner.as_ref(), Some(&owner));
+    assert_eq!(state.items[1].request.as_ref(), "first request");
+    assert_eq!(
+        state.response_rows(60, 2, false).collect::<Vec<_>>(),
+        held.iter().map(String::as_str).collect::<Vec<_>>()
+    );
+    assert!(!state.following && state.new_output);
+    state.resume_follow();
+    assert_eq!(
+        state.response_rows(60, 1, false).next(),
+        Some("latest response")
+    );
+}
+
 fn run_request(state: &mut State, generation: u64, request: &str) {
     command(state, "new", true);
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));

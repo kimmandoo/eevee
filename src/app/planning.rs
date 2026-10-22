@@ -14,8 +14,8 @@ use serde_json::json;
 
 use crate::{
     providers::{
-        Agent, Event, ItemKind, ModelCatalogue, ModelSelection, NativeConversation, Operation,
-        Outcome, Preview, Prompt, PromptKind, Request,
+        Agent, Event, FilePhase, ItemKind, ModelCatalogue, ModelSelection, NativeConversation,
+        Operation, Outcome, Preview, Prompt, PromptKind, Request,
     },
     store,
     workspace::context,
@@ -34,6 +34,21 @@ mod usage;
 
 const ANSWER_BYTES: usize = 4096;
 const ITEM_LIMIT: usize = 128;
+
+pub(crate) fn file_phase_message(phase: FilePhase) -> crate::i18n::Message {
+    use crate::i18n::Message;
+    match phase {
+        FilePhase::Generating => Message::ProvidersPlanningFileGenerating,
+        FilePhase::Received => Message::ProvidersPlanningFileReceived,
+        FilePhase::AwaitingReview => Message::ProvidersPlanningFileAwaitingReview,
+        FilePhase::Applied => Message::ProvidersPlanningFileApplied,
+        FilePhase::Denied => Message::ProvidersPlanningFileDenied,
+        FilePhase::Refused => Message::ProvidersPlanningFileRefused,
+        FilePhase::Interrupted => Message::ProvidersPlanningFileInterrupted,
+        FilePhase::Reported => Message::ProvidersPlanningFileReported,
+        FilePhase::Unknown => Message::ProvidersPlanningFileUnknown,
+    }
+}
 
 pub struct Item {
     pub thread_id: String,
@@ -744,6 +759,7 @@ impl State {
                 self.unknown = true;
                 self.unknown_effects = true;
                 self.native_candidate = None;
+                self.settle_file_previews(FilePhase::Unknown, false);
                 self.notice = message;
             }
             Event::Journal {
@@ -866,7 +882,18 @@ impl State {
                 complete,
             } if self.matches(generation, task_id)
                 && self.active
-                && !self.cancelling
+                && (!self.cancelling
+                    || matches!(
+                        kind,
+                        ItemKind::File(
+                            FilePhase::Applied
+                                | FilePhase::Denied
+                                | FilePhase::Refused
+                                | FilePhase::Interrupted
+                                | FilePhase::Reported
+                                | FilePhase::Unknown
+                        )
+                    ))
                 && !self.inspect_sessions
                 && !self.inspect_models =>
             {
@@ -998,6 +1025,14 @@ impl State {
                 // the locally selected provider, and survives until Finished.
                 let unknown_effects =
                     matches!(outcome, Outcome::Unknown) && self.native_request_partner.is_none();
+                self.settle_file_previews(
+                    if matches!(outcome, Outcome::Unknown) || self.unknown_effects() {
+                        FilePhase::Unknown
+                    } else {
+                        FilePhase::Interrupted
+                    },
+                    matches!(outcome, Outcome::Completed),
+                );
                 self.finish_native(
                     matches!(outcome, Outcome::Completed) && !self.unknown_effects(),
                 );
@@ -1126,6 +1161,28 @@ impl State {
         }
     }
 
+    /// Display lifecycle only; neither a terminal turn nor completed arguments
+    /// establish a file receipt. Retained turns keep their original outcomes.
+    fn settle_file_previews(&mut self, phase: FilePhase, keep_received: bool) {
+        for (index, item) in self.items.iter_mut().enumerate() {
+            if !Arc::ptr_eq(&item.request, &self.submitted_request) {
+                continue;
+            }
+            let unfinished = matches!(
+                item.kind,
+                ItemKind::File(FilePhase::Generating | FilePhase::AwaitingReview)
+            ) || (!keep_received
+                && item.kind == ItemKind::File(FilePhase::Received))
+                || (phase == FilePhase::Unknown
+                    && item.kind == ItemKind::File(FilePhase::Interrupted));
+            if unfinished {
+                item.kind = ItemKind::File(phase);
+                item.complete = true;
+                self.response_cache.item_changed(index);
+            }
+        }
+    }
+
     pub fn cancel(&mut self) -> bool {
         self.send_after_prepare = false;
         if self.held_input.is_some() {
@@ -1176,6 +1233,7 @@ impl State {
         }
         self.close_request();
         self.queued_prompts.clear();
+        self.settle_file_previews(FilePhase::Interrupted, false);
         self.active = true;
         self.cancelling = true;
         self.notice = "Cancellation requested. Waiting for provider acknowledgement or bounded owned teardown; outcome not yet known.".into();

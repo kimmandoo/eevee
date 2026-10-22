@@ -667,6 +667,73 @@ fn automatic_evolution_keeps_advisory_chrome_out_of_the_response_viewport() {
     }
 }
 
+#[test]
+fn first_file_output_reclaims_compact_rows_without_dismissing_transition_or_draft() {
+    use crate::providers::{FilePhase, ItemKind};
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::{Terminal, backend::TestBackend};
+    use std::sync::Arc;
+    let config = home_config();
+    let mut app = App::new("/workspace".into(), 60, 18);
+    app.task_id = 7;
+    app.storage = crate::app::StorageState::Saved;
+    app.input = "Create a Python code file.".into();
+    app.cursor = app.input.len();
+    app.editing = true;
+    app.editor_field = EditorField::Request;
+    app.update(Event::Key(KeyEvent::new(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+    )));
+    app.refresh_carry_over();
+    assert!(app.evolution.transition.is_some());
+    assert!(app.carry_over().is_some());
+    app.planning.submitted_request = Arc::from("Create a Python code file.");
+    app.planning.items.push(crate::app::planning::Item {
+        thread_id: String::new(),
+        turn_id: "owned-turn".into(),
+        item_id: "file-call".into(),
+        kind: ItemKind::File(FilePhase::Generating),
+        text: "generated/live.py\n1  STREAM_VISIBLE_WITHOUT_NAVIGATION".into(),
+        complete: false,
+        request: Arc::clone(&app.planning.submitted_request),
+        owner: None,
+    });
+    app.input = "Future draft 한글".into();
+    app.cursor = 7;
+    let mut artwork = Artwork::load(&config);
+    let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
+    for phase in [FilePhase::Generating, FilePhase::Applied] {
+        app.planning.items[0].kind = ItemKind::File(phase);
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        assert!(screen_text(&terminal).contains("STREAM_VISIBLE_WITHOUT_NAVIGATION"));
+        assert!(app.evolution.transition.is_some());
+        assert!(
+            app.carry_over().is_some(),
+            "rendering keeps inspectable carry-over evidence"
+        );
+        assert_eq!(app.input, "Future draft 한글");
+        assert_eq!(app.cursor, 7);
+    }
+    app.reopen_carry_over();
+    terminal
+        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+        .unwrap();
+    assert!(
+        screen_text(&terminal).contains(&app.last_carry_over().unwrap().summary),
+        "deliberate carry-over inspection must remain available during file output"
+    );
+    assert_eq!(app.input, "Future draft 한글");
+    assert_eq!(app.cursor, 7);
+    app.planning.submitted_request = Arc::from("A different new request");
+    assert!(
+        !app.planning.has_current_file_output(),
+        "old file cards cannot hide a new request's context"
+    );
+}
+
 fn carry_over_home(width: u16, height: u16) -> App {
     use crate::workspace::{
         context::Excerpt,

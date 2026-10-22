@@ -14,12 +14,16 @@ use crate::{app::App, config::Config, store};
 /// Extend the factual header without moving the composer or native portrait.
 pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) -> Rect {
     let mut offset = 0;
-    if let Some(claim) = app
-        .write_owner()
-        .filter(|claim| !app.partner_approval_pending(claim.owner.partner))
-    {
+    let file_output = app.planning.has_current_file_output();
+    if let Some(claim) = app.write_owner().filter(|claim| {
+        !app.partner_approval_pending(claim.owner.partner)
+            && (!file_output || claim.owner.partner != app.lead().id)
+    }) {
         let owner = store::Attribution::label(Some(&claim.owner));
-        let label = format!("{owner} is editing");
+        let label = paint.format(
+            crate::i18n::Template::ProvidersPlanningPreparingChanges,
+            &[("owner", &owner)],
+        );
         let paragraph = Paragraph::new(label)
             .style(paint.accent)
             .wrap(Wrap { trim: false });
@@ -69,6 +73,7 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) ->
         }
     }
     if app.approval_count() == 0
+        && !file_output
         && let Some(transition) = app.evolution.transition
         && offset + 1 < area.height
     {

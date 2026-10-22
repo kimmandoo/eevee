@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { credentialRoute, consoleProfile, accountMatches, SDKWritePolicy, questionSchema, sdkOutcome, RunSchema, SelectionSchema, modelCatalogue, prepareModels, assertAppliedModel, SDKPackageSchema, assertInitialization, assertSessionPolicy, SDKDispatchReceipt, SDKUsageLedger, BRIDGE_POLICY } from './policy.ts';
+import { credentialRoute, consoleProfile, accountMatches, SDKWritePolicy, SDKFilePreviews, questionSchema, sdkOutcome, RunSchema, SelectionSchema, modelCatalogue, prepareModels, assertAppliedModel, SDKPackageSchema, assertInitialization, assertSessionPolicy, SDKDispatchReceipt, SDKUsageLedger, BRIDGE_POLICY } from './policy.ts';
 import type { WriteScope } from './policy.ts';
 
 const compatibility = { sdkVersion: '0.3.999', cliVersion: '2.1.999', requireHooks: false };
@@ -413,6 +413,16 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
               yield { type: 'system', subtype: 'init', session_id, model: 'synthetic',
                 claude_code_version: '2.1.999', permissionMode: 'default', tools: options.tools,
                 mcp_servers: [], plugins: [], skills: [], apiKeySource: 'ANTHROPIC_API_KEY' };
+              yield { type: 'stream_event', session_id, user_message_uuid: submission.uuid,
+                event: { type: 'message_start', message: { id: 'call' } } };
+              yield { type: 'stream_event', session_id,
+                event: { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'write', name: 'Write', input: {} } } };
+              const argumentsJSON = JSON.stringify(input);
+              for (let offset = 0; offset < argumentsJSON.length; offset += 4096) {
+                yield { type: 'stream_event', session_id,
+                  event: { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: argumentsJSON.slice(offset, offset + 4096) } } };
+              }
+              yield { type: 'stream_event', session_id, event: { type: 'content_block_stop', index: 0 } };
               yield { type: 'assistant', session_id, user_message_uuid: submission.uuid,
                 message: { id: 'call', content: [{ type: 'tool_use', id: 'write', name: 'Write', input }] } };
               const hook = options.hooks.PreToolUse[0].hooks[0];
@@ -472,6 +482,10 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
           const frame = JSON.parse(output.slice(0, end));
           output = output.slice(end + 1);
           frames.push(frame);
+          if (frame.type === 'file_preview' && frame.stage === 'delta') {
+            if (effect === 'content' || effect === 'ambiguous') assert.equal(readFileSync(join(root, path), 'utf8'), 'reviewed baseline');
+            else assert.throws(() => lstatSync(join(root, path)), { code: 'ENOENT' });
+          }
           if (frame.type === 'prompt') child!.stdin!.write(JSON.stringify({
             protocol: 1, type: 'answer', generation: 1, request_id: frame.request_id,
             answer: frame.input.options.find((option: { answer: { behavior: string } }) => option.answer.behavior === 'allow').answer,
@@ -480,13 +494,24 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
       });
       const closed = once(child, 'close');
       child.stdin!.write(JSON.stringify({
-        protocol: 1, bridge_revision: 7, type: 'run', generation: 1, task_id: 1, request_id: 'submission',
+        protocol: 1, bridge_revision: 8, type: 'run', generation: 1, task_id: 1, request_id: 'submission',
         prompt: 'Deterministic failed operation', cwd: root, state_dir: join(fixture, 'state'),
         operation: 'implement', write_scope: workspaceScope(root), inspect_models: false,
         selection: { model: null, effort: null },
       }) + '\n');
       const [code] = await closed;
       assert.ok(frames.some(frame => frame.type === 'dispatched'), `${effect}: ${diagnostics}`);
+      const previews = frames.filter(frame => frame.type === 'file_preview');
+      assert.ok(previews.some(frame => frame.stage === 'delta'));
+      assert.deepEqual(JSON.parse(previews.filter(frame => frame.stage === 'delta').map(frame => frame.fragment).join('')), {
+        file_path: path, content: effect === 'success' ? generatedContent : 'approved complete bytes',
+      });
+      assert.ok(previews.every(frame => frame.tool_id === 'write' && frame.session_id === '00000000-0000-4000-8000-000000000001'));
+      assert.ok(frames.findIndex(frame => frame.type === 'file_preview' && frame.stage === 'stop') < frames.findIndex(frame => frame.type === 'prompt'));
+      assert.ok(previews.some(frame => frame.stage === 'review'));
+      assert.ok(previews.some(frame => frame.stage === 'approved'));
+      assert.equal(previews.some(frame => frame.stage === 'applied'), false);
+      assert.equal(previews.some(frame => frame.stage === 'reported'), effect === 'none' || effect === 'success');
       if (effect === 'none' || effect === 'success') {
         assert.equal(code, 0, diagnostics);
         assert.equal(frames.some(frame => frame.type === 'fatal'), false);
@@ -592,11 +617,11 @@ test('catalogues reject duplicate identifiers, oversized fields and display cont
 });
 
 test('strict inspection commands cannot carry prompts, prior sessions, writes or unreviewed options', () => {
-  const command = { protocol: 1, bridge_revision: 7, type: 'run', generation: 1, task_id: 1, request_id: null, cwd: '/project', state_dir: '/state', prompt: '',
+  const command = { protocol: 1, bridge_revision: 8, type: 'run', generation: 1, task_id: 1, request_id: null, cwd: '/project', state_dir: '/state', prompt: '',
     operation: 'plan', write_scope: { mode: 'Selected', protected_paths: [], excluded_paths: [], root_identity: null, files: [] }, resume: null, inspect_models: true, selection: { model: null, effort: null } };
   assert.equal(RunSchema.safeParse(command).success, true);
   for (const changed of [{ request_id: 'claimed-inference' }, { prompt: 'must not send' }, { resume: '01234567-89ab-4cde-8123-456789abcdef' },
-    { bridge_revision: 5 }, { edit_paths: ['file.ts'] }, { operation: 'implement' }, { tools: ['Bash'] }, { selection: { model: null, effort: null, fallback: 'a' } }]) {
+    { bridge_revision: 7 }, { edit_paths: ['file.ts'] }, { operation: 'implement' }, { tools: ['Bash'] }, { selection: { model: null, effort: null, fallback: 'a' } }]) {
     assert.equal(RunSchema.safeParse({ ...command, ...changed }).success, false);
   }
   for (const field of ['mode', 'protected_paths', 'excluded_paths']) {
@@ -894,12 +919,62 @@ test('unsafe recursive SDK discovery returns actionable actual safe filenames ra
 });
 
 test('noninspection SDK planning requires frozen observational root even without mutation targets', () => {
-  const command = { protocol: 1, bridge_revision: 7, type: 'run', generation: 1, task_id: 1,
+  const command = { protocol: 1, bridge_revision: 8, type: 'run', generation: 1, task_id: 1,
     request_id: 'owned-request', cwd: '/project', state_dir: '/state', prompt: 'Read project context',
     operation: 'plan', write_scope: { mode: 'Selected', protected_paths: ['/state'],
       excluded_paths: ['private'], root_identity: '1:2', files: [] },
     resume: null, inspect_models: false, selection: { model: null, effort: null } };
   assert.equal(RunSchema.safeParse(command).success, true);
   assert.equal(RunSchema.safeParse({ ...command, write_scope: { ...command.write_scope, root_identity: null } }).success, false);
-  assert.equal(RunSchema.safeParse({ ...command, bridge_revision: 6 }).success, false);
+  assert.equal(RunSchema.safeParse({ ...command, bridge_revision: 7 }).success, false);
+});
+
+test('file previews forward only actual correlated tool argument fragments and never grant write authority', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'eevee-sdk-preview-')));
+  try {
+    const policy = new SDKWritePolicy(root, workspaceScope(root));
+    const previews = new SDKFilePreviews(true);
+    const start = { type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'write', name: 'Write', input: {} } };
+    const delta = (partial_json: string, index = 2) => ({ type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json } });
+    assert.deepEqual(previews.stream(start), [], 'a block without message correlation is not a preview');
+    previews.stream({ type: 'message_start', message: { id: 'message' } });
+    assert.equal(previews.stream(start)[0]?.stage, 'start');
+    assert.deepEqual(previews.stream(start), [], 'duplicate start cannot rewind fragments');
+    assert.deepEqual(previews.stream(delta('wrong call', 1)), []);
+    const fragments = ['{"file_path":"new.rs","content":"first\\n', 'second\\n"}'];
+    assert.deepEqual(fragments.flatMap(fragment => previews.stream(delta(fragment))).map(frame => frame.fragment), fragments);
+    assert.equal(previews.stream({ type: 'content_block_stop', index: 2 })[0]?.stage, 'stop');
+    assert.deepEqual(previews.stream(delta('late')), []);
+    assert.equal(policy.approve('write', 'Write', { file_path: 'new.rs', content: 'first\nsecond\n' }, true, false), false);
+    assert.throws(() => lstatSync(join(root, 'new.rs')), { code: 'ENOENT' });
+    const input = { file_path: 'new.rs', content: 'first\nsecond\n', opaque: 'never forward complete opaque fields' };
+    const received = previews.complete('write', 'Write', input);
+    assert.deepEqual(JSON.parse(received[0].fragment!), { file_path: input.file_path, content: input.content });
+    assert.equal(previews.phase('write', 'review')[0]?.stage, 'review');
+    assert.deepEqual(previews.complete('write', 'Write', input), [], 'assistant replay cannot regress active review');
+    assert.equal(previews.phase('write', 'approved')[0]?.stage, 'approved');
+    assert.equal(previews.phase('write', 'reported')[0]?.stage, 'reported');
+    assert.deepEqual(previews.phase('write', 'review'), []);
+    assert.equal(policy.approve('write', 'Write', input, true, false), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('preview guards, nonwrite blocks, bounds and denial cannot invent progress or success', () => {
+  const disabled = new SDKFilePreviews(false);
+  assert.deepEqual(disabled.complete('write', 'Write', { file_path: 'a', content: 'x' }), []);
+  assert.deepEqual(disabled.phase('write', 'review'), []);
+  const previews = new SDKFilePreviews(true);
+  previews.stream({ type: 'message_start', message: { id: 'message' } });
+  for (const [id, name] of [['reasoning', 'thinking'], ['read', 'Read'], ['shell', 'Bash']]) {
+    assert.deepEqual(previews.stream({ type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id, name } }), []);
+  }
+  assert.deepEqual(previews.stream({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'private' } }), []);
+  assert.deepEqual(previews.complete('shell', 'Bash', { command: 'private' }), []);
+  assert.equal(previews.complete('edit', 'Edit', { file_path: 'a', old_string: 'do not display', new_string: 'replacement' })[0]?.stage, 'received');
+  assert.equal(previews.phase('edit', 'denied')[0]?.stage, 'denied');
+  assert.deepEqual(previews.phase('edit', 'reported'), []);
+  previews.stream({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'large', name: 'Write' } });
+  const overflow = previews.stream({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: 'x'.repeat(512 * 1024 + 1) } });
+  assert.equal(overflow[0]?.stage, 'interrupted');
+  assert.deepEqual(previews.complete('large', 'Write', { file_path: 'a', content: 'later' }), []);
 });

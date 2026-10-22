@@ -216,7 +216,7 @@ providers-planning-type-a-request-below-enter-sends-commands = { "Type a request
 
 providers-planning-wheel-pgup-dn-alt-up-down-item = { "Wheel/PgUp/Dn transcript | Alt+Up/Down inspect | Alt+Home top" }
 
-providers-planning-decision-reviews-a-complete-proposal-locally = { "/decision reviews a complete proposal locally" }
+providers-planning-decision-reviews-a-complete-proposal-locally = { "/decision: complete messages/plans only, not file previews" }
 
 providers-planning-run-blocked-n-cancel-esc-cancel-d =
     { "Run blocked / n Cancel / Esc Cancel" }
@@ -576,7 +576,7 @@ providers-planning-candidate-default-uses-provider-configuration =
     { "Candidate: " }{ $model }{ " / " }{ $effort }
     { "Default uses provider configuration." }
 
-providers-planning-earlier-items-omitted-decision-reviews-a-complete = { $count }{ " earlier items omitted · /decision reviews a complete proposal" }
+providers-planning-earlier-items-omitted-decision-reviews-a-complete = { $count }{ " earlier items omitted · /decision: complete messages/plans only" }
 
 providers-planning-start-end-total-alt-end-latest = { $status }{ $new }{ " " }{ $start }{ "-" }{ $end }{ "/" }{ $total }{ " | Alt+End latest" }
 
@@ -830,6 +830,26 @@ providers-planning-plan = { "Plan" }
 
 providers-planning-tool-output = { "Tool output" }
 
+providers-planning-file-preview = { "File preview" }
+
+providers-planning-file-generating = { "Generating · not saved" }
+
+providers-planning-file-received = { "Received · proposal" }
+
+providers-planning-file-awaiting-review = { "Awaiting review · not saved" }
+
+providers-planning-file-applied = { "Applied" }
+
+providers-planning-file-denied = { "Denied · not applied" }
+
+providers-planning-file-refused = { "Refused · not applied" }
+
+providers-planning-file-interrupted = { "Interrupted · no confirmed save" }
+
+providers-planning-file-reported = { "Reported · unverified" }
+
+providers-planning-file-unknown = { "Unknown · inspect effects" }
+
 providers-planning-complete = { "complete" }
 
 providers-planning-streaming = { "streaming" }
@@ -880,7 +900,7 @@ providers-planning-request-2 = { $label }{ ": " }{ $request }
 
 providers-planning-position-of-total = { $position }{ " of " }{ $total }{ " · " }{ $owner }
 
-providers-planning-is-editing = { $owner }{ " is editing" }
+providers-planning-preparing-changes = { $owner }{ " is preparing changes" }
 
 providers-planning-model-matches = { "Model · " }{ $count }{ " matches" }
 

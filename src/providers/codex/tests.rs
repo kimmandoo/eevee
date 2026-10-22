@@ -1,5 +1,45 @@
 use super::*;
 
+#[test]
+fn complete_codex_proposals_have_guarded_display_only_snapshots() {
+    let mut input = crate::providers::tests::claimed(Agent::Codex, Operation::Implement, true);
+    let params = json!({"tool":"eevee_write_file","arguments":{
+        "path":"src/새.rs","content":"pub fn generated() {}\npassword=private-value\n"
+    }});
+    let tool = requested_tool(&params).unwrap();
+    let text = received_file_preview(&input, &tool).unwrap();
+    assert!(text.starts_with("src/새.rs"));
+    assert!(text.contains("pub fn generated()"));
+    assert!(!text.contains("private-value"));
+    assert!(!text.contains("eevee_write_file"));
+    assert!(
+        requested_tool(
+            &json!({"tool":"eevee_write_file","arguments":{"path":"src/새.rs","content":7}})
+        )
+        .is_err()
+    );
+    for operation in [Operation::Plan, Operation::Review] {
+        input.operation = operation;
+        assert!(received_file_preview(&input, &tool).is_none());
+    }
+    input.operation = Operation::Implement;
+    input.inspect_models = true;
+    assert!(received_file_preview(&input, &tool).is_none());
+    input.inspect_models = false;
+    input.inspect_sessions = true;
+    assert!(received_file_preview(&input, &tool).is_none());
+    input.inspect_sessions = false;
+    let read = requested_tool(&json!({"tool":"eevee_read_file","arguments":{"path":"src/새.rs","start_line":1,"end_line":2}})).unwrap();
+    assert!(received_file_preview(&input, &read).is_none());
+    let edit = requested_tool(&json!({"tool":"eevee_edit_file","arguments":{
+        "path":"src/새.rs","sha256":"0".repeat(64),"old_text":"not displayed","new_text":"replacement\n"
+    }})).unwrap();
+    let text = received_file_preview(&input, &edit).unwrap();
+    assert!(text.contains("replacement"));
+    assert!(!text.contains("not displayed"));
+    assert!(!text.contains(&"0".repeat(64)));
+}
+
 #[cfg(unix)]
 struct WriteFixture {
     root: PathBuf,

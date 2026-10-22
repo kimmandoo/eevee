@@ -475,7 +475,7 @@ fn capabilities(index: usize) -> Vec<Capability> {
         result.push(Capability {
             action: action.into(),
             boundary: if action == "Filesystem/network restrictions" { "Observed/external — no Eevee confinement" } else { "Eevee-mediated protocol callbacks / provider-owned tools" }.into(),
-            evidence: if index == 1 { "Optional official SDK sidecar bridge revision 7; frozen project read/protection/exclusion checks independently precede source tools in every noninspection role. Workspace proposals or exact /paths restrict up to 256 writes of 256 KiB; exact content/parent consent and verified own success, not OS confinement. SDK-message UUID acknowledgment proves claimed submission, not completion; mandatory policy is independent of callbacks" }
+            evidence: if index == 1 { "Optional official SDK sidecar bridge revision 8; display-only live file previews never grant effects. Frozen project read/protection/exclusion checks independently precede source tools in every noninspection role. Workspace proposals or exact /paths restrict up to 256 writes of 256 KiB; exact content/parent consent and verified own success, not OS confinement. SDK-message UUID acknowledgment proves claimed submission, not completion; mandatory policy is independent of callbacks" }
                 else { "Negotiated ACP v1; exact once-only permission IDs; fs/terminal callbacks disabled" }.into(),
             blocker: "Requires supported runtime/auth/capability qualification after explicit consent; installation alone is not support".into(),
         });

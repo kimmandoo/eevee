@@ -189,6 +189,7 @@ async fn inference_rounds(
             .calls
             .finish(run.writes.is_some())
             .map_err(|error| (Outcome::Failed, error))?;
+        let call_indices = stream.calls.call_indices();
         if calls.is_empty() {
             stream
                 .publish_final(events, run, &connection.conversation_scope())
@@ -273,14 +274,21 @@ async fn inference_rounds(
                     "Entire proposal batch refused before permissions or effects; no files or parents changed. Correct the batch: {}",
                     safe(&error, true)
                 );
-                for call in calls {
+                for (index, call) in call_indices.iter().copied().zip(calls) {
+                    if let Some(text) = stream.calls.preview_text(index) {
+                        publish_file(events, run, round, index, FilePhase::Refused, text)
+                            .map_err(|error| (Outcome::Failed, error))?;
+                    }
                     results.push(
                         json!({"status":"refused","path":call.tool.path(),"message":message}),
                     );
                 }
             }
             Ok(proposals) => {
-                for (index, (call, proposal)) in calls.into_iter().zip(proposals).enumerate() {
+                for (index, (call, proposal)) in call_indices
+                    .into_iter()
+                    .zip(calls.into_iter().zip(proposals))
+                {
                     let result = if let Some(proposal) = proposal {
                         execute_write(
                             workspace, run, events, control, incoming, connection, revalidate,
@@ -411,7 +419,7 @@ fn permission(
         request_id: request_id.clone(),
         thread_id: String::new(),
         turn_id: format!("eevee-native-request:{}", owner.request_id),
-        item_id: format!("eevee-native-write:{round}:{index}"),
+        item_id: file_item_id(run, round, index),
         kind: PromptKind::Permission {
             description: proposal.description(),
             file: Some(proposal.file_review()),
@@ -436,6 +444,14 @@ fn permission(
             task_id: run.input.task.id,
             request: prompt,
         },
+    )?;
+    publish_file(
+        events,
+        run,
+        round,
+        index,
+        FilePhase::AwaitingReview,
+        file_preview::display(&proposal.path.to_string_lossy(), &proposal.content, true),
     )?;
     let deadline = Instant::now() + timeout;
     let result = (|| loop {
@@ -515,27 +531,14 @@ fn journal(
             generation: run.generation,
             thread_id: format!("eevee-native-request:{}", owner.request_id),
             turn_id: format!("eevee-native-request:{}", owner.request_id),
-            item_id: item_id.clone(),
+            item_id,
             origin: "Eevee-mediated native file tool".into(),
             coverage: "Exact approved create/replace and parent scope only; observed local filesystem result, not command verification, commit or an OS sandbox".into(),
             text: safe(receipt.unwrap_or(text), true),
             complete: true,
             partner: Some(owner.owner.clone()),
         },
-    })?;
-    emit(
-        events,
-        Event::Item {
-            generation: run.generation,
-            task_id: run.input.task.id,
-            thread_id: String::new(),
-            turn_id: format!("eevee-native-request:{}", owner.request_id),
-            item_id,
-            kind: ItemKind::Tool,
-            text: safe(text, true),
-            complete: true,
-        },
-    )
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -577,6 +580,14 @@ fn execute_write(
                 &format!("{}: {error}", proposal.path.display()),
                 None,
             )?;
+            publish_file(
+                events,
+                run,
+                round,
+                index,
+                FilePhase::Interrupted,
+                file_preview::display(&proposal.path.to_string_lossy(), &proposal.content, false),
+            )?;
             return Err(error);
         }
     };
@@ -606,6 +617,26 @@ fn execute_write(
             Some(serde_json::to_string(&result).map_err(|_| "Cannot encode native file outcome")?);
     }
     journal(run, events, round, index, message, receipt.as_deref())?;
+    let phase = match result.get("status").and_then(Value::as_str) {
+        Some("success") if result.get("effect").and_then(Value::as_str) == Some("applied") => {
+            FilePhase::Applied
+        }
+        Some("denied") => FilePhase::Denied,
+        Some("refused") => FilePhase::Refused,
+        _ => FilePhase::Unknown,
+    };
+    publish_file(
+        events,
+        run,
+        round,
+        index,
+        phase,
+        file_preview::display(
+            &proposal.path.to_string_lossy(),
+            &proposal.content,
+            phase != FilePhase::Unknown,
+        ),
+    )?;
     Ok(result)
 }
 
@@ -642,6 +673,14 @@ fn failed_write(
             failure.message
         ),
         None,
+    )?;
+    publish_file(
+        events,
+        run,
+        round,
+        index,
+        FilePhase::Unknown,
+        file_preview::display(&proposal.path.to_string_lossy(), &proposal.content, false),
     )?;
     Err(format!(
         "Local filesystem effects remain uncertain: {}",

@@ -1,5 +1,15 @@
 # Work Checkpoint
 
+## 2026-10-22 — Visible in-progress file generation (active)
+
+- **User scope:** Show file/code generation as it happens in the main response surface, retain exact effect approval, then release v0.1.18. No unrelated backlog wave or paid/live model call is authorized.
+- **Baseline:** `3eb9b6f2e8c1f67762c311f8c00ad60e5a076426`, main/origin matched; only the user's `.DS_Store` was untracked. v0.1.17 is immutable.
+- **Active plan:** `docs/IMPLEMENTATION_PLAN.md` → “Active request — visible in-progress file generation; v0.1.18 release”.
+- **Observed RED:** Actual public v0.1.17 60×18 Korean gated mid-arguments showed no generated code and “no output yet”; request text contained the path but no file existed. Evidence: `target/file-progress-before`. Existing code deliberately hid all argument content behind an opaque status.
+- **Decision / boundaries:** One per-call display-only file lifecycle in the existing bounded transcript; decoded cumulative redaction before bounded numbered preview, truthful received-only fallback on transports without argument deltas. SDK bridge 8 gets a dedicated display path; generation never reaches journal/canonical text/source evidence or permission authority. Schema 16 remains unchanged.
+- **Integrated candidate / exact next action:** Final D (`target/file-progress-0118-candidate-d/ev`, SHA256 `ce9261bd539ba5ac388b7a7ddfc01a8300e7890b19b9db183fb39941994ef170`) passed pinned Rust 1.90 fmt/1,202 tests/two ignored/strict Clippy/release. SDK bridge 8 passed 39 policy/production-IPC cases; release contracts fourteen passed/three platform skips. Actual D passed sixteen bilingual/protocol/size strictly staged file-progress journeys/64 groups (`target/file-progress-d2-en`, `target/file-progress-d3-ko`), 24 ordinary file journeys/126 groups, all eight evolution forms at both sizes/languages, 44 scrolling groups and bilingual tooltips (`target/file-progress-d-*`). A also passed cooperation 24 and native protocols 176/ten variants. Actual failed captures led to compact viewport priority, explicit carry-over preservation and display-only CRLF/filename fixes. Next: commit/push this source, qualify exact-source Check/all five native packages, publish v0.1.18 immutably, then verify every public asset and downloaded installation/changed runtime. No v0.1.18 source or release is qualified yet.
+- **Limits / preservation:** LSP symbols/references failed because rust-analyzer exited code0; scoped search/compiler/runtime are the fallback. Preserve original installation/auth/private data and `.DS_Store`. No strategy changes/backtest applies.
+
 ## 2026-10-22 — Direct file review and automatic evolution (complete; v0.1.17 released)
 
 - **User scope / completion:** Corrected the remaining file-creation UX first, then implemented promoted EV18 automatic evolution and released the combined patch. All implementation, native qualification, publication and actual public-package gates passed. No next task is active.

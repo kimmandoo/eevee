@@ -159,6 +159,7 @@ impl Layout {
                             ItemKind::Message => Message::ProvidersPlanningResponse,
                             ItemKind::Plan => Message::ProvidersPlanningPlan,
                             ItemKind::Tool => Message::ProvidersPlanningToolOutput,
+                            ItemKind::File(phase) => super::file_phase_message(phase),
                         });
                         let owner = crate::store::Attribution::label(item.owner.as_ref());
                         // Labels are bounded display previews, never outgoing input.
@@ -188,6 +189,11 @@ impl Layout {
                                 ],
                             )
                             .expect("validated transcript template");
+                    } else if let ItemKind::File(phase) = item.kind {
+                        let language = self.language.unwrap_or_else(|| Language::from_locale("en"));
+                        segment
+                            .header
+                            .push_str(language.text(super::file_phase_message(phase)));
                     }
                     if verbose {
                         let _ = write!(
@@ -306,6 +312,14 @@ impl State {
                     !std::sync::Arc::ptr_eq(&item.request, &self.submitted_request),
                 )
             })
+    }
+
+    /// Real file output takes viewport priority over decorative transition chrome.
+    pub fn has_current_file_output(&self) -> bool {
+        self.items.iter().any(|item| {
+            matches!(item.kind, ItemKind::File(_))
+                && std::sync::Arc::ptr_eq(&item.request, &self.submitted_request)
+        })
     }
 
     /// Unclaimed strict admission needs a save barrier. Claimed requests retain
