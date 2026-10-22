@@ -6,6 +6,7 @@
 - **Root Cause:** Discovery serialized `PathBuf` directly and searched the query against native separators. Cross-platform tool consumers and directory queries use `/`; the actual retained filesystem paths must still preserve their native spelling and identity.
 - **Solution:** Converted only discovered wire strings, before query matching, to `/` on Windows with length-preserving ASCII replacement. Reused owned native string storage; left filesystem traversal, Unicode, frozen identities, protections and readback unchanged. Both Git/non-Git regressions now query a real portable directory prefix rather than a platform-independent suffix.
 - **Prevention / Reference:** All-five-native qualification remained mandatory; a locally passing macOS run did not qualify Windows. Failed source `8e9b463` was not tagged or published. The same run's Linux ARM worker reached notice generation after passing tests/build, then was cancelled at its 45-minute deadline with unavailable job logs; its internal cause remained unconfirmed and its missing package was not substituted from another run.
+- **Qualification resolution:** Corrected source `927a4f3` passed Check and all five complete native rows in `39728072097` attempt1, including both formerly failing Windows tests and Linux ARM notice generation/package/offline installation. Only that run's immutable artifacts were admitted for v0.1.16; no gate was disabled and no old package was reused.
 
 ### [2026-10-22] Ordinary requests never advertised coding tools
 

@@ -17,6 +17,8 @@
 - fix(evidence): recorded verified post-write digests for mediated mutations instead of decoding obsolete prose; kept reads, denials and provider claims non-authoritative.
 - fix(files): preserved native Unicode filename spelling in Git-backed source discovery and kept optional write restrictions directly accessible from ordinary coding.
 - fix(files): returned portable forward-slash discovery paths and matched directory queries in the same wire spelling without normalizing native filename identity.
+- docs(release): published v0.1.16 from corrected source `927a4f3` after exact-commit Check/all-five-native qualification, promoted only immutable packages and verified all eight public asset digests, seven manifest entries and five safe archive layouts.
+- test(runtime): verified the downloaded v0.1.16 binary through 24 bilingual ordinary coding journeys/122 behavior groups, 44 continuous-output groups, both-language/both-size tooltips, twelve mutation relay groups, three genuine migration/refusal/resume cases and 23 installation groups with all 34 installed terminal scenarios.
 
 ## 0.1.15
 
