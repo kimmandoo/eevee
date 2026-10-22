@@ -1,5 +1,15 @@
 # Work Checkpoint
 
+## 2026-10-22 — File creation UX correction (active)
+
+- **User scope:** File-creation interaction still felt wrong after v0.1.16. Correct the actual flow first, then implement the user's newly promoted automatic Eevee evolution behavior (EV18) and release the combined patch.
+- **Starting state:** `main`/origin at `e77a985f35429e30fcb07691349e1b011bc2b0f6`; only the user's `.DS_Store` was untracked. Published v0.1.16 remains immutable.
+- **Active plan:** `docs/IMPLEMENTATION_PLAN.md` → “Active request — direct, understandable file-creation review”.
+- **Observed UX / RED:** Actual original public v0.1.16 compact Korean first-file request stalled behind English `/approvals` hints, advertised editing and a complete response while no file existed. Tightened runtime stopped at missing direct home-review affordance (`target/file-ux-before`). Existing neutral permission Enter sent selected Deny, so inspecting/continuing could terminate generation without writing.
+- **Implementation:** Direct owned Enter/global FIFO Alt+A and localized pending state; typed localized file scope/code preview; neutral file Enter inspects, a/y allows once, n explicitly denies. Async arrival must not steal focus; no filesystem or authorization relaxation.
+- **UX unit verified / next action:** Final C (`target/file-ux-candidate-c`, SHA256 `c1b36762caf4e8405433d207a6b65ac7dfca28c740303e0a22767cdb47e34004`) passed 1,162 Rust tests/two ignored, fmt/strict Clippy/release and actual English wide/Korean compact direct-review creation/read/edit smoke. A/B each passed 24 en/ko creation journeys/122 groups without `/approvals` fallback; A also passed bilingual continuous output/tooltips and all 24 actual cooperation cases. Visual proof confirmed bounded code/empty-file preview, direct Enter/Alt+A, neutral inspection with no effect/answer, human rather than digest-JSON outcomes, and no stale queued notice. Original RED and intermediate failure evidence are retained. Commit this UX unit; next implement promoted EV18's persisted automatic/manual mode, request-time intent routing and bounded read-only capabilities, then qualify/publish/verify v0.1.17.
+- **Preservation / limits:** No paid/live model authorization, original installation/auth/private-data changes, next backlog wave or strategy changes. Rust references again exited code0; scoped search/compiler/runtime are the fallback. Preserve `.DS_Store`.
+
 ## 2026-10-22 — Ordinary coding tools and continuous output (completed; v0.1.16 released)
 
 - **User scope:** Reported file creation still failed; requested real file reading, creation and code generation plus continuous scrolling across responses, then release.

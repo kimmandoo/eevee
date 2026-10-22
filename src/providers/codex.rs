@@ -91,6 +91,7 @@ fn proposed_write(writes: &mut WriteSet, params: &Value) -> Result<WriteProposal
 fn write_permission(proposal: &WriteProposal) -> PromptKind {
     PromptKind::Permission {
         description: proposal.description(),
+        file: Some(proposal.file_review()),
         options: vec![
             PermissionOption {
                 label: "Deny".into(),

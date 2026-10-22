@@ -306,10 +306,8 @@ impl App {
             self.planning.pending,
             Some(crate::providers::Request::Answer { .. })
         ) {
+            self.queue_approval_response_notice();
             self.close_overlay();
-            self.notice =
-                "Response queued for its exact owner; /approvals opens the next pending request."
-                    .into();
             return changed;
         }
         if matches!(
@@ -818,6 +816,14 @@ impl App {
         if self.nickname_editor.is_some() {
             return self.nickname_key(key);
         }
+        if key.kind == KeyEventKind::Press
+            && key.code == KeyCode::Char('a')
+            && key.modifiers == KeyModifiers::ALT
+            && self.approval_shortcut_available()
+        {
+            self.focus_approvals();
+            return true;
+        }
         // Backspace is the previous-form toggle on every non-text surface;
         // inside any text field it stays a plain delete. Held repeats are
         // consumed once so the toggle never flips twice from one keydown.
@@ -928,6 +934,16 @@ impl App {
                     _ => {}
                 }
             }
+        }
+        if self.overlay.is_none()
+            && !self.editing
+            && self.effective_focus() == Pane::Workspace
+            && key.kind == KeyEventKind::Press
+            && key.modifiers.is_empty()
+            && key.code == KeyCode::Enter
+            && self.focus_own_approval()
+        {
+            return true;
         }
         if self.editing {
             return self.edit_key(key);

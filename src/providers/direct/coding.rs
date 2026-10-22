@@ -394,8 +394,8 @@ fn permission(
         turn_id: format!("eevee-native-request:{}", owner.request_id),
         item_id: format!("eevee-native-write:{round}:{index}"),
         kind: PromptKind::Permission {
-            // Keep the shared kind/path/parent scope headers first, verbatim.
             description: proposal.description(),
+            file: Some(proposal.file_review()),
             options: vec![
                 PermissionOption {
                     label: "Deny".into(),
@@ -575,9 +575,15 @@ fn execute_write(
             Err(failure) => failed_write(run, events, round, index, proposal, failure)?,
         }
     };
-    let text =
-        serde_json::to_string(&result).map_err(|_| "Cannot encode actual native file result")?;
-    journal(run, events, round, index, &text, receipt.as_deref())?;
+    let message = result
+        .get("message")
+        .and_then(Value::as_str)
+        .ok_or("Native file result lost its human-readable outcome")?;
+    if receipt.is_none() {
+        receipt =
+            Some(serde_json::to_string(&result).map_err(|_| "Cannot encode native file outcome")?);
+    }
+    journal(run, events, round, index, message, receipt.as_deref())?;
     Ok(result)
 }
 

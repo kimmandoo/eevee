@@ -878,6 +878,44 @@ impl State {
         if !large_enough {
             return false;
         }
+        if let Some(PromptKind::Permission {
+            file: Some(_),
+            options,
+            ..
+        }) = self.request.as_ref().map(|request| &request.kind)
+        {
+            match key.code {
+                KeyCode::Enter => {
+                    if key.kind != KeyEventKind::Press
+                        || !key.modifiers.is_empty()
+                        || self.review_details
+                    {
+                        return false;
+                    }
+                    // Inspecting a proposed file must never submit the default Deny.
+                    self.review_details = true;
+                    self.scroll = 0;
+                    self.invalidate_review();
+                    return true;
+                }
+                KeyCode::Char('a' | 'y' | 'n') => {
+                    if key.kind != KeyEventKind::Press
+                        || !key.modifiers.is_empty()
+                        || options.len() != 2
+                        || key.code != KeyCode::Char('n') && (!self.reviewed || self.review_details)
+                    {
+                        return false;
+                    }
+                    let index = usize::from(key.code != KeyCode::Char('n'));
+                    self.send_answer(options[index].answer.clone());
+                    return true;
+                }
+                KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right => {
+                    return false;
+                }
+                _ => {}
+            }
+        }
         if key.code == KeyCode::Char('d')
             && (self.preview.is_some()
                 || self.switch_to.is_some()

@@ -2107,6 +2107,7 @@ fn prompt_kind(value: &Value) -> Result<PromptKind, String> {
     if !matches!(value["kind"].as_str(), Some("approval" | "elicitation")) {
         return Err("Unsupported SDK callback kind".into());
     }
+    let mut file = None;
     let description = if matches!(input["tool"].as_str(), Some("Write" | "Edit")) {
         #[derive(serde::Deserialize)]
         #[serde(deny_unknown_fields)]
@@ -2117,6 +2118,47 @@ fn prompt_kind(value: &Value) -> Result<PromptKind, String> {
         }
         let scope: Scope = serde_json::from_value(input["scope"].clone())
             .map_err(|_| "SDK write prompt lacks typed create/replace scope")?;
+        if std::iter::once(&scope.path)
+            .chain(scope.directories.iter())
+            .any(|path| path.chars().any(char::is_control) || safe(path) != *path)
+        {
+            return Err("SDK write scope cannot be displayed exactly".into());
+        }
+        let tool_input = &input["input"];
+        let edit = input["tool"] == "Edit";
+        let (bytes, excerpt) = if edit {
+            let old = tool_input["old_string"]
+                .as_str()
+                .ok_or("SDK edit lacks old text")?;
+            let new = tool_input["new_string"]
+                .as_str()
+                .ok_or("SDK edit lacks replacement text")?;
+            (
+                new.len(),
+                format!(
+                    "- {}\n+ {}",
+                    super::FileReview::excerpt(old.lines().next().unwrap_or("")),
+                    super::FileReview::excerpt(new.lines().next().unwrap_or(""))
+                ),
+            )
+        } else {
+            let content = tool_input["content"]
+                .as_str()
+                .ok_or("SDK write lacks content")?;
+            (content.len(), super::FileReview::excerpt(content))
+        };
+        file = Some(super::FileReview {
+            path: scope.path.clone(),
+            kind: match scope.kind {
+                SdkWriteKind::Create => super::FileReviewKind::Create,
+                SdkWriteKind::Replace => super::FileReviewKind::Modify,
+            },
+            directories: scope.directories.clone(),
+            bytes,
+            excerpt,
+            edit,
+            external: true,
+        });
         format!(
             "Kind: {:?}\nPath: {}\nMissing parents: {}\nExternal SDK policy, not OS confinement.\nClaude approval request: {input}",
             scope.kind,
@@ -2179,8 +2221,16 @@ fn prompt_kind(value: &Value) -> Result<PromptKind, String> {
             answer: answer.clone(),
         });
     }
+    if offered.len() != 2
+        || offered[0].answer["behavior"] != "deny"
+        || offered[1].answer["behavior"] != "allow"
+        || offered[1].answer["updatedInput"] != input["input"]
+    {
+        file = None;
+    }
     Ok(PromptKind::Permission {
         description,
+        file,
         options: offered,
     })
 }

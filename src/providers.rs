@@ -485,6 +485,47 @@ pub struct PermissionOption {
     pub description: String,
     pub answer: Value,
 }
+/// Display-only facts from a typed write proposal, never execution authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileReviewKind {
+    Create,
+    Modify,
+}
+#[derive(Clone, Debug)]
+pub struct FileReview {
+    pub path: String,
+    pub kind: FileReviewKind,
+    pub directories: Vec<String>,
+    /// UTF-8 bytes of the new file, or the replacement fragment when `edit`.
+    pub bytes: usize,
+    pub excerpt: String,
+    pub edit: bool,
+    pub external: bool,
+}
+impl FileReview {
+    /// Bound source text before it reaches the concise renderer. Full bytes stay
+    /// in permission details and in the provider's original exact proposal.
+    pub(crate) fn excerpt(content: &str) -> String {
+        let mut excerpt = String::new();
+        let mut lines = 0;
+        for character in content.chars().take(1024) {
+            if character == '\n' {
+                lines += 1;
+                if lines == 4 {
+                    break;
+                }
+            }
+            if (character.is_control() && !matches!(character, '\n' | '\t'))
+                || matches!(character, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+            {
+                excerpt.extend(character.escape_default());
+            } else {
+                excerpt.push(character);
+            }
+        }
+        excerpt
+    }
+}
 #[derive(Clone, Debug)]
 pub enum PromptKind {
     Questions(Vec<Question>),
@@ -498,6 +539,7 @@ pub enum PromptKind {
     /// Options retain each provider's exact response. Deny is index zero; no persistent option.
     Permission {
         description: String,
+        file: Option<FileReview>,
         options: Vec<PermissionOption>,
     },
 }

@@ -68,6 +68,11 @@ impl App {
 
     /// Enter sends the exact committed draft; preparation and storage still gate dispatch.
     pub(super) fn submit_request(&mut self) -> bool {
+        // A paused turn already owns this Enter. Review it without treating the
+        // future draft (including an empty one) as another send intent.
+        if self.focus_own_approval() {
+            return true;
+        }
         if self.width < 60 || self.height < 18 || self.input.trim().is_empty() {
             self.notice = "Type a request and enlarge the terminal before sending.".into();
             return true;

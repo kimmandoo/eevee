@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-22] Successful file execution still had an obscure approval interaction
+
+- **Context / Symptom:** The user reported file-creation UX still felt wrong after v0.1.16. Actual compact Korean first-file output showed editing/completed labels and English `/approvals` hints while no file existed. A neutral approval Enter sent default Deny. Earlier runtime fixtures opened `/approvals` and used Enter as a deliberate denial, hiding the interaction problem.
+- **Root Cause:** A generic permission selector was reused as the primary file workflow; display text omitted code, selected-Deny submission was ambiguous, pending/working chrome duplicated status and consumed the transcript, and machine digest receipts could leak into ordinary output.
+- **Solution:** Added deliberate owned Enter/global FIFO Alt+A entry, typed localized operation/path/parents and bounded code/diff preview, inspection-only neutral Enter, explicit a/y once or n denial, preserved future drafts and correlation, and separated human outcome text from machine journals. Collapsed redundant single-owner waiting chrome and suppressed lower-priority suggestions/queued notices while a review is pending.
+- **Prevention / Reference:** Tightened the actual creation driver to alternate Enter/Alt+A without `/approvals` fallback and verify repeated neutral Enter caused neither effects nor a response. Both languages/sizes passed real create/read/edit, denial and race boundaries. Journal refusals remain structured even when display is human-readable; their consumer regression caught an intermediate accidental loss of the machine refusal status before release. No permission or filesystem safety gate was removed.
+
 ### [2026-10-22] Windows discovery serialized native separators into model paths
 
 - **Context / Symptom:** Initial native qualification `39722703001` failed two Windows discovery tests: actual list results included `"src\\lib.rs"` instead of `"src/lib.rs"`; the generated Unicode path also did not match the portable returned spelling.

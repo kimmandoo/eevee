@@ -895,3 +895,37 @@ providers-planning-switch = { "전환 " }{ $previous }{ " → " }{ $next }
 providers-command-unavailable = { "사용 불가: " }{ $reason }
 
 providers-command-identity = { $description }{ " · " }{ $identity }
+
+providers-planning-file-create = { "파일 생성" }
+
+providers-planning-file-modify = { "파일 수정" }
+
+providers-planning-file-path = { "경로: " }{ $path }
+
+providers-planning-file-no-parents = { "생성할 폴더: 없음" }
+
+providers-planning-file-parents = { "생성할 폴더: " }{ $paths }
+
+providers-planning-file-content-bytes = { "새 내용 · " }{ $bytes }{ " B · 일부 미리보기" }
+
+providers-planning-file-replacement-bytes = { "바꿀 내용 · " }{ $bytes }{ " B · 변경 일부" }
+
+providers-planning-file-empty = { "(빈 파일 · 0바이트)" }
+
+providers-planning-file-external = { "외부 SDK 정책이며 OS 격리가 아닙니다." }
+
+providers-planning-file-details = { "d 전체 변경·범위·정확한 요청 보기" }
+
+providers-planning-file-actions =
+    { "a/y 한 번 허용 | n 거부 | Enter/d 상세" }
+    { "이 요청만 한 번 허용 · Enter는 상세 보기" }
+
+providers-planning-file-unavailable =
+    { "a/y 허용 불가 · 전체 범위가 보이도록 크기 조정" }
+    { "n 거부 | Enter/d 상세 (결정하지 않음)" }
+
+providers-planning-file-details-actions =
+    { "d 돌아가기 | PgUp/Dn 스크롤 | n 거부" }
+    { "Enter는 상세에 머무릅니다. 허용은 요약에서만." }
+
+providers-planning-waiting-for-review = { "검토 대기" }

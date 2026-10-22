@@ -605,14 +605,13 @@ fn exact_permission_rejects_foreign_replayed_or_augmented_answers_and_closes_onc
             }
             thread::sleep(Duration::from_millis(1));
         };
-        let PromptKind::Permission {
-            options,
-            description,
-        } = &request.kind
-        else {
+        let PromptKind::Permission { options, file, .. } = &request.kind else {
             panic!("Permission expected")
         };
-        assert!(description.starts_with("Create file\nPath: new/file.txt\n"));
+        let file = file.as_ref().expect("typed file review");
+        assert_eq!(file.path, "new/file.txt");
+        assert_eq!(file.kind, crate::providers::FileReviewKind::Create);
+        assert_eq!(file.excerpt, "content");
         let allow = options[1].answer.clone();
         sender
             .send(Request::Answer {
@@ -1159,6 +1158,7 @@ fn semantic_batch_refusal_allows_corrected_proposals_without_valid_sibling_effec
                     let PromptKind::Permission {
                         options,
                         description,
+                        ..
                     } = &request.kind
                     else {
                         panic!("exact permission expected")

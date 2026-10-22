@@ -46,6 +46,7 @@ pub struct State {
     pub(super) command_saves: BTreeMap<i64, (String, store::Attribution, u64)>,
     approvals: Vec<(u64, Pending)>,
     focused: Option<Pending>,
+    queued_response: Option<Pending>,
     preference_owners: VecDeque<i64>,
     journal_owners: VecDeque<i64>,
     pub cancel_review: Option<CancelReview>,
@@ -684,6 +685,87 @@ impl App {
         self.cooperation.approvals.len()
     }
 
+    pub fn own_approval_pending(&self) -> bool {
+        self.planning.request.is_some()
+    }
+
+    pub fn partner_approval_pending(&self, partner: i64) -> bool {
+        self.planning_state(partner)
+            .is_some_and(|state| state.request.is_some())
+    }
+
+    /// The home shortcut never takes input from a modal or a literal editor.
+    pub fn approval_shortcut_available(&self) -> bool {
+        self.overlay.is_none()
+            && !self.transitioning
+            && !self.reset_after_save
+            && !self.quit_after_save
+            && self.confirmation.is_none()
+            && self.command_popup.is_none()
+            && self.nickname_editor.is_none()
+            && self.cooperation_ui.release.is_none()
+            && self.cooperation.cancel_review.is_none()
+            && self.cooperation.journal_discard.is_none()
+            && self.composer_menu.is_none()
+            && (!self.editing || self.composer_is_request())
+    }
+
+    /// Informational only: exact permission scope is displayed in its review.
+    pub fn pending_approval_detail(&self) -> Option<(&store::Attribution, Option<&str>)> {
+        let (_, pending) = self.cooperation.approvals.first()?;
+        match pending {
+            Pending::Provider {
+                partner, request, ..
+            } => {
+                let state = self.planning_state(*partner)?;
+                let path = state.request.as_ref().and_then(|prompt| {
+                    if request.as_ref() != Some(&prompt.request_id) {
+                        return None;
+                    }
+                    match &prompt.kind {
+                        crate::providers::PromptKind::Permission {
+                            file: Some(file), ..
+                        } => Some(file.path.as_str()),
+                        _ => None,
+                    }
+                });
+                Some((state.owner()?, path))
+            }
+            Pending::Command { partner, .. } => {
+                let state = if *partner == self.lead.id {
+                    &self.execution
+                } else {
+                    self.cooperation.executions.get(partner)?
+                };
+                Some((state.owner.as_ref()?, None))
+            }
+        }
+    }
+
+    pub fn approval_response_queued(&self) -> bool {
+        matches!(&self.cooperation.queued_response,
+            Some(Pending::Provider { partner, task, generation, .. })
+                if *task == self.task_id
+                    && self.planning_state(*partner)
+                        .is_some_and(|state| state.matches(*generation, *task)))
+    }
+
+    pub(super) fn queue_approval_response_notice(&mut self) {
+        if let Some(crate::providers::Request::Answer {
+            generation,
+            request_id,
+            ..
+        }) = &self.planning.pending
+        {
+            self.cooperation.queued_response = Some(Pending::Provider {
+                partner: self.lead.id,
+                task: self.planning.task_id(),
+                generation: *generation,
+                request: Some(request_id.clone()),
+            });
+        }
+    }
+
     pub fn approval_position(&self) -> Option<(usize, usize)> {
         if !matches!(self.overlay, Some(Overlay::Planning | Overlay::Execution)) {
             return None;
@@ -728,6 +810,42 @@ impl App {
             self.notice = "No pending approvals or questions.".into();
             return;
         };
+        self.focus_pending_approval(request);
+    }
+
+    pub(super) fn focus_own_approval(&mut self) -> bool {
+        if !self.own_approval_pending() {
+            return false;
+        }
+        self.refresh_approvals();
+        let request = self
+            .cooperation
+            .approvals
+            .iter()
+            .find_map(|(_, pending)| match pending {
+                Pending::Provider {
+                    partner,
+                    task,
+                    generation,
+                    request,
+                } if *partner == self.lead.id
+                    && *task == self.task_id
+                    && request.is_some()
+                    && self.planning.focus_prompt(*generation, request) =>
+                {
+                    Some(pending.clone())
+                }
+                _ => None,
+            });
+        if let Some(request) = request {
+            self.focus_pending_approval(request);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn focus_pending_approval(&mut self, request: Pending) {
         let focused = match &request {
             Pending::Provider {
                 partner,
@@ -735,8 +853,13 @@ impl App {
                 generation,
                 request,
             } => {
-                self.request_lead(*partner);
-                if self.task_id != *task || !self.planning.focus_prompt(*generation, request) {
+                if self.lead.id != *partner {
+                    self.request_lead(*partner);
+                }
+                if self.lead.id != *partner
+                    || self.task_id != *task
+                    || !self.planning.focus_prompt(*generation, request)
+                {
                     false
                 } else {
                     self.open_overlay(Overlay::Planning);
@@ -750,8 +873,12 @@ impl App {
                 request,
                 run,
             } => {
-                self.request_lead(*partner);
-                if self.execution.focus_approval(*task, *partner, request, run) {
+                if self.lead.id != *partner {
+                    self.request_lead(*partner);
+                }
+                if self.lead.id == *partner
+                    && self.execution.focus_approval(*task, *partner, request, run)
+                {
                     self.open_overlay(Overlay::Execution);
                     true
                 } else {
@@ -974,6 +1101,48 @@ impl App {
             self.sources.status = format!("Exact request receipt unavailable: {error}");
         }
         let foreground_drawer = partner == self.lead.id && self.overlay == Some(Overlay::Planning);
+        let response_settled = match (&self.cooperation.queued_response, &event) {
+            (
+                Some(Pending::Provider {
+                    partner: owner,
+                    task,
+                    generation,
+                    request,
+                }),
+                crate::providers::Event::PromptClosed {
+                    generation: closed_generation,
+                    request_id,
+                },
+            ) => {
+                *owner == partner
+                    && generation == closed_generation
+                    && request.as_ref() == Some(request_id)
+                    && self
+                        .planning_state(partner)
+                        .is_some_and(|state| state.matches(*generation, *task))
+            }
+            (
+                Some(Pending::Provider {
+                    partner: owner,
+                    task,
+                    generation,
+                    ..
+                }),
+                crate::providers::Event::Finished {
+                    generation: finished_generation,
+                    task_id,
+                    ..
+                },
+            ) => {
+                *owner == partner
+                    && generation == finished_generation
+                    && task == task_id
+                    && self
+                        .planning_state(partner)
+                        .is_some_and(|state| state.matches(*generation, *task))
+            }
+            _ => false,
+        };
         let Some(state) = self.planning_state_mut(partner) else {
             return false;
         };
@@ -1043,6 +1212,9 @@ impl App {
                 .as_ref()
                 .is_none_or(|request| &request.request_id != previous)
         });
+        if response_settled {
+            self.cooperation.queued_response = None;
+        }
         if let Some(request) = dispatched {
             self.move_request_dispatched(partner, &request);
             self.record_request_dispatched(partner, &request);
@@ -1173,6 +1345,361 @@ mod tests {
                 },
             },
         );
+    }
+
+    #[test]
+    fn request_enter_reviews_own_prompt_before_empty_or_busy_checks() {
+        for agent in [providers::Agent::ChatGPT, providers::Agent::Codex] {
+            for text in ["", "Future 漢字 request"] {
+                let mut app = app();
+                app.planning.agent = agent;
+                start(&mut app, 1, 1);
+                app.open_editor(store::EditorField::Request);
+                app.input = text.into();
+                app.cursor = text.find('漢').unwrap_or(text.len());
+                let draft = (app.input.clone(), app.cursor);
+                prompt(&mut app, 1, 2);
+                assert!(app.overlay.is_none(), "arrival must not interrupt typing");
+                assert_eq!((app.input.clone(), app.cursor), draft);
+
+                app.update(Event::Key(KeyEvent::new(
+                    KeyCode::Enter,
+                    KeyModifiers::NONE,
+                )));
+                assert_eq!(app.overlay, Some(Overlay::Planning));
+                assert_eq!(app.lead.id, 1);
+                assert!(!app.planning.reviewed && !app.planning.affirmative);
+                assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+                app.update(Event::Key(KeyEvent::new_with_kind(
+                    KeyCode::Enter,
+                    KeyModifiers::NONE,
+                    KeyEventKind::Repeat,
+                )));
+                assert!(app.planning.pending.is_none(), "held Enter cannot answer");
+                app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+                assert!(app.overlay.is_none());
+                assert_eq!((app.input.clone(), app.cursor), draft);
+                assert!(app.editing && app.planning.request.is_some());
+            }
+        }
+    }
+
+    #[test]
+    fn output_enter_reviews_own_question_while_alt_a_keeps_global_fifo() {
+        let mut app = app();
+        start(&mut app, 1, 1);
+        start(&mut app, 2, 2);
+        app.open_editor(store::EditorField::Request);
+        app.input = "future draft".into();
+        app.cursor = 3;
+        app.retain_editor();
+        app.focus = Pane::Workspace;
+        prompt(&mut app, 2, 10);
+        prompt(&mut app, 1, 20);
+        app.planning.request.as_mut().unwrap().kind =
+            providers::PromptKind::Questions(vec![providers::Question {
+                id: "scope".into(),
+                header: "Scope".into(),
+                question: "Which exact file?".into(),
+                options: Vec::new(),
+                other: true,
+                secret: false,
+            }]);
+        app.planning.answers = vec![planning::Answer::default()];
+
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.lead.id, 1, "Enter belongs to the current request");
+        assert_eq!(app.overlay, Some(Overlay::Planning));
+        assert!(app.planning.pending.is_none() && app.pending_request.is_none());
+        app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Char('a'),
+            KeyModifiers::ALT,
+        )));
+        assert_eq!(app.lead.id, 2, "Alt+A follows producer arrival order");
+        assert_eq!(app.approval_position(), Some((1, 2)));
+        assert!(app.planning.pending.is_none());
+        app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        app.request_lead(1);
+        app.open_editor(store::EditorField::Request);
+        assert_eq!((app.input.as_str(), app.cursor), ("future draft", 3));
+    }
+
+    #[test]
+    fn alt_a_requires_exact_press_and_never_interprets_pasted_text() {
+        let mut app = app();
+        start(&mut app, 1, 1);
+        prompt(&mut app, 1, 2);
+        app.open_editor(store::EditorField::Request);
+        for (modifiers, kind) in [
+            (KeyModifiers::ALT, KeyEventKind::Repeat),
+            (KeyModifiers::ALT, KeyEventKind::Release),
+            (KeyModifiers::ALT | KeyModifiers::SHIFT, KeyEventKind::Press),
+            (
+                KeyModifiers::ALT | KeyModifiers::CONTROL,
+                KeyEventKind::Press,
+            ),
+            (KeyModifiers::ALT | KeyModifiers::SUPER, KeyEventKind::Press),
+        ] {
+            app.update(Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Char('a'),
+                modifiers,
+                kind,
+            )));
+            assert!(app.overlay.is_none());
+            assert!(app.planning.pending.is_none());
+        }
+        app.update(Event::Paste("Alt+A\n".into()));
+        assert!(app.overlay.is_none());
+        assert_eq!(app.input, "Alt+A\n");
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Char('a'),
+            KeyModifiers::ALT,
+        )));
+        assert_eq!(app.overlay, Some(Overlay::Planning));
+        assert_eq!(app.input, "Alt+A\n");
+        assert!(app.planning.pending.is_none() && app.pending_request.is_none());
+    }
+
+    #[test]
+    fn pending_review_shortcut_respects_literal_editors_and_overlay_ownership() {
+        let shortcut = Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::ALT));
+        for field in [
+            store::EditorField::Goal,
+            store::EditorField::Criteria,
+            store::EditorField::Command,
+            store::EditorField::NextAction,
+        ] {
+            let mut app = app();
+            start(&mut app, 1, 1);
+            prompt(&mut app, 1, 2);
+            app.editing = true;
+            app.editor_field = field;
+            app.input = "literal draft".into();
+            app.cursor = 4;
+            app.update(shortcut.clone());
+            assert!(app.overlay.is_none());
+            assert_eq!((app.input.as_str(), app.cursor), ("literal draft", 4));
+            assert!(app.planning.pending.is_none());
+        }
+        for overlay in [Overlay::Help, Overlay::Sources, Overlay::Planning] {
+            let mut app = app();
+            start(&mut app, 1, 1);
+            prompt(&mut app, 1, 2);
+            app.open_overlay(overlay);
+            app.update(shortcut.clone());
+            assert_eq!(app.overlay, Some(overlay));
+            assert!(app.planning.pending.is_none());
+        }
+        let mut app = app();
+        start(&mut app, 1, 1);
+        prompt(&mut app, 1, 2);
+        app.open_commands();
+        app.update(shortcut.clone());
+        assert!(app.command_popup.is_some() && app.overlay.is_none());
+        assert!(app.planning.pending.is_none());
+        app.command_popup = None;
+        app.confirmation = Some(Confirmation {
+            kind: ConfirmationKind::DiscardDraft,
+            destructive: false,
+        });
+        app.update(shortcut);
+        assert!(app.confirmation.is_some() && app.overlay.is_none());
+        assert!(app.planning.pending.is_none());
+    }
+
+    #[test]
+    fn queued_response_notice_settles_only_for_its_correlated_callback_or_turn() {
+        for finish_turn in [false, true] {
+            let mut app = app();
+            start(&mut app, 1, 1);
+            start(&mut app, 2, 2);
+            prompt(&mut app, 1, 10);
+            prompt(&mut app, 2, 20);
+            app.open_editor(store::EditorField::Request);
+            app.input = "future draft".into();
+            app.cursor = 3;
+            app.focus_approvals();
+            app.planning.reviewed = true;
+            app.planning_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+            assert!(matches!(
+                app.planning.pending.take(),
+                Some(providers::Request::Answer { .. })
+            ));
+            assert!(app.approval_response_queued());
+            assert_eq!((app.input.as_str(), app.cursor), ("future draft", 3));
+            assert!(app.editing && app.overlay.is_none());
+            app.notice = "An unrelated storage error".into();
+            app.provider_event(
+                2,
+                providers::Event::PromptClosed {
+                    generation: 7,
+                    request_id: json!("same-provider-id"),
+                },
+            );
+            assert!(
+                app.approval_response_queued(),
+                "same provider id, different owner"
+            );
+            app.provider_event(
+                1,
+                providers::Event::PromptClosed {
+                    generation: 8,
+                    request_id: json!("same-provider-id"),
+                },
+            );
+            assert!(app.approval_response_queued(), "stale generation");
+            app.provider_event(
+                1,
+                providers::Event::PromptClosed {
+                    generation: 7,
+                    request_id: json!("another-request"),
+                },
+            );
+            assert!(app.approval_response_queued(), "different callback");
+            if finish_turn {
+                app.provider_event(
+                    1,
+                    providers::Event::Finished {
+                        generation: 7,
+                        task_id: 7,
+                        outcome: providers::Outcome::Completed,
+                        message: "Completed".into(),
+                    },
+                );
+            } else {
+                app.provider_event(
+                    1,
+                    providers::Event::PromptClosed {
+                        generation: 7,
+                        request_id: json!("same-provider-id"),
+                    },
+                );
+            }
+            assert!(!app.approval_response_queued());
+            assert_eq!(app.notice, "An unrelated storage error");
+        }
+    }
+
+    #[test]
+    fn actual_home_localizes_pending_review_and_drops_hints_when_finished() {
+        use crate::{
+            config::{ColorMode, Config, ImageMode, LayoutMode, Theme},
+            i18n::{Language, Message},
+        };
+        use ratatui::{Terminal, backend::TestBackend};
+
+        for tag in ["en", "ko"] {
+            let language = Language::parse(tag).unwrap();
+            let config = Config {
+                language,
+                ascii: true,
+                no_animation: true,
+                theme: Theme::Dark,
+                color: ColorMode::Mono,
+                images: ImageMode::Off,
+                assets_dir: "unused".into(),
+                layout: LayoutMode::Sanctuary,
+                layout_explicit: false,
+                data_dir: "unused-data".into(),
+                storage_policy: store::Policy::default(),
+                context_exclusions: Vec::new(),
+                capture_capacity: 64 * 1024,
+            };
+            for (width, height) in [(60, 18), (120, 36)] {
+                for editing in [true, false] {
+                    let mut app = app();
+                    app.width = width;
+                    app.height = height;
+                    start(&mut app, 1, 1);
+                    app.planning.work.as_mut().unwrap().writing = true;
+                    prompt(&mut app, 1, 2);
+                    app.planning.request.as_mut().unwrap().kind =
+                        providers::PromptKind::Permission {
+                            description: "Exact provider scope".into(),
+                            file: Some(providers::FileReview {
+                                path: "src/new.rs".into(),
+                                kind: providers::FileReviewKind::Create,
+                                directories: Vec::new(),
+                                bytes: 0,
+                                excerpt: String::new(),
+                                edit: false,
+                                external: false,
+                            }),
+                            options: vec![
+                                providers::PermissionOption {
+                                    label: "deny".into(),
+                                    description: String::new(),
+                                    answer: json!("deny"),
+                                },
+                                providers::PermissionOption {
+                                    label: "once".into(),
+                                    description: String::new(),
+                                    answer: json!("once"),
+                                },
+                            ],
+                        };
+                    app.editing = editing;
+                    app.focus = Pane::Workspace;
+                    app.refresh_approvals();
+                    let mut artwork = crate::ui::artwork::Artwork::load(&config);
+                    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                    let mut draw = |app: &mut App| {
+                        terminal
+                            .draw(|frame| {
+                                crate::ui::render(frame, app, &config, &mut artwork, "off");
+                            })
+                            .unwrap();
+                        let buffer = terminal.backend().buffer();
+                        let mut screen = String::new();
+                        for y in 0..height {
+                            let mut x = 0;
+                            while x < width {
+                                let symbol = buffer[(x, y)].symbol();
+                                screen.push_str(symbol);
+                                x += ratatui::text::Span::raw(symbol).width().max(1) as u16;
+                            }
+                            screen.push('\n');
+                        }
+                        screen
+                    };
+                    let screen = draw(&mut app);
+                    assert!(
+                        screen.contains(language.text(Message::CoreWaitingForUser)),
+                        "{screen}"
+                    );
+                    assert!(
+                        screen.contains("Alt+A") && screen.contains("Enter"),
+                        "{screen}"
+                    );
+                    assert!(screen.contains("src/new.rs"), "{screen}");
+                    assert!(
+                        !screen.contains("is editing") && !screen.contains("Generating"),
+                        "{screen}"
+                    );
+                    assert!(app.overlay.is_none() && app.planning.pending.is_none());
+                    app.provider_event(
+                        1,
+                        providers::Event::Finished {
+                            generation: 7,
+                            task_id: 7,
+                            outcome: providers::Outcome::Completed,
+                            message: "Completed".into(),
+                        },
+                    );
+                    app.refresh_approvals();
+                    let settled = draw(&mut app);
+                    assert!(!settled.contains("Alt+A"), "{settled}");
+                    assert!(
+                        !settled.contains(language.text(Message::CoreWaitingForUser)),
+                        "{settled}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

@@ -5,7 +5,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 | File | Section | Open |
 |---|---|---|
 | [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 1 |
-| [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 0 |
+| [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 1 |
 | [C-relays.md](tasks/C-relays.md) | Form relays | 0 |
 | [D-moves.md](tasks/D-moves.md) | Moves: teaching and learning skills | 1 |
 | [E-partner-record.md](tasks/E-partner-record.md) | Partner record and flavor | 3 |
@@ -17,8 +17,8 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 ## Status
 
 - **Released:** [0.1.16](https://github.com/kimmandoo/eevee/releases/tag/v0.1.16) (tags v0.1.0–v0.1.16), fixing ordinary-entry file generation, adding bounded real discovery/read/hash-edit tools and continuous attributed response scrolling. Schema 15 remained unchanged; complete SDK bridge revision 7 is required. Exact-commit Check/all-five-native qualification, immutable publication, every public asset check and actual downloaded installation/runtime passed.
-- **Latest user request — completed:** Ordinary file creation/read/edit passed 24 English/Korean journeys/122 groups; continuous scrolling passed 44 groups across both sizes/languages. Public tooltip, workflow relay, installation/all 34 terminal scenarios and genuine migration/refusal/resume also passed. Exact per-file consent, explicit read-only roles, privacy/ownership and original installation/data were preserved. No next backlog wave or paid/live model calls were performed.
-- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B/PT04C, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, PT07A/PT07B/PT07C, PT08A/PT08B, PT09, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV01C, EV02, EV10A, EV10B, EV14, EV12, EV13A, EV13B, EV15, EV16, PT10, MV01A/MV01B/MV01C, MV02A/MV02B, MV03A/MV03B/MV03C, MV04/MV05/MV06/MV07, MV08A, C03A/C03B/T01A, EV05/EV06/PK02/EV08A/EV08B/PK05A/PK05B/EV09/EV17/EV11 and the first code-structure pass (index below). **Open:** 41 small tasks. **Dropped:** T05.
+- **Latest user request — active:** Finish the file-creation UX correction, implement newly promoted EV18 automatic Eevee form selection with persistent manual overrides and safe request-time routing, then release the combined v0.1.17 patch. v0.1.16 stays immutable; no other backlog wave or paid/live model calls are authorized.
+- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B/PT04C, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, PT07A/PT07B/PT07C, PT08A/PT08B, PT09, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV01C, EV02, EV10A, EV10B, EV14, EV12, EV13A, EV13B, EV15, EV16, PT10, MV01A/MV01B/MV01C, MV02A/MV02B, MV03A/MV03B/MV03C, MV04/MV05/MV06/MV07, MV08A, C03A/C03B/T01A, EV05/EV06/PK02/EV08A/EV08B/PK05A/PK05B/EV09/EV17/EV11 and the first code-structure pass (index below). **Open:** 42 small tasks, including the newly promoted EV18. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01's remaining context-comparison/receipt track, T03 (in-packet dedup), A04/A06/A07 adapters.
 
@@ -61,6 +61,7 @@ EV09 explicitly approved exact-repeat instruction memories · EV17 project/partn
 
 | Wave | Tasks (in order) | Why this order |
 |---|---|---|
+| User-prioritized correction | File-creation UX → EV18 → v0.1.17 release | Explicit current request; do not wait for another wave or implement unrelated items. |
 | 1. Party foundation | PT02A → PT02B → PT03A → PT03B → PT04A → PT04B → PT05A → PT05B → RF05 → PT06A → PT06B → PT06C | Partner model and bounded storage, then switching, roster, drafts, and request routing (still one working partner). |
 | 2. Partner basics | EV04 → EV03A → EV03B → EV07 → PK01 → EV01A → EV01B → EV02 | Small UI slices reused later. |
 | 3. Form relays | EV10A → EV10B → EV14 → EV12 → EV13A → EV13B → EV15 → EV16 → PT10 → EV01C | Highest daily value; PT10 lets relays target a party member. |
