@@ -6,6 +6,7 @@
 - **Root Cause:** GitHub's aggregate workflow result and persisted per-job completion metadata disagreed. A successful watcher result was insufficient to establish the required single-attempt native artifact provenance.
 - **Solution:** Kept qualification unchanged and published no tag from that run. Recorded the service inconsistency in a documentation-only source commit and requested a fresh complete main-push qualification with new artifact identities, preserving the earlier diagnostic evidence.
 - **Prevention / Reference:** Admit only a run whose Check and all five job records, steps, attempt and artifact timestamps satisfy the existing qualifier. Never substitute workflow-level success or combine packages across runs.
+- **Verification:** Fresh exact-source run `39838062098` completed Check and all five native jobs, including Windows, with valid completion metadata. The unchanged qualifier admitted its five artifacts; publication `39839919003` promoted only those identities as v0.1.20.
 
 ### [2026-10-23] Windows qualification rejected a POSIX-only held-file fixture
 

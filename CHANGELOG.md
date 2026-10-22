@@ -2,6 +2,8 @@
 
 ## 2026-10-23
 
+- docs(release): published v0.1.20 from source `7e7259c` after complete exact-source Check/all-five-native qualification and immutable artifact promotion; verified all eight public assets, seven checksums and five native package identities with Schema 18/full-backup and complete SDK bridge 9 guidance.
+- test(release): verified downloaded v0.1.20 project roots, bilingual generated-code/file approval/scroll/ACP/record/evolution journeys, ten native protocol variants, genuine Schema16/17 upgrades and 23 installation groups including 34 installed-native scenarios; confirmed the reinstalled binary matched the public package.
 - fix(project): kept source inventory, exclusions, initialization and file operations inside the canonical launch folder instead of widening nested projects to Git toplevel.
 - fix(context): excluded canonical application storage from project sources and refused new captures and historical private-storage attachments without rewriting retained evidence.
 - feat(providers): added shared guarded ACP filesystem operations and filtered SDK discovery with explicit external-policy boundaries and truthful result states.

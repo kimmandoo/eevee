@@ -4,7 +4,7 @@ Date: 2026-10-13
 Status: 25 of 31 tasks passed their scoped gates, including P02 and U01/L01/G01/S01/S02/S03. Schema-6 specialist, memory and recipe journeys passed all five native installed-runtime rows at `d198fa5`; all eleven build/smoke/policy jobs passed. Local real independent Codex review and measured release workloads also passed. Full A04/A06/A07 and therefore Q01/Q02/P03 remain pending on permitted Claude/Gemini authentication and their required conformance rows. The separately authorized 0.1.0 core release promotes the exact qualified packages.
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
 
-## Active request — current-folder coding and provider UX parity, then release
+## Completed request — current-folder coding and provider UX parity, v0.1.20 released
 
 - Complete the already implemented PK06 actual-runtime gate without dropping its source/hide/purge requirements.
 - Trace current working directory through project/task identity, repository observation, provider/session launch and all actual file tools. Keep explicit project ownership consistent for nested, non-Git and Unicode paths; never widen a project silently to its repository parent.
@@ -12,7 +12,7 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 - Make real generated code visually distinct from prose: stable file identity and lifecycle, fast progressive display of actual received code, and clear generating/not-saved, approval and applied outcomes. Preserve continuous transcript scrolling, paused anchors and the future draft; never simulate token streaming for whole-response protocols or fabricate saved effects.
 - Implement evidence-backed project/file-operation and shallow UX fixes; exercise actual transport/PTY/filesystem cases for each affected protocol and English/Korean compact/wide surfaces. Keep live-account conformance separate and preserve original credentials/private data.
 - Update contracts, task/handoff/changelog and version, commit, qualify the exact source/native packages, publish immutable assets, and verify the downloaded release. The user's latest request authorizes this release; earlier no-release scope no longer applies.
-- Local implementation is verified on frozen v0.1.20 candidate A: canonical nested/plain/control-root and private-storage journeys, all three ACP callback routes in both sizes/languages, 44 SDK cases, generated-code/approval/scroll/native protocols and genuine Schema16/17→18 continuity. Exact-source native qualification and immutable publication/download verification remain the active release step.
+- Completed on v0.1.20: canonical nested/plain/control-root and private-storage journeys, all three ACP callback routes in both sizes/languages, 44 SDK cases, generated-code/approval/scroll/native protocols and genuine Schema16/17→18 continuity. Exact-source run `39838062098` qualified Check/all five native rows; publication `39839919003` promoted the immutable packages. All public assets and downloaded runtime journeys passed, including 23 installation groups and 34 installed-native scenarios. Authenticated provider acceptance remains separate.
 
 ## Completed task — PK06 factual milestone ribbons
 
