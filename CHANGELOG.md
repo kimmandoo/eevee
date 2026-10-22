@@ -2,6 +2,8 @@
 
 ## 2026-10-23
 
+- feat(context): added scoped held file and approved-memory proposals with visible compact identities, removable visit chips, explicit context acceptance, revalidation and local-only receipt attribution.
+- feat(storage)!: added Schema 17 held references without duplicating source/memory contents and retained transactional migration and older-writer refusal.
 - docs(release): published v0.1.19 from source `63f1007` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.

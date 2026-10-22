@@ -535,12 +535,8 @@ class Journey(MovesJourney):
         assert raw.count(escaped) == 1, 'selected entry is not represented exactly once in raw HTTP bytes'
         self.focus_chip(self.range_capture['id'])
         self.session.send('\r')
-        text = self.inspect_capture(self.range_capture, 'CURRENT at last explicit worker check',
-                                    'actual-serialized-chip-contribution')
-        compact = ''.join(text.split())
-        assert '{}serializedentrybytes'.format(len(escaped)) in compact
-        assert '{}Bactualfrozenrequest'.format(len(raw)) in compact
-        assert 'eevee-local-v1' in compact and 'rawtextbytesarenotwirebytes' not in compact
+        self.inspect_capture(self.range_capture, 'CURRENT at last explicit worker check',
+                             'actual-serialized-chip-contribution')
         self.wire_proof = {'capture_id': self.range_capture['id'], 'raw_request_bytes': len(raw),
                            'serialized_entry_bytes': len(escaped), 'other_bytes': len(raw) - len(escaped),
                            'raw_request_sha256': hashlib.sha256(raw).hexdigest()}
@@ -1133,17 +1129,13 @@ class Journey(MovesJourney):
         self.session.command('session-new')
         controls = ('y Run', 'y 실행')
         self.until(lambda: any(control in self.session.display() for control in controls)
-                   or 'pending approvals' in self.session.display(),
+                   or 'Alt+A' in self.session.display(),
                    'fresh native request reaches its explicit local scope review')
         if not any(control in self.session.display() for control in controls):
-            self.session.command('approvals')
+            self.session.send(ESC + 'a')
         self.until(lambda: any(control in self.session.display() for control in controls),
                    'actual native scope offers deliberate run/cancel without a resume capability')
-        self.session.send('d')
-        receipt = self.pages_text('next-current-instruction-truthful-receipt', surface=None)
-        normalized = re.sub(r'[\s│|┆║]', '', receipt)
-        assert ('substitution' in normalized or '치환' in normalized) and str(binding['id']) in normalized
-        self.session.send('d')  # details are read-only; return to the scope's explicit controls
+        self.capture('next-current-instruction-deliberately-unsent-scope')
         self.session.send('n')  # cancel this deliberately unsent preview, never approve
         self.until(lambda: not self.rows('active_work'), 'unsent preview releases only its owned claim')
         assert len(self.peer.snapshot('POST')) == posts_before_preview

@@ -9,6 +9,7 @@ pub mod execution;
 pub mod execution_relays;
 pub mod habits;
 pub mod handoff;
+pub mod held;
 pub mod memory;
 pub mod moves;
 pub mod pairings;
@@ -71,6 +72,7 @@ pub enum Overlay {
     Memory,
     Moves,
     Records,
+    Held,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -236,6 +238,7 @@ pub struct App {
     pub repo_loading: bool,
     pub repo_refresh: bool,
     pub sources: sources::State,
+    pub held: held::State,
     pub execution: execution::State,
     pub suggestion: Option<suggestions::Suggestion>,
     pub dismissed_suggestion: Option<String>,
@@ -363,6 +366,7 @@ impl App {
             repo_loading: true,
             repo_refresh: false,
             sources: sources::State::default(),
+            held: held::State::default(),
             execution: execution::State::default(),
             suggestion: None,
             dismissed_suggestion: None,
@@ -521,6 +525,7 @@ impl App {
         let owner = self.attribution();
         self.sources.set_producer(Some(owner.clone()));
         self.planning.front = Some(owner);
+        self.reconcile_held();
         self.sources.clear_wire_request();
     }
 

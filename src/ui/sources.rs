@@ -119,7 +119,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let details = row(
         content,
         2 + list_rows,
-        content.height.saturating_sub(4 + list_rows),
+        content
+            .height
+            .saturating_sub(4 + list_rows + u16::from(state.mode == Mode::Preview)),
     );
     let lines: Vec<_> = state
         .error
@@ -173,6 +175,14 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         },
         paint.muted,
     );
+    if app.sources.mode == Mode::Preview {
+        text(
+            frame,
+            row(content, content.height.saturating_sub(3), 1),
+            paint.hint(crate::i18n::Message::HeldSourceHint),
+            paint.muted,
+        );
+    }
     app.sources.preview_reviewed = preview_reviewed;
 }
 

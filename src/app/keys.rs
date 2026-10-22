@@ -97,6 +97,7 @@ impl App {
                 self.insert_input(&text)
             }
             Event::Paste(text) if self.overlay == Some(Overlay::Moves) => self.move_paste(&text),
+            Event::Paste(_) if self.overlay == Some(Overlay::Held) => true,
             Event::Paste(text) if self.overlay == Some(Overlay::Records) => {
                 self.record_paste(&text)
             }
@@ -880,6 +881,7 @@ impl App {
             return true;
         }
         match self.overlay {
+            Some(Overlay::Held) => return self.held_key(key),
             Some(Overlay::Moves) => return self.move_key(key),
             Some(Overlay::Workflows) => return self.workflow_key(key),
             Some(Overlay::Memory) => return self.memory_key(key, now),

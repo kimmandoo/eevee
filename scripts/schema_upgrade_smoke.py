@@ -215,7 +215,6 @@ def main():
             assert [(row['id'], row['form']) for row in before['partners']] == [(1, 0), (2, 2), (3, 0)]
             assert before['partners'][1]['nickname'] == 'Bolt 漢字'
             assert before['partners'][2]['nickname'] == 'Intake 漢字'
-            assert all('auto_form' not in row for row in before['partners'])
             assert len(before['evidence']['executions']) == 1
 
             upgraded = launch(current, 'current-upgrade')
@@ -232,9 +231,9 @@ def main():
             for column in ('drafts', 'partner_drafts'):
                 assert migrated['tasks'][0][column] == before['tasks'][0][column], column
             assert migrated['evidence'] == before['evidence'], 'Migration rewrote retained evidence'
-            retained = [{key: value for key, value in row.items() if key != 'auto_form'}
-                        for row in migrated['partners']]
-            assert retained == before['partners'], 'Migration changed existing partner columns'
+            for prior, retained in zip(before['partners'], migrated['partners'], strict=True):
+                assert {key: retained[key] for key in prior} == prior, \
+                    'Migration changed a preexisting partner column'
             assert [(row['id'], row['form'], row['auto_form']) for row in migrated['partners']] == [
                 (1, 0, 1), (2, 2, 0), (3, 0, 1)]
             result['schemas'] = {'previous': old_schema, 'current': new_schema}

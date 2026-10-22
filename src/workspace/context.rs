@@ -429,7 +429,7 @@ fn capture_selection(
     Ok(excerpt)
 }
 
-fn line_range(text: &str, start: usize, end: usize) -> Result<&str, String> {
+pub(crate) fn line_range(text: &str, start: usize, end: usize) -> Result<&str, String> {
     let mut offset = 0;
     let mut begin = None;
     for (index, line) in text.split_inclusive('\n').enumerate() {

@@ -1249,12 +1249,10 @@ fn schema_thirteen_upgrade_is_atomic_preserves_facts_and_backfills_real_history(
             super::super::schema::inspect(&transaction).unwrap(),
         )
         .unwrap();
-        assert_eq!(
-            transaction
-                .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
-                .unwrap(),
-            16
-        );
+        assert!(matches!(
+            super::super::schema::inspect(&transaction).unwrap(),
+            Schema::Current
+        ));
     }
     assert_eq!(
         connection
@@ -1284,7 +1282,13 @@ fn readonly_admission_refuses_older_and_newer_schema_without_migration_or_writes
     let fixture = Fixture::new();
     let mut store = fixture.open();
     let task = fixture.task(&mut store, 2);
-    for version in [15, 17] {
+    let current: i64 = store
+        .connection
+        .as_ref()
+        .unwrap()
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    for version in [current - 1, current + 1] {
         store
             .connection
             .as_ref()
@@ -1293,18 +1297,14 @@ fn readonly_admission_refuses_older_and_newer_schema_without_migration_or_writes
             .unwrap();
         let path = store.data_dir.join(DATABASE);
         let before = fs::read(&path).unwrap();
-        assert!(
-            validate_planning_input(&store.data_dir, &task, &[])
-                .unwrap_err()
-                .contains("schema 16")
-        );
+        assert!(validate_planning_input(&store.data_dir, &task, &[]).is_err());
         assert_eq!(fs::read(&path).unwrap(), before);
     }
     store
         .connection
         .as_ref()
         .unwrap()
-        .pragma_update(None, "user_version", 16)
+        .pragma_update(None, "user_version", current)
         .unwrap();
     validate_planning_input(&store.data_dir, &task, &[]).unwrap();
     store

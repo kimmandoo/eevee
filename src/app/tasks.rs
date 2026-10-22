@@ -528,6 +528,12 @@ impl App {
             sources::Action::Scroll(code) => return self.scroll_key(code),
             sources::Action::Changed => self.surface_scroll[ScrollSurface::Preview.index()] = 0,
         }
+        if self.sources.take_return_to_composer()
+            && self.overlay == Some(Overlay::Sources)
+            && self.composer_return.is_some()
+        {
+            self.close_overlay();
+        }
         true
     }
 

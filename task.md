@@ -8,7 +8,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 | [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 0 |
 | [C-relays.md](tasks/C-relays.md) | Form relays | 0 |
 | [D-moves.md](tasks/D-moves.md) | Moves: teaching and learning skills | 1 |
-| [E-partner-record.md](tasks/E-partner-record.md) | Partner record and flavor | 3 |
+| [E-partner-record.md](tasks/E-partner-record.md) | Partner record and flavor | 2 |
 | [F-context-tools.md](tasks/F-context-tools.md) | Context, token economy and tool calling | 16 |
 | [G-ux-platform.md](tasks/G-ux-platform.md) | UX, platform and release | 7 |
 | [H-provider-acceptance.md](tasks/H-provider-acceptance.md) | Provider acceptance (blocked) | 6 |
@@ -17,8 +17,8 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 ## Status
 
 - **Released:** [0.1.19](https://github.com/kimmandoo/eevee/releases/tag/v0.1.19) (tags v0.1.0–v0.1.19), adding automatically presented owned file reviews, structurally distinct file/code cards and one-time localized evolution popups. Schema 16 and complete SDK bridge 8 remain unchanged. Exact-source Check/all-five-native qualification, immutable publication, every public asset and downloaded installation/runtime passed.
-- **Latest user request — completed:** File proposals opened without approval-menu navigation, neutral engagement protected typing before exact one-shot consent, and file labels/gutters remained distinct in monochrome/compact output. Evolution popups preserved typing and yielded to approval/live code. Bilingual/both-size file/evolution/scrolling, native/cooperation, genuine upgrade and installed-runtime gates passed. No unrelated wave, paid/live model call or original installation/auth/private-data change occurred.
-- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B/PT04C, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, PT07A/PT07B/PT07C, PT08A/PT08B, PT09, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV01C, EV02, EV10A, EV10B, EV14, EV12, EV13A, EV13B, EV15, EV16, PT10, MV01A/MV01B/MV01C, MV02A/MV02B, MV03A/MV03B/MV03C, MV04/MV05/MV06/MV07, MV08A, C03A/C03B/T01A, EV05/EV06/PK02/EV08A/EV08B/PK05A/PK05B/EV09/EV17/EV11/EV18 and the first code-structure pass (index below). **Open:** 41 small tasks. **Dropped:** T05.
+- **Latest user request — completed:** Implemented the next single ready task, PK04 held files/approved memories. Proposed/removable workspace chips, explicit acceptance, exact source/memory admission, local frozen receipts and scope/restart passed actual bilingual/both-size verification. PK03 still needs UX04B. Schema 17 is unreleased; public v0.1.19/SDK bridge 8 remain unchanged. No new publication or paid/live model call was made.
+- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B/PT04C, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, PT07A/PT07B/PT07C, PT08A/PT08B, PT09, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV01C, EV02, EV10A, EV10B, EV14, EV12, EV13A, EV13B, EV15, EV16, PT10, MV01A/MV01B/MV01C, MV02A/MV02B, MV03A/MV03B/MV03C, MV04/MV05/MV06/MV07, MV08A, C03A/C03B/T01A, EV05/EV06/PK02/EV08A/EV08B/PK05A/PK05B/EV09/EV17/EV11/EV18/PK04 and the first code-structure pass (index below). **Open:** 40 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01's remaining context-comparison/receipt track, T03 (in-packet dedup), A04/A06/A07 adapters.
 
@@ -40,6 +40,8 @@ EV09 explicitly approved exact-repeat instruction memories · EV17 project/partn
 
 EV18 automatic request-time form selection with persistent manual overrides, observational tools and unchanged explicit permission boundaries.
 
+PK04 project/partner/form held file or exact approved-memory references, visible removable proposals, explicit ordinary-context acceptance, current-policy revalidation and local frozen receipts.
+
 ## How to pick work
 
 - Take the first ready task in **Recommended order**. A task is ready when every ID in **Needs** is done; **Builds on** lists completed work to reuse.
@@ -50,8 +52,8 @@ EV18 automatic request-time form selection with persistent manual overrides, obs
 
 ### Cross-cutting watch-outs
 
-- **Schema 16 upgrade:** v0.1.17 migrates existing stores to Schema 16 for persistent automatic/manual form mode. Existing Eevee partners become automatic and specialist choices remain manual. Back up the full database/journals/output directory; older writers refuse and downgrade requires that backup. New routes/evolution are not execution evidence; SDK bridge 7 remains required.
-- **Schema history:** v0.1.10 used Schema 11, wave 3 used 12, v0.1.11/v0.1.12 used 13 and v0.1.13 used 14. v0.1.14–v0.1.16 used 15. Historical SDK bridges were 4 in v0.1.13, 5 in v0.1.14, 6 in v0.1.15 and 7 in v0.1.16/v0.1.17. Cleanly exit and back up the entire data directory before upgrading.
+- **Unreleased Schema 17 upgrade:** PK04 adds bounded held file/memory references on the existing worker; back up the entire data directory before opening the new build. Older released Schema 16 writers must refuse without mutation; downgrade requires the backup. The public v0.1.19 remains Schema 16 and complete SDK bridge 8.
+- **Schema history:** v0.1.10 used 11, wave 3 used 12, v0.1.11/v0.1.12 used 13, v0.1.13 used 14 and v0.1.14–v0.1.16 used 15. v0.1.17–v0.1.19 used 16. Historical SDK bridges were 4/5/6 in v0.1.13/v0.1.14/v0.1.15, 7 in v0.1.16/v0.1.17 and 8 in v0.1.18/v0.1.19.
 - **Packets:** Partner flavor (nicknames, partner names, move names, dialogue, ribbons, routes) never enters provider packets or handoffs. The receipt must show zero flavor bytes.
 - **Facts first:** Pokémon-style copy wraps a factual line (command, exit code, permission scope), never replaces it. Monochrome, ASCII and linear layouts keep the same information.
 - **No fake progression:** No XP, levels, affection, streaks, hunger or random unlocks. Raising partners means learned moves, nicknames and real records. Add each new concept (Moves, Dex) to DESIGN_RULES when it ships.

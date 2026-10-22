@@ -105,6 +105,7 @@ impl Default for State {
                 habits: vec![],
                 pairings: vec![],
                 usages: vec![],
+                held_items: vec![],
                 summaries: vec![],
                 flavor_enabled: true,
             },
@@ -603,6 +604,7 @@ impl App {
             self.records.invalidated = true;
             self.records.snapshot.artifacts.clear();
             self.records.snapshot.routes.clear();
+            self.records.snapshot.held_items.clear();
             self.records.markers = Default::default();
             self.records.invalidate_review();
             changed = true;
@@ -642,6 +644,7 @@ impl App {
             self.records.current_activity = Some(activity);
             changed = true;
         }
+        changed |= self.reconcile_held();
         changed
     }
     pub fn submit_record_store(&mut self, worker: &store::Worker) -> usize {
@@ -673,6 +676,11 @@ impl App {
         match result {
             Err(error) => {
                 self.records.notice = error.clone();
+                if matches!(&request.operation, Operation::SetHeld { partner, form, .. }
+                    if request.task_id == self.task_id && *partner == self.lead().id && *form == self.form())
+                {
+                    self.held.notice = None;
+                }
                 if mutation(&request) {
                     self.records.failed = Some(request);
                     self.records.failed_error = error;
@@ -718,6 +726,12 @@ impl App {
                                 signature.paths.iter().map(std::path::PathBuf::from)
                             }));
                         self.records.snapshot = *snapshot;
+                        if let Operation::SetHeld { partner, form, .. } = &request.operation
+                            && *partner == self.lead().id
+                            && *form == self.form()
+                        {
+                            self.held.notice = Some(super::held::Notice::Saved);
+                        }
                         self.records.loaded = true;
                         self.records.load_failed = false;
                         self.records.notice.clear();
@@ -754,6 +768,7 @@ impl App {
                 }
             }
         }
+        self.reconcile_held();
     }
     pub fn records_pairing_selected(&mut self) {
         if !self.planning.take_pairing_offer() {

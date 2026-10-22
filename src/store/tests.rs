@@ -521,12 +521,7 @@ fn migrates_documented_schema_zero_and_one_atomically() {
             );
         }
         let connection = open_readonly(&path).unwrap();
-        assert_eq!(
-            connection
-                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-                .unwrap(),
-            16
-        );
+        assert!(matches!(inspect(&connection).unwrap(), Schema::Current));
         assert!(connection.prepare("SELECT * FROM goals").is_err());
         assert!(connection.prepare("SELECT * FROM projects").is_err());
     }
@@ -542,7 +537,7 @@ fn newer_foreign_and_corrupt_databases_are_untouched() {
         } else {
             let connection = Connection::open(&path).unwrap();
             connection.execute_batch(if fixture == 0 {
-                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=17;"
+                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=999;"
                 } else {
                     "CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('keep');"
                 }).unwrap();
@@ -4874,6 +4869,21 @@ fn schema15_auto_form_migration_is_conservative_atomic_and_preserves_all_other_r
             .collect()
     }
 
+    fn assert_retained(
+        connection: &Connection,
+        before: &[(String, Vec<Vec<rusqlite::types::Value>>)],
+    ) {
+        let after = retained_rows(connection);
+        for retained in before {
+            assert_eq!(
+                after.iter().find(|(name, _)| name == &retained.0),
+                Some(retained),
+                "{}",
+                retained.0,
+            );
+        }
+    }
+
     let directory = Directory::new();
     let mut store = state(&directory, "project", Policy::default());
     let second = store.add_partner().unwrap().last().unwrap().id;
@@ -4928,6 +4938,7 @@ fn schema15_auto_form_migration_is_conservative_atomic_and_preserves_all_other_r
         .execute_batch(
             "UPDATE sqlite_sequence SET seq=700 WHERE name='partners';
              ALTER TABLE partners DROP COLUMN auto_form;
+             DROP TABLE held_items;
              PRAGMA user_version=15;",
         )
         .unwrap();
@@ -4950,7 +4961,7 @@ fn schema15_auto_form_migration_is_conservative_atomic_and_preserves_all_other_r
     {
         let transaction = connection.transaction().unwrap();
         migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
-        assert_eq!(retained_rows(&transaction), before);
+        assert_retained(&transaction, &before);
         assert_eq!(partner_rows(&transaction), before_partners);
         let roster = partners(&transaction).unwrap();
         assert!(
@@ -4981,9 +4992,9 @@ fn schema15_auto_form_migration_is_conservative_atomic_and_preserves_all_other_r
             .prepare("SELECT auto_form FROM partners")
             .is_err()
     );
-    assert_eq!(retained_rows(&connection), before);
+    assert_retained(&connection, &before);
     initialize(&mut connection).unwrap();
-    assert_eq!(retained_rows(&connection), before);
+    assert_retained(&connection, &before);
     assert_eq!(partner_rows(&connection), before_partners);
     assert_eq!(
         load_task(&connection, "project", eevee.id).unwrap(),
@@ -5122,7 +5133,12 @@ fn invalid_auto_form_and_future_schema_are_refused_before_mutable_open() {
                 .execute("UPDATE partners SET auto_form=?1 WHERE id=1", [value])
                 .unwrap();
         } else {
-            connection.pragma_update(None, "user_version", 17).unwrap();
+            let current: i64 = connection
+                .pragma_query_value(None, "user_version", |row| row.get(0))
+                .unwrap();
+            connection
+                .pragma_update(None, "user_version", current + 1)
+                .unwrap();
         }
         drop(store);
         let path = directory.0.join(DATABASE);

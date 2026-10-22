@@ -58,6 +58,48 @@ pub(super) fn validate_partner(partner: &Partner) -> Result<(), String> {
     Ok(())
 }
 
+/// Shared owner-idle gate for partner lifecycle and local scoped preferences.
+pub(super) fn idle(connection: &Connection, partner: i64) -> Result<(), String> {
+    let active: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM active_work WHERE partner=?1)",
+            [partner],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("Cannot inspect the partner's active work: {error}"))?;
+    if active {
+        return Err("This partner owns active work; cancel and wait before changing it".into());
+    }
+    let mut statement = connection.prepare(
+        "SELECT e.record,t.lead_partner FROM executions e LEFT JOIN tasks t ON t.id=e.task_id WHERE e.reserved=1",
+    ).map_err(|error| error.to_string())?;
+    let reservations = statement
+        .query_map([], |row| {
+            Ok((
+                json_column::<crate::workspace::runner::RunRecord>(row, 0, MAX_RUN_BYTES)?,
+                row.get::<_, Option<i64>>(1)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?;
+    for reservation in reservations {
+        let (record, lead) = reservation.map_err(|error| error.to_string())?;
+        // Pre-attribution runs cannot prove a different owner.
+        if record
+            .prepared
+            .partner
+            .as_ref()
+            .map_or(lead.is_none_or(|lead| lead == partner), |owner| {
+                owner.partner == partner
+            })
+        {
+            return Err(
+                "This partner owns a reserved execution; cancel and wait before changing it".into(),
+            );
+        }
+    }
+    Ok(())
+}
+
 impl State {
     pub(super) fn nickname_partner(
         &mut self,
@@ -162,52 +204,7 @@ impl State {
             .iter()
             .find(|member| member.id != partner)
             .ok_or("The last partner cannot be released")?;
-        let active: bool = transaction
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM active_work WHERE partner=?1)",
-                [partner],
-                |row| row.get(0),
-            )
-            .map_err(|error| format!("Cannot inspect the partner's active work: {error}"))?;
-        if active {
-            return Err(
-                "This partner owns active work; cancel and wait before releasing it".into(),
-            );
-        }
-        {
-            let mut statement = transaction
-                .prepare(
-                    "SELECT e.record,t.lead_partner FROM executions e
-                     LEFT JOIN tasks t ON t.id=e.task_id WHERE e.reserved=1",
-                )
-                .map_err(|error| error.to_string())?;
-            let reservations = statement
-                .query_map([], |row| {
-                    Ok((
-                        json_column::<crate::workspace::runner::RunRecord>(row, 0, MAX_RUN_BYTES)?,
-                        row.get::<_, Option<i64>>(1)?,
-                    ))
-                })
-                .map_err(|error| error.to_string())?;
-            for reservation in reservations {
-                let (record, lead) = reservation.map_err(|error| error.to_string())?;
-                // Pre-attribution runs cannot prove a different owner. In
-                // particular, changing the front must not release a live run.
-                if record
-                    .prepared
-                    .partner
-                    .as_ref()
-                    .map_or(lead.is_none_or(|lead| lead == partner), |owner| {
-                        owner.partner == partner
-                    })
-                {
-                    return Err(
-                        "This partner owns a reserved execution; cancel and wait before releasing it"
-                            .into(),
-                    );
-                }
-            }
-        }
+        idle(&transaction, partner)?;
         let updated_at = timestamp()?;
         {
             let mut statement = transaction
@@ -278,6 +275,9 @@ impl State {
         super::moves::release_partner(&transaction, partner)?;
         transaction
             .execute("DELETE FROM partner_pairings WHERE partner=?1", [partner])
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute("DELETE FROM held_items WHERE partner=?1", [partner])
             .map_err(|error| error.to_string())?;
         transaction
             .execute("DELETE FROM partners WHERE id=?1", [partner])
