@@ -11,6 +11,9 @@ struct Fixture {
 }
 impl Fixture {
     fn new(paths: &[&str]) -> Self {
+        Self::for_operation(paths, Operation::Implement)
+    }
+    fn for_operation(paths: &[&str], operation: Operation) -> Self {
         let root = std::env::temp_dir().join(format!(
             "ev-native-writes-{}-{}",
             std::process::id(),
@@ -69,7 +72,7 @@ impl Fixture {
             task_id: task.id,
             owner,
             request_id: "native-write-fixture".into(),
-            writing: true,
+            writing: super::super::super::writing_required(operation),
         };
         let mut acquire = Some(crate::store::WorkRequest::Acquire {
             claim: claim.clone(),
@@ -88,7 +91,7 @@ impl Fixture {
             report: None,
             resume: None,
             agent: Agent::Compatible,
-            operation: Operation::Implement,
+            operation,
             edit_paths: paths.iter().map(PathBuf::from).collect(),
             handoff: None,
             inspect_sessions: false,
@@ -109,14 +112,21 @@ impl Fixture {
         // ChatGPT endpoint override or claim authenticated conformance.
         let connection = config::test_connection(protocol, url, Some("fixture-model"));
         let mut input = self.input.clone();
-        input.conversation = Some(
-            completed_conversation(
-                &input,
-                &connection.conversation_scope(),
-                "Earlier public answer".into(),
-            )
-            .unwrap(),
-        );
+        if input.operation == Operation::Review {
+            input.report = Some(crate::providers::tests::repository_report(
+                &self.workspace.project,
+            ));
+        }
+        if input.operation != Operation::Review {
+            input.conversation = Some(
+                completed_conversation(
+                    &input,
+                    &connection.conversation_scope(),
+                    "Earlier public answer".into(),
+                )
+                .unwrap(),
+            );
+        }
         let writes = capture_writes(&self.workspace, &input).unwrap();
         let payload = payload(&self.workspace, &input, &connection, writes.as_ref()).unwrap();
         (
@@ -141,7 +151,20 @@ fn frame(value: Value) -> String {
     format!("data: {value}\n\n")
 }
 fn wire(protocol: Protocol, calls: &[(&str, &str, &str)], text: &str) -> String {
-    let args = |path: &str, content: &str| json!({"path":path,"content":content});
+    let calls = calls
+        .iter()
+        .map(|(id, path, content)| {
+            (
+                *id,
+                super::super::super::writes::TOOL_NAME,
+                json!({"path":path,"content":content}),
+            )
+        })
+        .collect::<Vec<_>>();
+    wire_tools(protocol, &calls, text)
+}
+
+fn wire_tools(protocol: Protocol, calls: &[(&str, &str, Value)], text: &str) -> String {
     match protocol {
         Protocol::Codex | Protocol::Responses => {
             let mut output = vec![
@@ -150,13 +173,13 @@ fn wire(protocol: Protocol, calls: &[(&str, &str, &str)], text: &str) -> String 
             if !text.is_empty() {
                 output.push(json!({"type":"message","role":"assistant","content":[{"type":"output_text","text":text}]}));
             }
-            output.extend(calls.iter().map(|(id,path,content)| json!({"type":"function_call","call_id":id,"name":super::super::super::writes::TOOL_NAME,"arguments":args(path,content).to_string()})));
+            output.extend(calls.iter().map(|(id,name,args)| json!({"type":"function_call","call_id":id,"name":name,"arguments":args.to_string()})));
             frame(
                 json!({"type":"response.completed","response":{"status":"completed","model":"fixture-model","output":output,"usage":{"input_tokens":11,"output_tokens":3}}}),
             )
         }
         Protocol::ChatCompletions => {
-            let tool_calls = calls.iter().enumerate().map(|(i,(id,path,content))| json!({"index":i,"id":id,"type":"function","function":{"name":super::super::super::writes::TOOL_NAME,"arguments":args(path,content).to_string()}})).collect::<Vec<_>>();
+            let tool_calls = calls.iter().enumerate().map(|(i,(id,name,args))| json!({"index":i,"id":id,"type":"function","function":{"name":name,"arguments":args.to_string()}})).collect::<Vec<_>>();
             let mut delta = json!({"content":text});
             if !calls.is_empty() {
                 delta["tool_calls"] = json!(tool_calls);
@@ -178,12 +201,12 @@ fn wire(protocol: Protocol, calls: &[(&str, &str, &str)], text: &str) -> String 
                 out += &frame(json!({"type":"content_block_stop","index":index}));
                 index += 1;
             }
-            for (id, path, content) in calls {
+            for (id, name, args) in calls {
                 out += &frame(
-                    json!({"type":"content_block_start","index":index,"content_block":{"type":"tool_use","id":id,"name":super::super::super::writes::TOOL_NAME,"input":{}}}),
+                    json!({"type":"content_block_start","index":index,"content_block":{"type":"tool_use","id":id,"name":name,"input":{}}}),
                 );
                 out += &frame(
-                    json!({"type":"content_block_delta","index":index,"delta":{"type":"input_json_delta","partial_json":args(path,content).to_string()}}),
+                    json!({"type":"content_block_delta","index":index,"delta":{"type":"input_json_delta","partial_json":args.to_string()}}),
                 );
                 out += &frame(json!({"type":"content_block_stop","index":index}));
                 index += 1;
@@ -198,7 +221,7 @@ fn wire(protocol: Protocol, calls: &[(&str, &str, &str)], text: &str) -> String 
             if !text.is_empty() {
                 parts.push(json!({"text":text}));
             }
-            parts.extend(calls.iter().map(|(id,path,content)| json!({"functionCall":{"id":id,"name":super::super::super::writes::TOOL_NAME,"args":args(path,content)},"thoughtSignature":"opaque-signed-state"})));
+            parts.extend(calls.iter().map(|(id,name,args)| json!({"functionCall":{"id":id,"name":name,"args":args},"thoughtSignature":"opaque-signed-state"})));
             frame(
                 json!({"modelVersion":"fixture-model","candidates":[{"index":0,"content":{"role":"model","parts":parts},"finishReason":"STOP"}]}),
             ) + &frame(json!({"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":3}}))
@@ -986,38 +1009,10 @@ fn sixteen_call_limit_is_aggregate_across_rounds_not_per_response() {
 }
 
 #[test]
-fn metadata_plan_and_review_never_advertise_or_execute_tools() {
-    let fixture = Fixture::new(&[]);
-    for (operation, metadata) in [
-        (Operation::Plan, false),
-        (Operation::Review, false),
-        (Operation::Implement, true),
-    ] {
-        let mut input = fixture.input.clone();
-        input.operation = operation;
-        input.inspect_models = metadata;
-        input.work = None;
-        if metadata {
-            let connection = config::test_connection(
-                Protocol::Responses,
-                "https://example.invalid/v1",
-                Some("fixture-model"),
-            );
-            assert!(
-                capture_writes(&fixture.workspace, &input)
-                    .unwrap()
-                    .is_none()
-            );
-            let body: Value = serde_json::from_str(
-                &payload(&fixture.workspace, &input, &connection, None).unwrap(),
-            )
-            .unwrap();
-            assert!(body.get("tools").is_none());
-            continue;
-        }
-        // These inputs deliberately use no claimed write authority. The
-        // serialization primitive and parser independently deny tool capability.
-        assert!(!native_writing(&input));
+fn readonly_roles_advertise_only_source_tools_and_metadata_remains_tool_free() {
+    for operation in [Operation::Plan, Operation::Review] {
+        let fixture = Fixture::for_operation(&[], operation);
+        assert!(!fixture.input.work.as_ref().unwrap().writing);
         for protocol in [
             Protocol::Codex,
             Protocol::Responses,
@@ -1025,24 +1020,58 @@ fn metadata_plan_and_review_never_advertise_or_execute_tools() {
             Protocol::Messages,
             Protocol::Gemini,
         ] {
-            let body = serde_json::to_value(
-                inference_body(protocol, "fixture-model", None, "No tools", None, "request")
-                    .unwrap(),
-            )
-            .unwrap();
-            assert!(body.get("tools").is_none());
-            let mut stream = Stream::new(protocol);
-            let mut framing = Sse::default();
-            for (event, data) in framing
-                .feed(wire(protocol, &[("foreign", "selected.txt", "no")], "").as_bytes())
-                .unwrap()
-            {
-                stream.event(&event, &data).unwrap();
-            }
-            assert!(stream.complete);
-            assert!(stream.calls.finish(false).is_err());
+            let (run, _) = fixture.prepare(protocol, "http://127.0.0.1:1");
+            let body: Value = serde_json::from_str(&run.payload).unwrap();
+            assert_readonly_declarations(&body, protocol);
+            assert!(!run.writes.as_ref().unwrap().writing());
         }
+        let mut metadata = fixture.input.clone();
+        metadata.work = None;
+        metadata.inspect_models = true;
+        let connection = config::test_connection(
+            Protocol::Responses,
+            "http://127.0.0.1:1",
+            Some("fixture-model"),
+        );
+        assert!(
+            capture_writes(&fixture.workspace, &metadata)
+                .unwrap()
+                .is_none()
+        );
+        let body: Value = serde_json::from_str(
+            &payload(&fixture.workspace, &metadata, &connection, None).unwrap(),
+        )
+        .unwrap();
+        assert!(body.get("tools").is_none());
+        let mut unleased = fixture.input.clone();
+        unleased.work = None;
+        assert!(capture_writes(&fixture.workspace, &unleased).is_err());
+        let mut wrong_lease = fixture.input.clone();
+        wrong_lease.work.as_mut().unwrap().writing = true;
+        assert!(capture_writes(&fixture.workspace, &wrong_lease).is_err());
     }
+}
+
+fn assert_readonly_declarations(body: &Value, protocol: Protocol) {
+    let declarations = if protocol == Protocol::Gemini {
+        body["tools"][0]["functionDeclarations"].as_array().unwrap()
+    } else {
+        body["tools"].as_array().unwrap()
+    };
+    let names = declarations
+        .iter()
+        .map(|entry| {
+            if protocol == Protocol::ChatCompletions {
+                entry["function"]["name"].as_str().unwrap()
+            } else {
+                entry["name"].as_str().unwrap()
+            }
+        })
+        .collect::<HashSet<_>>();
+    assert_eq!(
+        names,
+        HashSet::from(["eevee_read_file", "eevee_list_files"])
+    );
 }
 
 #[test]
@@ -1554,4 +1583,139 @@ fn mixed_read_and_invalid_edit_batch_never_enrolls_or_creates_valid_write() {
         std::fs::read(fixture.workspace.project.join("existing.rs")).unwrap(),
         b"old"
     );
+}
+
+#[test]
+fn readonly_actual_source_bytes_and_attempted_mutations_never_request_permission_or_effects() {
+    for protocol in [
+        Protocol::Codex,
+        Protocol::Responses,
+        Protocol::ChatCompletions,
+        Protocol::Messages,
+        Protocol::Gemini,
+    ] {
+        for operation in [Operation::Plan, Operation::Review] {
+            let fixture = Fixture::for_operation(&[], operation);
+            let content = "// dirty user bytes\r\nfn actual() {}\r\n";
+            std::fs::write(fixture.workspace.project.join("context.rs"), content).unwrap();
+            let (url, server) = peer(vec![
+                wire_tools(
+                    protocol,
+                    &[(
+                        "list",
+                        "eevee_list_files",
+                        json!({"query":".rs","offset":0}),
+                    )],
+                    "",
+                ),
+                wire_tools(
+                    protocol,
+                    &[(
+                        "read",
+                        "eevee_read_file",
+                        json!({"path":"context.rs","start_line":1,"end_line":0}),
+                    )],
+                    "",
+                ),
+                wire_tools(
+                    protocol,
+                    &[(
+                        "write",
+                        "eevee_write_file",
+                        json!({"path":"unapproved/new.rs","content":"must not exist"}),
+                    )],
+                    "",
+                ),
+                wire_tools(
+                    protocol,
+                    &[(
+                        "edit",
+                        "eevee_edit_file",
+                        json!({"path":"context.rs","sha256":"0".repeat(64),"old_text":"actual","new_text":"mutated"}),
+                    )],
+                    "",
+                ),
+                wire(protocol, &[], "Observed actual source without changing it."),
+            ]);
+            let (mut run, connection) = fixture.prepare(protocol, &url);
+            let ((outcome, message), events) =
+                run_with_handler(&fixture, &mut run, &connection, |_, _, _| {
+                    panic!("Readonly request opened mutation permission")
+                });
+            assert_eq!(outcome, Outcome::Completed, "{protocol:?}: {message}");
+            let requests = server.join().unwrap();
+            assert_eq!(requests.len(), 5);
+            for request in &requests {
+                assert_readonly_declarations(request, protocol);
+            }
+            let continued = requests.last().unwrap().to_string();
+            assert!(continued.contains("context.rs"), "{continued}");
+            assert!(
+                contains_source_content(requests.last().unwrap(), content),
+                "{continued}"
+            );
+            assert!(
+                continued.contains("Read-only file scope refuses mutation"),
+                "{continued}"
+            );
+            assert!(!events.iter().any(|event| matches!(
+                event,
+                Event::Prompt { .. } | Event::Journal { .. } | Event::LocalEffectsUnknown { .. }
+            )));
+            assert_eq!(
+                std::fs::read_to_string(fixture.workspace.project.join("context.rs")).unwrap(),
+                content
+            );
+            assert!(!fixture.workspace.project.join("unapproved").exists());
+            assert_eq!(run.writes.as_ref().unwrap().payload(&[]), json!([]));
+            let canonical = events.iter().find_map(|event| match event {
+                Event::NativeCompleted { conversation, .. } => Some(conversation),
+                _ => None,
+            });
+            if operation == Operation::Review {
+                assert!(canonical.is_none());
+            } else {
+                assert!(
+                    canonical
+                        .unwrap()
+                        .messages
+                        .iter()
+                        .all(|message| !message.text.contains("sha256")
+                            && !message.text.contains("function_call"))
+                );
+            }
+            // Losing the durable nonwriting authority is terminal before any
+            // further round or dispatch, even though the frozen root still exists.
+            run.input.work.as_mut().unwrap().request_id = "stale-readonly-lease".into();
+            let ((outcome, _), stale_events) =
+                run_with_handler(&fixture, &mut run, &connection, |_, _, _| {
+                    panic!("Stale readonly lease opened permission")
+                });
+            assert_eq!(outcome, Outcome::Failed);
+            assert!(
+                !stale_events
+                    .iter()
+                    .any(|event| matches!(event, Event::Dispatched { .. } | Event::Prompt { .. }))
+            );
+        }
+    }
+}
+
+fn contains_source_content(value: &Value, content: &str) -> bool {
+    if value.get("content").and_then(Value::as_str) == Some(content)
+        && value.get("status").and_then(Value::as_str) == Some("success")
+    {
+        return true;
+    }
+    match value {
+        Value::Object(fields) => fields
+            .values()
+            .any(|value| contains_source_content(value, content)),
+        Value::Array(values) => values
+            .iter()
+            .any(|value| contains_source_content(value, content)),
+        Value::String(text) => serde_json::from_str::<Value>(text)
+            .is_ok_and(|value| contains_source_content(&value, content)),
+        _ => false,
+    }
 }

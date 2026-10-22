@@ -613,4 +613,47 @@ mod tests {
         ));
         assert_eq!(frozen.task.request_text(), "Unsent follow-up");
     }
+
+    #[test]
+    fn automatic_role_transition_retires_history_not_display_or_route_selection() {
+        let mut state = native();
+        let first = start(&mut state, &task("Read the code"), 1);
+        state.event(Event::Item {
+            generation: 1,
+            task_id: 7,
+            thread_id: String::new(),
+            turn_id: "display".into(),
+            item_id: "display".into(),
+            kind: ItemKind::Message,
+            text: "Retained displayed evidence".into(),
+            complete: true,
+        });
+        state.event(Event::NativeCompleted {
+            generation: 1,
+            task_id: 7,
+            conversation: conversation(&first, "Read result"),
+        });
+        finish(&mut state, 1, Outcome::Completed);
+        let selection = state.selection.clone();
+        assert!(state.prepare_automatic_operation(Operation::Implement, true));
+        assert_eq!(state.items[0].text, "Retained displayed evidence");
+        assert_eq!(state.selection, selection);
+        assert_eq!(state.agent, Agent::Compatible);
+        assert!(state.thread_id.is_none());
+        let implementation = start(&mut state, &task("Implement the code"), 2);
+        assert!(implementation.conversation.is_none());
+        finish(&mut state, 2, Outcome::Completed);
+        assert!(state.prepare_automatic_operation(Operation::Plan, true));
+        let planning = start(&mut state, &task("Read another source file"), 3);
+        assert!(
+            planning.conversation.is_none(),
+            "returning to an automatic role must not revive its old history"
+        );
+        finish(&mut state, 3, Outcome::Completed);
+        state.set_operation(Operation::Review);
+        assert!(state.prepare_automatic_operation(Operation::Implement, true));
+        assert_eq!(state.operation, Operation::Review);
+        let review = start(&mut state, &task("Independent review"), 4);
+        assert!(review.conversation.is_none() && review.resume.is_none());
+    }
 }

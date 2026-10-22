@@ -23,8 +23,8 @@ pub(super) struct Call {
     pub(super) tool: FileTool,
 }
 
-pub(super) fn advertise(body: &mut Value, protocol: Protocol) {
-    let declarations = definitions();
+pub(super) fn advertise(body: &mut Value, protocol: Protocol, writing: bool) {
+    let declarations = definitions(writing);
     body["tools"] = match protocol {
         Protocol::Responses | Protocol::Codex => Value::Array(declarations.into_iter().map(|mut entry| {
             entry["type"] = json!("function");

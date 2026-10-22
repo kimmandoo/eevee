@@ -82,6 +82,7 @@ impl App {
             project: project.to_owned(),
             goal: self.goal.clone(),
             form: self.form(),
+            auto_form: self.lead.auto_form,
             lead_partner: self.lead().id,
             revision: self.revision,
             id: self.task_id,
@@ -141,6 +142,8 @@ impl App {
         }
         self.execution.set_task(snapshot.id);
         self.sync_front();
+        self.lead.auto_form = snapshot.auto_form;
+        self.evolution.transition = None;
         self.set_form(snapshot.form);
         // Loading/restoring a stored form is not an accepted form switch.
         self.clear_carry_over();
@@ -318,6 +321,9 @@ impl App {
             self.quit_requires_work_review()
         } else if form_only {
             self.planning.busy()
+                || self.pending_request.is_some()
+                || self.partner_busy(self.lead.id)
+                || self.partner_approval_pending(self.lead.id)
         } else {
             self.planning_any_busy()
         };
@@ -408,7 +414,10 @@ impl App {
             }
             execution::Action::Quit => self.finish_request_quit(),
             execution::Action::SelectForm(index) => {
-                if self.form() != index {
+                let auto_form = index == 0;
+                if self.form() != index || self.lead.auto_form != auto_form {
+                    self.lead.auto_form = auto_form;
+                    self.evolution.transition = None;
                     self.set_form(index);
                     self.planning.select_form_operation(index);
                     self.changed_task();

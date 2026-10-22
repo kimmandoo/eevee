@@ -690,14 +690,6 @@ fn text(frame: &mut Frame, area: Rect, value: &str, style: Style) {
     );
 }
 
-fn selection_line(app: &App) -> String {
-    format!(
-        "{} · {}",
-        app.planning.agent.label(),
-        app.planning.selection.summary()
-    )
-}
-
 /// Provider, model and effort at a glance; `/verbose` adds observation caveats.
 fn selection_text(state: &crate::app::planning::State) -> String {
     if VERBOSE.get() {
@@ -722,7 +714,14 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or(&app.cwd);
-    if area.width < 90 {
+    let mode = paint.hint(if app.lead().auto_form {
+        Message::CoreEvolutionAuto
+    } else {
+        Message::CoreEvolutionManual
+    });
+    let brand = if area.width >= 90 { " EEVEE " } else { "" };
+    let usable_width = usize::from(area.width).saturating_sub(brand.len());
+    {
         use crate::providers::Agent;
         let route = match app.planning.agent {
             Agent::Codex => "Codex/CLI",
@@ -752,9 +751,9 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         );
         let model_name = app.planning.selection.model.as_deref().unwrap_or("default");
         let model_hint_width = Span::raw(model_name).width().min(20);
-        let identity_budget = usize::from(area.width)
+        let identity_budget = usable_width
             .saturating_sub(Span::raw(route).width() + effort.width() + model_hint_width + 6);
-        let suffix = format!(" ({})", FORMS[app.form()].name);
+        let suffix = format!(" ({}) [{mode}]", FORMS[app.form()].name);
         let name = App::partner_label(app.lead());
         let identity = format!(
             "{}{suffix}",
@@ -763,7 +762,7 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
                 identity_budget.saturating_sub(Span::raw(suffix.as_str()).width())
             )
         );
-        let spare = usize::from(area.width).saturating_sub(
+        let spare = usable_width.saturating_sub(
             Span::raw(identity.as_str()).width()
                 + Span::raw(route).width()
                 + effort.width()
@@ -776,7 +775,7 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
             format!("{identity} · {route} · ")
         };
         let context = Span::styled(context, paint.muted);
-        let model_width = usize::from(area.width).saturating_sub(context.width() + effort.width());
+        let model_width = usable_width.saturating_sub(context.width() + effort.width());
         let model = Span::styled(
             clipped(
                 app.planning.selection.model.as_deref().unwrap_or("default"),
@@ -785,18 +784,11 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
             paint.accent,
         );
         frame.render_widget(
-            Paragraph::new(Line::from(vec![context, model, effort])),
-            row(area, 0, 1),
-        );
-    } else {
-        frame.render_widget(
             Paragraph::new(Line::from(vec![
-                Span::styled(" EEVEE ", paint.selected),
-                Span::styled(
-                    format!("  {} / {}", app.lead_label(), clipped(project, 16)),
-                    paint.base,
-                ),
-                Span::styled(format!("  /  {}", selection_line(app)), paint.muted),
+                Span::styled(brand, paint.selected),
+                context,
+                model,
+                effort,
             ])),
             row(area, 0, 1),
         );
@@ -859,7 +851,7 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
 }
 
 fn suggestion_line<'a>(app: &'a App, paint: &Paint) -> Option<Line<'a>> {
-    if app.planning.request.is_some() {
+    if app.planning.request.is_some() || (app.lead().auto_form && app.form() != 0) {
         return None;
     }
     app.visible_suggestion().map(|suggestion| {

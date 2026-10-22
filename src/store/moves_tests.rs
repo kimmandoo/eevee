@@ -38,6 +38,7 @@ impl Fixture {
         let mut task = Snapshot::empty(store.project.clone());
         task.goal = "Preserve actual local facts".into();
         task.form = form;
+        task.auto_form = form == 0;
         store.save(task).unwrap()
     }
 }
@@ -1252,7 +1253,7 @@ fn schema_thirteen_upgrade_is_atomic_preserves_facts_and_backfills_real_history(
             transaction
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            15
+            16
         );
     }
     assert_eq!(
@@ -1283,7 +1284,7 @@ fn readonly_admission_refuses_older_and_newer_schema_without_migration_or_writes
     let fixture = Fixture::new();
     let mut store = fixture.open();
     let task = fixture.task(&mut store, 2);
-    for version in [14, 16] {
+    for version in [15, 17] {
         store
             .connection
             .as_ref()
@@ -1295,7 +1296,7 @@ fn readonly_admission_refuses_older_and_newer_schema_without_migration_or_writes
         assert!(
             validate_planning_input(&store.data_dir, &task, &[])
                 .unwrap_err()
-                .contains("schema 15")
+                .contains("schema 16")
         );
         assert_eq!(fs::read(&path).unwrap(), before);
     }
@@ -1303,7 +1304,7 @@ fn readonly_admission_refuses_older_and_newer_schema_without_migration_or_writes
         .connection
         .as_ref()
         .unwrap()
-        .pragma_update(None, "user_version", 15)
+        .pragma_update(None, "user_version", 16)
         .unwrap();
     validate_planning_input(&store.data_dir, &task, &[]).unwrap();
     store

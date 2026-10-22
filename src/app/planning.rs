@@ -560,6 +560,38 @@ impl State {
         }
     }
 
+    pub(in crate::app) fn explicit_operation(&self) -> Option<Operation> {
+        self.operation_explicit.then_some(self.operation)
+    }
+
+    /// Automatic role selection never restores a cached role session or pairing.
+    /// Keep the visible transcript/journal, but retire opaque authority/history.
+    pub(in crate::app) fn prepare_automatic_operation(
+        &mut self,
+        operation: Operation,
+        form_changed: bool,
+    ) -> bool {
+        if self.busy() {
+            return false;
+        }
+        let operation = self.explicit_operation().unwrap_or(operation);
+        if self.operation == operation && !form_changed {
+            return false;
+        }
+        self.close_request();
+        self.generation = None;
+        self.review_start();
+        self.operation = operation;
+        self.inspection = None;
+        self.inspect_sessions = false;
+        self.inspect_models = false;
+        self.sessions.remove(&(self.agent, operation));
+        self.thread_id = None;
+        self.observed_model = None;
+        self.reset_native_chat();
+        true
+    }
+
     pub fn set_operation(&mut self, operation: Operation) {
         if self.busy() {
             return;

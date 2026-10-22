@@ -197,7 +197,7 @@ pub(super) fn baseline(
     if !initialized {
         let mut statement = tx
             .prepare(&format!(
-                "SELECT {TASK_COLUMNS} FROM tasks WHERE project=?1 ORDER BY id"
+                "SELECT {TASK_COLUMNS},{TASK_AUTO_FORM} FROM tasks WHERE project=?1 ORDER BY id"
             ))
             .map_err(|e| e.to_string())?;
         let tasks = statement
@@ -2641,6 +2641,9 @@ fn bounded_failure_paths(
 
 #[cfg(test)]
 pub(super) fn remove_schema(connection: &Connection) {
+    connection
+        .execute_batch("ALTER TABLE partners DROP COLUMN auto_form;")
+        .unwrap();
     connection.execute_batch("DROP TABLE diagnosis_transitions;DROP TABLE local_artifacts;DROP TABLE form_routes;DROP TABLE local_activity;DROP TABLE local_settings;DROP TABLE failure_signatures;DROP TABLE failure_observations;DROP TABLE failure_resolutions;DROP TABLE instruction_candidates;DROP TABLE instruction_sources;DROP TABLE partner_pairings;DROP TABLE provider_usage;DROP TABLE provider_usage_events;PRAGMA user_version=14;").unwrap();
 }
 

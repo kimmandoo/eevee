@@ -300,7 +300,16 @@ pub(super) fn export_inner(data_dir: &Path, output: &Path) -> Result<(), String>
             |row| row.get(0),
         )
         .map_err(|error| error.to_string())?;
-    let columns = if lead_partner {
+    let auto_form: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('partners') WHERE name='auto_form')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    let columns = if lead_partner && auto_form {
+        format!("{TASK_COLUMNS},{TASK_AUTO_FORM}")
+    } else if lead_partner {
         TASK_COLUMNS.to_string()
     } else if workflows {
         format!("{TASK_COLUMNS_V6},1")

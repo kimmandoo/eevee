@@ -5,7 +5,7 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 | File | Section | Open |
 |---|---|---|
 | [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 1 |
-| [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 1 |
+| [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 0 |
 | [C-relays.md](tasks/C-relays.md) | Form relays | 0 |
 | [D-moves.md](tasks/D-moves.md) | Moves: teaching and learning skills | 1 |
 | [E-partner-record.md](tasks/E-partner-record.md) | Partner record and flavor | 3 |
@@ -17,8 +17,8 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 ## Status
 
 - **Released:** [0.1.16](https://github.com/kimmandoo/eevee/releases/tag/v0.1.16) (tags v0.1.0–v0.1.16), fixing ordinary-entry file generation, adding bounded real discovery/read/hash-edit tools and continuous attributed response scrolling. Schema 15 remained unchanged; complete SDK bridge revision 7 is required. Exact-commit Check/all-five-native qualification, immutable publication, every public asset check and actual downloaded installation/runtime passed.
-- **Latest user request — active:** Finish the file-creation UX correction, implement newly promoted EV18 automatic Eevee form selection with persistent manual overrides and safe request-time routing, then release the combined v0.1.17 patch. v0.1.16 stays immutable; no other backlog wave or paid/live model calls are authorized.
-- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B/PT04C, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, PT07A/PT07B/PT07C, PT08A/PT08B, PT09, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV01C, EV02, EV10A, EV10B, EV14, EV12, EV13A, EV13B, EV15, EV16, PT10, MV01A/MV01B/MV01C, MV02A/MV02B, MV03A/MV03B/MV03C, MV04/MV05/MV06/MV07, MV08A, C03A/C03B/T01A, EV05/EV06/PK02/EV08A/EV08B/PK05A/PK05B/EV09/EV17/EV11 and the first code-structure pass (index below). **Open:** 42 small tasks, including the newly promoted EV18. **Dropped:** T05.
+- **Latest user request — release qualification active:** File-creation UX and promoted EV18 automatic form selection passed their local actual-runtime gates. Publish the combined v0.1.17 patch only after exact-source Check/all-five-native qualification, then verify every public asset and downloaded installation/changed runtime. v0.1.16 stays immutable; no other backlog wave or paid/live model calls are authorized.
+- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B/PT04C, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, PT07A/PT07B/PT07C, PT08A/PT08B, PT09, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV01C, EV02, EV10A, EV10B, EV14, EV12, EV13A, EV13B, EV15, EV16, PT10, MV01A/MV01B/MV01C, MV02A/MV02B, MV03A/MV03B/MV03C, MV04/MV05/MV06/MV07, MV08A, C03A/C03B/T01A, EV05/EV06/PK02/EV08A/EV08B/PK05A/PK05B/EV09/EV17/EV11/EV18 and the first code-structure pass (index below). **Open:** 41 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01's remaining context-comparison/receipt track, T03 (in-packet dedup), A04/A06/A07 adapters.
 
@@ -38,6 +38,8 @@ EV08B exactly-once review/handoff/staleness lines and persistent off preference.
 
 EV09 explicitly approved exact-repeat instruction memories · EV17 project/partner/form provider-model pairings · EV11 cached form-specific attachment ranking with unchanged match sets.
 
+EV18 automatic request-time form selection with persistent manual overrides, observational tools and unchanged explicit permission boundaries.
+
 ## How to pick work
 
 - Take the first ready task in **Recommended order**. A task is ready when every ID in **Needs** is done; **Builds on** lists completed work to reuse.
@@ -48,8 +50,8 @@ EV09 explicitly approved exact-repeat instruction memories · EV17 project/partn
 
 ### Cross-cutting watch-outs
 
-- **Schema 15 upgrade:** v0.1.14/v0.1.15 use Schema 15; v0.1.15 requires complete SDK bridge revision 6. Back up database, journals and output together before older-schema upgrade; older writers refuse and downgrade requires the backup. New routes are not execution evidence. Actual public-v0.1.13 migration, older-writer byte-identical refusal and public-v0.1.15 resume passed.
-- **Schema history:** v0.1.10 used Schema 11, wave 3 used 12, v0.1.11/v0.1.12 used 13 and v0.1.13 used 14. v0.1.14/v0.1.15 retain 15. Historical SDK bridges were revision 4 in v0.1.13 and 5 in v0.1.14; v0.1.15 requires complete revision 6 files, not only a dependency update. Cleanly exit and back up the full data directory before upgrades.
+- **Schema 16 upgrade:** v0.1.17 migrates existing stores to Schema 16 for persistent automatic/manual form mode. Existing Eevee partners become automatic and specialist choices remain manual. Back up the full database/journals/output directory; older writers refuse and downgrade requires that backup. New routes/evolution are not execution evidence; SDK bridge 7 remains required.
+- **Schema history:** v0.1.10 used Schema 11, wave 3 used 12, v0.1.11/v0.1.12 used 13 and v0.1.13 used 14. v0.1.14–v0.1.16 used 15. Historical SDK bridges were 4 in v0.1.13, 5 in v0.1.14, 6 in v0.1.15 and 7 in v0.1.16/v0.1.17. Cleanly exit and back up the entire data directory before upgrading.
 - **Packets:** Partner flavor (nicknames, partner names, move names, dialogue, ribbons, routes) never enters provider packets or handoffs. The receipt must show zero flavor bytes.
 - **Facts first:** Pokémon-style copy wraps a factual line (command, exit code, permission scope), never replaces it. Monochrome, ASCII and linear layouts keep the same information.
 - **No fake progression:** No XP, levels, affection, streaks, hunger or random unlocks. Raising partners means learned moves, nicknames and real records. Add each new concept (Moves, Dex) to DESIGN_RULES when it ships.

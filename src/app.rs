@@ -24,6 +24,7 @@ mod autosave;
 mod cooperation_execution;
 mod editing;
 mod events;
+pub mod evolution;
 mod keys;
 mod move_staging;
 mod overlays;
@@ -240,6 +241,7 @@ pub struct App {
     pub dismissed_suggestion: Option<String>,
     suggestion_cache: suggestions::Cache,
     carry_over: carryover::State,
+    pub evolution: evolution::State,
     pub agents: agents::State,
     pub planning: planning::State,
     pub cooperation: cooperation::State,
@@ -283,6 +285,7 @@ impl App {
         let mut app = Self {
             lead: store::Partner::default(),
             party: Vec::new(),
+            evolution: evolution::State::default(),
             party_request: None,
             party_inflight: false,
             nickname_editor: None,
@@ -500,6 +503,7 @@ impl App {
             .find(|partner| partner.id == self.lead.id)
         {
             partner.form = form;
+            partner.auto_form = self.lead.auto_form;
         }
         self.sync_front();
     }

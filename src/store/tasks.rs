@@ -205,7 +205,12 @@ impl State {
             ).map_err(|error| format!("Cannot write the task: {error}"))?;
             snapshot.id
         };
-        set_partner_form(&transaction, snapshot.lead_partner, snapshot.form)?;
+        set_partner_form(
+            &transaction,
+            snapshot.lead_partner,
+            snapshot.form,
+            snapshot.auto_form,
+        )?;
         snapshot.id = id;
         super::records::save_intents(&transaction, &snapshot, &local_records)?;
         enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
@@ -788,7 +793,7 @@ pub(super) fn select_task(connection: &Connection, project: &str, id: i64) -> Re
 pub(super) fn load(connection: &Connection, project: &str) -> Result<Project, String> {
     let mut statement = connection
         .prepare(&format!(
-            "SELECT {TASK_COLUMNS} FROM tasks WHERE project=?1 ORDER BY id"
+            "SELECT {TASK_COLUMNS},{TASK_AUTO_FORM} FROM tasks WHERE project=?1 ORDER BY id"
         ))
         .map_err(|error| error.to_string())?;
     let tasks = statement
@@ -822,7 +827,9 @@ pub(super) fn load_task(
 ) -> Result<Option<Snapshot>, String> {
     connection
         .query_row(
-            &format!("SELECT {TASK_COLUMNS} FROM tasks WHERE project=?1 AND id=?2"),
+            &format!(
+                "SELECT {TASK_COLUMNS},{TASK_AUTO_FORM} FROM tasks WHERE project=?1 AND id=?2"
+            ),
             params![project, id],
             snapshot_row,
         )
@@ -881,10 +888,21 @@ pub(super) fn snapshot_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Snapshot
                 previous_form: navigation.previous_form,
             });
     }
+    let auto_form = if row.as_ref().column_count() > 21 {
+        let value: i64 = row.get(21)?;
+        if !(0..=1).contains(&value) {
+            return Err(rusqlite::Error::IntegralValueOutOfRange(21, value));
+        }
+        value != 0
+    } else {
+        // Historical layouts predate durable mode and are read during migration.
+        row.get::<_, usize>(2)? == 0
+    };
     Ok(Snapshot {
         project: row.get(0)?,
         goal: row.get(1)?,
         form: row.get(2)?,
+        auto_form,
         lead_partner,
         revision: row.get(3)?,
         id: row.get(4)?,

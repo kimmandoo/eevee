@@ -692,9 +692,13 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
                     && crate::providers::writing_required(state.operation)
                 {
                     write_scope_summary(state, paint)
+                } else if state.inspect_models || state.inspect_sessions {
+                    paint
+                        .hint(Message::ProvidersPlanningScopeModelMetadataOnlyNoTaskPrompt)
+                        .into()
                 } else {
                     paint
-                        .hint(Message::ProvidersPlanningTextResponseOnlyNoToolsOrLocal)
+                        .hint(Message::ProvidersPlanningReadListOnlyNoMutationToolsOrPermission)
                         .into()
                 },
                 paint
@@ -751,6 +755,13 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
                 && state.operation == Operation::Implement
             {
                 write_scope_summary(state, paint)
+            } else if state.agent == crate::providers::Agent::Codex
+                && !state.inspect_models
+                && !state.inspect_sessions
+            {
+                paint
+                    .hint(Message::ProvidersPlanningReadListOnlyNoMutationToolsOrPermission)
+                    .into()
             } else {
                 paint
                     .hint(Message::ProvidersPlanningNoSourceWriteGrantAgentPolicyNot)
@@ -2308,8 +2319,9 @@ mod tests {
                     app.planning.operation = operation;
                     let scope = if operation == Operation::Implement {
                         paint.hint(Message::ProvidersPlanningWorkspacePathProposals)
-                    } else if agent.is_direct() {
-                        paint.hint(Message::ProvidersPlanningTextResponseOnlyNoToolsOrLocal)
+                    } else if agent.is_direct() || agent == crate::providers::Agent::Codex {
+                        paint
+                            .hint(Message::ProvidersPlanningReadListOnlyNoMutationToolsOrPermission)
                     } else {
                         paint.hint(Message::ProvidersPlanningNoSourceWriteGrantAgentPolicyNot)
                     };

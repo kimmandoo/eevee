@@ -1113,7 +1113,7 @@ fn source_ranges_limits_and_privacy_fail_closed() {
     std::fs::write(project.root.join("large.txt"), "x".repeat(MAX_BYTES + 1)).unwrap();
     std::fs::write(project.root.join("token.txt"), "password=private-value").unwrap();
     let mut set =
-        WriteSet::capture_workspace(&project.root, &project.data, &["excluded".into()]).unwrap();
+        WriteSet::capture_readonly(&project.root, &project.data, &["excluded".into()]).unwrap();
     for path in [
         ".env",
         "own-data/private.txt",
@@ -1174,7 +1174,7 @@ fn source_tools_never_follow_file_directory_or_hard_links() {
     std::fs::create_dir(project.root.join("real")).unwrap();
     std::fs::write(project.root.join("real/file.txt"), "safe").unwrap();
     std::os::unix::fs::symlink("real", project.root.join("alias-dir")).unwrap();
-    let mut set = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    let mut set = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
     for path in [
         "original.txt",
         "hard.txt",
@@ -1202,7 +1202,7 @@ fn normalized_privacy_aliases_never_enter_source_reads_or_discovery() {
     std::fs::write(project.root.join("éxcluded/source.txt"), "excluded bytes").unwrap();
     std::fs::write(project.root.join("public.txt"), "visible bytes").unwrap();
     let mut set =
-        WriteSet::capture_workspace(&project.root, &protected, &["éxcluded".into()]).unwrap();
+        WriteSet::capture_readonly(&project.root, &protected, &["éxcluded".into()]).unwrap();
     for path in [
         "café/private.txt",
         "cafe\u{301}/private.txt",
@@ -1245,7 +1245,7 @@ fn git_inventory_keeps_native_unicode_spelling_for_generated_sources() {
     std::fs::write(project.root.join(path), "value = 1\r\n").unwrap();
     std::fs::write(project.root.join(".gitignore"), "ignored.txt\n").unwrap();
     std::fs::write(project.root.join("ignored.txt"), "ignored bytes").unwrap();
-    let mut set = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    let mut set = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
     let read = set.observe_tool(&read_tool(path)).unwrap();
     assert_eq!(read["content"], "value = 1\r\n");
     let names = set
@@ -1262,4 +1262,95 @@ fn git_inventory_keeps_native_unicode_spelling_for_generated_sources() {
             .any(|name| name == path)
     );
     assert!(set.observe_tool(&read_tool("ignored.txt")).is_err());
+}
+
+#[test]
+fn readonly_scope_cannot_enroll_propose_or_apply_even_a_valid_writer_proposal() {
+    let project = Project::new();
+    std::fs::write(project.root.join("actual.txt"), "frozen dirty bytes\r\n").unwrap();
+    let writer = project.capture(&["actual.txt"]);
+    let proposal = writer
+        .propose("actual.txt".into(), "unapproved replacement".into())
+        .unwrap();
+    let mut scope = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    assert!(!scope.writing());
+    assert_eq!(
+        scope.observe_tool(&read_tool("actual.txt")).unwrap()["content"],
+        "frozen dirty bytes\r\n"
+    );
+    assert!(
+        scope
+            .admit_paths(&["actual.txt".into(), "new/child.txt".into()])
+            .unwrap_err()
+            .contains("Read-only")
+    );
+    assert!(
+        scope
+            .propose("actual.txt".into(), "unapproved".into())
+            .unwrap_err()
+            .contains("Read-only")
+    );
+    let failed = scope.apply(&proposal).unwrap_err();
+    assert!(!failed.uncertain);
+    assert!(failed.message.contains("Read-only"));
+    assert!(scope.targets.is_empty());
+    assert!(scope.owned_directories.is_empty());
+    assert_eq!(scope.directories.len(), 1);
+    assert!(!project.root.join("new").exists());
+    assert_eq!(
+        std::fs::read_to_string(project.root.join("actual.txt")).unwrap(),
+        "frozen dirty bytes\r\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn readonly_root_capture_and_source_tools_need_no_mutation_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    struct Restore(PathBuf, std::fs::Permissions);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let _ = std::fs::set_permissions(&self.0, self.1.clone());
+        }
+    }
+    let project = Project::new();
+    let path = project.root.join("source.txt");
+    std::fs::write(&path, "readonly actual bytes\r\n").unwrap();
+    let _restore = Restore(
+        project.root.clone(),
+        std::fs::metadata(&project.root).unwrap().permissions(),
+    );
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
+    std::fs::set_permissions(&project.root, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let mut scope = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    assert_eq!(
+        scope.observe_tool(&read_tool("source.txt")).unwrap()["content"],
+        "readonly actual bytes\r\n"
+    );
+    assert_eq!(
+        scope
+            .observe_tool(&FileTool::List {
+                query: String::new(),
+                offset: 0
+            })
+            .unwrap()["paths"],
+        json!(["source.txt"])
+    );
+    assert!(scope.targets.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn readonly_scope_refuses_rebound_source_root_before_observation_or_mutation() {
+    let project = Project::new();
+    let mut scope = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    let moved = project.root.with_extension("moved-readonly");
+    std::fs::rename(&project.root, &moved).unwrap();
+    std::fs::create_dir(&project.root).unwrap();
+    std::fs::write(project.root.join("substituted.txt"), "must not read").unwrap();
+    assert!(scope.verify().is_err());
+    assert!(scope.observe_tool(&read_tool("substituted.txt")).is_err());
+    assert!(scope.admit_paths(&["unapproved.txt".into()]).is_err());
+    std::fs::remove_dir_all(&project.root).unwrap();
+    std::fs::rename(moved, &project.root).unwrap();
 }

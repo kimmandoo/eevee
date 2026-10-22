@@ -2,13 +2,14 @@
 use super::*;
 use unicode_segmentation::UnicodeSegmentation;
 
-const PARTNER_COLUMNS: &[ColumnSpec] = &[
+const PARTNER_COLUMNS: &[ColumnSpec; 7] = &[
     ("id", "INTEGER", false, 1),
     ("nickname", "TEXT", false, 0),
     ("form", "INTEGER", true, 0),
     ("met_at", "INTEGER", true, 0),
     ("met_derived", "INTEGER", true, 0),
     ("created_project", "TEXT", true, 0),
+    ("auto_form", "INTEGER", true, 0),
 ];
 
 /// Validate a nonempty nickname before writing; legacy rows retain their
@@ -128,8 +129,8 @@ impl State {
         }
         transaction
             .execute(
-                "INSERT INTO partners(nickname,form,met_at,met_derived,created_project)
-                 VALUES (NULL,0,?1,0,?2)",
+                "INSERT INTO partners(nickname,form,met_at,met_derived,created_project,auto_form)
+                 VALUES (NULL,0,?1,0,?2,1)",
                 params![met_at, self.project],
             )
             .map_err(|error| format!("Cannot add the partner: {error}"))?;
@@ -210,7 +211,9 @@ impl State {
         let updated_at = timestamp()?;
         {
             let mut statement = transaction
-                .prepare(&format!("SELECT {TASK_COLUMNS} FROM tasks ORDER BY id"))
+                .prepare(&format!(
+                    "SELECT {TASK_COLUMNS},{TASK_AUTO_FORM} FROM tasks ORDER BY id"
+                ))
                 .map_err(|error| error.to_string())?;
             let tasks = statement
                 .query_map([], snapshot_row)
@@ -237,6 +240,7 @@ impl State {
                 if lead_changed {
                     task.lead_partner = retained.id;
                     task.form = retained.form;
+                    task.auto_form = retained.auto_form;
                     task.memory_draft = serde_json::Value::Null;
                     task.workflow_draft = serde_json::Value::Null;
                     task.navigation.form_selection = retained.form;
@@ -288,10 +292,15 @@ impl State {
 }
 
 fn partner_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Partner> {
+    let auto_form: i64 = row.get(6)?;
+    if !(0..=1).contains(&auto_form) {
+        return Err(rusqlite::Error::IntegralValueOutOfRange(6, auto_form));
+    }
     Ok(Partner {
         id: row.get(0)?,
         nickname: row.get(1)?,
         form: row.get(2)?,
+        auto_form: auto_form != 0,
         met_at: row.get(3)?,
         met_derived: row.get(4)?,
         created_project: row.get(5)?,
@@ -300,7 +309,7 @@ fn partner_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Partner> {
 
 pub(super) fn partners(connection: &Connection) -> Result<Vec<Partner>, String> {
     let mut statement = connection
-        .prepare("SELECT id,nickname,form,met_at,met_derived,created_project FROM partners ORDER BY id LIMIT 7")
+        .prepare("SELECT id,nickname,form,met_at,met_derived,created_project,auto_form FROM partners ORDER BY id LIMIT 7")
         .map_err(|error| error.to_string())?;
     let partners = statement
         .query_map([], partner_row)
@@ -316,17 +325,18 @@ pub(super) fn partners(connection: &Connection) -> Result<Vec<Partner>, String> 
     Ok(partners)
 }
 
-/// Persist the lead partner's form when its task is saved. The partner row is
-/// the durable copy of the form a task resumes into.
+/// Persist the lead partner's form and mode together when its task is saved.
+/// The partner row owns mode globally across all tasks and projects.
 pub(super) fn set_partner_form(
     connection: &Connection,
     partner: i64,
     form: usize,
+    auto_form: bool,
 ) -> Result<(), String> {
     let updated = connection
         .execute(
-            "UPDATE partners SET form=?1 WHERE id=?2",
-            params![form as i64, partner],
+            "UPDATE partners SET form=?1,auto_form=?2 WHERE id=?3",
+            params![form as i64, auto_form, partner],
         )
         .map_err(|error| format!("Cannot persist the partner form: {error}"))?;
     if updated != 1 {
@@ -346,11 +356,17 @@ fn valid_partner_drafts(text: &str) -> Result<(), String> {
     }
     validate_draft_shape(&value, 0)
 }
-pub(super) fn inspect_partners(connection: &Connection) -> Result<(), String> {
-    inspect_columns(connection, "partners", PARTNER_COLUMNS)?;
+pub(super) fn inspect_partners(connection: &Connection, auto_form: bool) -> Result<(), String> {
+    let columns = if auto_form {
+        &PARTNER_COLUMNS[..]
+    } else {
+        &PARTNER_COLUMNS[..6]
+    };
+    inspect_columns(connection, "partners", columns)?;
+    let mode = if auto_form { "auto_form" } else { "(form=0)" };
     let rows = {
         let mut statement = connection
-            .prepare("SELECT id,nickname,form,met_at,met_derived,created_project FROM partners ORDER BY id")
+            .prepare(&format!("SELECT id,nickname,form,met_at,met_derived,created_project,{mode} FROM partners ORDER BY id"))
             .map_err(|error| error.to_string())?;
         statement
             .query_map([], partner_row)

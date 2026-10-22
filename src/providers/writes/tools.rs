@@ -94,13 +94,23 @@ impl FileTool {
 }
 
 /// Provider-independent declarations: callers adapt only the protocol envelope.
-pub(crate) fn definitions() -> Vec<Value> {
-    vec![
+pub(crate) fn definitions(writing: bool) -> Vec<Value> {
+    let mut declarations = Vec::with_capacity(if writing { 4 } else { 2 });
+    if writing {
+        declarations.push(
         json!({"name":TOOL_NAME,"description":"Actually create or replace a project file with complete UTF-8 content (64 KiB maximum). Call this for requested file creation, not merely a fenced code response. Local exact full-content allow-once review is required; selected paths restrict writes. Preserve unrelated dirty bytes. No shell or verification.","parameters":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}),
+        );
+    }
+    declarations.extend([
         json!({"name":"eevee_read_file","description":"Read actual safe project UTF-8 working bytes (file at most 64 KiB). Lines are one-based inclusive; end_line=0 reads through EOF. Returns full-file sha256 and explicit selected range/truncation. Reading does not authorize writes or consume write targets. Credential, excluded, protected, ignored and link paths are refused.","parameters":{"type":"object","properties":{"path":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":0}},"required":["path","start_line","end_line"],"additionalProperties":false}}),
         json!({"name":"eevee_list_files","description":"Discover safe project-relative filenames, including plain non-Git projects. query is a literal substring (empty lists all); offset starts at zero. At most 128 filenames per page, 10000 scanned entries. Results identify truncation and next_offset. No write permission is granted.","parameters":{"type":"object","properties":{"query":{"type":"string"},"offset":{"type":"integer","minimum":0}},"required":["query","offset"],"additionalProperties":false}}),
+    ]);
+    if writing {
+        declarations.push(
         json!({"name":"eevee_edit_file","description":"Propose one literal targeted edit of a previously read file. Supply that read's full-file sha256 and a nonempty old_text matching exactly once; replace it with new_text, preserving all other bytes including CRLF. Stale reads and ambiguous matches are refused. The resulting complete file requires exact allow-once review through the same safe executor as writes.","parameters":{"type":"object","properties":{"path":{"type":"string"},"sha256":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["path","sha256","old_text","new_text"],"additionalProperties":false}}),
-    ]
+        );
+    }
+    declarations
 }
 
 impl WriteSet {
@@ -300,6 +310,8 @@ impl WriteSet {
 
     /// Called on a batch candidate; enrollment is committed only after all proposals validate.
     pub(crate) fn propose_tool(&self, tool: &mut FileTool) -> Result<WriteProposal, String> {
+        self.verify()?;
+        self.require_writing()?;
         match tool {
             FileTool::Write { path, content } => {
                 self.propose(path.clone(), std::mem::take(content))

@@ -255,6 +255,7 @@ pub(crate) struct WriteSet {
     owned_directories: BTreeSet<PathBuf>,
     targets: Vec<Target>,
     workspace: bool,
+    readonly: bool,
     protected_paths: Vec<PathBuf>,
     exclusions: Vec<PathBuf>,
     observed: BTreeMap<PathBuf, std::sync::Arc<Baseline>>,
@@ -296,6 +297,7 @@ pub(crate) fn semantic_proposal_refusal(message: &str) -> bool {
     matches!(
         message,
         "Protected, excluded, duplicate, conflicting or non-literal proposed write path refused"
+            | "Read-only file scope refuses mutation"
             | "Only an exact reviewed selected path may be written"
             | "Controlled implementation permits at most 8 distinct file targets"
             | "Selected working bytes are oversized, binary, credential-bearing or contain unsafe controls"
@@ -569,6 +571,7 @@ impl WriteSet {
             owned_directories: BTreeSet::new(),
             targets: Vec::new(),
             workspace: true,
+            readonly: false,
             protected_paths: vec![private_data, executable],
             exclusions: exclusions.to_vec(),
             observed: BTreeMap::new(),
@@ -577,10 +580,38 @@ impl WriteSet {
         Ok(set)
     }
 
+    /// Frozen source access using the same root/privacy boundaries, with no
+    /// mutation enrollment or execution authority.
+    pub(crate) fn capture_readonly(
+        root: &Path,
+        data_dir: &Path,
+        exclusions: &[PathBuf],
+    ) -> Result<Self, String> {
+        let mut set = Self::capture_workspace(root, data_dir, exclusions)?;
+        set.readonly = true;
+        set.workspace = false;
+        Ok(set)
+    }
+
+    pub(crate) fn writing(&self) -> bool {
+        !self.readonly
+    }
+
+    fn require_writing(&self) -> Result<(), String> {
+        if self.readonly {
+            Err("Read-only file scope refuses mutation".into())
+        } else {
+            Ok(())
+        }
+    }
+
     /// Capture a whole proposal batch without changing disk or recapturing any
     /// existing authority. The candidate is committed only after every check.
     pub(crate) fn admit_paths(&mut self, paths: &[PathBuf]) -> Result<(), String> {
         self.verify()?;
+        if !paths.is_empty() {
+            self.require_writing()?;
+        }
         let mut additional = 0;
         for (index, path) in paths.iter().enumerate() {
             let known = self.targets.iter().any(|target| target.path == *path);
@@ -775,6 +806,7 @@ impl WriteSet {
 
     pub(crate) fn propose(&self, path: PathBuf, content: String) -> Result<WriteProposal, String> {
         self.verify()?;
+        self.require_writing()?;
         let target = self
             .targets
             .iter()
@@ -814,6 +846,7 @@ impl WriteSet {
 
     pub(crate) fn apply(&mut self, proposal: &WriteProposal) -> Result<WriteResult, WriteFailure> {
         self.verify()?;
+        self.require_writing()?;
         let target = self
             .targets
             .iter()

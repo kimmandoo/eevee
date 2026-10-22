@@ -4,7 +4,7 @@ Date: 2026-10-13
 Status: 25 of 31 tasks passed their scoped gates, including P02 and U01/L01/G01/S01/S02/S03. Schema-6 specialist, memory and recipe journeys passed all five native installed-runtime rows at `d198fa5`; all eleven build/smoke/policy jobs passed. Local real independent Codex review and measured release workloads also passed. Full A04/A06/A07 and therefore Q01/Q02/P03 remain pending on permitted Claude/Gemini authentication and their required conformance rows. The separately authorized 0.1.0 core release promotes the exact qualified packages.
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
 
-## Active request — direct, understandable file-creation review
+## Active request — direct file review, automatic evolution and v0.1.17 release
 
 - Fix the reported interaction, not filesystem capability again. Actual v0.1.16 compact output hid the first file proposal behind `/approvals`, said the owner was editing and the response was complete while waiting for consent, and neutral Enter sent the initially selected denial.
 - Make waiting visibly distinct from generating/done, with direct Enter for the current pending Request and Alt+A for the existing FIFO queue. Never steal typing focus on arrival or dispatch a second request; retain future draft/caret and exact owner/callback correlation.
@@ -13,6 +13,7 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 - **User extension:** After fixing this UX, implement promoted EV18 automatic form selection, then publish the combined v0.1.17 corrective release. Automatic routing happens only on explicit Request submission; manual specialist selection remains fixed, `/eevee` re-enables it, and provider/model/permissions/working ownership stay unchanged.
 - **Persistence / capability:** Persist `auto_form` with partner identity through Schema 16, preserving old specialist overrides; qualify genuine v0.1.16 Schema15→new/refusal/resume. Read-only routed requests need bounded observational tools without writer capability. No paid model classification or implicit local command execution.
 - **Release gate:** Complete EV18 fixtures and actual bilingual/both-size generation/read/override/restart/pending ownership. Commit task units, require Check/all-five-native at the same final source, then publish v0.1.17 and verify every asset plus downloaded installation/changed UX. Keep v0.1.16 immutable.
+- **Implementation acceptance:** UX unit `183802f`; final evolution candidate D passed Rust 1.90 fmt/1,187 tests/two ignored/strict Clippy/release and all eight automatic forms, reviewed creation, readonly tools, busy ownership, explicit Plan and manual/automatic restarts in en/ko at both sizes without hidden recommendation dismissal. C passed ordinary coding 24 journeys/126 groups, continuous output 44 groups and six actual Schema15→16/refusal/resume/partner/lead/evidence cases. Native/public qualification remains mandatory before completion.
 
 ## Completed request — ordinary coding tools and continuous transcript; v0.1.16 release
 

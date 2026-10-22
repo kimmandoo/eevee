@@ -1152,6 +1152,7 @@ fn party_roster_lists_every_partner_with_derived_idle_status() {
             id: 1,
             nickname: Some("Bolt".into()),
             form: 2,
+            auto_form: false,
             met_at: 7,
             met_derived: false,
             created_project: "/workspace".into(),
@@ -1160,6 +1161,7 @@ fn party_roster_lists_every_partner_with_derived_idle_status() {
             id: 2,
             nickname: None,
             form: 0,
+            auto_form: true,
             met_at: 9,
             met_derived: false,
             created_project: "/workspace".into(),
@@ -1232,6 +1234,7 @@ fn roster_add_queues_one_request_and_applies_the_committed_roster() {
         id: 2,
         nickname: None,
         form: 0,
+        auto_form: true,
         met_at: 1,
         met_derived: false,
         created_project: "/workspace".into(),
@@ -3189,6 +3192,7 @@ fn returning_to_eevee_preserves_task_content_and_drafts() {
                 // Form identity, previous-form memory and save bookkeeping must
                 // change; all task payload bytes must remain identical.
                 expected.form = 0;
+                expected.auto_form = true;
                 expected.revision = actual.revision;
                 expected.updated_at = actual.updated_at;
                 expected.navigation.form_selection = 0;

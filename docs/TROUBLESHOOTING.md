@@ -1,5 +1,20 @@
 # Troubleshooting
 
+### [2026-10-22] Automatic routing separated a read-then-edit request from its source context
+
+- **Context / Symptom:** Candidate A created files, but all ten native creation fixtures failed at “List the project files, read the generated Python source, and edit only its value using the observed digest.” The request entered a nonwriting scope. The first automatic-mode terminal driver also needed to dismiss an unrelated advisory banner to expose compact output.
+- **Root Cause:** Clause splitting required an edit action and source noun in the same clause, losing the antecedent of “its value.” The old advisory banner competed with the already selected automatic role and transient transition strip for scarce response rows.
+- **Solution:** Reused source context only across affirmative, nonliteral clauses while keeping negation/read-only precedence and exact consent unchanged. Added the exact runtime request, en/ko multi-clause and Submit→frozen-Implement regressions. Automatically evolved roles retain advisory evidence in explicit inspectors but no longer reserve a competing response-banner row; manual roles retain their strip. Removed the driver's dismissal workaround rather than accepting it as normal UX.
+- **Follow-through / Prevention:** Candidate B passed all eight roles at both sizes/languages, actual read/list/nonwriting scopes, exact file/document consent, explicit Plan refusal and eight real restarts. The viewport regression failed before the banner correction. Candidate C then exposed a manual-role variant: the new evolution receipt stayed visible indefinitely, unlike existing carry-over feedback. Reused deliberate-key/paste lifetime handling to reclaim its rows without consuming input or changing frozen ownership, retaining passive resize/release visibility. Final qualification must exercise both automatic and manual compact output without hidden dismissal; original failures are retained.
+- **Final local resolution:** Candidate D passed all automatic and manual form flows at both terminal sizes in English/Korean without any advisory-dismissal workaround. A dedicated regression preserved disclosure through resize/key release, consumed no subsequent paste and kept the original frozen request intact; all 1,187 Rust tests/two ignored and strict pinned Clippy passed. The preceding C also passed every ordinary file-generation/source journey in both languages.
+
+### [2026-10-22] Ambient Rust toolchain differed from native release qualification
+
+- **Context / Symptom:** An unqualified local `cargo clippy` selected Rust 1.97 and rejected existing permission/handoff `is_some` plus `expect` patterns with newer `unnecessary_unwrap` diagnostics. The native workflow explicitly qualifies Rust 1.90.0.
+- **Root Cause:** The shell's ambient default was not the repository's release toolchain; comparing its evolving lint set with the pinned native gate was misleading.
+- **Solution:** Ran explicit `cargo +1.90.0` formatting, locked all-feature tests, strict all-target/all-feature Clippy and release build. Candidate A passed 1,183 tests/two ignored and strict Clippy. Also removed the header formatter made obsolete by the shared width-budgeted layout and reused existing test boxes rather than allocating replacements. No lint allowance or release-gate reduction was added.
+- **Prevention / Reference:** Use the workflow's explicit toolchain for local release proof; an ambient-toolchain upgrade is a separate change.
+
 ### [2026-10-22] Successful file execution still had an obscure approval interaction
 
 - **Context / Symptom:** The user reported file-creation UX still felt wrong after v0.1.16. Actual compact Korean first-file output showed editing/completed labels and English `/approvals` hints while no file existed. A neutral approval Enter sent default Deny. Earlier runtime fixtures opened `/approvals` and used Enter as a deliberate denial, hiding the interaction problem.

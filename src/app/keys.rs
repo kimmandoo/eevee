@@ -13,6 +13,7 @@ impl App {
         let hide_carry_over = matches!(&event, Event::Paste(_))
             || matches!(&event, Event::Key(key) if key.kind != KeyEventKind::Release);
         let carry_over_hidden = hide_carry_over && self.carry_over.hide();
+        let evolution_hidden = hide_carry_over && self.evolution.transition.take().is_some();
         let resized = matches!(event, Event::Resize(_, _));
         let command_action = self.command_popup.is_some()
             && matches!(&event, Event::Key(key) if key.code == KeyCode::Enter);
@@ -156,7 +157,7 @@ impl App {
         {
             self.changed_implicitly(now);
         }
-        changed || carry_over_hidden
+        changed || carry_over_hidden || evolution_hidden
     }
 
     fn response_mouse(&mut self, mouse: MouseEvent) -> bool {
@@ -341,6 +342,8 @@ impl App {
             self.request_home(false);
         }
         if operation != self.planning.operation {
+            self.lead.auto_form = false;
+            self.evolution.transition = None;
             self.set_form(match self.planning.operation {
                 crate::providers::Operation::Implement => 3,
                 crate::providers::Operation::Review => 7,
@@ -409,6 +412,8 @@ impl App {
             self.workflow.pending_decision = self.planning.decision.clone();
         }
         if operation != self.planning.operation {
+            self.lead.auto_form = false;
+            self.evolution.transition = None;
             self.set_form(match self.planning.operation {
                 crate::providers::Operation::Implement => 3,
                 crate::providers::Operation::Review => 7,

@@ -31,6 +31,58 @@ impl WriteFixture {
             .collect::<Vec<_>>();
         WriteSet::capture(&self.root, &self.data, &paths, &[])
     }
+
+    fn claimed_input(&self, operation: Operation) -> (crate::store::Worker, Input) {
+        let worker = crate::store::Worker::start(
+            self.data.clone(),
+            self.root.to_str().unwrap().into(),
+            crate::store::Policy::default(),
+        )
+        .unwrap();
+        let next = || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                if let Some(event) = worker.try_event() {
+                    break event;
+                }
+                assert!(Instant::now() < deadline, "Store acknowledgement timed out");
+                thread::sleep(Duration::from_millis(2));
+            }
+        };
+        let crate::store::Event::Loaded(project) = next() else {
+            panic!("Expected loaded project")
+        };
+        let owner = crate::store::Attribution::of(&project.partners[0]);
+        let mut task = crate::store::Snapshot::empty(self.root.to_str().unwrap().into());
+        task.goal = "Inspect actual working source without changing it".into();
+        task.lead_partner = owner.partner;
+        task.form = owner.form;
+        task.revision = 1;
+        let mut save = Some(task);
+        assert!(worker.try_save(&mut save));
+        let crate::store::Event::Saved(task) = next() else {
+            panic!("Expected saved task")
+        };
+        let claim = crate::store::WorkClaim {
+            task_id: task.id,
+            owner,
+            request_id: "codex-file-fixture".into(),
+            writing: super::super::writing_required(operation),
+        };
+        let mut acquire = Some(crate::store::WorkRequest::Acquire {
+            claim: claim.clone(),
+            task: Box::new(task.clone()),
+        });
+        assert!(worker.try_work(&mut acquire));
+        let crate::store::Event::Work { result, .. } = next() else {
+            panic!("Expected work claim")
+        };
+        result.unwrap();
+        let mut input = crate::providers::tests::claimed(Agent::Codex, operation, claim.writing);
+        input.task = task;
+        input.work = Some(claim);
+        (worker, input)
+    }
 }
 
 #[cfg(unix)]
@@ -517,33 +569,69 @@ fn model_inspection_has_no_task_prompt_or_source_or_edit_lookup() {
     assert!(payload(Path::new("unopened-data"), &input, &[], None).is_err());
 }
 
+#[cfg(unix)]
 #[test]
-fn review_has_no_write_baseline_and_refuses_selected_write_paths() {
-    let mut input = Input {
-        task: crate::store::Snapshot::empty("unopened-project".into()),
-        work: None,
-        instruction_override: None,
-        excerpts: Vec::new(),
-        report: None,
-        resume: None,
-        agent: Agent::Codex,
-        operation: Operation::Review,
-        edit_paths: Vec::new(),
-        handoff: None,
-        inspect_sessions: false,
-        inspect_models: false,
-        selection: ModelSelection::default(),
-        conversation: None,
-        credential: None,
-    };
-    let root = Path::new(&input.task.project);
-    assert!(
-        capture_writes(root, Path::new("unopened-data"), &input, &[])
+fn readonly_roles_capture_real_source_without_mutation_targets_or_writer_lease() {
+    for operation in [Operation::Plan, Operation::Review] {
+        let fixture = WriteFixture::new();
+        std::fs::write(
+            fixture.root.join("actual.rs"),
+            "// actual dirty bytes\r\nfn source() {}\r\n",
+        )
+        .unwrap();
+        let (_worker, mut input) = fixture.claimed_input(operation);
+        if operation == Operation::Review {
+            input.report = Some(crate::providers::tests::repository_report(&fixture.root));
+        }
+        assert!(!input.work.as_ref().unwrap().writing);
+        let mut scope = capture_writes(&fixture.root, &fixture.data, &input, &[])
             .unwrap()
-            .is_none()
-    );
-    input.edit_paths.push("src/file.rs".into());
-    assert!(capture_writes(root, Path::new("unopened-data"), &input, &[]).is_err());
+            .unwrap();
+        assert!(!scope.writing());
+        let list = requested_tool(
+            &json!({"tool":"eevee_list_files","arguments":{"query":".rs","offset":0}}),
+        )
+        .unwrap();
+        assert_eq!(
+            scope.observe_tool(&list).unwrap()["paths"],
+            json!(["actual.rs"])
+        );
+        let read = requested_tool(&json!({"tool":"eevee_read_file","arguments":{"path":"actual.rs","start_line":1,"end_line":0}})).unwrap();
+        assert_eq!(
+            scope.observe_tool(&read).unwrap()["content"],
+            "// actual dirty bytes\r\nfn source() {}\r\n"
+        );
+        for attempted in [
+            json!({"tool":"eevee_write_file","arguments":{"path":"unapproved/new.rs","content":"no effect"}}),
+            json!({"tool":"eevee_edit_file","arguments":{"path":"actual.rs","sha256":"0".repeat(64),"old_text":"source","new_text":"mutated"}}),
+        ] {
+            assert!(
+                proposed_write(&mut scope, &attempted)
+                    .unwrap_err()
+                    .contains("Read-only")
+            );
+            assert_eq!(scope.payload(&[]), json!([]));
+        }
+        let declarations = definitions(scope.writing());
+        assert_eq!(declarations.len(), 2);
+        assert!(declarations.iter().all(|entry| matches!(
+            entry["name"].as_str(),
+            Some("eevee_read_file" | "eevee_list_files")
+        )));
+        assert!(payload(&fixture.data, &input, &[], Some(&scope)).is_ok());
+        assert!(!fixture.root.join("unapproved").exists());
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("actual.rs")).unwrap(),
+            "// actual dirty bytes\r\nfn source() {}\r\n"
+        );
+        input.edit_paths.push("src/file.rs".into());
+        assert!(capture_writes(&fixture.root, &fixture.data, &input, &[]).is_err());
+        input.edit_paths.clear();
+        input.work.as_mut().unwrap().writing = true;
+        assert!(capture_writes(&fixture.root, &fixture.data, &input, &[]).is_err());
+        input.work = None;
+        assert!(capture_writes(&fixture.root, &fixture.data, &input, &[]).is_err());
+    }
 }
 
 #[cfg(unix)]
@@ -551,23 +639,7 @@ fn review_has_no_write_baseline_and_refuses_selected_write_paths() {
 fn implement_without_preselection_captures_workspace_and_invalid_proposals_do_not_enroll() {
     let fixture = WriteFixture::new();
     std::fs::write(fixture.root.join("unselected-binary.txt"), b"\0").unwrap();
-    let mut input = Input {
-        task: crate::store::Snapshot::empty(fixture.root.to_string_lossy().into()),
-        work: None,
-        instruction_override: None,
-        excerpts: Vec::new(),
-        report: None,
-        resume: None,
-        agent: Agent::Codex,
-        operation: Operation::Implement,
-        edit_paths: Vec::new(),
-        handoff: None,
-        inspect_sessions: false,
-        inspect_models: false,
-        selection: ModelSelection::default(),
-        conversation: None,
-        credential: None,
-    };
+    let (_worker, mut input) = fixture.claimed_input(Operation::Implement);
     let mut writes = capture_writes(&fixture.root, &fixture.data, &input, &["excluded".into()])
         .unwrap()
         .unwrap();
@@ -1172,7 +1244,8 @@ fn outbound_task_facts_do_not_leak_generated_provider_session_provenance() {
         conversation: None,
         credential: None,
     };
-    let text = payload(&data, &input, &[], None).unwrap();
+    let scope = WriteSet::capture_readonly(&cleanup.0, &data, &[]).unwrap();
+    let text = payload(&data, &input, &[], Some(&scope)).unwrap();
     let outgoing: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(
         outgoing

@@ -340,8 +340,10 @@ impl App {
                             .find(|partner| partner.id == self.lead.id)
                         {
                             let form = self.lead.form;
+                            let auto_form = self.lead.auto_form;
                             self.lead = partner.clone();
                             self.lead.form = form;
+                            self.lead.auto_form = auto_form;
                             self.sync_front();
                         }
                         self.saved_revision = snapshot.revision;
@@ -354,9 +356,11 @@ impl App {
                     .or_else(|| project.partners.first())
                 {
                     let live_form = self.lead.form;
+                    let live_auto_form = self.lead.auto_form;
                     self.lead = partner.clone();
                     if local_changes {
                         self.lead.form = live_form;
+                        self.lead.auto_form = live_auto_form;
                     } else {
                         self.form_selection = self.lead.form;
                     }

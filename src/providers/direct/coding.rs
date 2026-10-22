@@ -15,11 +15,23 @@ fn validate_active(
         return Err("Native request cancelled locally; no further write or continuation".into());
     }
     if connection.fingerprint() != run.fingerprint
-        || native_writing(&run.input) != run.writes.is_some()
+        || native_tools(&run.input) != run.writes.is_some()
+        || run
+            .writes
+            .as_ref()
+            .is_some_and(|scope| scope.writing() != native_writing(&run.input))
     {
         return Err("Native connection or frozen tool capability changed".into());
     }
     run.input.validate_committed(&workspace.data_dir)?;
+    if run
+        .input
+        .work
+        .as_ref()
+        .is_none_or(|claim| claim.writing != native_writing(&run.input))
+    {
+        return Err("Native file tools lost their operation-bound durable lease".into());
+    }
     revalidate(connection)?;
     if let Some(writes) = &run.writes {
         writes.verify()?;
@@ -113,7 +125,7 @@ async fn inference_rounds(
             generation: run.generation,
             task_id: run.input.task.id,
             message: format!("Native HTTP round {round}/{ROUND_LIMIT}; requested model {model}; {}; no shell or command verification",
-                if run.writes.is_some() { "file proposals require separate exact one-shot approval" } else { "no local write tools" }),
+                if native_writing(&run.input) { "file proposals require separate exact one-shot approval" } else { "read/list only; no mutation tools or permission" }),
         }).map_err(|error| (Outcome::Failed, error))?;
         // No retry, resend, redirect, model/account substitution or second dispatch receipt.
         let response = connection
@@ -187,10 +199,10 @@ async fn inference_rounds(
                     .model
                     .as_deref()
                     .unwrap_or("unobserved (provider supplied no model identity)"),
-                if run.writes.is_some() {
+                if native_writing(&run.input) {
                     "File effects are recorded only by the actual Eevee-mediated tool results."
                 } else {
-                    "No local writes or tools executed."
+                    "Only bounded source read/list tools were available; no local writes executed."
                 }
             ));
         }
@@ -320,6 +332,7 @@ fn prepare_batch(
     writes: &mut WriteSet,
     calls: &mut [tools::Call],
 ) -> Result<Vec<Option<WriteProposal>>, String> {
+    writes.verify()?;
     if calls.iter().any(|call| call.tool.invalid()) {
         return Err("File tool arguments must exactly match the advertised schema".into());
     }
@@ -344,6 +357,12 @@ fn prepare_batch(
         .collect::<Vec<_>>();
     if paths.iter().any(|path| !unique.insert(path)) {
         return Err("Repeated target in one proposal batch".into());
+    }
+    if paths.is_empty() {
+        return Ok((0..calls.len()).map(|_| None).collect());
+    }
+    if !writes.writing() {
+        return Err("Read-only file scope refuses mutation".into());
     }
     let mut candidate = writes.clone();
     candidate.admit_paths(&paths)?;
@@ -534,6 +553,9 @@ fn execute_write(
     proposal: &WriteProposal,
 ) -> Result<Value, String> {
     validate_active(workspace, run, connection, control, revalidate)?;
+    if !native_writing(&run.input) {
+        return Err("Read-only request cannot open mutation permission".into());
+    }
     let allowed = match permission(
         run,
         events,

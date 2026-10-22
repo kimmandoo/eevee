@@ -177,7 +177,10 @@ impl App {
     pub fn partners(&self) -> Vec<store::Partner> {
         let mut partners = self.party.clone();
         match partners.iter_mut().find(|p| p.id == self.lead.id) {
-            Some(partner) => partner.form = self.lead.form,
+            Some(partner) => {
+                partner.form = self.lead.form;
+                partner.auto_form = self.lead.auto_form;
+            }
             None => partners.insert(0, self.lead.clone()),
         }
         partners
@@ -319,6 +322,7 @@ impl App {
     /// partner's draft, caret and previous-form memory.
     fn switch_lead(&mut self, partner: store::Partner) {
         self.clear_carry_over();
+        self.evolution.transition = None;
         self.partner_drafts
             .insert(self.lead.id, self.partner_draft());
         self.front_planning(&partner);

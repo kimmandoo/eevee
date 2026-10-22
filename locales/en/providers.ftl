@@ -166,7 +166,7 @@ providers-planning-scope-model-metadata-only-no-task-prompt = { "Scope: model me
 
 providers-planning-workspace-path-proposals = { "Workspace path proposals; exact one-shot approval (d)." }
 
-providers-planning-text-response-only-no-tools-or-local = { "Text response only; no tools or local writes." }
+providers-planning-read-list-only-no-mutation-tools-or-permission = { "Bounded project read/list only; no mutation tools or permission." }
 
 providers-planning-scoped-credential-headers-provider-network-billing = { "Scoped credential headers; provider network/billing." }
 

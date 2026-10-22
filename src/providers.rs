@@ -1186,4 +1186,31 @@ mod tests {
             assert_eq!(changed.task.request_text(), original);
         }
     }
+    pub(super) fn repository_report(
+        project: &std::path::Path,
+    ) -> Arc<crate::workspace::repo::Report> {
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(project)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let worker = crate::workspace::repo::Worker::start(project.to_path_buf()).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        loop {
+            if let Some(event) = worker.try_event() {
+                match event {
+                    crate::workspace::repo::Event::Updated(report) => return report,
+                    event => panic!("Actual review repository unavailable: {event:?}"),
+                }
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "Review repository observation timed out"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
 }

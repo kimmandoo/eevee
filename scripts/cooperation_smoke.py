@@ -268,9 +268,10 @@ def main():
         for size in ((120, 36), (60, 18)):
             active = j = Journey(binary, output, size, "queue")
             j.setup()
-            j.implementation(1)
+            # Only the permission owner needs Implement; readers cannot authorize commands.
+            j.implementation(2)
             for partner, marker in ((1, "COOP_A"), (2, "COOP_B"), (3, "COOP_C")):
-                j.request(partner, marker, review_future=partner == 1)
+                j.request(partner, marker, review_future=partner == 2)
             j.until(lambda: j.claims() == {1, 2, 3}, "three independent claims did not coexist")
             assert len({row["pid"] for row in j.peers("started")}) == 3, "same-agent requests shared a transport"
             j.session.command("party-board")
@@ -295,7 +296,7 @@ def main():
             j.until(lambda: j.draft(1) is not None and "follow-up" in j.draft(1)["text"], "follow-up draft was not retained")
             saved = j.draft(1).copy()
             j.prompt("COOP_A", "question")
-            j.prompt("COOP_B", "approval")
+            j.prompt("COOP_B", "edit")
             assert not j.peers("answer"), "arrival auto-answered a prompt"
             j.session.command("party-board")
             j.until(lambda: sum("waiting" in line.lower() for line in j.session.display().splitlines()) >= 2, "board did not show both independently waiting owners")
@@ -321,10 +322,11 @@ def main():
             assert "only answer A 日本語" in json.dumps(j.peers("answer", "COOP_A"), ensure_ascii=False)
             assert not j.peers("answer", "COOP_B") and j.draft(1) == saved
             j.session.command("approvals")
-            j.session.send("\r")  # The visible neutral default is Deny, never Allow.
-            j.until(lambda: bool(j.peers("answer", "COOP_B")), "second owner's decline was not delivered")
-            assert "decline" in json.dumps(j.peers("answer", "COOP_B"))
-            passed(f"{size}: FIFO question/approval deferral and owner-specific answers preserve follow-up caret")
+            j.session.send("n")  # File review requires explicit denial, not neutral Enter.
+            j.until(lambda: bool(j.peers("answer", "COOP_B")), "second owner's denial was not delivered")
+            assert j.peers("answer", "COOP_B")[-1]["result"]["success"] is False
+            assert j.source.read_text() == j.original, "denied permission changed the source"
+            passed(f"{size}: FIFO question/file-review deferral and owner-specific answers preserve follow-up caret")
             j.lead(1)
             j.session.command("cancel")
             j.until(lambda: 1 not in j.claims(), "lead-only cancellation did not settle")

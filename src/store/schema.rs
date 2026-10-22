@@ -229,9 +229,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=15).contains(&version) {
+    if !(0..=16).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0 through 15"
+            "Unsupported database schema version {version}; this ev supports versions 0 through 16"
         ));
     }
     let mut statement = connection
@@ -384,7 +384,7 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
         {
             Schema::Current
         }
-        (15, objects)
+        (15 | 16, objects)
             if objects.len() == 27
                 && objects
                     .iter()
@@ -497,7 +497,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
                 ]);
             }
             inspect_columns(connection, "tasks", &expected)?;
-            let columns = if version >= 7 {
+            let columns = if version >= 16 {
+                format!("{TASK_COLUMNS},{TASK_AUTO_FORM}")
+            } else if version >= 7 {
                 TASK_COLUMNS.to_string()
             } else if version >= 6 {
                 format!("{TASK_COLUMNS_V6},1")
@@ -582,7 +584,7 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
                 inspect_memories(connection)?;
             }
             if version >= 7 {
-                inspect_partners(connection)?;
+                inspect_partners(connection, version >= 16)?;
             }
             if version >= 10 {
                 super::preferences::inspect_preferences(connection)?;
@@ -704,6 +706,16 @@ pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), Str
     }
     if version < 15 {
         super::records::migrate(connection)?;
+    }
+    if version < 16 {
+        // A partner's mode is independent of its evolving form. Older specialists
+        // stay manual; only existing Eevee rows opt into automatic evolution.
+        // Leave all task, evidence and identity rows untouched.
+        connection.execute_batch(
+            "ALTER TABLE partners ADD COLUMN auto_form INTEGER NOT NULL DEFAULT 1 CHECK(auto_form IN (0,1));
+             UPDATE partners SET auto_form=(form=0);
+             PRAGMA user_version=16;"
+        ).map_err(|error| format!("Cannot migrate automatic partner forms: {error}"))?;
     }
     Ok(())
 }

@@ -93,6 +93,7 @@ core-help-content =
     { " /goal /criteria     Optional task facts" }
     { " /party /lead NAME   Partners and the lead" }
     { " /forms /role        Evolution and role" }
+    { " Eevee: automatic at Send; choosing a specialist: manual." }
     { " /files /search      Source context and filename search" }
     { " /run /execute       Command evidence / prepared command review" }
     { " /output-search      Search retained command output" }
@@ -220,3 +221,17 @@ core-editor-title = { " " }Edit { $field } / { $partner }{ " " }
 core-editor-status =
     { $count } / 4096 bytes{ $warning }
     { $controls }
+
+core-evolution-auto = { "Auto" }
+core-evolution-manual = { "Manual" }
+core-evolution-discovery = { "read / discovery" }
+core-evolution-verification = { "commands / verification; no local run" }
+core-evolution-implementation = { "code / file change; approval required" }
+core-evolution-planning = { "design / plan" }
+core-evolution-diagnosis = { "diagnosis / security" }
+core-evolution-refactor = { "refactor; approval required" }
+core-evolution-review = { "independent review" }
+core-evolution-documentation = { "documentation / handoff" }
+core-evolution-readonly = { "read-only instruction" }
+core-evolution-fresh = { "fresh context; transcript kept" }
+core-evolution-transition = { $mode } { $from } → { $to }: { $reason }{ $fresh }
