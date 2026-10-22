@@ -555,36 +555,51 @@ fn addressed_findings_stale_verdict_without_closing_and_require_new_verdict() {
 }
 
 #[test]
-fn only_actual_controlled_success_origin_can_attribute_a_patch() {
+fn only_verified_mediated_mutation_receipts_can_attribute_a_patch() {
     use sha2::{Digest, Sha256};
+    let digest = <[u8; 32]>::from(Sha256::digest(b"new\r\n"));
+    let success = serde_json::json!({"status":"success","path":"calc.py","source_sha256":digest});
     let mut record = crate::store::ProviderRecord {
         id: "controlled-write-record".into(),
         agent: crate::providers::Agent::Codex,
         generation: 1,
         thread_id: "thread".into(),
         turn_id: "turn".into(),
-        item_id: "eevee-edit-call".into(),
-        origin: "Codex-requested Eevee-controlled file edit".into(),
-        coverage: "Exact controlled selected-file replacement".into(),
-        text: "Applied reviewed replacement to calc.py. User must inspect working diff and choose a local check; no commit or verification occurred.\n--- a/calc.py\n+++ b/calc.py\n@@ exact full-file replacement; baseline sha256=fixture @@\n-old\n+new\n\\ No newline at end of file\n".into(),
+        item_id: "eevee-write-call".into(),
+        origin: "Codex-requested Eevee-controlled file write".into(),
+        coverage: "Exact verified filesystem mutation".into(),
+        text: success.to_string(),
         complete: true,
-        partner: Some(crate::store::Attribution { partner: 2, name: "Local flavor".into(), form: 3 }),
+        partner: Some(crate::store::Attribution {
+            partner: 2,
+            name: "Local flavor".into(),
+            form: 3,
+        }),
     };
     let author = controlled_patch_author(&record).unwrap();
-    assert_eq!(author.partner, 2);
-    assert_eq!(author.path, "calc.py");
     assert_eq!(
-        author.source_sha256,
-        <[u8; 32]>::from(Sha256::digest(b"new"))
+        (author.partner, author.path.as_str(), author.source_sha256),
+        (2, "calc.py", digest)
     );
     record.origin = "Codex provider-native".into();
-    assert!(
-        controlled_patch_author(&record).is_none(),
-        "Provider text cannot spoof an Eevee-controlled origin"
-    );
-    record.origin = "Codex-requested Eevee-controlled file edit".into();
-    record.text = "User denied edit to calc.py; no Eevee write occurred".into();
     assert!(controlled_patch_author(&record).is_none());
+    record.agent = crate::providers::Agent::Compatible;
+    record.origin = "Eevee-mediated native file tool".into();
+    record.item_id = "eevee-native-write:1:0".into();
+    assert_eq!(
+        controlled_patch_author(&record).unwrap().source_sha256,
+        digest
+    );
+    for body in [
+        serde_json::json!({"status":"denied","path":"calc.py","source_sha256":digest}),
+        serde_json::json!({"status":"success","path":"calc.py","sha256":"read-only observation"}),
+        serde_json::json!({"status":"success","path":"../outside","source_sha256":digest}),
+        serde_json::json!({"status":"success","path":"calc.py","source_sha256":vec![256u16; 32]}),
+    ] {
+        record.text = body.to_string();
+        assert!(controlled_patch_author(&record).is_none());
+    }
+    record.text = success.to_string();
     record.complete = false;
     assert!(controlled_patch_author(&record).is_none());
 }

@@ -7,6 +7,16 @@
 - test(terminal): required bounded startup stream quiescence before the fixed zero-output idle observation without restarting or filtering the measured window.
 - docs(verification): verified the actual public v0.1.14 binary through 52 English/Korean Wave 6 case executions, both-size response/tooltips, 176 native-protocol groups, 24 cooperation groups, 26 Moves groups, three real Schema 14 upgrade/refusal/resume cases and 23 installation groups with all 34 installed terminal scenarios.
 
+## 0.1.16
+
+- fix(coding): enabled reviewed coding tools for ordinary Eevee requests on supported routes while preserving explicitly selected read-only roles and consistent form policies.
+- feat(files): added bounded project discovery, source reading and read-hash-bound exact edits alongside approved file creation, preserving dirty bytes and CRLF.
+- fix(response): replaced per-response pages with one attributed continuous transcript and retained paused reading anchors across streaming, later replies and reflow.
+- fix(sdk)!: required complete bridge revision 7 files and independently checked project read boundaries before SDK tools, including read-only roles.
+- test(coding): removed mandatory implementation-role setup from the real creation journey and exercised discovery, actual source reads and approved edits.
+- fix(evidence): recorded verified post-write digests for mediated mutations instead of decoding obsolete prose; kept reads, denials and provider claims non-authoritative.
+- fix(files): preserved native Unicode filename spelling in Git-backed source discovery and kept optional write restrictions directly accessible from ordinary coding.
+
 ## 0.1.15
 
 - feat(files): added shared approved file creation and replacement with exact absent/dirty baselines, reviewed missing-parent creation, sibling-parent authority and no-overwrite publication.

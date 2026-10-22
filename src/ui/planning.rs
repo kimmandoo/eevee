@@ -797,8 +797,8 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
 }
 
 fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
-    // The shell header owns live progress; this line describes only the
-    // selected output, which may belong to an earlier request.
+    state.set_response_language(paint.language);
+    // The shell header owns progress; this labels the inspected observation.
     let active = state.activity_label().is_some();
     let (_, previous) = state.response_request();
     let metadata = if let Some(item) = state.items.get(state.selected) {
@@ -827,6 +827,11 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         if !previous && let Some(model) = state.observed_model.as_deref() {
             let _ = write!(metadata, " · {model}");
         }
+        let _ = write!(
+            metadata,
+            " · {}",
+            crate::store::Attribution::label(item.owner.as_ref())
+        );
         metadata
     } else if state.outcome_unknown() {
         paint
@@ -845,7 +850,7 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     );
     let show_notice = !active && !state.notice.is_empty();
     let show_follow = !state.items.is_empty();
-    let show_evidence = super::VERBOSE.get() && show_follow;
+    let show_evidence = show_follow && (super::VERBOSE.get() || state.omitted > 0);
     let footer_rows =
         u16::from(show_notice) + 2 * u16::from(show_follow) + u16::from(show_evidence);
     let body = row(area, 1, area.height.saturating_sub(1 + footer_rows));
@@ -1848,6 +1853,7 @@ mod tests {
             text: "Earlier interrupted answer".into(),
             complete: false,
             request: "Earlier request".into(),
+            owner: None,
         });
         let screen = draw_home(&mut app);
         assert!(screen.contains("Earlier interrupted answer"), "{screen}");
@@ -1867,6 +1873,7 @@ mod tests {
             text: "0\n1\n2\n3\n4\n5\n6\n7\n8\n9".into(),
             complete: true,
             request: "earlier request".into(),
+            owner: None,
         });
         app.planning.notice.clear();
         let config = config();
@@ -2074,6 +2081,7 @@ mod tests {
             text: "Retained response".into(),
             complete: true,
             request: "original request".into(),
+            owner: None,
         });
         let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
         terminal

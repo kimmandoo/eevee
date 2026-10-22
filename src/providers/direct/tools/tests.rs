@@ -1,5 +1,12 @@
 use super::*;
 
+fn write_content(call: &Call) -> &str {
+    match &call.tool {
+        FileTool::Write { content, .. } => content,
+        _ => panic!("expected write"),
+    }
+}
+
 fn args(path: &str, content: &str) -> String {
     json!({"path":path,"content":content}).to_string()
 }
@@ -145,8 +152,8 @@ fn responses_fragments_use_authoritative_output_and_keep_opaque_reasoning() {
         let decoded = calls.finish(true).unwrap();
         assert_eq!(decoded.len(), 1);
         assert_eq!(decoded[0].id.as_deref(), Some("call_one"));
-        assert_eq!(decoded[0].path, PathBuf::from("src/new.rs"));
-        assert_eq!(decoded[0].content, "fn main() {}\n");
+        assert_eq!(decoded[0].tool.path(), PathBuf::from("src/new.rs"));
+        assert_eq!(write_content(&decoded[0]), "fn main() {}\n");
         let original = json!({"instructions":"fixed policy","model":"fixed model","input":[{"role":"user","content":"original"}],"store":false});
         let mut body = original.clone();
         calls
@@ -226,7 +233,7 @@ fn chat_indexed_fragments_preserve_content_call_order_and_native_results() {
     chat_stop(&mut calls, "tool_calls").unwrap();
     let decoded = calls.finish(true).unwrap();
     assert_eq!(decoded[0].id.as_deref(), Some("one"));
-    assert_eq!(decoded[0].content, "first");
+    assert_eq!(write_content(&decoded[0]), "first");
     assert_eq!(decoded[1].id.as_deref(), Some("two"));
     let prefix = json!({"role":"system","content":"immutable policy"});
     let mut body = json!({"messages":[prefix.clone()],"reasoning_effort":"high"});
@@ -302,7 +309,7 @@ fn messages_indexed_text_tools_and_signed_thinking_are_request_local() {
     message_close(&mut calls, 2);
     message_finish(&mut calls);
     let decoded = calls.finish(true).unwrap();
-    assert_eq!(decoded[0].content, "only file contents");
+    assert_eq!(write_content(&decoded[0]), "only file contents");
     let prefix = json!({"role":"user","content":"original input"});
     let mut body = json!({"system":"fixed policy","messages":[prefix.clone()]});
     calls
@@ -349,7 +356,7 @@ fn gemini_parts_preserve_thought_signatures_and_optional_ids_stay_absent() {
             .unwrap();
         let decoded = calls.finish(true).unwrap();
         assert_eq!(decoded[0].id.as_deref(), id);
-        assert_eq!(decoded[0].content, "contents");
+        assert_eq!(write_content(&decoded[0]), "contents");
         let prefix = json!({"role":"user","parts":[{"text":"original"}]});
         let mut body = json!({"systemInstruction":{"parts":[{"text":"fixed policy"}]},"contents":[prefix.clone()]});
         calls
@@ -375,7 +382,7 @@ fn gemini_parts_preserve_thought_signatures_and_optional_ids_stay_absent() {
 }
 
 #[test]
-fn every_dialect_rejects_the_whole_set_when_a_later_call_is_malformed() {
+fn every_dialect_retains_schema_refusals_for_correlated_zero_effect_results() {
     for protocol in [
         Protocol::Responses,
         Protocol::Codex,
@@ -406,15 +413,15 @@ fn every_dialect_rejects_the_whole_set_when_a_later_call_is_malformed() {
                 json!({"functionCall":{"name":TOOL_NAME,"args":{"path":"src/new.rs"}}})
             ], true).unwrap(),
         }
-        assert!(calls.finish(true).is_err());
+        let decoded = calls.finish(true).unwrap();
+        assert_eq!(decoded.len(), 2);
+        assert!(!decoded[0].tool.invalid());
+        assert!(decoded[1].tool.invalid());
         let mut body = json!({"input":[],"messages":[],"contents":[],"policy":"unchanged"});
-        let before = body.clone();
-        assert!(
-            calls
-                .append_results(&mut body, &[result("success"), result("success")])
-                .is_err()
-        );
-        assert_eq!(body, before);
+        calls
+            .append_results(&mut body, &[result("refused"), result("refused")])
+            .unwrap();
+        assert_eq!(body["policy"], "unchanged");
     }
 }
 
@@ -491,21 +498,27 @@ fn duplicate_ids_unknown_tools_and_unsupported_tool_types_are_rejected() {
 }
 
 #[test]
-fn strict_argument_objects_reject_missing_extra_duplicate_and_wrong_values() {
+fn malformed_json_is_terminal_but_known_schema_errors_remain_actionable() {
     for invalid in [
-        "{}",
         "[]",
         "[\"a\",\"b\"]",
         "null",
-        "{\"path\":\"a\"}",
-        "{\"path\":\"a\",\"content\":null}",
-        "{\"path\":\"a\",\"content\":\"b\",\"extra\":true}",
         "{\"path\":\"a\",\"path\":\"b\",\"content\":\"c\"}",
         "{\"path\":\"a\",\"content\":\"b\"} trailing",
     ] {
         let mut calls = Calls::new(Protocol::Responses);
         completed(&mut calls, vec![response_call("one", invalid)]).unwrap();
         assert!(calls.finish(true).is_err(), "accepted {invalid}");
+    }
+    for invalid in [
+        "{}",
+        "{\"path\":\"a\"}",
+        "{\"path\":\"a\",\"content\":null}",
+        "{\"path\":\"a\",\"content\":\"b\",\"extra\":true}",
+    ] {
+        let mut calls = Calls::new(Protocol::Responses);
+        completed(&mut calls, vec![response_call("one", invalid)]).unwrap();
+        assert!(calls.finish(true).unwrap()[0].tool.invalid());
     }
     for (path, content) in [
         ("".to_owned(), "a".to_owned()),
@@ -878,7 +891,7 @@ fn fully_escaped_sixty_four_kib_content_fits_arguments_without_truncation() {
     chat_fragment(&mut calls, json!([{"index":0,"id":"one","type":"function","function":{"name":TOOL_NAME,"arguments":escaped}}]), None).unwrap();
     chat_stop(&mut calls, "stop").unwrap();
     let decoded = calls.finish(true).unwrap();
-    assert_eq!(decoded[0].content, "x".repeat(MAX_BYTES));
+    assert_eq!(write_content(&decoded[0]), "x".repeat(MAX_BYTES));
 }
 
 #[test]
@@ -897,4 +910,112 @@ fn wire_json_preserves_unique_keys_in_whole_arguments_and_terminal_metadata() {
         frame(valid).unwrap(),
         serde_json::from_str::<Value>(valid).unwrap()
     );
+}
+
+#[test]
+fn mixed_file_tool_identities_survive_every_protocol_continuation() {
+    let typed = [
+        (
+            "eevee_list_files",
+            json!({"query":"src","offset":0}),
+            ToolKind::List,
+        ),
+        (
+            "eevee_read_file",
+            json!({"path":"src/lib.rs","start_line":1,"end_line":0}),
+            ToolKind::Read,
+        ),
+        (
+            "eevee_edit_file",
+            json!({"path":"src/lib.rs","sha256":"a".repeat(64),"old_text":"old","new_text":"new"}),
+            ToolKind::Edit,
+        ),
+        (
+            TOOL_NAME,
+            json!({"path":"new.rs","content":"generated"}),
+            ToolKind::Write,
+        ),
+    ];
+    for protocol in [
+        Protocol::Responses,
+        Protocol::Codex,
+        Protocol::ChatCompletions,
+        Protocol::Messages,
+        Protocol::Gemini,
+    ] {
+        let mut calls = Calls::new(protocol);
+        match protocol {
+            Protocol::Responses | Protocol::Codex => completed(&mut calls, typed.iter().enumerate().map(|(index,(name,args,_))| {
+                json!({"type":"function_call","call_id":format!("call-{index}"),"name":name,"arguments":args.to_string(),"status":"completed"})
+            }).collect()).unwrap(),
+            Protocol::ChatCompletions => {
+                chat_fragment(&mut calls, Value::Array(typed.iter().enumerate().map(|(index,(name,args,_))| {
+                    json!({"index":index,"id":format!("call-{index}"),"type":"function","function":{"name":name,"arguments":args.to_string()}})
+                }).collect()), None).unwrap();
+                chat_stop(&mut calls, "tool_calls").unwrap();
+            }
+            Protocol::Messages => {
+                for (index,(name,args,_)) in typed.iter().enumerate() {
+                    message_block(&mut calls, index, json!({"type":"tool_use","id":format!("call-{index}"),"name":name,"input":args})).unwrap();
+                    message_close(&mut calls, index);
+                }
+                message_finish(&mut calls);
+            }
+            Protocol::Gemini => gemini(&mut calls, typed.iter().enumerate().map(|(index,(name,args,_))| {
+                json!({"functionCall":{"id":format!("call-{index}"),"name":name,"args":args},"thoughtSignature":format!("signature-{index}")})
+            }).collect(), true).unwrap(),
+        }
+        let decoded = calls.finish(true).unwrap();
+        for (index, call) in decoded.iter().enumerate() {
+            assert_eq!(call.tool.kind(), typed[index].2);
+            assert_eq!(call.id, Some(format!("call-{index}")));
+        }
+        let mut body = json!({"input":[],"messages":[],"contents":[]});
+        let results: Vec<_> = (0..typed.len())
+            .map(|index| {
+                json!({
+                    "status":if index == 2 { "refused" } else { "success" },
+                    "path":decoded[index].tool.path(),"message":format!("actual outcome {index}")
+                })
+            })
+            .collect();
+        calls.append_results(&mut body, &results).unwrap();
+        match protocol {
+            Protocol::Responses | Protocol::Codex => {
+                for index in 0..typed.len() {
+                    assert_eq!(
+                        body["input"][index + typed.len()]["call_id"],
+                        format!("call-{index}")
+                    );
+                }
+            }
+            Protocol::ChatCompletions => {
+                for index in 0..typed.len() {
+                    assert_eq!(
+                        body["messages"][index + 1]["tool_call_id"],
+                        format!("call-{index}")
+                    );
+                }
+            }
+            Protocol::Messages => {
+                for index in 0..typed.len() {
+                    assert_eq!(
+                        body["messages"][1]["content"][index]["tool_use_id"],
+                        format!("call-{index}")
+                    );
+                }
+            }
+            Protocol::Gemini => {
+                for (index, (name, _, _)) in typed.iter().enumerate() {
+                    let response = &body["contents"][1]["parts"][index]["functionResponse"];
+                    assert_eq!(response["name"], *name);
+                    assert_eq!(response["id"], format!("call-{index}"));
+                    assert_eq!(
+                        body["contents"][0]["parts"][index]["thoughtSignature"],
+                        format!("signature-{index}")
+                    );
+                }
+            }
+        }
+    }
 }

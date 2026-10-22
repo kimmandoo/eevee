@@ -44,6 +44,8 @@ pub struct Item {
     pub complete: bool,
     /// Shared immutable request ownership; streaming snapshots never copy it.
     pub request: Arc<str>,
+    /// Origin snapshot, never inferred from the currently fronted partner.
+    pub owner: Option<store::Attribution>,
 }
 
 #[derive(Default)]
@@ -137,6 +139,7 @@ pub struct State {
     saved_scroll: u16,
     pub agent: Agent,
     pub operation: Operation,
+    operation_explicit: bool,
     pub edit_paths: Vec<PathBuf>,
     pub paths_editor: Option<Answer>,
     pub switch_to: Option<Agent>,
@@ -242,7 +245,7 @@ impl State {
             authentication_invalidated: false,
             cancel_when_ready: false, quit_after_cancel: false, unknown: false, saved_scroll: 0,
             unknown_effects: false,
-            agent: Agent::Codex, operation: Operation::Plan, edit_paths: Vec::new(),
+            agent: Agent::Codex, operation: Operation::Plan, operation_explicit: false, edit_paths: Vec::new(),
             paths_editor: None, switch_to: None, handoff: None, sessions: HashMap::new(),
             native_histories: HashMap::new(), native_candidate: None,
             native_request_partner: None,
@@ -532,8 +535,37 @@ impl State {
         }
     }
 
+    /// Ordinary coding offers reviewed tools, not a grant to mutate files.
+    /// Explicit role choices always win; unsupported external routes stay Plan.
+    pub fn prepare_ordinary_operation(&mut self, form: usize) {
+        if self.operation_explicit || self.busy() {
+            return;
+        }
+        let operation = match form {
+            3 | 6 => Operation::Implement,
+            7 => Operation::Review,
+            0 if self.agent.is_direct() || matches!(self.agent, Agent::Codex | Agent::Claude) => {
+                Operation::Implement
+            }
+            _ => Operation::Plan,
+        };
+        self.set_operation(operation);
+        self.operation_explicit = false;
+    }
+
+    pub fn select_form_operation(&mut self, form: usize) {
+        if !self.busy() {
+            self.operation_explicit = false;
+            self.prepare_ordinary_operation(form);
+        }
+    }
+
     pub fn set_operation(&mut self, operation: Operation) {
-        if self.operation == operation || self.busy() {
+        if self.busy() {
+            return;
+        }
+        self.operation_explicit = true;
+        if self.operation == operation {
             return;
         }
         self.close_request();
@@ -814,10 +846,25 @@ impl State {
                 });
                 let index = if let Some(index) = position {
                     let item = &mut self.items[index];
+                    let continued = !item.complete
+                        && item.text != text
+                        && matches!(kind, ItemKind::Message | ItemKind::Plan);
                     item.text = text;
                     item.complete = complete;
                     item.kind = kind;
-                    index
+                    if continued && index + 1 < self.items.len() {
+                        let item = self.items.remove(index);
+                        self.items.push(item);
+                        self.response_cache.move_to_end(index);
+                        if self.selected == index {
+                            self.selected = self.items.len() - 1;
+                        } else if self.selected > index {
+                            self.selected -= 1;
+                        }
+                        self.items.len() - 1
+                    } else {
+                        index
+                    }
                 } else {
                     // A replayed observation from an already retained turn
                     // belongs to that turn, not the newly submitted request.
@@ -827,6 +874,11 @@ impl State {
                             .find(|item| item.thread_id == thread_id && item.turn_id == turn_id)
                             .map_or(&self.submitted_request, |item| &item.request),
                     );
+                    let owner = self
+                        .items
+                        .iter()
+                        .find(|item| item.thread_id == thread_id && item.turn_id == turn_id)
+                        .map_or_else(|| self.owner().cloned(), |item| item.owner.clone());
                     if self.items.len() == ITEM_LIMIT {
                         // Keep an explicitly inspected item even when the bounded
                         // display fills; discard the oldest other observation.
@@ -837,7 +889,7 @@ impl State {
                         if self.selected > removed {
                             self.selected -= 1;
                         }
-                        self.response_cache.invalidate();
+                        self.response_cache.remove(removed);
                         self.omitted += 1;
                     }
                     self.items.push(Item {
@@ -848,6 +900,7 @@ impl State {
                         text,
                         complete,
                         request,
+                        owner,
                     });
                     self.items.len() - 1
                 };

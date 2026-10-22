@@ -51,7 +51,7 @@ pub(super) fn file_stamp(file: &File) -> Result<FileStamp, String> {
         .map_err(|_| "Cannot inspect selected file handle")?;
     if !metadata.is_file() || metadata.nlink() != 1 || metadata.len() > MAX_BYTES as u64 {
         return Err(
-            "Selected target must be a regular single-link UTF-8 file at most 12 KiB".into(),
+            "Selected target must be a regular single-link UTF-8 file at most 64 KiB".into(),
         );
     }
     Ok(FileStamp {
@@ -151,6 +151,60 @@ impl Directory {
         }
         directory.verify()?;
         Ok(directory)
+    }
+
+    pub(super) fn names(&self, limit: usize) -> Result<Vec<OsString>, String> {
+        self.verify()?;
+        let descriptor = unsafe {
+            libc::openat(
+                self.0.file.as_raw_fd(),
+                c".".as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if descriptor < 0 {
+            return Err(last_error("Cannot enumerate project directory"));
+        }
+        let stream = unsafe { libc::fdopendir(descriptor) };
+        if stream.is_null() {
+            unsafe { libc::close(descriptor) };
+            return Err(last_error("Cannot enumerate project directory"));
+        }
+        struct Entries(*mut libc::DIR);
+        impl Drop for Entries {
+            fn drop(&mut self) {
+                unsafe { libc::closedir(self.0) };
+            }
+        }
+        let entries = Entries(stream);
+        let mut names = Vec::new();
+        loop {
+            let mut entry = std::mem::MaybeUninit::<libc::dirent>::zeroed();
+            let mut result = std::ptr::null_mut();
+            #[allow(deprecated)]
+            let error = unsafe { libc::readdir_r(entries.0, entry.as_mut_ptr(), &mut result) };
+            if error != 0 {
+                return Err("Project directory enumeration failed".into());
+            }
+            if result.is_null() {
+                break;
+            }
+            let entry = unsafe { entry.assume_init() };
+            let bytes = unsafe { std::ffi::CStr::from_ptr(entry.d_name.as_ptr()) }.to_bytes();
+            if bytes == b"." || bytes == b".." {
+                continue;
+            }
+            if names.len() == limit {
+                return Err(
+                    "Project discovery exceeds 10000 entries; choose a narrower project root"
+                        .into(),
+                );
+            }
+            names.push(OsStr::from_bytes(bytes).to_owned());
+        }
+        self.verify()?;
+        names.sort();
+        Ok(names)
     }
 
     pub(super) fn same_object(&self, other: &Self) -> bool {

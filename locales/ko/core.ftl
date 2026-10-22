@@ -70,10 +70,10 @@ core-help-content =
     { " Enter      요청 전송 / 선택 / 확인" }
     { " Esc        뒤로 (초안 유지)" }
     { " Tab        영역 이동" }
-    { " Wheel      포인터 아래 응답 스크롤" }
-    { " PgUp/PgDn  응답·상세 페이지 이동" }
-    { " Alt+Home/End  응답 처음 / 최신" }
-    { " Alt+Up/Down   이전 / 다음 출력 항목" }
+    { " Wheel      포인터 아래 전체 응답 스크롤" }
+    { " PgUp/PgDn  전체 응답·상세 스크롤" }
+    { " Alt+Home/End  전체 처음 / 최신 따라가기" }
+    { " Alt+Up/Down   이전 / 다음 항목 살펴보기" }
     { " Shift+드래그  터미널 텍스트 선택 (지원 시)" }
     { " Shift+Enter, Ctrl+N  줄바꿈" }
     { " Ctrl+S     초안을 로컬에 저장" }

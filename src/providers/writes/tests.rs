@@ -963,3 +963,303 @@ fn line_ending_review_suffixes_cannot_be_confused_with_literal_file_text() {
     assert!(!first.description().contains('\r'));
     assert!(!second.description().contains('\r'));
 }
+
+fn read_tool(path: &str) -> FileTool {
+    FileTool::Read {
+        path: path.into(),
+        start_line: 1,
+        end_line: 0,
+    }
+}
+
+#[test]
+fn plain_project_discovery_read_generate_and_reviewed_edit_preserve_dirty_crlf() {
+    let project = Project::new();
+    std::fs::create_dir(project.root.join("src")).unwrap();
+    let original = "user dirty header\r\npub fn value() -> i32 { 1 }\r\nunrelated tail\r\n";
+    std::fs::write(project.root.join("src/lib.rs"), original).unwrap();
+    let mut set = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    let names = set
+        .observe_tool(&FileTool::List {
+            query: ".rs".into(),
+            offset: 0,
+        })
+        .unwrap();
+    assert_eq!(names["paths"], json!(["src/lib.rs"]));
+    assert_eq!(names["truncated"], false);
+    let source = set.observe_tool(&read_tool("src/lib.rs")).unwrap();
+    assert_eq!(source["content"], original);
+    assert_eq!(source["bytes"], original.len());
+    assert_eq!(source["start_line"], 1);
+    assert_eq!(source["end_line"], 3);
+    assert_eq!(source["truncated"], false);
+    assert!(set.targets.is_empty());
+    let mut edit = FileTool::Edit {
+        path: "src/lib.rs".into(),
+        sha256: source["sha256"].as_str().unwrap().into(),
+        old_text: "{ 1 }".into(),
+        new_text: "{ 2 }".into(),
+    };
+    set.admit_paths(&[edit.path().into()]).unwrap();
+    let proposal = set.propose_tool(&mut edit).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(project.root.join("src/lib.rs")).unwrap(),
+        original
+    );
+    assert!(proposal.description().contains("[CRLF]"));
+    set.apply(&proposal).unwrap();
+    assert_eq!(
+        std::fs::read(project.root.join("src/lib.rs")).unwrap(),
+        original.replace("{ 1 }", "{ 2 }").as_bytes()
+    );
+    // Derive a new file from the actual read and use the real approved executor.
+    let mut generated = FileTool::Write {
+        path: "generated/example.rs".into(),
+        content: format!(
+            "// generated from source\n{}",
+            source["content"].as_str().unwrap()
+        ),
+    };
+    set.admit_paths(&[generated.path().into()]).unwrap();
+    let creation = set.propose_tool(&mut generated).unwrap();
+    assert!(!project.root.join("generated").exists());
+    set.apply(&creation).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(project.root.join("generated/example.rs")).unwrap(),
+        creation.content
+    );
+    assert_eq!(
+        set.observe_tool(&read_tool("src/lib.rs")).unwrap()["content"],
+        original.replace("{ 1 }", "{ 2 }")
+    );
+}
+
+#[test]
+fn source_reads_are_separate_from_selected_write_authority_and_eight_target_quota() {
+    let project = Project::new();
+    for index in 0..12 {
+        std::fs::write(
+            project.root.join(format!("source-{index}.txt")),
+            format!("context {index}"),
+        )
+        .unwrap();
+    }
+    let mut set = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    for index in 0..12 {
+        set.observe_tool(&read_tool(&format!("source-{index}.txt")))
+            .unwrap();
+    }
+    assert!(set.targets.is_empty());
+    set.admit_paths(
+        &(0..MAX_FILES)
+            .map(|index| format!("new-{index}.txt").into())
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    assert_eq!(set.targets.len(), MAX_FILES);
+    let mut selected = project.capture(&["selected.txt"]);
+    selected.observe_tool(&read_tool("source-0.txt")).unwrap();
+    assert_eq!(selected.targets.len(), 1);
+    assert!(selected.admit_paths(&["source-0.txt".into()]).is_err());
+}
+
+#[test]
+fn stale_and_ambiguous_edits_refuse_before_enrollment_or_effects() {
+    let project = Project::new();
+    std::fs::write(project.root.join("source.txt"), "same same\r\n").unwrap();
+    let mut set = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    let read = set.observe_tool(&read_tool("source.txt")).unwrap();
+    let mut candidate = set.clone();
+    candidate.admit_paths(&["source.txt".into()]).unwrap();
+    let mut edit = FileTool::Edit {
+        path: "source.txt".into(),
+        sha256: read["sha256"].as_str().unwrap().into(),
+        old_text: "same".into(),
+        new_text: "other".into(),
+    };
+    assert!(
+        candidate
+            .propose_tool(&mut edit)
+            .unwrap_err()
+            .contains("exactly once")
+    );
+    if let FileTool::Edit { old_text, .. } = &mut edit {
+        *old_text = "same same".into();
+    }
+    let reviewed = candidate.propose_tool(&mut edit).unwrap();
+    std::fs::write(project.root.join("source.txt"), "concurrent user bytes\r\n").unwrap();
+    assert!(candidate.apply(&reviewed).is_err());
+    assert!(
+        set.admit_paths(&["source.txt".into()])
+            .unwrap_err()
+            .contains("Source changed since read")
+    );
+    assert!(set.targets.is_empty());
+    assert_eq!(
+        std::fs::read(project.root.join("source.txt")).unwrap(),
+        b"concurrent user bytes\r\n"
+    );
+}
+
+#[test]
+fn source_ranges_limits_and_privacy_fail_closed() {
+    let project = Project::new();
+    std::fs::write(project.root.join("safe.txt"), "first\r\nsecond\r\nthird").unwrap();
+    std::fs::write(project.root.join(".env"), "sensitive").unwrap();
+    std::fs::create_dir(&project.data).unwrap();
+    std::fs::write(project.data.join("private.txt"), "private").unwrap();
+    std::fs::create_dir(project.root.join("excluded")).unwrap();
+    std::fs::write(project.root.join("excluded/context.txt"), "excluded").unwrap();
+    std::fs::write(project.root.join("large.txt"), "x".repeat(MAX_BYTES + 1)).unwrap();
+    std::fs::write(project.root.join("token.txt"), "password=private-value").unwrap();
+    let mut set =
+        WriteSet::capture_workspace(&project.root, &project.data, &["excluded".into()]).unwrap();
+    for path in [
+        ".env",
+        "own-data/private.txt",
+        "excluded/context.txt",
+        "../outside",
+        "/outside",
+        "large.txt",
+        "token.txt",
+        "./safe.txt",
+    ] {
+        assert!(
+            set.observe_tool(&read_tool(path)).is_err(),
+            "accepted {path}"
+        );
+    }
+    let range = set
+        .observe_tool(&FileTool::Read {
+            path: "safe.txt".into(),
+            start_line: 2,
+            end_line: 2,
+        })
+        .unwrap();
+    assert_eq!(range["content"], "second\r\n");
+    assert_eq!(range["total_lines"], 3);
+    assert_eq!(range["truncated"], true);
+    assert!(
+        set.observe_tool(&FileTool::Read {
+            path: "safe.txt".into(),
+            start_line: 1,
+            end_line: 4
+        })
+        .is_err()
+    );
+    let names = set
+        .observe_tool(&FileTool::List {
+            query: "".into(),
+            offset: 0,
+        })
+        .unwrap();
+    let paths = names["paths"].as_array().unwrap();
+    assert!(!paths.iter().any(|path| path == ".env"
+        || path == "own-data/private.txt"
+        || path == "excluded/context.txt"
+        || path == "large.txt"));
+}
+
+#[cfg(unix)]
+#[test]
+fn source_tools_never_follow_file_directory_or_hard_links() {
+    let project = Project::new();
+    std::fs::write(project.root.join("original.txt"), "bytes").unwrap();
+    std::fs::hard_link(
+        project.root.join("original.txt"),
+        project.root.join("hard.txt"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink("original.txt", project.root.join("alias.txt")).unwrap();
+    std::fs::create_dir(project.root.join("real")).unwrap();
+    std::fs::write(project.root.join("real/file.txt"), "safe").unwrap();
+    std::os::unix::fs::symlink("real", project.root.join("alias-dir")).unwrap();
+    let mut set = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    for path in [
+        "original.txt",
+        "hard.txt",
+        "alias.txt",
+        "alias-dir/file.txt",
+    ] {
+        assert!(set.observe_tool(&read_tool(path)).is_err());
+    }
+    let names = set
+        .observe_tool(&FileTool::List {
+            query: "".into(),
+            offset: 0,
+        })
+        .unwrap();
+    assert_eq!(names["paths"], json!(["real/file.txt"]));
+}
+
+#[test]
+fn normalized_privacy_aliases_never_enter_source_reads_or_discovery() {
+    let project = Project::new();
+    let protected = project.root.join("café");
+    std::fs::create_dir(&protected).unwrap();
+    std::fs::write(protected.join("private.txt"), "private project state").unwrap();
+    std::fs::create_dir(project.root.join("éxcluded")).unwrap();
+    std::fs::write(project.root.join("éxcluded/source.txt"), "excluded bytes").unwrap();
+    std::fs::write(project.root.join("public.txt"), "visible bytes").unwrap();
+    let mut set =
+        WriteSet::capture_workspace(&project.root, &protected, &["éxcluded".into()]).unwrap();
+    for path in [
+        "café/private.txt",
+        "cafe\u{301}/private.txt",
+        "éxcluded/source.txt",
+        "e\u{301}xcluded/source.txt",
+    ] {
+        assert!(
+            set.observe_tool(&read_tool(path)).is_err(),
+            "accepted {path}"
+        );
+    }
+    let names = set
+        .observe_tool(&FileTool::List {
+            query: "".into(),
+            offset: 0,
+        })
+        .unwrap();
+    assert_eq!(names["paths"], json!(["public.txt"]));
+}
+
+#[test]
+fn git_inventory_keeps_native_unicode_spelling_for_generated_sources() {
+    let project = Project::new();
+    for args in [
+        &["init", "-q"][..],
+        &["config", "core.precomposeunicode", "true"][..],
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(&project.root)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+    }
+    let path = "generated/cafe\u{301}.py";
+    std::fs::create_dir(project.root.join("generated")).unwrap();
+    std::fs::write(project.root.join(path), "value = 1\r\n").unwrap();
+    std::fs::write(project.root.join(".gitignore"), "ignored.txt\n").unwrap();
+    std::fs::write(project.root.join("ignored.txt"), "ignored bytes").unwrap();
+    let mut set = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    let read = set.observe_tool(&read_tool(path)).unwrap();
+    assert_eq!(read["content"], "value = 1\r\n");
+    let names = set
+        .observe_tool(&FileTool::List {
+            query: "generated".into(),
+            offset: 0,
+        })
+        .unwrap();
+    assert!(
+        names["paths"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|name| name == path)
+    );
+    assert!(set.observe_tool(&read_tool("ignored.txt")).is_err());
+}

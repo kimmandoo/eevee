@@ -426,6 +426,10 @@ def main():
                     if "y Run" in session.display() and not approved_connection:
                         session.send("y")
                         approved_connection = True
+                    elif "Applied reviewed" in session.display():
+                        # Compact follow shows the actual tail, not the earlier criteria.
+                        # Inspect preceding text instead of requiring it in the last page.
+                        session.send(ESC + "[5~")
                     else:
                         session.pump(.05)
                 session.command("decision")

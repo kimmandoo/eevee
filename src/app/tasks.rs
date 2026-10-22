@@ -410,13 +410,7 @@ impl App {
             execution::Action::SelectForm(index) => {
                 if self.form() != index {
                     self.set_form(index);
-                    if index == 3 || index == 4 {
-                        self.planning.set_operation(if index == 3 {
-                            crate::providers::Operation::Implement
-                        } else {
-                            crate::providers::Operation::Plan
-                        });
-                    }
+                    self.planning.select_form_operation(index);
                     self.changed_task();
                 }
                 if index == 0 {

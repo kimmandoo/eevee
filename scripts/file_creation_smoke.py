@@ -81,6 +81,12 @@ class Gate:
         return True
 
 
+def tool_arguments(call):
+    if 'arguments' in call:
+        return call['arguments']
+    return {'path': call['path'], 'content': call['content']}
+
+
 def response_plan(peer, *, calls=(), text='', number=0, gate=None):
     """Produce real terminal SSE, with no provider response ID on purpose."""
     protocol = peer.protocol
@@ -100,8 +106,8 @@ def response_plan(peer, *, calls=(), text='', number=0, gate=None):
                     emit({'type': 'response.output_text.delta', 'delta': text})
                     output.append({'type': 'message', 'role': 'assistant', 'content': [
                         {'type': 'output_text', 'text': text}]})
-                for index, call in enumerate(calls):
-                    args = json.dumps({'path': call['path'], 'content': call['content']})
+                for index, call in enumerate(calls, int(bool(text))):
+                    args = json.dumps(tool_arguments(call))
                     item = {'type': 'function_call', 'id': 'item-' + call['id'],
                             'call_id': call['id'], 'name': call.get('name', TOOL), 'arguments': ''}
                     emit({'type': 'response.output_item.added', 'output_index': index, 'item': item})
@@ -123,7 +129,7 @@ def response_plan(peer, *, calls=(), text='', number=0, gate=None):
                     emit({'model': MODEL, 'choices': [{'index': 0, 'delta': {'content': text},
                                                        'finish_reason': None}]})
                 for index, call in enumerate(calls):
-                    args = json.dumps({'path': call['path'], 'content': call['content']})
+                    args = json.dumps(tool_arguments(call))
                     emit({'model': MODEL, 'choices': [{'index': 0, 'delta': {'tool_calls': [
                         {'index': index, 'id': call['id'], 'type': 'function',
                          'function': {'name': call.get('name', TOOL), 'arguments': ''}}]},
@@ -157,7 +163,7 @@ def response_plan(peer, *, calls=(), text='', number=0, gate=None):
                     emit({'type': 'content_block_start', 'index': index, 'content_block': {
                         'type': 'tool_use', 'id': call['id'], 'name': call.get('name', TOOL),
                         'input': {}}}, 'content_block_start')
-                    args = json.dumps({'path': call['path'], 'content': call['content']})
+                    args = json.dumps(tool_arguments(call))
                     for fragment in pieces(args):
                         emit({'type': 'content_block_delta', 'index': index,
                               'delta': {'type': 'input_json_delta', 'partial_json': fragment}},
@@ -172,7 +178,7 @@ def response_plan(peer, *, calls=(), text='', number=0, gate=None):
             else:
                 parts = ([{'text': text}] if text else []) + [
                     {'functionCall': {'id': call['id'], 'name': call.get('name', TOOL),
-                                      'args': {'path': call['path'], 'content': call['content']}},
+                                      'args': tool_arguments(call)},
                      'thoughtSignature': SIGNATURE}
                     for call in calls]
                 emit({'modelVersion': MODEL, 'candidates': [{'index': 0,
@@ -252,10 +258,6 @@ class CreationJourney(SurfaceJourney):
             session.send('\t')
         self.choose_saved_model(metadata)
         assert len(self.peer.snapshot('POST')) == before
-        self.session.command('flareon')
-        self.workspace()
-        self.session.command('role-implement')
-        self.workspace()
 
     def paths(self, paths):
         before = self.snapshot()
@@ -346,7 +348,8 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
             calls = [{'id': 'create-first', 'path': FIRST, 'content': CONTENT},
                      {'id': 'create-empty', 'path': EMPTY, 'content': ''},
                      {'id': 'create-large', 'path': LARGE, 'content': LARGE_CONTENT}]
-            first = journey.begin(request, [response_plan(peer, calls=calls, gate=gate),
+            intro = 'Preparing the requested project files.'
+            first = journey.begin(request, [response_plan(peer, calls=calls, text=intro, gate=gate),
                                             response_plan(peer, text=CREATED, number=1)])
             until(journey.session, gate.ready.is_set, 'fragmented tool round did not reach terminal gate')
             assert not (journey.project / FIRST).parent.exists(), 'stream fragments created a parent directory'
@@ -384,13 +387,40 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
             assert journey.receipts() == 1, 'tool continuation authored another request receipt'
             result['cases'].append('no-preselection empty-project generation; nested Unicode/CRLF/large/empty files; terminal-only exact approvals; shared parents; distinct round usage')
 
+            inspect_request = 'List the project files, read the generated Python source, and edit only its value using the observed digest.'
+            edited_answer = 'The observed source was edited.'
+            edited_content = CONTENT.replace('"public fixture"', '"edited fixture"')
+            before = journey.begin(inspect_request, [
+                response_plan(peer, calls=[{'id': 'discover-source', 'name': 'eevee_list_files',
+                    'arguments': {'query': 'generated', 'offset': 0}}], number=4),
+                response_plan(peer, calls=[{'id': 'read-source', 'name': 'eevee_read_file',
+                    'arguments': {'path': FIRST, 'start_line': 1, 'end_line': 0}}], number=5),
+                response_plan(peer, calls=[{'id': 'edit-source', 'name': 'eevee_edit_file',
+                    'arguments': {'path': FIRST, 'sha256': hashlib.sha256(CONTENT.encode()).hexdigest(),
+                                  'old_text': '"public fixture"', 'new_text': '"edited fixture"'}}], number=6),
+                response_plan(peer, text=edited_answer, number=7)])
+            until(journey.session, lambda: len(peer.snapshot('POST')) == before + 3,
+                  'project discovery and source reading did not continue to an edit proposal')
+            assert (journey.project / FIRST).read_bytes() == CONTENT.encode(), 'reading or proposing edited the source'
+            listed = json.dumps(tool_results(protocol, peer.snapshot('POST')[before + 1]['body']), ensure_ascii=False)
+            assert normalized(FIRST) in normalized(listed), 'non-Git discovery omitted the generated file'
+            observed = json.dumps(tool_results(protocol, peer.snapshot('POST')[before + 2]['body']), ensure_ascii=False)
+            assert hashlib.sha256(CONTENT.encode()).hexdigest() in observed, 'read result did not contain the actual source digest'
+            assert 'public fixture' in observed, 'read result did not contain the actual working code'
+            journey.permission(FIRST, allow=True, kind='Replace')
+            journey.settled(edited_answer, before + 4)
+            assert (journey.project / FIRST).read_bytes() == edited_content.encode(), 'hash-bound exact edit lost unrelated bytes or CRLF'
+            result['cases'].append('ordinary non-Git list/read/unique hash-bound edit loop preserves unrelated bytes and requires exact replacement approval')
+
             journey.paths([FIRST])
             next_request = 'Replace only the selected file with the second reviewed fixture content.'
             before = journey.begin(next_request, [response_plan(peer, calls=[
                 {'id': 'replace-first', 'path': FIRST, 'content': REPLACEMENT}], number=2),
                 response_plan(peer, text=REPLACED, number=3)])
             _, history = decoded_payload(protocol, peer.snapshot('POST')[before]['body'])
-            assert history == [('user', request), ('assistant', CREATED), ('user', next_request)], history
+            assert history == [('user', request), ('assistant', intro + '\n\n' + CREATED),
+                               ('user', inspect_request), ('assistant', edited_answer),
+                               ('user', next_request)], history
             journey.permission(FIRST, allow=True, kind='Replace')
             journey.settled(REPLACED, before + 2)
             assert (journey.project / FIRST).read_bytes() == REPLACEMENT.encode()
@@ -527,9 +557,7 @@ def codex_case(binary, output, size, language):
     try:
         journey = CodexCreationJourney(binary, output, size, language)
         journey.setup(count=1)
-        journey.session.command('flareon')
-        journey.workspace()
-        journey.session.command('role-implement')
+        journey.session.command('eevee')
         journey.workspace()
         assert not (journey.project / FIRST).parent.exists()
         before_original = journey.source.read_bytes()
@@ -554,8 +582,41 @@ def codex_case(binary, output, size, language):
                 assert not (journey.project / FIRST).parent.exists(), 'controlled denial created a parent'
             journey.finish(marker)
             journey.until(lambda: not journey.claims(), 'controlled creation ownership did not settle')
+            journey.workspace()
+            journey.until(lambda: 'Completed ' + marker in journey.session.display(),
+                          'controlled final answer was hidden behind earlier tool observations')
             assert journey.source.read_bytes() == before_original, 'new-file tool modified an unrelated existing file'
             result['cases'].append('controlled exact new-file ' + ('allow' if allow else 'neutral denial'))
+        marker = 'COOP_SOURCE_CHAIN'
+        journey.request(1, marker)
+        journey.publish(marker + '.prompt', json.dumps([
+            {'name': 'eevee_list_files', 'arguments': {'query': 'generated', 'offset': 0}},
+            {'name': 'eevee_read_file', 'arguments': {'path': FIRST, 'start_line': 1, 'end_line': 0}},
+            {'name': 'eevee_edit_file', 'arguments': {'path': FIRST,
+                'sha256': hashlib.sha256(CONTENT.encode()).hexdigest(),
+                'old_text': '"public fixture"', 'new_text': '"edited fixture"'}}]))
+        journey.until(lambda: len(journey.peers('prompt', marker)) == 3,
+                      'controlled source tools did not continue from discovery/read to edit')
+        answers = journey.peers('answer', marker)
+        assert len(answers) == 2 and all(row['result']['success'] for row in answers), answers
+        assert 'public fixture' in json.dumps(answers[1]), 'controlled read did not return real source bytes'
+        assert hashlib.sha256(CONTENT.encode()).hexdigest() in json.dumps(answers[1]), 'controlled read omitted source digest'
+        assert (journey.project / FIRST).read_bytes() == CONTENT.encode(), 'controlled observation changed source'
+        journey.session.command('approvals')
+        journey.until(lambda: normalized(FIRST) in journey.session.display()
+                      and any(value in journey.session.display() for value in ('Allow once', '한 번', '1회')),
+                      'controlled exact edit permission')
+        journey.session.send('a')
+        journey.until(lambda: len(journey.peers('answer', marker)) == 3, 'controlled edit did not return its result')
+        assert journey.peers('answer', marker)[-1]['result']['success'] is True
+        assert (journey.project / FIRST).read_bytes() == CONTENT.replace('"public fixture"', '"edited fixture"').encode()
+        assert journey.source.read_bytes() == before_original, 'controlled edit changed unrelated dirty content'
+        journey.finish(marker)
+        journey.until(lambda: not journey.claims(), 'controlled source tool ownership did not settle')
+        journey.workspace()
+        journey.until(lambda: 'Completed ' + marker in journey.session.display(),
+                      'controlled final source answer was hidden behind tool observations')
+        result['cases'].append('ordinary controlled discovery/read/hash-bound edit with real CRLF bytes and one-shot consent')
         journey.quit()
         result['status'] = 'passed'
     except Exception as error:

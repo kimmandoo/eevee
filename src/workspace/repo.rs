@@ -1184,6 +1184,43 @@ pub(crate) fn source_visible(
     Ok(complete_records(&captured.bytes).any(|record| record == path.as_bytes()))
 }
 
+/// Bounded nonignored filenames for controlled source tools. Plain directories
+/// have no Git policy; repository failures never silently disable that policy.
+pub(crate) fn source_paths(
+    root: &Path,
+    stopped: &AtomicBool,
+) -> Result<Option<BTreeSet<PathBuf>>, String> {
+    if !root
+        .ancestors()
+        .any(|ancestor| fs::symlink_metadata(ancestor.join(".git")).is_ok())
+    {
+        return Ok(None);
+    }
+    let git = Git::new(root, stopped, Instant::now() + COMMAND_TIMEOUT)?;
+    let output = git.required(
+        &[
+            "-c",
+            "core.precomposeunicode=false",
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            ".",
+        ],
+        None,
+        512 * 1024,
+    )?;
+    if output.truncated {
+        return Err("Source filename inventory exceeds 512 KiB; select a smaller project".into());
+    }
+    complete_records(&output.bytes)
+        .map(relative_path)
+        .collect::<Result<BTreeSet<_>, _>>()
+        .map(Some)
+}
+
 fn source_path(relative: &Path) -> Result<&str, String> {
     let path = relative.to_str().ok_or("Source path is not Unicode")?;
     if path.is_empty()

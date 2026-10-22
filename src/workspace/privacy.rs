@@ -10,24 +10,33 @@ const REPLACEMENT: &str = "[REDACTED]";
 /// the same redactor. An unfinished PEM header is held even across whitespace,
 /// because a later `PRIVATE KEY-----` can classify the entire header as secret.
 pub fn redact_stream(text: &str, complete: bool) -> Cow<'_, str> {
-    if complete {
-        return redact(text);
-    }
-    // These boundaries survive every provider's display normalization. Unicode
-    // whitespace is deliberately excluded: it can still be URL userinfo before @.
-    let mut end = text.rfind([' ', '\t', '\n']).map_or(0, |index| index + 1);
-    let prefix = &text[..end];
-    for (start, rest) in prefix.match_indices("-----BEGIN ") {
-        if !prefix[start + rest.len()..].contains("-----") {
-            end = start;
-            break;
+    redact_stream_from(text, complete, 0)
+}
+
+/// Projects a chronological segment while retaining all earlier credential
+/// context. `from` is a trusted UTF-8 boundary in the cumulative response.
+pub(crate) fn redact_stream_from(text: &str, complete: bool, from: usize) -> Cow<'_, str> {
+    let mut end = text.len();
+    if !complete {
+        // Unicode whitespace can still be URL userinfo before @.
+        end = text.rfind([' ', '\t', '\n']).map_or(0, |index| index + 1);
+        let prefix = &text[..end];
+        for (start, rest) in prefix.match_indices("-----BEGIN ") {
+            if !prefix[start + rest.len()..].contains("-----") {
+                end = start;
+                break;
+            }
         }
     }
-    redact(&text[..end])
+    redact_from(&text[..end], from.min(end))
 }
 
 /// Redacts recognizable credentials without allocating for unchanged text.
 pub fn redact(text: &str) -> Cow<'_, str> {
+    redact_from(text, 0)
+}
+
+fn redact_from(text: &str, from: usize) -> Cow<'_, str> {
     let mut ranges = Vec::new();
     let bytes = text.as_bytes();
     let mut i = 0;
@@ -146,16 +155,16 @@ pub fn redact(text: &str) -> Cow<'_, str> {
         }
         i += text[i..].chars().next().unwrap().len_utf8();
     }
-    if ranges.is_empty() {
-        return Cow::Borrowed(text);
+    if ranges.iter().all(|&(_, end)| end <= from) {
+        return Cow::Borrowed(&text[from..]);
     }
-    let mut output = String::with_capacity(text.len());
-    let mut previous = 0;
+    let mut output = String::with_capacity(text.len() - from);
+    let mut previous = from;
     for (start, end) in ranges {
-        if start < previous {
+        if end <= previous {
             continue;
         }
-        output.push_str(&text[previous..start]);
+        output.push_str(&text[previous..start.max(previous)]);
         output.push_str(REPLACEMENT);
         previous = end;
     }

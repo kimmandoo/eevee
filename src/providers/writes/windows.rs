@@ -18,11 +18,13 @@ use windows_sys::Win32::Storage::FileSystem::{
     BY_HANDLE_FILE_INFORMATION, DELETE, FILE_ATTRIBUTE_DEVICE, FILE_ATTRIBUTE_DIRECTORY,
     FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT, FILE_BASIC_INFO, FILE_CASE_SENSITIVE_INFO,
     FILE_DISPOSITION_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-    FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_ID_INFO, FILE_LIST_DIRECTORY, FILE_NAME_NORMALIZED,
-    FILE_READ_ATTRIBUTES, FILE_RENAME_INFO, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    FILE_TRAVERSE, FILE_TYPE_DISK, FileBasicInfo, FileCaseSensitiveInfo, FileDispositionInfo,
-    FileIdInfo, GetFileInformationByHandle, GetFileInformationByHandleEx, GetFileType,
-    GetFinalPathNameByHandleW, SYNCHRONIZE, SetFileInformationByHandle, VOLUME_NAME_DOS,
+    FILE_FULL_DIR_INFO, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_ID_INFO, FILE_LIST_DIRECTORY,
+    FILE_NAME_NORMALIZED, FILE_READ_ATTRIBUTES, FILE_RENAME_INFO, FILE_SHARE_DELETE,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, FILE_TYPE_DISK, FileBasicInfo,
+    FileCaseSensitiveInfo, FileDispositionInfo, FileFullDirectoryInfo,
+    FileFullDirectoryRestartInfo, FileIdInfo, GetFileInformationByHandle,
+    GetFileInformationByHandleEx, GetFileType, GetFinalPathNameByHandleW, SYNCHRONIZE,
+    SetFileInformationByHandle, VOLUME_NAME_DOS,
 };
 
 // These NT entry points provide the directory-relative exclusive create that
@@ -429,6 +431,69 @@ impl Directory {
             return Err("Windows write root is not canonical.".into());
         }
         Ok(directory)
+    }
+
+    pub(super) fn names(&self, limit: usize) -> Result<Vec<OsString>, String> {
+        self.verify()?;
+        // Native handle enumeration never re-traverses a substituted pathname.
+        let mut buffer = [0u64; 8192];
+        let mut restart = true;
+        let mut names = Vec::new();
+        loop {
+            let class = if restart {
+                FileFullDirectoryRestartInfo
+            } else {
+                FileFullDirectoryInfo
+            };
+            let ok = unsafe {
+                GetFileInformationByHandleEx(
+                    self.node.file.as_raw_handle(),
+                    class,
+                    buffer.as_mut_ptr().cast(),
+                    std::mem::size_of_val(&buffer) as u32,
+                )
+            };
+            if ok == 0 {
+                if io::Error::last_os_error().raw_os_error() == Some(18) {
+                    break;
+                }
+                return Err("Project directory enumeration failed".into());
+            }
+            restart = false;
+            let mut offset = 0usize;
+            loop {
+                let base = buffer.as_ptr().cast::<u8>();
+                let info = unsafe { &*base.add(offset).cast::<FILE_FULL_DIR_INFO>() };
+                let start = offset + offset_of!(FILE_FULL_DIR_INFO, FileName);
+                let bytes = info.FileNameLength as usize;
+                if bytes % 2 != 0 || start + bytes > std::mem::size_of_val(&buffer) {
+                    return Err("Invalid native project directory entry".into());
+                }
+                let wide =
+                    unsafe { std::slice::from_raw_parts(base.add(start).cast::<u16>(), bytes / 2) };
+                let name = OsString::from_wide(wide);
+                if name != "." && name != ".." {
+                    if names.len() == limit {
+                        return Err("Project discovery exceeds 10000 entries; choose a narrower project root".into());
+                    }
+                    names.push(name);
+                }
+                if info.NextEntryOffset == 0 {
+                    break;
+                }
+                let next = offset + info.NextEntryOffset as usize;
+                if next <= offset
+                    || next + size_of::<FILE_FULL_DIR_INFO>() > std::mem::size_of_val(&buffer)
+                    || next % std::mem::align_of::<FILE_FULL_DIR_INFO>() != 0
+                {
+                    return Err("Invalid native project directory entry offset".into());
+                }
+                offset = next;
+            }
+        }
+        self.verify()?;
+        names.sort();
+        Ok(names)
     }
 
     pub(super) fn same_object(&self, other: &Self) -> bool {

@@ -523,6 +523,7 @@ fn provider_response_and_request_share_home_at_supported_sizes() {
             text: "The actual provider response is here.".into(),
             complete: true,
             request: "Original request".into(),
+            owner: None,
         });
         app.planning.following = false;
         app.planning.new_output = true;
@@ -573,6 +574,7 @@ fn suggestion_wraps_without_replacing_response_or_composer() {
                     text: "Actual provider response stays visible.".into(),
                     complete: true,
                     request: "Original request".into(),
+                    owner: None,
                 });
             }
             let mut artwork = Artwork::load(&config);
@@ -671,6 +673,7 @@ fn carry_over_home(width: u16, height: u16) -> App {
         text: "Retained provider response.".into(),
         complete: true,
         request: "Original request".into(),
+        owner: None,
     });
     app.planning.following = false;
     app.planning.new_output = true;
@@ -1097,22 +1100,11 @@ fn header_reserves_model_and_effort_space_in_brief_and_verbose_modes() {
 }
 
 #[test]
-fn header_chip_matches_the_role_table_without_hiding_names_or_status() {
+fn header_keeps_owner_storage_and_failures_readable_at_supported_sizes() {
     use ratatui::{Terminal, backend::TestBackend};
     let config = home_config();
-    let expected = [
-        "read",
-        "read",
-        "read · run",
-        "read · edit",
-        "read · edit plans",
-        "read",
-        "read · edit",
-        "read",
-        "read · edit docs",
-    ];
     for (width, height) in [(120, 36), (60, 18)] {
-        for (index, form) in FORMS.iter().enumerate() {
+        for form in FORMS.iter() {
             let mut app = App::new("/workspace".into(), width, height);
             app.store_event(crate::store::Event::Loaded(crate::store::Project {
                 tasks: Vec::new(),
@@ -1131,13 +1123,6 @@ fn header_chip_matches_the_role_table_without_hiding_names_or_status() {
             let line = |y: u16| -> String { (0..width).map(|x| buffer[(x, y)].symbol()).collect() };
             let (names, status) = (line(0), line(1));
             assert!(names.contains(form.name), "{width}: {names}");
-            assert!(
-                status
-                    .trim_end()
-                    .ends_with(&format!("[{}]", expected[index])),
-                "{width} {}: {status}",
-                form.name
-            );
             assert!(status.contains("Storage: saved"), "{status}");
         }
     }

@@ -121,7 +121,7 @@ providers-planning-immutable-request-unavailable-inspect-exact-payload-details =
 
 providers-planning-eevee-sends-the-exact-http-payload-below =
     { "" }
-    { "Eevee는 제한된 인증 헤더로 아래의 정확한 최초 HTTP 페이로드를 보냅니다. Implement는 작업공간의 새/기존 경로에 제한된 파일 제안 도구를 제공합니다. /paths로 정확한 대상을 선택적으로 제한하며 []로 제한을 해제합니다. 정확한 변경과 새 상위 디렉터리마다 별도의 일회성 승인이 필요합니다. 네이티브/Codex는 최대 8개 파일, 파일당 64 KiB이며 SDK는 별도로 최대 256개 파일, 파일당 256 KiB입니다. Plan, Review, 메타데이터에는 쓰기를 제공하지 않습니다. 셸, 프로젝트 훅/MCP, 암묵적 소스 읽기는 없습니다. 범용 OS 샌드박스가 아닙니다. 인증, 요금, 보관, 내부 동작은 서비스가 관리합니다. 취소는 원격 중단을 보장하지 않으며 자동 재시도하지 않습니다." }
+    { "Eevee는 제한된 인증 헤더로 아래의 정확한 최초 HTTP 페이로드를 보냅니다. 코딩 도구는 안전 범위 안의 프로젝트 파일을 제한적으로 탐색하고 읽을 수 있습니다. 실제 변경에는 정확한 내용과 상위 폴더에 대한 별도의 일회성 승인이 필요합니다. /paths는 쓰기 대상만 제한하며 []는 그 제한만 해제합니다. 네이티브/Codex는 최대 8개 파일·파일당 64 KiB, SDK는 별도로 256개 파일·파일당 256 KiB입니다. 명시적으로 선택한 Plan/Review와 메타데이터는 쓰기 금지입니다. 프로젝트 전체 자동 업로드, 셸, 훅/MCP, 코드 자동 실행은 없습니다. 범용 OS 샌드박스가 아닙니다. 인증·요금·보관·내부 동작은 서비스가 관리하며 취소는 원격 중단을 보장하지 않습니다. 자동 재시도하지 않습니다." }
     { "" }
 
 providers-planning-eevee-sends-the-exact-payload-below-it =
@@ -214,7 +214,7 @@ providers-planning-enter-sends-an-independent-review-request-no = { "Enter로 �
 
 providers-planning-type-a-request-below-enter-sends-commands = { "아래에 요청을 입력하세요. Enter로 전송하며 명령 실행과 파일 변경은 별도 승인이 필요합니다." }
 
-providers-planning-wheel-pgup-dn-alt-up-down-item = { "Wheel/PgUp/Dn 스크롤 | Alt+Up/Down 항목 | Alt+Home 맨 위" }
+providers-planning-wheel-pgup-dn-alt-up-down-item = { "Wheel/PgUp/Dn 전체 | Alt+Up/Down 살펴보기 | Alt+Home 맨 위" }
 
 providers-planning-decision-reviews-a-complete-proposal-locally = { "/decision 완성된 제안을 로컬에서 검토" }
 
@@ -579,6 +579,10 @@ providers-planning-candidate-default-uses-provider-configuration =
 providers-planning-earlier-items-omitted-decision-reviews-a-complete = { "이전 항목 " }{ $count }{ "개 생략 · /decision 완성된 제안 검토" }
 
 providers-planning-start-end-total-alt-end-latest = { $status }{ $new }{ " " }{ $start }{ "-" }{ $end }{ "/" }{ $total }{ " | Alt+End 최신" }
+
+providers-planning-transcript-segment =
+    { $kind }{ " · " }{ $owner }{ " · " }{ $item }
+    { "요청: " }{ $request }
 
 providers-planning-secret-answers-hidden-in-review = { "검토에서 비밀 답변 " }{ $count }{ "개를 숨깁니다." }
 

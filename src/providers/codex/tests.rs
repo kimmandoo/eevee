@@ -1567,3 +1567,54 @@ fn usage_predispatch_baseline_refresh_is_exact_and_freezes_at_submission() {
     assert_eq!(session.attributable.output, None);
     assert_eq!(session.attributable.reasoning, None);
 }
+
+#[cfg(unix)]
+#[test]
+fn controlled_dynamic_tools_discover_read_edit_and_create_using_real_executor() {
+    let fixture = WriteFixture::new();
+    std::fs::write(
+        fixture.root.join("existing.rs"),
+        "// dirty\r\nfn old() {}\r\n",
+    )
+    .unwrap();
+    let mut writes = WriteSet::capture_workspace(&fixture.root, &fixture.data, &[]).unwrap();
+    let list =
+        requested_tool(&json!({"tool":"eevee_list_files","arguments":{"query":".rs","offset":0}}))
+            .unwrap();
+    assert_eq!(
+        writes.observe_tool(&list).unwrap()["paths"],
+        json!(["existing.rs"])
+    );
+    assert_eq!(writes.payload(&[]), json!([]));
+    let read = requested_tool(&json!({"tool":"eevee_read_file","arguments":{"path":"existing.rs","start_line":1,"end_line":0}})).unwrap();
+    let observed = writes.observe_tool(&read).unwrap();
+    assert_eq!(observed["content"], "// dirty\r\nfn old() {}\r\n");
+    let edit = proposed_write(&mut writes, &json!({"tool":"eevee_edit_file","arguments":{
+        "path":"existing.rs","sha256":observed["sha256"],"old_text":"fn old()","new_text":"fn new()"
+    }})).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("existing.rs")).unwrap(),
+        "// dirty\r\nfn old() {}\r\n"
+    );
+    writes.apply(&edit).unwrap();
+    assert_eq!(
+        std::fs::read(fixture.root.join("existing.rs")).unwrap(),
+        b"// dirty\r\nfn new() {}\r\n"
+    );
+    let created = proposed_write(&mut writes, &json!({"tool":TOOL_NAME,"arguments":{
+        "path":"new/generated.rs","content":format!("// derived from {} lines\nfn generated() {{}}\n", observed["total_lines"])
+    }})).unwrap();
+    writes.apply(&created).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("new/generated.rs")).unwrap(),
+        created.content
+    );
+    assert!(
+        requested_tool(
+            &json!({"tool":"eevee_read_file","namespace":"external","arguments":{
+                "path":"existing.rs","start_line":1,"end_line":0
+            }})
+        )
+        .is_err()
+    );
+}

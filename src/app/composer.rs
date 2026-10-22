@@ -84,6 +84,7 @@ impl App {
             self.notice = "Restore this task before preparing a request.".into();
             return true;
         }
+        self.planning.prepare_ordinary_operation(self.form());
         if self.goal.trim().is_empty() {
             self.goal.clone_from(&self.input);
         }

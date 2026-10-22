@@ -1,131 +1,296 @@
-use std::{fmt::Write, ops::Range};
+use std::{fmt::Write, ops::Range, sync::Arc};
 
 use ratatui::text::Span;
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::{Item, ItemKind, State};
+use crate::i18n::{Language, Message, Template};
 
-/// Byte ranges borrow the selected item at render time. Reflow only on an
-/// observed item update, selection change or resize, never on spinner ticks.
+#[derive(Clone, PartialEq, Eq)]
+struct Identity(String, String, String);
+
+struct Row {
+    range: Range<usize>,
+    header: bool,
+}
+
+struct Segment {
+    identity: Arc<Identity>,
+    valid: bool,
+    header: String,
+    header_valid: bool,
+    kind: ItemKind,
+    rows: Vec<Row>,
+    start: usize,
+}
+
+struct Anchor {
+    identity: Arc<Identity>,
+    byte: usize,
+    header: bool,
+}
+
+/// One bounded transcript; text rows borrow their original observations. Only
+/// changed segments reflow, while anchors use identity/bytes rather than indices.
 #[derive(Default)]
 pub(super) struct Layout {
-    valid: bool,
-    selected: usize,
+    segments: Vec<Segment>,
     width: u16,
-    rows: Vec<Range<usize>>,
     verbose: bool,
-    annotated: String,
-    identity: Option<(String, String, String)>,
-    /// Byte position in the rendered text, independent of display-row reflow.
-    anchor: Option<usize>,
-    prefix_bytes: usize,
+    attributed: bool,
+    language: Option<Language>,
+    anchor: Option<Anchor>,
+    total: usize,
+}
+
+fn wrap(rows: &mut Vec<Row>, text: &str, width: usize, header: bool) {
+    let mut base = 0;
+    for line in text.split_terminator('\n') {
+        let mut start = 0;
+        let mut used = 0;
+        let mut word_break = None;
+        let mut cursor = 0;
+        while cursor < line.len() {
+            let grapheme = line[cursor..]
+                .graphemes(true)
+                .next()
+                .expect("remaining grapheme");
+            let size = Span::raw(grapheme).width();
+            if used + size > width && cursor > start {
+                let end = word_break.filter(|end| *end > start).unwrap_or(cursor);
+                rows.push(Row {
+                    range: base + start..base + end,
+                    header,
+                });
+                start = end;
+                cursor = end;
+                used = 0;
+                word_break = None;
+                continue;
+            }
+            cursor += grapheme.len();
+            used += size;
+            if grapheme.chars().all(char::is_whitespace) {
+                word_break = Some(cursor);
+            }
+        }
+        rows.push(Row {
+            range: base + start..base + line.len(),
+            header,
+        });
+        base += line.len() + 1;
+    }
 }
 
 impl Layout {
     pub(super) fn invalidate(&mut self) {
-        self.valid = false;
+        for segment in &mut self.segments {
+            segment.valid = false;
+            segment.header_valid = false;
+        }
     }
 
     pub(super) fn item_changed(&mut self, index: usize) {
-        if self.selected == index {
-            self.invalidate();
+        if let Some(segment) = self.segments.get_mut(index) {
+            segment.valid = false;
         }
     }
 
-    fn update(&mut self, selected: usize, width: u16, item: &Item, agent: &str, verbose: bool) {
-        let same_item = self.identity.as_ref().is_some_and(|(thread, turn, id)| {
-            thread == &item.thread_id && turn == &item.turn_id && id == &item.item_id
-        });
-        if self.valid && same_item && self.width == width && self.verbose == verbose {
-            self.selected = selected;
-            return;
+    pub(super) fn remove(&mut self, index: usize) {
+        if index < self.segments.len() {
+            self.segments.remove(index);
         }
-        if !same_item {
-            let (thread, turn, id) = self
-                .identity
-                .get_or_insert_with(|| (String::new(), String::new(), String::new()));
-            thread.clone_from(&item.thread_id);
-            turn.clone_from(&item.turn_id);
-            id.clone_from(&item.item_id);
-            self.anchor = None;
+    }
+
+    pub(super) fn move_to_end(&mut self, index: usize) {
+        if index < self.segments.len() {
+            let segment = self.segments.remove(index);
+            self.segments.push(segment);
         }
-        self.annotated.clear();
-        if verbose {
-            let _ = write!(
-                self.annotated,
-                "Source: {agent}\nThread: {}\nTurn: {}\nItem: {}\n\n{}",
-                item.thread_id, item.turn_id, item.item_id, item.text
-            );
-        }
-        let prefix_bytes = if verbose {
-            self.annotated.len().saturating_sub(item.text.len())
-        } else {
-            0
-        };
-        if self.verbose != verbose {
-            self.anchor = self.anchor.map(|byte| {
-                if byte < self.prefix_bytes {
-                    0
+    }
+
+    fn update(&mut self, width: u16, items: &[Item], agent: &str, verbose: bool) {
+        let attributed = items.len() > 1;
+        let reflow =
+            self.width != width || self.verbose != verbose || self.attributed != attributed;
+        self.segments.truncate(items.len());
+        self.total = 0;
+        for (index, item) in items.iter().enumerate() {
+            let matches = |segment: &Segment| {
+                let Identity(thread, turn, id) = segment.identity.as_ref();
+                thread == &item.thread_id && turn == &item.turn_id && id == &item.item_id
+            };
+            if self
+                .segments
+                .get(index)
+                .is_none_or(|segment| !matches(segment))
+            {
+                let segment = Segment {
+                    identity: Arc::new(Identity(
+                        item.thread_id.clone(),
+                        item.turn_id.clone(),
+                        item.item_id.clone(),
+                    )),
+                    valid: false,
+                    header: String::new(),
+                    header_valid: false,
+                    kind: item.kind,
+                    rows: Vec::new(),
+                    start: 0,
+                };
+                if index < self.segments.len() {
+                    self.segments[index] = segment;
                 } else {
-                    byte - self.prefix_bytes + prefix_bytes
-                }
-            });
-        }
-        self.prefix_bytes = prefix_bytes;
-        let text = if verbose {
-            self.annotated.as_str()
-        } else {
-            item.text.as_str()
-        };
-        self.verbose = verbose;
-        self.rows.clear();
-        let width = usize::from(width.max(1));
-        let mut base = 0;
-        for line in text.split('\n') {
-            let mut start = 0;
-            let mut used = 0;
-            let mut word_break = None;
-            let mut cursor = 0;
-            while cursor < line.len() {
-                let grapheme = line[cursor..]
-                    .graphemes(true)
-                    .next()
-                    .expect("remaining grapheme");
-                let size = Span::raw(grapheme).width();
-                if used + size > width && cursor > start {
-                    let end = word_break.filter(|end| *end > start).unwrap_or(cursor);
-                    self.rows.push(base + start..base + end);
-                    start = end;
-                    cursor = end;
-                    used = 0;
-                    word_break = None;
-                    continue;
-                }
-                cursor += grapheme.len();
-                used += size;
-                if grapheme.chars().all(char::is_whitespace) {
-                    word_break = Some(cursor);
+                    self.segments.push(segment);
                 }
             }
-            self.rows.push(base + start..base + line.len());
-            base += line.len() + 1;
+            let segment = &mut self.segments[index];
+            segment.start = self.total;
+            if reflow || !segment.valid {
+                if !segment.header_valid
+                    || segment.kind != item.kind
+                    || self.verbose != verbose
+                    || self.attributed != attributed
+                {
+                    segment.header.clear();
+                    if attributed {
+                        let language = self.language.unwrap_or_else(|| Language::from_locale("en"));
+                        let kind = language.text(match item.kind {
+                            ItemKind::Message => Message::ProvidersPlanningResponse,
+                            ItemKind::Plan => Message::ProvidersPlanningPlan,
+                            ItemKind::Tool => Message::ProvidersPlanningToolOutput,
+                        });
+                        let owner = crate::store::Attribution::label(item.owner.as_ref());
+                        // Labels are bounded display previews, never outgoing input.
+                        let redacted = crate::workspace::privacy::redact(item.request.as_ref());
+                        let request: String = redacted
+                            .graphemes(true)
+                            .take(96)
+                            .flat_map(str::chars)
+                            .map(|ch| {
+                                if matches!(ch, '\n' | '\r' | '\t') {
+                                    ' '
+                                } else {
+                                    ch
+                                }
+                            })
+                            .collect();
+                        let owner = crate::workspace::handoff::sanitize(&owner);
+                        let id = crate::workspace::handoff::sanitize(&item.item_id);
+                        segment.header = language
+                            .format(
+                                Template::ProvidersPlanningTranscriptSegment,
+                                &[
+                                    ("kind", kind),
+                                    ("owner", &owner),
+                                    ("item", &id),
+                                    ("request", &request),
+                                ],
+                            )
+                            .expect("validated transcript template");
+                    }
+                    if verbose {
+                        let _ = write!(
+                            segment.header,
+                            "\nSource: {agent}\nThread: {}\nTurn: {}\nItem: {}\n",
+                            item.thread_id, item.turn_id, item.item_id
+                        );
+                    }
+                    segment.kind = item.kind;
+                    segment.header_valid = true;
+                }
+                segment.rows.clear();
+                if !segment.header.is_empty() {
+                    wrap(
+                        &mut segment.rows,
+                        &segment.header,
+                        usize::from(width.max(1)),
+                        true,
+                    );
+                }
+                wrap(
+                    &mut segment.rows,
+                    &item.text,
+                    usize::from(width.max(1)),
+                    false,
+                );
+                segment.valid = true;
+            }
+            self.total += segment.rows.len();
         }
-        self.selected = selected;
-        self.width = width as u16;
-        self.valid = true;
+        self.width = width;
+        self.verbose = verbose;
+        self.attributed = attributed;
+    }
+
+    fn segment_at(&self, row: usize) -> Option<usize> {
+        (!self.segments.is_empty()).then(|| {
+            self.segments
+                .partition_point(|segment| segment.start <= row)
+                .saturating_sub(1)
+        })
+    }
+
+    fn anchor_segment(&self) -> Option<usize> {
+        let anchor = self.anchor.as_ref()?;
+        self.segments
+            .iter()
+            .position(|segment| segment.identity == anchor.identity)
     }
 
     fn anchor_row(&self) -> Option<usize> {
-        let byte = self.anchor?;
-        Some(
-            self.rows
-                .partition_point(|range| range.start <= byte)
-                .saturating_sub(1),
-        )
+        let anchor = self.anchor.as_ref()?;
+        let segment = self
+            .segments
+            .iter()
+            .find(|segment| segment.identity == anchor.identity)?;
+        let mut fallback = None;
+        for (index, row) in segment.rows.iter().enumerate() {
+            if row.header == anchor.header {
+                fallback = Some(segment.start + index);
+                if row.range.end > anchor.byte || row.range.start >= anchor.byte {
+                    return fallback;
+                }
+            }
+        }
+        fallback.or(Some(segment.start))
     }
 
     fn pin(&mut self, row: usize) {
-        self.anchor = self.rows.get(row).map(|range| range.start);
+        let Some(index) = self.segment_at(row) else {
+            return;
+        };
+        let segment = &self.segments[index];
+        if let Some(row) = segment.rows.get(row.saturating_sub(segment.start)) {
+            self.anchor = Some(Anchor {
+                identity: Arc::clone(&segment.identity),
+                byte: row.range.start,
+                header: row.header,
+            });
+        }
+    }
+
+    fn select(&mut self, index: usize, item: &Item) {
+        let identity = self
+            .segments
+            .get(index)
+            .filter(|segment| {
+                let Identity(thread, turn, id) = segment.identity.as_ref();
+                thread == &item.thread_id && turn == &item.turn_id && id == &item.item_id
+            })
+            .map(|segment| Arc::clone(&segment.identity))
+            .unwrap_or_else(|| {
+                Arc::new(Identity(
+                    item.thread_id.clone(),
+                    item.turn_id.clone(),
+                    item.item_id.clone(),
+                ))
+            });
+        self.anchor = Some(Anchor {
+            identity,
+            byte: 0,
+            header: false,
+        });
     }
 }
 
@@ -174,8 +339,7 @@ impl State {
         self.scroll_response_lines(lines)
     }
 
-    /// Scroll only the selected observation; reaching its end never resumes
-    /// following or changes selection. No response text is copied here.
+    /// Traverse the whole retained transcript without implicitly resuming follow.
     pub fn scroll_response_lines(&mut self, delta: i32) -> bool {
         if self.items.get(self.selected).is_none() || self.response_height == 0 {
             return false;
@@ -190,13 +354,16 @@ impl State {
                 .min(self.response_max)
         };
         self.response_cache.pin(self.response_scroll);
+        if let Some(index) = self.response_cache.segment_at(self.response_scroll) {
+            self.selected = index;
+        }
         self.scroll = self.response_scroll.min(usize::from(u16::MAX)) as u16;
         true
     }
 
     /// One-based visible display rows and total, for a compact position label.
     pub fn response_position(&self) -> (usize, usize, usize) {
-        let total = self.response_cache.rows.len();
+        let total = self.response_cache.total;
         let start = if total == 0 || self.response_height == 0 {
             0
         } else {
@@ -257,18 +424,15 @@ impl State {
     }
 
     fn newest_response(&self) -> Option<usize> {
-        self.items
-            .iter()
-            .rposition(|item| matches!(item.kind, ItemKind::Message | ItemKind::Plan))
-            .or_else(|| self.items.len().checked_sub(1))
+        self.items.len().checked_sub(1)
     }
 
-    pub(super) fn response_arrived(&mut self, index: usize) {
+    pub(super) fn response_arrived(&mut self, _index: usize) {
         if self.following && self.response_surface() {
             if let Some(latest) = self.newest_response() {
                 self.selected = latest;
             }
-            self.new_output = index != self.selected;
+            self.new_output = false;
         } else {
             self.new_output = true;
         }
@@ -289,7 +453,8 @@ impl State {
             KeyCode::Home => {
                 self.following = false;
                 self.response_scroll = 0;
-                self.response_cache.anchor = Some(0);
+                self.selected = 0;
+                self.response_cache.pin(0);
             }
             KeyCode::PageUp | KeyCode::PageDown => {
                 let page = i32::from(self.response_height.saturating_sub(1).max(1));
@@ -306,9 +471,10 @@ impl State {
                 } else {
                     (self.selected + 1).min(self.items.len().saturating_sub(1))
                 };
-                self.response_scroll = 0;
-                self.response_max = 0;
-                self.response_cache.anchor = None;
+                if let Some(item) = self.items.get(self.selected) {
+                    self.response_cache.select(self.selected, item);
+                }
+                self.response_scroll = self.response_cache.anchor_row().unwrap_or(0);
             }
             _ => return false,
         }
@@ -316,52 +482,79 @@ impl State {
         true
     }
 
-    /// Reflow once per changed response and borrow only visible rows. Scrolling
-    /// remains in display rows, matching the review surfaces' existing keys.
+    pub fn set_response_language(&mut self, language: Language) {
+        if self.response_cache.language != Some(language) {
+            self.response_cache.language = Some(language);
+            self.response_cache.invalidate();
+        }
+    }
+
+    /// Borrow visible ranges from all retained segments, without copying output.
     pub fn response_rows(
         &mut self,
         width: u16,
         height: u16,
         verbose: bool,
     ) -> impl Iterator<Item = &str> {
-        let item = self.items.get(self.selected);
         self.response_height = height;
-        if let Some(item) = item {
-            self.response_cache
-                .update(self.selected, width, item, self.agent.label(), verbose);
-        } else {
-            self.response_cache.rows.clear();
-            self.response_cache.anchor = None;
-        }
+        self.response_cache
+            .update(width, &self.items, self.agent.label(), verbose);
         self.response_max = self
             .response_cache
-            .rows
-            .len()
+            .total
             .saturating_sub(usize::from(height));
         self.scroll_max = self.response_max.min(usize::from(u16::MAX)) as u16;
         if self.following && !self.new_output {
             self.response_scroll = self.response_max;
         } else {
+            if self.response_cache.anchor_row().is_none()
+                && let Some(item) = self.items.get(self.selected)
+            {
+                self.response_cache.select(self.selected, item);
+            }
             self.response_scroll = self
                 .response_cache
                 .anchor_row()
-                .unwrap_or(self.response_scroll)
+                .unwrap_or(0)
                 .min(self.response_max);
         }
         self.scroll = self.response_scroll.min(usize::from(u16::MAX)) as u16;
         if self.following && !self.new_output {
             self.response_cache.pin(self.response_scroll);
         }
-        let text = if verbose {
-            self.response_cache.annotated.as_str()
-        } else {
-            item.map_or("", |item| item.text.as_str())
-        };
+        if !self.following
+            && let Some(index) = self.response_cache.anchor_segment()
+        {
+            self.selected = index;
+        }
+        let start = self
+            .response_cache
+            .segment_at(self.response_scroll)
+            .unwrap_or(0);
+        let skip = self
+            .response_cache
+            .segments
+            .get(start)
+            .map_or(0, |segment| {
+                self.response_scroll.saturating_sub(segment.start)
+            });
+        let items = &self.items;
         self.response_cache
-            .rows
+            .segments
             .iter()
-            .skip(self.response_scroll)
+            .enumerate()
+            .skip(start)
+            .flat_map(move |(index, segment)| {
+                segment.rows.iter().map(move |row| {
+                    let text = if row.header {
+                        &segment.header
+                    } else {
+                        &items[index].text
+                    };
+                    &text[row.range.clone()]
+                })
+            })
+            .skip(skip)
             .take(usize::from(height))
-            .map(move |range| &text[range.clone()])
     }
 }

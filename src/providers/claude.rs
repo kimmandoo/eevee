@@ -537,7 +537,7 @@ fn inspection_matches(value: &Value, versions: &SdkVersions) -> bool {
     value["type"] == "capabilities"
         && value["sdk_version"].as_str() == Some(versions.sdk.as_str())
         && value["cli_version"].as_str() == Some(versions.cli.as_str())
-        && value["bridge_revision"] == 6
+        && value["bridge_revision"] == 7
         && value["query"] == true
         && value["policy"]
             == json!({
@@ -962,9 +962,6 @@ fn capture_write_scope(
     {
         return Err("Claude edit paths are bounded and available only for Implement".into());
     }
-    if input.operation != Operation::Implement {
-        return Ok(SdkWriteScope::empty_selected());
-    }
     let root = Path::new(&input.task.project);
     let root_identity = sdk_directory_identity(root)?;
     let data = fs::canonicalize(data_dir).map_err(|_| "SDK data protection unavailable")?;
@@ -1124,7 +1121,7 @@ fn capture_write_scope(
         return Err("SDK root changed during capture".into());
     }
     Ok(SdkWriteScope {
-        mode: if input.edit_paths.is_empty() {
+        mode: if input.operation == Operation::Implement && input.edit_paths.is_empty() {
             SdkWriteMode::Workspace
         } else {
             SdkWriteMode::Selected
@@ -1166,7 +1163,7 @@ fn payload(
     input.validate_review()?;
     input.validate_committed(data_dir)?;
     if let Some(text) = input.review_payload(data_dir, exclusions)? {
-        return Ok((text, SdkWriteScope::empty_selected()));
+        return Ok((text, capture_write_scope(data_dir, input, exclusions)?));
     }
     if let Some(document) = &input.handoff {
         crate::workspace::handoff::validate_dispatch(
@@ -1801,7 +1798,7 @@ fn transport(
                 .as_nanos()
         };
         let mut usage = SdkTurnUsage::begin(&run.input, sessions)?;
-        pipe.send(json!({"protocol":1,"bridge_revision":6,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
+        pipe.send(json!({"protocol":1,"bridge_revision":7,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
             "request_id":if run.input.inspect_models { None } else { run.input.work.as_ref().map(|work| work.request_id.as_str()) },
             "prompt":if run.input.inspect_models { "" } else { run.text.as_str() },
             "operation":if run.input.inspect_models { "plan" } else { sdk_tool_policy(run.input.operation) },
