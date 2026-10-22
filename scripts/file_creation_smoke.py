@@ -311,13 +311,32 @@ class CreationJourney(SurfaceJourney):
         return before
 
     def permission(self, path, *, allow, kind='Create'):
-        self.workspace()
-        until(self.session, lambda: 'Alt+A' in self.session.display(),
-              'waiting file review had no direct home affordance', timeout=15)
-        self.capture('waiting-for-review-' + path.replace('/', '-')[:70])
+        # No workspace/approval command may manufacture the initial presentation.
+        automatic = ('File proposal ready', '파일 제안 준비됨')
+        until(self.session, lambda: any(label in self.session.display() for label in automatic),
+              'owned file approval did not open automatically', timeout=40)
         reviews = getattr(self, '_file_reviews', 0)
-        self.session.send('\r' if reviews % 2 == 0 else ESC + 'a')
         self._file_reviews = reviews + 1
+        self.capture('automatic-review-' + path.replace('/', '-')[:70])
+        target = self.project / path
+        original = target.read_bytes() if target.is_file() else None
+        before = len(self.peer.snapshot('POST'))
+        if reviews == 0:
+            self.session.send('ayn')
+            self.session.paste('a\ny')
+            self.session.send('\x1b[121;5u\x1b[121;1:2u\x1b[13;1:2u')
+            assert any(label in self.session.display() for label in automatic), 'arriving typing engaged file consent'
+            assert len(self.peer.snapshot('POST')) == before, 'arriving typing answered file consent'
+            assert (target.read_bytes() if target.is_file() else None) == original, 'arriving typing changed file bytes'
+            self.capture('typing-paste-repeat-cannot-engage-or-answer')
+        if reviews == 1:
+            self.session.send(ESC)
+            self.session.pump(.3)
+            assert not any(label in self.session.display() for label in automatic), 'deferred identity reopened itself'
+            assert len(self.peer.snapshot('POST')) == before, 'Escape answered a deferred file proposal'
+            self.capture('deferred-without-answer-or-reopen')
+        # Enter engages an automatic proposal, or deliberately reopens a deferred one.
+        self.session.send('\r')
         wanted = normalized(path)
         until(self.session, lambda: wanted in self.session.display()
               and any(word in self.session.display() for word in ('Allow once', '한 번', '1회')),
@@ -326,19 +345,24 @@ class CreationJourney(SurfaceJourney):
         assert kind in view or (kind == 'Create' and '생성' in view) or (kind == 'Replace' and any(label in view for label in ('수정', '교체', 'Modify')))
         self.capture(('allow-' if allow else 'deny-') + path.replace('/', '-')[:70])
         if reviews == 0:
-            # Enter means inspect, not the initial selected Deny or an approval.
-            before = len(self.peer.snapshot('POST'))
             self.session.send('\r\r')
             assert len(self.peer.snapshot('POST')) == before, 'neutral Enter answered the file request'
-            assert not (self.project / path).exists(), 'neutral inspection created the file'
+            assert (target.read_bytes() if target.is_file() else None) == original, 'neutral inspection changed the file'
             self.capture('enter-inspects-without-answer')
-            self.session.send('d')
+            self.session.send('d')  # Leave optional technical inspection; exact summary must render again.
         self.session.send('a' if allow else 'n')
 
     def settled(self, answer, post_count):
-        until(self.session, lambda: len(self.peer.snapshot('POST')) == post_count
-              and not self.snapshot()['claims'] and 'Storage: saved' in self.session.display()
-              and (answer is None or answer in self.session.display()),
+        def complete():
+            view = self.session.display()
+            if any(title in view for title in ('Evolution!', '진화했어요!')):
+                self.capture('evolution-popup-after-safe-settlement-' + str(post_count))
+                self.session.send(ESC)
+                return False
+            return (len(self.peer.snapshot('POST')) == post_count
+                    and not self.snapshot()['claims'] and 'Storage: saved' in view
+                    and (answer is None or answer in view))
+        until(self.session, complete,
               'native tool result and durable ownership did not settle', timeout=40)
         self.capture('settled-' + str(post_count))
         assert self.snapshot()['executions'] == 0, 'file implementation fabricated a local command'
@@ -491,11 +515,9 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
                 collision = 'collision.txt'
                 before = journey.begin('Propose a file whose path will change before approval.', [response_plan(peer, calls=[
                     {'id': 'collide-create', 'path': collision, 'content': 'must not overwrite\n'}], number=6)])
-                until(journey.session, lambda: 'Alt+A' in journey.session.display(), 'collision review was not discoverable')
-                journey.session.send(ESC + 'a')
-                until(journey.session, lambda: collision in journey.session.display()
-                      and any(v in journey.session.display() for v in ('Allow once', '한 번', '1회')),
-                      'creation permission before external collision')
+                until(journey.session, lambda: any(label in journey.session.display()
+                      for label in ('File proposal ready', '파일 제안 준비됨')),
+                      'collision proposal did not open automatically')
                 (journey.project / collision).write_bytes(b'external user bytes\n')
                 journey.permission(collision, allow=True)
                 journey.settled(None, before + 1)
@@ -590,8 +612,10 @@ def codex_case(binary, output, size, language):
             journey.request(1, marker)
             assert all(row['writing'] for row in journey.snapshot()[2]), 'controlled creation lost writer lease'
             journey.prompt(marker, 'edit')
-            journey.until(lambda: 'Alt+A' in journey.session.display(), 'controlled waiting review was not discoverable')
-            journey.session.send(ESC + 'a')
+            journey.until(lambda: any(label in journey.session.display()
+                          for label in ('File proposal ready', '파일 제안 준비됨')),
+                          'controlled file review did not open automatically')
+            journey.session.send('\r')
             journey.until(lambda: normalized(FIRST) in journey.session.display()
                           and any(value in journey.session.display() for value in ('Allow once', '한 번', '1회')),
                           'controlled exact new-file permission')
@@ -633,8 +657,10 @@ def codex_case(binary, output, size, language):
         assert 'public fixture' in json.dumps(answers[1]), 'controlled read did not return real source bytes'
         assert hashlib.sha256(CONTENT.encode()).hexdigest() in json.dumps(answers[1]), 'controlled read omitted source digest'
         assert (journey.project / FIRST).read_bytes() == CONTENT.encode(), 'controlled observation changed source'
-        journey.until(lambda: 'Alt+A' in journey.session.display(), 'controlled edit review was not discoverable')
-        journey.session.send(ESC + 'a')
+        journey.until(lambda: any(label in journey.session.display()
+                      for label in ('File proposal ready', '파일 제안 준비됨')),
+                      'controlled edit review did not open automatically')
+        journey.session.send('\r')
         journey.until(lambda: normalized(FIRST) in journey.session.display()
                       and any(value in journey.session.display() for value in ('Allow once', '한 번', '1회')),
                       'controlled exact edit permission')

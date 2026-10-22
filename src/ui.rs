@@ -462,6 +462,23 @@ fn composer_menu_area(area: Rect, app: &App) -> Option<Rect> {
     Some(centered(area, 84, area.height.saturating_sub(4).min(12)))
 }
 
+fn evolution_popup_area(area: Rect, app: &App) -> Option<Rect> {
+    if area.width < 60 || area.height < 18 || !app.evolution_popup_ready() {
+        return None;
+    }
+    let layout = shell(area, app.linear, app.effective_focus());
+    let top = layout.header.bottom();
+    let available = layout.composer.y.saturating_sub(top);
+    let width = 76.min(area.width.saturating_sub(2));
+    let height = 9.min(available);
+    Some(Rect::new(
+        area.x + (area.width - width) / 2,
+        top + (available - height) / 2,
+        width,
+        height,
+    ))
+}
+
 /// Native images draw above cells, so only portraits under a popup are withheld.
 fn occluded(area: Rect, app: &App, target: Rect) -> bool {
     if app.nickname_editor.is_some()
@@ -473,6 +490,7 @@ fn occluded(area: Rect, app: &App, target: Rect) -> bool {
     }
     app.command_popup.is_some() && command_popup_area(area, app).intersects(target)
         || composer_menu_area(area, app).is_some_and(|menu| menu.intersects(target))
+        || evolution_popup_area(area, app).is_some_and(|popup| popup.intersects(target))
 }
 
 pub fn render(
@@ -607,6 +625,9 @@ pub fn render(
         }
     }
     footer(frame, shell.footer, app, &paint);
+    if let Some(popup) = evolution_popup_area(area, app) {
+        cooperation::evolution_popup(frame, popup, app, config, &paint);
+    }
     if let Some(menu) = composer_menu_area(area, app) {
         composer::render(frame, menu, app, config, &paint);
     }

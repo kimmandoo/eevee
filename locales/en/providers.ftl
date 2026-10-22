@@ -832,6 +832,10 @@ providers-planning-tool-output = { "Tool output" }
 
 providers-planning-file-preview = { "File preview" }
 
+providers-planning-file-label = { "[FILE]" }
+
+providers-planning-file-auto-review-actions = { "File proposal ready · Enter review · Esc later" }
+
 providers-planning-file-generating = { "Generating · not saved" }
 
 providers-planning-file-received = { "Received · proposal" }

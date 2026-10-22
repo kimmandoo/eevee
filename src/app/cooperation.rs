@@ -46,6 +46,8 @@ pub struct State {
     pub(super) command_saves: BTreeMap<i64, (String, store::Attribution, u64)>,
     approvals: Vec<(u64, Pending)>,
     focused: Option<Pending>,
+    /// Identities already presented or explicitly deferred, not another queue.
+    presented_files: Vec<Pending>,
     queued_response: Option<Pending>,
     preference_owners: VecDeque<i64>,
     journal_owners: VecDeque<i64>,
@@ -501,6 +503,7 @@ impl App {
             self.refresh_approvals();
         }
         self.settle_cooperation();
+        changed |= self.reconcile_file_review();
         (changed, more)
     }
 
@@ -640,6 +643,11 @@ impl App {
     }
 
     pub fn refresh_approvals(&mut self) {
+        self.collect_approvals();
+        self.reconcile_file_review();
+    }
+
+    fn collect_approvals(&mut self) {
         let mut pending = Vec::new();
         for id in self.planning_ids() {
             if let Some(state) = self.planning_state(id) {
@@ -678,7 +686,74 @@ impl App {
         {
             self.cooperation.focused = None;
         }
+        self.cooperation
+            .presented_files
+            .retain(|shown| pending.iter().any(|(_, request)| request == shown));
         self.cooperation.approvals = pending;
+    }
+
+    /// Reconcile after input and worker settlement, never before dispatching a key.
+    pub(super) fn reconcile_file_review(&mut self) -> bool {
+        if !self.approval_shortcut_available()
+            || (!self.composer_is_request() && self.focus != Pane::Workspace)
+            || self.width < 60
+            || self.height < 18
+            || self.quit
+            || self.cooperation.cancelling
+            || self.cooperation.quitting
+            || self.return_after_cancel.is_some()
+            || self.pending_request.is_some()
+            || self.pending_command.is_some()
+            || self.cooperation.command_saves.contains_key(&self.lead.id)
+            || self.switch_task.is_some()
+            || self.management.is_some()
+            || self.planning.cancelling
+            || self.planning.pending.is_some()
+            || !self.planning.request.as_ref().is_some_and(|request| {
+                matches!(
+                    request.kind,
+                    crate::providers::PromptKind::Permission { file: Some(_), .. }
+                )
+            })
+            || self
+                .planning
+                .owner()
+                .is_none_or(|owner| owner.partner != self.lead.id)
+        {
+            return false;
+        }
+        let request = self
+            .cooperation
+            .approvals
+            .iter()
+            .find_map(|(_, pending)| match pending {
+                Pending::Provider {
+                    partner,
+                    task,
+                    generation,
+                    request,
+                } if *partner == self.lead.id
+                    && *task == self.task_id
+                    && self.planning.matches(*generation, *task)
+                    && self.planning.focus_prompt(*generation, request)
+                    && !self.cooperation.presented_files.contains(pending) =>
+                {
+                    Some(pending.clone())
+                }
+                _ => None,
+            });
+        let Some(request) = request else {
+            return false;
+        };
+        // open_overlay preserves the live Request editor, including its caret.
+        // No editor apply, implicit send, grant or owner change occurs here.
+        self.focus_pending_approval(request.clone());
+        if self.cooperation.focused.as_ref() != Some(&request) {
+            return false;
+        }
+        self.cooperation.presented_files.push(request);
+        self.planning.auto_file_review = true;
+        true
     }
 
     pub fn approval_count(&self) -> usize {
@@ -805,7 +880,7 @@ impl App {
     }
 
     pub(super) fn focus_approvals(&mut self) {
-        self.refresh_approvals();
+        self.collect_approvals();
         let Some((_, request)) = self.cooperation.approvals.first().cloned() else {
             self.notice = "No pending approvals or questions.".into();
             return;
@@ -817,7 +892,7 @@ impl App {
         if !self.own_approval_pending() {
             return false;
         }
-        self.refresh_approvals();
+        self.collect_approvals();
         let request = self
             .cooperation
             .approvals
@@ -863,6 +938,7 @@ impl App {
                     false
                 } else {
                     self.open_overlay(Overlay::Planning);
+                    self.planning.auto_file_review = false;
                     self.planning.invalidate_review();
                     true
                 }
@@ -892,11 +968,21 @@ impl App {
     }
 
     pub(super) fn clear_approval_focus(&mut self) {
+        self.planning.auto_file_review = false;
         self.cooperation.focused = None;
     }
 
     pub(super) fn defer_approval(&mut self) {
-        self.cooperation.focused = None;
+        if let Some(request) = self.cooperation.focused.take()
+            && matches!(
+                self.planning.request.as_ref().map(|request| &request.kind),
+                Some(crate::providers::PromptKind::Permission { file: Some(_), .. })
+            )
+            && !self.cooperation.presented_files.contains(&request)
+        {
+            self.cooperation.presented_files.push(request);
+        }
+        self.planning.auto_file_review = false;
         self.planning.invalidate_review();
         self.close_overlay();
         self.notice =
@@ -1221,12 +1307,13 @@ impl App {
         }
         if resolved {
             self.defer_approval();
-            self.notice = "The displayed request resolved; /approvals deliberately opens the next pending request.".into();
+            self.notice = "The displayed request resolved without another answer.".into();
         }
         self.repo_refresh |= implemented;
         if let Some((claim, outcome)) = move_finished {
             self.move_provider_finished(&claim, outcome);
         }
+        self.refresh_approvals();
         true
     }
 
@@ -1345,6 +1432,278 @@ mod tests {
                 },
             },
         );
+    }
+
+    fn file_prompt(app: &mut App, partner: i64, arrival: u64) {
+        app.provider_event(
+            partner,
+            providers::Event::Prompt {
+                generation: 7,
+                task_id: 7,
+                request: providers::Prompt {
+                    arrival,
+                    request_id: json!(format!("file-{arrival}")),
+                    thread_id: "thread".into(),
+                    turn_id: "turn".into(),
+                    item_id: "file-tool".into(),
+                    kind: providers::PromptKind::Permission {
+                        description: "Exact provider scope".into(),
+                        file: Some(providers::FileReview {
+                            path: "src/new.rs".into(),
+                            kind: providers::FileReviewKind::Create,
+                            directories: Vec::new(),
+                            bytes: 0,
+                            excerpt: String::new(),
+                            edit: false,
+                            external: false,
+                        }),
+                        options: vec![
+                            providers::PermissionOption {
+                                label: "deny".into(),
+                                description: String::new(),
+                                answer: json!("deny"),
+                            },
+                            providers::PermissionOption {
+                                label: "once".into(),
+                                description: String::new(),
+                                answer: json!("once"),
+                            },
+                        ],
+                    },
+                },
+            },
+        );
+    }
+
+    fn close_file_prompt(app: &mut App, partner: i64, arrival: u64) {
+        app.provider_event(
+            partner,
+            providers::Event::PromptClosed {
+                generation: 7,
+                request_id: json!(format!("file-{arrival}")),
+            },
+        );
+    }
+
+    #[test]
+    fn automatic_file_review_preserves_live_future_draft_and_defers_once() {
+        let mut app = app();
+        start(&mut app, 1, 1);
+        app.open_editor(store::EditorField::Request);
+        app.input = "Future 漢字 draft".into();
+        app.cursor = "Future ".len();
+        let draft = (app.input.clone(), app.cursor);
+        file_prompt(&mut app, 1, 2);
+        assert_eq!(app.overlay, Some(Overlay::Planning));
+        assert!(app.planning.auto_file_review);
+        assert_eq!((app.input.clone(), app.cursor), draft);
+        for code in [
+            KeyCode::Char('a'),
+            KeyCode::Char('y'),
+            KeyCode::Char('n'),
+            KeyCode::Left,
+            KeyCode::Right,
+            KeyCode::Backspace,
+            KeyCode::Char('/'),
+            KeyCode::Down,
+        ] {
+            app.update(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+        }
+        for (code, modifiers, kind) in [
+            (KeyCode::Enter, KeyModifiers::NONE, KeyEventKind::Repeat),
+            (KeyCode::Enter, KeyModifiers::CONTROL, KeyEventKind::Press),
+            (KeyCode::Char('y'), KeyModifiers::NONE, KeyEventKind::Repeat),
+            (
+                KeyCode::Char('y'),
+                KeyModifiers::CONTROL,
+                KeyEventKind::Press,
+            ),
+        ] {
+            app.update(Event::Key(KeyEvent::new_with_kind(code, modifiers, kind)));
+        }
+        app.update(Event::Paste("a\ny\nn\n".into()));
+        app.planning_command("answers-review");
+        assert!(app.planning.auto_file_review && !app.planning.review_details);
+        assert!(app.planning.pending.is_none() && app.pending_request.is_none());
+        assert_eq!((app.input.clone(), app.cursor), draft);
+        app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        assert!(app.overlay.is_none() && !app.planning.auto_file_review);
+        app.refresh_approvals();
+        assert!(!app.settle_planning());
+        assert!(app.overlay.is_none() && app.planning.request.is_some());
+        assert_eq!((app.input.clone(), app.cursor), draft);
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.overlay, Some(Overlay::Planning));
+        assert!(
+            !app.planning.auto_file_review,
+            "manual reopen is deliberate"
+        );
+        assert!(app.planning.pending.is_none());
+    }
+
+    #[test]
+    fn blocked_file_review_waits_for_home_and_closed_prompts_never_reappear() {
+        for field in [
+            store::EditorField::Goal,
+            store::EditorField::Criteria,
+            store::EditorField::Command,
+            store::EditorField::NextAction,
+        ] {
+            let mut app = app();
+            start(&mut app, 1, 1);
+            app.open_editor(field);
+            app.input = "literal future 漢字".into();
+            app.cursor = 8;
+            file_prompt(&mut app, 1, 2);
+            assert!(app.overlay.is_none());
+            assert_eq!((app.input.as_str(), app.cursor), ("literal future 漢字", 8));
+            app.open_editor(store::EditorField::Request);
+            assert!(app.settle_planning());
+            assert!(app.planning.auto_file_review);
+        }
+        for overlay in [
+            Overlay::Help,
+            Overlay::Party,
+            Overlay::Planning,
+            Overlay::Execution,
+        ] {
+            let mut app = app();
+            start(&mut app, 1, 1);
+            app.open_editor(store::EditorField::Request);
+            app.open_overlay(overlay);
+            file_prompt(&mut app, 1, 2);
+            assert_eq!(app.overlay, Some(overlay));
+            assert!(!app.planning.auto_file_review);
+            app.close_overlay();
+            assert!(app.settle_planning());
+            assert!(app.planning.auto_file_review);
+        }
+        let mut app = app();
+        start(&mut app, 1, 1);
+        app.open_editor(store::EditorField::Request);
+        app.open_overlay(Overlay::Help);
+        file_prompt(&mut app, 1, 2);
+        close_file_prompt(&mut app, 1, 2);
+        app.close_overlay();
+        assert!(!app.settle_planning());
+        assert!(app.planning.request.is_none() && app.planning.pending.is_none());
+        assert!(app.overlay.is_none() && !app.planning.auto_file_review);
+    }
+
+    #[test]
+    fn file_review_waits_for_save_cancel_and_queue_question_transitions() {
+        for blocker in 0..7 {
+            let mut app = app();
+            start(&mut app, 1, 1);
+            app.open_editor(store::EditorField::Request);
+            match blocker {
+                0 => app.transitioning = true,
+                1 => app.reset_after_save = true,
+                2 => app.quit_after_save = true,
+                3 => app.pending_request = Some((app.revision, false)),
+                4 => app.open_cancel_review(false),
+                5 => {
+                    app.composer_menu = Some(composer::Menu {
+                        kind: composer::Kind::Files,
+                        start: 0,
+                        selected: 0,
+                    })
+                }
+                _ => app.width = 59,
+            }
+            file_prompt(&mut app, 1, 2);
+            assert!(app.overlay.is_none() && !app.planning.auto_file_review);
+            app.transitioning = false;
+            app.reset_after_save = false;
+            app.quit_after_save = false;
+            app.pending_request = None;
+            app.cooperation.cancel_review = None;
+            app.composer_menu = None;
+            app.width = 120;
+            assert!(app.settle_planning());
+            assert!(app.planning.auto_file_review && app.planning.pending.is_none());
+        }
+        let mut app = app();
+        start(&mut app, 1, 1);
+        app.open_editor(store::EditorField::Request);
+        prompt(&mut app, 1, 10);
+        app.planning.request.as_mut().unwrap().kind =
+            providers::PromptKind::Questions(vec![providers::Question {
+                id: "scope".into(),
+                header: "Scope".into(),
+                question: "Which file?".into(),
+                options: Vec::new(),
+                other: true,
+                secret: false,
+            }]);
+        file_prompt(&mut app, 1, 20);
+        assert!(
+            app.overlay.is_none(),
+            "file must not displace a queued question"
+        );
+        app.provider_event(
+            1,
+            providers::Event::PromptClosed {
+                generation: 7,
+                request_id: json!("same-provider-id"),
+            },
+        );
+        assert_eq!(app.overlay, Some(Overlay::Planning));
+        assert!(app.planning.auto_file_review && app.planning.pending.is_none());
+    }
+
+    #[test]
+    fn consecutive_owned_file_reviews_reconcile_without_opening_foreign_or_generic_work() {
+        let mut app = app();
+        start(&mut app, 1, 1);
+        start(&mut app, 2, 2);
+        app.open_editor(store::EditorField::Request);
+        file_prompt(&mut app, 2, 10);
+        assert!(app.overlay.is_none());
+        assert_eq!(app.lead.id, 1);
+        file_prompt(&mut app, 1, 20);
+        file_prompt(&mut app, 1, 30);
+        assert_eq!(app.approval_position(), Some((2, 3)));
+        assert_eq!(
+            app.planning.request.as_ref().unwrap().request_id,
+            json!("file-20")
+        );
+        close_file_prompt(&mut app, 2, 10);
+        assert_eq!(
+            app.planning.request.as_ref().unwrap().request_id,
+            json!("file-20")
+        );
+        app.provider_event(
+            1,
+            providers::Event::PromptClosed {
+                generation: 8,
+                request_id: json!("file-20"),
+            },
+        );
+        assert!(
+            app.planning.auto_file_review,
+            "stale closure cannot affect live review"
+        );
+        close_file_prompt(&mut app, 1, 20);
+        assert_eq!(app.overlay, Some(Overlay::Planning));
+        assert!(app.planning.auto_file_review);
+        assert_eq!(
+            app.planning.request.as_ref().unwrap().request_id,
+            json!("file-30")
+        );
+        assert!(app.planning.pending.is_none());
+        prompt(&mut app, 1, 40);
+        close_file_prompt(&mut app, 1, 30);
+        assert!(
+            app.overlay.is_none(),
+            "generic approvals still require deliberate opening"
+        );
+        assert!(!app.planning.auto_file_review);
+        assert!(app.planning.request.is_some() && app.planning.pending.is_none());
+        assert_eq!(app.lead.id, 1);
     }
 
     #[test]
@@ -1585,7 +1944,7 @@ mod tests {
     }
 
     #[test]
-    fn actual_home_localizes_pending_review_and_drops_hints_when_finished() {
+    fn actual_auto_file_review_requires_engagement_then_rendered_scope_for_once() {
         use crate::{
             config::{ColorMode, Config, ImageMode, LayoutMode, Theme},
             i18n::{Language, Message},
@@ -1616,35 +1975,15 @@ mod tests {
                     app.height = height;
                     start(&mut app, 1, 1);
                     app.planning.work.as_mut().unwrap().writing = true;
-                    prompt(&mut app, 1, 2);
-                    app.planning.request.as_mut().unwrap().kind =
-                        providers::PromptKind::Permission {
-                            description: "Exact provider scope".into(),
-                            file: Some(providers::FileReview {
-                                path: "src/new.rs".into(),
-                                kind: providers::FileReviewKind::Create,
-                                directories: Vec::new(),
-                                bytes: 0,
-                                excerpt: String::new(),
-                                edit: false,
-                                external: false,
-                            }),
-                            options: vec![
-                                providers::PermissionOption {
-                                    label: "deny".into(),
-                                    description: String::new(),
-                                    answer: json!("deny"),
-                                },
-                                providers::PermissionOption {
-                                    label: "once".into(),
-                                    description: String::new(),
-                                    answer: json!("once"),
-                                },
-                            ],
-                        };
+                    app.open_editor(store::EditorField::Request);
+                    app.input = "Future 漢字 request".into();
+                    app.cursor = "Future ".len();
                     app.editing = editing;
                     app.focus = Pane::Workspace;
-                    app.refresh_approvals();
+                    let draft = (app.input.clone(), app.cursor);
+                    file_prompt(&mut app, 1, 2);
+                    assert_eq!(app.overlay, Some(Overlay::Planning));
+                    assert!(app.planning.auto_file_review);
                     let mut artwork = crate::ui::artwork::Artwork::load(&config);
                     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
                     let mut draw = |app: &mut App| {
@@ -1668,19 +2007,54 @@ mod tests {
                     };
                     let screen = draw(&mut app);
                     assert!(
-                        screen.contains(language.text(Message::CoreWaitingForUser)),
-                        "{screen}"
-                    );
-                    assert!(
-                        screen.contains("Alt+A") && screen.contains("Enter"),
+                        screen.contains(
+                            language.text(Message::ProvidersPlanningFileAutoReviewActions)
+                        ),
                         "{screen}"
                     );
                     assert!(screen.contains("src/new.rs"), "{screen}");
+                    assert_eq!((app.input.clone(), app.cursor), draft);
+                    for code in [KeyCode::Char('a'), KeyCode::Char('y'), KeyCode::Char('n')] {
+                        app.update(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+                    }
+                    app.update(Event::Paste("a\ny\nn\n".into()));
+                    assert!(app.planning.auto_file_review && app.planning.pending.is_none());
+                    app.update(Event::Key(KeyEvent::new(
+                        KeyCode::Enter,
+                        KeyModifiers::NONE,
+                    )));
+                    assert!(!app.planning.auto_file_review && !app.planning.review_details);
+                    assert!(!app.planning.reviewed && app.planning.pending.is_none());
+                    app.update(Event::Key(KeyEvent::new(
+                        KeyCode::Char('a'),
+                        KeyModifiers::NONE,
+                    )));
                     assert!(
-                        !screen.contains("is editing") && !screen.contains("Generating"),
-                        "{screen}"
+                        app.planning.pending.is_none(),
+                        "engagement does not reuse prior render authority"
                     );
-                    assert!(app.overlay.is_none() && app.planning.pending.is_none());
+                    let engaged = draw(&mut app);
+                    assert!(app.planning.reviewed, "{engaged}");
+                    app.update(Event::Key(KeyEvent::new(
+                        KeyCode::Char('a'),
+                        KeyModifiers::NONE,
+                    )));
+                    assert!(matches!(
+                        app.planning.pending.take(),
+                        Some(providers::Request::Answer { request_id, answer, .. })
+                            if request_id == json!("file-2") && answer == json!("once")
+                    ));
+                    assert!(app.overlay.is_none() && app.planning.request.is_none());
+                    assert_eq!((app.input.clone(), app.cursor), draft);
+                    app.update(Event::Key(KeyEvent::new_with_kind(
+                        KeyCode::Char('a'),
+                        KeyModifiers::NONE,
+                        KeyEventKind::Repeat,
+                    )));
+                    assert!(
+                        app.planning.pending.is_none(),
+                        "one review grants once only"
+                    );
                     app.provider_event(
                         1,
                         providers::Event::Finished {
@@ -1692,7 +2066,11 @@ mod tests {
                     );
                     app.refresh_approvals();
                     let settled = draw(&mut app);
-                    assert!(!settled.contains("Alt+A"), "{settled}");
+                    assert!(
+                        !settled.contains(
+                            language.text(Message::ProvidersPlanningFileAutoReviewActions)
+                        )
+                    );
                     assert!(
                         !settled.contains(language.text(Message::CoreWaitingForUser)),
                         "{settled}"

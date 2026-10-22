@@ -2,6 +2,9 @@
 
 ## 2026-10-22
 
+- feat(evolution): displayed a localized one-time previous-to-next form popup without preempting file approval/live code, consuming typed drafts or replaying task restores.
+- fix(approval): automatically presented owned file proposals at safe home surfaces with draft-preserving neutral engagement before exact one-shot consent.
+- fix(ux): distinguished generated-file output from ordinary assistant responses with localized structural file labels and code gutters.
 - docs(release): published v0.1.18 from source `fb8791d` after exact-source Check/all-five-native qualification and immutable package promotion, with unchanged Schema 16 and complete SDK bridge 8 upgrade guidance.
 - docs(verification): verified every public asset, sixteen staged bilingual file-generation journeys/64 groups, 24 file journeys/126 groups, automatic roles, continuous scrolling, tooltips, native 176 groups, cooperation 24, six genuine Schema15→16 cases and 23 installation groups/all 34 installed terminal scenarios on the downloaded release.
 - feat(ux): implemented v0.1.18 live file/code previews in the continuous transcript with truthful lifecycle states, compact viewport priority, cumulative privacy filtering and complete SDK bridge 8 support without changing Schema 16 or approval authority.
@@ -11,6 +14,13 @@
 - test(install): included the catalog build script and locale resources in the real source-upgrade fixture.
 - test(terminal): required bounded startup stream quiescence before the fixed zero-output idle observation without restarting or filtering the measured window.
 - docs(verification): verified the actual public v0.1.14 binary through 52 English/Korean Wave 6 case executions, both-size response/tooltips, 176 native-protocol groups, 24 cooperation groups, 26 Moves groups, three real Schema 14 upgrade/refusal/resume cases and 23 installation groups with all 34 installed terminal scenarios.
+
+## 0.1.19
+
+- fix(approval): automatically opened current-owner typed file reviews at safe home surfaces and required neutral Enter engagement before exact one-shot consent without navigating approval menus.
+- fix(ux): separated generated-file cards from ordinary replies with localized file labels, structural row gutters and typed lifecycle styling, including monochrome.
+- feat(evolution): added one-time themed actual-form-change popups with approval/live-code priority, draft-preserving input and no restore replay.
+- docs(upgrade): retained Schema 16 and the complete SDK bridge revision 8 requirement; evolution and file previews granted no approval or new persistence.
 
 ## 0.1.18
 

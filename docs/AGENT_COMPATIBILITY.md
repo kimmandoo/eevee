@@ -4,6 +4,10 @@
 
 The binary implements native ChatGPT/OpenAI/Anthropic/Gemini/compatible HTTP connections, the durable local workbench, Codex Plan/controlled Implement, an optional official Claude SDK bridge, ACP1 for OpenCode/Gemini/Devin, and version-1 handoff. **Implemented transport support is not authenticated interoperability acceptance.** Per-service live evidence is recorded in the checkpoint; missing credentials do not become a blanket model-browsing or custom-selection blocker. Existing A04/A06/full A07 agent-conformance gates remain separate. Binding rules live in [DESIGN_RULES.md](DESIGN_RULES.md).
 
+### v0.1.19 review presentation boundary
+
+Typed current-owner file permissions automatically open at safe home surfaces, initially unengaged; Enter activates the rendered exact-scope summary, then existing one-shot a/y or explicit n applies. Auto-presentation, typing, paste and repeat/modified keys never grant or answer; Esc defers the exact identity. Background owners, generic permissions/questions and existing sheets retain their ownership. File code uses a localized structural file label/gutter, and one-time form-change notifications never cover pending consent/live generated code or change provider capability enforcement. Schema **16** and complete SDK bridge **8** are unchanged; this presentation change adds no authenticated provider acceptance.
+
 ### v0.1.18 live file generation boundary
 
 Display-only file previews use the existing owned chronological transcript, not a separate executor, grant or journal. Native Responses/Chat/Messages deliver genuine argument deltas; decoded cumulative paths/code are bounded and privacy-filtered before excerpting. Native Gemini and Codex expose received whole proposals, not fabricated token streaming. SDK bridge revision **8** forwards actual correlated tool-argument fragments through a distinct bounded display path while the original full-input mandatory hooks and exact consent retain write authority. SDK reported results remain provider-reported/unverified; only actual mediated native/Codex success receipts establish applied files.

@@ -20,6 +20,7 @@ pub struct Transition {
 #[derive(Default)]
 pub struct State {
     pub transition: Option<Transition>,
+    pub popup_shown: bool,
 }
 
 struct Rule {
@@ -505,6 +506,28 @@ pub fn classify(text: &str) -> Option<Selection> {
 }
 
 impl App {
+    /// The notification never covers consent or live generated-file code.
+    pub fn evolution_popup_ready(&self) -> bool {
+        self.evolution
+            .transition
+            .is_some_and(|transition| transition.from != transition.to)
+            && self.approval_shortcut_available()
+            && !self.carry_over_explicit()
+            && self.approval_count() == 0
+            && self.planning.request.is_none()
+            && !self.planning.items.iter().any(|item| {
+                std::sync::Arc::ptr_eq(&item.request, &self.planning.submitted_request)
+                    && matches!(
+                        item.kind,
+                        crate::providers::ItemKind::File(
+                            crate::providers::FilePhase::Generating
+                                | crate::providers::FilePhase::Received
+                                | crate::providers::FilePhase::AwaitingReview
+                        )
+                    )
+            })
+    }
+
     /// Called only after ordinary Submit's owner/safety guards, before save.
     pub(super) fn evolve_request(&mut self) -> bool {
         let Some(mut choice) = classify(&self.input) else {
@@ -542,6 +565,7 @@ impl App {
                 reason: choice.reason,
                 fresh,
             });
+            self.evolution.popup_shown = false;
         }
         true
     }
@@ -986,48 +1010,5 @@ mod tests {
         assert!(app.planning.thread_id.is_none());
         assert!(app.evolution.transition.unwrap().fresh);
         assert!(!app.pending_request.unwrap().1);
-    }
-
-    #[test]
-    fn transition_receipt_yields_to_deliberate_input_without_changing_the_frozen_request() {
-        use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-        let mut app = app();
-        app.input = "Create a code file.".into();
-        app.submit_request();
-        assert!(app.evolution.transition.is_some());
-        let snapshot = app.snapshot("/workspace");
-        assert!(app.planning.command("new", true, &snapshot, &[], None));
-        app.input = "future draft".into();
-        app.cursor = 7;
-        app.editing = true;
-        app.editor_field = store::EditorField::Request;
-        let now = std::time::Instant::now();
-        app.update_at(Event::Resize(60, 18), now);
-        app.update_at(
-            Event::Key(KeyEvent::new_with_kind(
-                KeyCode::Char('x'),
-                KeyModifiers::NONE,
-                KeyEventKind::Release,
-            )),
-            now,
-        );
-        assert!(
-            app.evolution.transition.is_some(),
-            "passive/release events retain the disclosure"
-        );
-        assert_eq!(app.input, "future draft");
-        app.update_at(Event::Paste("界".into()), now);
-        assert!(
-            app.evolution.transition.is_none(),
-            "deliberate input reclaims response rows"
-        );
-        assert_eq!(app.input, "future 界draft");
-        assert_eq!(app.cursor, 7 + "界".len());
-        assert_eq!(app.form(), 3);
-        assert!(app.lead.auto_form);
-        let Some(Request::Preview(input)) = app.planning.pending.as_ref() else {
-            panic!("submitted input was discarded");
-        };
-        assert_eq!(input.task.request_text(), "Create a code file.");
     }
 }

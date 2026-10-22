@@ -143,8 +143,8 @@ impl App {
         self.execution.set_task(snapshot.id);
         self.sync_front();
         self.lead.auto_form = snapshot.auto_form;
-        self.evolution.transition = None;
         self.set_form(snapshot.form);
+        self.evolution = evolution::State::default();
         // Loading/restoring a stored form is not an accepted form switch.
         self.clear_carry_over();
         self.revision = snapshot.revision;

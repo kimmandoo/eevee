@@ -147,6 +147,33 @@ def run(binary, output, root, size, ascii_mode, language):
                               True, False, peer, language=language)
             wait_for(journey.session, 'Storage: saved')
             journey.setup_route()
+            future = 'Popup future 한글界e\u0301'
+            journey.write_request(future)
+            before_popup_posts = len(peer.snapshot('POST'))
+            journey.session.command('flareon')
+            titles = ('Evolution!', '진화했어요!')
+            files.until(journey.session, lambda: any(title in journey.session.display() for title in titles),
+                        'actual manual evolution popup did not appear')
+            assert 'Eevee' in journey.session.display() and 'Flareon' in journey.session.display()
+            assert any(disclosure in journey.session.display() for disclosure in
+                       ('no automatic approval', '파일 저장은 별도 승인')), 'compact popup clipped its no-approval/continue disclosure'
+            journey.capture('manual-evolution-popup')
+            journey.session.paste('!')
+            assert not any(title in journey.session.display() for title in titles), 'dismissed popup replayed'
+            journey.session.send('\x13')
+            files.until(journey.session, lambda: 'Storage: saved' in journey.session.display(),
+                        'popup future draft did not settle')
+            drafts = [draft for task in journey.snapshot()['tasks']
+                      for state in task['partner_drafts'].values() for draft in state['drafts']]
+            assert any(draft['text'] == future + '!' for draft in drafts), 'evolution popup consumed or lost typed draft'
+            journey.session.command('eevee')
+            files.until(journey.session, lambda: any(title in journey.session.display() for title in titles),
+                        'actual return evolution popup did not appear')
+            journey.capture('return-to-automatic-popup')
+            journey.session.send(files.ESC)
+            journey.workspace()
+            assert len(peer.snapshot('POST')) == before_popup_posts, 'cosmetic popup dispatched inference'
+            result['cases'].append('manual and return evolution popups appeared once, kept literal draft typing and sent no provider request')
             source = journey.project / SOURCE
             source.parent.mkdir()
             source.write_bytes(CONTENT.encode())

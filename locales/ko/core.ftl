@@ -235,3 +235,6 @@ core-evolution-documentation = { "문서 / 인수인계" }
 core-evolution-readonly = { "읽기 전용 지시" }
 core-evolution-fresh = { "새 맥락; 대화 표시 유지" }
 core-evolution-transition = { $mode } { $from } → { $to }: { $reason }{ $fresh }
+core-evolution-popup-title = { "진화했어요!" }
+core-evolution-popup-continue = { "입력하면 닫힘 · 파일 저장은 별도 승인" }
+core-evolution-popup-manual-reason = { "모습은 바뀌어도 파트너와 초안은 그대로" }
