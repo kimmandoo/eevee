@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-22 — Automatic file review, distinct file output and evolution popup; v0.1.19 (active)
+
+- **Scope / baseline:** Fix mandatory approval navigation and indistinguishable file output; user additionally requested a beautiful one-time evolution popup and a combined release. Baseline main/origin `b6d27cc` after immutable v0.1.18; only user's `.DS_Store` is untracked. Preserve installation/auth/private data. v0.1.19 is authorized; no unrelated wave or paid/live model call.
+- **Active plan:** `docs/IMPLEMENTATION_PLAN.md` → “Active request — automatic file review, distinct file output and evolution popup; v0.1.19 release”.
+- **Observed cause / decision:** `provider_event` only installs the prompt; `focus_own_approval` requires deliberate navigation. The transcript renders every cached row through `Line::raw` with one ordinary surface style. Reuse current-owner queue/overlay return state for automatic file review, with explicit neutral engagement before any answer, and typed file-only label/gutters in the existing scroll.
+- **Local verification / exact next action:** D (`target/automatic-file-review-candidate-d/ev`, SHA256 `ef2bd798cea6dfb78a6f3ac08116b52c5cd8ce7ffc4a87b9db2f094b45757f89`) passed pinned Rust 1.90 fmt/1,211 tests/two ignored/strict Clippy/release. Actual D passed bilingual/both-size evolution with manual/return one-time popups and literal typing, sixteen staged progress/automatic-review journeys/64 groups, ordinary files 24 journeys/126 groups, continuous output 44 and bilingual tooltips (`target/automatic-file-review-d-*`). Actual 60×18 Korean captures show the complete popup between persistent model header/composer, automatic exact file review and structurally distinct `[파일]`/guttered source. B cooperation 24 also passed. Next: commit/push this exact source, require all-five-native plus Check, publish immutable v0.1.19 and verify every public asset plus downloaded installation/changed runtime. No v0.1.19 native qualification or publication has happened yet. Schema 16/complete SDK bridge 8 unchanged; no paid/live model call.
+- **Tool limit:** Rust LSP references again failed because rust-analyzer exited with code 0; no reference result was inferred. Scoped source/compiler/behavior checks are the fallback.
+
 ## 2026-10-22 — Visible in-progress file generation (completed; v0.1.18 released)
 
 - **User scope:** Show file/code generation as it happens in the main response surface, retain exact effect approval, then release v0.1.18. No unrelated backlog wave or paid/live model call is authorized.

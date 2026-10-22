@@ -480,6 +480,13 @@ impl App {
     /// selection follows so it opens on the form that is actually active.
     pub(super) fn set_form(&mut self, form: usize) {
         if self.lead.form != form {
+            self.evolution.transition = Some(evolution::Transition {
+                from: self.lead.form,
+                to: form,
+                reason: crate::i18n::Message::CoreEvolutionPopupManualReason,
+                fresh: false,
+            });
+            self.evolution.popup_shown = false;
             if self.overlay == Some(Overlay::Forms)
                 && self.selected == form
                 && let Some(trigger) = self

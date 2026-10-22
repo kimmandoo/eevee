@@ -75,6 +75,7 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) ->
     if app.approval_count() == 0
         && !file_output
         && let Some(transition) = app.evolution.transition
+        && transition.from == transition.to
         && offset + 1 < area.height
     {
         let fresh = if transition.fresh {
@@ -113,6 +114,77 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) ->
         offset += height;
     }
     row(area, offset, area.height.saturating_sub(offset))
+}
+
+/// A transient, nonmodal receipt. It grants nothing and leaves the editor intact.
+pub(super) fn evolution_popup(
+    frame: &mut Frame,
+    area: Rect,
+    app: &mut App,
+    config: &Config,
+    paint: &Paint,
+) {
+    if !app.evolution_popup_ready() {
+        return;
+    }
+    let Some(transition) = app.evolution.transition else {
+        return;
+    };
+    frame.render_widget(Clear, area);
+    let title = format!(
+        " {} ",
+        paint.hint(crate::i18n::Message::CoreEvolutionPopupTitle)
+    );
+    let block = panel(&title, config, paint, true);
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    let identity = format!(
+        "{} · {}",
+        app.lead_label(),
+        paint.hint(if app.lead().auto_form {
+            crate::i18n::Message::CoreEvolutionAuto
+        } else {
+            crate::i18n::Message::CoreEvolutionManual
+        })
+    );
+    text(
+        frame,
+        row(content, 0, 1),
+        &clipped(&identity, content.width as usize),
+        paint.muted,
+    );
+    let arrow = if config.ascii { "->" } else { "→" };
+    let hero = Line::from(vec![
+        Span::styled(crate::domain::FORMS[transition.from].name, paint.muted),
+        Span::styled(format!("  {arrow}  "), paint.muted),
+        Span::styled(crate::domain::FORMS[transition.to].name, paint.accent),
+    ])
+    .centered();
+    frame.render_widget(Paragraph::new(hero), row(content, 2, 1));
+    text(
+        frame,
+        row(content, 4, 1),
+        &clipped(paint.hint(transition.reason), content.width as usize),
+        paint.surface,
+    );
+    if transition.fresh {
+        text(
+            frame,
+            row(content, 5, 1),
+            paint.hint(crate::i18n::Message::CoreEvolutionFresh),
+            paint.muted,
+        );
+    }
+    text(
+        frame,
+        row(content, 6, 1),
+        &clipped(
+            paint.hint(crate::i18n::Message::CoreEvolutionPopupContinue),
+            content.width as usize,
+        ),
+        paint.muted,
+    );
+    app.evolution.popup_shown = true;
 }
 
 pub(super) fn approval_owner(app: &App) -> String {

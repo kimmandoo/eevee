@@ -106,6 +106,9 @@ def run(binary, output, root, size, ascii_mode, protocol, language):
             before = journey.begin('Explain this public display fixture.', [('custom', seed_reply)])
             seed_gate.release.set()
             journey.settled('OLD_RESPONSE_END', before + 1)
+            plain_rows = [line.lstrip() for line in journey.session.display().splitlines()
+                          if 'OLD_RESPONSE_ANCHOR_' in line]
+            assert plain_rows and all(not line.startswith('| ') for line in plain_rows), 'plain response received a file gutter'
             plan, first, final = gated_plan(peer, PATH, CONTENT)
             gates.extend([first, final])
             before = journey.begin('Generate a Python file generated/live.py with the requested code.', [
@@ -115,6 +118,10 @@ def run(binary, output, root, size, ascii_mode, protocol, language):
             else:
                 files.until(journey.session, first.ready.is_set, 'partial arguments did not reach the gate')
             visible(journey, 'STREAM_STAGE_ONE' if protocol != 'gemini' else 'STREAM_STAGE_TWO')
+            preview_rows = journey.session.display().splitlines()
+            assert any(label in '\n'.join(preview_rows) for label in ('[FILE]', '[파일]')), 'file preview lacked explicit file identity'
+            marker = 'STREAM_STAGE_ONE' if protocol != 'gemini' else 'STREAM_STAGE_TWO'
+            assert any(line.lstrip().startswith('| ') and marker in line for line in preview_rows), 'generated source looked like ordinary prose'
             if protocol != 'gemini':
                 assert 'STREAM_STAGE_TWO' not in journey.session.display(), 'fixture delivered later code before the first gate'
             journey.capture('live-code-before-complete-input')

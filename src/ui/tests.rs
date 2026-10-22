@@ -703,7 +703,11 @@ fn first_file_output_reclaims_compact_rows_without_dismissing_transition_or_draf
     app.cursor = 7;
     let mut artwork = Artwork::load(&config);
     let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
-    for phase in [FilePhase::Generating, FilePhase::Applied] {
+    for phase in [
+        FilePhase::Generating,
+        FilePhase::Received,
+        FilePhase::AwaitingReview,
+    ] {
         app.planning.items[0].kind = ItemKind::File(phase);
         terminal
             .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
@@ -825,6 +829,16 @@ fn carry_over_counts_and_capabilities_share_one_row_with_response_and_draft() {
                 terminal
                     .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
                     .unwrap();
+                if app.evolution.popup_shown && app.evolution.transition.is_some() {
+                    app.update(Event::Key(KeyEvent::new(
+                        KeyCode::F(12),
+                        KeyModifiers::NONE,
+                    )));
+                    app.reopen_carry_over();
+                    terminal
+                        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                        .unwrap();
+                }
                 let buffer = terminal.backend().buffer();
                 let strip = (area.x..area.right())
                     .map(|x| buffer[(x, area.y)].symbol())
@@ -1288,6 +1302,15 @@ fn nicknames_keep_species_visible_in_header_and_composer_at_both_sizes() {
                 terminal
                     .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
                     .unwrap();
+                if app.evolution.popup_shown && app.evolution.transition.is_some() {
+                    app.update(Event::Key(KeyEvent::new(
+                        KeyCode::F(12),
+                        KeyModifiers::NONE,
+                    )));
+                    terminal
+                        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                        .unwrap();
+                }
                 let buffer = terminal.backend().buffer();
                 let line =
                     |y: u16| -> String { (0..width).map(|x| buffer[(x, y)].symbol()).collect() };
@@ -2075,4 +2098,134 @@ fn record_discard_uses_visible_summary_not_end_scroll_and_invalidates_tiny_conse
         app.record_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(app.records.failed.is_none());
     }
+}
+
+#[test]
+fn evolution_popup_is_one_shot_localized_and_preserves_real_editor_input() {
+    use ratatui::{Terminal, backend::TestBackend};
+    for (width, height) in [(60, 18), (120, 36)] {
+        for language in [
+            crate::i18n::Language::ENGLISH,
+            crate::i18n::Language::parse("ko").unwrap(),
+        ] {
+            let mut config = home_config();
+            config.language = language;
+            let mut app = App::new("/workspace".into(), width, height);
+            app.task_id = 7;
+            app.storage = crate::app::StorageState::Saved;
+            app.input = "future 界draft".into();
+            app.cursor = "future ".len();
+            app.editing = true;
+            app.editor_field = EditorField::Request;
+            app.command("flareon");
+            let mut artwork = Artwork::load(&config);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            let screen = screen_text(&terminal);
+            assert!(app.evolution.popup_shown, "{screen}");
+            assert!(screen.contains("Eevee  ->  Flareon"), "{screen}");
+            assert_eq!((app.input.as_str(), app.cursor), ("future 界draft", 7));
+            assert!(app.planning.pending.is_none());
+            app.update(Event::Paste("한".into()));
+            assert_eq!((app.input.as_str(), app.cursor), ("future 한界draft", 10));
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            assert!(!screen_text(&terminal).contains("Eevee  ->  Flareon"));
+            app.command("flareon");
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            assert!(
+                !screen_text(&terminal).contains("Eevee  ->  Flareon"),
+                "unchanged form replayed evolution"
+            );
+        }
+    }
+}
+
+#[test]
+fn evolution_popup_waits_for_safe_surface_and_live_file_code_without_being_consumed() {
+    use crate::providers::{FilePhase, ItemKind};
+    use ratatui::{Terminal, backend::TestBackend};
+    use std::sync::Arc;
+    let config = home_config();
+    let mut app = App::new("/workspace".into(), 60, 18);
+    app.task_id = 7;
+    app.storage = crate::app::StorageState::Saved;
+    app.command("flareon");
+    app.command("help");
+    let mut artwork = Artwork::load(&config);
+    let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
+    terminal
+        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+        .unwrap();
+    assert!(!app.evolution.popup_shown);
+    app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+    assert!(
+        app.evolution.transition.is_some(),
+        "hidden notification was consumed by overlay input"
+    );
+    app.planning.submitted_request = Arc::from("Create generated/live.py");
+    app.planning.items.push(crate::app::planning::Item {
+        thread_id: String::new(),
+        turn_id: "turn".into(),
+        item_id: "file".into(),
+        kind: ItemKind::File(FilePhase::Generating),
+        text: "generated/live.py\n1  ACTUAL_LIVE_CODE".into(),
+        complete: false,
+        request: Arc::clone(&app.planning.submitted_request),
+        owner: None,
+    });
+    terminal
+        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+        .unwrap();
+    assert!(screen_text(&terminal).contains("ACTUAL_LIVE_CODE"));
+    assert!(!app.evolution.popup_shown);
+    app.planning.items[0].kind = ItemKind::File(FilePhase::Applied);
+    terminal
+        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+        .unwrap();
+    assert!(
+        app.evolution.popup_shown,
+        "completed file never released the pending evolution receipt"
+    );
+}
+
+#[test]
+fn evolution_popup_keeps_native_portraits_outside_its_visible_bounds() {
+    let mut app = App::new("/workspace".into(), 120, 36);
+    app.command("flareon");
+    let window = Rect::new(0, 0, 120, 36);
+    let popup = evolution_popup_area(window, &app).unwrap();
+    let layout = shell(window, app.linear, app.effective_focus());
+    assert!(popup.y >= layout.header.bottom() && popup.bottom() <= layout.composer.y);
+    let mut targets = Vec::new();
+    portrait_targets(&app, window, &mut targets);
+    assert!(
+        targets.iter().all(|(_, area)| !area.intersects(popup)),
+        "native image would paint above the evolution receipt"
+    );
+    let portrait = companion_portrait(layout.rail.unwrap());
+    assert!(
+        portrait.intersects(popup),
+        "fixture must exercise native image overlap"
+    );
+    let config = home_config();
+    let mut artwork = Artwork::load(&config);
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 36)).unwrap();
+    terminal
+        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+        .unwrap();
+    app.update(Event::Key(KeyEvent::new(
+        KeyCode::F(12),
+        KeyModifiers::NONE,
+    )));
+    portrait_targets(&app, window, &mut targets);
+    assert!(
+        targets.contains(&(app.form(), portrait)),
+        "acknowledged popup must restore the real companion portrait"
+    );
 }

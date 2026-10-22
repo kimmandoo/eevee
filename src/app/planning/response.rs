@@ -14,6 +14,14 @@ struct Row {
     header: bool,
 }
 
+/// A visible row borrows the cached header or original observation. File styling
+/// follows the typed lifecycle, never provider-controlled text or code prefixes.
+pub struct ResponseRow<'a> {
+    pub text: &'a str,
+    pub kind: ItemKind,
+    pub header: bool,
+}
+
 struct Segment {
     identity: Arc<Identity>,
     valid: bool,
@@ -153,7 +161,15 @@ impl Layout {
                     || self.attributed != attributed
                 {
                     segment.header.clear();
-                    if attributed {
+                    if let ItemKind::File(phase) = item.kind {
+                        let language = self.language.unwrap_or_else(|| Language::from_locale("en"));
+                        let _ = write!(
+                            segment.header,
+                            "{} {}",
+                            language.text(Message::ProvidersPlanningFileLabel),
+                            language.text(super::file_phase_message(phase)),
+                        );
+                    } else if attributed {
                         let language = self.language.unwrap_or_else(|| Language::from_locale("en"));
                         let kind = language.text(match item.kind {
                             ItemKind::Message => Message::ProvidersPlanningResponse,
@@ -189,13 +205,8 @@ impl Layout {
                                 ],
                             )
                             .expect("validated transcript template");
-                    } else if let ItemKind::File(phase) = item.kind {
-                        let language = self.language.unwrap_or_else(|| Language::from_locale("en"));
-                        segment
-                            .header
-                            .push_str(language.text(super::file_phase_message(phase)));
                     }
-                    if verbose {
+                    if verbose && !matches!(item.kind, ItemKind::File(_)) {
                         let _ = write!(
                             segment.header,
                             "\nSource: {agent}\nThread: {}\nTurn: {}\nItem: {}\n",
@@ -206,18 +217,25 @@ impl Layout {
                     segment.header_valid = true;
                 }
                 segment.rows.clear();
+                // The file-only panel gutter is painted separately on every row,
+                // including wrapped continuations and a viewport starting mid-code.
+                let content_width = if matches!(item.kind, ItemKind::File(_)) {
+                    width.saturating_sub(2).max(1)
+                } else {
+                    width.max(1)
+                };
                 if !segment.header.is_empty() {
                     wrap(
                         &mut segment.rows,
                         &segment.header,
-                        usize::from(width.max(1)),
+                        usize::from(content_width),
                         true,
                     );
                 }
                 wrap(
                     &mut segment.rows,
                     &item.text,
-                    usize::from(width.max(1)),
+                    usize::from(content_width),
                     false,
                 );
                 segment.valid = true;
@@ -503,13 +521,25 @@ impl State {
         }
     }
 
-    /// Borrow visible ranges from all retained segments, without copying output.
+    /// Text-only test access to the same cached chronological viewport.
+    #[cfg(test)]
     pub fn response_rows(
         &mut self,
         width: u16,
         height: u16,
         verbose: bool,
     ) -> impl Iterator<Item = &str> {
+        self.response_display_rows(width, height, verbose)
+            .map(|row| row.text)
+    }
+
+    /// Borrow visible ranges with structural metadata, without copying output.
+    pub fn response_display_rows(
+        &mut self,
+        width: u16,
+        height: u16,
+        verbose: bool,
+    ) -> impl Iterator<Item = ResponseRow<'_>> {
         self.response_height = height;
         self.response_cache
             .update(width, &self.items, self.agent.label(), verbose);
@@ -565,7 +595,11 @@ impl State {
                     } else {
                         &items[index].text
                     };
-                    &text[row.range.clone()]
+                    ResponseRow {
+                        text: &text[row.range.clone()],
+                        kind: segment.kind,
+                        header: row.header,
+                    }
                 })
             })
             .skip(skip)

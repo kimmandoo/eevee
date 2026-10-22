@@ -65,6 +65,7 @@ impl State {
 
     pub(super) fn review_start(&mut self) {
         self.review_details = false;
+        self.auto_file_review = false;
         self.scroll = 0;
         self.scroll_max = 0;
         self.response_cache.invalidate();
@@ -168,6 +169,7 @@ impl State {
 
     pub(super) fn close_request(&mut self) {
         self.send_after_prepare = false;
+        self.auto_file_review = false;
         let was_open = self.request.take().is_some();
         self.answers.clear();
         self.editing = false;
@@ -180,6 +182,7 @@ impl State {
 
     pub fn request_quit(&mut self) {
         self.quit_review = true;
+        self.auto_file_review = false;
         self.invalidate_review();
         self.editing = false;
     }
@@ -440,6 +443,9 @@ impl State {
     }
 
     pub fn paste(&mut self, text: &str) -> bool {
+        if self.auto_file_review {
+            return false;
+        }
         if self.custom_model.is_some() {
             let answer = self.custom_model.as_mut().expect("model editor");
             if text.chars().any(char::is_control) || answer.text.len() + text.len() > 256 {
@@ -569,7 +575,7 @@ impl State {
     }
 
     fn send_answer(&mut self, answer: Value) {
-        if self.pending.is_some() || self.cancelling {
+        if self.auto_file_review || self.pending.is_some() || self.cancelling {
             return;
         }
         let (Some(generation), Some(request)) = (self.generation, self.request.as_ref()) else {
@@ -593,6 +599,26 @@ impl State {
         report: Option<&Arc<repo::Report>>,
     ) -> bool {
         if key.kind == KeyEventKind::Release {
+            return false;
+        }
+        if self.auto_file_review {
+            if large_enough
+                && key.kind == KeyEventKind::Press
+                && key.modifiers.is_empty()
+                && key.code == KeyCode::Enter
+                && matches!(
+                    self.request.as_ref().map(|request| &request.kind),
+                    Some(PromptKind::Permission { file: Some(_), .. })
+                )
+            {
+                self.auto_file_review = false;
+                self.review_details = false;
+                self.scroll = 0;
+                self.invalidate_review();
+                return true;
+            }
+            // Request typing cannot become an answer on asynchronous arrival.
+            // App owns Esc deferral and its exact request identity.
             return false;
         }
         if self.task != task.id && !self.busy() && !self.journal_failed() {

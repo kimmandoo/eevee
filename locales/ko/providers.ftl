@@ -832,6 +832,10 @@ providers-planning-tool-output = { "도구 출력" }
 
 providers-planning-file-preview = { "파일 미리보기" }
 
+providers-planning-file-label = { "[파일]" }
+
+providers-planning-file-auto-review-actions = { "파일 제안 준비됨 · Enter 검토 · Esc 나중에" }
+
 providers-planning-file-generating = { "생성 중 · 저장 안 됨" }
 
 providers-planning-file-received = { "수신됨 · 제안" }

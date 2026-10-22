@@ -1,5 +1,13 @@
 # Troubleshooting
 
+### [2026-10-22] Evolution notification competed with compact work surfaces
+
+- **Context / Symptom:** Combined popup checks exposed a compact notification overlapping composer identity and retained-response fixtures still displaying the new transition receipt. An unseen transition could also have been consumed by input intended for another sheet.
+- **Root Cause:** A full-screen-centered decorative panel competed with the existing compact composer, and transition dismissal did not distinguish an actually displayed notification from a blocked one. Automatic carry-over banners intentionally hide on deliberate input, so inspecting them afterward must reopen retained state.
+- **Solution:** Constrained the popup between the persistent header and composer; deferred it behind approvals, other editors/sheets, explicit carry-over inspection and active generated-file code. Recorded actual visible rendering before input could consume the receipt, retained normal editor input, and suppressed restore/same-form replay. Rendered regressions now exercise popup acknowledgement and deliberate carry-over reopening instead of assuming no transition exists.
+- **Actual compact follow-through:** A 60×18 PTY capture then showed nested generic-sheet margins reducing the notification to five rows, clipping its reason/continue/no-approval disclosure. Used the protected header-to-composer region directly rather than applying a second sheet margin; the actual bilingual journey now requires the safety/continue disclosure to be visible.
+- **Prevention / Reference:** Combined bilingual/both-size evolution, file-generation and scrolling journeys exercise these surfaces together; use actual terminal captures for CJK text, since raw TestBackend cell dumps include wide-cell padding.
+
 ### [2026-10-22] Compact file progress had a title but no code viewport
 
 - **Context / Symptom:** The first actual v0.1.18 candidate failed the 60×18 Korean mid-argument journey before any navigation: the new file card said generating/not saved, but no `STREAM_STAGE_ONE` source line could appear. The follow range reported `0-44/44`.

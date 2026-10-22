@@ -3,7 +3,8 @@ use std::fmt::Write;
 use ratatui::{
     Frame,
     layout::Rect,
-    text::Line,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{Clear, Paragraph, Wrap},
 };
 use unicode_segmentation::UnicodeSegmentation;
@@ -16,7 +17,7 @@ use crate::{
     },
     config::Config,
     i18n::{Message, Template},
-    providers::{FileReview, FileReviewKind, ItemKind, Operation, PromptKind},
+    providers::{FilePhase, FileReview, FileReviewKind, ItemKind, Operation, PromptKind},
 };
 /// Response-only home surface: reuse the cached layout and follow state.
 pub(super) fn render_workspace(
@@ -898,7 +899,9 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
             state.request.as_ref().map(|request| &request.kind),
             Some(PromptKind::Permission { file: Some(_), .. })
         );
-    let controls = if file_details {
+    let controls = if state.auto_file_review {
+        paint.hint(Message::ProvidersPlanningFileAutoReviewActions)
+    } else if file_details {
         paint.hint(Message::ProvidersPlanningFileDetailsActions)
     } else if state.review_details {
         paint.hint(Message::ProvidersPlanningDSummaryPgupDnDetailsEscCancel)
@@ -921,7 +924,8 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     let metadata = if let Some(item) = state.items.get(state.selected) {
         let mut metadata = if let ItemKind::File(phase) = item.kind {
             format!(
-                "{} · {}",
+                "{} {} · {}",
+                paint.hint(Message::ProvidersPlanningFileLabel),
                 paint.hint(file_phase_message(phase)),
                 item.text.lines().next().unwrap_or("")
             )
@@ -981,7 +985,14 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         frame,
         row(area, 0, 1),
         &clipped(&metadata, area.width as usize),
-        paint.accent,
+        state
+            .items
+            .get(state.selected)
+            .and_then(|item| match item.kind {
+                ItemKind::File(phase) => Some(file_style(phase, paint)),
+                _ => None,
+            })
+            .unwrap_or(paint.accent),
     );
     let show_notice = !active && state.request.is_none() && !state.notice.is_empty();
     let show_follow = !state.items.is_empty();
@@ -1006,8 +1017,24 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         );
     } else {
         let lines: Vec<Line<'_>> = state
-            .response_rows(body.width, body.height, super::VERBOSE.get())
-            .map(Line::raw)
+            .response_display_rows(body.width, body.height, super::VERBOSE.get())
+            .map(|row| match row.kind {
+                ItemKind::File(phase) => Line::from(vec![
+                    Span::styled(
+                        if row.header { "+ " } else { "| " },
+                        file_style(phase, paint),
+                    ),
+                    Span::styled(
+                        row.text,
+                        if row.header {
+                            file_style(phase, paint)
+                        } else {
+                            paint.surface
+                        },
+                    ),
+                ]),
+                _ => Line::raw(row.text),
+            })
             .collect();
         frame.render_widget(Paragraph::new(lines).style(paint.surface), body);
     }
@@ -1087,7 +1114,26 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     }
 }
 
+/// Semantic lifecycle colors supplement, rather than replace, the file panel.
+/// Monochrome keeps the same markers and uses bold for the lifecycle/header.
+fn file_style(phase: FilePhase, paint: &Paint) -> Style {
+    let style = paint.surface.add_modifier(Modifier::BOLD);
+    if paint.surface.fg.is_none() {
+        return style;
+    }
+    style.fg(match phase {
+        FilePhase::Generating | FilePhase::Received => Color::Cyan,
+        FilePhase::AwaitingReview => Color::Yellow,
+        FilePhase::Applied => Color::Green,
+        FilePhase::Denied | FilePhase::Refused | FilePhase::Interrupted => Color::Red,
+        FilePhase::Reported | FilePhase::Unknown => Color::Magenta,
+    })
+}
+
 fn controls(state: &State, paint: &Paint) -> &'static str {
+    if state.auto_file_review {
+        return paint.hint(Message::ProvidersPlanningFileAutoReviewActions);
+    }
     if let Some(preview) = &state.preview {
         return if !preview.blockers.is_empty() {
             paint.hint(Message::ProvidersPlanningRunBlockedNCancelEscCancelD)
@@ -1979,11 +2025,15 @@ mod tests {
 
     #[test]
     fn growing_file_previews_share_home_without_taking_the_future_draft_or_caret() {
-        for (width, height, tag, ascii) in [
-            (60, 18, "en", true),
-            (60, 18, "ko", true),
-            (120, 36, "en", false),
-            (120, 36, "ko", false),
+        for (width, height, tag, ascii, color) in [
+            (60, 18, "en", true, ColorMode::TrueColor),
+            (60, 18, "ko", true, ColorMode::TrueColor),
+            (120, 36, "en", false, ColorMode::TrueColor),
+            (120, 36, "ko", false, ColorMode::TrueColor),
+            (60, 18, "en", true, ColorMode::Mono),
+            (60, 18, "ko", true, ColorMode::Mono),
+            (120, 36, "en", false, ColorMode::Mono),
+            (120, 36, "ko", false, ColorMode::Mono),
         ] {
             let language = crate::i18n::Language::parse(tag).unwrap();
             let (mut app, task) = preview(width, height);
@@ -1999,6 +2049,7 @@ mod tests {
             let mut config = config();
             config.language = language;
             config.ascii = ascii;
+            config.color = color;
             let mut artwork = super::super::Artwork::load(&config);
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
             for (phase, code) in [
@@ -2044,6 +2095,15 @@ mod tests {
                     "{screen}"
                 );
                 assert!(
+                    screen.contains(language.text(Message::ProvidersPlanningFileLabel))
+                        && screen.contains(if code.contains("next_code") {
+                            "| 2 | next_code"
+                        } else {
+                            "| 1 | first_code"
+                        }),
+                    "{screen}"
+                );
+                assert!(
                     screen.contains(if code.contains("next_code") {
                         "next_code"
                     } else {
@@ -2058,6 +2118,168 @@ mod tests {
                 );
                 assert!(app.editing && app.overlay.is_none());
                 assert_eq!(app.planning.items.len(), 1);
+                assert!(app.planning.pending.is_none() && app.planning.decision.is_none());
+            }
+        }
+    }
+
+    fn draw_response(
+        state: &mut State,
+        width: u16,
+        height: u16,
+        paint: &Paint,
+    ) -> ratatui::buffer::Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| response(frame, frame.area(), state, paint))
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    #[test]
+    fn file_panel_is_typed_not_inferred_from_prose_in_color_and_monochrome() {
+        for (width, height) in [(60, 18), (120, 36)] {
+            for color in [ColorMode::TrueColor, ColorMode::Mono] {
+                for tag in ["en", "ko"] {
+                    let mut config = config();
+                    config.language = crate::i18n::Language::parse(tag).unwrap();
+                    config.color = color;
+                    let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
+                    let content =
+                        "src/새.rs\n1 | let 인사 = \"안녕 e\u{301}\";\n2 | ordinary-looking prose";
+                    for phase in [
+                        FilePhase::Generating,
+                        FilePhase::Received,
+                        FilePhase::AwaitingReview,
+                        FilePhase::Applied,
+                        FilePhase::Denied,
+                        FilePhase::Refused,
+                        FilePhase::Interrupted,
+                        FilePhase::Reported,
+                        FilePhase::Unknown,
+                    ] {
+                        let mut state = State::default();
+                        state.items.push(crate::app::planning::Item {
+                            thread_id: "private-thread".into(),
+                            turn_id: "private-turn".into(),
+                            item_id: "private-item".into(),
+                            kind: ItemKind::File(phase),
+                            text: content.into(),
+                            complete: phase != FilePhase::Generating,
+                            request: "".into(),
+                            owner: None,
+                        });
+                        let buffer = draw_response(&mut state, width, height, &paint);
+                        let file = screen(&buffer);
+                        assert!(
+                            file.contains(paint.hint(Message::ProvidersPlanningFileLabel))
+                                && file.contains(paint.hint(file_phase_message(phase)))
+                                && file.contains("| src/새.rs")
+                                && file.contains("| 1 | let 인사")
+                                && file.contains("e\u{301}"),
+                            "{file}"
+                        );
+                        assert!(!file.contains("private-"), "{file}");
+                        let expected_color = if color == ColorMode::Mono {
+                            Color::Reset
+                        } else {
+                            match phase {
+                                FilePhase::Generating | FilePhase::Received => Color::Cyan,
+                                FilePhase::AwaitingReview => Color::Yellow,
+                                FilePhase::Applied => Color::Green,
+                                FilePhase::Denied | FilePhase::Refused | FilePhase::Interrupted => {
+                                    Color::Red
+                                }
+                                FilePhase::Reported | FilePhase::Unknown => Color::Magenta,
+                            }
+                        };
+                        assert_eq!(buffer[(0, 1)].fg, expected_color, "{file}");
+                        let verbose = state
+                            .response_display_rows(width, height, true)
+                            .map(|row| row.text)
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        assert!(!verbose.contains("private-"), "{verbose}");
+
+                        let mut plain_state = State::default();
+                        let mut item = state.items.pop().unwrap();
+                        item.kind = ItemKind::Message;
+                        plain_state.items.push(item);
+                        let plain = screen(&draw_response(&mut plain_state, width, height, &paint));
+                        assert!(
+                            plain.contains("1 | let 인사")
+                                && !plain.contains("| 1 | let 인사")
+                                && !plain.contains(paint.hint(Message::ProvidersPlanningFileLabel)),
+                            "{plain}"
+                        );
+                        assert_eq!(
+                            plain_state
+                                .response_rows(width, height, false)
+                                .collect::<Vec<_>>(),
+                            content.lines().collect::<Vec<_>>(),
+                            "ordinary prose retains its original rows"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn paused_mid_file_rows_keep_gutter_identity_and_unicode_after_stage_and_resize() {
+        for color in [ColorMode::TrueColor, ColorMode::Mono] {
+            let (mut app, task) = preview(60, 18);
+            draw(&mut app);
+            key(&mut app, &task, KeyCode::Char('y'));
+            app.planning.pending.take();
+            let source = format!(
+                "src/새.rs\n{}",
+                (1..=100)
+                    .map(|n| format!("{n} | held_{n:03} 界 e\u{301}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            let snapshot = |phase, text: String| Event::Item {
+                generation: 11,
+                task_id: 7,
+                thread_id: "thread".into(),
+                turn_id: "turn".into(),
+                item_id: "file".into(),
+                kind: ItemKind::File(phase),
+                text,
+                complete: phase != FilePhase::Generating,
+            };
+            app.planning
+                .event(snapshot(FilePhase::Generating, source.clone()));
+            let mut config = config();
+            config.color = color;
+            let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
+            draw_response(&mut app.planning, 60, 18, &paint);
+            app.planning.home_response_key(KeyCode::Home);
+            app.planning.scroll_response_lines(20);
+            let before = draw_response(&mut app.planning, 60, 18, &paint);
+            let first = rendered_row(&before, before.area, 1);
+            assert!(
+                first.starts_with("| ") && first.contains("held_"),
+                "{first}"
+            );
+            app.planning.event(snapshot(
+                FilePhase::AwaitingReview,
+                format!("{source}\n101 | newly arrived"),
+            ));
+            for (width, height) in [(60, 18), (120, 36), (60, 18)] {
+                let buffer = draw_response(&mut app.planning, width, height, &paint);
+                let visible = screen(&buffer);
+                assert_eq!(rendered_row(&buffer, buffer.area, 1), first, "{visible}");
+                assert!(
+                    visible.contains("[FILE]") && visible.contains("src/새.rs"),
+                    "{visible}"
+                );
+                assert!(
+                    visible.contains("Awaiting review") && !visible.contains("+ [FILE]"),
+                    "{visible}"
+                );
+                assert!(!app.planning.following && app.planning.new_output);
                 assert!(app.planning.pending.is_none() && app.planning.decision.is_none());
             }
         }
@@ -2848,6 +3070,73 @@ mod tests {
                         assert!(app.planning.pending.is_none());
                     }
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn automatically_presented_file_review_advertises_engagement_without_consent() {
+        for (width, height) in [(60, 18), (120, 36)] {
+            for tag in ["en", "ko"] {
+                let language = crate::i18n::Language::parse(tag).unwrap();
+                let content = "let 인사 = \"안녕\";\n";
+                let (mut app, task) = bolt_prompt(PromptKind::Permission {
+                    description: "Not the typed scope".into(),
+                    file: Some(FileReview {
+                        path: "src/새.rs".into(),
+                        kind: FileReviewKind::Create,
+                        directories: vec!["src".into()],
+                        bytes: content.len(),
+                        excerpt: FileReview::excerpt(content),
+                        edit: false,
+                        external: false,
+                    }),
+                    options: vec![
+                        PermissionOption {
+                            label: "Deny".into(),
+                            description: String::new(),
+                            answer: serde_json::json!({"permission":"deny"}),
+                        },
+                        PermissionOption {
+                            label: "Allow once".into(),
+                            description: String::new(),
+                            answer: serde_json::json!({"permission":"once"}),
+                        },
+                    ],
+                });
+                app.width = width;
+                app.height = height;
+                app.planning.auto_file_review = true;
+                let visible = screen(&draw_language(&mut app, language));
+                assert!(
+                    visible
+                        .contains(language.text(Message::ProvidersPlanningFileAutoReviewActions))
+                        && visible.contains("src/새.rs")
+                        && visible.contains("안녕")
+                        && visible.contains(&content.len().to_string()),
+                    "{visible}"
+                );
+                assert!(
+                    !visible.contains("a/y") && !visible.contains("Not the typed scope"),
+                    "{visible}"
+                );
+                assert!(
+                    app.planning.auto_file_review,
+                    "rendering cannot engage a review"
+                );
+                assert!(app.planning.pending.is_none() && app.planning.decision.is_none());
+                key(&mut app, &task, KeyCode::Enter);
+                assert!(!app.planning.auto_file_review);
+                assert!(app.planning.pending.is_none() && app.planning.decision.is_none());
+                let engaged = screen(&draw_language(&mut app, language));
+                assert!(
+                    engaged.contains("src/새.rs") && engaged.contains("a/y"),
+                    "{engaged}"
+                );
+                assert!(
+                    !engaged
+                        .contains(language.text(Message::ProvidersPlanningFileAutoReviewActions))
+                );
             }
         }
     }

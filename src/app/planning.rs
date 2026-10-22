@@ -125,6 +125,8 @@ pub struct State {
     pub reviewed: bool,
     /// Full technical review is optional; summary visibility still gates consent.
     pub review_details: bool,
+    /// Automatically presented file review still awaiting deliberate engagement.
+    pub auto_file_review: bool,
     pub submitted_request: Arc<str>,
     submitted_instruction: Option<Arc<str>>,
     pub(super) failed_request: bool,
@@ -247,6 +249,7 @@ impl State {
             notice: "No response yet. Send from Request; /session-new and /session-resume prepare an exact outgoing-payload review. /connect manages provider connections separately.".into(),
             scroll: 0, scroll_max: 0, reviewed: false, affirmative: false,
             review_details: false,
+            auto_file_review: false,
             submitted_request: Arc::default(),
             submitted_instruction: None,
             failed_request: false,
@@ -1420,6 +1423,9 @@ impl State {
         if name == "quit" {
             self.request_quit();
             return true;
+        }
+        if self.auto_file_review {
+            return false;
         }
         if name == "journal-retry" {
             self.retry_journal();

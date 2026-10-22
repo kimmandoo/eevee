@@ -235,3 +235,6 @@ core-evolution-documentation = { "documentation / handoff" }
 core-evolution-readonly = { "read-only instruction" }
 core-evolution-fresh = { "fresh context; transcript kept" }
 core-evolution-transition = { $mode } { $from } → { $to }: { $reason }{ $fresh }
+core-evolution-popup-title = { "Evolution!" }
+core-evolution-popup-continue = { "Keep typing to continue · no automatic approval" }
+core-evolution-popup-manual-reason = { "A new form · the same partner and draft" }

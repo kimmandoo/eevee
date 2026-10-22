@@ -13,7 +13,13 @@ impl App {
         let hide_carry_over = matches!(&event, Event::Paste(_))
             || matches!(&event, Event::Key(key) if key.kind != KeyEventKind::Release);
         let carry_over_hidden = hide_carry_over && self.carry_over.hide();
-        let evolution_hidden = hide_carry_over && self.evolution.transition.take().is_some();
+        let evolution_hidden = hide_carry_over
+            && (self.evolution.popup_shown
+                || self
+                    .evolution
+                    .transition
+                    .is_some_and(|change| change.from == change.to))
+            && self.evolution.transition.take().is_some();
         let resized = matches!(event, Event::Resize(_, _));
         let command_action = self.command_popup.is_some()
             && matches!(&event, Event::Key(key) if key.code == KeyCode::Enter);
@@ -157,7 +163,8 @@ impl App {
         {
             self.changed_implicitly(now);
         }
-        changed || carry_over_hidden || evolution_hidden
+        let presented = self.reconcile_file_review();
+        changed || presented || carry_over_hidden || evolution_hidden
     }
 
     fn response_mouse(&mut self, mouse: MouseEvent) -> bool {
@@ -726,7 +733,7 @@ impl App {
             }
             return true;
         }
-        false
+        self.reconcile_file_review()
     }
 
     pub(super) fn command_surface_editing(&self) -> bool {
@@ -820,6 +827,9 @@ impl App {
         }
         if self.nickname_editor.is_some() {
             return self.nickname_key(key);
+        }
+        if self.overlay == Some(Overlay::Planning) && self.planning.auto_file_review {
+            return self.planning_key(key);
         }
         if key.kind == KeyEventKind::Press
             && key.code == KeyCode::Char('a')
