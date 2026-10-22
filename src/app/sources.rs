@@ -890,7 +890,25 @@ impl State {
                     self.error =
                         "Review the visible capture before attaching; nothing saved or sent."
                             .into();
-                } else if let Some(excerpt) = self.preview.clone() {
+                } else if let Some(excerpt) = self.preview.as_ref() {
+                    if let Some(index) = self.basket.iter().position(|stored| {
+                        stored.task_id == excerpt.task_id
+                            && stored.root == excerpt.root
+                            && stored.path == excerpt.path
+                            && stored.start_line == excerpt.start_line
+                            && stored.end_line == excerpt.end_line
+                            && stored.source_sha256 == excerpt.source_sha256
+                            && stored.text == excerpt.text
+                            && stored.available
+                    }) {
+                        self.payload = None;
+                        self.basket_selection = index;
+                        self.mode = Mode::Basket;
+                        self.return_to_composer = true;
+                        self.basket_detail();
+                        return Action::Changed;
+                    }
+                    let excerpt = excerpt.clone();
                     self.payload = None;
                     self.return_after_attach = true;
                     self.queue_store(task_id, store::ContextOperation::Pin(excerpt));

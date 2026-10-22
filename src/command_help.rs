@@ -7,6 +7,14 @@ pub fn key(command: &str) -> Option<Message> {
         return Some(message);
     }
     Some(match command {
+        "held" => Message::CmdHeld,
+        "held-file" => Message::CmdHeldFile,
+        "held-set-file" => Message::CmdHeldSetFile,
+        "held-memory" => Message::CmdHeldMemory,
+        "held-set-memory" => Message::CmdHeldSetMemory,
+        "held-accept" => Message::CmdHeldAccept,
+        "held-dismiss" => Message::CmdHeldDismiss,
+        "held-clear" => Message::CmdHeldClear,
         "provider" | "connect" => Message::CmdProvider,
         "new" => Message::CmdNew,
         "resume" => Message::CmdResume,

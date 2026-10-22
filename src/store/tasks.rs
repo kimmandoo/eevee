@@ -425,6 +425,7 @@ impl State {
                     transaction
                         .execute("DELETE FROM memories WHERE task_id=?1", [id])
                         .map_err(|error| error.to_string())?;
+                    super::held::purge_missing_memories(&transaction)?;
                     super::moves::purge_task(&transaction, *id)?;
                     super::records::purge_task(&transaction, &self.project, *id)?;
                     transaction

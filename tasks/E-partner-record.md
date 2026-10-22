@@ -90,11 +90,12 @@ Pokémon flavor wraps facts and never replaces them. No XP, levels, affection, s
 
 ### PK04 — Held items
 
-- [ ] Let a partner's form always bring a chosen file or memory.
+- [x] Let a partner's form always bring a chosen file or memory.
 - **Priority:** 3. **Needs:** C03A, EV02. **Builds on:** S02.
 - **Change:** One held item per partner per form per project, proposed as a removable chip on entering the form and shown in the strip and receipt.
 - **Accept:** It appears after switching and is revalidated before send; an excluded file cannot be held.
 - **Watch out:** Proposed, never silently included.
+- **Completed 2026-10-23:** Passed 24 actual English/Korean 120×36/60×18 held groups, current-policy file refusal, exact approved-memory selection, real scope/restart and six genuine Schema16→17 preservation/refusal/resume cases. Schema 17 stores references only; public v0.1.19 remains unchanged.
 
 ### PK06 — Ribbons
 

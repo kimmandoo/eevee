@@ -1,5 +1,26 @@
 # Troubleshooting
 
+### [2026-10-23] Held configuration was inspectable but absent from the compact workspace
+
+- **Context / Symptom:** Actual 60×18 captures showed no saved/proposed item in the normal workspace even though `/held` correctly showed the configuration and frozen receipt. A targeted rendered regression also showed the old strip had a status but no file identity, and dismissal left that strip painted.
+- **Root Cause:** The optional strip required nine free rows after wrapped generic form advice, omitted its target, and did not gate on visit dismissal. Targeted transition coverage additionally exposed local dismissal being refused during saving and matching preference acknowledgments unconditionally clearing its dismissal flag.
+- **Solution:** Gave the deliberate held choice the generic-advice slot while retaining explicit carry-over and safety/live-code priority. Used concise localized states, an escaped/clipped identity and a reserved `/held` control; retained a useful output viewport. Made visit-only dismissal independent of context/persistence guards and preserved it through matching acknowledgments, without touching the preference or selected context. Added failing-before identity/control, redraw, unsaved-draft and pending-save/ack transition coverage instead of verifying only the inspector.
+- **Prevention / Reference:** Check the ordinary minimum-size surface, long/CJK identities and fixed controls as well as opened panels. `scripts/held_smoke.py` retains separate main-workspace saved/proposed/dismissed captures.
+
+### [2026-10-23] Held-context terminal harness crossed unrelated review lifecycles
+
+- **Context / Symptom:** The first real held-source journey could not refresh after a stale-source refusal; later journeys waited behind an optional move offer or appeared to ignore dismissal. Record checks also required an old byte caption, obsolete scope-entry wording and a fixed number of pages for an enlarged native payload.
+- **Root Cause:** A blocked immutable preview intentionally retained its claim for explicit cancellation. Three pin uses legitimately offered a move. Escape acknowledged an evolution notification but was correctly forwarded to a dirty editor, opening a neutral draft-discard dialog; the subsequent “dismiss” text never reached the palette. Source-wire receipts invalidate on composer changes, and complete tool schemas can exceed arbitrary full-payload paging assumptions.
+- **Solution:** Waited for actual `Request blocked:`, cancelled that exact preview and required no claims/no POST before restoring fixture bytes. Deliberately postponed the visible optional move offer. Used a neutral F12 to acknowledge evolution without an editor action; retained both first-failure modal captures and substantive draft/chip assertions. Entered generic owned review through its current Alt+A control, then explicitly cancelled without sending. Deleted obsolete receipt-copy/full-payload-wording assertions while keeping actual raw HTTP single-occurrence bytes, exact source/memory revision/history and no-effect scope/cancellation checks.
+- **Prevention / Reference:** `scripts/held_smoke.py` exercises real English/Korean source and exact-memory flows at both sizes. Keep product state, durable ownership, transport effects and temporary overlay visibility as separate assertions.
+
+### [2026-10-23] Compact held receipts and wide-cell rendering assertions
+
+- **Context / Symptom:** Held-item integration exposed a compact frozen-membership assertion failure and apparent Korean text corruption when switching a rendered receipt from excluded to included.
+- **Root Cause:** Optional notice/policy rows preceded the frozen receipt in a fixed-height body. Separately, the TestBackend text decoder concatenated every cell, including continuation cells underneath wide Korean glyphs; those cells are not independently painted and could retain old symbols after a diff.
+- **Solution:** Prioritized the frozen owner, target and contribution before optional help. Decoded rendered test rows by actual symbol display width using the existing terminal text primitive, rather than stripping spaces, changing labels or adding a dependency. Kept the exact membership/owner/draft assertions at both supported sizes and languages.
+- **Prevention / Reference:** Verify the actual PTY surface as well as rendered state. Distinguish wide-glyph continuation cells from visible characters, especially after a localized state transition.
+
 ### [2026-10-23] Installed terminal harness mistook a visible evolution popup for lost goal data
 
 - **Context / Symptom:** The actual public v0.1.19 installation reached its full terminal harness; 120×36, 100×30 and 70×24 passed, while 60×18 stopped at `form selection lost the goal`.

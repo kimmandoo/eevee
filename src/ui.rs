@@ -5,6 +5,7 @@ mod composer;
 mod cooperation;
 mod execution;
 mod handoff;
+mod held;
 mod memory;
 mod moves;
 mod planning;
@@ -548,6 +549,8 @@ pub fn render(
             records::render_small(frame, review_area, app, &paint);
         } else if app.overlay == Some(Overlay::PartyBoard) {
             cooperation::board(frame, review_area, app, config, &paint);
+        } else if app.overlay == Some(Overlay::Held) {
+            held::render(frame, review_area, app, config, &paint);
         }
         if app.cooperation_ui.release.is_some() {
             cooperation::release(frame, area, app, config, &paint);
@@ -606,6 +609,7 @@ pub fn render(
         } else {
             suggestion_strip(frame, workspace_area, app, &paint)
         };
+        let workspace_area = held::strip(frame, workspace_area, app, &paint);
         if app.response_on_home() {
             planning::render_workspace(frame, workspace_area, app, config, &paint);
         } else {
@@ -669,6 +673,7 @@ pub fn render(
             Overlay::Memory => memory::render(frame, area, &mut app.memory, config, &paint),
             Overlay::Moves => moves::render(frame, area, app, config, &paint),
             Overlay::Records => records::render(frame, area, app, config, &paint),
+            Overlay::Held => held::render(frame, area, app, config, &paint),
             Overlay::Party => party(frame, area, app, config, &paint),
             Overlay::PartyBoard => cooperation::board(frame, area, app, config, &paint),
             Overlay::Images => images(frame, area, app, config, &paint, artwork, graphics_status),
@@ -906,6 +911,10 @@ fn suggestion_strip(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) -> 
             row(area, 0, 1),
         );
         return row(area, 1, area.height.saturating_sub(1));
+    }
+    // A deliberate saved item takes the advisory slot; carry-over stays inspectable.
+    if app.held.target.is_some() && !app.held.dismissed {
+        return area;
     }
     let Some(line) = suggestion_line(app, paint) else {
         return area;
@@ -1907,6 +1916,7 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
                 | Overlay::Handoff
                 | Overlay::Workflows
                 | Overlay::Memory
+                | Overlay::Held
                 | Overlay::PartyBoard,
             ) => paint.hint(Message::CoreOverlayControl),
             Some(_) => paint.hint(Message::CoreOverlayScrollControl),

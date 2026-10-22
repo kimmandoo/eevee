@@ -28,6 +28,12 @@ pub enum Operation {
         form: usize,
         selection: Option<Pairing>,
     },
+    SetHeld {
+        partner: i64,
+        form: usize,
+        target: Option<crate::workspace::held::Target>,
+        file_proof: Option<crate::workspace::held::FileProof>,
+    },
     SetFlavor {
         enabled: bool,
     },
@@ -397,6 +403,25 @@ impl State {
                     tx.execute("DELETE FROM partner_pairings WHERE id=?1", [id])
                         .map_err(|e| e.to_string())?;
                 }
+            }
+            Operation::SetHeld {
+                partner,
+                form,
+                target,
+                file_proof,
+            } => {
+                let task = task
+                    .as_ref()
+                    .ok_or("Held preferences require a saved active task")?;
+                super::held::set(
+                    &tx,
+                    &self.data_dir,
+                    task,
+                    *partner,
+                    *form,
+                    target.as_ref(),
+                    file_proof.as_ref(),
+                )?;
             }
             Operation::ObserveInstruction {
                 request_id,
@@ -956,6 +981,7 @@ fn snapshot(
         resolution_choices,
         habits,
         pairings: rows(connection, "partner_pairings", project)?,
+        held_items: super::held::items(connection, project)?,
         usages: rows(connection, "provider_usage", project)?,
         summaries,
         flavor_enabled,
@@ -1726,6 +1752,7 @@ pub(super) fn purge_project(connection: &Connection, project: &str) -> Result<()
         "instruction_candidates",
         "instruction_sources",
         "partner_pairings",
+        "held_items",
         "provider_usage",
         "provider_usage_events",
     ] {
@@ -2641,6 +2668,7 @@ fn bounded_failure_paths(
 
 #[cfg(test)]
 pub(super) fn remove_schema(connection: &Connection) {
+    connection.execute_batch("DROP TABLE held_items;").unwrap();
     connection
         .execute_batch("ALTER TABLE partners DROP COLUMN auto_form;")
         .unwrap();

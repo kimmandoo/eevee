@@ -447,6 +447,7 @@ const SPECIALIST_ACTIONS: &[(&str, &str, &str)] = &[
 impl App {
     pub fn command_choices(&self) -> Vec<Choice> {
         let mut choices = match self.overlay {
+            Some(Overlay::Held) => self.held_command_choices(),
             Some(Overlay::Records) => self.record_command_choices(),
             Some(Overlay::Planning) => self.planning.command_choices(),
             Some(Overlay::Execution) => self.execution.command_choices(),
@@ -681,6 +682,14 @@ impl App {
             }
         }
         for choice in self.record_command_choices() {
+            if !choices
+                .iter()
+                .any(|existing| existing.command == choice.command)
+            {
+                choices.push(choice);
+            }
+        }
+        for choice in self.held_command_choices() {
             if !choices
                 .iter()
                 .any(|existing| existing.command == choice.command)
@@ -1189,6 +1198,9 @@ impl App {
             return true;
         }
         self.command_popup = None;
+        if self.held_command(name) {
+            return true;
+        }
         if self.record_command(name) {
             return true;
         }

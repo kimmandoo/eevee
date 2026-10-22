@@ -234,9 +234,13 @@ pub(super) fn render(
             .into()
     } else {
         match state.mode {
-            Mode::Browse => paint
-                .hint(crate::i18n::Message::DesksMemoryUpDownInspectCommandsSelectMemoryContext)
-                .into(),
+            Mode::Browse => format!(
+                "{}\n{}",
+                paint.hint(
+                    crate::i18n::Message::DesksMemoryUpDownInspectCommandsSelectMemoryContext
+                ),
+                paint.hint(crate::i18n::Message::HeldMemoryHint)
+            ),
             Mode::Edit => paint
                 .hint(crate::i18n::Message::DesksMemoryEnterPreviewCtrlNNewlineEscKeep)
                 .into(),

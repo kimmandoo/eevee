@@ -9,6 +9,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, pa
 use serde::{Deserialize, Serialize};
 
 mod admission;
+mod held;
 mod journal;
 mod memories;
 pub mod moves;

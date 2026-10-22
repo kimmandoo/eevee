@@ -229,9 +229,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=16).contains(&version) {
+    if !(0..=17).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0 through 16"
+            "Unsupported database schema version {version}; this ev supports versions 0 through 17"
         ));
     }
     let mut statement = connection
@@ -384,39 +384,44 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
         {
             Schema::Current
         }
-        (15 | 16, objects)
-            if objects.len() == 27
+        (15..=17, objects)
+            if objects.len() == (if version >= 17 { 28 } else { 27 })
                 && objects
                     .iter()
-                    .zip([
-                        "active_work",
-                        "diagnosis_transitions",
-                        "excerpts",
-                        "executions",
-                        "failure_observations",
-                        "failure_resolutions",
-                        "failure_signatures",
-                        "form_routes",
-                        "instruction_candidates",
-                        "instruction_sources",
-                        "local_activity",
-                        "local_artifacts",
-                        "local_settings",
-                        "memories",
-                        "move_candidates",
-                        "move_dispatches",
-                        "move_sources",
-                        "move_usages",
-                        "moves",
-                        "partner_pairings",
-                        "partners",
-                        "provider_journal",
-                        "provider_preferences",
-                        "provider_usage",
-                        "provider_usage_events",
-                        "selections",
-                        "tasks",
-                    ])
+                    .zip(
+                        [
+                            "active_work",
+                            "diagnosis_transitions",
+                            "excerpts",
+                            "executions",
+                            "failure_observations",
+                            "failure_resolutions",
+                            "failure_signatures",
+                            "form_routes",
+                            "held_items",
+                            "instruction_candidates",
+                            "instruction_sources",
+                            "local_activity",
+                            "local_artifacts",
+                            "local_settings",
+                            "memories",
+                            "move_candidates",
+                            "move_dispatches",
+                            "move_sources",
+                            "move_usages",
+                            "moves",
+                            "partner_pairings",
+                            "partners",
+                            "provider_journal",
+                            "provider_preferences",
+                            "provider_usage",
+                            "provider_usage_events",
+                            "selections",
+                            "tasks",
+                        ]
+                        .into_iter()
+                        .filter(|name| version >= 17 || *name != "held_items"),
+                    )
                     .all(|((kind, name), expected)| kind == "table" && name == expected) =>
         {
             Schema::Current
@@ -598,6 +603,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
             if version >= 15 {
                 super::records::inspect(connection)?;
             }
+            if version >= 17 {
+                super::held::inspect(connection)?;
+            }
             return Ok(schema);
         }
     };
@@ -716,6 +724,9 @@ pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), Str
              UPDATE partners SET auto_form=(form=0);
              PRAGMA user_version=16;"
         ).map_err(|error| format!("Cannot migrate automatic partner forms: {error}"))?;
+    }
+    if version < 17 {
+        super::held::migrate(connection)?;
     }
     Ok(())
 }

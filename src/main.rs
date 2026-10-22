@@ -112,6 +112,7 @@ fn run(config: Config) -> io::Result<()> {
         app.agents.selected = app.agents.active;
         app.linear = config.layout == config::LayoutMode::Linear;
         app.policy = config.storage_policy;
+        app.held.exclusions.clone_from(&config.context_exclusions);
         app.images_enabled = config.images != config::ImageMode::Off;
         app.execution.set_capture_capacity(config.capture_capacity);
         let mut graphics = native::NativeGraphics::new(&config);

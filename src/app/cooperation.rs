@@ -340,6 +340,10 @@ impl App {
         if let Some(crate::providers::Request::Preview(input)) = &mut self.planning.pending {
             input.instruction_override = replacement;
         }
+        if let Some(crate::providers::Request::Preview(input)) = self.planning.pending.take() {
+            self.freeze_held_receipt(&input);
+            self.planning.pending = Some(crate::providers::Request::Preview(input));
+        }
         static REQUEST: AtomicU64 = AtomicU64::new(1);
         let claim = store::WorkClaim {
             task_id: self.task_id,

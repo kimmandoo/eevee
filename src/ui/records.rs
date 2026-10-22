@@ -491,6 +491,7 @@ fn operation_name(operation: &store::records::Operation, paint: &Paint) -> &'sta
     paint.hint(match operation {
         Operation::ObserveInstruction { .. } => Message::RecordsOpInstruction,
         Operation::SetPairing { .. } => Message::RecordsOpPairing,
+        Operation::SetHeld { .. } => Message::HeldPanel,
         Operation::SetFlavor { .. } => Message::RecordsOpFlavor,
         Operation::DismissInstruction { .. } => Message::RecordsOpDismiss,
         Operation::BindInstructionMemory { .. } => Message::RecordsOpBind,
@@ -532,7 +533,7 @@ fn operation_scope(request: &store::records::Request, paint: &Paint) -> String {
         Operation::ObserveRun { run_id } => {
             let _ = write!(identity, " · {run_id}");
         }
-        Operation::SetPairing { partner, form, .. } => {
+        Operation::SetPairing { partner, form, .. } | Operation::SetHeld { partner, form, .. } => {
             let _ = write!(identity, " · #{partner} / {}", FORMS[(*form).min(8)].name);
         }
         Operation::DismissInstruction { key } => {
@@ -600,6 +601,10 @@ fn operation_detail(operation: &store::records::Operation, paint: &Paint) -> Str
                     ],
                 )
             }),
+        Operation::SetHeld { target, .. } => paint.format(
+            Template::HeldTarget,
+            &[("target", &super::held::target_label(target.as_ref(), paint))],
+        ),
         Operation::SetFlavor { enabled } => paint
             .hint(if *enabled {
                 Message::RecordsFlavorEnabled

@@ -247,13 +247,18 @@ fn home_config() -> Config {
 }
 
 fn screen_text(terminal: &ratatui::Terminal<ratatui::backend::TestBackend>) -> String {
-    terminal
-        .backend()
-        .buffer()
-        .content
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect()
+    let buffer = terminal.backend().buffer();
+    let mut text = String::with_capacity(buffer.content.len());
+    for row in buffer.content.chunks(usize::from(buffer.area.width).max(1)) {
+        let mut column = 0;
+        while column < row.len() {
+            let symbol = row[column].symbol();
+            text.push_str(symbol);
+            // Continuation cells of a wide glyph are not independently painted.
+            column += ratatui::text::Span::raw(symbol).width().max(1);
+        }
+    }
+    text
 }
 
 #[test]
@@ -2228,4 +2233,224 @@ fn evolution_popup_keeps_native_portraits_outside_its_visible_bounds() {
         targets.contains(&(app.form(), portrait)),
         "acknowledged popup must restore the real companion portrait"
     );
+}
+
+#[test]
+fn held_sheet_keeps_frozen_scope_and_membership_without_mutating_draft() {
+    use crate::{
+        app::held::{Notice, Receipt},
+        workspace::held::Target,
+    };
+    use ratatui::{Terminal, backend::TestBackend};
+    for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
+        for (width, height) in [(60, 18), (120, 36)] {
+            let mut config = home_config();
+            config.language = language;
+            let mut app = App::new("/workspace".into(), width, height);
+            app.task_id = 92;
+            app.input = "Future draft 한글".into();
+            app.cursor = 7;
+            app.held.target = Some(Target::File {
+                path: "future.rs".into(),
+            });
+            app.held.notice = Some(Notice::Saved);
+            app.held.receipt = Some(Receipt {
+                task: 7,
+                owner: store::Attribution {
+                    partner: 18,
+                    name: "FrozenOwner".into(),
+                    form: 2,
+                },
+                target: Some(Target::Memory {
+                    id: 81,
+                    revision: 4,
+                }),
+                included: false,
+            });
+            app.overlay = Some(Overlay::Held);
+            let mut artwork = Artwork::load(&config);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            for _ in 0..2 {
+                terminal
+                    .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                    .unwrap();
+                let rendered = screen_text(&terminal);
+                for value in [
+                    "FrozenOwner",
+                    "future.rs",
+                    "#81 @ 4",
+                    "/held-accept",
+                    "/held-dismiss",
+                    "/held-clear",
+                    "/held-set-file",
+                    "/held-set-memory",
+                ] {
+                    assert!(rendered.contains(value), "{value}: {rendered}");
+                }
+                assert!(
+                    rendered.contains(language.text(Message::HeldReceiptExcluded)),
+                    "{width}×{height}: {rendered}"
+                );
+                assert_eq!(app.input, "Future draft 한글");
+                assert_eq!(app.cursor, 7);
+                assert_eq!(app.held.receipt.as_ref().unwrap().task, 7);
+                assert!(!app.held.receipt.as_ref().unwrap().included);
+            }
+            app.held.receipt.as_mut().unwrap().included = true;
+            app.held.target = Some(Target::File {
+                path: "changed-current.rs".into(),
+            });
+            app.task_id = 93;
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            let rendered = screen_text(&terminal);
+            assert!(
+                rendered.contains(language.text(Message::HeldReceiptIncluded)),
+                "{width}×{height}: {rendered}"
+            );
+            assert!(rendered.contains("#81 @ 4"));
+            assert_eq!(app.held.receipt.as_ref().unwrap().task, 7);
+        }
+    }
+}
+
+#[test]
+fn held_optional_strip_yields_to_real_live_file_output_without_hiding_draft() {
+    use crate::{
+        providers::{FilePhase, ItemKind},
+        workspace::held::Target,
+    };
+    use ratatui::{Terminal, backend::TestBackend};
+    use std::sync::Arc;
+    for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
+        for (width, height) in [(60, 18), (120, 36)] {
+            let mut config = home_config();
+            config.language = language;
+            let mut app = App::new("/workspace".into(), width, height);
+            app.held.target = Some(Target::File {
+                path: "held.rs".into(),
+            });
+            app.input = "Draft remains".into();
+            app.cursor = 5;
+            app.planning.submitted_request = Arc::from("Write a file");
+            app.planning.items.push(crate::app::planning::Item {
+                thread_id: String::new(),
+                turn_id: "turn".into(),
+                item_id: "file".into(),
+                kind: ItemKind::File(FilePhase::Generating),
+                text: "live.rs\n1  HELD_PRIORITY_LIVE_CODE".into(),
+                complete: false,
+                request: Arc::clone(&app.planning.submitted_request),
+                owner: None,
+            });
+            let mut artwork = Artwork::load(&config);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            for phase in [
+                FilePhase::Generating,
+                FilePhase::Received,
+                FilePhase::AwaitingReview,
+            ] {
+                app.planning.items[0].kind = ItemKind::File(phase);
+                terminal
+                    .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                    .unwrap();
+                let rendered = screen_text(&terminal);
+                assert!(rendered.contains("HELD_PRIORITY_LIVE_CODE"), "{rendered}");
+                assert!(!rendered.contains("/held"));
+                assert!(rendered.contains("Draft remains"));
+                assert_eq!(app.cursor, 5);
+            }
+        }
+    }
+}
+
+#[test]
+fn held_preference_does_not_occlude_source_approval_at_supported_sizes() {
+    use ratatui::{Terminal, backend::TestBackend};
+    for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
+        for (width, height) in [(60, 18), (120, 36)] {
+            let mut config = home_config();
+            config.language = language;
+            let mut app = App::new("/workspace".into(), width, height);
+            app.task_id = 7;
+            app.input = "Unsent draft".into();
+            app.cursor = 3;
+            app.held.target = Some(crate::workspace::held::Target::File {
+                path: "other.rs".into(),
+            });
+            app.overlay = Some(Overlay::Sources);
+            app.sources.mode = crate::app::sources::Mode::Basket;
+            app.sources.basket.push(crate::workspace::context::Excerpt {
+                origin_run: None,
+                id: 91,
+                task_id: 7,
+                root: "/workspace".into(),
+                path: "APPROVAL_SCOPE.rs".into(),
+                start_line: 1,
+                end_line: 1,
+                source_sha256: [9; 32],
+                text: "retained source".into(),
+                available: true,
+            });
+            app.sources.command("purge", 7, None);
+            let mut artwork = Artwork::load(&config);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            let rendered = screen_text(&terminal);
+            assert!(rendered.contains("APPROVAL_SCOPE.rs"), "{rendered}");
+            assert!(!rendered.contains("/held"));
+            assert!(app.sources.confirmation.as_ref().unwrap().reviewed);
+            assert_eq!(app.input, "Unsent draft");
+            assert_eq!(app.cursor, 3);
+        }
+    }
+}
+
+#[test]
+fn held_workspace_keeps_item_identity_and_controls_at_minimum_size() {
+    use ratatui::{Terminal, backend::TestBackend};
+    for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
+        for (width, height) in [(60, 18), (120, 36)] {
+            for path in [
+                "資料_한글.rs".to_owned(),
+                format!("資料_{}.rs", "한글".repeat(80)),
+            ] {
+                let mut config = home_config();
+                config.language = language;
+                let mut app = App::new("/workspace".into(), width, height);
+                app.task_id = 7;
+                app.goal = "Keep the saved context visible".into();
+                app.input = "Future draft".into();
+                app.cursor = 7;
+                app.editor_field = store::EditorField::Request;
+                app.held.target = Some(crate::workspace::held::Target::File { path });
+                let mut artwork = Artwork::load(&config);
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal
+                    .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                    .unwrap();
+                let rendered = screen_text(&terminal);
+                assert!(rendered.contains("資料_"), "{width}×{height}: {rendered}");
+                assert!(rendered.contains("/held"), "{width}×{height}: {rendered}");
+                assert!(rendered.contains("Future draft"));
+                assert_eq!(app.cursor, 7);
+                assert!(app.sources.basket.is_empty());
+                app.held.dismissed = true;
+                for _ in 0..2 {
+                    terminal
+                        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                        .unwrap();
+                    let rendered = screen_text(&terminal);
+                    assert!(!rendered.contains("資料_"), "{rendered}");
+                    assert!(!rendered.contains("/held"), "{rendered}");
+                    assert!(app.held.target.is_some());
+                    assert_eq!(app.input, "Future draft");
+                    assert_eq!(app.cursor, 7);
+                }
+            }
+        }
+    }
 }
