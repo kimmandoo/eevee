@@ -16,8 +16,8 @@ Index of open work. Each section lives in its own file under [`tasks/`](tasks/);
 
 ## Status
 
-- **Released:** [0.1.16](https://github.com/kimmandoo/eevee/releases/tag/v0.1.16) (tags v0.1.0–v0.1.16), fixing ordinary-entry file generation, adding bounded real discovery/read/hash-edit tools and continuous attributed response scrolling. Schema 15 remained unchanged; complete SDK bridge revision 7 is required. Exact-commit Check/all-five-native qualification, immutable publication, every public asset check and actual downloaded installation/runtime passed.
-- **Latest user request — release qualification active:** File-creation UX and promoted EV18 automatic form selection passed their local actual-runtime gates. Publish the combined v0.1.17 patch only after exact-source Check/all-five-native qualification, then verify every public asset and downloaded installation/changed runtime. v0.1.16 stays immutable; no other backlog wave or paid/live model calls are authorized.
+- **Released:** [0.1.17](https://github.com/kimmandoo/eevee/releases/tag/v0.1.17) (tags v0.1.0–v0.1.17), adding direct localized file review, request-time automatic evolution with persistent manual overrides and bounded read/list tools for nonwriting roles. Schema 16 requires a full-data-directory backup; complete SDK bridge revision 7 remains required. Exact-source Check/all-five-native qualification, immutable publication, all public asset checks and actual downloaded installation/runtime passed.
+- **Latest user request — complete:** File-creation UX was corrected first, promoted EV18 was implemented and marked done, then combined v0.1.17 was released and verified from public downloads. No next backlog wave or paid/live model call is active; v0.1.16 and v0.1.17 tags/assets remain immutable.
 - **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B/PT04C, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, PT07A/PT07B/PT07C, PT08A/PT08B, PT09, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV01C, EV02, EV10A, EV10B, EV14, EV12, EV13A, EV13B, EV15, EV16, PT10, MV01A/MV01B/MV01C, MV02A/MV02B, MV03A/MV03B/MV03C, MV04/MV05/MV06/MV07, MV08A, C03A/C03B/T01A, EV05/EV06/PK02/EV08A/EV08B/PK05A/PK05B/EV09/EV17/EV11/EV18 and the first code-structure pass (index below). **Open:** 41 small tasks. **Dropped:** T05.
 - **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
 - **Partially implemented:** T01's remaining context-comparison/receipt track, T03 (in-packet dedup), A04/A06/A07 adapters.
@@ -63,7 +63,7 @@ EV18 automatic request-time form selection with persistent manual overrides, obs
 
 | Wave | Tasks (in order) | Why this order |
 |---|---|---|
-| User-prioritized correction | File-creation UX → EV18 → v0.1.17 release | Explicit current request; do not wait for another wave or implement unrelated items. |
+| Completed user correction | File-creation UX → EV18 → v0.1.17 release | Passed implementation, exact-source native qualification and actual public installation/runtime; no unrelated wave was started. |
 | 1. Party foundation | PT02A → PT02B → PT03A → PT03B → PT04A → PT04B → PT05A → PT05B → RF05 → PT06A → PT06B → PT06C | Partner model and bounded storage, then switching, roster, drafts, and request routing (still one working partner). |
 | 2. Partner basics | EV04 → EV03A → EV03B → EV07 → PK01 → EV01A → EV01B → EV02 | Small UI slices reused later. |
 | 3. Form relays | EV10A → EV10B → EV14 → EV12 → EV13A → EV13B → EV15 → EV16 → PT10 → EV01C | Highest daily value; PT10 lets relays target a party member. |

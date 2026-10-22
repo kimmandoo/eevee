@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-22] Public Windows license used native CRLF line endings
+
+- **Context / Symptom:** The one-session v0.1.17 public verifier passed downloaded asset/manifest hashes, then failed a raw `LICENSE` byte-equality assertion on the Windows ZIP.
+- **Root Cause:** Windows checkout preserved 201 CRLF endings: the archived license was 11,525 bytes versus the source's 11,324 LF bytes. All four tar licenses matched source bytes directly; replacing only CRLF with LF made the Windows license identical too. No license content or public package was corrupted.
+- **Solution:** Compared license text with CRLF-only normalization while retaining strict original-byte GitHub/manifest SHA-256 checks for every archive/installer and native executable checks. Recorded each archive's license line-ending style; all eight public digests, seven manifest entries and five safe archive/header/license/notice checks passed unchanged assets.
+- **Prevention / Reference:** Treat platform-native license line endings separately from release integrity. Never normalize package bytes or checksums and never replace a published asset to satisfy a text-only verifier.
+
 ### [2026-10-22] Automatic routing separated a read-then-edit request from its source context
 
 - **Context / Symptom:** Candidate A created files, but all ten native creation fixtures failed at “List the project files, read the generated Python source, and edit only its value using the observed digest.” The request entered a nonwriting scope. The first automatic-mode terminal driver also needed to dismiss an unrelated advisory banner to expose compact output.
