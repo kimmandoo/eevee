@@ -17,6 +17,7 @@
 - feat(storage)!: migrated to Schema 16 to retain each partner's automatic/manual form mode and kept older-writer refusal nondestructive.
 - feat(files): exposed bounded read/list capabilities to non-writing roles without write/edit tools, mutation targets or a writer lease.
 - fix(evolution): retained source context across affirmative read-then-edit clauses, removed competing automatic advisory chrome and made transition feedback yield to deliberate input without changing drafts or frozen requests.
+- docs(upgrade): required a full data-directory backup before Schema 16 migration, warned that older writers could not reopen migrated stores and retained the complete SDK bridge revision 7 requirement.
 
 ## 0.1.16
 
