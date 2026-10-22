@@ -17,6 +17,7 @@ mod partners;
 mod preferences;
 pub mod records;
 mod recovery;
+mod ribbons;
 mod runs;
 mod schema;
 mod spool;

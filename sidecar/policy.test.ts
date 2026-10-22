@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, linkSync, rmSync, lstatSync, readFileSync, realpathSync, renameSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, linkSync, rmSync, lstatSync, readFileSync, realpathSync, renameSync, chmodSync, opendirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { credentialRoute, consoleProfile, accountMatches, SDKWritePolicy, SDKFilePreviews, questionSchema, sdkOutcome, RunSchema, SelectionSchema, modelCatalogue, prepareModels, assertAppliedModel, SDKPackageSchema, assertInitialization, assertSessionPolicy, SDKDispatchReceipt, SDKUsageLedger, BRIDGE_POLICY } from './policy.ts';
+import { credentialRoute, consoleProfile, accountMatches, SDKWritePolicy, SDKFilePreviews, questionSchema, sdkOutcome, RunSchema, SelectionSchema, modelCatalogue, prepareModels, assertAppliedModel, SDKPackageSchema, assertInitialization, assertSessionPolicy, SDKDispatchReceipt, SDKUsageLedger, BRIDGE_POLICY, DISCOVERY_TOOL, DISCOVERY_SERVER } from './policy.ts';
 import type { WriteScope } from './policy.ts';
 
 const compatibility = { sdkVersion: '0.3.999', cliVersion: '2.1.999', requireHooks: false };
@@ -376,12 +376,27 @@ test('failed results reject partial parents, partial content, replaced ancestors
 });
 
 test('the real bridge creates workspace proposals and preserves fatal failed-write effects', { timeout: 30_000 }, async () => {
-  for (const effect of ['success', 'none', 'parent', 'content', 'ambiguous'] as const) {
+  for (const scenario of ['success', 'nested', 'readonly', 'protected-root', 'none', 'parent', 'content', 'ambiguous'] as const) {
+    const effect = scenario === 'nested' ? 'success' : scenario;
     const fixture = realpathSync(mkdtempSync(join(tmpdir(), 'eevee-sdk-terminal-')));
     let child: ChildProcessWithoutNullStreams | undefined;
     try {
-      const root = join(fixture, 'workspace');
-      mkdirSync(root);
+      const project = join(fixture, 'workspace');
+      mkdirSync(project);
+      mkdirSync(join(project, '.git'));
+      writeFileSync(join(project, '.git/config'), 'protected Git configuration');
+      const root = scenario === 'nested' ? join(project, 'nested-project') :
+        scenario === 'protected-root' ? join(project, 'secrets', 'nested-project') : project;
+      if (root !== project) mkdirSync(root, { recursive: true });
+      mkdirSync(join(root, '.claude'));
+      writeFileSync(join(root, '.claude/settings.json'), 'protected configuration');
+      mkdirSync(join(root, 'excluded'));
+      writeFileSync(join(root, 'excluded/context.txt'), 'excluded content');
+      mkdirSync(join(root, 'host-state'));
+      writeFileSync(join(root, 'host-state/state.txt'), 'protected host content');
+      writeFileSync(join(root, 'sensitive.txt'), 'token = "test-sensitive-value"');
+      writeFileSync(join(root, 'safe.txt'), 'visible source\n');
+      if (process.platform !== 'win32') symlinkSync('safe.txt', join(root, 'alias.txt'));
       mkdirSync(join(root, 'existing'));
       writeFileSync(join(root, 'existing/a'), 'reviewed baseline');
       const path = effect === 'content' || effect === 'ambiguous' ? 'existing/a' : 'missing/deeper/a';
@@ -398,8 +413,10 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
       }));
       writeFileSync(join(runtime, process.platform === 'win32' ? 'claude.exe' : 'claude'), '');
       writeFileSync(sdk, `
-        import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+        import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
         import { join } from 'node:path';
+        export { createSdkMcpServer, tool } from ${JSON.stringify(new URL('./node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs', import.meta.url).href)};
+        import assert from 'node:assert/strict';
         export function query({ prompt, options }) {
           return {
             accountInfo: async () => ({ apiProvider: 'firstParty' }),
@@ -411,8 +428,81 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
               const session_id = '00000000-0000-4000-8000-000000000001';
               const input = { file_path: ${JSON.stringify(path)}, content: ${JSON.stringify(effect === 'success' ? generatedContent : 'approved complete bytes')} };
               yield { type: 'system', subtype: 'init', session_id, model: 'synthetic',
-                claude_code_version: '2.1.999', permissionMode: 'default', tools: options.tools,
-                mcp_servers: [], plugins: [], skills: [], apiKeySource: 'ANTHROPIC_API_KEY' };
+                claude_code_version: '2.1.999', permissionMode: 'default', tools: [...options.tools, ${JSON.stringify(DISCOVERY_TOOL)}],
+                mcp_servers: [{ name: 'eevee_source', status: 'connected' }], plugins: [], skills: [], apiKeySource: 'ANTHROPIC_API_KEY' };
+              const hook = options.hooks.PreToolUse[0].hooks[0];
+              const observe = async (name, input, id) => {
+                const checked = await hook({ hook_event_name: 'PreToolUse', tool_use_id: id, tool_name: name, tool_input: input });
+                if (checked.hookSpecificOutput.permissionDecision === 'deny') return false;
+                return (await options.canUseTool(name, input, {
+                  toolUseID: id, requestId: id, signal: options.abortController.signal,
+                })).behavior === 'allow';
+              };
+              // Use the real installed SDK MCP server and wire protocol, not a
+              // fake custom-tool callback or a source-string wiring assertion.
+              const server = options.mcpServers.eevee_source.instance;
+              let nextId = 0;
+              const responses = new Map();
+              const transport = {
+                async start() {}, async close() {},
+                async send(message) { responses.get(message.id)?.(message); },
+              };
+              await server.connect(transport);
+              const rpc = (method, params) => {
+                const { promise, resolve } = Promise.withResolvers();
+                const id = ++nextId;
+                responses.set(id, resolve);
+                transport.onmessage({ jsonrpc: '2.0', id, method, params });
+                return promise;
+              };
+              const initialized = await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } });
+              assert.ok(initialized.result);
+              transport.onmessage({ jsonrpc: '2.0', method: 'notifications/initialized' });
+              const listed = await rpc('tools/list', {});
+              assert.deepEqual(listed.result.tools.map(tool => tool.name), ['discover']);
+              for (const mode of ['glob', 'grep']) {
+                const args = { mode, path: '.', glob: '**/*', ...(mode === 'grep' ? { text: 'visible' } : {}) };
+                assert.equal(await observe(${JSON.stringify(DISCOVERY_TOOL)}, args, mode), true);
+                const response = await rpc('tools/call', { name: 'discover', arguments: args });
+                assert.equal(response.result.isError, undefined);
+                const result = JSON.parse(response.result.content[0].text);
+                if (mode === 'glob') assert.deepEqual(result.paths, ['existing/a', 'safe.txt']);
+                else assert.deepEqual(result.matches, [{ path: 'safe.txt', line: 1, text: 'visible source' }]);
+              }
+              assert.equal(await observe('Glob', { pattern: '**/*', path: '.' }, 'native-root'), false);
+              assert.equal(await observe('Grep', { pattern: 'visible', path: '.' }, 'native-root-grep'), false);
+              assert.equal(await observe('Read', { file_path: 'safe.txt' }, 'read-safe'), true);
+              assert.equal(readFileSync(join(options.cwd, 'safe.txt'), 'utf8'), 'visible source\\n');
+              for (const file_path of ['.git/config', '.claude/settings.json', 'excluded/context.txt', 'host-state/state.txt', 'sensitive.txt', '../outside', 'alias.txt']) {
+                assert.equal(await observe('Read', { file_path }, 'unsafe-' + file_path), false);
+              }
+              assert.equal(await observe('mcp__foreign__read', {}, 'foreign-server'), false);
+              await server.close();
+              if (!options.tools.includes('Write')) {
+                assert.equal(await observe('Write', input, 'readonly-write'), false);
+                yield { type: 'assistant', session_id, user_message_uuid: submission.uuid,
+                  message: { id: 'answer', content: [{ type: 'text', text: 'Observed visible source' }] } };
+                yield { type: 'result', session_id, is_error: false, subtype: 'success' };
+                return;
+              }
+              for (const [id, file_path, callbackOnly] of [
+                ['protected-refusal', '.env', false],
+                ['outside-refusal', '../outside-refused.txt', false],
+                ['callback-refusal', '.claude/refused.txt', true],
+              ]) {
+                const refused = { file_path, content: 'must never be written' };
+                yield { type: 'assistant', session_id, user_message_uuid: submission.uuid,
+                  message: { id, content: [{ type: 'tool_use', id, name: 'Write', input: refused }] } };
+                if (callbackOnly) {
+                  assert.equal((await options.canUseTool('Write', refused, {
+                    toolUseID: id, requestId: id, signal: options.abortController.signal,
+                  })).behavior, 'deny');
+                } else assert.equal(await observe('Write', refused, id), false);
+                yield { type: 'user', session_id, message: { content: [
+                  { type: 'tool_result', tool_use_id: id, is_error: true, content: 'Host refused before execution' },
+                ] } };
+                assert.throws(() => readFileSync(join(options.cwd, file_path)), { code: 'ENOENT' });
+              }
               yield { type: 'stream_event', session_id, user_message_uuid: submission.uuid,
                 event: { type: 'message_start', message: { id: 'call' } } };
               yield { type: 'stream_event', session_id,
@@ -425,7 +515,7 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
               yield { type: 'stream_event', session_id, event: { type: 'content_block_stop', index: 0 } };
               yield { type: 'assistant', session_id, user_message_uuid: submission.uuid,
                 message: { id: 'call', content: [{ type: 'tool_use', id: 'write', name: 'Write', input }] } };
-              const hook = options.hooks.PreToolUse[0].hooks[0];
+              // Exact Write input and one-shot consent still gate native effects.
               const hookInput = { hook_event_name: 'PreToolUse', tool_use_id: 'write', tool_name: 'Write', tool_input: input };
               if ((await hook(hookInput)).hookSpecificOutput.permissionDecision !== 'ask') throw new Error('Mandatory proposal hook refused');
               const permission = await options.canUseTool('Write', input, {
@@ -447,6 +537,17 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
               yield { type: 'user', session_id, message: { content: [
                 { type: 'tool_result', tool_use_id: 'write', is_error: ${effect !== 'success'}, content: 'Synthetic operation result' },
               ] } };
+              if (${JSON.stringify(effect)} === 'success') {
+                const edit = { file_path: input.file_path, old_string: 'export const n = 1;', new_string: 'export const n = 2;', replace_all: true };
+                yield { type: 'assistant', session_id, message: { id: 'editing', content: [{ type: 'tool_use', id: 'edit', name: 'Edit', input: edit }] } };
+                assert.equal(await observe('Edit', edit, 'edit'), true);
+                writeFileSync(join(options.cwd, edit.file_path), readFileSync(join(options.cwd, edit.file_path), 'utf8').split(edit.old_string).join(edit.new_string));
+                yield { type: 'user', session_id, message: { content: [{ type: 'tool_result', tool_use_id: 'edit', content: 'Actual fixture edit completed' }] } };
+                const refused = { file_path: 'denied.txt', content: 'must not exist' };
+                yield { type: 'assistant', session_id, message: { id: 'denial', content: [{ type: 'tool_use', id: 'denied', name: 'Write', input: refused }] } };
+                assert.equal(await observe('Write', refused, 'denied'), false);
+                yield { type: 'user', session_id, message: { content: [{ type: 'tool_result', tool_use_id: 'denied', is_error: true, content: 'User denied' }] } };
+              }
               yield { type: 'assistant', session_id,
                 message: { id: 'later', content: [{ type: 'text', text: 'Later model success must not clear uncertainty' }] } };
               yield { type: 'result', session_id, is_error: false, subtype: 'success' };
@@ -488,40 +589,66 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
           }
           if (frame.type === 'prompt') child!.stdin!.write(JSON.stringify({
             protocol: 1, type: 'answer', generation: 1, request_id: frame.request_id,
-            answer: frame.input.options.find((option: { answer: { behavior: string } }) => option.answer.behavior === 'allow').answer,
+            answer: frame.request_id === 'denied' ? frame.input.options[0].answer :
+              frame.input.options.find((option: { answer: { behavior: string } }) => option.answer.behavior === 'allow').answer,
           }) + '\n');
         }
       });
       const closed = once(child, 'close');
       child.stdin!.write(JSON.stringify({
-        protocol: 1, bridge_revision: 8, type: 'run', generation: 1, task_id: 1, request_id: 'submission',
-        prompt: 'Deterministic failed operation', cwd: root, state_dir: join(fixture, 'state'),
-        operation: 'implement', write_scope: workspaceScope(root), inspect_models: false,
+        protocol: 1, bridge_revision: 9, type: 'run', generation: 1, task_id: 1, request_id: 'submission',
+        prompt: 'Deterministic source and write operations', cwd: root, state_dir: join(fixture, 'state'),
+        operation: scenario === 'readonly' ? 'plan' : 'implement',
+        write_scope: { ...(scenario === 'readonly' ? reviewedScope(root, []) : workspaceScope(root)), excluded_paths: ['excluded'], protected_paths: [join(root, 'host-state')] }, inspect_models: false,
         selection: { model: null, effort: null },
       }) + '\n');
       const [code] = await closed;
+      if (scenario === 'protected-root') {
+        assert.equal(code, 1, diagnostics);
+        assert.ok(frames.some(frame => frame.type === 'fatal'));
+        assert.equal(frames.some(frame => ['dispatched', 'prompt', 'file_preview', 'thread'].includes(String(frame.type))), false);
+        assert.throws(() => lstatSync(join(root, path)), { code: 'ENOENT' });
+        continue;
+      }
       assert.ok(frames.some(frame => frame.type === 'dispatched'), `${effect}: ${diagnostics}`);
-      const previews = frames.filter(frame => frame.type === 'file_preview');
+      if (scenario === 'readonly') {
+        assert.equal(code, 0, diagnostics);
+        assert.equal(frames.find(frame => frame.type === 'finished')?.outcome, 'completed');
+        assert.equal(frames.some(frame => frame.type === 'file_preview'), false);
+        assert.throws(() => lstatSync(join(root, path)), { code: 'ENOENT' });
+        continue;
+      }
+      const previews = frames.filter(frame => frame.type === 'file_preview' && frame.tool_id === 'write');
       assert.ok(previews.some(frame => frame.stage === 'delta'));
       assert.deepEqual(JSON.parse(previews.filter(frame => frame.stage === 'delta').map(frame => frame.fragment).join('')), {
         file_path: path, content: effect === 'success' ? generatedContent : 'approved complete bytes',
       });
       assert.ok(previews.every(frame => frame.tool_id === 'write' && frame.session_id === '00000000-0000-4000-8000-000000000001'));
-      assert.ok(frames.findIndex(frame => frame.type === 'file_preview' && frame.stage === 'stop') < frames.findIndex(frame => frame.type === 'prompt'));
+      assert.ok(frames.findIndex(frame => frame.type === 'file_preview' && frame.stage === 'stop') < frames.findIndex(frame => frame.type === 'prompt' && frame.item_id === 'write'));
       assert.ok(previews.some(frame => frame.stage === 'review'));
       assert.ok(previews.some(frame => frame.stage === 'approved'));
       assert.equal(previews.some(frame => frame.stage === 'applied'), false);
-      assert.equal(previews.some(frame => frame.stage === 'reported'), effect === 'none' || effect === 'success');
+      assert.equal(previews.some(frame => frame.stage === 'reported'), effect === 'success');
+      assert.equal(previews.some(frame => frame.stage === 'reported_failed'), effect === 'none');
+      assert.equal(previews.some(frame => frame.stage === 'unknown'), !['success', 'none'].includes(effect));
       if (effect === 'none' || effect === 'success') {
         assert.equal(code, 0, diagnostics);
         assert.equal(frames.some(frame => frame.type === 'fatal'), false);
         assert.equal(frames.find(frame => frame.type === 'finished')?.outcome, 'completed');
         if (effect === 'none') assert.ok(frames.some(frame => frame.type === 'item' && typeof frame.text === 'string' && frame.text.includes('"status":"failed"')));
         else {
-          assert.equal(readFileSync(join(root, path), 'utf8'), generatedContent);
-          const prompt = frames.find(frame => frame.type === 'prompt') as { input: { input: { content: string } } } | undefined;
+          assert.equal(readFileSync(join(root, path), 'utf8'), generatedContent.replaceAll('export const n = 1;', 'export const n = 2;'));
+          assert.throws(() => lstatSync(join(root, 'denied.txt')), { code: 'ENOENT' });
+          assert.ok(frames.some(frame => frame.type === 'file_preview' && frame.tool_id === 'edit' && frame.stage === 'reported'));
+          assert.ok(frames.some(frame => frame.type === 'file_preview' && frame.tool_id === 'denied' && frame.stage === 'denied'));
+          const prompt = frames.find(frame => frame.type === 'prompt' && frame.item_id === 'write') as { input: { input: { content: string } } } | undefined;
           assert.equal(prompt?.input.input.content, generatedContent);
-          assert.ok(Buffer.byteLength(JSON.stringify(frames.filter(frame => frame.type === 'item'))) < 8192);
+          for (const id of ['protected-refusal', 'outside-refusal', 'callback-refusal']) {
+            assert.ok(frames.some(frame => frame.type === 'file_preview' && frame.tool_id === id && frame.stage === 'refused'));
+            assert.equal(frames.some(frame => frame.type === 'prompt' && frame.item_id === id), false);
+            assert.ok(frames.some(frame => frame.type === 'item' && frame.item_id === id && frame.complete === true));
+          }
+          assert.ok(Buffer.byteLength(JSON.stringify(frames.filter(frame => frame.type === 'item'))) < 16 * 1024);
         }
       } else {
         assert.equal(code, 1, diagnostics);
@@ -617,11 +744,11 @@ test('catalogues reject duplicate identifiers, oversized fields and display cont
 });
 
 test('strict inspection commands cannot carry prompts, prior sessions, writes or unreviewed options', () => {
-  const command = { protocol: 1, bridge_revision: 8, type: 'run', generation: 1, task_id: 1, request_id: null, cwd: '/project', state_dir: '/state', prompt: '',
+  const command = { protocol: 1, bridge_revision: 9, type: 'run', generation: 1, task_id: 1, request_id: null, cwd: '/project', state_dir: '/state', prompt: '',
     operation: 'plan', write_scope: { mode: 'Selected', protected_paths: [], excluded_paths: [], root_identity: null, files: [] }, resume: null, inspect_models: true, selection: { model: null, effort: null } };
   assert.equal(RunSchema.safeParse(command).success, true);
   for (const changed of [{ request_id: 'claimed-inference' }, { prompt: 'must not send' }, { resume: '01234567-89ab-4cde-8123-456789abcdef' },
-    { bridge_revision: 7 }, { edit_paths: ['file.ts'] }, { operation: 'implement' }, { tools: ['Bash'] }, { selection: { model: null, effort: null, fallback: 'a' } }]) {
+    { bridge_revision: 8 }, { edit_paths: ['file.ts'] }, { operation: 'implement' }, { tools: ['Bash'] }, { selection: { model: null, effort: null, fallback: 'a' } }]) {
     assert.equal(RunSchema.safeParse({ ...command, ...changed }).success, false);
   }
   for (const field of ['mode', 'protected_paths', 'excluded_paths']) {
@@ -919,14 +1046,14 @@ test('unsafe recursive SDK discovery returns actionable actual safe filenames ra
 });
 
 test('noninspection SDK planning requires frozen observational root even without mutation targets', () => {
-  const command = { protocol: 1, bridge_revision: 8, type: 'run', generation: 1, task_id: 1,
+  const command = { protocol: 1, bridge_revision: 9, type: 'run', generation: 1, task_id: 1,
     request_id: 'owned-request', cwd: '/project', state_dir: '/state', prompt: 'Read project context',
     operation: 'plan', write_scope: { mode: 'Selected', protected_paths: ['/state'],
       excluded_paths: ['private'], root_identity: '1:2', files: [] },
     resume: null, inspect_models: false, selection: { model: null, effort: null } };
   assert.equal(RunSchema.safeParse(command).success, true);
   assert.equal(RunSchema.safeParse({ ...command, write_scope: { ...command.write_scope, root_identity: null } }).success, false);
-  assert.equal(RunSchema.safeParse({ ...command, bridge_revision: 7 }).success, false);
+  assert.equal(RunSchema.safeParse({ ...command, bridge_revision: 8 }).success, false);
 });
 
 test('file previews forward only actual correlated tool argument fragments and never grant write authority', () => {
@@ -977,4 +1104,152 @@ test('preview guards, nonwrite blocks, bounds and denial cannot invent progress 
   const overflow = previews.stream({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: 'x'.repeat(512 * 1024 + 1) } });
   assert.equal(overflow[0]?.stage, 'interrupted');
   assert.deepEqual(previews.complete('large', 'Write', { file_path: 'a', content: 'later' }), []);
+});
+
+test('host discovery bounds results while omitting inaccessible source and retaining native subtree guards', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'eevee-sdk-discovery-')));
+  try {
+    mkdirSync(join(root, '.git'));
+    writeFileSync(join(root, '.git/config'), 'repository metadata');
+    mkdirSync(join(root, 'src'));
+    writeFileSync(join(root, 'src/safe.ts'), 'const visible = 1;\n');
+    writeFileSync(join(root, 'src/sensitive.ts'), 'token = "not-for-source-context"');
+    if (process.platform !== 'win32') {
+      symlinkSync('safe.ts', join(root, 'src/link.ts'));
+      writeFileSync(join(root, 'original.ts'), 'linked source');
+      linkSync(join(root, 'original.ts'), join(root, 'hard.ts'));
+    }
+    const policy = new SDKWritePolicy(root, workspaceScope(root));
+    assert.deepEqual(policy.discover({ mode: 'glob' }).paths, ['src/safe.ts']);
+    assert.deepEqual(policy.discover({ mode: 'grep', text: 'visible' }).matches,
+      [{ path: 'src/safe.ts', line: 1, text: 'const visible = 1;' }]);
+    assert.deepEqual(policy.discover({ mode: 'glob', path: 'src', glob: '*.ts' }).paths, ['src/safe.ts']);
+    assert.equal(policy.readAdmission('Glob', { path: '.', pattern: '**/*' }).allowed, false);
+    assert.equal(policy.begin('secret-edit', 'Edit', { file_path: 'src/sensitive.ts', old_string: 'token', new_string: 'changed' }), undefined);
+    for (const input of [{ mode: 'glob', path: '..' }, { mode: 'glob', path: '.git' },
+      { mode: 'glob', glob: '../*' }, { mode: 'glob', glob: '{src,/outside}/*' }, { mode: 'grep' }]) {
+      assert.throws(() => policy.discover(input));
+    }
+    for (let index = 0; index < 130; index++) writeFileSync(join(root, `source-${index}.ts`), 'visible\n');
+    const bounded = policy.discover({ mode: 'glob' });
+    assert.equal(bounded.paths.length, 128);
+    assert.equal(bounded.truncated, true);
+    const matches = policy.discover({ mode: 'grep', text: 'visible' });
+    assert.equal(matches.matches.length, 128);
+    assert.equal(matches.truncated, true);
+    assert.ok(Buffer.byteLength(JSON.stringify(matches)) < 64 * 1024);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('session policy admits only the exact connected host discovery server', () => {
+  const message = { claude_code_version: compatibility.cliVersion, permissionMode: 'default',
+    tools: ['Read', DISCOVERY_TOOL], mcp_servers: [{ name: DISCOVERY_SERVER, status: 'connected' }], plugins: [], skills: [] };
+  assert.doesNotThrow(() => assertSessionPolicy(message, compatibility.cliVersion, ['Read', DISCOVERY_TOOL]));
+  for (const servers of [[], [{ name: DISCOVERY_SERVER, status: 'failed' }],
+    [{ name: 'external', status: 'connected' }], [...message.mcp_servers, ...message.mcp_servers]]) {
+    assert.throws(() => assertSessionPolicy({ ...message, mcp_servers: servers }, compatibility.cliVersion, ['Read', DISCOVERY_TOOL]));
+  }
+  assert.throws(() => assertSessionPolicy({ ...message, tools: ['Read', 'mcp__external__discover'] }, compatibility.cliVersion, ['Read', DISCOVERY_TOOL]));
+});
+
+test('pre-execution refusals settle only exact nonreplayed errors and never replace active authority', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'eevee-sdk-refusal-')));
+  try {
+    const policy = new SDKWritePolicy(root, workspaceScope(root));
+    const input = { file_path: '.env', content: 'refused content' };
+    assert.equal(policy.begin('refused', 'Write', input), undefined);
+    assert.equal(policy.refuse('refused', 'Write', input), true);
+    assert.equal(policy.refuse('refused', 'Write', { ...input, content: 'changed' }), false);
+    assert.equal(policy.refuse('refused', 'Edit', input), false);
+    assert.equal(policy.begin('refused', 'Write', { file_path: 'safe.txt', content: 'no grant' }), undefined);
+    assert.equal(policy.finish('refused', 'Write', input, true), false);
+    assert.equal(policy.finish('refused', 'Write', input, false, true), false);
+    assert.equal(policy.finish('refused', 'Write', { ...input, content: 'changed' }, false), false);
+    assert.equal(policy.finish('foreign', 'Write', input, false), false);
+    assert.equal(policy.finish('refused', 'Write', input, false), true);
+    assert.equal(policy.finish('refused', 'Write', input, false), false);
+    assert.equal(policy.refuse('refused', 'Write', input), false);
+    const approved = { file_path: 'safe.txt', content: 'approved bytes' };
+    assert.ok(policy.begin('approved', 'Write', approved));
+    assert.equal(policy.refuse('approved', 'Write', approved), false);
+    assert.equal(policy.approve('approved', 'Write', approved, true, false), true);
+    assert.equal(policy.refuse('approved', 'Write', { ...approved, content: 'altered' }), false);
+    writeFileSync(join(root, approved.file_path), 'partial effect');
+    assert.equal(policy.finish('approved', 'Write', approved, false), false);
+    assert.equal(policy.begin('later', 'Write', { file_path: 'later.txt', content: '' }), undefined);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('unreadable descendants preserve safe discovery siblings and report incomplete coverage', {
+  skip: process.platform === 'win32' || process.getuid?.() === 0,
+}, t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'eevee-sdk-unreadable-')));
+  const blocked = join(root, 'a-blocked');
+  mkdirSync(blocked);
+  writeFileSync(join(blocked, 'hidden.txt'), 'visible but inaccessible');
+  mkdirSync(join(root, 'z-safe'));
+  writeFileSync(join(root, 'z-safe/visible.txt'), 'visible safe source\n');
+  try {
+    const policy = new SDKWritePolicy(root, workspaceScope(root));
+    chmodSync(blocked, 0o100);
+    try {
+      const directory = opendirSync(blocked);
+      directory.closeSync();
+      t.skip('Filesystem does not enforce directory read permission');
+      return;
+    } catch (error) {
+      assert.ok(error && typeof error === 'object' && 'code' in error &&
+        ['EACCES', 'EPERM'].includes(String(error.code)));
+    }
+    const files = policy.discover({ mode: 'glob' });
+    assert.deepEqual(files.paths, ['z-safe/visible.txt']);
+    assert.equal(files.truncated, true);
+    const matches = policy.discover({ mode: 'grep', text: 'visible' });
+    assert.deepEqual(matches.matches, [{ path: 'z-safe/visible.txt', line: 1, text: 'visible safe source' }]);
+    assert.equal(matches.truncated, true);
+    assert.throws(() => policy.discover({ mode: 'glob', path: 'a-blocked' }));
+    chmodSync(root, 0o100);
+    assert.throws(() => policy.discover({ mode: 'glob' }));
+  } finally {
+    chmodSync(root, 0o700);
+    chmodSync(blocked, 0o700);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('canonical SDK roots retain built-in protected ancestors without excluding ordinary home or hidden projects', () => {
+  const fixture = realpathSync(mkdtempSync(join(tmpdir(), 'eevee-sdk-root-scope-')));
+  try {
+    for (const name of ['secrets', 'CrEdEnTiAlS', '.git', '.ssh', '.claude', '.codex', '.gemini', '.opencode',
+      '.ev-install', '.ds_store', '.env', '.env.local', '.npmrc', '.netrc', '.pypirc',
+      'auth.json', 'oauth_creds.json', 'id_backup', 'private_key_cache', 'archive.pem', 'archive.key']) {
+      const protectedRoot = join(fixture, name);
+      const nested = join(protectedRoot, 'ordinary-project');
+      mkdirSync(nested, { recursive: true });
+      for (const root of [protectedRoot, nested]) {
+        writeFileSync(join(root, 'recovery.txt'), 'ordinary-looking source');
+        assert.throws(() => new SDKWritePolicy(root, reviewedScope(root, [])), /protected credential\/private directory/);
+        assert.throws(() => new SDKWritePolicy(root, workspaceScope(root)), /protected credential\/private directory/);
+        assert.throws(() => new SDKWritePolicy(root, reviewedScope(root, ['recovery.txt'])), /protected credential\/private directory/);
+      }
+    }
+    for (const name of ['home/alice', '.hidden-project', 'workspace']) {
+      const root = join(fixture, name);
+      mkdirSync(root, { recursive: true });
+      writeFileSync(join(root, 'recovery.txt'), 'ordinary source\n');
+      mkdirSync(join(root, 'excluded'));
+      writeFileSync(join(root, 'excluded/hidden.txt'), 'excluded source');
+      const policy = new SDKWritePolicy(root, { ...workspaceScope(root), excluded_paths: ['excluded'] });
+      assert.deepEqual(policy.discover({ mode: 'glob' }).paths, ['recovery.txt']);
+      assert.equal(policy.readAdmission('Read', { file_path: 'recovery.txt' }).allowed, true);
+      assert.equal(policy.readAdmission('Read', { file_path: 'excluded/hidden.txt' }).allowed, false);
+      assert.ok(policy.begin('create', 'Write', { file_path: 'created.txt', content: 'exact proposal' }));
+    }
+    // User exclusions remain relative to the chosen root, unlike built-ins.
+    const relative = join(fixture, 'excluded', 'ordinary-project');
+    mkdirSync(relative, { recursive: true });
+    writeFileSync(join(relative, 'recovery.txt'), 'ordinary source');
+    const policy = new SDKWritePolicy(relative, { ...workspaceScope(relative), excluded_paths: ['excluded'] });
+    assert.deepEqual(policy.discover({ mode: 'glob' }).paths, ['recovery.txt']);
+  } finally { rmSync(fixture, { recursive: true, force: true }); }
 });

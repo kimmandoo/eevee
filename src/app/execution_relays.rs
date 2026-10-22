@@ -86,21 +86,24 @@ impl App {
         if self.width < 60 || self.height < 18 {
             return Err("Resize to 60x18 before reviewing a capture.".into());
         }
-        if !self
+        let record = self
             .execution
             .history
             .iter()
             .chain(self.execution.active.iter())
-            .any(|record| record.prepared.task_id == self.task_id && record.prepared.run_id == run)
-        {
-            return Err("The location's execution does not belong to the current task.".into());
-        }
+            .find(|record| record.prepared.task_id == self.task_id && record.prepared.run_id == run)
+            .ok_or("The location's execution does not belong to the current task.")?;
         let report = self
             .repository
             .as_ref()
             .ok_or("Refresh repository evidence before pinning a location.")?;
-        self.sources
-            .inspect_location(self.task_id, report, &location, run)?;
+        self.sources.inspect_location(
+            self.task_id,
+            report,
+            &location,
+            &record.prepared.cwd,
+            run,
+        )?;
         self.open_overlay(Overlay::Sources);
         Ok(())
     }
@@ -113,14 +116,8 @@ impl App {
             .find(|record| record.prepared.run_id == run && record.prepared.task_id == self.task_id)
             .ok_or("Select a retained run belonging to this task.")?;
         let spec = retained_rerun_spec(record).map_err(str::to_owned)?;
-        if !self.execution.latest.complete
-            || !self.execution.latest.stable
-            || self.execution.latest.fingerprint.is_none()
-            || !record.revision_moving
-                && (record.after.fingerprint.is_none()
-                    || record.after.fingerprint == self.execution.latest.fingerprint)
-        {
-            return Err("Refresh sources and select a stale run; no command was prepared.".into());
+        if record.prepared.cwd != std::path::Path::new(&self.cwd) {
+            return Err("The original cwd differs from this project's execution root.".into());
         }
         let other_target = self.party.iter().any(|partner| {
             partner.id != self.lead().id && partner.form == 2 && !self.partner_busy(partner.id)
@@ -151,14 +148,8 @@ impl App {
             })
             .ok_or("The retained source run is unavailable.")?;
         let spec = retained_rerun_spec(record).map_err(str::to_owned)?;
-        let root = self
-            .repository
-            .as_ref()
-            .ok_or("Repository observation unavailable.")?
-            .repository
-            .root
-            .as_path();
-        if record.prepared.cwd != root || std::path::Path::new(&self.cwd) != root {
+        let root = std::path::Path::new(&self.cwd);
+        if record.prepared.cwd != root {
             return Err(
                 "The original cwd differs from this task's execution root; nothing was changed."
                     .into(),

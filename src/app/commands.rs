@@ -2818,7 +2818,9 @@ mod tests {
         std::sync::Arc::new(repo::Report {
             repository: repo::RepositoryIdentity {
                 root: "/workspace".into(),
-                git_dir: "/workspace/.git".into(),
+                git_root: Some("/workspace".into()),
+                git_dir: Some("/workspace/.git".into()),
+                storage_root: None,
             },
             baseline: std::sync::Arc::clone(&snapshot),
             current: snapshot,

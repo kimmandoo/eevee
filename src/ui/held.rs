@@ -123,7 +123,10 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
             ("form", FORMS[app.form()].name),
         ],
     );
-    let project = paint.format(Template::HeldProject, &[("project", &app.cwd)]);
+    let project = paint.format(
+        Template::HeldProject,
+        &[("project", &super::display_identity(&app.cwd))],
+    );
     let target = paint.format(
         Template::HeldTarget,
         &[("target", &app.held_target_label())],

@@ -22,6 +22,7 @@ const MAX_CATALOGUE: usize = 10_000;
 pub struct Excerpt {
     pub id: i64,
     pub task_id: i64,
+    /// Exact canonical launch-folder identity at capture time; never rebased on restore.
     pub root: String,
     pub path: String,
     pub start_line: usize,
@@ -261,7 +262,7 @@ fn relative_path(path: &Path) -> bool {
 
 /// Deliberately conservative on case-sensitive filesystems. Only exclusion
 /// comparisons are folded; source identity keys and captured paths remain exact.
-fn excluded_prefix(path: &Path, prefix: &Path) -> bool {
+pub(crate) fn excluded_prefix(path: &Path, prefix: &Path) -> bool {
     let mut components = path.components();
     prefix.components().all(|excluded| {
         components.next().is_some_and(|actual| {
@@ -291,6 +292,7 @@ pub(crate) fn excluded(path: &Path, exclusions: &[PathBuf]) -> bool {
             .unwrap_or_default()
             .to_ascii_lowercase();
         name == ".git"
+            || name == ".ssh"
             || name == ".env"
             || name.starts_with(".env.")
             || matches!(
@@ -313,12 +315,41 @@ pub(crate) fn excluded(path: &Path, exclusions: &[PathBuf]) -> bool {
     })
 }
 
+/// Built-in privacy boundaries survive choosing a protected subtree as the
+/// canonical launch folder. Configured exclusions remain project-relative.
+pub(crate) fn validate_project_root(root: &Path) -> Result<(), String> {
+    if !root.is_absolute()
+        || root.components().any(|component| match component {
+            Component::Normal(name) => {
+                let name_text = name.to_str().unwrap_or_default().to_ascii_lowercase();
+                excluded(Path::new(name), &[])
+                    || matches!(
+                        name_text.as_str(),
+                        ".codex"
+                            | ".claude"
+                            | ".gemini"
+                            | ".opencode"
+                            | ".ev-install"
+                            | ".ds_store"
+                    )
+                    || name_text.starts_with("id_")
+            }
+            Component::ParentDir => true,
+            _ => false,
+        })
+    {
+        return Err("Project root is inside a protected credential/private directory; source access is refused".into());
+    }
+    Ok(())
+}
+
 fn allowed<'a>(
     report: &'a repo::Report,
     path: &Path,
     exclusions: &[PathBuf],
 ) -> Result<&'a repo::FileIdentity, String> {
-    if excluded(path, exclusions) {
+    validate_project_root(&report.repository.root)?;
+    if excluded(path, exclusions) || report.repository.excludes_source(path) {
         return Err("Source is excluded by the credential/path policy".into());
     }
     let file = report
@@ -374,7 +405,7 @@ fn capture_selection(
         .repository
         .root
         .to_str()
-        .ok_or("Non-Unicode repository root is not supported")?;
+        .ok_or("Non-Unicode project root is not supported")?;
     let relative = path
         .to_str()
         .ok_or("Non-Unicode source path is not supported")?;
@@ -649,7 +680,9 @@ fn observe(
         return unavailable("Missing, purged, unsaved or foreign-task capture".into());
     }
     if Path::new(&excerpt.root) != report.repository.root {
-        return Freshness::Stale("Repository identity changed".into());
+        return Freshness::Stale(
+            "Project identity changed; capture again in the current project".into(),
+        );
     }
     let path = Path::new(&excerpt.path);
     if let Err(reason) = allowed(report, path, exclusions) {
@@ -913,7 +946,7 @@ pub fn review_payload(
         "selected_local_runs": crate::store::review_run_observations(data_dir, task, work)?,
         "selected_findings_and_references": task.workflows.review_observations()?,
         "patch": crate::workspace::handoff::sanitize(&report.current.working_diff.text),
-        "patch_identity": crate::app::execution::fingerprint(report),
+        "patch_identity": crate::workspace::repo::fingerprint(report),
         "selected_source_observations": serde_json::from_str::<serde_json::Value>(&observations.text).map_err(|error| error.to_string())?,
         "approved_memories": &task.approved_memories,
         "verification": "No implicit prior implementation session or tool transcript. Linked local evidence is user-selected; findings and model conclusions remain inferences."

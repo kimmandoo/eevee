@@ -371,7 +371,8 @@ def main():
                     menu(resumed, 0)
             menu(resumed, 12)
             wait_for(resumed, "Recorded Accept")
-            assert rows()[0]["workflows"]["review"]["requested"] == "Accept"
+            until(resumed, lambda: (rows()[0]["workflows"]["review"] or {}).get("requested") == "Accept",
+                  "guarded accepted review did not receive its durable acknowledgment")
             assert not rows()[0]["complete"]
             resumed.capture("review-current-acceptance")
             source.write_text(source.read_text(encoding="utf-8") + "# changed after review\n", encoding="utf-8")

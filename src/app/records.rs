@@ -25,6 +25,7 @@ pub enum Mode {
     Resolve,
     Habits,
     Pairings,
+    Ribbons,
     Discard,
 }
 #[derive(Clone, Debug, Default)]
@@ -107,6 +108,7 @@ impl Default for State {
                 usages: vec![],
                 held_items: vec![],
                 summaries: vec![],
+                ribbons: vec![],
                 flavor_enabled: true,
             },
             habits: Default::default(),
@@ -393,6 +395,10 @@ fn id() -> String {
 pub fn command_help(command: &str) -> Option<Message> {
     Some(match command.trim_start_matches('/') {
         "partner-summary" => Message::RecordsHelpSummary,
+        "ribbons" => Message::RibbonsHelp,
+        "ribbon-hide" => Message::RibbonsHelpHide,
+        "ribbon-show" => Message::RibbonsHelpShow,
+        "ribbon-inspect" => Message::RibbonsHelpInspect,
         "routes" => Message::RecordsHelpRoutes,
         "dex" => Message::RecordsHelpDex,
         "dex-resolve" => Message::RecordsHelpResolve,
@@ -605,6 +611,7 @@ impl App {
             self.records.snapshot.artifacts.clear();
             self.records.snapshot.routes.clear();
             self.records.snapshot.held_items.clear();
+            self.records.snapshot.ribbons.clear();
             self.records.markers = Default::default();
             self.records.invalidate_review();
             changed = true;
@@ -929,6 +936,7 @@ impl App {
         let command = command.trim().trim_start_matches('/');
         let mode = match command {
             "partner-summary" => Mode::Summary,
+            "ribbons" | "ribbon-hide" | "ribbon-show" | "ribbon-inspect" => Mode::Ribbons,
             "routes" => Mode::Routes,
             "dex" | "dex-resolve" => Mode::Dex,
             "habits" | "habit-approve" | "habit-dismiss" => Mode::Habits,
@@ -941,6 +949,9 @@ impl App {
             command == "save-pairing" && self.has_pairing_offer() && self.records.failed.is_none();
         if !already && !direct_pairing {
             self.open_records(mode);
+        }
+        if !already && matches!(command, "ribbon-hide" | "ribbon-show" | "ribbon-inspect") {
+            return true;
         }
         if mode == Mode::Habits {
             self.records.habit_hint = false;
@@ -963,6 +974,10 @@ impl App {
             return true;
         }
         match command {
+            "ribbon-hide" | "ribbon-show" => {
+                self.record_ribbon_visibility(command == "ribbon-hide")
+            }
+            "ribbon-inspect" => self.record_ribbon_inspect(),
             "flavor-on" | "flavor-off" => {
                 self.queue_record_operation(
                     0,
@@ -1024,6 +1039,7 @@ impl App {
         use super::commands::Choice;
         let mut commands = vec![
             Choice::new("partner-summary", "Factual partner summary"),
+            Choice::new("ribbons", "Inspect this project's historical milestones"),
             Choice::new("routes", "Local non-evidence form routes"),
             Choice::new("dex", "Project failure signatures"),
             Choice::new("habits", "Review repeated authored instructions"),
@@ -1050,6 +1066,20 @@ impl App {
             ));
         }
         match self.records.mode {
+            Mode::Ribbons => {
+                commands.push(Choice::new(
+                    "ribbon-inspect",
+                    "Inspect the selected local evidence",
+                ));
+                commands.push(Choice::new(
+                    "ribbon-hide",
+                    "Hide the selected historical line",
+                ));
+                commands.push(Choice::new(
+                    "ribbon-show",
+                    "Show the selected historical line",
+                ));
+            }
             Mode::Dex => commands.push(Choice::new(
                 "dex-resolve",
                 "Review historical diagnosis and passing-run relation",
@@ -1187,6 +1217,12 @@ impl App {
                 self.records.scroll = 0;
                 self.records.invalidate_review();
             }
+            KeyCode::Enter if self.records.mode == Mode::Ribbons => self.record_ribbon_inspect(),
+            KeyCode::Char('h') if self.records.mode == Mode::Ribbons => {
+                if let Some(view) = self.records.snapshot.ribbons.get(self.records.selected) {
+                    self.record_ribbon_visibility(!view.ribbon.hidden);
+                }
+            }
             KeyCode::Enter if self.records.mode == Mode::Discard && !self.records.affirmative => {
                 self.record_stay();
                 let mode = self.records.return_mode;
@@ -1232,7 +1268,82 @@ impl App {
             Mode::Pairings => self.records.snapshot.pairings.len(),
             Mode::Routes => self.records.snapshot.summaries.len(),
             Mode::Resolve => self.records.resolution_choices().count(),
+            Mode::Ribbons => self.records.snapshot.ribbons.len(),
             Mode::Discard => 1,
+        }
+    }
+    fn record_ribbon_visibility(&mut self, hidden: bool) {
+        if !self.records.loaded || self.records.persistence_pending() {
+            return;
+        }
+        let Some(view) = self.records.snapshot.ribbons.get(self.records.selected) else {
+            return;
+        };
+        if view.ribbon.hidden != hidden {
+            self.queue_record_operation(
+                self.task_id,
+                Operation::SetRibbonHidden {
+                    kind: view.ribbon.kind,
+                    hidden,
+                },
+            );
+        }
+    }
+    fn record_ribbon_inspect(&mut self) {
+        use crate::workspace::ribbons::Evidence;
+        if !self.records.loaded {
+            return;
+        }
+        let Some(view) = self.records.snapshot.ribbons.get(self.records.selected) else {
+            return;
+        };
+        if matches!(
+            view.freshness,
+            Freshness::Unavailable | Freshness::Ambiguous
+        ) {
+            self.records.hint = Some(Message::RibbonsSourceUnavailable);
+            return;
+        }
+        let ribbon = &view.ribbon;
+        // Never resume another task, front an attributed partner, or switch form.
+        // The ordinary task picker retains its normal explicit navigation guards.
+        if ribbon.task_id != self.task_id {
+            let task = ribbon.task_id;
+            if let Some(source) = self.tasks.iter().find(|source| source.id == task) {
+                self.show_archived = source.archived;
+                let selected = self
+                    .visible_tasks()
+                    .position(|source| source.id == task)
+                    .unwrap_or(0);
+                self.task_selection = selected;
+            }
+            self.command("tasks");
+            return;
+        }
+        match &ribbon.evidence {
+            Evidence::Artifact { .. } => {
+                let command = match ribbon.kind {
+                    crate::workspace::ribbons::Kind::AcceptedReview => "workflow-review",
+                    _ => "handoff",
+                };
+                self.command(command);
+            }
+            Evidence::Move { id, .. } => {
+                let (id, partner, form) = (*id, ribbon.owner.partner, ribbon.owner.form);
+                if partner != self.lead.id {
+                    self.command("party");
+                } else if form != self.form() {
+                    self.command("forms");
+                } else {
+                    self.open_moves();
+                    if self.overlay == Some(Overlay::Moves)
+                        && self.moves.records.iter().any(|record| record.id == id)
+                    {
+                        self.moves.detail = Some(id);
+                        self.moves.mode = super::moves::Mode::Detail;
+                    }
+                }
+            }
         }
     }
     fn record_resolve_selected(&mut self) {
@@ -1655,5 +1766,148 @@ mod tests {
         state.snapshot.artifacts.push(artifact(7, 1, 3, 41));
         state.rebuild_routes();
         assert!(state.routes_for_task(7)[0].visits[2].produced);
+    }
+
+    fn ribbon(
+        kind: crate::workspace::ribbons::Kind,
+        hidden: bool,
+    ) -> crate::workspace::ribbons::View {
+        crate::workspace::ribbons::View {
+            ribbon: crate::workspace::ribbons::Ribbon {
+                kind,
+                task_id: 7,
+                owner: owner(),
+                at: 1,
+                evidence: crate::workspace::ribbons::Evidence::Move {
+                    id: 41,
+                    revision: 2,
+                },
+                hidden,
+            },
+            freshness: Freshness::Current,
+            explanation: String::new(),
+        }
+    }
+
+    #[test]
+    fn ribbon_visibility_keeps_selected_kind_and_failed_intent_until_explicit_retry() {
+        use crate::workspace::ribbons::Kind;
+        let mut app = App::new("/project".into(), 60, 18);
+        app.task_id = 7;
+        app.records.loaded = true;
+        app.records.snapshot.ribbons = vec![
+            ribbon(Kind::AcceptedReview, false),
+            ribbon(Kind::LearnedMove, false),
+        ];
+        app.open_records(Mode::Ribbons);
+        app.record_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        app.record_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE));
+        let request = app.records.queued.pop_front().unwrap();
+        assert_eq!(request.task_id, 7);
+        assert!(matches!(
+            request.operation,
+            Operation::SetRibbonHidden {
+                kind: Kind::LearnedMove,
+                hidden: true
+            }
+        ));
+        assert!(
+            !app.records.snapshot.ribbons[1].ribbon.hidden,
+            "uncommitted visibility must not be painted as durable"
+        );
+        app.records.inflight = Some(request.clone());
+        app.records_event(request.clone(), Err("disk full".into()));
+        assert_eq!(app.records.failed.as_ref(), Some(&request));
+        assert!(!app.records_allow_quit(true));
+        assert_eq!(app.records.mode, Mode::Discard);
+        app.records.retry();
+        assert_eq!(app.records.pending.as_ref(), Some(&request));
+        assert!(app.planning.pending.is_none());
+        assert!(!app.execution.busy());
+    }
+
+    #[test]
+    fn ribbon_navigation_never_switches_foreign_task_partner_or_form() {
+        use crate::workspace::ribbons::Kind;
+        let mut app = App::new("/project".into(), 120, 36);
+        app.task_id = 9;
+        app.input = "literal 한글 draft".into();
+        app.cursor = 8;
+        app.editing = true;
+        app.records.loaded = true;
+        app.records.snapshot.ribbons = vec![ribbon(Kind::LearnedMove, false)];
+        let original = (app.task_id, app.lead.id, app.form());
+        app.command("ribbons");
+        app.record_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.overlay, Some(Overlay::Tasks));
+        assert_eq!((app.task_id, app.lead.id, app.form()), original);
+        assert!(!app.execution.busy());
+        assert!(app.planning.pending.is_none());
+        assert!(app.handoff.pending.is_none());
+        app.close_overlay();
+        assert_eq!(app.overlay, Some(Overlay::Records));
+        app.record_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.editing);
+        assert_eq!(app.input, "literal 한글 draft");
+        assert_eq!(app.cursor, 8);
+    }
+
+    #[test]
+    fn direct_ribbon_actions_require_a_visible_selection_and_unavailable_sources_do_not_navigate() {
+        use crate::workspace::ribbons::Kind;
+        let mut app = App::new("/project".into(), 120, 36);
+        app.records.loaded = true;
+        app.records.snapshot.ribbons = vec![ribbon(Kind::LearnedMove, true)];
+        app.command("ribbon-show");
+        assert_eq!(app.overlay, Some(Overlay::Records));
+        assert!(app.records.queued.is_empty());
+        app.records.snapshot.ribbons[0].freshness = Freshness::Unavailable;
+        app.record_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.overlay, Some(Overlay::Records));
+        assert!(app.moves.pending.is_none());
+        app.command("ribbon-show");
+        assert!(matches!(
+            app.records.queued.front().map(|request| &request.operation),
+            Some(Operation::SetRibbonHidden { hidden: false, .. })
+        ));
+    }
+
+    #[test]
+    fn ribbon_move_inspection_offers_owner_navigation_without_fronting_or_using() {
+        use crate::workspace::ribbons::Kind;
+        let mut app = App::new("/project".into(), 120, 36);
+        app.task_id = 7;
+        app.records.loaded = true;
+        let mut view = ribbon(Kind::LearnedMove, false);
+        view.ribbon.owner.partner = app.lead.id + 100;
+        app.records.snapshot.ribbons = vec![view];
+        let original = (app.lead.id, app.form());
+        app.open_records(Mode::Ribbons);
+        app.record_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.overlay, Some(Overlay::Party));
+        assert_eq!((app.lead.id, app.form()), original);
+        assert!(app.moves.pending.is_none());
+        assert!(app.planning.pending.is_none());
+        assert!(!app.execution.busy());
+    }
+
+    #[test]
+    fn changing_project_removes_old_ribbon_view_without_dropping_pending_visibility() {
+        use crate::workspace::ribbons::Kind;
+        let mut app = App::new("/next-project".into(), 120, 36);
+        app.records.project = "/previous-project".into();
+        app.records.snapshot.ribbons = vec![ribbon(Kind::LearnedMove, false)];
+        let request = Request {
+            task_id: 7,
+            operation: Operation::SetRibbonHidden {
+                kind: Kind::LearnedMove,
+                hidden: true,
+            },
+        };
+        app.records.pending = Some(request.clone());
+        app.drive_records();
+        assert!(app.records.snapshot.ribbons.is_empty());
+        assert!(!app.records.loaded);
+        assert_eq!(app.records.pending.as_ref(), Some(&request));
     }
 }

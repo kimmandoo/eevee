@@ -146,6 +146,7 @@ pub struct Snapshot {
     pub habits: Vec<Habit>,
     pub pairings: Vec<Pairing>,
     pub held_items: Vec<super::held::Item>,
+    pub ribbons: Vec<super::ribbons::View>,
     pub usages: Vec<crate::workspace::usage::Record>,
     pub summaries: Vec<PartnerSummary>,
     pub flavor_enabled: bool,

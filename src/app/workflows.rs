@@ -535,7 +535,7 @@ impl App {
         } else {
             self.repository
                 .as_deref()
-                .map(super::execution::fingerprint)
+                .map(crate::workspace::repo::fingerprint)
                 .unwrap_or_default()
         }
     }

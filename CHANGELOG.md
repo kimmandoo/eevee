@@ -2,11 +2,29 @@
 
 ## 2026-10-23
 
+- fix(project): kept source inventory, exclusions, initialization and file operations inside the canonical launch folder instead of widening nested projects to Git toplevel.
+- fix(context): excluded canonical application storage from project sources and refused new captures and historical private-storage attachments without rewriting retained evidence.
+- feat(providers): added shared guarded ACP filesystem operations and filtered SDK discovery with explicit external-policy boundaries and truthful result states.
+- feat(ui): separated live generated code with a fixed file identity and lifecycle, distinct code surface and actual-arrival writing-edge emphasis without simulated streaming or premature saved claims.
+- feat(records): recorded optional evidence-linked first accepted reviews, verified handoffs and explicitly learned moves with actual producer attribution, durable hiding and local-only inspection.
+- feat(storage)!: added Schema 18 immutable milestone references and purge-safe first-only tombstones on the existing transactional writer.
 - feat(context): added scoped held file and approved-memory proposals with visible compact identities, removable visit chips, explicit context acceptance, revalidation and local-only receipt attribution.
 - feat(storage)!: added Schema 17 held references without duplicating source/memory contents and retained transactional migration and older-writer refusal.
 - docs(release): published v0.1.19 from source `63f1007` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.20
+
+- feat(project): unified project tasks, context paths, exclusions and file operations around the canonical launch folder, with optional enclosing-Git metadata and plain-folder browsing.
+- feat(providers): added guarded project filesystem callbacks and explicit external-policy implementation for ACP, plus host-owned filtered SDK discovery and distinct reported-failure outcomes.
+- fix(context): protected application storage from source enumeration, capture and historical attachment dispatch, including nested roots and canonical aliases.
+- feat(ui): made actual generated code visibly progressive with a fixed filename/status, separate code surface and writing-edge emphasis while preserving continuous scrolling and future drafts.
+- feat(context): added optional held file and approved-memory proposals with explicit ordinary-context acceptance and fresh source validation.
+- feat(records): added hideable evidence-linked first review, verified handoff and learned-move history without scores, streaks or unlocks.
+- feat(storage)!: migrated to Schema 18 through Schema 17; required a full data-directory backup before upgrade and restoration of that backup for downgrade. Older writers refused without changing the newer store.
+- feat(sdk)!: required complete bridge revision 9 source, policy and dependency files together; old bridges refused before prompts. External MCP servers remained disabled.
+- docs(scope): distinguished mediated filesystem effects from SDK/ACP provider-owned tools and retained separate authenticated interoperability requirements.
 
 ## 2026-10-22
 

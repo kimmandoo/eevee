@@ -37,6 +37,10 @@ pub enum Operation {
     SetFlavor {
         enabled: bool,
     },
+    SetRibbonHidden {
+        kind: crate::workspace::ribbons::Kind,
+        hidden: bool,
+    },
     DismissInstruction {
         key: String,
     },
@@ -379,6 +383,9 @@ impl State {
             Operation::SetFlavor { enabled } => {
                 tx.execute("INSERT INTO local_settings(project,flavor) VALUES(?1,?2) ON CONFLICT(project) DO UPDATE SET flavor=excluded.flavor",params![self.project,enabled]).map_err(|e|e.to_string())?;
             }
+            Operation::SetRibbonHidden { kind, hidden } => {
+                super::ribbons::set_hidden(&tx, &self.project, *kind, *hidden)?;
+            }
             Operation::SetPairing {
                 partner,
                 form,
@@ -604,6 +611,7 @@ impl State {
         } else {
             Response::Snapshot(Box::new(snapshot(
                 &tx,
+                &self.data_dir,
                 &self.project,
                 task.as_ref(),
                 current,
@@ -615,7 +623,10 @@ impl State {
     }
 }
 
-fn runs_for(connection: &Connection, task: i64) -> Result<Vec<runner::RunRecord>, String> {
+pub(super) fn runs_for(
+    connection: &Connection,
+    task: i64,
+) -> Result<Vec<runner::RunRecord>, String> {
     let mut statement = connection
         .prepare("SELECT record FROM executions WHERE task_id=?1 ORDER BY rowid LIMIT 257")
         .map_err(|e| e.to_string())?;
@@ -664,6 +675,7 @@ fn freshness(artifact: &Artifact, view: &workflows::EvidenceView<'_>) -> (Freshn
 }
 fn snapshot(
     connection: &Connection,
+    data_dir: &Path,
     project: &str,
     task: Option<&super::Snapshot>,
     current: Option<&runner::InputSnapshot>,
@@ -982,6 +994,7 @@ fn snapshot(
         habits,
         pairings: rows(connection, "partner_pairings", project)?,
         held_items: super::held::items(connection, project)?,
+        ribbons: super::ribbons::views(connection, data_dir, project)?,
         usages: rows(connection, "provider_usage", project)?,
         summaries,
         flavor_enabled,
@@ -1025,6 +1038,7 @@ pub(super) fn capture(
 }
 pub(super) fn save_intents(
     connection: &Connection,
+    data_dir: &Path,
     task: &super::Snapshot,
     intents: &[LocalIntent],
 ) -> Result<(), String> {
@@ -1171,6 +1185,7 @@ pub(super) fn save_intents(
                         },
                     )?;
                 }
+                super::ribbons::artifact_committed(connection, data_dir, task, &value)?;
                 artifact(connection, &task.project, value)?;
             }
             LocalIntent::HandoffReady {
@@ -1251,6 +1266,11 @@ pub(super) fn save_intents(
                         detail: format!("Handoff ready receipt for revision {revision}"),
                     },
                 )?;
+                let committed: Artifact = connection.query_row(
+                    "SELECT record FROM local_artifacts WHERE id=?1 AND project=?2 AND task_id=?3",
+                    params![id, task.project, task.id], |row| json_column(row, 0, MAX_RECORD))
+                    .map_err(|error| error.to_string())?;
+                super::ribbons::artifact_committed(connection, data_dir, task, &committed)?;
                 activity(
                     connection,
                     &task.project,
@@ -1719,6 +1739,7 @@ fn resolve(
 }
 
 pub(super) fn purge_task(connection: &Connection, project: &str, task: i64) -> Result<(), String> {
+    super::ribbons::purge_task(connection, project, task)?;
     for table in [
         "diagnosis_transitions",
         "local_artifacts",
@@ -1753,6 +1774,7 @@ pub(super) fn purge_project(connection: &Connection, project: &str) -> Result<()
         "instruction_sources",
         "partner_pairings",
         "held_items",
+        "ribbons",
         "provider_usage",
         "provider_usage_events",
     ] {
@@ -1800,6 +1822,7 @@ fn purge_related(
     run: Option<&str>,
     provider: bool,
 ) -> Result<(), String> {
+    super::ribbons::purge_evidence(connection, project, task, source, run)?;
     let artifacts: Vec<Artifact> = rows(connection, "local_artifacts", project)?;
     for artifact in artifacts.into_iter().filter(|a| a.task_id == task) {
         let related = provider && artifact.kind == ArtifactKind::Patch
@@ -1812,6 +1835,7 @@ fn purge_related(
                 workflows::EvidenceRef::Run { run_id, .. } => run == Some(run_id.as_str()),
             });
         if related {
+            super::ribbons::purge_artifact(connection, project, &artifact.id)?;
             if artifact.kind == ArtifactKind::Handoff
                 && let (Some(revision), Some(owner)) =
                     (artifact.handoff_revision, artifact.producer.as_ref())
@@ -2561,7 +2585,7 @@ fn decision_reference(task: &super::Snapshot) -> Option<String> {
     (reference == decision.id).then_some(reference)
 }
 
-fn validate_references(
+pub(super) fn validate_references(
     task: i64,
     evidence: &[workflows::EvidenceRef],
     captures: &[crate::workspace::context::Excerpt],
@@ -2668,7 +2692,9 @@ fn bounded_failure_paths(
 
 #[cfg(test)]
 pub(super) fn remove_schema(connection: &Connection) {
-    connection.execute_batch("DROP TABLE held_items;").unwrap();
+    connection
+        .execute_batch("DROP TABLE held_items; DROP TABLE ribbons;")
+        .unwrap();
     connection
         .execute_batch("ALTER TABLE partners DROP COLUMN auto_form;")
         .unwrap();

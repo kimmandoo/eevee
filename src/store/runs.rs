@@ -277,6 +277,18 @@ impl State {
                 }
                 excerpt.text = crate::workspace::privacy::redact(&excerpt.text).into_owned();
                 excerpt.validate()?;
+                let storage = self
+                    .data_dir
+                    .canonicalize()
+                    .map_err(|error| error.to_string())?;
+                let source_root = std::path::Path::new(&excerpt.root)
+                    .canonicalize()
+                    .map_err(|_| "Source capture root is unavailable")?;
+                if source_root.join(&excerpt.path).starts_with(storage) {
+                    return Err(
+                        "Application storage cannot be pinned as project source context".into(),
+                    );
+                }
                 if let Some(run) = &excerpt.origin_run {
                     stored_run(&transaction, task.id, run)?;
                 }

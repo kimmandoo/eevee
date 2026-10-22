@@ -36,17 +36,17 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
     };
     let inspection = json!({
         "type":"capabilities", "sdk_version":"1.5.0", "cli_version":"4.0.0",
-        "bridge_revision":8, "query":true,
-        "policy":{"tools":"closed-allowlist","permissions":"default-host-once","mcp":"disabled",
+        "bridge_revision":9, "query":true,
+        "policy":{"tools":"closed-allowlist","permissions":"default-host-once","mcp":"host-discovery-only",
             "configuration":"isolated","authentication":"api-console-cloud-only",
             "dispatch":"correlated-sdk-submission","usage":"correlated-sdk-snapshots",
-            "file_preview":"display-only-correlated-arguments"},
+            "file_preview":"display-only-correlated-arguments-outcomes"},
     });
     assert!(inspection_matches(&inspection, &versions));
     for (field, value) in [
         ("sdk_version", json!("1.5.1")),
         ("cli_version", json!("4.0.1")),
-        ("bridge_revision", json!(7)),
+        ("bridge_revision", json!(8)),
         ("query", json!(false)),
         ("policy", Value::Null),
     ] {
@@ -285,6 +285,37 @@ fn sdk_file_fragments_update_one_display_identity_without_entering_tool_storage(
             .is_err()
     );
     assert!(tools.items.is_empty());
+}
+
+#[test]
+fn sdk_file_outcomes_keep_failed_and_unknown_distinct_from_reported_success() {
+    let input = crate::providers::tests::claimed(Agent::Claude, Operation::Implement, false);
+    for (stage, expected) in [
+        ("reported", FilePhase::Reported),
+        ("reported_failed", FilePhase::ReportedFailed),
+        ("unknown", FilePhase::Unknown),
+    ] {
+        let mut previews = SdkFilePreviews::new(&input, 31);
+        previews
+            .observe(&preview_frame(
+                "received",
+                Some(r#"{"file_path":"new.rs","content":"reviewed bytes"}"#),
+            ))
+            .unwrap();
+        previews.observe(&preview_frame("approved", None)).unwrap();
+        let update = previews
+            .observe(&preview_frame(stage, None))
+            .unwrap()
+            .unwrap();
+        assert_eq!(update.1, expected);
+        assert_ne!(update.1, FilePhase::Applied);
+        assert!(
+            previews
+                .observe(&preview_frame("reported", None))
+                .unwrap()
+                .is_none()
+        );
+    }
 }
 
 #[test]

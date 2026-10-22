@@ -109,7 +109,9 @@ fn report(byte: u8, complete: bool) -> repo::Report {
     repo::Report {
         repository: repo::RepositoryIdentity {
             root: "/project".into(),
-            git_dir: "/project/.git".into(),
+            git_root: Some("/project".into()),
+            git_dir: Some("/project/.git".into()),
+            storage_root: None,
         },
         baseline: Arc::clone(&snapshot),
         current: snapshot,
@@ -616,6 +618,57 @@ fn rerun_preparation_has_fresh_approval_and_origin_is_cleared_by_manual_replacem
     assert!(state.permit.is_none());
     assert!(state.prepare_command_for(1, Some(owner), r#"["tool","different"]"#));
     assert!(state.rerun_of.is_none());
+}
+
+#[test]
+fn ordinary_rerun_uses_project_cwd_without_requiring_git_freshness() {
+    for git in [false, true] {
+        let project = "/workspace/nested-project";
+        let mut app = crate::app::App::new(project.into(), 120, 36);
+        app.task_id = 1;
+        app.storage = crate::app::StorageState::Saved;
+        app.lead.form = 2;
+        app.editing = false;
+        if git {
+            let mut observation = report(1, true);
+            observation.repository.root = project.into();
+            observation.repository.git_root = Some("/workspace".into());
+            observation.repository.git_dir = Some("/workspace/.git".into());
+            app.repository = Some(Arc::new(observation));
+        }
+        let mut prior = record(runner::RunState::Succeeded);
+        prior.prepared.cwd = project.into();
+        let run = prior.prepared.run_id.clone();
+        app.execution.history.push(prior.clone());
+        app.execution.selected_run = Some(run.clone());
+        app.execution.task_id = 1;
+        assert!(
+            app.execution
+                .command_choices()
+                .iter()
+                .find(|choice| choice.command == "rerun")
+                .unwrap()
+                .reason
+                .is_none()
+        );
+        app.stage_execution_rerun(run).unwrap();
+        assert_eq!(
+            app.command,
+            super::super::execution_relays::command_draft(&prior.prepared.spec)
+        );
+        assert!(app.pending_command.is_some());
+        assert!(app.execution.permit.is_none() && app.execution.active.is_none());
+        assert_eq!(app.execution.history[0], prior);
+    }
+    let mut app = crate::app::App::new("/workspace/nested-project".into(), 120, 36);
+    app.task_id = 1;
+    app.lead.form = 2;
+    let mut prior = record(runner::RunState::Succeeded);
+    prior.prepared.cwd = "/workspace".into();
+    let run = prior.prepared.run_id.clone();
+    app.execution.history.push(prior);
+    assert!(app.stage_execution_rerun(run).is_err());
+    assert!(app.pending_command.is_none() && app.execution.permit.is_none());
 }
 
 #[test]

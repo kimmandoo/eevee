@@ -1,7 +1,7 @@
-//! Private ACP v1 transport. Client callbacks are deliberately not filesystem/terminal sandboxes.
+//! Private ACP v1 transport. Mediated callbacks do not sandbox agent-owned tools.
 use crate::providers::{
-    Agent, Event, Input, ItemKind, ModelCatalogue, ModelOption, ModelSelection, Operation, Outcome,
-    PermissionOption, Preview, Prompt, PromptKind, Request,
+    Agent, Event, FilePhase, Input, ItemKind, ModelCatalogue, ModelOption, ModelSelection,
+    Operation, Outcome, PermissionOption, Preview, Prompt, PromptKind, Request,
 };
 use parking_lot::Mutex;
 use serde_json::{Value, json};
@@ -24,6 +24,8 @@ const EVENT_LIMIT: usize = 512;
 const OUTPUT_LIMIT: usize = 8 * 1024 * 1024;
 const ITEM_LIMIT: usize = 128;
 type Events = Arc<Mutex<VecDeque<Event>>>;
+mod files;
+use files::{PendingWrite, capture_files};
 
 pub struct Worker {
     requests: Option<SyncSender<Request>>,
@@ -131,6 +133,7 @@ struct Reviewed {
     input: Box<Input>,
     trust: crate::providers::agent::ExternalTrust,
     payload: String,
+    files: Option<super::writes::WriteSet>,
 }
 fn profile(agent: Agent) -> Result<(usize, Vec<String>), String> {
     match agent {
@@ -169,10 +172,11 @@ fn worker(
                     let trust =
                         crate::providers::agent::external_trust(index, &workspace.project, launch)?;
                     let payload = payload(&workspace, &input)?;
+                    let files = capture_files(&workspace, &input)?;
                     let mut lines = trust.lines.clone();
                     lines.extend([
                         "Private owned ACPv1 stdio process; initialize and session authentication happen only after Run consent.".into(),
-                        "Client filesystem and terminal callbacks are NOT supported or advertised; every such request is refused.".into(),
+                        "Client file callbacks read safe current-project working bytes; Implement writes require separate exact deny/allow-once content and parent review. Terminal callbacks remain disabled.".into(),
                         "Agent-owned tools, project instructions, MCP, configuration, hooks and history are EXTERNAL PROVIDER POLICY. ACP is not a path/network sandbox or a read-only guarantee.".into(),
                         "Only exact reject-once/allow-once provider permission IDs are offered; persistent grants are filtered. Unknown questions/elicitation extensions are refused, not advertised.".into(),
                         "No authenticate/login action is invoked. Provider-owned auth/account/product eligibility must succeed at session creation; installed is not authenticated.".into(),
@@ -203,7 +207,7 @@ fn worker(
                         && !input.inspect_sessions
                         && !input.inspect_models
                     {
-                        blockers.push("Controlled implementation refused: this ACP peer's agent-owned tools cannot enforce Eevee's selected-file boundary. Use the explicitly external-policy manual handoff instead; no sandbox claim.".into());
+                        lines.push("IMPLEMENT / EXTERNAL AGENT POLICY: the normal durable writer lease is required. Eevee mediates only client fs callbacks; /paths restricts those writes, NOT agent-owned tools. Provider tools can bypass client callbacks and act under their own configuration/permissions. Run accepts this boundary, not blanket file consent or confinement.".into());
                     }
                     if let Some(id) = &input.resume
                         && (id.is_empty() || id.len() > 256 || safe(id) != *id)
@@ -261,6 +265,7 @@ fn worker(
                             input,
                             trust,
                             payload,
+                            files,
                         });
                     }
                     emit(&events, Event::Preview(preview))
@@ -351,7 +356,7 @@ fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
     if input.inspect_models {
         return serde_json::to_string_pretty(&json!({
             "purpose":"Inspect provider-advertised model and reasoning selectors only",
-            "initialize":{"protocolVersion":1,"clientCapabilities":client_capabilities()},
+            "initialize":{"protocolVersion":1,"clientCapabilities":client_capabilities(input)},
             "session/new":{"cwd":workspace.project,"mcpServers":[]},
             "selection":input.selection,
             "optional_configuration":"session/set_config_option for model/thought_level controls; legacy session/set_model for exact model IDs; correlated setter success is required",
@@ -373,7 +378,7 @@ fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
             return Err("Session-list inspection must not resume a provider session".into());
         }
         return serde_json::to_string_pretty(&json!({
-            "initialize":{"protocolVersion":1,"clientCapabilities":client_capabilities()},
+            "initialize":{"protocolVersion":1,"clientCapabilities":client_capabilities(input)},
             "optional_method":"session/list",
             "params":{"cwd":workspace.project},
             "dispatch_condition":"only if agentCapabilities.sessionCapabilities.list was negotiated",
@@ -396,7 +401,12 @@ fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
         &workspace.exclusions,
     )?;
     let text = serde_json::to_string_pretty(&json!({
-        "purpose":"Plan the user's task. Do not implement or write files. Ask for decisions and report proposals as unverified planning. This instruction is not an enforced sandbox.",
+        "purpose": if input.operation == Operation::Implement {
+            "Implement the requested project changes. Use client fs/read_text_file to read actual working files and fs/write_text_file to create or replace full UTF-8 files; use absolute paths under session cwd. Each client write requires exact separate user consent; preserve unrelated dirty bytes. Do not substitute fenced code for requested file creation. Agent-owned tools remain external provider policy, not client confinement. No check or success may be claimed without observed results."
+        } else {
+            "Answer the current request directly. Inspect actual admitted project files through fs/read_text_file when needed; plan only when asked. Do not implement or write files. Agent-owned tools remain external provider policy; this instruction is not an enforced sandbox."
+        },
+        "client_write_restrictions":input.edit_paths,
         "task":{"id":input.task.id,"revision":input.task.revision,"goal":input.task.goal,"acceptance_criteria":input.task.criteria,"next_action":crate::workspace::handoff::without_local_provenance(&input.task.next_action)},
         "request":input.instruction(),
         "approved_memories":input.task.approved_memories,
@@ -414,6 +424,9 @@ fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
 fn revalidate(workspace: &Workspace, run: &Reviewed) -> Result<(), String> {
     let (index, _) = profile(run.input.agent)?;
     crate::providers::agent::revalidate_external_trust(index, &workspace.project, &run.trust)?;
+    if let Some(files) = &run.files {
+        files.verify()?;
+    }
     if payload(workspace, &run.input)? != run.payload {
         return Err("Task/source/handoff changed after preview; no substituted prompt sent".into());
     }
@@ -565,8 +578,10 @@ fn session_list_report(
     );
     Ok(text)
 }
-fn client_capabilities() -> Value {
-    json!({"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false})
+fn client_capabilities(input: &Input) -> Value {
+    let active =
+        !input.inspect_models && !input.inspect_sessions && input.operation != Operation::Review;
+    json!({"fs":{"readTextFile":active,"writeTextFile":active && input.operation == Operation::Implement},"terminal":false})
 }
 fn permission_options(params: &Value) -> Result<Vec<PermissionOption>, String> {
     let mut options = vec![PermissionOption {
@@ -1163,6 +1178,10 @@ struct Engine<'a> {
     model_ack: bool,
     effort_ack: bool,
     journal_nonce: u128,
+    files: Option<super::writes::WriteSet>,
+    pending_write: Option<PendingWrite>,
+    callback_sequence: u64,
+    reported_files: HashMap<String, Vec<(String, String)>>,
 }
 fn transport(
     workspace: &Workspace,
@@ -1239,13 +1258,17 @@ fn transport(
         models: Models::default(),
         model_ack: false,
         effort_ack: false,
+        files: run.files.clone(),
+        pending_write: None,
+        callback_sequence: 0,
+        reported_files: HashMap::new(),
         journal_nonce: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos(),
     };
     let result: Result<(Outcome, String), String> = (|| {
-        engine.call(Call::Initialize,"initialize",json!({"protocolVersion":1,"clientCapabilities":client_capabilities(),"clientInfo":{"name":"eevee","version":env!("CARGO_PKG_VERSION")}}))?;
+        engine.call(Call::Initialize,"initialize",json!({"protocolVersion":1,"clientCapabilities":client_capabilities(&run.input),"clientInfo":{"name":"eevee","version":env!("CARGO_PKG_VERSION")}}))?;
         loop {
             if engine.stop.load(Ordering::Acquire) {
                 return Err("ACP client shutdown".into());
@@ -1489,6 +1512,9 @@ impl Engine<'_> {
         Ok(())
     }
     fn frame(&mut self, frame: Value) -> Result<(), String> {
+        if self.terminal.is_some() {
+            return Ok(()); // A local uncertain effect cannot be overwritten by a late peer success.
+        }
         if frame.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
             return Err("Malformed ACP JSON-RPC envelope".into());
         }
@@ -1501,7 +1527,10 @@ impl Engine<'_> {
                 if method == "session/request_permission" {
                     return self.permission(id.clone(), params);
                 }
-                // No client callbacks/extensions have been advertised. Never execute provider-supplied commands/paths.
+                if matches!(method, "fs/read_text_file" | "fs/write_text_file") {
+                    return self.file_request(id.clone(), method, &params);
+                }
+                // Unadvertised terminal and extension methods never execute.
                 self.status(&format!(
                     "Refused unsupported ACP client method: {}",
                     safe(method)
@@ -1560,7 +1589,7 @@ impl Engine<'_> {
                             .join(", ")
                     })
                     .unwrap_or_else(|| "not advertised".into());
-                self.status(&format!("Negotiated ACP1; capabilities {}; auth routes [{auth}] (availability not authentication); client fs/terminal disabled; question/elicitation unsupported; usage coverage unavailable",self.capabilities))?;
+                self.status(&format!("Negotiated ACP1; capabilities {}; auth routes [{auth}] (availability not authentication); client fs callbacks operation-scoped, terminal disabled; question/elicitation unsupported; usage coverage unavailable",self.capabilities))?;
                 if self.cancelling.is_some() {
                     self.terminal = Some((
                         Outcome::Cancelled,
@@ -1784,8 +1813,8 @@ impl Engine<'_> {
         if params.get("sessionId").and_then(Value::as_str) != Some(session.as_str()) {
             return Err("ACP permission has wrong session identity".into());
         }
-        revalidate(self.workspace, self.run)?;
-        if !self.permissions.pending.is_empty() {
+        self.validate_file_owner()?;
+        if !self.permissions.pending.is_empty() || self.pending_write.is_some() {
             if self.permissions.seen.len() >= 4096 || !self.permissions.seen.insert(id.to_string())
             {
                 return Err("Repeated/excessive ACP permission request identity".into());
@@ -1821,7 +1850,7 @@ impl Engine<'_> {
                     item_id: item,
                     kind: PromptKind::Permission {
                         description: bounded(&description, 16384).to_owned(),
-                        file: None,
+                        file: files::external_file_review(tool),
                         options,
                     },
                 },
@@ -1829,6 +1858,13 @@ impl Engine<'_> {
         )
     }
     fn answer(&mut self, generation: u64, id: Value, answer: Value) -> Result<(), String> {
+        if self
+            .pending_write
+            .as_ref()
+            .is_some_and(|pending| pending.id == id)
+        {
+            return self.answer_file(generation, id, answer);
+        }
         if generation != self.run.generation
             || self.cancelling.is_some()
             || self.cancelled.load(Ordering::Acquire) == self.run.generation
@@ -1843,7 +1879,7 @@ impl Engine<'_> {
                 },
             );
         }
-        revalidate(self.workspace, self.run)?;
+        self.validate_file_owner()?;
         // Check again immediately before queueing an allow; cancellation closes every pending request.
         if self.cancelled.load(Ordering::Acquire) == self.run.generation {
             self.send(
@@ -1861,6 +1897,7 @@ impl Engine<'_> {
         )
     }
     fn close_permissions(&mut self) -> Result<(), String> {
+        self.close_file_permission()?;
         for id in self.permissions.invalidate() {
             self.send(
                 json!({"jsonrpc":"2.0","id":id,"result":{"outcome":{"outcome":"cancelled"}}}),
@@ -1965,7 +2002,9 @@ impl Engine<'_> {
                     .items
                     .entry(id.clone())
                     .or_insert_with(|| Item::new(ItemKind::Tool));
+                // Preserve structured diff bodies before generic journal bounding.
                 item.tool_snapshot(update)?;
+                self.observe_file_reports(&id, update)?;
                 self.check_items()?;
                 self.emit_item(&id)?;
             }
@@ -2053,7 +2092,7 @@ impl Engine<'_> {
                             self.run.input.agent.label()
                         ),
                         coverage: format!(
-                            "Provider-reported {state} tool snapshot only. {} Agent-owned execution/config/MCP is external policy; client fs/terminal callbacks disabled. Not local runner evidence, sandbox proof, or independent side-effect verification.",
+                            "Provider-reported {state} tool snapshot only. {} Agent-owned execution/config/MCP is external policy; client filesystem callbacks have separate mediated receipts, terminal callbacks disabled. Not local runner evidence, sandbox proof, or independent side-effect verification.",
                             if item.complete {
                                 "Provider reported terminal tool status."
                             } else {

@@ -67,7 +67,9 @@ impl Fixture {
         Arc::new(repo::Report {
             repository: repo::RepositoryIdentity {
                 root: self.0.clone(),
-                git_dir: self.0.join(".git"),
+                git_root: Some(self.0.clone()),
+                git_dir: Some(self.0.join(".git")),
+                storage_root: None,
             },
             baseline: snapshot.clone(),
             current: snapshot,
@@ -80,6 +82,306 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
+}
+
+fn observed_project(root: &Path) -> Arc<repo::Report> {
+    let worker = repo::Worker::start(root.to_path_buf(), root.join("local-data")).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(35);
+    loop {
+        if let Some(event) = worker.try_event() {
+            return match event {
+                repo::Event::Updated(report) => report,
+                other => panic!("project observation failed: {other:?}"),
+            };
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "project observation timed out"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn application_storage_cannot_be_catalogued_captured_or_resent_from_history() {
+    for git in [true, false] {
+        let fixture = Fixture::new();
+        let mut report = fixture.report(&[
+            ("public.rs", b"public source\n"),
+            (
+                "local-data/ev-run-retained.output",
+                b"PRIVATE_RETAINED_OUTPUT\n",
+            ),
+        ]);
+        if !git {
+            fs::remove_dir_all(fixture.0.join(".git")).unwrap();
+        }
+        let stopped = AtomicBool::new(false);
+        let path = Path::new("local-data/ev-run-retained.output");
+        let mut historical = capture(7, &report, path, 1, 1, &[], &stopped).unwrap();
+        historical.id = 1;
+        let original = historical.clone();
+        Arc::make_mut(&mut report).repository.storage_root = Some(fixture.0.join("local-data"));
+        let response = execute(
+            7,
+            Operation::Catalogue {
+                report: Arc::clone(&report),
+                query: String::new(),
+            },
+            &[],
+            &stopped,
+        )
+        .unwrap();
+        let Response::Catalogue(files) = response else {
+            panic!("expected catalogue")
+        };
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, Path::new("public.rs"));
+        assert!(capture(7, &report, path, 1, 1, &[], &stopped).is_err());
+        assert!(matches!(
+            observe(7, &report, &historical, &[], &stopped),
+            Freshness::Unavailable(_)
+        ));
+        assert!(
+            planning_payload(7, Some(&report), std::slice::from_ref(&historical), &[]).is_err()
+        );
+        assert_eq!(historical, original);
+        for storage in [fixture.0.clone(), fixture.0.parent().unwrap().to_path_buf()] {
+            Arc::make_mut(&mut report).repository.storage_root = Some(storage);
+            assert!(capture(7, &report, Path::new("public.rs"), 1, 1, &[], &stopped).is_err());
+        }
+    }
+}
+
+#[test]
+fn protected_ancestor_policy_survives_launch_root_changes_and_retains_history() {
+    for git in [true, false] {
+        let fixture = Fixture::new();
+        let parent_report = fixture.report(&[("secrets/recovery.txt", b"opaque recovery bytes\n")]);
+        if !git {
+            fs::remove_dir_all(fixture.0.join(".git")).unwrap();
+        }
+        let stopped = AtomicBool::new(false);
+        assert!(
+            capture(
+                7,
+                &parent_report,
+                Path::new("secrets/recovery.txt"),
+                1,
+                1,
+                &[],
+                &stopped
+            )
+            .is_err()
+        );
+        let nested = Fixture(fixture.0.join("secrets"));
+        let nested_report = nested.report(&[("recovery.txt", b"opaque recovery bytes\n")]);
+        let response = execute(
+            7,
+            Operation::Catalogue {
+                report: Arc::clone(&nested_report),
+                query: String::new(),
+            },
+            &[],
+            &stopped,
+        )
+        .unwrap();
+        let Response::Catalogue(files) = response else {
+            panic!("expected catalogue")
+        };
+        assert!(files.is_empty());
+        assert!(
+            capture(
+                7,
+                &nested_report,
+                Path::new("recovery.txt"),
+                1,
+                1,
+                &[],
+                &stopped
+            )
+            .is_err()
+        );
+        let historical = Excerpt {
+            id: 1,
+            task_id: 7,
+            root: nested.0.to_str().unwrap().into(),
+            path: "recovery.txt".into(),
+            start_line: 1,
+            end_line: 1,
+            source_sha256: Sha256::digest(b"opaque recovery bytes\n").into(),
+            text: "opaque recovery bytes\n".into(),
+            available: true,
+            origin_run: None,
+        };
+        let original = historical.clone();
+        assert!(matches!(
+            observe(7, &nested_report, &historical, &[], &stopped),
+            Freshness::Unavailable(_)
+        ));
+        assert!(
+            planning_payload(
+                7,
+                Some(&nested_report),
+                std::slice::from_ref(&historical),
+                &[]
+            )
+            .is_err()
+        );
+        assert_eq!(historical, original);
+    }
+}
+
+#[test]
+fn protected_root_policy_is_builtin_not_a_blanket_home_or_config_exclusion() {
+    let base = std::env::temp_dir().join("Users").join("ordinary-user");
+    for name in [
+        "secrets",
+        "Credentials",
+        ".env.local",
+        ".ssh",
+        ".codex",
+        ".claude",
+        ".gemini",
+        ".opencode",
+        ".ev-install",
+        "id_recovery",
+        "private_key_backup",
+        "server.pem",
+    ] {
+        assert!(
+            validate_project_root(&base.join(name).join("project")).is_err(),
+            "{name}"
+        );
+    }
+    for name in ["workspace", ".config", ".local", "excluded"] {
+        assert!(
+            validate_project_root(&base.join(name).join("project")).is_ok(),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn nested_project_catalogue_capture_and_exclusions_share_launch_namespace() {
+    let fixture = Fixture::new();
+    fixture.report(&[
+        ("nested/src/current.rs", b"project source\n"),
+        ("nested/EXCLUDED/hidden.rs", b"excluded\n"),
+        ("sibling/outside.rs", b"not project context\n"),
+    ]);
+    let project = fixture.0.join("nested");
+    let report = observed_project(&project);
+    let exclusions = vec![PathBuf::from("excluded")];
+    let stopped = AtomicBool::new(false);
+    let response = execute(
+        7,
+        Operation::Catalogue {
+            report: Arc::clone(&report),
+            query: String::new(),
+        },
+        &exclusions,
+        &stopped,
+    )
+    .unwrap();
+    let Response::Catalogue(files) = response else {
+        panic!("expected catalogue")
+    };
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path, Path::new("src/current.rs"));
+    let excerpt = capture(
+        7,
+        &report,
+        Path::new("src/current.rs"),
+        1,
+        1,
+        &exclusions,
+        &stopped,
+    )
+    .unwrap();
+    assert_eq!(Path::new(&excerpt.root), project);
+    assert_eq!(excerpt.path, "src/current.rs");
+    assert_eq!(excerpt.text, "project source\n");
+    assert!(
+        capture(
+            7,
+            &report,
+            Path::new("EXCLUDED/hidden.rs"),
+            1,
+            1,
+            &exclusions,
+            &stopped
+        )
+        .is_err()
+    );
+    assert!(
+        capture(
+            7,
+            &report,
+            Path::new("../sibling/outside.rs"),
+            1,
+            1,
+            &[],
+            &stopped
+        )
+        .is_err()
+    );
+    let mut historical = excerpt.clone();
+    historical.id = 1;
+    historical.root = fixture.0.to_str().unwrap().into();
+    historical.path = "nested/src/current.rs".into();
+    assert!(matches!(
+        observe(7, &report, &historical, &[], &stopped),
+        Freshness::Stale(_)
+    ));
+    assert_eq!(historical.root, fixture.0.to_str().unwrap());
+    assert_eq!(historical.path, "nested/src/current.rs");
+    assert!(planning_payload(7, Some(&report), &[historical], &[]).is_err());
+}
+
+#[test]
+fn filesystem_project_browses_captures_and_rechecks_without_verification_claims() {
+    let fixture = Fixture::new();
+    fixture.report(&[
+        (
+            "src/current.rs",
+            b"local source\npassword=opaque-local-value\n",
+        ),
+        (".env", b"never selected\n"),
+        ("secrets/hidden.rs", b"never selected\n"),
+    ]);
+    fs::remove_dir_all(fixture.0.join(".git")).unwrap();
+    let report = observed_project(&fixture.0);
+    let stopped = AtomicBool::new(false);
+    let response = execute(
+        7,
+        Operation::Catalogue {
+            report: Arc::clone(&report),
+            query: String::new(),
+        },
+        &[],
+        &stopped,
+    )
+    .unwrap();
+    let Response::Catalogue(files) = response else {
+        panic!("expected catalogue")
+    };
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path, Path::new("src/current.rs"));
+    let mut excerpt = capture_selection(7, &report, &files[0].path, None, &[], &stopped).unwrap();
+    excerpt.id = 1;
+    assert_eq!(excerpt.text, "local source\npassword=[REDACTED]\n");
+    assert_eq!(
+        observe(7, &report, &excerpt, &[], &stopped),
+        Freshness::Current
+    );
+    assert!(repo::fingerprint(&report).fingerprint.is_none());
+    fs::write(fixture.0.join("src/current.rs"), b"changed\n").unwrap();
+    assert!(matches!(
+        observe(7, &report, &excerpt, &[], &stopped),
+        Freshness::Stale(_)
+    ));
+    assert!(capture_selection(7, &report, &files[0].path, None, &[], &stopped).is_err());
 }
 
 #[test]

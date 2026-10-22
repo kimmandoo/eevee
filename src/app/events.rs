@@ -104,7 +104,9 @@ impl App {
         self.repo_loading = false;
         match event {
             repo::Event::Updated(report) => {
-                self.repo_status = if report.initial {
+                self.repo_status = if report.repository.git_dir.is_none() {
+                    "Project: filesystem catalogue / Git evidence unavailable"
+                } else if report.initial {
                     "Repository: baseline captured"
                 } else {
                     "Repository: refreshed / original baseline retained"
@@ -112,9 +114,20 @@ impl App {
                 .into();
                 self.repo_error.clear();
                 let mut text = format!(
-                    "ROOT\n{:?}\nGit metadata: {:?}\n\nBASELINE / CURRENT\nHEAD: {} / {}\nFiles: {} / {}\nCurrent coverage complete: {} / stable observation: {}\nIgnored untracked files and submodule contents are excluded.\n\nCHANGES\n",
+                    "PROJECT ROOT\n{:?}\nEnclosing Git root: {}\nGit metadata: {}\n\nBASELINE / CURRENT\nHEAD: {} / {}\nFiles: {} / {}\nCurrent coverage complete: {} / stable observation: {}\nOnly project-relative paths are in scope. Application storage is excluded. Ignored untracked files and submodule contents are excluded in Git projects.\n\nCHANGES\n",
                     report.repository.root,
-                    report.repository.git_dir,
+                    report
+                        .repository
+                        .git_root
+                        .as_ref()
+                        .map(|path| format!("{path:?}"))
+                        .unwrap_or_else(|| "unavailable".into()),
+                    report
+                        .repository
+                        .git_dir
+                        .as_ref()
+                        .map(|path| format!("{path:?}"))
+                        .unwrap_or_else(|| "unavailable".into()),
                     report
                         .baseline
                         .head

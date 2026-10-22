@@ -115,6 +115,7 @@ impl Fixture {
         if input.operation == Operation::Review {
             input.report = Some(crate::providers::tests::repository_report(
                 &self.workspace.project,
+                &self.workspace.data_dir,
             ));
         }
         if input.operation != Operation::Review {

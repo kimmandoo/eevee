@@ -97,7 +97,9 @@ fn capture(app: &mut App) -> context::Excerpt {
     app.repository = Some(Arc::new(repo::Report {
         repository: repo::RepositoryIdentity {
             root: "/fixture".into(),
-            git_dir: "/fixture/.git".into(),
+            git_root: Some("/fixture".into()),
+            git_dir: Some("/fixture/.git".into()),
+            storage_root: None,
         },
         baseline: snapshot.clone(),
         current: snapshot,
@@ -119,6 +121,21 @@ fn capture(app: &mut App) -> context::Excerpt {
     );
     app.sources.preview_reviewed = true;
     excerpt
+}
+
+#[test]
+fn stored_source_boundary_disables_held_file_availability_without_rewriting_capture() {
+    let mut app = app();
+    let original = capture(&mut app);
+    let target = Target::File {
+        path: original.path.clone(),
+    };
+    assert!(app.held_available(&target));
+    std::sync::Arc::make_mut(app.repository.as_mut().unwrap())
+        .repository
+        .storage_root = Some(std::path::PathBuf::from("/fixture"));
+    assert!(!app.held_available(&target));
+    assert_eq!(app.sources.preview.as_ref(), Some(&original));
 }
 
 fn input(app: &App) -> providers::Input {

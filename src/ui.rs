@@ -740,6 +740,7 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or(&app.cwd);
+    let project = display_identity(project);
     let mode = paint.hint(if app.lead().auto_form {
         Message::CoreEvolutionAuto
     } else {
@@ -796,7 +797,7 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
                 + 6,
         );
         let context = if spare >= 7 {
-            format!("{identity} · {} · {route} · ", clipped(project, spare - 3))
+            format!("{identity} · {} · {route} · ", clipped(&project, spare - 3))
         } else {
             format!("{identity} · {route} · ")
         };
@@ -1130,6 +1131,7 @@ fn inspect(
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or(&app.cwd);
+    let project = display_identity(project);
     let task = if app.task_id > 0 {
         format!("#{}", app.task_id)
     } else {
@@ -1155,7 +1157,7 @@ fn inspect(
                 .count(),
             app.criteria.len(),
             app.drafts.len(),
-            app.cwd,
+            app.cwd.escape_debug(),
             app.storage_label(),
             app.revision,
             app.saved_revision,
@@ -2582,6 +2584,18 @@ fn delete_confirmation(
             .wrap(Wrap { trim: false })
             .line_count(content.width.max(1))
             <= 4;
+}
+
+/// Escape only display-unsafe identities; ordinary Unicode paths stay borrowed.
+fn display_identity(value: &str) -> Cow<'_, str> {
+    if value.chars().any(|ch| {
+        ch.is_control()
+            || matches!(ch, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+    }) {
+        Cow::Owned(value.escape_debug().to_string())
+    } else {
+        Cow::Borrowed(value)
+    }
 }
 
 fn clipped(value: &str, columns: usize) -> Cow<'_, str> {

@@ -852,6 +852,8 @@ providers-planning-file-interrupted = { "중단됨 · 저장 확인 없음" }
 
 providers-planning-file-reported = { "제공자 보고 · 미검증" }
 
+providers-planning-file-reported-failed = { "제공자 실패 보고 · 영향 확인 필요" }
+
 providers-planning-file-unknown = { "결과 불명 · 영향 확인 필요" }
 
 providers-planning-complete = { "완료" }

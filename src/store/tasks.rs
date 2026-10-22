@@ -212,7 +212,7 @@ impl State {
             snapshot.auto_form,
         )?;
         snapshot.id = id;
-        super::records::save_intents(&transaction, &snapshot, &local_records)?;
+        super::records::save_intents(&transaction, &self.data_dir, &snapshot, &local_records)?;
         enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
         transaction
             .commit()

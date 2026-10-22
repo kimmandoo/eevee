@@ -194,6 +194,7 @@ class Journey(MovesJourney):
         known = (SOURCE_TITLE, 'Specialist desk', 'Local command evidence; no command running',
                  'Approved memories', 'Task cards / committed snapshots', 'Repository / read-only evidence',
                  'Partner summary', 'Form routes', 'Failure Dex',
+                 'Ribbons / project history', '리본 / 프로젝트 이력',
                  'Repeated authored instructions', 'Partner provider pairings',
                  'Portable task handoff / local-only', 'Party roster', '파트너 요약',
                  '폼 이동 기록', '실패 도감', '반복해서 보낸 작성 지시',

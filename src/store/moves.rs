@@ -322,6 +322,19 @@ impl State {
                 capacity(&transaction, "moves", MAX_RECORDS)?;
                 make_slot(&transaction, &visible, *replace, None)?;
                 transaction.execute("INSERT INTO moves(revision,project,partner,form,scope,proposal,forgotten,created) VALUES(1,?1,?2,?3,?4,?5,0,?6)",params![self.project,proposal.partner,proposal.form as i64,scope(proposal.scope),bounded_json(proposal,MAX_JSON)?,timestamp()?]).map_err(sql)?;
+                let mut owner = Attribution::of(
+                    roster
+                        .iter()
+                        .find(|partner| partner.id == request.partner)
+                        .ok_or("Teaching partner is unavailable")?,
+                );
+                owner.form = request.form;
+                super::ribbons::move_taught(
+                    &transaction,
+                    &task,
+                    owner,
+                    transaction.last_insert_rowid(),
+                )?;
             }
             Operation::Rename { id, revision, name } => {
                 domain::validate_name(name)?;

@@ -34,20 +34,24 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     frame.render_widget(block, area);
     let count = app.record_selection_count();
     app.records.selected = app.records.selected.min(count.saturating_sub(1));
-    let heading = paint.format_values(
-        Template::RecordsPosition,
-        &[
-            (
-                "index",
-                crate::i18n::Argument::Number(if count == 0 {
-                    0
-                } else {
-                    app.records.selected + 1
-                } as f64),
-            ),
-            ("count", crate::i18n::Argument::Number(count as f64)),
-        ],
-    );
+    let heading = if app.records.mode == Mode::Ribbons {
+        paint.hint(Message::RibbonsHistory).to_owned()
+    } else {
+        paint.format_values(
+            Template::RecordsPosition,
+            &[
+                (
+                    "index",
+                    crate::i18n::Argument::Number(if count == 0 {
+                        0
+                    } else {
+                        app.records.selected + 1
+                    } as f64),
+                ),
+                ("count", crate::i18n::Argument::Number(count as f64)),
+            ],
+        )
+    };
     text(frame, row(content, 0, 1), &heading, paint.accent);
     let summary = match app.records.mode {
         Mode::Resolve => app
@@ -167,6 +171,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 Mode::Habits => Message::RecordsHabitsControls,
                 Mode::Pairings => Message::RecordsPairingControls,
                 Mode::Dex => Message::RecordsDexControls,
+                Mode::Ribbons => Message::RibbonsControls,
                 _ => Message::RecordsControls,
             })
             .to_owned()
@@ -186,6 +191,7 @@ fn title(mode: Mode) -> Message {
         Mode::Resolve => Message::RecordsResolve,
         Mode::Habits => Message::RecordsHabits,
         Mode::Pairings => Message::RecordsPairings,
+        Mode::Ribbons => Message::RibbonsTitle,
         Mode::Discard => Message::RecordsDiscard,
     }
 }
@@ -268,6 +274,19 @@ fn body_lines<'a>(app: &'a App, paint: &Paint) -> Vec<Line<'a>> {
                         ("element", form.element),
                     ],
                 ));
+                if state.snapshot.flavor_enabled {
+                    for view in state
+                        .snapshot
+                        .ribbons
+                        .iter()
+                        .filter(|view| {
+                            view.ribbon.owner.partner == partner.id && !view.ribbon.hidden
+                        })
+                        .take(3)
+                    {
+                        push(ribbon_line(view, paint));
+                    }
+                }
                 let date = if partner.met_at > 0 {
                     utc_date(partner.met_at)
                 } else {
@@ -328,6 +347,114 @@ fn body_lines<'a>(app: &'a App, paint: &Paint) -> Vec<Line<'a>> {
             } else {
                 push(paint.hint(Message::RecordsEmpty).to_owned());
             }
+        }
+        Mode::Ribbons => {
+            if state.snapshot.ribbons.is_empty() {
+                push(paint.hint(Message::RibbonsEmpty).to_owned());
+            }
+            if let Some(view) = state.snapshot.ribbons.get(state.selected) {
+                let ribbon = &view.ribbon;
+                push(format!(
+                    "{}{}",
+                    if ribbon.hidden {
+                        paint.hint(Message::RibbonsHiddenTag)
+                    } else {
+                        ""
+                    },
+                    ribbon_line(view, paint)
+                ));
+                push(match &ribbon.evidence {
+                    crate::workspace::ribbons::Evidence::Artifact { id } => {
+                        paint.format(Template::RibbonsArtifact, &[("id", id)])
+                    }
+                    crate::workspace::ribbons::Evidence::Move { id, revision } => paint.format(
+                        Template::RibbonsMove,
+                        &[("id", &id.to_string()), ("revision", &revision.to_string())],
+                    ),
+                });
+                push(paint.format(
+                    Template::RibbonsDetails,
+                    &[
+                        ("task", &ribbon.task_id.to_string()),
+                        ("partner", &ribbon.owner.partner.to_string()),
+                        ("name", &ribbon.owner.name),
+                        ("form", FORMS[ribbon.owner.form.min(8)].name),
+                        ("date", &utc_date(ribbon.at)),
+                        ("status", paint.hint(freshness(&view.freshness))),
+                        ("reason", &view.explanation),
+                    ],
+                ));
+                push(
+                    paint
+                        .hint(if ribbon.hidden {
+                            Message::RibbonsHidden
+                        } else {
+                            Message::RibbonsVisible
+                        })
+                        .to_owned(),
+                );
+                if ribbon.task_id != app.task_id {
+                    push(paint.hint(Message::RibbonsForeignTask).to_owned());
+                }
+                match &ribbon.evidence {
+                    crate::workspace::ribbons::Evidence::Artifact { id } => {
+                        if let Some(source) = state.snapshot.artifacts.iter().find(|source| {
+                            source.artifact.id == *id && source.artifact.task_id == ribbon.task_id
+                        }) {
+                            push(source.artifact.reference.clone());
+                            push(source.artifact.detail.clone());
+                            for evidence in &source.artifact.evidence {
+                                use crate::workspace::workflows::EvidenceRef;
+                                push(match evidence {
+                                    EvidenceRef::Source {
+                                        task_id,
+                                        excerpt_id,
+                                        path,
+                                        start_line,
+                                        end_line,
+                                        ..
+                                    } => paint.format(
+                                        Template::RibbonsSourceEvidence,
+                                        &[
+                                            ("task", &task_id.to_string()),
+                                            ("excerpt", &excerpt_id.to_string()),
+                                            ("path", path),
+                                            ("start", &start_line.to_string()),
+                                            ("end", &end_line.to_string()),
+                                        ],
+                                    ),
+                                    EvidenceRef::Run { task_id, run_id } => paint.format(
+                                        Template::RibbonsRunEvidence,
+                                        &[("task", &task_id.to_string()), ("run", run_id)],
+                                    ),
+                                });
+                            }
+                        }
+                        push(paint.hint(Message::RibbonsOpenArtifact).to_owned());
+                    }
+                    crate::workspace::ribbons::Evidence::Move { .. } => {
+                        if ribbon.owner.partner != app.lead().id || ribbon.owner.form != app.form()
+                        {
+                            push(paint.hint(Message::RibbonsForeignOwner).to_owned());
+                        }
+                        push(paint.hint(Message::RibbonsOpenMove).to_owned());
+                    }
+                }
+            }
+            for (index, view) in state.snapshot.ribbons.iter().enumerate() {
+                if index != state.selected {
+                    push(format!(
+                        "{}{}",
+                        if view.ribbon.hidden {
+                            paint.hint(Message::RibbonsHiddenTag)
+                        } else {
+                            ""
+                        },
+                        ribbon_line(view, paint)
+                    ));
+                }
+            }
+            push(paint.hint(Message::RibbonsDisclosure).to_owned());
         }
         Mode::Routes => {
             push(paint.hint(Message::RecordsRoutesDisclosure).to_owned());
@@ -452,6 +579,24 @@ fn body_lines<'a>(app: &'a App, paint: &Paint) -> Vec<Line<'a>> {
     }
     lines
 }
+fn ribbon_line(view: &crate::workspace::ribbons::View, paint: &Paint) -> String {
+    use crate::workspace::ribbons::Kind;
+    paint.format(
+        Template::RibbonsLine,
+        &[
+            (
+                "kind",
+                paint.hint(match view.ribbon.kind {
+                    Kind::AcceptedReview => Message::RibbonsAcceptedReview,
+                    Kind::VerifiedHandoff => Message::RibbonsVerifiedHandoff,
+                    Kind::LearnedMove => Message::RibbonsLearnedMove,
+                }),
+            ),
+            ("name", &view.ribbon.owner.name),
+            ("status", paint.hint(freshness(&view.freshness))),
+        ],
+    )
+}
 fn pairing(value: &records::Pairing, paint: &Paint) -> String {
     paint.format(
         Template::RecordsPairingValue,
@@ -492,6 +637,7 @@ fn operation_name(operation: &store::records::Operation, paint: &Paint) -> &'sta
         Operation::ObserveInstruction { .. } => Message::RecordsOpInstruction,
         Operation::SetPairing { .. } => Message::RecordsOpPairing,
         Operation::SetHeld { .. } => Message::HeldPanel,
+        Operation::SetRibbonHidden { .. } => Message::RibbonsVisibility,
         Operation::SetFlavor { .. } => Message::RecordsOpFlavor,
         Operation::DismissInstruction { .. } => Message::RecordsOpDismiss,
         Operation::BindInstructionMemory { .. } => Message::RecordsOpBind,
@@ -566,6 +712,9 @@ fn operation_scope(request: &store::records::Request, paint: &Paint) -> String {
         Operation::SetFlavor { enabled } => {
             let _ = write!(identity, " = {enabled}");
         }
+        Operation::SetRibbonHidden { kind, hidden } => {
+            let _ = write!(identity, " / {} = {hidden}", kind.as_str());
+        }
         Operation::Load { .. } => {}
     }
     identity
@@ -573,6 +722,13 @@ fn operation_scope(request: &store::records::Request, paint: &Paint) -> String {
 fn operation_detail(operation: &store::records::Operation, paint: &Paint) -> String {
     use store::records::Operation;
     match operation {
+        Operation::SetRibbonHidden { kind, hidden } => paint.format(
+            Template::RibbonsVisibilityDetail,
+            &[
+                ("kind", kind.as_str()),
+                ("hidden", if *hidden { "true" } else { "false" }),
+            ],
+        ),
         Operation::ObserveInstruction {
             request_id,
             owner,

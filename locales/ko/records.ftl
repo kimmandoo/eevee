@@ -136,3 +136,36 @@ records-discard-summary = 미저장 쓰기 버리기: { $identity }
     확정 작업과 다른 대기 쓰기는 유지합니다.
 records-compact-marker = { $status } · 산출물 { $count }개 · { $producer }
 records-project-setting = 현재 프로젝트의 로컬 설정
+ribbons-title = 리본 / 프로젝트 이력
+ribbons-history = 과거 기록 / 아래에서 선택한 근거 확인
+ribbons-disclosure = 처음 기록된 적격 사건이며 현재의 정확성을 뜻하지 않습니다. 로컬 기록만 표시하며 권한을 주거나 작업을 시작하지 않습니다.
+ribbons-empty = 이 프로젝트에 기록된 적격 이정표 이력이 없습니다.
+ribbons-accepted-review = 유효한 승인 검토 기록
+ribbons-verified-handoff = 검증된 인계 기록
+ribbons-learned-move = 명시적으로 배운 기술 기록
+ribbons-line = { $kind } / { $name } / { $status }
+ribbons-details = 작업 #{ $task } / 생성자 #{ $partner } { $name } / { $form }
+    기록 날짜 { $date } UTC
+    현재 근거: { $status }
+    { $reason }
+ribbons-hidden = 파트너 요약에서 숨김. 근거는 유지합니다.
+ribbons-visible = 로컬 표현을 켰을 때 파트너 요약에 표시합니다.
+ribbons-foreign-task = 다른 원본 작업입니다. Enter는 작업 목록만 엽니다. 재개하려면 직접 선택하세요. 현재 작업은 바뀌지 않습니다.
+ribbons-artifact = 보관된 산출물: { $id }
+ribbons-move = 원본 기술 #{ $id } / 개정 { $revision }
+ribbons-foreign-owner = 생성자 또는 폼이 다릅니다. Enter는 일반 파티/폼 선택기만 열며 선두나 폼을 바꾸지 않습니다.
+ribbons-open-artifact = 이미 원본 작업에 있을 때 Enter는 일반 검토/인계 확인 화면을 엽니다. 내보내거나 전송하지 않습니다.
+ribbons-open-move = Enter는 현재 소유자/폼의 일반 기술 상세/목록만 엽니다. 삭제된 원본을 대체하지 않습니다.
+ribbons-controls = Up/Down 선택 / h 숨김·표시 / Enter 근거
+    PgUp/PgDn 페이지 / Home/End / Esc 뒤로
+ribbons-visibility = 과거 기록 표시 설정
+ribbons-visibility-detail = { $kind } / 숨김 = { $hidden }
+    로컬 요약 표시만 바꾸며 근거는 삭제하지 않습니다.
+ribbons-help = 숨긴 기록과 현재 원본 상태를 포함한 프로젝트 이정표 이력을 확인합니다.
+ribbons-help-hide = 선택한 리본을 자동 요약에서 숨기고 과거 근거는 유지합니다.
+ribbons-help-show = 로컬 표현이 켜져 있을 때 선택한 리본을 파트너 요약에 표시합니다.
+ribbons-help-inspect = 일반 로컬 탐색으로 선택한 근거를 엽니다. 작업을 자동 재개하거나 생성자를 바꾸지 않습니다.
+ribbons-source-unavailable = 원본을 사용할 수 없거나 불명확합니다. 과거 상세는 유지하며 다른 원본을 열지 않았습니다.
+ribbons-hidden-tag = [숨김]{ " " }
+ribbons-source-evidence = 소스 / 작업 #{ $task } / 캡처 #{ $excerpt } / { $path }:{ $start }-{ $end }
+ribbons-run-evidence = 실행 / 작업 #{ $task } / { $run }

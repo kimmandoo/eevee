@@ -99,8 +99,9 @@ Pokémon flavor wraps facts and never replaces them. No XP, levels, affection, s
 
 ### PK06 — Ribbons
 
-- [ ] Commemorate real first milestones.
+- [x] Commemorate real first milestones.
 - **Priority:** 3. **Needs:** PK02. **Builds on:** G01, S01.
 - **Change:** One-time, evidence-linked ribbons per project (first accepted review, first verified handoff, first learned move), attributed to the partner and shown on its summary. Hideable.
 - **Accept:** Each ribbon links its evidence; purge removes it.
 - **Watch out:** Drop this task if it reads as gamification: no counts or streaks, and nothing gated.
+- **Completed 2026-10-23:** Passed 24 actual English/Korean 120×36/60×18 milestone groups, first-only real review/handoff/explicit learning, original producer/source visibility, scope/hide/restart/no-effect/provider-packet boundaries and source/project purge. Genuine Schema17→18 preservation/refusal/resume passed seven cases. Schema 18 is awaiting the newly requested combined release.

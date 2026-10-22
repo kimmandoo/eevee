@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { lstatSync, realpathSync, readFileSync, readdirSync } from 'node:fs';
+import { lstatSync, realpathSync, readFileSync, readdirSync, opendirSync } from 'node:fs';
 import type { BigIntStats } from 'node:fs';
-import { isAbsolute, join, parse, relative, resolve, sep, toNamespacedPath } from 'node:path';
+import { isAbsolute, join, matchesGlob, parse, relative, resolve, sep, toNamespacedPath } from 'node:path';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { EffortLevel, ModelInfo } from '@anthropic-ai/claude-agent-sdk';
@@ -13,15 +13,23 @@ export const SDKPackageSchema = z.object({
   version: VersionSchema, claudeCodeVersion: VersionSchema,
 });
 export const BRIDGE_POLICY = {
-  tools: 'closed-allowlist', permissions: 'default-host-once', mcp: 'disabled',
+  tools: 'closed-allowlist', permissions: 'default-host-once', mcp: 'host-discovery-only',
   configuration: 'isolated', authentication: 'api-console-cloud-only',
   dispatch: 'correlated-sdk-submission',
   usage: 'correlated-sdk-snapshots',
-  file_preview: 'display-only-correlated-arguments',
+  file_preview: 'display-only-correlated-arguments-outcomes',
 };
 export const FRAME_LIMIT = 2 * 1024 * 1024;
 export const READ_TOOLS = ['Read', 'Glob', 'Grep', 'AskUserQuestion'];
-export const DENIED_TOOLS = ['Bash', 'Agent', 'Task', 'TaskOutput', 'TaskStop', 'NotebookEdit', 'Skill', 'WebFetch', 'WebSearch', 'ToolSearch', 'EnterWorktree', 'ExitWorktree', 'EnterPlanMode', 'ExitPlanMode', 'CronCreate', 'CronDelete', 'CronList', 'mcp__*'];
+export const DISCOVERY_SERVER = 'eevee_source';
+export const DISCOVERY_TOOL = 'mcp__eevee_source__discover';
+export const DiscoverySchema = z.object({
+  mode: z.enum(['glob', 'grep']),
+  path: z.string().max(4096).default('.'),
+  glob: z.string().min(1).max(512).default('**/*'),
+  text: z.string().min(1).max(512).optional(),
+}).strict();
+export const DENIED_TOOLS = ['Bash', 'Agent', 'Task', 'TaskOutput', 'TaskStop', 'NotebookEdit', 'Skill', 'WebFetch', 'WebSearch', 'ToolSearch', 'EnterWorktree', 'ExitWorktree', 'EnterPlanMode', 'ExitPlanMode', 'CronCreate', 'CronDelete', 'CronList'];
 
 const boundedText = (max: number) => z.string().min(1).max(max).refine(value =>
   !/[\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(value), 'Display controls are forbidden');
@@ -46,7 +54,7 @@ export const WriteScopeSchema = z.object({
 }).strict();
 export type WriteScope = z.infer<typeof WriteScopeSchema>;
 export const RunSchema = z.object({
-  protocol: z.literal(1), bridge_revision: z.literal(8), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().positive(),
+  protocol: z.literal(1), bridge_revision: z.literal(9), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().positive(),
   request_id: boundedText(256).nullish(),
   prompt: z.string().max(FRAME_LIMIT / 2), cwd: z.string().min(1).max(4096), state_dir: z.string().min(1).max(4096),
   operation: z.enum(['plan', 'implement']), write_scope: WriteScopeSchema,
@@ -63,7 +71,7 @@ export const RunSchema = z.object({
 
 export type FilePreviewFrame = {
   type: 'file_preview'; tool_id: string; tool: 'Write' | 'Edit';
-  stage: 'start' | 'delta' | 'stop' | 'received' | 'review' | 'approved' | 'denied' | 'refused' | 'reported' | 'interrupted';
+  stage: 'start' | 'delta' | 'stop' | 'received' | 'review' | 'approved' | 'denied' | 'refused' | 'reported' | 'reported_failed' | 'unknown' | 'interrupted';
   fragment?: string;
 };
 const PreviewEventSchema = z.object({
@@ -156,7 +164,7 @@ export class SDKFilePreviews {
     call.stopped = true;
     return [{ type: 'file_preview', tool_id: id, tool: call.tool, stage: 'received', fragment }];
   }
-  phase(id: string, stage: 'review' | 'approved' | 'denied' | 'refused' | 'reported' | 'interrupted'): FilePreviewFrame[] {
+  phase(id: string, stage: 'review' | 'approved' | 'denied' | 'refused' | 'reported' | 'reported_failed' | 'unknown' | 'interrupted'): FilePreviewFrame[] {
     const call = this.calls.get(id);
     if (!call || call.terminal) return [];
     if (stage === 'review') call.reviewed = true;
@@ -324,11 +332,13 @@ export function assertInitialization(raw: unknown, compatibility: SDKCompatibili
 export function assertSessionPolicy(raw: unknown, cliVersion: string, tools: readonly string[]): void {
   const parsed = z.object({
     claude_code_version: VersionSchema, permissionMode: z.literal('default'),
-    tools: z.array(z.string()).max(256), mcp_servers: z.array(z.unknown()).max(0),
+    tools: z.array(z.string()).max(256),
+    mcp_servers: z.array(z.object({ name: z.literal(DISCOVERY_SERVER), status: z.literal('connected') })).max(1),
     plugins: z.array(z.unknown()).max(0), skills: z.array(z.unknown()).max(0),
   }).safeParse(raw);
   if (!parsed.success || parsed.data.claude_code_version !== cliVersion ||
-    parsed.data.tools.some(tool => !tools.includes(tool))) {
+    parsed.data.tools.some(tool => !tools.includes(tool)) ||
+    (tools.includes(DISCOVERY_TOOL) ? parsed.data.mcp_servers.length !== 1 || !parsed.data.tools.includes(DISCOVERY_TOOL) : parsed.data.mcp_servers.length !== 0)) {
     throw new Error('Effective SDK identity/tool/config policy mismatch');
   }
 }
@@ -393,7 +403,7 @@ function exactExclusion(path: string): boolean {
 function protectedPath(path: string): boolean {
   return path.split('/').some(part => {
     const name = part.toLowerCase();
-    return ['.git', '.claude', '.codex', '.gemini', '.opencode', '.npmrc', '.netrc', '.pypirc', '.ds_store', '.ev-install', 'auth.json', 'oauth_creds.json'].includes(name) ||
+    return ['.git', '.ssh', '.claude', '.codex', '.gemini', '.opencode', '.npmrc', '.netrc', '.pypirc', '.ds_store', '.ev-install', 'auth.json', 'oauth_creds.json'].includes(name) ||
       name === '.env' || name.startsWith('.env.') || name.startsWith('id_') || name.includes('secret') ||
       name.includes('credential') || name.startsWith('private_key') || name.endsWith('.pem') || name.endsWith('.key');
   });
@@ -437,11 +447,14 @@ export class SDKWritePolicy {
   private readonly ancestorLedger = new Map<string, string | null>();
   private uncertain = false;
   private readonly seen = new Set<string>();
-  private readonly denied = new Map<string, { tool: string; input: Record<string, unknown> }>();
+  private readonly denied = new Map<string, { tool: string; input: unknown }>();
   private active: { id: string; tool: string; input: Record<string, unknown>; path: string; fingerprint: string; expected: string; approved: boolean } | undefined;
   constructor(cwd: string, scope: WriteScope, runtimePaths: string[] = []) {
     this.root = realpathSync(cwd);
     if (toNamespacedPath(resolve(cwd)) !== toNamespacedPath(this.root) || directoryIdentity(this.root) === undefined) throw new SDKPolicyError('SDK cwd must be a canonical non-link directory');
+    // Built-in boundaries belong to the absolute source location, not merely
+    // the relative child name. Choosing a protected subtree cannot erase them.
+    if (protectedPath(this.root.split(sep).join('/'))) throw new SDKPolicyError('SDK cwd is inside a protected credential/private directory');
     this.readRootIdentity = directoryIdentity(this.root)!;
     this.scope = structuredClone(WriteScopeSchema.parse(scope));
     if (this.scope.root_identity !== null && directoryIdentity(this.root) !== this.scope.root_identity) throw new SDKPolicyError('SDK frozen root changed');
@@ -478,6 +491,102 @@ export class SDKWritePolicy {
     return this.protectedPaths.some(boundary => within(full, boundary)) ||
       this.scope.excluded_paths.some(boundary => within(full, resolve(this.root, boundary))) ? undefined : path;
   }
+  private unsafeContent(text: string): boolean {
+    return /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(text) ||
+      /-----BEGIN [^\r\n]*PRIVATE KEY-----|(?:^|[^A-Za-z0-9_])(?:sk-|gh[pousr]_|github_pat_|xox[bpar]-|AKIA|ASIA|AIza)[^\s"'`,;<>]{4,}|bearer[ \t]+[^\s"'`,;<>]+|(?:[A-Za-z0-9_-]+_)?(?:password|passwd|pwd|secret|token|api[_-]?key|access_key|private_key|client_secret|authorization)["']?\s*[:=]\s*["']?[^\s"',;}\]]+|:\/\/[^\s/?#]+@/im.test(text);
+  }
+  // The SDK's in-process MCP handler returns only host-filtered observations.
+  // Native recursive tools retain their stricter whole-subtree admission below.
+  discover(raw: unknown): { paths: string[]; matches: { path: string; line: number; text: string }[]; truncated: boolean } {
+    const input = DiscoverySchema.parse(raw);
+    if (directoryIdentity(this.root) !== this.readRootIdentity ||
+      (input.mode === 'grep' && input.text === undefined) ||
+      isAbsolute(input.glob) || /[\\:{}()!|\[\]\p{Cc}]/u.test(input.glob) ||
+      input.glob.split('/').some(part => part === '.' || part.includes('..'))) {
+      throw new SDKPolicyError('Discovery requires a current root, simple relative glob and literal grep text');
+    }
+    const path = input.path === '.' || input.path === this.root ? '' : this.path(input.path);
+    if (path === undefined || (path && !path.split('/').slice(0, -1).every((_, index) =>
+      directoryIdentity(resolve(this.root, ...path.split('/').slice(0, index + 1))) !== undefined))) {
+      throw new SDKPolicyError('Discovery path is unavailable');
+    }
+    const result: { paths: string[]; matches: { path: string; line: number; text: string }[]; truncated: boolean } =
+      { paths: [], matches: [], truncated: false };
+    const pending = [{ path, depth: 0 }];
+    const directories: { path: string; identity: string }[] = [];
+    let entries = 0;
+    let bytes = 0;
+    let output = Buffer.byteLength(JSON.stringify(result));
+    scan: while (pending.length) {
+      const current = pending.pop()!;
+      if (++entries > 10000 || current.depth > 64) { result.truncated = true; break; }
+      if (current.path && this.path(current.path) !== current.path) continue;
+      const full = resolve(this.root, current.path);
+      const identity = directoryIdentity(full);
+      if (identity !== undefined) {
+        if (entries + pending.length >= 10000) { result.truncated = true; break; }
+        directories.push({ path: full, identity });
+        const names: string[] = [];
+        try {
+          const directory = opendirSync(full);
+          try {
+            for (let entry; (entry = directory.readSync()) !== null;) {
+              if (entries + pending.length + names.length >= 10000) { result.truncated = true; break scan; }
+              names.push(entry.name);
+            }
+          } finally { directory.closeSync(); }
+        } catch (error) {
+          // An inaccessible descendant is incomplete coverage, not a failure of
+          // unrelated safe siblings. Requested-root and identity failures still
+          // fail closed, and partial enumeration never publishes child names.
+          if (current.path === path || !error || typeof error !== 'object' ||
+            !('code' in error) || !['EACCES', 'EPERM'].includes(String(error.code)) ||
+            directoryIdentity(full) !== identity || directoryIdentity(this.root) !== this.readRootIdentity) throw error;
+          result.truncated = true;
+          continue;
+        }
+        for (const name of names.sort().reverse()) {
+          const child = current.path ? `${current.path}/${name}` : name;
+          if (this.path(child) === child) pending.push({ path: child, depth: current.depth + 1 });
+        }
+        continue;
+      }
+      const candidate = path === current.path ? current.path.split('/').at(-1)! :
+        path ? current.path.slice(path.length + 1) : current.path;
+      if (!matchesGlob(candidate, input.glob)) continue;
+      // Reuse the same file snapshot and whole-file privacy rules as Read.
+      // Count inspected bytes even when privacy excludes the result.
+      let size: number;
+      try { size = Number(lstatSync(full).size); } catch { continue; }
+      if (size > 256 * 1024) continue;
+      if (bytes + size > 2 * 1024 * 1024) { result.truncated = true; break; }
+      bytes += size;
+      const parts = current.path.split('/');
+      if (!parts.slice(0, -1).every((_, index) =>
+        directoryIdentity(resolve(this.root, ...parts.slice(0, index + 1))) !== undefined)) continue;
+      const state = fileState(full);
+      if (!state || this.unsafeContent(state.content)) continue;
+      if (input.mode === 'glob') {
+        output += Buffer.byteLength(JSON.stringify(current.path)) + 1;
+        if (output > 64 * 1024 || result.paths.length >= 128) { result.truncated = true; break; }
+        result.paths.push(current.path);
+      } else {
+        const lines = state.content.split('\n');
+        for (let index = 0; index < lines.length; index++) {
+          if (!lines[index].includes(input.text!)) continue;
+          const match = { path: current.path, line: index + 1, text: lines[index] };
+          output += Buffer.byteLength(JSON.stringify(match)) + 1;
+          if (output > 64 * 1024 || result.matches.length >= 128) { result.truncated = true; break scan; }
+          result.matches.push(match);
+        }
+      }
+    }
+    if (directoryIdentity(this.root) !== this.readRootIdentity ||
+      directories.some(directory => directoryIdentity(directory.path) !== directory.identity)) {
+      throw new SDKPolicyError('Discovery tree changed; request a fresh bounded observation');
+    }
+    return result;
+  }
   // Observations never enroll mutation targets or refresh their baselines.
   // This is mandatory agent policy, not a race-free OS filesystem sandbox.
   readAdmission(tool: string, input: Record<string, unknown>): { allowed: boolean; reason: string } {
@@ -485,12 +594,9 @@ export class SDKWritePolicy {
     if (!['Read', 'Glob', 'Grep'].includes(tool) || directoryIdentity(this.root) !== this.readRootIdentity) {
       return refusal('Source tool or frozen project root is unavailable');
     }
-    const unsafeContent = (text: string) =>
-      /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(text) ||
-      /-----BEGIN [^\r\n]*PRIVATE KEY-----|(?:^|[^A-Za-z0-9_])(?:sk-|gh[pousr]_|github_pat_|xox[bpar]-|AKIA|ASIA|AIza)[^\s"'`,;<>]{4,}|bearer[ \t]+[^\s"'`,;<>]+|(?:[A-Za-z0-9_-]+_)?(?:password|passwd|pwd|secret|token|api[_-]?key|access_key|private_key|client_secret|authorization)["']?\s*[:=]\s*["']?[^\s"',;}\]]+|:\/\/[^\s/?#]+@/im.test(text);
     const safeFile = (path: string) => {
       const state = fileState(resolve(this.root, path));
-      return state !== undefined && !unsafeContent(state.content);
+      return state !== undefined && !this.unsafeContent(state.content);
     };
     const ancestors = (path: string) => {
       const parts = path.split('/');
@@ -546,7 +652,7 @@ export class SDKWritePolicy {
           pending.push({ path: child, identity, depth: directory.depth + 1 });
         } else {
           const state = fileState(resolve(this.root, child));
-          if (!state || unsafeContent(state.content)) { blocked = true; continue; }
+          if (!state || this.unsafeContent(state.content)) { blocked = true; continue; }
           bytes += Buffer.byteLength(state.content);
           if (bytes > 2 * 1024 * 1024) return refusal('Source search exceeds 2 MiB of bounded source; narrow the search');
           if (catalogue.length < 128) catalogue.push(child);
@@ -634,7 +740,7 @@ export class SDKWritePolicy {
     if (path === undefined) return false;
     const frozen = this.scope.files.find(file => file.path === path);
     const file = frozen ?? this.capture(path);
-    if (!file || this.expected(tool, input, file) === undefined) return false;
+    if (!file || (file.working_content !== null && this.unsafeContent(file.working_content)) || this.expected(tool, input, file) === undefined) return false;
     if (!frozen) return this.active === undefined;
     const fingerprint = this.fingerprint(path);
     return fingerprint !== undefined &&
@@ -657,6 +763,19 @@ export class SDKWritePolicy {
     this.seen.add(id);
     this.active = { id, tool, input: structuredClone(input), path, fingerprint, expected, approved: false };
     return { kind: file.kind, path, directories: file.ancestors.filter(parent => parent.identity === null && !this.ownedParents.has(parent.path)).map(parent => parent.path) };
+  }
+  // Record only a fresh, pre-execution refusal. Never let a duplicate hook,
+  // changed input or later denial overwrite an active/previous write's effects.
+  refuse(id: string, tool: string, input: unknown): boolean {
+    if ((tool !== 'Write' && tool !== 'Edit') || !id || id.length > 256 ||
+      /[\p{Cc}]/u.test(id) || this.active?.id === id) return false;
+    const previous = this.denied.get(id);
+    if (previous) return previous.tool === tool && isDeepStrictEqual(previous.input, input);
+    if (this.seen.has(id) || this.seen.size >= 256 ||
+      Buffer.byteLength(JSON.stringify(input) ?? 'null') > FRAME_LIMIT / 2) return false;
+    this.seen.add(id);
+    this.denied.set(id, { tool, input: structuredClone(input) });
+    return true;
   }
   approve(id: string, tool: string, input: Record<string, unknown>, allowed: boolean, cancelled: boolean): boolean {
     const active = this.active;

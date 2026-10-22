@@ -20,6 +20,8 @@ pub struct ResponseRow<'a> {
     pub text: &'a str,
     pub kind: ItemKind,
     pub header: bool,
+    /// Last visible source fragment of this actual file snapshot, not a timer.
+    pub writing_edge: bool,
 }
 
 struct Segment {
@@ -599,6 +601,11 @@ impl State {
                         text: &text[row.range.clone()],
                         kind: segment.kind,
                         header: row.header,
+                        writing_edge: segment.kind
+                            == ItemKind::File(crate::providers::FilePhase::Generating)
+                            && !row.header
+                            && text.contains('\n')
+                            && row.range.end == text.trim_end_matches('\n').len(),
                     }
                 })
             })

@@ -24,6 +24,23 @@ fn contrast(foreground: Color, background: Color) -> f64 {
 }
 
 #[test]
+fn project_header_escapes_controls_without_changing_task_identity() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let project = "/workspace/한글\nfolder\u{202e}".to_owned();
+    let app = App::new(project.clone(), 120, 36);
+    let config = home_config();
+    let paint = Paint::new(&config, &FORMS[0], 0);
+    let mut terminal = Terminal::new(TestBackend::new(120, 3)).unwrap();
+    terminal
+        .draw(|frame| header(frame, frame.area(), &app, &config, &paint))
+        .unwrap();
+    let rendered = screen_text(&terminal);
+    assert!(rendered.contains("한글\\nfolder"), "{rendered}");
+    assert!(!rendered.contains('\u{202e}'));
+    assert_eq!(app.cwd, project);
+}
+
+#[test]
 fn all_true_color_forms_keep_readable_text_and_selection() {
     for theme in [Theme::Dark, Theme::Light] {
         let config = Config {
@@ -2451,6 +2468,176 @@ fn held_workspace_keeps_item_identity_and_controls_at_minimum_size() {
                     assert_eq!(app.cursor, 7);
                 }
             }
+        }
+    }
+}
+
+fn ribbon_fixture(
+    kind: crate::workspace::ribbons::Kind,
+    partner: i64,
+    name: &str,
+    hidden: bool,
+) -> crate::workspace::ribbons::View {
+    crate::workspace::ribbons::View {
+        ribbon: crate::workspace::ribbons::Ribbon {
+            kind,
+            task_id: 7,
+            owner: crate::store::Attribution {
+                partner,
+                name: name.into(),
+                form: 7,
+            },
+            at: 1,
+            evidence: crate::workspace::ribbons::Evidence::Artifact {
+                id: format!("source-{partner}"),
+            },
+            hidden,
+        },
+        freshness: crate::workspace::records::Freshness::Stale,
+        explanation: String::new(),
+    }
+}
+
+#[test]
+fn compact_ribbon_inspection_shows_original_evidence_without_paging() {
+    use crate::workspace::ribbons::Kind;
+    use ratatui::{Terminal, backend::TestBackend};
+    for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
+        let mut config = home_config();
+        config.language = language;
+        let paint = Paint::new(&config, &FORMS[0], 0);
+        let mut app = App::new("/workspace".into(), 60, 18);
+        app.records.loaded = true;
+        app.records.snapshot.ribbons.push(ribbon_fixture(
+            Kind::AcceptedReview,
+            22,
+            "Original producer",
+            false,
+        ));
+        app.command("ribbons");
+        let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
+        terminal
+            .draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
+            .unwrap();
+        assert!(screen_text(&terminal).contains("source-22"));
+    }
+}
+
+#[test]
+fn ribbon_inspector_pages_every_evidence_row_in_both_locales_and_restores_editor() {
+    use crate::workspace::ribbons::Kind;
+    use ratatui::{Terminal, backend::TestBackend};
+    use std::collections::BTreeSet;
+    for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
+        for (width, height) in [(60, 18), (120, 36)] {
+            let mut config = home_config();
+            config.language = language;
+            let paint = Paint::new(&config, &FORMS[0], 0);
+            let mut app = App::new("/workspace".into(), width, height);
+            app.task_id = 9;
+            app.input = "draft 한글\nliteral".into();
+            app.cursor = 6;
+            app.editing = true;
+            app.records.loaded = true;
+            let mut view = ribbon_fixture(Kind::AcceptedReview, 22, "Old producer", true);
+            view.explanation = (0..48)
+                .map(|index| format!("source-row-{index:03}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            app.records.snapshot.ribbons.push(view);
+            app.command("ribbons");
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            let mut seen = BTreeSet::new();
+            for _ in 0..100 {
+                terminal
+                    .draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
+                    .unwrap();
+                let rendered = screen_text(&terminal);
+                for index in 0..48 {
+                    if rendered.contains(&format!("source-row-{index:03}")) {
+                        seen.insert(index);
+                    }
+                }
+                let old = app.records.scroll;
+                app.record_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+                if app.records.scroll == old {
+                    break;
+                }
+            }
+            assert_eq!(
+                seen,
+                (0..48).collect(),
+                "{width}x{height} {}",
+                language.tag()
+            );
+            assert!(app.records.scroll_max > 0);
+            assert_eq!(app.task_id, 9);
+            assert!(!app.execution.busy());
+            assert!(app.planning.pending.is_none());
+            assert!(app.handoff.pending.is_none());
+            app.record_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            assert!(app.editing);
+            assert_eq!(app.input, "draft 한글\nliteral");
+            assert_eq!(app.cursor, 6);
+        }
+    }
+}
+
+#[test]
+fn partner_summary_ribbons_filter_historical_producer_hidden_and_flavor_without_hiding_inspector() {
+    use crate::workspace::{records::PartnerSummary, ribbons::Kind};
+    use ratatui::{Terminal, backend::TestBackend};
+    for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
+        for (width, height) in [(60, 18), (120, 36)] {
+            let mut config = home_config();
+            config.language = language;
+            let paint = Paint::new(&config, &FORMS[0], 0);
+            let mut app = App::new("/workspace".into(), width, height);
+            let partner = app.lead().clone();
+            app.records.snapshot.summaries.push(PartnerSummary {
+                partner: partner.clone(),
+                produced_tasks: [0; 9],
+                moves: [0; 9],
+                move_names: Default::default(),
+                shared_bond_memories: 0,
+                unknown_producer_artifacts: 0,
+            });
+            app.records.snapshot.ribbons = vec![
+                ribbon_fixture(Kind::AcceptedReview, partner.id, "frozen-visible", false),
+                ribbon_fixture(Kind::VerifiedHandoff, partner.id, "frozen-hidden", true),
+                ribbon_fixture(Kind::LearnedMove, partner.id + 100, "other-producer", false),
+            ];
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            app.open_records(crate::app::records::Mode::Summary);
+            terminal
+                .draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
+                .unwrap();
+            let rendered = screen_text(&terminal);
+            assert!(rendered.contains("frozen-visible"), "{rendered}");
+            assert!(!rendered.contains("frozen-hidden"));
+            assert!(!rendered.contains("other-producer"));
+            app.records.snapshot.flavor_enabled = false;
+            terminal
+                .draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
+                .unwrap();
+            assert!(!screen_text(&terminal).contains("frozen-visible"));
+            app.open_records(crate::app::records::Mode::Ribbons);
+            app.records.selected = 1;
+            let mut history = String::new();
+            loop {
+                terminal
+                    .draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
+                    .unwrap();
+                history.push_str(&screen_text(&terminal));
+                let old = app.records.scroll;
+                app.record_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+                if app.records.scroll == old {
+                    break;
+                }
+            }
+            assert!(history.contains("frozen-hidden"));
+            assert!(history.contains("other-producer"));
+            assert!(history.contains("source-"));
         }
     }
 }

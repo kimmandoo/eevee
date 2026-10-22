@@ -211,19 +211,20 @@ impl App {
             Target::File { path } => {
                 !context::excluded(Path::new(path), &self.held.exclusions)
                     && self.repository.as_ref().is_some_and(|report| {
-                        report
-                            .current
-                            .files
-                            .get(Path::new(path))
-                            .is_some_and(|file| {
-                                matches!(
-                                    &file.state,
-                                    crate::workspace::repo::FileState::Regular {
-                                        binary: false,
-                                        ..
-                                    }
-                                )
-                            })
+                        !report.repository.excludes_source(Path::new(path))
+                            && report
+                                .current
+                                .files
+                                .get(Path::new(path))
+                                .is_some_and(|file| {
+                                    matches!(
+                                        &file.state,
+                                        crate::workspace::repo::FileState::Regular {
+                                            binary: false,
+                                            ..
+                                        }
+                                    )
+                                })
                     })
             }
             Target::Memory { id, revision } => {
@@ -342,6 +343,10 @@ impl App {
                         && preview.available
                         && preview.validate().is_ok()
                         && !context::excluded(Path::new(&preview.path), &self.held.exclusions)
+                        && self.repository.as_ref().is_some_and(|report| {
+                            Path::new(&preview.root) == report.repository.root
+                                && !report.repository.excludes_source(Path::new(&preview.path))
+                        })
                 });
                 if let Some(preview) = preview {
                     let target = Target::File {

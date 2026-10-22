@@ -617,6 +617,8 @@ mod release_tests {
             })
             .unwrap();
         use sha2::Digest;
+        let sources = Directory::new();
+        fs::write(sources.0.join("source.rs"), b"Retained source\n").unwrap();
         let source = store
             .context(ContextRequest {
                 producer: None,
@@ -624,7 +626,7 @@ mod release_tests {
                 operation: ContextOperation::Pin(crate::workspace::context::Excerpt {
                     id: 0,
                     task_id: current.id,
-                    root: store.data_dir.to_str().unwrap().into(),
+                    root: sources.0.to_str().unwrap().into(),
                     path: "source.rs".into(),
                     start_line: 1,
                     end_line: 1,
