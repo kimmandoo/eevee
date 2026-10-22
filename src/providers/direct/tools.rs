@@ -10,6 +10,7 @@ use super::{BODY_LIMIT, Protocol};
 #[cfg(test)]
 use crate::providers::writes::TOOL_NAME;
 use crate::providers::writes::{FileTool, MAX_BYTES, ToolKind, definitions};
+use crate::providers::{FilePhase, file_preview};
 
 const CALL_LIMIT: usize = 16;
 const ID_LIMIT: usize = 256;
@@ -68,6 +69,98 @@ struct Block {
     closed: bool,
 }
 
+struct FilePreview {
+    stream: file_preview::Stream,
+    seen: usize,
+    received: bool,
+    checked_complete: bool,
+    ready: bool,
+    published_bytes: usize,
+    published: Option<(FilePhase, String)>,
+}
+impl FilePreview {
+    fn new(edit: bool) -> Self {
+        Self {
+            stream: file_preview::Stream::new(edit),
+            seen: 0,
+            received: false,
+            checked_complete: false,
+            ready: true,
+            published_bytes: 0,
+            published: None,
+        }
+    }
+    fn feed(&mut self, name: &str, arguments: &str, complete: bool) {
+        // The authoritative assembler checks consistency; this display cursor
+        // never rewinds or substitutes a different complete proposal.
+        if arguments.len() < self.seen || !arguments.is_char_boundary(self.seen) {
+            return;
+        }
+        let delta = &arguments[self.seen..];
+        let lines = self.stream.line_revision();
+        self.stream.push(delta);
+        self.ready |= self.published.is_none()
+            || arguments.len().saturating_sub(self.published_bytes) >= 256
+            // Decoded boundaries include split escapes and Unicode newlines.
+            // A useful completed line must not wait for another wire frame.
+            || self.stream.line_revision() != lines;
+        self.seen = arguments.len();
+        if complete && !self.checked_complete {
+            self.checked_complete = true;
+            self.received = decode(arguments)
+                .ok()
+                .and_then(|args| FileTool::parse(name, args).ok())
+                .is_some();
+            self.ready = true;
+        }
+    }
+    fn snapshot(&mut self) -> Option<(FilePhase, String)> {
+        if !self.ready {
+            return None;
+        }
+        self.ready = false;
+        self.published_bytes = self.seen;
+        let text = self.stream.text(self.received)?;
+        let phase = if self.received {
+            FilePhase::Received
+        } else if self.checked_complete {
+            FilePhase::Interrupted
+        } else {
+            FilePhase::Generating
+        };
+        if self
+            .published
+            .as_ref()
+            .is_some_and(|previous| previous.0 == phase && previous.1 == text)
+        {
+            return None;
+        }
+        self.published = Some((phase, text.clone()));
+        Some((phase, text))
+    }
+}
+
+fn preview(
+    previews: &mut BTreeMap<usize, FilePreview>,
+    index: usize,
+    name: &str,
+    arguments: &str,
+    complete: bool,
+) {
+    let edit = match name {
+        "eevee_write_file" => false,
+        "eevee_edit_file" => true,
+        _ => return,
+    };
+    if !previews.contains_key(&index) && previews.len() >= CALL_LIMIT {
+        return;
+    }
+    previews
+        .entry(index)
+        .or_insert_with(|| FilePreview::new(edit))
+        .feed(name, arguments, complete);
+}
+
 pub(super) struct Calls {
     protocol: Protocol,
     bytes: usize,
@@ -80,6 +173,7 @@ pub(super) struct Calls {
     terminal: bool,
     unindexed_text: bool,
     message_reason: Option<String>,
+    previews: BTreeMap<usize, FilePreview>,
 }
 
 impl Calls {
@@ -96,6 +190,7 @@ impl Calls {
             terminal: false,
             unindexed_text: false,
             message_reason: None,
+            previews: BTreeMap::new(),
         }
     }
 
@@ -112,43 +207,160 @@ impl Calls {
 
     pub(super) fn observe(&mut self, kind: &str, value: &Value) -> Result<(), String> {
         match self.protocol {
-            Protocol::Responses | Protocol::Codex => self.responses_event(kind, value),
-            Protocol::ChatCompletions => self.chat_event(value),
-            Protocol::Messages => self.messages_event(kind, value),
-            Protocol::Gemini => self.gemini_event(value),
+            Protocol::Responses | Protocol::Codex => self.responses_event(kind, value)?,
+            Protocol::ChatCompletions => self.chat_event(value)?,
+            Protocol::Messages => self.messages_event(kind, value)?,
+            Protocol::Gemini => self.gemini_event(value)?,
         }
+        self.refresh_previews();
+        Ok(())
     }
 
-    /// Bounded opaque progress only; never expose names, paths or argument text.
-    pub(super) fn proposal_progress(&self) -> Option<(usize, usize)> {
-        let count = match self.protocol {
+    /// Source positions, not provider IDs, correlate provisional and real outcomes.
+    pub(super) fn call_indices(&self) -> Vec<usize> {
+        match self.protocol {
             Protocol::Responses | Protocol::Codex => self.output.as_ref().map_or_else(
                 || {
                     self.responses
-                        .values()
-                        .filter(|item| item.value["type"] == "function_call")
-                        .count()
+                        .iter()
+                        .filter(|(_, item)| item.value["type"] == "function_call")
+                        .map(|(index, _)| *index)
+                        .collect()
                 },
                 |output| {
                     output
                         .iter()
-                        .filter(|item| item["type"] == "function_call")
-                        .count()
+                        .enumerate()
+                        .filter(|(_, item)| item["type"] == "function_call")
+                        .map(|(index, _)| index)
+                        .collect()
                 },
             ),
-            Protocol::ChatCompletions => self.chat.len(),
+            Protocol::ChatCompletions => self.chat.keys().copied().collect(),
             Protocol::Messages => self
                 .blocks
-                .values()
-                .filter(|block| block.value["type"] == "tool_use")
-                .count(),
+                .iter()
+                .filter(|(_, block)| block.value["type"] == "tool_use")
+                .map(|(index, _)| *index)
+                .collect(),
             Protocol::Gemini => self
                 .parts
                 .iter()
-                .filter(|part| part.get("functionCall").is_some())
-                .count(),
-        };
-        (count > 0).then_some((count.min(CALL_LIMIT), self.bytes / (16 * 1024)))
+                .enumerate()
+                .filter(|(_, part)| part.get("functionCall").is_some())
+                .map(|(index, _)| index)
+                .collect(),
+        }
+    }
+
+    pub(super) fn visit_previews(
+        &mut self,
+        mut visit: impl FnMut(usize, FilePhase, String) -> Result<(), String>,
+    ) -> Result<(), String> {
+        for (index, preview) in &mut self.previews {
+            if let Some((phase, text)) = preview.snapshot() {
+                visit(*index, phase, text)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn preview_text(&self, index: usize) -> Option<String> {
+        self.previews
+            .get(&index)
+            .and_then(|preview| preview.stream.text(preview.received))
+    }
+
+    pub(super) fn visit_interrupted(
+        &self,
+        mut visit: impl FnMut(usize, String) -> Result<(), String>,
+    ) -> Result<(), String> {
+        for (index, preview) in &self.previews {
+            // Interruption cannot release an unfinished credential token.
+            if let Some(text) = preview.stream.text(false) {
+                visit(*index, text)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn refresh_previews(&mut self) {
+        let previews = &mut self.previews;
+        match self.protocol {
+            Protocol::Responses | Protocol::Codex => {
+                if let Some(output) = &self.output {
+                    for (index, item) in output.iter().enumerate() {
+                        if item["type"] == "function_call"
+                            && let (Some(name), Some(arguments)) =
+                                (item["name"].as_str(), item["arguments"].as_str())
+                        {
+                            preview(previews, index, name, arguments, true);
+                        }
+                    }
+                } else {
+                    for (index, item) in &self.responses {
+                        if item.value["type"] == "function_call"
+                            && let (Some(name), Some(arguments)) = (
+                                item.value["name"].as_str(),
+                                item.value["arguments"].as_str(),
+                            )
+                        {
+                            preview(
+                                previews,
+                                *index,
+                                name,
+                                arguments,
+                                item.arguments_done || item.closed,
+                            );
+                        }
+                    }
+                }
+            }
+            Protocol::ChatCompletions => {
+                for (index, call) in &self.chat {
+                    preview(previews, *index, &call.name, &call.arguments, self.terminal);
+                }
+            }
+            Protocol::Messages => {
+                for (index, block) in &self.blocks {
+                    if block.value["type"] != "tool_use" {
+                        continue;
+                    }
+                    let Some(name) = block.value["name"].as_str() else {
+                        continue;
+                    };
+                    if !matches!(name, "eevee_write_file" | "eevee_edit_file") {
+                        continue;
+                    }
+                    if !block.arguments.is_empty() {
+                        preview(previews, *index, name, &block.arguments, block.closed);
+                    } else if !previews.contains_key(index)
+                        && let Some(input) = block.value.get("input").filter(|input| {
+                            input.as_object().is_some_and(|input| !input.is_empty())
+                        })
+                        && let Ok(arguments) = serde_json::to_string(input)
+                    {
+                        preview(previews, *index, name, &arguments, true);
+                    }
+                }
+            }
+            Protocol::Gemini => {
+                // This wire protocol supplies whole functionCall objects, not
+                // argument deltas. Never simulate a generating phase.
+                for (index, part) in self.parts.iter().enumerate() {
+                    if previews.contains_key(&index) {
+                        continue;
+                    }
+                    if let Some(call) = part.get("functionCall")
+                        && let (Some(name @ ("eevee_write_file" | "eevee_edit_file")), Some(args)) =
+                            (call["name"].as_str(), call.get("args"))
+                        && let Ok(arguments) = serde_json::to_string(args)
+                    {
+                        preview(previews, index, name, &arguments, true);
+                    }
+                }
+            }
+        }
     }
 
     fn responses_event(&mut self, kind: &str, value: &Value) -> Result<(), String> {

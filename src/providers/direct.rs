@@ -13,6 +13,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use super::writes::{WriteProposal, WriteSet};
+use super::{FilePhase, file_preview};
 use crate::providers::{
     ConversationMessage, ConversationOwner, ConversationRole, Event, Input, ItemKind,
     ModelCatalogue, ModelOption, NativeConversation, Operation, Outcome, PermissionOption, Preview,
@@ -1324,7 +1325,6 @@ struct Stream {
     prefix: String,
     wire_bytes: usize,
     wire_limit: usize,
-    proposal_progress: Option<(usize, usize)>,
 }
 impl Stream {
     fn new(protocol: Protocol) -> Self {
@@ -1343,7 +1343,6 @@ impl Stream {
             prefix: String::new(),
             wire_bytes: 0,
             wire_limit: STREAM_LIMIT,
-            proposal_progress: None,
         }
     }
     fn append(&mut self, text: &str) -> Result<(), String> {
@@ -1752,22 +1751,11 @@ impl Stream {
     }
     fn publish(&mut self, events: &Events, run: &Prepared) -> Result<(), String> {
         self.publish_model(events, run)?;
-        if native_writing(&run.input)
-            && let Some(progress) = self.calls.proposal_progress()
-            && self.proposal_progress != Some(progress)
-        {
-            emit(
-                events,
-                Event::Status {
-                    generation: run.generation,
-                    task_id: run.input.task.id,
-                    message: format!(
-                        "Generating file proposal(s), HTTP round {}/{}; {} candidate call(s). Arguments remain private; no permission or write is implied.",
-                        self.round, ROUND_LIMIT, progress.0
-                    ),
-                },
-            )?;
-            self.proposal_progress = Some(progress);
+        if native_writing(&run.input) {
+            let round = self.round;
+            self.calls.visit_previews(|index, phase, text| {
+                publish_file(events, run, round, index, phase, text)
+            })?;
         }
         self.publish_text(events, run, false)
     }
@@ -1822,6 +1810,12 @@ impl Stream {
     fn publish_partial(&mut self, events: &Events, run: &Prepared) -> Result<(), String> {
         self.publish_model(events, run)?;
         self.publish_usage(events, run, false)?;
+        if native_writing(&run.input) {
+            let round = self.round;
+            self.calls.visit_interrupted(|index, text| {
+                publish_file(events, run, round, index, FilePhase::Interrupted, text)
+            })?;
+        }
         // Keep the privacy redactor's incomplete-tail protection after interrupted streams.
         self.publish_text(events, run, false)
     }
@@ -1854,6 +1848,40 @@ impl Stream {
         }
         self.publish_text(events, run, true)
     }
+}
+
+fn file_item_id(run: &Prepared, round: usize, index: usize) -> String {
+    // Only locally generated request/round/source positions enter public IDs.
+    let request = run
+        .input
+        .work
+        .as_ref()
+        .map(|work| work.request_id.as_str())
+        .unwrap_or("local");
+    format!("native-file:{request}:{}:{round}:{index}", run.generation)
+}
+
+fn publish_file(
+    events: &Events,
+    run: &Prepared,
+    round: usize,
+    index: usize,
+    phase: FilePhase,
+    text: String,
+) -> Result<(), String> {
+    emit(
+        events,
+        Event::Item {
+            generation: run.generation,
+            task_id: run.input.task.id,
+            thread_id: String::new(),
+            turn_id: format!("native-request-{}", run.generation),
+            item_id: file_item_id(run, round, index),
+            kind: ItemKind::File(phase),
+            text,
+            complete: phase != FilePhase::Generating,
+        },
+    )
 }
 fn private_or_controls(text: &str) -> bool {
     crate::workspace::privacy::redact(text) != text

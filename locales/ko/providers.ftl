@@ -216,7 +216,7 @@ providers-planning-type-a-request-below-enter-sends-commands = { "아래에 요�
 
 providers-planning-wheel-pgup-dn-alt-up-down-item = { "Wheel/PgUp/Dn 전체 | Alt+Up/Down 살펴보기 | Alt+Home 맨 위" }
 
-providers-planning-decision-reviews-a-complete-proposal-locally = { "/decision 완성된 제안을 로컬에서 검토" }
+providers-planning-decision-reviews-a-complete-proposal-locally = { "/decision: 완성된 메시지/계획만, 파일 미리보기 제외" }
 
 providers-planning-run-blocked-n-cancel-esc-cancel-d =
     { "실행 차단 / n 취소 / Esc 취소" }
@@ -576,7 +576,7 @@ providers-planning-candidate-default-uses-provider-configuration =
     { "후보: " }{ $model }{ " / " }{ $effort }
     { "기본값은 제공자 설정을 사용합니다." }
 
-providers-planning-earlier-items-omitted-decision-reviews-a-complete = { "이전 항목 " }{ $count }{ "개 생략 · /decision 완성된 제안 검토" }
+providers-planning-earlier-items-omitted-decision-reviews-a-complete = { "이전 항목 " }{ $count }{ "개 생략 · /decision: 완성된 메시지/계획만" }
 
 providers-planning-start-end-total-alt-end-latest = { $status }{ $new }{ " " }{ $start }{ "-" }{ $end }{ "/" }{ $total }{ " | Alt+End 최신" }
 
@@ -830,6 +830,26 @@ providers-planning-plan = { "계획" }
 
 providers-planning-tool-output = { "도구 출력" }
 
+providers-planning-file-preview = { "파일 미리보기" }
+
+providers-planning-file-generating = { "생성 중 · 저장 안 됨" }
+
+providers-planning-file-received = { "수신됨 · 제안" }
+
+providers-planning-file-awaiting-review = { "검토 대기 · 저장 안 됨" }
+
+providers-planning-file-applied = { "적용됨" }
+
+providers-planning-file-denied = { "거부됨 · 미적용" }
+
+providers-planning-file-refused = { "수행 거절 · 미적용" }
+
+providers-planning-file-interrupted = { "중단됨 · 저장 확인 없음" }
+
+providers-planning-file-reported = { "제공자 보고 · 미검증" }
+
+providers-planning-file-unknown = { "결과 불명 · 영향 확인 필요" }
+
 providers-planning-complete = { "완료" }
 
 providers-planning-streaming = { "스트리밍 중" }
@@ -880,7 +900,7 @@ providers-planning-request-2 = { $label }{ ": " }{ $request }
 
 providers-planning-position-of-total = { $position }{ "/" }{ $total }{ " · " }{ $owner }
 
-providers-planning-is-editing = { $owner }{ " 편집 중" }
+providers-planning-preparing-changes = { $owner }{ " 변경 준비 중" }
 
 providers-planning-model-matches = { "모델 · 검색 결과 " }{ $count }{ "개" }
 

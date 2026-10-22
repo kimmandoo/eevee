@@ -16,8 +16,9 @@ use std::time::{Duration, Instant};
 use crate::providers::writes::TOOL_NAME;
 use crate::providers::writes::{FileTool, WriteFailure, WriteProposal, WriteSet, definitions};
 use crate::providers::{
-    Agent, Event, Input, ItemKind, ModelCatalogue, ModelOption, ModelSelection, Operation, Outcome,
-    PermissionOption, Preview, Prompt, PromptKind, Question, QuestionOption, Request,
+    Agent, Event, FilePhase, Input, ItemKind, ModelCatalogue, ModelOption, ModelSelection,
+    Operation, Outcome, PermissionOption, Preview, Prompt, PromptKind, Question, QuestionOption,
+    Request,
 };
 use crate::workspace::usage::{Counters, Identity, Kind, Report, Scope, Semantics};
 use parking_lot::Mutex;
@@ -94,6 +95,22 @@ fn proposed_write(writes: &mut WriteSet, params: &Value) -> Result<WriteProposal
     let proposal = candidate.propose_tool(&mut tool)?;
     *writes = candidate;
     Ok(proposal)
+}
+
+fn received_file_preview(input: &Input, tool: &FileTool) -> Option<String> {
+    if input.operation != Operation::Implement || input.inspect_models || input.inspect_sessions {
+        return None;
+    }
+    let content = match tool {
+        FileTool::Write { content, .. } => content.as_str(),
+        FileTool::Edit { new_text, .. } => new_text.as_str(),
+        _ => return None,
+    };
+    Some(super::file_preview::display(
+        &tool.path().to_string_lossy(),
+        content,
+        true,
+    ))
 }
 
 fn write_permission(proposal: &WriteProposal) -> PromptKind {
@@ -964,6 +981,7 @@ struct Engine<'a> {
     terminal: Option<(Outcome, String)>,
     writes: Option<WriteSet>,
     pending_write: Option<WriteProposal>,
+    pending_write_preview: Option<(String, String)>,
     journal_session: String,
 }
 fn run_transport(
@@ -1044,6 +1062,7 @@ fn run_transport(
         terminal: None,
         writes: run.writes.clone(),
         pending_write: None,
+        pending_write_preview: None,
         journal_session: format!(
             "{}-{}",
             std::process::id(),
@@ -1635,6 +1654,9 @@ impl Engine<'_> {
             {
                 let prompt = self.prompts.remove(index);
                 self.pending_write = None;
+                if let Some((preview_id, text)) = self.pending_write_preview.take() {
+                    self.file_preview(&preview_id, &text, FilePhase::Interrupted)?;
+                }
                 emit(
                     self.events,
                     Event::PromptClosed {
@@ -2040,6 +2062,21 @@ impl Engine<'_> {
             .ok_or("Frozen write scope missing")?
             .verify()
     }
+    fn file_preview(&self, id: &str, text: &str, phase: FilePhase) -> Result<(), String> {
+        emit(
+            self.events,
+            Event::Item {
+                generation: self.run.generation,
+                task_id: self.run.input.task.id,
+                thread_id: self.thread_id.clone().ok_or("Missing preview thread")?,
+                turn_id: self.turn_id.clone().ok_or("Missing preview turn")?,
+                item_id: id.into(),
+                kind: ItemKind::File(phase),
+                text: text.into(),
+                complete: true,
+            },
+        )
+    }
     fn request_write(&mut self, id: Value, params: &Value) -> Result<(), String> {
         // Identity/authority failures are terminal, not model-correctable source
         // refusals. Check them before observing or enrolling any target.
@@ -2070,6 +2107,19 @@ impl Engine<'_> {
             self.queue(json!({"id":id,"result":{"success":success,"contentItems":[{"type":"inputText","text":text}]}}))?;
             return Ok(());
         }
+        // App-server supplies complete arguments only. These display snapshots
+        // are not the authoritative tool result or a synthetic argument stream.
+        let preview = if let Some(text) = received_file_preview(&self.run.input, &tool) {
+            let preview_id = format!(
+                "eevee-file-codex-{}-{}",
+                self.run.generation,
+                self.seen_requests.len()
+            );
+            self.file_preview(&preview_id, &text, FilePhase::Received)?;
+            Some((preview_id, text))
+        } else {
+            None
+        };
         let prepared = (|| -> Result<(Prompt, WriteProposal), String> {
             if self.run.input.operation != Operation::Implement {
                 return Err("This operation does not permit dynamic writes".into());
@@ -2103,11 +2153,23 @@ impl Engine<'_> {
                         request: prompt.clone(),
                     },
                 )?;
+                if let Some((preview_id, _)) = preview {
+                    let text = super::file_preview::display(
+                        &proposal.path.to_string_lossy(),
+                        &proposal.content,
+                        true,
+                    );
+                    self.file_preview(&preview_id, &text, FilePhase::AwaitingReview)?;
+                    self.pending_write_preview = Some((preview_id, text));
+                }
                 self.prompts.push(prompt);
                 self.pending_write = Some(proposal);
                 Ok(())
             }
             Err(error) => {
+                if let Some((preview_id, text)) = preview {
+                    self.file_preview(&preview_id, &text, FilePhase::Refused)?;
+                }
                 self.queue(json!({"id":id,"result":{"success":false,"contentItems":[{"type":"inputText","text":error}]}}))?;
                 self.status("Dynamic write tool call refused; this tool call made no Eevee filesystem changes")
             }
@@ -2125,10 +2187,13 @@ impl Engine<'_> {
             .take()
             .ok_or("Write request is no longer pending")?;
         let prompt = self.prompts.remove(index);
+        let preview = self.pending_write_preview.take();
+        let mut phase = FilePhase::Denied;
         let mut success = false;
         let mut receipt = None;
         let mut effects_notification = Ok(());
         let text = if answer.get("decision").and_then(Value::as_str) == Some("accept") {
+            phase = FilePhase::Refused;
             let ready = (|| -> Result<(), String> {
                 self.revalidate_write_session()?;
                 if self.cancelled.load(Ordering::Acquire) == generation
@@ -2136,7 +2201,7 @@ impl Engine<'_> {
                 {
                     return Err("Cancelled write refused before filesystem effects".into());
                 }
-                if self.events.lock().len() > EVENTS_LIMIT - 5 {
+                if self.events.lock().len() > EVENTS_LIMIT - EVENT_RESERVE - 4 {
                     return Err("Write refused before filesystem effects: event queue cannot retain the local result and terminal state".into());
                 }
                 Ok(())
@@ -2151,11 +2216,13 @@ impl Engine<'_> {
             match applied {
                 Ok(result) => {
                     success = true;
+                    phase = FilePhase::Applied;
                     receipt = Some(result.receipt());
                     result.message
                 }
                 Err(error) => {
                     if error.uncertain {
+                        phase = FilePhase::Unknown;
                         effects_notification = emit(
                             self.events,
                             Event::LocalEffectsUnknown {
@@ -2177,6 +2244,9 @@ impl Engine<'_> {
         };
         // Record actual filesystem results even when queuing the provider reply later fails.
         self.journal(&format!("eevee-write-{}", prompt.item_id), "Codex-requested Eevee-controlled file write", "Exact approved create/replace and parent scope; resulting digest established by the local filesystem executor, not a check or commit", receipt.as_deref().unwrap_or(&text), true)?;
+        if let Some((preview_id, body)) = preview {
+            self.file_preview(&preview_id, &body, phase)?;
+        }
         effects_notification?;
         self.queue(json!({"id":id,"result":{"success":success,"contentItems":[{"type":"inputText","text":text}]}}))?;
         emit(
@@ -2397,6 +2467,9 @@ impl Engine<'_> {
     }
     fn close_prompts(&mut self) {
         self.pending_write = None;
+        if let Some((preview_id, text)) = self.pending_write_preview.take() {
+            let _ = self.file_preview(&preview_id, &text, FilePhase::Interrupted);
+        }
         for prompt in self.prompts.drain(..) {
             let _ = emit(
                 self.events,
@@ -2414,6 +2487,9 @@ impl Engine<'_> {
         self.cancelling = Some(Instant::now());
         self.discard_grants()?;
         self.pending_write = None;
+        if let Some((preview_id, text)) = self.pending_write_preview.take() {
+            self.file_preview(&preview_id, &text, FilePhase::Interrupted)?;
+        }
         let prompts = std::mem::take(&mut self.prompts);
         for prompt in prompts {
             self.refuse(

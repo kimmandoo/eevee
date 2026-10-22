@@ -17,6 +17,7 @@ export const BRIDGE_POLICY = {
   configuration: 'isolated', authentication: 'api-console-cloud-only',
   dispatch: 'correlated-sdk-submission',
   usage: 'correlated-sdk-snapshots',
+  file_preview: 'display-only-correlated-arguments',
 };
 export const FRAME_LIMIT = 2 * 1024 * 1024;
 export const READ_TOOLS = ['Read', 'Glob', 'Grep', 'AskUserQuestion'];
@@ -45,7 +46,7 @@ export const WriteScopeSchema = z.object({
 }).strict();
 export type WriteScope = z.infer<typeof WriteScopeSchema>;
 export const RunSchema = z.object({
-  protocol: z.literal(1), bridge_revision: z.literal(7), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().positive(),
+  protocol: z.literal(1), bridge_revision: z.literal(8), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().positive(),
   request_id: boundedText(256).nullish(),
   prompt: z.string().max(FRAME_LIMIT / 2), cwd: z.string().min(1).max(4096), state_dir: z.string().min(1).max(4096),
   operation: z.enum(['plan', 'implement']), write_scope: WriteScopeSchema,
@@ -59,6 +60,110 @@ export const RunSchema = z.object({
     context.addIssue({ code: 'custom', message: 'Invalid inspection/operation write scope' });
   }
 });
+
+export type FilePreviewFrame = {
+  type: 'file_preview'; tool_id: string; tool: 'Write' | 'Edit';
+  stage: 'start' | 'delta' | 'stop' | 'received' | 'review' | 'approved' | 'denied' | 'refused' | 'reported' | 'interrupted';
+  fragment?: string;
+};
+const PreviewEventSchema = z.object({
+  type: z.string(), index: z.number().int().nonnegative().optional(),
+  message: z.object({ id: z.string() }).optional(),
+  content_block: z.object({ type: z.string(), id: z.string().optional(), name: z.string().optional() }).optional(),
+  delta: z.object({ type: z.string(), partial_json: z.string().optional() }).optional(),
+});
+
+// Display transport only: never enrolls a target, approves input or observes
+// filesystem results. Retain correlation/byte counts, not growing arguments.
+export class SDKFilePreviews {
+  private message = '';
+  private readonly blocks = new Map<number, string>();
+  private readonly calls = new Map<string, { tool: 'Write' | 'Edit'; bytes: number; stopped: boolean; reviewed: boolean; terminal: boolean }>();
+  private bytes = 0;
+  private readonly enabled: boolean;
+  constructor(enabled: boolean) { this.enabled = enabled; }
+  private call(id: string, tool: string) {
+    if (!this.enabled || !id || id.length > 256 || /[\p{Cc}]/u.test(id) || (tool !== 'Write' && tool !== 'Edit')) return undefined;
+    const previous = this.calls.get(id);
+    if (previous) return previous.tool === tool ? previous : undefined;
+    if (this.calls.size >= 128) return undefined;
+    const call = { tool, bytes: 0, stopped: false, reviewed: false, terminal: false };
+    this.calls.set(id, call);
+    return call;
+  }
+  stream(event: unknown): FilePreviewFrame[] {
+    if (!this.enabled) return [];
+    const parsed = PreviewEventSchema.safeParse(event);
+    if (!parsed.success) return [];
+    const value = parsed.data;
+    if (value.type === 'message_start') {
+      this.message = value.message?.id ?? '';
+      this.blocks.clear();
+      return [];
+    }
+    if (value.type === 'message_stop') {
+      this.message = ''; this.blocks.clear(); return [];
+    }
+    if (!this.message || value.index === undefined) return [];
+    if (value.type === 'content_block_start' && value.content_block?.type === 'tool_use') {
+      const { id, name } = value.content_block;
+      if (!id || !name || this.blocks.has(value.index) || this.calls.has(id)) return [];
+      const call = this.call(id, name);
+      if (!call) return [];
+      this.blocks.set(value.index, id);
+      return [{ type: 'file_preview', tool_id: id, tool: call.tool, stage: 'start' }];
+    }
+    const id = this.blocks.get(value.index);
+    const call = id === undefined ? undefined : this.calls.get(id);
+    if (!id || !call || call.stopped || call.terminal) return [];
+    if (value.type === 'content_block_delta' && value.delta?.type === 'input_json_delta' && value.delta.partial_json !== undefined) {
+      const fragment = value.delta.partial_json;
+      const size = Buffer.byteLength(fragment);
+      if (size > FRAME_LIMIT / 4 || call.bytes + size > FRAME_LIMIT / 2 || this.bytes + size > 4 * FRAME_LIMIT) {
+        call.stopped = true; call.terminal = true;
+        return [{ type: 'file_preview', tool_id: id, tool: call.tool, stage: 'interrupted' }];
+      }
+      call.bytes += size; this.bytes += size;
+      return [{ type: 'file_preview', tool_id: id, tool: call.tool, stage: 'delta', fragment }];
+    }
+    if (value.type === 'content_block_stop') {
+      call.stopped = true;
+      this.blocks.delete(value.index);
+      return [{ type: 'file_preview', tool_id: id, tool: call.tool, stage: 'stop' }];
+    }
+    return [];
+  }
+  complete(id: string, tool: string, input: unknown): FilePreviewFrame[] {
+    const call = this.call(id, tool);
+    if (!call || call.terminal || call.reviewed) return [];
+    const object = z.object({
+      file_path: z.string().max(4096),
+      content: z.string().max(256 * 1024).optional(),
+      new_string: z.string().max(256 * 1024).optional(),
+    }).safeParse(input);
+    if (!object.success) return [];
+    // Complete callbacks can precede the assistant item. Send only display
+    // fields, never old content, descriptions or arbitrary tool arguments.
+    const fields = object.data;
+    if (call.tool === 'Write' ? fields.content === undefined : fields.new_string === undefined) return [];
+    const display = call.tool === 'Write'
+      ? { file_path: fields.file_path, content: fields.content }
+      : { file_path: fields.file_path, new_string: fields.new_string };
+    const fragment = JSON.stringify(display);
+    const size = Buffer.byteLength(fragment);
+    if (size > FRAME_LIMIT / 2 || this.bytes + size > 4 * FRAME_LIMIT) return [];
+    this.bytes += size;
+    call.stopped = true;
+    return [{ type: 'file_preview', tool_id: id, tool: call.tool, stage: 'received', fragment }];
+  }
+  phase(id: string, stage: 'review' | 'approved' | 'denied' | 'refused' | 'reported' | 'interrupted'): FilePreviewFrame[] {
+    const call = this.calls.get(id);
+    if (!call || call.terminal) return [];
+    if (stage === 'review') call.reviewed = true;
+    if (stage !== 'review' && stage !== 'approved') call.terminal = true;
+    return [{ type: 'file_preview', tool_id: id, tool: call.tool, stage }];
+  }
+}
 
 const SubmissionAckSchema = z.object({
   type: z.string(), uuid: z.string().optional(), isReplay: z.boolean().optional(),

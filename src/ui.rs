@@ -874,6 +874,9 @@ fn suggestion_line<'a>(app: &'a App, paint: &Paint) -> Option<Line<'a>> {
 
 /// Descriptive local evidence only; rendering never evaluates or selects a form.
 fn suggestion_strip(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) -> Rect {
+    if app.planning.has_current_file_output() && !app.carry_over_explicit() {
+        return area;
+    }
     if let Some(carry_over) = app.carry_over() {
         // The precomputed ASCII summary fits the minimum workspace width.
         // Give this transient record the existing strip slot, not a second row.

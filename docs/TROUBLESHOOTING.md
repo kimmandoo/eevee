@@ -1,5 +1,20 @@
 # Troubleshooting
 
+### [2026-10-22] Compact file progress had a title but no code viewport
+
+- **Context / Symptom:** The first actual v0.1.18 candidate failed the 60×18 Korean mid-argument journey before any navigation: the new file card said generating/not saved, but no `STREAM_STAGE_ONE` source line could appear. The follow range reported `0-44/44`.
+- **Root Cause:** Writer preparation, a wrapped automatic-evolution receipt and carry-over strip consumed every response-body row. Adding streamed data alone did not make the feature visible in the normal first-use surface.
+- **Solution:** Current-request file output now takes viewport priority over duplicate preparation/transition/advisory/carry-over chrome, without mutating retained disclosures or future drafts. Actual permission scope and foreign writer ownership stay visible; old file cards cannot suppress a new request's context.
+- **Prevention / Reference:** The gated actual driver requires the first code inline before any `/response` or latest-navigation action. Added a compact whole-surface regression covering generated/applied cards, retained transition/carry-over state, draft/caret and old-request isolation.
+- **Display follow-through:** Actual captures also exposed CRLF source rendered with replacement markers and a filename that scrolled above the compact code tail. Normalized only CRLF display pairs (not file bytes or standalone controls), kept the filename beside the file lifecycle header, and preserved explicit carry-over inspection separately from automatic chrome. The stream fixture now splits exactly at its first-code gate instead of letting an aggregated transport fragment deliver both stages at once; cancellation exit follows the real all-owner unknown-outcome review.
+
+### [2026-10-22] Preview saturation preempted a critical uncertain-effect journal
+
+- **Context / Symptom:** Integrated live-preview tests failed the existing saturated-event safety regression: `LocalEffectsUnknown` and terminal settlement remained, but the authoritative failure journal count was zero.
+- **Root Cause:** A new non-authoritative file-card update could exhaust ordinary UI capacity before the reserved journal event was enqueued. The same ordering risk existed in interrupted permission handling.
+- **Solution:** Kept actual local uncertainty first, published its authoritative journal before the optional file-card update, and similarly recorded interrupted permission evidence before presentation. Preview capacity errors still stop the transport; no warning was suppressed and no reserve or authority gate was weakened.
+- **Prevention / Reference:** Retained `saturated_ordinary_event_capacity_cannot_hide_local_uncertainty_or_terminal_settlement` as a behavior regression. Actual executor receipts and terminal/callback state must take priority over progress presentation.
+
 ### [2026-10-22] Public Windows license used native CRLF line endings
 
 - **Context / Symptom:** The one-session v0.1.17 public verifier passed downloaded asset/manifest hashes, then failed a raw `LICENSE` byte-equality assertion on the Windows ZIP.

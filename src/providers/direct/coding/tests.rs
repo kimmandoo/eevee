@@ -545,6 +545,16 @@ fn denial_returns_real_tool_result_without_creating_reviewed_parents() {
                 .iter()
                 .any(|e| matches!(e,Event::Journal{record,..} if record.text.contains("denied")))
         );
+        assert!(events.iter().any(|event| matches!(event,
+            Event::Item { kind: ItemKind::File(FilePhase::Denied), text, .. }
+            if text.starts_with("missing/denied.txt"))));
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            Event::Item {
+                kind: ItemKind::File(FilePhase::Applied | FilePhase::Unknown),
+                ..
+            }
+        )));
     }
 }
 
@@ -1128,13 +1138,45 @@ fn workspace_generation_supports_complete_content_and_successful_non_tool_stop_l
                 .count(),
             1
         );
-        let progress = events.iter().position(|event| matches!(event, Event::Status { message, .. } if message.contains("Generating file proposal")));
+        let progress = events.iter().position(|event| matches!(event, Event::Item { kind: ItemKind::File(_), text, .. } if text.starts_with("generated/main.txt")));
         let approval = events
             .iter()
             .position(|event| matches!(event, Event::Prompt { .. }));
         assert!(progress.is_some() && progress < approval);
         assert!(events.iter().all(|event| !matches!(event, Event::Status { message, .. } if message.contains("generated/main.txt") || message.contains(&"x".repeat(100)))));
         assert!(events.iter().any(|event| matches!(event, Event::NativeCompleted { conversation, .. } if conversation.messages.last().unwrap().text.as_ref() == "The reviewed file was created")));
+        let file_ids: HashSet<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Item {
+                    item_id,
+                    kind: ItemKind::File(_),
+                    ..
+                } => Some(item_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            file_ids.len(),
+            1,
+            "one card survives generation, approval and execution"
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Event::Item {
+                kind: ItemKind::File(FilePhase::Applied),
+                ..
+            }
+        )));
+        assert!(events.iter().all(|event| !matches!(event, Event::Item { kind: ItemKind::File(FilePhase::Generating), .. } if protocol == Protocol::Gemini)));
+        let prompt_id = events
+            .iter()
+            .find_map(|event| match event {
+                Event::Prompt { request, .. } => Some(request.item_id.as_str()),
+                _ => None,
+            })
+            .unwrap();
+        assert!(file_ids.contains(prompt_id));
     }
 }
 
@@ -1203,6 +1245,13 @@ fn semantic_batch_refusal_allows_corrected_proposals_without_valid_sibling_effec
                 },
             );
             assert_eq!(outcome, Outcome::Completed, "{message}");
+            assert!(events.iter().any(|event| matches!(
+                event,
+                Event::Item {
+                    kind: ItemKind::File(FilePhase::Refused),
+                    ..
+                }
+            )));
             assert_eq!(
                 std::fs::read_to_string(fixture.workspace.project.join("allowed/final.txt"))
                     .unwrap(),
@@ -1267,38 +1316,114 @@ fn invalid_content_batch_does_not_enroll_workspace_targets_or_create_parents() {
 }
 
 #[test]
-fn proposal_generation_status_is_opaque_and_chunk_throttled() {
-    let fixture = Fixture::new(&[]);
-    let (run, _) = fixture.prepare(Protocol::ChatCompletions, "https://example.invalid/v1");
-    let events = Arc::new(Mutex::new(VecDeque::new()));
-    let mut stream = Stream::new(Protocol::ChatCompletions);
-    stream.event("", &json!({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"private-call-id","type":"function","function":{"name":crate::providers::writes::TOOL_NAME,"arguments":"{\"path\":\"private-filename.txt\",\"content\":\""}}]}}]}).to_string()).unwrap();
-    stream.publish(&events, &run).unwrap();
-    let mut statuses = Vec::new();
-    statuses.extend(events.lock().drain(..));
-    for _ in 0..100 {
-        stream.event("", &json!({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"private-content-fragment"}}]}}]}).to_string()).unwrap();
+fn real_argument_lines_publish_before_completion_without_effects_or_private_ids() {
+    for protocol in [
+        Protocol::Responses,
+        Protocol::ChatCompletions,
+        Protocol::Messages,
+    ] {
+        let fixture = Fixture::new(&[]);
+        let (run, _) = fixture.prepare(protocol, "https://example.invalid/v1");
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        let mut stream = Stream::new(protocol);
+        let start = match protocol {
+            Protocol::Responses => {
+                json!({"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"private-item-id","call_id":"private-call-id","name":crate::providers::writes::TOOL_NAME,"arguments":"","status":"in_progress"}})
+            }
+            Protocol::ChatCompletions => {
+                json!({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"private-call-id","type":"function","function":{"name":crate::providers::writes::TOOL_NAME,"arguments":""}}]}}]})
+            }
+            Protocol::Messages => {
+                json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"private-call-id","name":crate::providers::writes::TOOL_NAME,"input":{}}})
+            }
+            _ => unreachable!(),
+        };
+        stream.event("", &start.to_string()).unwrap();
+        let delta = |fragment: &str| match protocol {
+            Protocol::Responses => {
+                json!({"type":"response.function_call_arguments.delta","output_index":0,"item_id":"private-item-id","delta":fragment})
+            }
+            Protocol::ChatCompletions => {
+                json!({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":fragment}}]}}]})
+            }
+            Protocol::Messages => {
+                json!({"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":fragment}})
+            }
+            _ => unreachable!(),
+        };
+        let prefix = r#"{"path":"generated/main.rs","content":"fn generated() {}\n"#;
+        stream
+            .event("", &delta(&prefix[..prefix.len() - 1]).to_string())
+            .unwrap();
         stream.publish(&events, &run).unwrap();
-        statuses.extend(events.lock().drain(..));
+        stream.event("", &delta("n").to_string()).unwrap();
+        stream.publish(&events, &run).unwrap();
+        let snapshot = events.lock().drain(..).collect::<Vec<_>>();
+        let first_id = snapshot
+            .iter()
+            .find_map(|event| match event {
+                Event::Item {
+                    item_id,
+                    kind: ItemKind::File(FilePhase::Generating),
+                    text,
+                    complete: false,
+                    ..
+                } if text.starts_with("generated/main.rs\n")
+                    && text.contains("fn generated() {}") =>
+                {
+                    Some(item_id.clone())
+                }
+                _ => None,
+            })
+            .expect("a completed short code line is visible before the next frame");
+        let mut unchanged = Vec::new();
+        for _ in 0..100 {
+            stream.event("", &delta("x").to_string()).unwrap();
+            stream.publish(&events, &run).unwrap();
+            unchanged.extend(events.lock().drain(..));
+        }
+        assert!(
+            unchanged.is_empty(),
+            "unfinished unchanged tokens cannot flood display events"
+        );
+        stream
+            .event(
+                "",
+                &delta(r#"\nsecond line\npassword=private-tail"#).to_string(),
+            )
+            .unwrap();
+        stream.publish(&events, &run).unwrap();
+        assert!(events.lock().iter().any(|event| matches!(event,
+            Event::Item { item_id, kind: ItemKind::File(FilePhase::Generating), text, .. }
+            if item_id == &first_id && text.contains("second line") && !text.contains("private-tail"))));
+        let ending = r#""}"#;
+        stream.event("", &delta(ending).to_string()).unwrap();
+        let stop = match protocol {
+            Protocol::Responses => {
+                json!({"type":"response.function_call_arguments.done","output_index":0,"item_id":"private-item-id","arguments":format!("{prefix}{}{}{ending}", "x".repeat(100), r#"\nsecond line\npassword=private-tail"#)})
+            }
+            Protocol::ChatCompletions => {
+                json!({"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]})
+            }
+            Protocol::Messages => json!({"type":"content_block_stop","index":0}),
+            _ => unreachable!(),
+        };
+        stream.event("", &stop.to_string()).unwrap();
+        stream.publish(&events, &run).unwrap();
+        assert!(events.lock().iter().any(|event| matches!(event,
+            Event::Item { item_id, kind: ItemKind::File(FilePhase::Received), text, complete: true, .. }
+            if item_id == &first_id && text.contains("second line") && !text.contains("private-tail"))));
+        stream.publish_partial(&events, &run).unwrap();
+        let retained = events.lock();
+        assert!(retained.iter().any(|event| matches!(event, Event::Item {
+            item_id, kind: ItemKind::File(FilePhase::Interrupted), text, ..
+        } if item_id == &first_id && !text.contains("private-tail"))));
+        assert!(snapshot.iter().chain(unchanged.iter()).chain(retained.iter()).all(|event| {
+            !matches!(event, Event::Prompt { .. } | Event::Journal { .. } | Event::NativeCompleted { .. })
+                && !matches!(event, Event::Item { text, item_id, .. } if text.contains("private-call-id") || text.contains("private-item-id") || item_id.contains("private-call-id"))
+        }));
+        assert!(!fixture.workspace.project.join("generated").exists());
     }
-    assert_eq!(
-        statuses.len(),
-        1,
-        "small fragments do not flood status events"
-    );
-    assert!(matches!(&statuses[0], Event::Status { message, .. }
-        if message.contains("Generating file proposal")
-            && message.contains("no permission or write is implied")
-            && !message.contains("private-call-id")
-            && !message.contains("private-filename")
-            && !message.contains("private-content")));
-    assert!(
-        !fixture
-            .workspace
-            .project
-            .join("private-filename.txt")
-            .exists()
-    );
 }
 
 #[test]
@@ -1482,6 +1607,16 @@ fn filesystem_outcome_consumer_distinguishes_refusal_from_explicit_uncertainty()
         .position(|event| matches!(event, Event::Finished { .. }))
         .unwrap();
     assert!(unknown < journal && journal < terminal);
+    assert!(queue.iter().any(|event| matches!(event,
+        Event::Item { kind: ItemKind::File(FilePhase::Unknown), text, .. }
+        if text.starts_with("selected.txt"))));
+    assert!(!queue.iter().any(|event| matches!(
+        event,
+        Event::Item {
+            kind: ItemKind::File(FilePhase::Applied),
+            ..
+        }
+    )));
 }
 
 #[test]

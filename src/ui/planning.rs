@@ -12,7 +12,7 @@ use super::{Paint, centered, clipped, editor_rows, panel, row, selection_details
 use crate::{
     app::{
         App,
-        planning::{Picker, State},
+        planning::{Picker, State, file_phase_message},
     },
     config::Config,
     i18n::{Message, Template},
@@ -155,7 +155,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     } else {
         app.write_owner().map(|claim| {
             paint.format(
-                Template::ProvidersPlanningIsEditing,
+                Template::ProvidersPlanningPreparingChanges,
                 &[(
                     "owner",
                     &crate::store::Attribution::label(Some(&claim.owner)),
@@ -919,30 +919,46 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     let active = state.activity_label().is_some();
     let (_, previous) = state.response_request();
     let metadata = if let Some(item) = state.items.get(state.selected) {
-        let mut metadata = format!(
-            "{}{} {}/{} · {} · unverified",
-            if previous {
-                paint.hint(Message::ProvidersPlanningPrevious)
-            } else {
-                ""
-            },
-            match item.kind {
-                ItemKind::Message => paint.hint(Message::ProvidersPlanningResponse),
-                ItemKind::Plan => paint.hint(Message::ProvidersPlanningPlan),
-                ItemKind::Tool => paint.hint(Message::ProvidersPlanningToolOutput),
-            },
-            state.selected + 1,
-            state.items.len(),
-            if !previous && state.request.is_some() {
-                paint.hint(Message::ProvidersPlanningWaitingForReview)
-            } else if item.complete {
-                paint.hint(Message::ProvidersPlanningComplete)
-            } else if active && !previous && !state.cancelling {
-                paint.hint(Message::ProvidersPlanningStreaming)
-            } else {
-                paint.hint(Message::ProvidersPlanningPartial)
-            },
-        );
+        let mut metadata = if let ItemKind::File(phase) = item.kind {
+            format!(
+                "{} · {}",
+                paint.hint(file_phase_message(phase)),
+                item.text.lines().next().unwrap_or("")
+            )
+        } else {
+            format!(
+                "{}{} {}/{} · {}{}",
+                if previous {
+                    paint.hint(Message::ProvidersPlanningPrevious)
+                } else {
+                    ""
+                },
+                match item.kind {
+                    ItemKind::Message => paint.hint(Message::ProvidersPlanningResponse),
+                    ItemKind::Plan => paint.hint(Message::ProvidersPlanningPlan),
+                    ItemKind::Tool => paint.hint(Message::ProvidersPlanningToolOutput),
+                    ItemKind::File(_) => paint.hint(Message::ProvidersPlanningFilePreview),
+                },
+                state.selected + 1,
+                state.items.len(),
+                if let ItemKind::File(phase) = item.kind {
+                    paint.hint(file_phase_message(phase))
+                } else if !previous && state.request.is_some() {
+                    paint.hint(Message::ProvidersPlanningWaitingForReview)
+                } else if item.complete {
+                    paint.hint(Message::ProvidersPlanningComplete)
+                } else if active && !previous && !state.cancelling {
+                    paint.hint(Message::ProvidersPlanningStreaming)
+                } else {
+                    paint.hint(Message::ProvidersPlanningPartial)
+                },
+                if matches!(item.kind, ItemKind::File(_)) {
+                    ""
+                } else {
+                    " · unverified"
+                },
+            )
+        };
         if !previous && let Some(model) = state.observed_model.as_deref() {
             let _ = write!(metadata, " · {model}");
         }
@@ -1958,6 +1974,92 @@ mod tests {
             assert_eq!(screen.matches(label).count(), 1, "{screen}");
             assert!(screen.contains("Partial answer stays readable"), "{screen}");
             assert!(screen.contains("streaming"), "{screen}");
+        }
+    }
+
+    #[test]
+    fn growing_file_previews_share_home_without_taking_the_future_draft_or_caret() {
+        for (width, height, tag, ascii) in [
+            (60, 18, "en", true),
+            (60, 18, "ko", true),
+            (120, 36, "en", false),
+            (120, 36, "ko", false),
+        ] {
+            let language = crate::i18n::Language::parse(tag).unwrap();
+            let (mut app, task) = preview(width, height);
+            draw_language(&mut app, language);
+            key(&mut app, &task, KeyCode::Char('y'));
+            app.planning.pending.take();
+            app.overlay = None;
+            app.editing = true;
+            app.editor_field = store::EditorField::Request;
+            app.input = "Future draft 東京 suffix".into();
+            app.cursor = "Future draft 東京".len();
+            let original = (app.input.clone(), app.cursor, app.focus);
+            let mut config = config();
+            config.language = language;
+            config.ascii = ascii;
+            let mut artwork = super::super::Artwork::load(&config);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            for (phase, code) in [
+                (
+                    crate::providers::FilePhase::Generating,
+                    "draft.rs\n1 | first_code",
+                ),
+                (
+                    crate::providers::FilePhase::Generating,
+                    "draft.rs\n1 | first_code\n2 | next_code",
+                ),
+                (
+                    crate::providers::FilePhase::Received,
+                    "draft.rs\n1 | first_code\n2 | next_code",
+                ),
+                (
+                    crate::providers::FilePhase::Denied,
+                    "draft.rs\n1 | first_code\n2 | next_code",
+                ),
+            ] {
+                app.planning.event(Event::Item {
+                    generation: 11,
+                    task_id: 7,
+                    thread_id: "thread".into(),
+                    turn_id: "turn".into(),
+                    item_id: "file".into(),
+                    kind: ItemKind::File(phase),
+                    text: code.into(),
+                    complete: phase != crate::providers::FilePhase::Generating,
+                });
+                terminal
+                    .draw(|frame| {
+                        super::super::render(frame, &mut app, &config, &mut artwork, "off")
+                    })
+                    .unwrap();
+                let buffer = terminal.backend().buffer();
+                let screen = (0..height)
+                    .map(|y| rendered_row(buffer, buffer.area, y))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                assert!(
+                    screen.contains(language.text(file_phase_message(phase))),
+                    "{screen}"
+                );
+                assert!(
+                    screen.contains(if code.contains("next_code") {
+                        "next_code"
+                    } else {
+                        "first_code"
+                    }),
+                    "{screen}"
+                );
+                assert!(screen.contains("Future draft"), "{screen}");
+                assert_eq!(
+                    (&app.input, app.cursor, app.focus),
+                    (&original.0, original.1, original.2)
+                );
+                assert!(app.editing && app.overlay.is_none());
+                assert_eq!(app.planning.items.len(), 1);
+                assert!(app.planning.pending.is_none() && app.planning.decision.is_none());
+            }
         }
     }
 

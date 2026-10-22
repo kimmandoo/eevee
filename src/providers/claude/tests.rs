@@ -36,16 +36,17 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
     };
     let inspection = json!({
         "type":"capabilities", "sdk_version":"1.5.0", "cli_version":"4.0.0",
-        "bridge_revision":7, "query":true,
+        "bridge_revision":8, "query":true,
         "policy":{"tools":"closed-allowlist","permissions":"default-host-once","mcp":"disabled",
             "configuration":"isolated","authentication":"api-console-cloud-only",
-            "dispatch":"correlated-sdk-submission","usage":"correlated-sdk-snapshots"},
+            "dispatch":"correlated-sdk-submission","usage":"correlated-sdk-snapshots",
+            "file_preview":"display-only-correlated-arguments"},
     });
     assert!(inspection_matches(&inspection, &versions));
     for (field, value) in [
         ("sdk_version", json!("1.5.1")),
         ("cli_version", json!("4.0.1")),
-        ("bridge_revision", json!(5)),
+        ("bridge_revision", json!(7)),
         ("query", json!(false)),
         ("policy", Value::Null),
     ] {
@@ -61,6 +62,7 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
         "authentication",
         "dispatch",
         "usage",
+        "file_preview",
     ] {
         let mut changed = inspection.clone();
         changed["policy"][field] = json!("unknown");
@@ -213,6 +215,147 @@ fn sdk_tool_snapshots_retain_partial_and_preserve_terminal_identity() {
     assert!(items.observe(&pending).is_err());
     assert!(items.observe(&json!({"item_id":"tool-1","kind":"message","text":"provider result","complete":true})).is_err());
     assert!(items.observe(&finished).is_ok());
+}
+
+fn preview_frame(stage: &str, fragment: Option<&str>) -> Value {
+    json!({"type":"file_preview","tool_id":"private-tool-id","tool":"Write","stage":stage,"fragment":fragment})
+}
+
+#[test]
+fn sdk_file_fragments_update_one_display_identity_without_entering_tool_storage() {
+    let input = crate::providers::tests::claimed(Agent::Claude, Operation::Implement, true);
+    let mut previews = SdkFilePreviews::new(&input, 31);
+    let mut tools = SdkItems::default();
+    assert!(
+        previews
+            .observe(&preview_frame("start", None))
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        previews
+            .observe(&preview_frame(
+                "delta",
+                Some(r#"{"file_path":"src/새.rs","content":"first\n"#)
+            ))
+            .unwrap()
+            .is_some()
+    );
+    let growing = previews
+        .observe(&preview_frame("delta", Some(r#"second\n"#)))
+        .unwrap()
+        .unwrap();
+    assert_eq!(growing.1, FilePhase::Generating);
+    assert!(growing.2.contains("first"));
+    assert!(!growing.0.contains("private-tool-id"));
+    assert!(!growing.2.contains("private-tool-id"));
+    previews
+        .observe(&preview_frame("delta", Some(r#"third"}"#)))
+        .unwrap();
+    let received = previews
+        .observe(&preview_frame("stop", None))
+        .unwrap()
+        .unwrap();
+    assert_eq!(received.0, growing.0);
+    assert_eq!(received.1, FilePhase::Received);
+    assert!(received.2.contains("third"));
+    for (stage, phase) in [
+        ("review", FilePhase::AwaitingReview),
+        ("approved", FilePhase::Received),
+        ("reported", FilePhase::Reported),
+    ] {
+        let update = previews
+            .observe(&preview_frame(stage, None))
+            .unwrap()
+            .unwrap();
+        assert_eq!(update.0, growing.0);
+        assert_eq!(update.1, phase);
+        assert_ne!(update.1, FilePhase::Applied);
+    }
+    assert!(
+        previews
+            .observe(&preview_frame("delta", Some("late")))
+            .unwrap()
+            .is_none()
+    );
+    assert!(tools.items.is_empty());
+    assert!(
+        tools
+            .observe(&preview_frame("received", Some("{}")))
+            .is_err()
+    );
+    assert!(tools.items.is_empty());
+}
+
+#[test]
+fn sdk_preview_guards_and_malformed_or_interrupted_inputs_never_claim_success() {
+    for operation in [Operation::Plan, Operation::Review] {
+        let input = crate::providers::tests::claimed(Agent::Claude, operation, false);
+        assert!(
+            SdkFilePreviews::new(&input, 1)
+                .observe(&preview_frame(
+                    "received",
+                    Some(r#"{"file_path":"a","content":"not shown"}"#)
+                ))
+                .unwrap()
+                .is_none()
+        );
+    }
+    let mut input = crate::providers::tests::claimed(Agent::Claude, Operation::Implement, true);
+    input.inspect_models = true;
+    assert!(
+        SdkFilePreviews::new(&input, 1)
+            .observe(&preview_frame("start", None))
+            .unwrap()
+            .is_none()
+    );
+    input.inspect_models = false;
+    input.inspect_sessions = true;
+    assert!(
+        SdkFilePreviews::new(&input, 1)
+            .observe(&preview_frame("start", None))
+            .unwrap()
+            .is_none()
+    );
+    input.inspect_sessions = false;
+    let mut previews = SdkFilePreviews::new(&input, 1);
+    previews.observe(&preview_frame("start", None)).unwrap();
+    let partial = previews
+        .observe(&preview_frame(
+            "delta",
+            Some(r#"{"file_path":"safe.rs","content":"ordinary\nsk-secret123"#),
+        ))
+        .unwrap()
+        .unwrap();
+    assert!(!partial.2.contains("secret123"));
+    let interrupted = previews
+        .observe(&preview_frame("interrupted", None))
+        .unwrap()
+        .unwrap();
+    assert_eq!(interrupted.1, FilePhase::Interrupted);
+    assert!(!interrupted.2.contains("secret123"));
+    assert!(
+        previews
+            .observe(&preview_frame("reported", None))
+            .unwrap()
+            .is_none()
+    );
+    let mut malformed = SdkFilePreviews::new(&input, 2);
+    assert!(
+        malformed
+            .observe(&preview_frame(
+                "received",
+                Some(r#"{"file_path":"safe.rs","content":7}"#)
+            ))
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        malformed
+            .observe(&preview_frame("reported", None))
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]

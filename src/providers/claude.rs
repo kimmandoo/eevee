@@ -1,7 +1,7 @@
 //! Optional Claude Agent SDK host. No Node process exists until reviewed Run.
 //! SDK tool policy/selected-path checks are external agent policy, not an OS sandbox.
 use crate::providers::{
-    Agent, Event, Input, ItemKind, ModelCatalogue, ModelOption, Operation, Outcome,
+    Agent, Event, FilePhase, Input, ItemKind, ModelCatalogue, ModelOption, Operation, Outcome,
     PermissionOption, Preview, Prompt, PromptKind, Question, QuestionOption, Request,
 };
 use parking_lot::Mutex;
@@ -537,7 +537,7 @@ fn inspection_matches(value: &Value, versions: &SdkVersions) -> bool {
     value["type"] == "capabilities"
         && value["sdk_version"].as_str() == Some(versions.sdk.as_str())
         && value["cli_version"].as_str() == Some(versions.cli.as_str())
-        && value["bridge_revision"] == 7
+        && value["bridge_revision"] == 8
         && value["query"] == true
         && value["policy"]
             == json!({
@@ -545,6 +545,7 @@ fn inspection_matches(value: &Value, versions: &SdkVersions) -> bool {
                 "configuration": "isolated", "authentication": "api-console-cloud-only",
                 "dispatch": "correlated-sdk-submission",
                 "usage": "correlated-sdk-snapshots",
+                "file_preview": "display-only-correlated-arguments",
             })
 }
 
@@ -1679,6 +1680,140 @@ impl SdkItems {
     }
 }
 
+struct SdkFilePreview {
+    id: String,
+    edit: bool,
+    stream: super::file_preview::Stream,
+    phase: FilePhase,
+    bytes: usize,
+}
+struct SdkFilePreviews {
+    enabled: bool,
+    generation: u64,
+    calls: HashMap<String, SdkFilePreview>,
+    bytes: usize,
+}
+impl SdkFilePreviews {
+    fn new(input: &Input, generation: u64) -> Self {
+        Self {
+            enabled: input.operation == Operation::Implement
+                && !input.inspect_models
+                && !input.inspect_sessions,
+            generation,
+            calls: HashMap::new(),
+            bytes: 0,
+        }
+    }
+    fn observe(&mut self, value: &Value) -> Result<Option<(String, FilePhase, String)>, String> {
+        if !self.enabled {
+            return Ok(None);
+        }
+        let id = value["tool_id"]
+            .as_str()
+            .ok_or("Missing SDK file preview identity")?;
+        let edit = match value["tool"].as_str() {
+            Some("Write") => false,
+            Some("Edit") => true,
+            _ => return Err("Unsupported SDK file preview tool".into()),
+        };
+        let stage = value["stage"]
+            .as_str()
+            .ok_or("Missing SDK file preview stage")?;
+        if id.is_empty() || id.len() > 256 || safe(id) != id {
+            return Err("Invalid SDK file preview identity".into());
+        }
+        if !self.calls.contains_key(id) {
+            if !matches!(stage, "start" | "received") {
+                return Ok(None);
+            }
+            if self.calls.len() >= 128 {
+                return Ok(None);
+            }
+            self.calls.insert(
+                id.into(),
+                SdkFilePreview {
+                    id: format!(
+                        "eevee-file-sdk-{}-{}",
+                        self.generation,
+                        self.calls.len() + 1
+                    ),
+                    edit,
+                    stream: super::file_preview::Stream::new(edit),
+                    phase: FilePhase::Generating,
+                    bytes: 0,
+                },
+            );
+        }
+        let call = self.calls.get_mut(id).unwrap();
+        if call.edit != edit {
+            return Err("SDK preview changed tool identity".into());
+        }
+        if matches!(
+            call.phase,
+            FilePhase::Denied | FilePhase::Refused | FilePhase::Reported | FilePhase::Interrupted
+        ) {
+            return Ok(None);
+        }
+        match stage {
+            "start" => return Ok(None),
+            "delta" => {
+                if call.phase != FilePhase::Generating {
+                    return Ok(None);
+                }
+                let fragment = value["fragment"]
+                    .as_str()
+                    .ok_or("Missing SDK preview fragment")?;
+                if call.bytes.saturating_add(fragment.len()) > FRAME_LIMIT / 2
+                    || self.bytes.saturating_add(fragment.len()) > 4 * FRAME_LIMIT
+                {
+                    call.phase = FilePhase::Interrupted;
+                } else {
+                    call.bytes += fragment.len();
+                    self.bytes += fragment.len();
+                    call.stream.push(fragment);
+                }
+            }
+            "received" => {
+                if call.phase == FilePhase::AwaitingReview {
+                    return Ok(None);
+                }
+                let fragment = value["fragment"]
+                    .as_str()
+                    .ok_or("Missing SDK complete preview")?;
+                if fragment.len() > FRAME_LIMIT / 2
+                    || self.bytes.saturating_add(fragment.len()) > 4 * FRAME_LIMIT
+                {
+                    return Ok(None);
+                }
+                self.bytes += fragment.len();
+                // A real complete input is a separate observation, never a
+                // rewind of the authoritative tool decoder or journal state.
+                call.stream = super::file_preview::Stream::new(edit);
+                call.stream.push(fragment);
+                call.phase = FilePhase::Received;
+            }
+            "stop" => {
+                if call.phase != FilePhase::Generating {
+                    return Ok(None);
+                }
+                call.phase = FilePhase::Received;
+            }
+            "review" => call.phase = FilePhase::AwaitingReview,
+            "approved" => call.phase = FilePhase::Received,
+            "denied" => call.phase = FilePhase::Denied,
+            "refused" => call.phase = FilePhase::Refused,
+            "reported" => call.phase = FilePhase::Reported,
+            "interrupted" => call.phase = FilePhase::Interrupted,
+            _ => return Err("Unsupported SDK file preview stage".into()),
+        }
+        let complete = !matches!(call.phase, FilePhase::Generating | FilePhase::Interrupted);
+        Ok(call
+            .stream
+            .text(complete)
+            .map(|text| (call.id.clone(), call.phase, text)))
+    }
+}
+
 fn transport(
     workspace: &Workspace,
     run: &Prepared,
@@ -1787,6 +1922,7 @@ fn transport(
         let mut prompts: BTreeMap<String, Prompt> = BTreeMap::new();
         let mut thread_id = String::new();
         let mut items = SdkItems::default();
+        let mut file_previews = SdkFilePreviews::new(&run.input, run.generation);
         let mut seen_prompts = HashSet::new();
         let mut dispatch_receipt_seen = None;
         let journal_nonce = if run.input.inspect_models {
@@ -1798,7 +1934,7 @@ fn transport(
                 .as_nanos()
         };
         let mut usage = SdkTurnUsage::begin(&run.input, sessions)?;
-        pipe.send(json!({"protocol":1,"bridge_revision":7,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
+        pipe.send(json!({"protocol":1,"bridge_revision":8,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
             "request_id":if run.input.inspect_models { None } else { run.input.work.as_ref().map(|work| work.request_id.as_str()) },
             "prompt":if run.input.inspect_models { "" } else { run.text.as_str() },
             "operation":if run.input.inspect_models { "plan" } else { sdk_tool_policy(run.input.operation) },
@@ -1909,6 +2045,12 @@ fn transport(
                             { return Err("SDK session identity mismatch/reuse; no ownership transfer".into()); }
                             thread_id = id.into(); sessions.entry(id.into()).or_insert_with(|| SdkSession { task_id: run.input.task.id, ..SdkSession::default() }); startup = None;
                             emit(events, Event::Thread { generation: run.generation, task_id: run.input.task.id, thread_id: id.into(), model: safe(value["model"].as_str().unwrap_or("unknown")), account: safe(value["account"].as_str().unwrap_or("unknown")) })?;
+                        }
+                        "file_preview" => {
+                            if thread_id.is_empty() || value["session_id"].as_str() != Some(thread_id.as_str()) { return Err("Claude file preview precedes/widens qualified session".into()); }
+                            if let Some((item_id, phase, text)) = file_previews.observe(&value)? {
+                                emit(events, Event::Item { generation: run.generation, task_id: run.input.task.id, thread_id: thread_id.clone(), turn_id: turn.clone(), item_id, kind: ItemKind::File(phase), text, complete: phase != FilePhase::Generating })?;
+                            }
                         }
                         "item" => {
                             if thread_id.is_empty() || value["session_id"].as_str() != Some(thread_id.as_str()) { return Err("Claude item precedes/widens qualified session".into()); }

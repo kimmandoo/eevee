@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { Query, CanUseTool, OnElicitation, Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { SDKPackageSchema, BRIDGE_POLICY, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, SDKWritePolicy, QuestionInputSchema, RunSchema, SDKPolicyError, SDKDispatchReceipt, SDKUsageLedger, querySelection, prepareModels, assertAppliedModel, assertSessionPolicy, credentialRoute, consoleProfile, sdkOutcome } from './policy.ts';
+import { SDKPackageSchema, BRIDGE_POLICY, FRAME_LIMIT, READ_TOOLS, DENIED_TOOLS, SDKWritePolicy, SDKFilePreviews, QuestionInputSchema, RunSchema, SDKPolicyError, SDKDispatchReceipt, SDKUsageLedger, querySelection, prepareModels, assertAppliedModel, assertSessionPolicy, credentialRoute, consoleProfile, sdkOutcome } from './policy.ts';
+import type { FilePreviewFrame } from './policy.ts';
 
 const require = createRequire(import.meta.url);
 const sdkEntry = realpathSync(require.resolve('@anthropic-ai/claude-agent-sdk'));
@@ -66,7 +67,7 @@ const seenRequests = new Set<string>();
 const deny = { behavior: 'deny' as const, message: 'User declined or request cancelled' };
 const meta = () => ({ generation, task_id: taskId });
 
-async function ask(id: string, tool: string, input: unknown, kind: string, signal: AbortSignal, fallback: Response, accept: (answer: Response) => boolean): Promise<Response> {
+async function ask(id: string, tool: string, input: unknown, kind: string, signal: AbortSignal, fallback: Response, accept: (answer: Response) => boolean, onPrompt?: () => Promise<void>): Promise<Response> {
   if (cancelled || signal.aborted || seenRequests.has(id) || pending.size !== 0 || seenRequests.size >= 256) return fallback;
   seenRequests.add(id);
   const { promise, resolve: resolveAnswer } = Promise.withResolvers<Response>();
@@ -80,6 +81,7 @@ async function ask(id: string, tool: string, input: unknown, kind: string, signa
   pending.set(id, { resolve: close, accept, deny: fallback });
   signal.addEventListener('abort', abort, { once: true });
   void emit({ type: 'prompt', ...meta(), request_id: id, session_id: session, item_id: tool, kind, input }).catch(fatal);
+  await onPrompt?.();
   return promise;
 }
 
@@ -137,6 +139,10 @@ async function run(command: z.infer<typeof RunSchema>) {
   const tools = command.inspect_models ? [] : command.operation === 'implement' ? [...READ_TOOLS, 'Edit', 'Write'] : READ_TOOLS;
   const writePolicy = new SDKWritePolicy(command.cwd, command.write_scope,
     [realpathSync(command.state_dir), realpathSync(fileURLToPath(new URL('.', import.meta.url))), dirname(sdkEntry), nativePackage, cli]);
+  const filePreviews = new SDKFilePreviews(!command.inspect_models && command.operation === 'implement');
+  const previewFrames = async (frames: FilePreviewFrame[]) => {
+    for (const frame of frames) await emit({ ...frame, ...meta(), session_id: session });
+  };
   const canUseTool: CanUseTool = async (tool, input, options) => {
     if (cancelled || options.signal.aborted || !tools.includes(tool)) return deny;
     if (['Read', 'Glob', 'Grep'].includes(tool)) {
@@ -159,17 +165,27 @@ async function run(command: z.infer<typeof RunSchema>) {
       return parsed.success ? { behavior: 'allow', updatedInput: { ...input, answers: parsed.data.updatedInput.answers } } : deny;
     }
     const writes = tool === 'Edit' || tool === 'Write';
+    if (writes) await previewFrames(filePreviews.complete(options.toolUseID, tool, input));
     const scope = writes ? writePolicy.begin(options.toolUseID, tool, input) : undefined;
-    if (writes && scope === undefined) return { behavior: 'deny', message: 'Stale, concurrent, duplicate or out-of-scope write refused' };
+    if (writes && scope === undefined) {
+      await previewFrames(filePreviews.phase(options.toolUseID, 'refused'));
+      return { behavior: 'deny', message: 'Stale, concurrent, duplicate or out-of-scope write refused' };
+    }
     let approved = false;
     try {
       const allowed = { behavior: 'allow' as const, updatedInput: input };
       const answer = await ask(id, options.toolUseID, { tool, input, scope, description: options.description, title: options.title, blockedPath: options.blockedPath,
         options: [{ label: 'Deny', answer: deny }, { label: 'Allow once', answer: allowed }], defaultToNo: true, suppressAlwaysAllowRule: true },
-        'approval', options.signal, deny, a => isDeepStrictEqual(a, allowed) || isDeepStrictEqual(a, deny));
+        'approval', options.signal, deny, a => isDeepStrictEqual(a, allowed) || isDeepStrictEqual(a, deny),
+        writes ? () => previewFrames(filePreviews.phase(options.toolUseID, 'review')) : undefined);
       const permission = PermissionSchema.parse(answer);
       if (writes) {
         approved = writePolicy.approve(options.toolUseID, tool, input, permission.behavior === 'allow', cancelled || options.signal.aborted);
+        if (approved) await previewFrames(filePreviews.phase(options.toolUseID, 'approved'));
+        if (!approved) {
+          await previewFrames(filePreviews.phase(options.toolUseID,
+            cancelled || options.signal.aborted ? 'interrupted' : permission.behavior === 'deny' ? 'denied' : 'refused'));
+        }
         return approved ? allowed : deny;
       }
       if (cancelled || options.signal.aborted) return deny;
@@ -269,8 +285,11 @@ async function run(command: z.infer<typeof RunSchema>) {
         await emit({ type: 'thread', ...meta(), session_id: session, model: message.model, account });
       } else if (message.type === 'stream_event') {
         const event = message.event;
+        if (!session || message.session_id !== session) throw new Error('Unqualified SDK stream');
+        if (message.parent_tool_use_id == null && !('isReplay' in message && message.isReplay === true)) {
+          await previewFrames(filePreviews.stream(event));
+        }
         if (event.type === 'message_start') {
-          if (!session || message.session_id !== session) throw new Error('Unqualified SDK stream');
           streamingMessage = event.message.id;
         }
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
@@ -294,6 +313,9 @@ async function run(command: z.infer<typeof RunSchema>) {
             await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: `${message.message.id}:${i}`, kind: 'message', text: block.text, complete: true });
           }
           if (block.type === 'tool_use') {
+            if (message.parent_tool_use_id == null && !('isReplay' in message && message.isReplay === true)) {
+              await previewFrames(filePreviews.complete(block.id, block.name, block.input));
+            }
             if (toolCalls.has(block.id) || toolCalls.size >= 128 || Buffer.byteLength(JSON.stringify(block.input)) > FRAME_LIMIT / 2) throw new Error('SDK tool input retention bound');
             toolCalls.set(block.id, { tool: block.name, input: block.input });
             await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: block.id, kind: 'tool', text: JSON.stringify({ provider: 'Claude Agent SDK', sdk_version: sdkVersion, tool: block.name, observation: 'Argument metadata only; exact input is reviewed separately for consent', input: inputMetadata(block.input), status: 'requested' }), complete: false });
@@ -308,6 +330,7 @@ async function run(command: z.infer<typeof RunSchema>) {
             !writePolicy.finish(block.tool_use_id, call.tool, call.input, block.is_error !== true, 'isReplay' in message && message.isReplay === true)) {
             throw new Error('SDK write result lacks exact approved authority or a verified filesystem outcome');
           }
+          await previewFrames(filePreviews.phase(block.tool_use_id, 'reported'));
           await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: block.tool_use_id, kind: 'tool', text: JSON.stringify({
             provider: 'Claude Agent SDK', sdk_version: sdkVersion, cli_version: cliVersion, coverage: 'provider-native tool result; not an Eevee local command/check or proof of confinement',
             tool: call?.tool, observation: 'Argument metadata only; exact input was reviewed separately for consent', input: inputMetadata(call?.input), result: block.content, is_error: block.is_error, status: block.is_error ? 'failed' : 'completed',
@@ -354,7 +377,7 @@ function fatal(_error: unknown) {
   void emit({ type: 'fatal', ...meta(), message: 'Claude SDK sidecar failed; raw diagnostics withheld; outcome unknown' }).finally(() => { current?.close(); process.exitCode = 1; process.stdin.pause(); }).catch(() => process.exit(1));
 }
 if (process.argv.includes('--inspect')) {
-  await emit({ type: 'capabilities', bridge_revision: 7, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
+  await emit({ type: 'capabilities', bridge_revision: 8, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
     query: typeof query === 'function', approvals: 'canUseTool with exact once/deny answers; no persistent rules', questions: 'AskUserQuestion single-select/free text',
     elicitation: 'distinct onElicitation; MCP disabled so decline/cancel only', resume: 'explicit same-task session ID only',
     usage: 'UUID-correlated main-loop turn and cumulative model-pipeline snapshots; owned completed baselines retained by host, unobserved resumed baseline unknown', confinement: 'agent policy; not OS sandbox', credential_route: credentialRoute(process.env) ?? 'unavailable' });

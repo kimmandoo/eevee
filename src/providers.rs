@@ -5,6 +5,7 @@ pub mod auth;
 pub mod claude;
 pub mod codex;
 pub mod direct;
+pub(crate) mod file_preview;
 pub(crate) mod writes;
 
 use serde::{Deserialize, Serialize};
@@ -452,11 +453,26 @@ pub struct Preview {
     pub payload: String,
     pub blockers: Vec<String>,
 }
+/// Display-only lifecycle; neither a preview nor its completion authorizes effects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FilePhase {
+    Generating,
+    Received,
+    AwaitingReview,
+    Applied,
+    Denied,
+    Refused,
+    Interrupted,
+    Reported,
+    Unknown,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ItemKind {
     Message,
     Plan,
     Tool,
+    File(FilePhase),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {

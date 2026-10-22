@@ -27,6 +27,7 @@ pub(super) struct State {
     pub(super) pending_visible: bool,
     last: Option<CarryOver>,
     visible: bool,
+    explicit: bool,
     report: Option<Arc<repo::Report>>,
     inputs: Option<[u8; 32]>,
     open_hypotheses: usize,
@@ -39,6 +40,7 @@ impl State {
 
     pub(super) fn hide(&mut self) -> bool {
         self.pending_visible = false;
+        self.explicit = false;
         std::mem::replace(&mut self.visible, false)
     }
 }
@@ -55,6 +57,10 @@ impl App {
         self.carry_over.last.as_ref()
     }
 
+    pub fn carry_over_explicit(&self) -> bool {
+        self.carry_over.explicit
+    }
+
     /// Reopen exactly the prior snapshot, not a newly evaluated task summary.
     pub fn reopen_carry_over(&mut self) {
         if let Some(reason) = self.command_disabled_reason("carry-over") {
@@ -69,6 +75,7 @@ impl App {
             self.close_overlay();
         }
         self.carry_over.visible = true;
+        self.carry_over.explicit = true;
     }
 
     pub(super) fn clear_carry_over(&mut self) {
@@ -153,6 +160,7 @@ impl App {
         };
         record.summary = summary(&record);
         self.carry_over.last = Some(record);
+        self.carry_over.explicit = false;
         self.carry_over.visible = std::mem::take(&mut self.carry_over.pending_visible);
         true
     }

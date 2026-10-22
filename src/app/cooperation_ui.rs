@@ -504,7 +504,8 @@ mod tests {
                 .draw(|frame| crate::ui::render(frame, &mut app, &config, &mut artwork, "off"))
                 .unwrap();
             let home = screen(&terminal);
-            assert!(home.contains("Bolt (Flareon) is editing"), "{home}");
+            assert!(home.contains("Bolt (Flareon)"), "{home}");
+            assert!(!home.contains("is editing"), "{home}");
             if width == 60 {
                 assert!(home.contains("3 partners working / waiting"), "{home}");
                 assert!(home.contains("/party-board"), "{home}");

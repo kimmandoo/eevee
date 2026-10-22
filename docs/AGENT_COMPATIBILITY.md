@@ -4,13 +4,19 @@
 
 The binary implements native ChatGPT/OpenAI/Anthropic/Gemini/compatible HTTP connections, the durable local workbench, Codex Plan/controlled Implement, an optional official Claude SDK bridge, ACP1 for OpenCode/Gemini/Devin, and version-1 handoff. **Implemented transport support is not authenticated interoperability acceptance.** Per-service live evidence is recorded in the checkpoint; missing credentials do not become a blanket model-browsing or custom-selection blocker. Existing A04/A06/full A07 agent-conformance gates remain separate. Binding rules live in [DESIGN_RULES.md](DESIGN_RULES.md).
 
+### v0.1.18 live file generation boundary
+
+Display-only file previews use the existing owned chronological transcript, not a separate executor, grant or journal. Native Responses/Chat/Messages deliver genuine argument deltas; decoded cumulative paths/code are bounded and privacy-filtered before excerpting. Native Gemini and Codex expose received whole proposals, not fabricated token streaming. SDK bridge revision **8** forwards actual correlated tool-argument fragments through a distinct bounded display path while the original full-input mandatory hooks and exact consent retain write authority. SDK reported results remain provider-reported/unverified; only actual mediated native/Codex success receipts establish applied files.
+
+Generating, received, waiting approval, applied, denied/refused, interrupted, reported and unknown states are distinct. File previews never become copied decisions, canonical assistant text or retained source evidence. Schema 16 is unchanged. Replace the complete bridge/policy/dependency files together; no authenticated all-provider conformance is implied.
+
 ### v0.1.17 automatic roles and coding boundary
 
 v0.1.17 retains **SDK bridge revision 7** with protocol-1 IPC and complete bridge/policy/dependency files. Schema 16 stores each partner's automatic/manual form mode. Automatic role selection occurs only at an explicit ordinary Request send, before frozen ownership; it never changes the provider/model, restores a form pairing, grants a mutation or executes a command. Read-only Native/Codex roles expose only bounded read/list tools under a nonwriting lease; Implement retains four tools and exact once-only file consent. Necessary role-context changes start fresh owned sessions while old displayed evidence stays attributed.
 
 Frozen root/protected/excluded SDK read authority applies to every noninspection role; Selected/Workspace write authority still requires per-target exact one-shot consent. Mandatory source-tool hooks remain independent of approval callbacks and remain external observational policy, not OS confinement.
 
-Historical v0.1.15 bridge 6 passed 34 policy/production-IPC cases. Current bridge 7 passed **37 policy/actual production-IPC cases**; isolated actual inspection reported Node **24.15.0**, SDK **0.3.300**, embedded CLI **2.1.300**, protocol 1 and query availability. These checks made no authenticated model call and do not qualify live-provider interoperability. Runtime/release evidence is recorded separately in the work checkpoint.
+Historical v0.1.15 bridge 6 passed 34 policy/production-IPC cases. Historical bridge 7 passed **37 policy/actual production-IPC cases**; isolated actual inspection reported Node **24.15.0**, SDK **0.3.300**, embedded CLI **2.1.300**, protocol 1 and query availability. These checks made no authenticated model call and do not qualify live-provider interoperability. Current bridge 8 verification and runtime/release evidence are recorded separately in the work checkpoint.
 
 Published v0.1.17 passed exact-source Check/all-five-native qualification and immutable package promotion. Its downloaded host passed all eight automatic forms in English/Korean at 120×36 and 60×18, actual readonly CRLF read/list/nonwriting leases, reviewed creation/edit, explicit Plan refusal and manual/automatic real restarts; native protocol 176 groups/ten variants and cooperation 24 also passed. These are credential-free deterministic protocol/UI/filesystem checks, not authenticated model understanding or all-provider live conformance.
 
