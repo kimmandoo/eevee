@@ -16,6 +16,7 @@
 - test(coding): removed mandatory implementation-role setup from the real creation journey and exercised discovery, actual source reads and approved edits.
 - fix(evidence): recorded verified post-write digests for mediated mutations instead of decoding obsolete prose; kept reads, denials and provider claims non-authoritative.
 - fix(files): preserved native Unicode filename spelling in Git-backed source discovery and kept optional write restrictions directly accessible from ordinary coding.
+- fix(files): returned portable forward-slash discovery paths and matched directory queries in the same wire spelling without normalizing native filename identity.
 
 ## 0.1.15
 
