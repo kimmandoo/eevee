@@ -2,6 +2,8 @@
 
 ## 2026-10-22
 
+- docs(release): published v0.1.18 from source `fb8791d` after exact-source Check/all-five-native qualification and immutable package promotion, with unchanged Schema 16 and complete SDK bridge 8 upgrade guidance.
+- docs(verification): verified every public asset, sixteen staged bilingual file-generation journeys/64 groups, 24 file journeys/126 groups, automatic roles, continuous scrolling, tooltips, native 176 groups, cooperation 24, six genuine Schema15→16 cases and 23 installation groups/all 34 installed terminal scenarios on the downloaded release.
 - feat(ux): implemented v0.1.18 live file/code previews in the continuous transcript with truthful lifecycle states, compact viewport priority, cumulative privacy filtering and complete SDK bridge 8 support without changing Schema 16 or approval authority.
 - docs(release): published v0.1.17 from exact-source Check/all-five-native qualified immutable packages, with Schema 16 full-backup/downgrade and SDK bridge 7 warnings.
 - docs(verification): verified all eight public asset digests, seven manifest entries, five safe native archives and downloaded bilingual evolution/file/scrolling/tooltips, 176 native protocol groups, 24 cooperation groups, six genuine Schema 15 upgrade/refusal/resume cases and 23 installation groups with all 34 installed terminal scenarios.
