@@ -121,6 +121,16 @@ core-file-picker-control = { "방향키 선택 / Enter 확인 / Esc 입력 유�
 
 core-request-busy-control = { "초안 편집 / Wheel·PgUp/Dn 스크롤 / /cancel" }
 
+core-waiting-for-user = { "사용자 검토 대기 중" }
+
+core-pending-review-banner = { "검토 대기 " }{ $count }{ "건 · Alt+A 검토" }
+
+core-pending-request-control = { "Enter 검토 / Alt+A 가장 오래된 검토 / 초안 유지" }
+
+core-pending-review-control = { "Alt+A 대기 중 요청 검토 / 초안 유지" }
+
+core-response-queued = { "해당 요청 소유자에게 응답 전달 대기 중 · 수신 확인을 기다립니다." }
+
 core-response-request-control = { "Enter 전송 / Wheel·PgUp/Dn 스크롤 / / 명령" }
 
 core-request-control = { "Enter 전송 / Ctrl+N 줄 / @ 파일 / / 명령" }

@@ -2511,6 +2511,7 @@ fn resize_and_quit_reset_permission_to_deny() {
             item_id: "item".into(),
             kind: PromptKind::Permission {
                 description: "Review exact scope".into(),
+                file: None,
                 options: vec![
                     crate::providers::PermissionOption {
                         label: "Deny".into(),
@@ -3676,4 +3677,93 @@ fn one_row_follow_shows_completed_text_instead_of_a_synthetic_newline_row() {
     );
     streamed(&mut state, "answer", "visible final line\n\n", true);
     assert_eq!(state.response_rows(60, 1, false).next(), Some(""));
+}
+
+fn file_review_state() -> State {
+    let mut state = active();
+    state.event(Event::Prompt {
+        generation: 11,
+        task_id: 7,
+        request: Prompt {
+            arrival: crate::providers::approval_arrival(),
+            request_id: json!("file-review"),
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "file".into(),
+            kind: PromptKind::Permission {
+                description: "Exact full content".into(),
+                file: Some(crate::providers::FileReview {
+                    path: "src/새.py".into(),
+                    kind: crate::providers::FileReviewKind::Create,
+                    directories: vec!["src".into()],
+                    bytes: 12,
+                    excerpt: "print('hi')".into(),
+                    edit: false,
+                    external: false,
+                }),
+                options: vec![
+                    crate::providers::PermissionOption {
+                        label: "Deny".into(),
+                        description: String::new(),
+                        answer: json!({"permission":"deny"}),
+                    },
+                    crate::providers::PermissionOption {
+                        label: "Allow once".into(),
+                        description: String::new(),
+                        answer: json!({"permission":"once"}),
+                    },
+                ],
+            },
+        },
+    });
+    state
+}
+
+#[test]
+fn neutral_file_review_enter_inspects_without_sending_the_initial_denial() {
+    let mut state = file_review_state();
+    state.reviewed = true;
+    press(&mut state, KeyCode::Tab, true);
+    press(&mut state, KeyCode::Enter, true);
+    press(&mut state, KeyCode::Enter, true);
+    assert!(state.review_details && state.request.is_some());
+    assert!(state.pending.is_none());
+    // Explicit denial remains available from full details, without end-scrolling.
+    press(&mut state, KeyCode::Char('n'), true);
+    assert!(matches!(
+        state.pending,
+        Some(Request::Answer { request_id, answer, .. })
+            if request_id == json!("file-review") && answer == json!({"permission":"deny"})
+    ));
+}
+
+#[test]
+fn file_allow_keys_require_a_visible_summary_and_a_deliberate_press() {
+    for code in [KeyCode::Char('a'), KeyCode::Char('y')] {
+        let mut state = file_review_state();
+        press(&mut state, code, true);
+        assert!(state.pending.is_none());
+        state.reviewed = true;
+        for key in [
+            KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Repeat),
+            KeyEvent::new(code, KeyModifiers::ALT),
+        ] {
+            state.key(key, true, &task(), &[], None);
+            assert!(state.pending.is_none());
+        }
+        state.invalidate_review();
+        press(&mut state, code, true);
+        assert!(
+            state.pending.is_none(),
+            "invalidated scope authorized a write"
+        );
+        state.reviewed = true;
+        press(&mut state, code, true);
+        assert!(matches!(
+            state.pending.as_ref(),
+            Some(Request::Answer { request_id, answer, .. })
+                if request_id == &json!("file-review") && answer == &json!({"permission":"once"})
+        ));
+        assert!(state.request.is_none());
+    }
 }

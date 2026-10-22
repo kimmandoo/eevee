@@ -95,15 +95,15 @@ class Journey:
             if approve_preview and "y Run" in self.session.display() and not approved:
                 self.session.send("y")
                 approved = True
-            elif approve_preview and "1 pending approvals" in self.session.display() and "/approvals" in self.session.display():
-                self.session.command("approvals")
+            elif approve_preview and "Alt+A" in self.session.display():
+                self.session.send(ESC + "a")
             else:
                 self.session.pump(.05)
 
     def workspace(self):
         for _ in range(20):
             footer = self.session.display().rstrip().splitlines()[-1].strip()
-            if footer.startswith(("Type Request /", "Enter Send /", "Draft only /")):
+            if 'Alt+A' in footer or footer.startswith(("Type Request /", "Enter Send /", "Draft only /")):
                 return footer
             self.session.send("\x13" if "Ctrl+S Save draft/back" in self.session.display() else ESC)
             self.session.pump(.12)
@@ -129,8 +129,8 @@ class Journey:
         if review_future:
             self.session.send("\r")
             if "y Run" not in self.session.display():
-                self.until(lambda: "1 pending approvals" in self.session.display(), "write review was not queued")
-                self.session.command("approvals")
+                self.until(lambda: "Alt+A" in self.session.display(), "write review was not queued")
+                self.session.send(ESC + "a")
             wait_for(self.session, "y Run", timeout=40)
             self.session.send(ESC)
             if self.workspace().startswith("Type Request /"):
@@ -140,7 +140,7 @@ class Journey:
             self.session.paste(future)
             self.session.send("\x13")
             self.until(lambda: self.draft(partner) is not None and self.draft(partner)["text"] == future, "future draft did not commit")
-            self.session.command("approvals")
+            self.session.send(ESC + "a")
             self.until(lambda: any("Request:" in line and text in line for line in self.session.display().splitlines()), "consent did not show the immutable submitted request")
             self.session.capture("immutable-preview-with-newer-draft")
             self.session.send("y")

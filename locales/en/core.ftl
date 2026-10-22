@@ -121,6 +121,16 @@ core-file-picker-control = { "Arrows Choose file / Enter Inspect / Esc Keep text
 
 core-request-busy-control = { "Draft only / Wheel/PgUp/Dn Scroll / /cancel" }
 
+core-waiting-for-user = { "Waiting for you" }
+
+core-pending-review-banner = { $count }{ " waiting for your review · Alt+A Review" }
+
+core-pending-request-control = { "Enter Review / Alt+A Oldest review / draft kept" }
+
+core-pending-review-control = { "Alt+A Review pending request / draft kept" }
+
+core-response-queued = { "Response queued for its exact owner; waiting for acknowledgment." }
+
 core-response-request-control = { "Enter Send / Wheel/PgUp/Dn Scroll / / Commands" }
 
 core-request-control = { "Enter Send / Ctrl+N Newline / @ Files / / Commands" }

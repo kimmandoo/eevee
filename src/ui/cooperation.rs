@@ -14,11 +14,12 @@ use crate::{app::App, config::Config, store};
 /// Extend the factual header without moving the composer or native portrait.
 pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) -> Rect {
     let mut offset = 0;
-    if let Some(claim) = app.write_owner() {
-        let label = format!(
-            "{} is editing",
-            store::Attribution::label(Some(&claim.owner))
-        );
+    if let Some(claim) = app
+        .write_owner()
+        .filter(|claim| !app.partner_approval_pending(claim.owner.partner))
+    {
+        let owner = store::Attribution::label(Some(&claim.owner));
+        let label = format!("{owner} is editing");
         let paragraph = Paragraph::new(label)
             .style(paint.accent)
             .wrap(Wrap { trim: false });
@@ -40,9 +41,32 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) ->
         frame.render_widget(paragraph, row(area, offset, height));
         offset += height;
     } else if app.approval_count() > 0 {
-        let label = format!("{} pending approvals · /approvals", app.approval_count());
+        let label = if app.approval_shortcut_available() {
+            paint.format(
+                crate::i18n::Template::CorePendingReviewBanner,
+                &[("count", &app.approval_count().to_string())],
+            )
+        } else {
+            paint.hint(crate::i18n::Message::CoreWaitingForUser).into()
+        };
         text(frame, row(area, offset, 1), &label, paint.accent);
         offset += 1;
+        if let Some((owner, path)) = app.pending_approval_detail() {
+            // This clipped identity/path is a signpost, never the consent surface.
+            let owner = store::Attribution::label(Some(owner));
+            let detail = if let Some(path) = path {
+                format!("{owner} · {path}")
+            } else {
+                owner
+            };
+            text(
+                frame,
+                row(area, offset, 1),
+                &clipped(&detail, area.width as usize),
+                paint.accent,
+            );
+            offset += 1;
+        }
     }
     row(area, offset, area.height.saturating_sub(offset))
 }
@@ -64,7 +88,9 @@ pub(super) fn strip(
     artwork: &Artwork,
 ) -> Rect {
     let rows = app.work_rows();
-    if rows.is_empty() {
+    if rows.is_empty()
+        || rows.len() == 1 && rows[0].owner.partner == app.lead().id && app.own_approval_pending()
+    {
         return area;
     }
     let height = if app.width < 90 {

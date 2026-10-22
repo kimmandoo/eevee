@@ -724,17 +724,18 @@ fn sdk_creation_permission_exposes_complete_typed_scope_and_exact_answer() {
         "options":[{"label":"Deny","answer":{"behavior":"deny","message":"User declined or request cancelled"}},{"label":"Allow once","answer":allowed}]
     }});
     let kind = prompt_kind(&frame).unwrap();
-    let PromptKind::Permission { description, .. } = &kind else {
-        panic!("permission");
+    let PromptKind::Permission {
+        file: Some(file), ..
+    } = &kind
+    else {
+        panic!("typed file permission");
     };
-    assert_eq!(
-        description.lines().take(3).collect::<Vec<_>>(),
-        [
-            "Kind: Create",
-            "Path: 새 폴더/a.txt",
-            "Missing parents: 새 폴더"
-        ]
-    );
+    assert_eq!(file.path, "새 폴더/a.txt");
+    assert_eq!(file.kind, crate::providers::FileReviewKind::Create);
+    assert_eq!(file.directories, ["새 폴더"]);
+    assert_eq!(file.bytes, 0);
+    assert!(file.excerpt.is_empty());
+    assert!(!file.edit && file.external);
     assert!(provider_answer(&kind, allowed.clone()).is_ok());
     let mut changed = allowed;
     changed["updatedInput"]["content"] = json!("not approved");
@@ -742,6 +743,40 @@ fn sdk_creation_permission_exposes_complete_typed_scope_and_exact_answer() {
     let mut missing = frame;
     missing["input"]["scope"] = Value::Null;
     assert!(prompt_kind(&missing).is_err());
+}
+
+#[test]
+fn sdk_edit_review_uses_typed_scope_and_literal_replacement_not_provider_labels() {
+    let input = json!({"file_path":"src/새.rs","old_string":"old one\nold two","new_string":"새 코드\nnew two"});
+    let allowed = json!({"behavior":"allow","updatedInput":input});
+    let mut frame = json!({"kind":"approval","input":{
+        "tool":"Edit","input":input,
+        "scope":{"kind":"Replace","path":"src/새.rs","directories":[]},
+        "title":"Create something else","description":"untrusted display",
+        "options":[{"label":"provider denial","answer":{"behavior":"deny","message":"No"}},
+                   {"label":"provider permission","answer":allowed}]
+    }});
+    let kind = prompt_kind(&frame).unwrap();
+    let PromptKind::Permission {
+        file: Some(file),
+        options,
+        ..
+    } = &kind
+    else {
+        panic!("typed edit permission");
+    };
+    assert_eq!(file.kind, crate::providers::FileReviewKind::Modify);
+    assert_eq!(file.path, "src/새.rs");
+    assert_eq!(file.bytes, "새 코드\nnew two".len());
+    assert_eq!(file.excerpt, "- old one\n+ 새 코드");
+    assert!(file.edit && file.external && file.directories.is_empty());
+    assert_eq!(options[1].answer, allowed);
+    assert!(provider_answer(&kind, allowed).is_ok());
+    frame["input"]["options"][1]["answer"] = json!({"behavior":"deny","message":"No grant"});
+    assert!(matches!(
+        prompt_kind(&frame).unwrap(),
+        PromptKind::Permission { file: None, .. }
+    ));
 }
 
 #[test]

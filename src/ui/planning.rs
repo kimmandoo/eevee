@@ -16,7 +16,7 @@ use crate::{
     },
     config::Config,
     i18n::{Message, Template},
-    providers::{ItemKind, Operation, PromptKind},
+    providers::{FileReview, FileReviewKind, ItemKind, Operation, PromptKind},
 };
 /// Response-only home surface: reuse the cached layout and follow state.
 pub(super) fn render_workspace(
@@ -140,15 +140,29 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             ],
         )
     });
-    let editing = app.write_owner().map(|claim| {
-        paint.format(
-            Template::ProvidersPlanningIsEditing,
-            &[(
-                "owner",
-                &(crate::store::Attribution::label(Some(&claim.owner))),
-            )],
-        )
-    });
+    let editing = if let Some(PromptKind::Permission {
+        file: Some(file), ..
+    }) = app.planning.request.as_ref().map(|request| &request.kind)
+    {
+        Some(format!(
+            "{} · {}",
+            paint.hint(match file.kind {
+                FileReviewKind::Create => Message::ProvidersPlanningFileCreate,
+                FileReviewKind::Modify => Message::ProvidersPlanningFileModify,
+            }),
+            crate::store::Attribution::label(app.planning.owner()),
+        ))
+    } else {
+        app.write_owner().map(|claim| {
+            paint.format(
+                Template::ProvidersPlanningIsEditing,
+                &[(
+                    "owner",
+                    &crate::store::Attribution::label(Some(&claim.owner)),
+                )],
+            )
+        })
+    };
     let state = &app.planning;
     let is_review = state.preview.is_some()
         || state.request.as_ref().is_some_and(|request| {
@@ -271,7 +285,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             summary.insert(1, format!("Request: {request}"));
         }
         let body = row(content, 1, content.height.saturating_sub(4));
-        state.reviewed = if matches!(
+        state.reviewed = if let Some(PromptKind::Permission {
+            file: Some(file), ..
+        }) = state.request.as_ref().map(|request| &request.kind)
+        {
+            render_file_summary(frame, body, file, paint)
+        } else if matches!(
             state.request.as_ref().map(|request| &request.kind),
             Some(PromptKind::Permission { .. })
         ) {
@@ -365,6 +384,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             PromptKind::Permission {
                 description,
                 options,
+                ..
             } => {
                 value.push_str("PERMISSION / EXACT PROVIDER RESPONSE\n");
                 value.push_str(description);
@@ -548,6 +568,85 @@ pub(super) fn render_summary(
     area.width >= 40 && area.height as usize >= lines.len()
 }
 
+/// Exact operation/path/parent scope owns its rows. Excerpts use only the
+/// remaining space, so long source lines can never hide approval scope.
+fn render_file_summary(frame: &mut Frame, area: Rect, file: &FileReview, paint: &Paint) -> bool {
+    let scope = [
+        paint
+            .hint(match file.kind {
+                FileReviewKind::Create => Message::ProvidersPlanningFileCreate,
+                FileReviewKind::Modify => Message::ProvidersPlanningFileModify,
+            })
+            .to_owned(),
+        paint.format(Template::ProvidersPlanningFilePath, &[("path", &file.path)]),
+        if file.directories.is_empty() {
+            paint
+                .hint(Message::ProvidersPlanningFileNoParents)
+                .to_owned()
+        } else {
+            paint.format(
+                Template::ProvidersPlanningFileParents,
+                &[("paths", &file.directories.join(", "))],
+            )
+        },
+        paint.format(
+            if file.edit {
+                Template::ProvidersPlanningFileReplacementBytes
+            } else {
+                Template::ProvidersPlanningFileContentBytes
+            },
+            &[("bytes", &file.bytes.to_string())],
+        ),
+    ]
+    .join("\n");
+    let scope = Paragraph::new(scope)
+        .style(paint.surface)
+        .wrap(Wrap { trim: false });
+    let scope_rows = scope.line_count(area.width.max(1));
+    let mut footer = String::new();
+    if file.external {
+        footer.push_str(paint.hint(Message::ProvidersPlanningFileExternal));
+        footer.push('\n');
+    }
+    footer.push_str(paint.hint(Message::ProvidersPlanningFileDetails));
+    let footer = Paragraph::new(footer)
+        .style(paint.muted)
+        .wrap(Wrap { trim: false });
+    let footer_rows = footer.line_count(area.width.max(1));
+    let fits = frame.area().width >= 60
+        && frame.area().height >= 18
+        && area.width >= 40
+        && scope_rows + footer_rows < usize::from(area.height);
+    if !fits {
+        frame.render_widget(scope, area);
+        return false;
+    }
+    frame.render_widget(scope, row(area, 0, scope_rows as u16));
+    let preview_rows = usize::from(area.height) - scope_rows - footer_rows;
+    if file.excerpt.is_empty() {
+        text(
+            frame,
+            row(area, scope_rows as u16, 1),
+            paint.hint(Message::ProvidersPlanningFileEmpty),
+            paint.surface,
+        );
+    } else {
+        for (index, line) in file.excerpt.lines().take(preview_rows.min(4)).enumerate() {
+            text(
+                frame,
+                row(area, (scope_rows + index) as u16, 1),
+                &clipped(line, area.width as usize),
+                paint.surface,
+            );
+        }
+    }
+    frame.render_widget(
+        footer,
+        row(area, area.height - footer_rows as u16, footer_rows as u16),
+    );
+    true
+}
+
 fn write_scope_summary(state: &State, paint: &Paint) -> String {
     if state.edit_paths.is_empty() {
         paint
@@ -690,32 +789,32 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
         PromptKind::Permission {
             description,
             options,
+            file,
         } => {
-            // Description is untrusted display, never parsed as authority.
-            // Producers put complete operation/path/directory scope first;
-            // wrapping and fit-gating ensure no approved scope is clipped.
-            lines.extend(
-                description
-                    .lines()
-                    .filter(|line| !line.trim().is_empty())
-                    .take(3)
-                    .map(str::to_owned),
-            );
-            if let Some(option) = options.get(state.option) {
-                lines.push(paint.format(
-                    Template::ProvidersPlanningSelectedPermission,
-                    &[("label", &option.label)],
-                ));
-                lines.push(paint.format(
-                    Template::ProvidersPlanningPermissionEffect,
-                    &[("description", &option.description)],
-                ));
+            if file.is_none() {
+                lines.extend(
+                    description
+                        .lines()
+                        .filter(|line| !line.trim().is_empty())
+                        .take(3)
+                        .map(str::to_owned),
+                );
+                if let Some(option) = options.get(state.option) {
+                    lines.push(paint.format(
+                        Template::ProvidersPlanningSelectedPermission,
+                        &[("label", &option.label)],
+                    ));
+                    lines.push(paint.format(
+                        Template::ProvidersPlanningPermissionEffect,
+                        &[("description", &option.description)],
+                    ));
+                }
+                lines.push(
+                    paint
+                        .hint(Message::ProvidersPlanningDDetailsCompleteRequestAndExactOptions)
+                        .into(),
+                );
             }
-            lines.push(
-                paint
-                    .hint(Message::ProvidersPlanningDDetailsCompleteRequestAndExactOptions)
-                    .into(),
-            );
         }
         PromptKind::Approval {
             command,
@@ -783,7 +882,14 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
 }
 
 fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) {
-    let controls = if state.review_details {
+    let file_details = state.review_details
+        && matches!(
+            state.request.as_ref().map(|request| &request.kind),
+            Some(PromptKind::Permission { file: Some(_), .. })
+        );
+    let controls = if file_details {
+        paint.hint(Message::ProvidersPlanningFileDetailsActions)
+    } else if state.review_details {
         paint.hint(Message::ProvidersPlanningDSummaryPgupDnDetailsEscCancel)
     } else {
         controls(state, paint)
@@ -798,7 +904,7 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
 
 fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     state.set_response_language(paint.language);
-    // The shell header owns progress; this labels the inspected observation.
+    // A completed observation is not a completed turn while user input is pending.
     let active = state.activity_label().is_some();
     let (_, previous) = state.response_request();
     let metadata = if let Some(item) = state.items.get(state.selected) {
@@ -816,7 +922,9 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             },
             state.selected + 1,
             state.items.len(),
-            if item.complete {
+            if !previous && state.request.is_some() {
+                paint.hint(Message::ProvidersPlanningWaitingForReview)
+            } else if item.complete {
                 paint.hint(Message::ProvidersPlanningComplete)
             } else if active && !previous && !state.cancelling {
                 paint.hint(Message::ProvidersPlanningStreaming)
@@ -848,7 +956,7 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         &clipped(&metadata, area.width as usize),
         paint.accent,
     );
-    let show_notice = !active && !state.notice.is_empty();
+    let show_notice = !active && state.request.is_none() && !state.notice.is_empty();
     let show_follow = !state.items.is_empty();
     let show_evidence = show_follow && (super::VERBOSE.get() || state.omitted > 0);
     let footer_rows =
@@ -966,9 +1074,13 @@ fn controls(state: &State, paint: &Paint) -> &'static str {
     }
     if let Some(request) = &state.request {
         return match &request.kind {
-            PromptKind::Permission { .. } => {
-                if !state.reviewed {
+            PromptKind::Permission { file, options, .. } => {
+                if file.is_some() && !state.reviewed {
+                    paint.hint(Message::ProvidersPlanningFileUnavailable)
+                } else if !state.reviewed {
                     paint.hint(Message::ProvidersPlanningDenyAllowUnavailableUntilSummaryIsVisible)
+                } else if file.is_some() && options.len() == 2 {
+                    paint.hint(Message::ProvidersPlanningFileActions)
                 } else {
                     paint.hint(Message::ProvidersPlanningAAllowOnceNDenyYSend)
                 }
@@ -2255,6 +2367,15 @@ mod tests {
                     item_id: "item".into(),
                     kind: PromptKind::Permission {
                         description: format!("Create\nPath: new/새.rs\nCreate directories: new\n--- /dev/null\n+++ new/새.rs\n{}", "+exact content\n".repeat(1000)),
+                        file: Some(FileReview {
+                            path: "new/새.rs".into(),
+                            kind: FileReviewKind::Create,
+                            directories: vec!["new".into()],
+                            bytes: 14000,
+                            excerpt: FileReview::excerpt(&"exact content\n".repeat(1000)),
+                            edit: false,
+                            external: false,
+                        }),
                         options: vec![
                             PermissionOption {
                                 label: "Deny".into(),
@@ -2275,7 +2396,7 @@ mod tests {
                 .map(|y| rendered_row(&buffer, buffer.area, y))
                 .collect::<Vec<_>>()
                 .join("\n");
-            for scope in ["Create", "Path: new/새.rs", "Create directories: new"] {
+            for scope in ["new/새.rs", "new", "exact content", "a/y"] {
                 assert!(screen.contains(scope), "{screen}");
             }
             assert!(app.planning.reviewed);
@@ -2296,13 +2417,9 @@ mod tests {
             key(&mut app, &task, KeyCode::Char('d'));
             draw_language(&mut app, language);
             let saved_scope = match &mut app.planning.request.as_mut().unwrap().kind {
-                PromptKind::Permission { description, .. } => std::mem::replace(
-                    description,
-                    format!(
-                        "Create\nPath: {}\nCreate directories: new",
-                        "nested/".repeat(200)
-                    ),
-                ),
+                PromptKind::Permission {
+                    file: Some(file), ..
+                } => std::mem::replace(&mut file.path, format!("{}file.rs", "nested/".repeat(200))),
                 _ => unreachable!(),
             };
             draw_language(&mut app, language);
@@ -2312,10 +2429,11 @@ mod tests {
             );
             key(&mut app, &task, KeyCode::Char('a'));
             assert!(app.planning.pending.is_none());
-            if let PromptKind::Permission { description, .. } =
-                &mut app.planning.request.as_mut().unwrap().kind
+            if let PromptKind::Permission {
+                file: Some(file), ..
+            } = &mut app.planning.request.as_mut().unwrap().kind
             {
-                *description = saved_scope;
+                file.path = saved_scope;
             }
             app.width = 59;
             draw_language(&mut app, language);
@@ -2550,6 +2668,77 @@ mod tests {
     }
 
     #[test]
+    fn typed_file_summary_shows_localized_operation_empty_and_unicode_source_at_minimum_size() {
+        for tag in ["en", "ko"] {
+            let language = crate::i18n::Language::parse(tag).unwrap();
+            let mut config = config();
+            config.language = language;
+            let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
+            for kind in [FileReviewKind::Create, FileReviewKind::Modify] {
+                for content in ["", "let 인사 = \"안녕\";\n"] {
+                    for external in [false, true] {
+                        let (mut app, _) = bolt_prompt(PromptKind::Permission {
+                            description: "Untrusted generic description is not file metadata"
+                                .into(),
+                            file: Some(FileReview {
+                                path: "src/새.rs".into(),
+                                kind,
+                                directories: Vec::new(),
+                                bytes: content.len(),
+                                excerpt: FileReview::excerpt(content),
+                                edit: false,
+                                external,
+                            }),
+                            options: vec![
+                                PermissionOption {
+                                    label: "provider denial".into(),
+                                    description: "provider text".into(),
+                                    answer: serde_json::json!({"permission":"deny"}),
+                                },
+                                PermissionOption {
+                                    label: "provider permission".into(),
+                                    description: "provider text".into(),
+                                    answer: serde_json::json!({"permission":"once"}),
+                                },
+                            ],
+                        });
+                        let text = screen(&draw_language(&mut app, language));
+                        assert!(app.planning.reviewed, "{text}");
+                        assert!(
+                            text.contains(paint.hint(match kind {
+                                FileReviewKind::Create => Message::ProvidersPlanningFileCreate,
+                                FileReviewKind::Modify => Message::ProvidersPlanningFileModify,
+                            })),
+                            "{text}"
+                        );
+                        assert!(text.contains("src/새.rs") && text.contains("a/y"), "{text}");
+                        assert!(
+                            !text.contains("Untrusted generic")
+                                && !text.contains("provider denial"),
+                            "{text}"
+                        );
+                        if content.is_empty() {
+                            assert!(
+                                text.contains(paint.hint(Message::ProvidersPlanningFileEmpty)),
+                                "{text}"
+                            );
+                        } else {
+                            assert!(text.contains("안녕"), "{text}");
+                        }
+                        if external {
+                            assert!(
+                                text.contains(paint.hint(Message::ProvidersPlanningFileExternal)),
+                                "{text}"
+                            );
+                        }
+                        assert!(app.planning.pending.is_none());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn compact_provider_dialogs_name_the_asking_partner_and_keep_choices() {
         let options = vec![
             PermissionOption {
@@ -2565,6 +2754,7 @@ mod tests {
         ];
         let (mut app, _) = bolt_prompt(PromptKind::Permission {
             description: "write src/lib.rs".into(),
+            file: None,
             options,
         });
         let text = screen(&draw(&mut app));

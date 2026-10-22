@@ -7,6 +7,13 @@
 - test(terminal): required bounded startup stream quiescence before the fixed zero-output idle observation without restarting or filtering the measured window.
 - docs(verification): verified the actual public v0.1.14 binary through 52 English/Korean Wave 6 case executions, both-size response/tooltips, 176 native-protocol groups, 24 cooperation groups, 26 Moves groups, three real Schema 14 upgrade/refusal/resume cases and 23 installation groups with all 34 installed terminal scenarios.
 
+## Unreleased
+
+- fix(ux): exposed pending file reviews directly through owned Enter and FIFO Alt+A without interrupting drafts or searching commands.
+- fix(approval): made neutral file-review Enter inspect contents instead of submitting the initially selected denial and required explicit one-time allow or denial keys.
+- fix(i18n): displayed typed localized create/modify scope, parent directories and bounded actual code/diff excerpts on the initial file review.
+- fix(feedback): distinguished waiting for review from editing/completed output and cleared acknowledged response notices without erasing unrelated errors.
+
 ## 0.1.16
 
 - fix(coding): enabled reviewed coding tools for ordinary Eevee requests on supported routes while preserving explicitly selected read-only roles and consistent form policies.

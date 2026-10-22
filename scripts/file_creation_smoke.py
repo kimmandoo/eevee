@@ -289,8 +289,8 @@ class CreationJourney(SurfaceJourney):
                 self.capture('request-scope-before-inference-' + str(before))
                 self.session.send('y')
                 approved = True
-            elif '/approvals' in view and any(value in view for value in ('pending approval', '대기')):
-                self.session.command('approvals')
+            elif 'Alt+A' in view:
+                self.session.send(ESC + 'a')
             return False
 
         until(self.session, submitted, 'owned scoped implementation did not dispatch', timeout=40)
@@ -301,15 +301,29 @@ class CreationJourney(SurfaceJourney):
         return before
 
     def permission(self, path, *, allow, kind='Create'):
-        self.session.command('approvals')
+        self.workspace()
+        until(self.session, lambda: 'Alt+A' in self.session.display(),
+              'waiting file review had no direct home affordance', timeout=15)
+        self.capture('waiting-for-review-' + path.replace('/', '-')[:70])
+        reviews = getattr(self, '_file_reviews', 0)
+        self.session.send('\r' if reviews % 2 == 0 else ESC + 'a')
+        self._file_reviews = reviews + 1
         wanted = normalized(path)
         until(self.session, lambda: wanted in self.session.display()
               and any(word in self.session.display() for word in ('Allow once', '한 번', '1회')),
               'exact file permission was not visible: ' + path, timeout=40)
         view = self.session.display()
-        assert kind in view or (kind == 'Create' and '생성' in view) or (kind == 'Replace' and '교체' in view)
+        assert kind in view or (kind == 'Create' and '생성' in view) or (kind == 'Replace' and any(label in view for label in ('수정', '교체', 'Modify')))
         self.capture(('allow-' if allow else 'deny-') + path.replace('/', '-')[:70])
-        self.session.send('a' if allow else '\r')
+        if reviews == 0:
+            # Enter means inspect, not the initial selected Deny or an approval.
+            before = len(self.peer.snapshot('POST'))
+            self.session.send('\r\r')
+            assert len(self.peer.snapshot('POST')) == before, 'neutral Enter answered the file request'
+            assert not (self.project / path).exists(), 'neutral inspection created the file'
+            self.capture('enter-inspects-without-answer')
+            self.session.send('d')
+        self.session.send('a' if allow else 'n')
 
     def settled(self, answer, post_count):
         until(self.session, lambda: len(self.peer.snapshot('POST')) == post_count
@@ -527,7 +541,7 @@ class CodexCreationJourney(cooperation_smoke.Journey):
     def workspace(self):
         for _ in range(12):
             footer = self.session.display().rstrip().splitlines()[-1].strip()
-            if footer.startswith(tuple(self.surface[key] for key in ('home', 'edit', 'draft'))):
+            if 'Alt+A' in footer or footer.startswith(tuple(self.surface[key] for key in ('home', 'edit', 'draft'))):
                 return 'Type Request /' if footer.startswith(self.surface['home']) else 'Enter Send /'
             self.session.send(ESC)
         raise AssertionError('controlled request owner not reachable\n' + self.session.display())
@@ -543,8 +557,8 @@ class CodexCreationJourney(cooperation_smoke.Journey):
             if approve_preview and not approved and any(value in view for value in ('y Run', 'y 실행')):
                 self.session.send('y')
                 approved = True
-            elif approve_preview and '/approvals' in view and any(value in view for value in ('pending approval', '대기')):
-                self.session.command('approvals')
+            elif approve_preview and 'Alt+A' in view:
+                self.session.send(ESC + 'a')
             return False
 
         until(self.session, check, reason, timeout)
@@ -565,13 +579,19 @@ def codex_case(binary, output, size, language):
             journey.request(1, marker)
             assert all(row['writing'] for row in journey.snapshot()[2]), 'controlled creation lost writer lease'
             journey.prompt(marker, 'edit')
-            journey.session.command('approvals')
+            journey.until(lambda: 'Alt+A' in journey.session.display(), 'controlled waiting review was not discoverable')
+            journey.session.send(ESC + 'a')
             journey.until(lambda: normalized(FIRST) in journey.session.display()
                           and any(value in journey.session.display() for value in ('Allow once', '한 번', '1회')),
                           'controlled exact new-file permission')
             assert not (journey.project / FIRST).parent.exists(), 'permission preparation created target parents'
             journey.session.capture(marker.lower() + '-exact-scope')
-            journey.session.send('a' if allow else '\r')
+            if not allow:
+                journey.session.send('\r\r')
+                assert not journey.peers('answer', marker), 'neutral inspection denied the controlled write'
+                assert not (journey.project / FIRST).parent.exists()
+                journey.session.send('d')
+            journey.session.send('a' if allow else 'n')
             journey.until(lambda: bool(journey.peers('answer', marker)), 'controlled tool result did not reach exact peer')
             answer = journey.peers('answer', marker)[-1]['result']
             assert answer['success'] is allow, answer
@@ -586,7 +606,7 @@ def codex_case(binary, output, size, language):
             journey.until(lambda: 'Completed ' + marker in journey.session.display(),
                           'controlled final answer was hidden behind earlier tool observations')
             assert journey.source.read_bytes() == before_original, 'new-file tool modified an unrelated existing file'
-            result['cases'].append('controlled exact new-file ' + ('allow' if allow else 'neutral denial'))
+            result['cases'].append('controlled direct file review with neutral inspection and ' + ('allow' if allow else 'explicit denial'))
         marker = 'COOP_SOURCE_CHAIN'
         journey.request(1, marker)
         journey.publish(marker + '.prompt', json.dumps([
@@ -602,7 +622,8 @@ def codex_case(binary, output, size, language):
         assert 'public fixture' in json.dumps(answers[1]), 'controlled read did not return real source bytes'
         assert hashlib.sha256(CONTENT.encode()).hexdigest() in json.dumps(answers[1]), 'controlled read omitted source digest'
         assert (journey.project / FIRST).read_bytes() == CONTENT.encode(), 'controlled observation changed source'
-        journey.session.command('approvals')
+        journey.until(lambda: 'Alt+A' in journey.session.display(), 'controlled edit review was not discoverable')
+        journey.session.send(ESC + 'a')
         journey.until(lambda: normalized(FIRST) in journey.session.display()
                       and any(value in journey.session.display() for value in ('Allow once', '한 번', '1회')),
                       'controlled exact edit permission')

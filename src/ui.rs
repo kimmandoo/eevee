@@ -801,8 +801,9 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
             row(area, 0, 1),
         );
     }
-    let activity = if app.planning.request.is_some() {
-        "Approval needed / /approvals Review"
+    let waiting = app.approval_count() > 0;
+    let activity = if waiting {
+        paint.hint(Message::CoreWaitingForUser)
     } else if app.planning.cancelling {
         "Cancelling provider / /response Status"
     } else if let Some(preview) = app.planning.preview.as_ref() {
@@ -827,7 +828,7 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
     let status = format!(
         "{}  /  {} {activity}",
         app.storage_label(),
-        if app.planning.activity_label().is_some() {
+        if !waiting && app.planning.activity_label().is_some() {
             activity_marker(app.activity_frame, config)
         } else {
             ""
@@ -858,6 +859,9 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
 }
 
 fn suggestion_line<'a>(app: &'a App, paint: &Paint) -> Option<Line<'a>> {
+    if app.planning.request.is_some() {
+        return None;
+    }
     app.visible_suggestion().map(|suggestion| {
         let mut spans = vec![
             Span::raw("Suggested: "),
@@ -1842,6 +1846,14 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
         paint.hint(Message::CoreCommandPickerControl)
     } else if app.composer_menu.is_some() && app.overlay.is_none() {
         paint.hint(Message::CoreFilePickerControl)
+    } else if app.approval_count() > 0 && app.approval_shortcut_available() {
+        if app.own_approval_pending()
+            && (app.composer_is_request() || app.effective_focus() == Pane::Workspace)
+        {
+            paint.hint(Message::CorePendingRequestControl)
+        } else {
+            paint.hint(Message::CorePendingReviewControl)
+        }
     } else if app.editing && app.overlay.is_none() {
         if app.composer_is_request() && app.planning.busy() {
             paint.hint(Message::CoreRequestBusyControl)
@@ -1885,11 +1897,19 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
             None => paint.hint(Message::CoreHomeControl),
         }
     };
-    if !app.notice.is_empty() {
+    let queued_notice = app
+        .approval_response_queued()
+        .then(|| paint.hint(Message::CoreResponseQueued));
+    let notice = if !app.notice.is_empty() {
+        Some(brief(&app.notice))
+    } else {
+        queued_notice.map(Cow::Borrowed)
+    };
+    if let Some(notice) = notice {
         text(
             frame,
             row(area, 0, 1),
-            &clipped(&brief(&app.notice), area.width as usize),
+            &clipped(&notice, area.width as usize),
             paint.accent,
         );
         text(frame, row(area, 1, 1), value, paint.base);

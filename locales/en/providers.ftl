@@ -895,3 +895,37 @@ providers-planning-switch = { "Switch " }{ $previous }{ " → " }{ $next }
 providers-command-unavailable = { "Unavailable: " }{ $reason }
 
 providers-command-identity = { $description }{ " · " }{ $identity }
+
+providers-planning-file-create = { "Create file" }
+
+providers-planning-file-modify = { "Modify file" }
+
+providers-planning-file-path = { "Path: " }{ $path }
+
+providers-planning-file-no-parents = { "New directories: none" }
+
+providers-planning-file-parents = { "Create directories: " }{ $paths }
+
+providers-planning-file-content-bytes = { "New contents · " }{ $bytes }{ " B · excerpt" }
+
+providers-planning-file-replacement-bytes = { "Replacement · " }{ $bytes }{ " B · diff excerpt" }
+
+providers-planning-file-empty = { "(empty file · 0 bytes)" }
+
+providers-planning-file-external = { "External SDK policy; not OS confinement." }
+
+providers-planning-file-details = { "d Complete change, scope & exact request" }
+
+providers-planning-file-actions =
+    { "a/y Allow once | n Deny | Enter/d Details" }
+    { "No saved grant; Enter never sends a decision." }
+
+providers-planning-file-unavailable =
+    { "Allow needs complete visible scope; resize." }
+    { "n Deny | Enter/d Details (no decision)" }
+
+providers-planning-file-details-actions =
+    { "d Back | PgUp/Dn Scroll | n Deny" }
+    { "Enter stays here; allow only from the summary." }
+
+providers-planning-waiting-for-review = { "waiting for your review" }

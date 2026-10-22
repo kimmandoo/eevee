@@ -1821,6 +1821,7 @@ impl Engine<'_> {
                     item_id: item,
                     kind: PromptKind::Permission {
                         description: bounded(&description, 16384).to_owned(),
+                        file: None,
                         options,
                     },
                 },

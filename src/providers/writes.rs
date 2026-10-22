@@ -99,6 +99,24 @@ pub(crate) struct WriteProposal {
     pub directories: Vec<PathBuf>,
 }
 impl WriteProposal {
+    pub(crate) fn file_review(&self) -> super::FileReview {
+        super::FileReview {
+            path: self.path.to_string_lossy().into_owned(),
+            kind: match self.kind {
+                WriteKind::Create => super::FileReviewKind::Create,
+                WriteKind::Replace => super::FileReviewKind::Modify,
+            },
+            directories: self
+                .directories
+                .iter()
+                .map(|directory| directory.to_string_lossy().into_owned())
+                .collect(),
+            bytes: self.content.len(),
+            excerpt: super::FileReview::excerpt(&self.content),
+            edit: false,
+            external: false,
+        }
+    }
     pub(crate) fn description(&self) -> String {
         let mut description = format!(
             "{} file\nPath: {}\n{}\nOnly this exact full UTF-8 content is allowed once. Existing baselines include dirty working bytes; preserve unrelated user changes. No provider-native write grant, commit or verification.\n",

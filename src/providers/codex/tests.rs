@@ -750,12 +750,20 @@ fn exact_write_permissions_do_not_offer_persistent_grants() {
     let PromptKind::Permission {
         description,
         options,
+        file,
     } = &kind
     else {
         panic!("Expected permission")
     };
     assert_eq!(description, &proposal.description());
     assert!(description.contains(&proposal.patch));
+    let file = file.as_ref().expect("typed file review");
+    assert_eq!(file.path, "nested/new.txt");
+    assert_eq!(file.kind, crate::providers::FileReviewKind::Create);
+    assert_eq!(file.directories, ["nested"]);
+    assert_eq!(file.bytes, "새 내용\n".len());
+    assert_eq!(file.excerpt, "새 내용\n");
+    assert!(!file.edit && !file.external);
     assert_eq!(options.len(), 2);
     assert_eq!(options[0].answer, json!({"decision":"decline"}));
     assert_eq!(options[1].answer, json!({"decision":"accept"}));
@@ -792,6 +800,15 @@ fn codex_create_scope_supports_empty_unicode_siblings_and_later_replacement() {
     );
     assert!(empty.patch.starts_with("--- /dev/null\n"));
     let permission = write_permission(&empty);
+    let PromptKind::Permission {
+        file: Some(file), ..
+    } = &permission
+    else {
+        panic!("typed file permission");
+    };
+    assert_eq!(file.path, "새 폴더/하위/empty.txt");
+    assert_eq!(file.bytes, 0);
+    assert!(file.excerpt.is_empty());
     assert!(validate_answer(&permission, &json!({"decision":"decline"})).is_ok());
     assert!(!fixture.root.join("새 폴더").exists());
     assert!(validate_answer(&permission, &json!({"decision":"accept"})).is_ok());
@@ -825,6 +842,15 @@ fn codex_create_scope_supports_empty_unicode_siblings_and_later_replacement() {
     .unwrap();
     assert_eq!(replacement.kind, WriteKind::Replace);
     assert!(replacement.directories.is_empty());
+    let PromptKind::Permission {
+        file: Some(file), ..
+    } = write_permission(&replacement)
+    else {
+        panic!("typed file permission");
+    };
+    assert_eq!(file.kind, crate::providers::FileReviewKind::Modify);
+    assert_eq!(file.bytes, replacement.content.len());
+    assert_eq!(file.excerpt, "now nonempty\n");
     assert!(
         replacement
             .patch
