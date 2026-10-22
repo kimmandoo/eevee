@@ -68,6 +68,45 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) ->
             offset += 1;
         }
     }
+    if app.approval_count() == 0
+        && let Some(transition) = app.evolution.transition
+        && offset + 1 < area.height
+    {
+        let fresh = if transition.fresh {
+            format!(
+                " · {}",
+                paint.hint(crate::i18n::Message::CoreEvolutionFresh)
+            )
+        } else {
+            String::new()
+        };
+        let label = paint.format(
+            crate::i18n::Template::CoreEvolutionTransition,
+            &[
+                (
+                    "mode",
+                    paint.hint(if app.lead().auto_form {
+                        crate::i18n::Message::CoreEvolutionAuto
+                    } else {
+                        crate::i18n::Message::CoreEvolutionManual
+                    }),
+                ),
+                ("from", crate::domain::FORMS[transition.from].name),
+                ("to", crate::domain::FORMS[transition.to].name),
+                ("reason", paint.hint(transition.reason)),
+                ("fresh", &fresh),
+            ],
+        );
+        let paragraph = Paragraph::new(label)
+            .style(paint.muted)
+            .wrap(Wrap { trim: false });
+        let height = paragraph
+            .line_count(area.width.max(1))
+            .min(2)
+            .min(area.height.saturating_sub(offset + 1) as usize) as u16;
+        frame.render_widget(paragraph, row(area, offset, height));
+        offset += height;
+    }
     row(area, offset, area.height.saturating_sub(offset))
 }
 

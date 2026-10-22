@@ -80,6 +80,7 @@ impl Fixture {
         let mut task = super::super::Snapshot::empty(self.project.clone());
         task.goal = "Preserve factual local records".into();
         task.form = 5;
+        task.auto_form = false;
         task.revision = 1;
         state.save(task).unwrap()
     }
@@ -1022,7 +1023,7 @@ fn records_queue_retains_full_authored_bytes_on_backpressure_and_disconnect() {
 }
 
 #[test]
-fn schema15_migration_and_old_writer_admission_are_strict_and_quota_rolls_back_local_writes() {
+fn schema14_migration_and_current_admission_are_strict_and_quota_rolls_back_local_writes() {
     let fixture = Fixture::new();
     let mut state = fixture.open();
     let task = fixture.task(&mut state);
@@ -1031,7 +1032,7 @@ fn schema15_migration_and_old_writer_admission_are_strict_and_quota_rolls_back_l
     assert!(
         validate_planning_input(&state.data_dir, &task, &[])
             .unwrap_err()
-            .contains("schema 15")
+            .contains("schema 16")
     );
     {
         let connection = state.connection.as_mut().unwrap();
@@ -1063,7 +1064,7 @@ fn schema15_migration_and_old_writer_admission_are_strict_and_quota_rolls_back_l
             .unwrap()
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        15
+        16
     );
     validate_planning_input(&state.data_dir, &task, &[]).unwrap();
     let old = load_task(

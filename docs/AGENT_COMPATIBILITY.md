@@ -4,9 +4,11 @@
 
 The binary implements native ChatGPT/OpenAI/Anthropic/Gemini/compatible HTTP connections, the durable local workbench, Codex Plan/controlled Implement, an optional official Claude SDK bridge, ACP1 for OpenCode/Gemini/Devin, and version-1 handoff. **Implemented transport support is not authenticated interoperability acceptance.** Per-service live evidence is recorded in the checkpoint; missing credentials do not become a blanket model-browsing or custom-selection blocker. Existing A04/A06/full A07 agent-conformance gates remain separate. Binding rules live in [DESIGN_RULES.md](DESIGN_RULES.md).
 
-### v0.1.16 coding and accounting boundary
+### v0.1.17 automatic roles and coding boundary
 
-v0.1.16 requires **SDK bridge revision 7** with protocol-1 IPC and complete bridge/policy/dependency files. Frozen root/protected/excluded read authority now applies to noninspection Plan/Review too; Selected/Workspace write authority still requires per-target exact one-shot consent. Mandatory source-tool hooks are independent of approval callbacks and remain external observational policy, not OS confinement.
+v0.1.17 retains **SDK bridge revision 7** with protocol-1 IPC and complete bridge/policy/dependency files. Schema 16 stores each partner's automatic/manual form mode. Automatic role selection occurs only at an explicit ordinary Request send, before frozen ownership; it never changes the provider/model, restores a form pairing, grants a mutation or executes a command. Read-only Native/Codex roles expose only bounded read/list tools under a nonwriting lease; Implement retains four tools and exact once-only file consent. Necessary role-context changes start fresh owned sessions while old displayed evidence stays attributed.
+
+Frozen root/protected/excluded SDK read authority applies to every noninspection role; Selected/Workspace write authority still requires per-target exact one-shot consent. Mandatory source-tool hooks remain independent of approval callbacks and remain external observational policy, not OS confinement.
 
 Historical v0.1.15 bridge 6 passed 34 policy/production-IPC cases. Current bridge 7 passed **37 policy/actual production-IPC cases**; isolated actual inspection reported Node **24.15.0**, SDK **0.3.300**, embedded CLI **2.1.300**, protocol 1 and query availability. These checks made no authenticated model call and do not qualify live-provider interoperability. Runtime/release evidence is recorded separately in the work checkpoint.
 

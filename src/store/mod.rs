@@ -49,6 +49,8 @@ const TASK_COLUMNS_V3: &str = "project, goal, form, revision, id, criteria, next
 const TASK_COLUMNS_V5: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted, command";
 const TASK_COLUMNS_V6: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted, command, workflows, memory_draft, approved_memories, workflow_draft";
 const TASK_COLUMNS: &str = "project, goal, form, revision, id, criteria, next_action, complete, drafts, navigation, updated_at, archived, archived_at, redacted, command, workflows, memory_draft, approved_memories, workflow_draft, lead_partner, partner_drafts";
+const TASK_AUTO_FORM: &str =
+    "(SELECT auto_form FROM partners WHERE partners.id=tasks.lead_partner)";
 const EMPTY_WORKFLOW_COLUMNS: &str = "'{}','null','[]','null'";
 const MAX_WORKFLOW_BYTES: usize = 512 * 1024;
 const MAX_MEMORY_BYTES: usize = 64 * 1024;
@@ -102,6 +104,9 @@ pub struct Snapshot {
     pub project: String,
     pub goal: String,
     pub form: usize,
+    /// Canonical lead-partner mode, persisted independently of its current form.
+    #[serde(default = "default_auto_form")]
+    pub auto_form: bool,
     /// The task's lead partner (Schema 7 `tasks.lead_partner`). Exported
     /// snapshots written before partners existed default to partner #1.
     #[serde(default = "default_lead_partner")]
@@ -151,6 +156,7 @@ impl Snapshot {
             project,
             goal: String::new(),
             form: 0,
+            auto_form: true,
             lead_partner: 1,
             revision: 0,
             id: 0,
@@ -253,6 +259,8 @@ pub struct Partner {
     pub id: i64,
     pub nickname: Option<String>,
     pub form: usize,
+    #[serde(default = "default_auto_form")]
+    pub auto_form: bool,
     /// Unix milliseconds; `met_derived` marks a value reconstructed from task
     /// history during the Schema 7 migration rather than a real first meeting.
     pub met_at: i64,
@@ -267,11 +275,16 @@ impl Default for Partner {
             id: 1,
             nickname: None,
             form: 0,
+            auto_form: true,
             met_at: 0,
             met_derived: true,
             created_project: String::new(),
         }
     }
+}
+
+fn default_auto_form() -> bool {
+    true
 }
 
 /// Who produced a run or provider observation (PT06A): the partner id plus a

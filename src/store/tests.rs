@@ -41,6 +41,7 @@ fn usage(directory: &Directory) -> u64 {
 fn first_partner(form: usize) -> Partner {
     Partner {
         form,
+        auto_form: false,
         ..Partner::default()
     }
 }
@@ -392,6 +393,7 @@ fn snapshot(project: &str, revision: u64) -> Snapshot {
     Snapshot {
         goal: "保持 Unicode goal".into(),
         form: 3,
+        auto_form: false,
         revision,
         ..Snapshot::empty(project.into())
     }
@@ -523,7 +525,7 @@ fn migrates_documented_schema_zero_and_one_atomically() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            15
+            16
         );
         assert!(connection.prepare("SELECT * FROM goals").is_err());
         assert!(connection.prepare("SELECT * FROM projects").is_err());
@@ -540,7 +542,7 @@ fn newer_foreign_and_corrupt_databases_are_untouched() {
         } else {
             let connection = Connection::open(&path).unwrap();
             connection.execute_batch(if fixture == 0 {
-                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=16;"
+                    "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=17;"
                 } else {
                     "CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('keep');"
                 }).unwrap();
@@ -1090,12 +1092,6 @@ fn process_interruption_recovers_legacy_and_current_committed_tasks() {
                 .query_row("SELECT count(*) FROM tasks", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
             101
-        );
-        assert_eq!(
-            connection
-                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-                .unwrap(),
-            15
         );
     }
 }
@@ -3244,6 +3240,7 @@ fn schema_six_store_migrates_partner_one_and_resumes_tasks_unchanged() {
             id: 1,
             nickname: None,
             form: 5,
+            auto_form: false,
             met_at: 200000,
             met_derived: true,
             created_project: "other".into(),
@@ -3935,12 +3932,6 @@ fn schema_eight_migrates_request_drafts_without_changing_task_facts() {
         )
         .unwrap();
     initialize(&mut connection).unwrap();
-    assert_eq!(
-        connection
-            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-            .unwrap(),
-        15
-    );
     let mut task = Snapshot::empty("/workspace".into());
     task.goal = "Stable task identity".into();
     task.next_action = "Existing task fact".into();
@@ -4114,10 +4105,12 @@ fn stored_table_rows(connection: &Connection, table: &str) -> Vec<Vec<rusqlite::
 }
 
 #[test]
-fn schema_ten_dismissal_migration_only_changes_version_and_rolls_back_atomically() {
+fn schema_ten_dismissal_migration_preserves_rows_and_rolls_back_atomically() {
     let directory = Directory::new();
     let mut store = state(&directory, "project", Policy::default());
-    let task = store.save(snapshot("project", 1)).unwrap();
+    let mut original = snapshot("project", 1);
+    original.auto_form = false;
+    let task = store.save(original).unwrap();
     store.select(task.id).unwrap();
     store
         .context(ContextRequest {
@@ -4204,15 +4197,17 @@ fn schema_ten_dismissal_migration_only_changes_version_and_rolls_back_atomically
     {
         let transaction = connection.transaction().unwrap();
         migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
-        assert_eq!(
-            transaction
-                .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
-                .unwrap(),
-            15
-        );
         assert!(matches!(inspect(&transaction).unwrap(), Schema::Current));
         for (table, rows) in tables.iter().zip(&before) {
-            assert_eq!(stored_table_rows(&transaction, table), *rows, "{table}");
+            let actual = stored_table_rows(&transaction, table);
+            assert_eq!(actual.len(), rows.len(), "{table}");
+            for (actual, expected) in actual.iter().zip(rows) {
+                assert_eq!(
+                    actual.get(..expected.len()),
+                    Some(expected.as_slice()),
+                    "{table}"
+                );
+            }
         }
         // Aborting this actual migration transaction also rolls back the version fence.
     }
@@ -4226,14 +4221,16 @@ fn schema_ten_dismissal_migration_only_changes_version_and_rolls_back_atomically
         assert_eq!(stored_table_rows(&connection, table), *rows, "{table}");
     }
     initialize(&mut connection).unwrap();
-    assert_eq!(
-        connection
-            .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
-            .unwrap(),
-        15
-    );
     for (table, rows) in tables.iter().zip(&before) {
-        assert_eq!(stored_table_rows(&connection, table), *rows, "{table}");
+        let actual = stored_table_rows(&connection, table);
+        assert_eq!(actual.len(), rows.len(), "{table}");
+        for (actual, expected) in actual.iter().zip(rows) {
+            assert_eq!(
+                actual.get(..expected.len()),
+                Some(expected.as_slice()),
+                "{table}"
+            );
+        }
     }
     let restored = load_task(&connection, "project", task.id).unwrap().unwrap();
     assert_eq!(restored, task);
@@ -4812,14 +4809,16 @@ fn schema_twelve_work_migration_preserves_old_rows_and_transactional_fence() {
     {
         let transaction = connection.transaction().unwrap();
         migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
-        assert_eq!(
-            transaction
-                .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
-                .unwrap(),
-            15
-        );
         for (table, rows) in tables.iter().zip(&before) {
-            assert_eq!(stored_table_rows(&transaction, table), *rows, "{table}");
+            let actual = stored_table_rows(&transaction, table);
+            assert_eq!(actual.len(), rows.len(), "{table}");
+            for (actual, expected) in actual.iter().zip(rows) {
+                assert_eq!(
+                    actual.get(..expected.len()),
+                    Some(expected.as_slice()),
+                    "{table}"
+                );
+            }
         }
     }
     assert_eq!(
@@ -4831,6 +4830,354 @@ fn schema_twelve_work_migration_preserves_old_rows_and_transactional_fence() {
     initialize(&mut connection).unwrap();
     inspect(&connection).unwrap();
     for (table, rows) in tables.iter().zip(&before) {
-        assert_eq!(stored_table_rows(&connection, table), *rows, "{table}");
+        let actual = stored_table_rows(&connection, table);
+        assert_eq!(actual.len(), rows.len(), "{table}");
+        for (actual, expected) in actual.iter().zip(rows) {
+            assert_eq!(
+                actual.get(..expected.len()),
+                Some(expected.as_slice()),
+                "{table}"
+            );
+        }
+    }
+}
+
+#[test]
+fn schema15_auto_form_migration_is_conservative_atomic_and_preserves_all_other_rows() {
+    fn retained_rows(connection: &Connection) -> Vec<(String, Vec<Vec<rusqlite::types::Value>>)> {
+        let mut tables = connection
+            .prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name!='partners' ORDER BY name")
+            .unwrap();
+        let names = tables
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        names
+            .into_iter()
+            .map(|name| {
+                let mut statement = connection
+                    .prepare(&format!("SELECT * FROM \"{name}\" ORDER BY rowid"))
+                    .unwrap();
+                let count = statement.column_count();
+                let rows = statement
+                    .query_map([], |row| {
+                        (0..count)
+                            .map(|index| row.get(index))
+                            .collect::<rusqlite::Result<Vec<rusqlite::types::Value>>>()
+                    })
+                    .unwrap()
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .unwrap();
+                (name, rows)
+            })
+            .collect()
+    }
+
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let second = store.add_partner().unwrap().last().unwrap().id;
+    let mut eevee = Snapshot::empty("project".into());
+    eevee.goal = "Preserve shared task facts".into();
+    eevee.partner_drafts = partner_drafts(vec![Draft {
+        field: EditorField::Request,
+        text: "Retain this exact outgoing draft".into(),
+        cursor: 7,
+    }]);
+    let eevee = store.save(eevee).unwrap();
+    let mut specialist = snapshot("project", 1);
+    specialist.lead_partner = second;
+    let specialist = store.save(specialist).unwrap();
+    let mut source = captured_excerpt(
+        eevee.id,
+        &directory.0.join("source.rs"),
+        "Retained source evidence",
+    );
+    source.id = 17;
+    let record = ProviderRecord {
+        id: "retained-provider-record".into(),
+        agent: crate::providers::Agent::Codex,
+        generation: 1,
+        thread_id: "retained-thread".into(),
+        turn_id: "retained-turn".into(),
+        item_id: "retained-item".into(),
+        origin: "Observed fixture output".into(),
+        coverage: "Retained observation only".into(),
+        text: "Retain journal bytes".into(),
+        complete: true,
+        partner: None,
+    };
+    store
+        .journal_request(JournalRequest {
+            task_id: eevee.id,
+            operation: JournalOperation::Put(Box::new(record)),
+        })
+        .unwrap();
+    let mut connection = store.connection.take().unwrap();
+    connection
+        .execute(
+            "INSERT INTO excerpts(id,task_id,record) VALUES (?1,?2,?3)",
+            params![
+                source.id,
+                source.task_id,
+                serde_json::to_string(&source).unwrap()
+            ],
+        )
+        .unwrap();
+    connection
+        .execute_batch(
+            "UPDATE sqlite_sequence SET seq=700 WHERE name='partners';
+             ALTER TABLE partners DROP COLUMN auto_form;
+             PRAGMA user_version=15;",
+        )
+        .unwrap();
+    let before = retained_rows(&connection);
+    let partner_rows = |connection: &Connection| {
+        let mut statement = connection
+            .prepare("SELECT id,nickname,form,met_at,met_derived,created_project FROM partners ORDER BY id")
+            .unwrap();
+        statement
+            .query_map([], |row| {
+                (0..6)
+                    .map(|index| row.get(index))
+                    .collect::<rusqlite::Result<Vec<rusqlite::types::Value>>>()
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    };
+    let before_partners = partner_rows(&connection);
+    {
+        let transaction = connection.transaction().unwrap();
+        migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
+        assert_eq!(retained_rows(&transaction), before);
+        assert_eq!(partner_rows(&transaction), before_partners);
+        let roster = partners(&transaction).unwrap();
+        assert!(
+            roster
+                .iter()
+                .find(|partner| partner.id == 1)
+                .unwrap()
+                .auto_form
+        );
+        assert!(
+            !roster
+                .iter()
+                .find(|partner| partner.id == second)
+                .unwrap()
+                .auto_form
+        );
+        inspect(&transaction).unwrap();
+        // Dropping the transaction restores the entire old layout and contents.
+    }
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        15
+    );
+    assert!(
+        connection
+            .prepare("SELECT auto_form FROM partners")
+            .is_err()
+    );
+    assert_eq!(retained_rows(&connection), before);
+    initialize(&mut connection).unwrap();
+    assert_eq!(retained_rows(&connection), before);
+    assert_eq!(partner_rows(&connection), before_partners);
+    assert_eq!(
+        load_task(&connection, "project", eevee.id).unwrap(),
+        Some(eevee)
+    );
+    assert_eq!(
+        load_task(&connection, "project", specialist.id).unwrap(),
+        Some(specialist)
+    );
+    store.connection = Some(connection);
+    let added = store.add_partner().unwrap();
+    let new_partner = added.last().unwrap();
+    assert!(new_partner.id > 700 && new_partner.auto_form && new_partner.form == 0);
+}
+
+#[test]
+fn automatic_and_manual_modes_are_global_durable_and_independent_of_current_form() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let second = store.add_partner().unwrap().last().unwrap().id;
+    let mut manual = snapshot("project", 1);
+    manual.partner_drafts = partner_drafts(vec![Draft {
+        field: EditorField::Request,
+        text: "Keep partner-owned draft".into(),
+        cursor: 4,
+    }]);
+    let manual = store.save(manual).unwrap();
+    let mut automatic = Snapshot::empty("project".into());
+    automatic.lead_partner = second;
+    automatic.form = 6;
+    automatic.goal = "Preserve this second task".into();
+    let automatic = store.save(automatic).unwrap();
+    let facts = manual.clone();
+    let mut changed_lead = manual.clone();
+    changed_lead.lead_partner = second;
+    changed_lead.form = 6;
+    changed_lead.auto_form = true;
+    changed_lead.revision += 1;
+    let mut changed_lead = store.save(changed_lead).unwrap();
+    assert_eq!(changed_lead.goal, facts.goal);
+    assert_eq!(changed_lead.criteria, facts.criteria);
+    assert_eq!(changed_lead.partner_drafts, facts.partner_drafts);
+    // Manual Eevee and automatic specialist are distinct, valid stored modes.
+    changed_lead.form = 0;
+    changed_lead.auto_form = false;
+    changed_lead.revision += 1;
+    changed_lead = store.save(changed_lead).unwrap();
+    assert!(
+        !load_task(store.connection.as_ref().unwrap(), "project", automatic.id)
+            .unwrap()
+            .unwrap()
+            .auto_form
+    );
+    changed_lead.form = 8;
+    changed_lead.auto_form = true;
+    changed_lead.revision += 1;
+    let changed_lead = store.save(changed_lead).unwrap();
+    drop(store);
+    let mut reopened = state(&directory, "project", Policy::default());
+    let project = load(reopened.connection.as_ref().unwrap(), "project").unwrap();
+    assert_eq!(
+        project.tasks.iter().find(|task| task.id == changed_lead.id),
+        Some(&changed_lead)
+    );
+    let partner = project
+        .partners
+        .iter()
+        .find(|partner| partner.id == second)
+        .unwrap();
+    assert_eq!((partner.form, partner.auto_form), (8, true));
+    let original = project
+        .partners
+        .iter()
+        .find(|partner| partner.id == 1)
+        .unwrap();
+    assert_eq!((original.form, original.auto_form), (manual.form, false));
+    assert!(
+        project
+            .tasks
+            .iter()
+            .find(|task| task.id == automatic.id)
+            .unwrap()
+            .auto_form
+    );
+    let other_project = load(reopened.connection.as_ref().unwrap(), "other-project").unwrap();
+    assert_eq!(other_project.partners, project.partners);
+    reopened.select(automatic.id).unwrap();
+    drop(reopened);
+    let reopened = state(&directory, "project", Policy::default());
+    let restored = load(reopened.connection.as_ref().unwrap(), "project").unwrap();
+    assert_eq!(restored.active_id, Some(automatic.id));
+    assert_eq!(restored.partners, project.partners);
+    assert_eq!(restored.tasks, project.tasks);
+}
+
+#[test]
+fn failed_task_save_rolls_back_partner_form_and_mode_together() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let original = store.save(snapshot("project", 1)).unwrap();
+    let roster = partners(store.connection.as_ref().unwrap()).unwrap();
+    store.policy.quota_bytes = 1;
+    let mut changed = original.clone();
+    changed.form = 7;
+    changed.auto_form = true;
+    changed.goal = "Must not partially commit".into();
+    changed.revision += 1;
+    assert!(store.save(changed).is_err());
+    assert_eq!(
+        partners(store.connection.as_ref().unwrap()).unwrap(),
+        roster
+    );
+    assert_eq!(
+        load_task(store.connection.as_ref().unwrap(), "project", original.id).unwrap(),
+        Some(original)
+    );
+}
+
+#[test]
+fn invalid_auto_form_and_future_schema_are_refused_before_mutable_open() {
+    for invalid in [Some(-1), Some(2), None] {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        store.save(snapshot("project", 1)).unwrap();
+        let connection = store.connection.as_ref().unwrap();
+        assert!(
+            connection
+                .execute("UPDATE partners SET auto_form=2 WHERE id=1", [])
+                .is_err()
+        );
+        if let Some(value) = invalid {
+            connection
+                .execute_batch("PRAGMA ignore_check_constraints=ON;")
+                .unwrap();
+            connection
+                .execute("UPDATE partners SET auto_form=?1 WHERE id=1", [value])
+                .unwrap();
+        } else {
+            connection.pragma_update(None, "user_version", 17).unwrap();
+        }
+        drop(store);
+        let path = directory.0.join(DATABASE);
+        let before = fs::read(&path).unwrap();
+        assert!(preflight(&path).is_err());
+        let reopened = worker(&directory, "project");
+        assert!(matches!(
+            event(&reopened),
+            Event::Failed { revision: None, .. }
+        ));
+        drop(reopened);
+        assert_eq!(fs::read(&path).unwrap(), before);
+    }
+}
+
+#[test]
+fn partner_release_resumes_the_retained_partners_mode_without_changing_facts() {
+    for retained_auto in [false, true] {
+        let directory = Directory::new();
+        let mut store = state(&directory, "project", Policy::default());
+        let second = store.add_partner().unwrap().last().unwrap().id;
+        let mut retained = snapshot("project", 1);
+        retained.auto_form = retained_auto;
+        let retained = store.save(retained).unwrap();
+        let mut released = snapshot("project", 1);
+        released.lead_partner = second;
+        released.form = 7;
+        released.auto_form = !retained_auto;
+        released.goal = "Facts shared independently of personal mode".into();
+        let released = store.save(released).unwrap();
+        let project = store.release_partner(second).unwrap();
+        let repaired = project
+            .tasks
+            .iter()
+            .find(|task| task.id == released.id)
+            .unwrap();
+        assert_eq!(repaired.lead_partner, retained.lead_partner);
+        assert_eq!(
+            (repaired.form, repaired.auto_form),
+            (retained.form, retained_auto)
+        );
+        assert_eq!(repaired.goal, released.goal);
+        assert_eq!(repaired.criteria, released.criteria);
+        assert_eq!(repaired.next_action, released.next_action);
+        let expected = repaired.clone();
+        drop(store);
+        let reopened = state(&directory, "project", Policy::default());
+        assert_eq!(
+            load_task(
+                reopened.connection.as_ref().unwrap(),
+                "project",
+                released.id
+            )
+            .unwrap(),
+            Some(expected)
+        );
     }
 }

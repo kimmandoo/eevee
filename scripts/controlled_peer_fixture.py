@@ -69,7 +69,7 @@ def peer():
             elif method == "model/list": result = dict(data=[dict(model="fixture-coop", displayName="Fixture cooperation", isDefault=True)], nextCursor=None)
             elif method in ("thread/start", "thread/resume"):
                 thread = params.get("threadId", thread)
-                record("session", method=method, thread=thread)
+                record("session", method=method, thread=thread, tools=[tool["name"] for tool in params.get("dynamicTools", [])])
                 cwd = params["cwd"]
                 result = dict(thread=dict(id=thread), cwd=cwd, model=params.get("model", "fixture-coop"), reasoningEffort=params.get("config", {}).get("model_reasoning_effort"), approvalPolicy="on-request", approvalsReviewer="user", sandbox=dict(type="readOnly", networkAccess=False))
             elif method == "turn/start":

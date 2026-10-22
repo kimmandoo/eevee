@@ -93,6 +93,7 @@ core-help-content =
     { " /goal /criteria     선택적 작업 사실" }
     { " /party /lead NAME   파트너와 선두" }
     { " /forms /role        진화와 역할" }
+    { " 이브이: 전송 시 자동 선택; 전문가 선택: 수동 고정." }
     { " /files /search      소스 컨텍스트와 파일명 검색" }
     { " /run /execute       명령 실행 근거 / 준비된 명령 검토" }
     { " /output-search      보관된 명령 출력 검색" }
@@ -220,3 +221,17 @@ core-editor-title = { " " }편집 { $field } / { $partner }{ " " }
 core-editor-status =
     { $count } / 4096 바이트{ $warning }
     { $controls }
+
+core-evolution-auto = { "자동" }
+core-evolution-manual = { "수동" }
+core-evolution-discovery = { "읽기 / 탐색" }
+core-evolution-verification = { "명령 / 검증; 로컬 실행 없음" }
+core-evolution-implementation = { "코드 / 파일 변경; 승인 필요" }
+core-evolution-planning = { "설계 / 계획" }
+core-evolution-diagnosis = { "진단 / 보안" }
+core-evolution-refactor = { "리팩터링; 승인 필요" }
+core-evolution-review = { "독립 검토" }
+core-evolution-documentation = { "문서 / 인수인계" }
+core-evolution-readonly = { "읽기 전용 지시" }
+core-evolution-fresh = { "새 맥락; 대화 표시 유지" }
+core-evolution-transition = { $mode } { $from } → { $to }: { $reason }{ $fresh }

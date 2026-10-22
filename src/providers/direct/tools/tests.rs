@@ -85,7 +85,7 @@ fn advertisements_are_exact_native_function_declarations() {
         Protocol::Gemini,
     ] {
         let mut body = json!({"policy":"immutable"});
-        advertise(&mut body, protocol);
+        advertise(&mut body, protocol, true);
         assert_eq!(body["policy"], "immutable");
         let declaration = match protocol {
             Protocol::Responses | Protocol::Codex | Protocol::Messages => &body["tools"][0],

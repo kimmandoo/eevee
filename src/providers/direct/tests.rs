@@ -921,6 +921,8 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
         let connection =
             config::test_connection(protocol, "https://example.invalid/v1", Some("exact-model"));
         let scope = connection.conversation_scope();
+        let writes =
+            WriteSet::capture_readonly(&workspace.project, &workspace.data_dir, &[]).unwrap();
         let mut history = None;
         let mut expected = Vec::new();
         for (index, (user, assistant)) in [
@@ -953,7 +955,7 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
             input.inspect_models = false;
             input.task = task.clone();
             input.conversation = history.clone();
-            let payload = payload(&workspace, &input, &connection, None).unwrap();
+            let payload = payload(&workspace, &input, &connection, Some(&writes)).unwrap();
             let body: Value = serde_json::from_str(&payload).unwrap();
             expected.push(("user".into(), user.into()));
             assert_eq!(role_texts(&body, protocol), expected);
@@ -979,7 +981,7 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
                 input: Box::new(input),
                 payload,
                 fingerprint: connection.fingerprint(),
-                writes: None,
+                writes: Some(writes.clone()),
             };
             validate_prepared(&workspace, &run, &connection).unwrap();
             if index == 1 {
@@ -989,7 +991,7 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
                     Some("exact-model"),
                 );
                 assert!(
-                    super::payload(&workspace, &run.input, &moved, None)
+                    super::payload(&workspace, &run.input, &moved, run.writes.as_ref())
                         .unwrap_err()
                         .contains("/chat-new")
                 );
@@ -998,7 +1000,7 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
                     input: run.input.clone(),
                     payload: run.payload.clone(),
                     fingerprint: run.fingerprint.clone(),
-                    writes: None,
+                    writes: run.writes.clone(),
                 };
                 let original = changed.input.conversation.as_ref().unwrap();
                 let mut replaced = (**original).clone();
@@ -1072,7 +1074,7 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
             ]
             .into(),
         }));
-        let error = payload(&workspace, &oversized, &connection, None).unwrap_err();
+        let error = payload(&workspace, &oversized, &connection, Some(&writes)).unwrap_err();
         assert!(error.contains("1 MiB") && error.contains("/chat-new"));
         assert_eq!(
             oversized.conversation.as_ref().unwrap().messages[0]
@@ -1297,11 +1299,7 @@ fn inference_headers_prove_one_frozen_dispatch_even_for_http_errors() {
     .flat_map(|protocol| [200, 400, 401, 429, 500].map(|status| (protocol, status)))
     {
         let mut run = prepared();
-        run.input = Box::new(crate::providers::tests::claimed(
-            Agent::Compatible,
-            Operation::Plan,
-            false,
-        ));
+        *run.input = crate::providers::tests::claimed(Agent::Compatible, Operation::Plan, false);
         let events = Arc::new(Mutex::new(VecDeque::new()));
         let stopped = AtomicBool::new(false);
         let cancelled = AtomicU64::new(0);
@@ -1337,11 +1335,7 @@ fn inference_headers_prove_one_frozen_dispatch_even_for_http_errors() {
 #[test]
 fn failed_local_admission_and_unproven_transport_never_emit_dispatch_receipts() {
     let mut run = prepared();
-    run.input = Box::new(crate::providers::tests::claimed(
-        Agent::Compatible,
-        Operation::Plan,
-        false,
-    ));
+    *run.input = crate::providers::tests::claimed(Agent::Compatible, Operation::Plan, false);
     let events = Arc::new(Mutex::new(VecDeque::new()));
     let stopped = AtomicBool::new(false);
     let cancelled = AtomicU64::new(7);

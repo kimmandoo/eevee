@@ -77,7 +77,11 @@ impl App {
             self.notice = "Type a request and enlarge the terminal before sending.".into();
             return true;
         }
-        if self.pending_request.is_some() || self.planning.busy() {
+        if self.pending_request.is_some()
+            || self.planning.busy()
+            || self.partner_busy(self.lead().id)
+            || self.partner_approval_pending(self.lead().id)
+        {
             self.notice = "Finish or cancel this partner's request before sending another. Your draft is kept.".into();
             return true;
         }
@@ -89,7 +93,10 @@ impl App {
             self.notice = "Restore this task before preparing a request.".into();
             return true;
         }
-        self.planning.prepare_ordinary_operation(self.form());
+        let intent_operation = self.evolve_request();
+        if !intent_operation && (self.form() == 0 || !self.lead().auto_form) {
+            self.planning.prepare_ordinary_operation(self.form());
+        }
         if self.goal.trim().is_empty() {
             self.goal.clone_from(&self.input);
         }

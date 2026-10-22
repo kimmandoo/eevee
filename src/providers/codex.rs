@@ -40,14 +40,22 @@ fn capture_writes(
     input: &Input,
     exclusions: &[PathBuf],
 ) -> Result<Option<WriteSet>, String> {
-    if input.inspect_models {
+    if input.inspect_models || input.inspect_sessions {
         return Ok(None);
+    }
+    input.validate_committed(data_dir)?;
+    if input
+        .work
+        .as_ref()
+        .is_none_or(|claim| claim.writing != super::writing_required(input.operation))
+    {
+        return Err("Codex file tools require their operation-bound durable lease".into());
     }
     if input.operation != Operation::Implement {
         if !input.edit_paths.is_empty() {
             return Err("Plan and Review requests cannot carry write paths".into());
         }
-        return Ok(None);
+        return WriteSet::capture_readonly(root, data_dir, exclusions).map(Some);
     }
     if input.edit_paths.is_empty() {
         WriteSet::capture_workspace(root, data_dir, exclusions).map(Some)
@@ -214,6 +222,7 @@ struct Prepared {
     input: Box<Input>,
     trust: crate::providers::agent::PlanningTrust,
     text: String,
+    // Frozen file context: read-only for Plan/Review, mutation-capable for Implement.
     writes: Option<WriteSet>,
 }
 fn emit(events: &Events, event: Event) -> Result<(), String> {
@@ -339,6 +348,9 @@ fn worker(
                     if input.resume.is_some() {
                         preview.blockers.push("Controlled implementation requires a fresh thread; planning/resumed threads do not carry the dynamic write tool".into());
                     }
+                }
+                if !input.inspect_models && input.operation != Operation::Implement {
+                    preview.trust.push("READ ONLY: only eevee_list_files and eevee_read_file inspect bounded safe project bytes through the frozen root/privacy/exclusion baseline and a nonwriting lease. No dynamic mutation tools, mutation approval or command escalation. Provider readOnly/network-disabled policy is acknowledged, not an Eevee process sandbox; independent provider/config/MCP reads or side effects remain outside controlled tool coverage.".into());
                 }
                 if !input.inspect_models && input.operation == Operation::Review {
                     preview.trust.push("REVIEW: fresh requirements/patch/selected-observation context and a new provider thread. No implementation transcript, dynamic edit tool, native file-write approval or command escalation. Read-only is acknowledged provider policy, not an Eevee OS sandbox; independent provider configuration remains disclosed.".into());
@@ -473,8 +485,17 @@ fn payload(
     }
     input.validate_review()?;
     input.validate_committed(data_dir)?;
+    if writes.is_none_or(|scope| scope.writing() != super::writing_required(input.operation)) {
+        return Err("Codex file capability differs from the frozen operation scope".into());
+    }
     if let Some(text) = input.review_payload(data_dir, exclusions)? {
-        return Ok(text);
+        let mut review: Value =
+            serde_json::from_str(&text).map_err(|_| "Cannot decode review context")?;
+        review["file_tool_policy"] = json!(
+            "Use eevee_list_files and eevee_read_file for actual bounded safe project context. Read/list only; no mutations, command escalation or verification."
+        );
+        return serde_json::to_string_pretty(&review)
+            .map_err(|_| "Cannot encode review context".into());
     }
     let sources = crate::workspace::context::planning_payload(
         input.task.id,
@@ -499,7 +520,7 @@ fn payload(
         (_, _) => json!([]),
     };
     let text = serde_json::to_string_pretty(&json!({
-        "purpose": if input.operation == Operation::Plan { "Plan the user's task. Do not implement changes. Ask the user when a decision is needed; report proposals as unverified planning, never as local execution evidence." } else { "Answer the user's current request directly; do not force ordinary conversation into planning or unnecessary tool calls. When project context is needed, use eevee_list_files to discover safe names and eevee_read_file to inspect actual working bytes. When file changes are requested, actually call eevee_write_file to create files or eevee_edit_file with a preceding read sha256 and unique literal old_text to edit them; fenced code alone is not a filesystem change. Mutations accept literal root-relative paths, at most 64 KiB per resulting file and 8 distinct write targets. Empty edit_paths allows workspace targets; nonempty edit_paths restricts writes, not context reads. Freeze every target and full resulting content before exact allow-once review. Preserve unrelated dirty bytes and CRLF; do not replace a file from partial read context. Never use apply_patch, shell writes, MCP, delegation, commits or merge. Native filesystem writes and command escalations are denied. Refusals are not success. Report local effects only from actual tool results; no verification is implied." },
+        "purpose": if input.operation == Operation::Plan { "Answer the user's current request directly; plan only when requested and do not implement changes. When project context is needed, use eevee_list_files and eevee_read_file for actual bounded safe working bytes. No mutation tools, mutation permission, commands or verification. Ask the user when a decision is needed; report proposals as unverified planning, never as local execution evidence." } else { "Answer the user's current request directly; do not force ordinary conversation into planning or unnecessary tool calls. When project context is needed, use eevee_list_files to discover safe names and eevee_read_file to inspect actual working bytes. When file changes are requested, actually call eevee_write_file to create files or eevee_edit_file with a preceding read sha256 and unique literal old_text to edit them; fenced code alone is not a filesystem change. Mutations accept literal root-relative paths, at most 64 KiB per resulting file and 8 distinct write targets. Empty edit_paths allows workspace targets; nonempty edit_paths restricts writes, not context reads. Freeze every target and full resulting content before exact allow-once review. Preserve unrelated dirty bytes and CRLF; do not replace a file from partial read context. Never use apply_patch, shell writes, MCP, delegation, commits or merge. Native filesystem writes and command escalations are denied. Refusals are not success. Report local effects only from actual tool results; no verification is implied." },
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
         "request": input.instruction(),
         "operation": input.operation,
@@ -1247,6 +1268,16 @@ fn revalidate(
     run: &Prepared,
 ) -> Result<(), String> {
     run.input.validate_selection()?;
+    if !run.input.inspect_models
+        && !run.input.inspect_sessions
+        && run
+            .input
+            .work
+            .as_ref()
+            .is_none_or(|claim| claim.writing != super::writing_required(run.input.operation))
+    {
+        return Err("Codex file tools lost their operation-bound durable lease".into());
+    }
     if let Some(writes) = &run.writes {
         writes.verify()?;
     }
@@ -1484,8 +1515,8 @@ impl Engine<'_> {
         revalidate(self.project, self.data_dir, self.exclusions, self.run)?;
         (self.model, self.effort) = self.catalogue.select(&self.run.input.selection)?;
         let mut params = json!({"cwd":self.project,"model":self.model,"sandbox":"read-only","approvalPolicy":"on-request","approvalsReviewer":"user","config":{"model_reasoning_effort":self.effort,"features.multi_agent":false,"web_search":"disabled","allow_login_shell":false}});
-        if self.run.input.operation == Operation::Implement {
-            params["dynamicTools"] = Value::Array(definitions().into_iter().map(|entry| {
+        if let Some(scope) = &self.run.writes {
+            params["dynamicTools"] = Value::Array(definitions(scope.writing()).into_iter().map(|entry| {
                 json!({"type":"function","name":entry["name"],"description":entry["description"],"inputSchema":entry["parameters"]})
             }).collect());
         }
@@ -1991,6 +2022,18 @@ impl Engine<'_> {
     }
     fn revalidate_write_session(&self) -> Result<(), String> {
         self.run.input.validate_committed(self.data_dir)?;
+        if self
+            .run
+            .input
+            .work
+            .as_ref()
+            .is_none_or(|claim| claim.writing != super::writing_required(self.run.input.operation))
+            || self.writes.as_ref().is_none_or(|scope| {
+                scope.writing() != super::writing_required(self.run.input.operation)
+            })
+        {
+            return Err("Codex file tools lost their operation-bound durable lease".into());
+        }
         crate::providers::agent::revalidate_planning_trust(self.project, &self.run.trust)?;
         self.writes
             .as_ref()
@@ -1998,19 +2041,18 @@ impl Engine<'_> {
             .verify()
     }
     fn request_write(&mut self, id: Value, params: &Value) -> Result<(), String> {
-        let observational = requested_tool(params).map(|tool| (!tool.mutating()).then_some(tool));
-        if let Ok(Some(tool)) = observational {
-            let result = (|| -> Result<Value, String> {
-                if self.run.input.operation != Operation::Implement {
-                    return Err("This operation does not advertise project file tools".into());
-                }
-                self.revalidate_write_session()?;
-                identity(params, "callId")?;
-                self.writes
-                    .as_mut()
-                    .ok_or("Frozen file scope missing")?
-                    .observe_tool(&tool)
-            })();
+        // Identity/authority failures are terminal, not model-correctable source
+        // refusals. Check them before observing or enrolling any target.
+        identity(params, "callId")?;
+        self.revalidate_write_session()?;
+        let tool = requested_tool(params)?;
+        if !tool.mutating() {
+            let result = self
+                .writes
+                .as_mut()
+                .ok_or("Frozen file scope missing")?
+                .observe_tool(&tool);
+            self.revalidate_write_session()?;
             let (success, text) = match result {
                 Ok(value) => (
                     true,
@@ -2177,17 +2219,17 @@ impl Engine<'_> {
                 -32800,
                 "Stale, uncorrelated, cancelled or completed turn request refused",
             )?;
-            return self.status("Stale/uncorrelated server request explicitly refused");
+            return Err("Stale/uncorrelated server request refused; transport stopped".into());
         }
         self.run.input.validate_committed(self.data_dir)?;
         if method == "item/tool/call" {
             return self.request_write(id, params);
         }
-        if method == "item/commandExecution/requestApproval"
-            && self.run.input.operation != Operation::Plan
-        {
+        if method == "item/commandExecution/requestApproval" {
             self.queue(json!({"id":id,"result":{"decision":"decline"}}))?;
-            return self.status("Command escalation denied: implementation/review cannot grant command effects; choose an explicitly approved local check separately");
+            return self.status(
+                "Command escalation denied: choose an explicitly approved local check separately",
+            );
         }
         if method == "item/fileChange/requestApproval" {
             self.queue(json!({"id":id,"result":{"decision":"decline"}}))?;

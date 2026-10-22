@@ -778,6 +778,11 @@ impl App {
         if !self.records.loaded {
             return false;
         }
+        // Automatic selection preserves the actual provider/model/effort, even
+        // when a committed pairing exists for the newly selected specialist.
+        if self.lead().auto_form {
+            return true;
+        }
         let owner = self.attribution();
         let context = (self.task_id, owner.partner, owner.form);
         if self.records.pairing_context != Some(context) {
@@ -1507,6 +1512,7 @@ mod tests {
     #[test]
     fn repeated_snapshot_restoration_never_overwrites_explicit_newer_choice() {
         let mut app = App::new("/project".into(), 60, 18);
+        app.lead.auto_form = false; // This test exercises deliberate manual pairings.
         app.records.loaded = true;
         app.planning.preference_event(Ok(None));
         let owner = app.attribution();

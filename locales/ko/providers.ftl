@@ -166,7 +166,7 @@ providers-planning-scope-model-metadata-only-no-task-prompt = { "범위: 모델 
 
 providers-planning-workspace-path-proposals = { "작업공간 경로 제안 · 정확한 일회성 승인(d)." }
 
-providers-planning-text-response-only-no-tools-or-local = { "텍스트 응답만 생성하며 도구나 로컬 쓰기는 없습니다." }
+providers-planning-read-list-only-no-mutation-tools-or-permission = { "제한된 프로젝트 읽기/목록만 제공하며 변경 도구나 권한은 없습니다." }
 
 providers-planning-scoped-credential-headers-provider-network-billing = { "범위가 제한된 인증 헤더를 사용하며 제공자 네트워크/요금이 적용됩니다." }
 

@@ -229,6 +229,13 @@ def call_ids(protocol, body):
             for part in row.get('parts', []) if 'functionCall' in part]
 
 
+def advertised_tools(protocol, body):
+    entries = body.get('tools', [])
+    if protocol == 'gemini':
+        return {entry['name'] for group in entries for entry in group.get('functionDeclarations', [])}
+    return {entry.get('function', entry)['name'] for entry in entries}
+
+
 class CreationJourney(SurfaceJourney):
     def setup_route(self):
         session = self.session
@@ -297,7 +304,10 @@ class CreationJourney(SurfaceJourney):
         claims = self.snapshot()['claims']
         assert len(claims) == 1 and bool(claims[0]['writing']) is writing, 'native operation bypassed its actual lease mode'
         body = self.peer.snapshot('POST')[before]['body']
-        assert bool(body.get('tools')) is writing, 'native operation advertised the wrong tool capability'
+        expected = {'eevee_list_files', 'eevee_read_file'}
+        if writing:
+            expected |= {'eevee_write_file', 'eevee_edit_file'}
+        assert advertised_tools(self.protocol, body) == expected, 'native operation advertised the wrong file capability'
         return before
 
     def permission(self, path, *, allow, kind='Create'):
@@ -481,7 +491,8 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
                 collision = 'collision.txt'
                 before = journey.begin('Propose a file whose path will change before approval.', [response_plan(peer, calls=[
                     {'id': 'collide-create', 'path': collision, 'content': 'must not overwrite\n'}], number=6)])
-                journey.session.command('approvals')
+                until(journey.session, lambda: 'Alt+A' in journey.session.display(), 'collision review was not discoverable')
+                journey.session.send(ESC + 'a')
                 until(journey.session, lambda: collision in journey.session.display()
                       and any(v in journey.session.display() for v in ('Allow once', '한 번', '1회')),
                       'creation permission before external collision')
@@ -498,7 +509,7 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
                 gate.ready.clear()
                 gate.release.clear()
                 answer = 'Read-only fixture complete.'
-                before = journey.begin('Inspect the request without granting file tools.',
+                before = journey.begin('Inspect the request without granting any file changes.',
                                        [response_plan(peer, text=answer, gate=gate, number=10)], writing=False)
                 until(journey.session, gate.ready.is_set, 'read-only response did not reach terminal gate')
                 gate.release.set()
@@ -638,6 +649,30 @@ def codex_case(binary, output, size, language):
         journey.until(lambda: 'Completed ' + marker in journey.session.display(),
                       'controlled final source answer was hidden behind tool observations')
         result['cases'].append('ordinary controlled discovery/read/hash-bound edit with real CRLF bytes and one-shot consent')
+        journey.until(lambda: not journey.session.display().rstrip().splitlines()[-1].strip().startswith(journey.surface['draft']),
+                      'controlled writer UI did not finish settling')
+        journey.session.command('role-plan')
+        journey.workspace()
+        marker = 'COOP_SOURCE_READONLY'
+        journey.request(1, marker)
+        claims = journey.snapshot()[2]
+        assert len(claims) == 1 and not claims[0]['writing'], 'controlled Plan acquired writing authority'
+        assert set(journey.peers('session')[-1]['tools']) == {'eevee_list_files', 'eevee_read_file'}, 'controlled Plan advertised mutation tools'
+        journey.publish(marker + '.prompt', json.dumps([
+            {'name': 'eevee_list_files', 'arguments': {'query': 'generated', 'offset': 0}},
+            {'name': 'eevee_read_file', 'arguments': {'path': FIRST, 'start_line': 1, 'end_line': 0}}]))
+        journey.until(lambda: len(journey.peers('answer', marker)) == 2, 'controlled readonly source calls did not settle')
+        answers = journey.peers('answer', marker)
+        assert all(row['result']['success'] for row in answers), answers
+        actual_content = CONTENT.replace('"public fixture"', '"edited fixture"').encode()
+        assert hashlib.sha256(actual_content).hexdigest() in json.dumps(answers[1])
+        assert 'edited fixture' in json.dumps(answers[1])
+        assert normalized(FIRST) in normalized(json.dumps(answers[0], ensure_ascii=False))
+        assert (journey.project / FIRST).read_bytes() == actual_content
+        assert journey.source.read_bytes() == before_original
+        journey.finish(marker)
+        journey.until(lambda: not journey.claims(), 'controlled readonly ownership did not settle')
+        result['cases'].append('controlled Plan advertises only read/list, uses a nonwriting lease and returns actual dirty CRLF source bytes/digest without approval or mutation')
         journey.quit()
         result['status'] = 'passed'
     except Exception as error:

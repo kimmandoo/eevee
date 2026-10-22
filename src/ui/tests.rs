@@ -614,6 +614,59 @@ fn suggestion_wraps_without_replacing_response_or_composer() {
     }
 }
 
+#[test]
+fn automatic_evolution_keeps_advisory_chrome_out_of_the_response_viewport() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height) in [(120, 36), (60, 18)] {
+        for automatic in [false, true] {
+            let mut app = App::new("/workspace".into(), width, height);
+            app.store_event(crate::store::Event::Loaded(crate::store::Project {
+                tasks: Vec::new(),
+                partners: vec![crate::store::Partner {
+                    form: 3,
+                    auto_form: automatic,
+                    ..Default::default()
+                }],
+                active_id: None,
+                usage_bytes: 0,
+            }));
+            app.suggestion = Some(crate::app::suggestions::Suggestion {
+                form: 4,
+                reason: "An advisory alternative remains inspectable.".into(),
+                trigger: "task:0:criteria".into(),
+            });
+            app.input = "Retained future draft 한글".into();
+            app.cursor = 9;
+            let area = Rect::new(0, 0, width, height);
+            let paint = Paint::new(&config, &FORMS[app.form()], app.form());
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            let mut response_area = area;
+            terminal
+                .draw(|frame| response_area = suggestion_strip(frame, area, &app, &paint))
+                .unwrap();
+            if automatic {
+                assert_eq!(
+                    response_area, area,
+                    "already routed requests need no competing advisory strip"
+                );
+            } else {
+                assert!(
+                    response_area.height < area.height,
+                    "manual forms retain their advisory strip"
+                );
+            }
+            assert!(
+                app.visible_suggestion().is_some(),
+                "rendering must not dismiss advisory evidence"
+            );
+            assert_eq!(app.input, "Retained future draft 한글");
+            assert_eq!(app.cursor, 9);
+            assert!(app.planning.pending.is_none());
+        }
+    }
+}
+
 fn carry_over_home(width: u16, height: u16) -> App {
     use crate::workspace::{
         context::Excerpt,
