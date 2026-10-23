@@ -73,9 +73,10 @@ class Journey(files.CreationJourney):
     def catalog(self):
         path = self.data / 'workbench.sqlite3'
         with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as db:
-            rows = db.execute('SELECT document FROM tool_catalog WHERE project=?', (str(self.project.resolve()),)).fetchall()
+            rows = [document for project, document in db.execute('SELECT project, document FROM tool_catalog')
+                    if Path(project).samefile(self.project)]
         assert len(rows) <= 1
-        return json.loads(rows[0][0]) if rows else None
+        return json.loads(rows[0]) if rows else None
 
     def setup_catalog(self, path, *, cancel=False):
         before = copy.deepcopy(self.catalog())

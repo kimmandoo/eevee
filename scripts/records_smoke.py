@@ -175,8 +175,9 @@ class Journey(MovesJourney):
         return state
 
     def rows(self, table, project=None):
-        project = str(self.project) if project is None else str(project)
-        return [row for row in self.state()[table] if row.get('project', project) == project]
+        project = self.project if project is None else Path(project)
+        return [row for row in self.state()[table]
+                if 'project' not in row or Path(row['project']).samefile(project)]
 
     def records(self, table):
         return [row['record'] for row in self.rows(table)]
