@@ -58,7 +58,7 @@ ev update --check   # read-only release check
 ev update           # upgrade in place
 ev uninstall        # remove the binary; keep user data
 ```
-Install and `ev update` show the same animation from release lookup through installation, respecting UTF-8 and `NO_COLOR`. Redirected output, CI and dumb terminals use static phase messages; `ev update --check` remains read-only.
+Install and `ev update` share truthful animated phases, respecting UTF-8 and `NO_COLOR`. Use POSIX installer `--no-animation`, PowerShell installer `-NoAnimation`, or `ev update --no-animation` for static phases. Redirected output, CI and dumb terminals remain static and escape-free; `ev update --check` stays read-only.
 
 
 Use a terminal of at least **60 × 18** (120 × 36 recommended).
@@ -100,6 +100,7 @@ ev --help
 | `/nickname` | Set a local partner nickname (up to 12 graphemes); Enter saves, empty clears, Esc keeps the old name. Names never become automatic provider or handoff context. |
 | `/party` / `/lead <name>` | Inspect/add local partners or choose the lead; fronting a partner never sends or cancels its work. |
 | `/party-board` | Inspect working/waiting partners and each request's own model/receipt; choose an owner to front. Compact home shows a count instead of three full rows. |
+| `/formation [path]` / `/formation-save [path]` | Preview a saved formation or review saving the current party as create-only TOML; map roles to existing partners before explicit application. |
 | `/approvals` | Focus the oldest pending command, permission or question. Escape defers without answering; each answer remains bound to its owner/request. |
 | `/cancel` / `/cancel-all` | Cancel only the lead's work / review every owned request before cancelling all and waiting for settlement. |
 | `/journal-discard` | After a definite terminal outcome, neutrally review discarding only provably unsaved failed journal write attempts. Committed observations remain; a coverage-gap notice remains visible. Unknown outcomes and ambiguous commits refuse; nothing is replayed. |
@@ -107,6 +108,7 @@ ev --help
 | `/suggestion-dismiss` / Forms picker `d` | Hide the current task's exact evidence-based form suggestion, including after restart; a new triggering run can recommend again. Does not select a form or start work. |
 | `/move` / form surface `m` | Open this partner/form's four-slot move menu; Enter stages the ordinary review, `d` opens optional details. Escape restores the original draft/caret. |
 | `/teach-move` / `/move-reminder` | Review teaching the current approved run, selected pins, last submitted user instruction or task facts / revisit forgotten and postponed moves. |
+| `/move-import [path]` / `/move-export [path]` | Review a portable TM's local recipient/name/scope/slot or export the selected move as create-only TOML. Move-menu `i`/`e` opens the same paths. |
 | `/move-retry` / `/move-discard` | Retry the exact failed move-store operation or review discarding its unsaved intent; neither path runs the move. |
 | `/carry-over` / Companion `c` | Reopen the last form switch's retained-state counts and capability difference. The one-line strip clears on the next key/paste without consuming it; Companion explains C/P/H/F. |
 | `/partner-summary` / `/routes` | Inspect factual partner records / accepted form routes (not execution evidence). |
@@ -114,6 +116,7 @@ ev --help
 | `/habits` / `/habit-approve` / `/habit-dismiss` | Inspect repeated authored instructions, explicitly approve project memory, or durably dismiss. |
 | `/pairings` / `/save-pairing` / `/remove-pairing` | Inspect, save or remove this project/partner/form's route/model/effort choice. |
 | `/flavor-off` / `/flavor-on` | Persistently hide/show factual activity without changing safety feedback. |
+| `/motion-off` / `/motion-on` / `/reduced-motion` | Persist static motion, allow motion, or toggle the saved preference without changing requests or permission. |
 | `/records-retry` / `/records-discard` | Retry an exact failed write / review discarding unsaved intent; neither replays work. |
 | `/goal` / `/next` / `/criteria` / `/criteria-edit` | Edit task facts, inspect criteria, or edit criteria directly |
 | `/tasks` / `/task-new` | Browse saved tasks / create one |
@@ -147,6 +150,8 @@ Pasted text never sends a request or executes a command. Model/effort pickers an
 **Home and responses.** At 90 columns or wider, the partner card stays beside output; smaller/linear layouts keep full-width output and `/companion`. Responses, plans and tool observations form one continuously scrollable transcript, with original owner/request attribution instead of a separate page per response. Only changed segments reflow. Streamed words appear without artificial typing; incomplete credential prefixes remain withheld for best-effort redaction. One header indicator represents actual preparation/connection/response activity, not estimated progress; reviews and idle screens do not animate. `--no-animation` keeps it static without slowing text.
 
 **Everyday navigation.** `/` or Ctrl+K puts connection, model, files and tasks before advanced session actions. Search accepts localized descriptions and keywords such as `attachment`, `stop`, `evidence`, `첨부` and `중지`; duplicate connection/form aliases do not crowd the list, while exact `/connect` and form aliases still work. In source previews and payloads, Tab returns straight to Files; `/basket` opens attachments. Selecting the starred current task returns without reloading or interrupting its response. Accepting the unchanged model/effort pair returns directly; `/effort` changes reasoning separately, and a changed model still stages reasoning and any required session review.
+
+**Motion controls.** `/motion-off` persists across restart and applies immediately, including during owned work. `/motion-on` allows suitable-terminal activity and deliberate picker motion. An explicit `--animation` or `--no-animation` overrides that saved choice for one launch; the last CLI choice wins and never rewrites the preference. Unsuitable terminals remain static. `NO_COLOR` controls color, not motion; streamed text is never artificially delayed.
 
 **Request receipt.** Every provider preview breaks the exact payload Eevee sends into instructions, task facts, attachments, handoff and memories, with exact bytes and a labelled local token estimate (`eevee-local-v1`, CJK-aware). It runs offline. Provider-added context and unreported usage/billing stay **unknown**, not zero; reported counters retain their own response/turn/session/pipeline scope instead of becoming an invented full-context total.
 
@@ -186,7 +191,7 @@ Current-owner file proposals **automatically open** from the safe Request/Worksp
 
 **Live file previews.** Generated files have a fixed filename/status, separate numbered code surface and structural gutter, distinct from prose in monochrome or mid-card scrolling. An emphasized writing edge follows actual received source; whole-call proposals display immediately without invented token streaming. Generating/received code is **not saved**: exact approval precedes mediated effects, and provider-reported success/failure remains distinct from verified Applied or Unknown. Cancellation never claims an unfinished proposal succeeded. Redacted previews stay outside canonical replies, decisions, journals and source evidence; paused scrolling and future drafts/carets remain owned.
 
-**Evolution popup.** A real automatic/manual form change shows a themed, localized previous→next form receipt once. It waits behind approvals, other sheets and live generated code. Typing dismisses the visible popup without consuming the typed draft; selecting the same form or restoring a task does not replay it. Evolution never approves a file change.
+**Evolution popup.** A real automatic/manual form change shows a themed, localized previous→next form receipt once, behind approvals, other sheets and live generated code. Only a deliberate form-picker commit may show a restrained 240 ms transition; automatic/named-command/formation changes and reduced-motion/text-only routes show the complete static result. A key or paste skips visible motion and reaches the original editor once. Resize or a higher-priority surface stops motion without replay; same-form selection, task restoration and restart never replay it. Evolution never approves a file change or animates the idle portrait.
 
 Native file tools use bounded request-local continuations (at most eight HTTP rounds and sixteen calls), one durable request lease (writing only for Implement) and one authored dispatch receipt. Tool fragments never execute. Only completed public user/assistant pairs enter canonical history; private reasoning, signed tool metadata and transient tool transcripts are not persisted there. History is process-local and scoped to the task, partner, connection and role. An automatic role transition starts a disclosed fresh owned context while keeping the visible transcript; `/chat-new` remains the explicit reset for the current role. Managed Review stays independent. Account/endpoint drift refuses old-context transmission; no retry, account fallback or automatic resend is introduced. Custom endpoints require HTTPS except loopback HTTP; redirects are refused.
 
@@ -196,13 +201,19 @@ Since Schema 10, task-independent preference rows remember nonsecret provider/mo
 
 **Schema history:** v0.1.11/0.1.12 used 13, v0.1.13 used 14, v0.1.14–v0.1.16 used 15, and v0.1.17–v0.1.19 used 16. **v0.1.20 migrates through PK04's Schema 17 held references to Schema 18 milestone references. Cleanly exit all instances and back up the entire data directory before opening it**, including database, journals and outputs. Migration preserves prior task/partner/context/evidence data; older Schema 16/17 writers refuse the newer store, and downgrade requires restoring the full backup. Earlier public packages are immutable. Complete Claude SDK bridge revision **9** source/policy/dependency files are required, not only an SDK package update.
 
-**Moves.** Each partner remembers up to four moves per form, visible across its project and personal scopes. Teach exact approved argv/cwd, reusable pin selectors, a submitted user-authored instruction or goal/criteria; previews never package provider output or memories. Move names are editable local labels, not capabilities or provider context. Every use revalidates current inputs and opens normal command, pin or full-receipt request review; task templates require explicit application. Repeating an eligible approved run or dispatched pin set three times creates a local suggestion, never automatic work. Not now waits three further uses, Never persists, and `/move-reminder` revisits forgotten/postponed moves. A full form offers an explicit scoped replacement or Give up learning. Details retain authoritative journal outcomes, separately showing denial/cancellation and unknown provider completion. Party teaching copies steps/provenance, not grants; TM export/import is not implemented.
+**v0.1.22 preference compatibility:** Schema 18 and SDK bridge 9 remain unchanged, but enabling persistent reduced motion extends the strict preference JSON. **Exit all instances and back up the complete data directory before upgrading.** v0.1.21 refuses a store carrying the new setting without changing its bytes; reinstalling an older binary is not a supported downgrade. Restore the full pre-upgrade backup instead.
 
-**Held context (PK04; unreleased).** The normal workspace shows the saved identity, concise inclusion state and fixed `/held` inspect control at 60×18 and 120×36, including long/CJK names. `/held` inspects the current project's partner/form slot and its local request receipt. `/held-file` opens Files; after inspecting actual source, `/held-set-file` remembers that file identity without attaching it. `/held-memory` opens approved Bond memories; `/held-set-memory` remembers the highlighted exact approved revision without selecting it. A form/owner/task entry proposes the saved item as a removable chip. `/held-accept` uses current source review/Pin or explicit memory selection; `/held-dismiss` removes only this visit's chip and `/held-clear` clears the saved slot. Neither clearing nor saving changes independently selected context. Ordinary `/unpin` and `/select-memory` control accepted context.
+**Moves.** Each partner remembers up to four moves per form, visible across its project and personal scopes. Teach exact approved argv/cwd, reusable pin selectors, a submitted user-authored instruction or goal/criteria; previews never package provider output or memories. Move names are editable local labels, not capabilities or provider context. Every use revalidates current inputs and opens normal command, pin or full-receipt request review; task templates require explicit application. Repeating an eligible approved run or dispatched pin set three times creates a local suggestion, never automatic work. Not now waits three further uses, Never persists, and `/move-reminder` revisits forgotten/postponed moves. A full form offers an explicit scoped replacement or Give up learning. Details retain authoritative journal outcomes, separately showing denial/cancellation and unknown provider completion. Party teaching copies steps/provenance, not grants.
+
+**Formations.** `/formation-save <literal path>` reviews a bounded schema-2 recipe with the party's form/request role slots; `y` creates a new file and never overwrites. `/formation <literal path>` shows explicit local mappings: Up/Down selects a role, Left/Right selects an existing partner or leaves it unmapped, `d` inspects the complete definition, and `y` applies. Nonempty Request drafts and carets win; empty drafts may receive the reviewed proposal. Missing slots never create partners, duplicate/busy/stale targets refuse atomically, and applying never sends, runs, selects context or transfers a session/grant. Esc cancels; neutral Enter does not apply.
+
+**Portable TMs.** `/move-export <literal path>` reviews the selected move's inert schema-1 TOML, bounded to 64 KiB. `/move-import <literal path>` reviews its form/kind/steps and lets you choose a local partner, name, project/personal scope and explicit free/replacement slot. All nine forms and four step kinds round-trip; foreign database IDs, teacher authority, sessions and prior success are not imported. Unsupported versions, unsafe paths and recognizable secrets refuse; an existing export remains byte-identical. Missing pin files are accepted as unavailable selectors until fresh ordinary use-time capture/review, never automatically substituted or attached.
+
+**Held context (PK04).** The normal workspace shows the saved identity, concise inclusion state and fixed `/held` inspect control at 60×18 and 120×36, including long/CJK names. `/held` inspects the current project's partner/form slot and its local request receipt. `/held-file` opens Files; after inspecting actual source, `/held-set-file` remembers that file identity without attaching it. `/held-memory` opens approved Bond memories; `/held-set-memory` remembers the highlighted exact approved revision without selecting it. A form/owner/task entry proposes the saved item as a removable chip. `/held-accept` uses current source review/Pin or explicit memory selection; `/held-dismiss` removes only this visit's chip and `/held-clear` clears the saved slot. Neither clearing nor saving changes independently selected context. Ordinary `/unpin` and `/select-memory` control accepted context.
 
 Held proposals never enter an outgoing request until explicitly accepted. Current exclusions, source identity/freshness and memory revision/visibility are revalidated before send; unavailable items do not substitute new bytes or broader scope. A proposal arising when automatic evolution submits a request is for the next request, not the already-frozen one. Held labels/metadata stay out of provider packets and handoffs, add no model calls or permissions, and do not cover safety/live-code feedback.
 
-**Ribbons (PK06; unreleased).** `/ribbons` opens optional project history for the first recorded effective accepted review, verified-support handoff and explicitly learned move. These are source-linked historical receipts, not current correctness, scores or unlocks. Each retains the actual producer and original task/artifact or move revision; later events never replace it. Partner summaries show only that partner's nonhidden history while flavor is on. In the inspector, Up/Down selects, `h` or `/ribbon-hide`/`/ribbon-show` changes durable visibility, and Enter or `/ribbon-inspect` opens ordinary evidence inspection. Foreign source tasks/owners/forms require deliberate selection; inspection never sends, executes or exports.
+**Ribbons (PK06).** `/ribbons` opens optional project history for the first recorded effective accepted review, verified-support handoff and explicitly learned move. These are source-linked historical receipts, not current correctness, scores or unlocks. Each retains the actual producer and original task/artifact or move revision; later events never replace it. Partner summaries show only that partner's nonhidden history while flavor is on. In the inspector, Up/Down selects, `h` or `/ribbon-hide`/`/ribbon-show` changes durable visibility, and Enter or `/ribbon-inspect` opens ordinary evidence inspection. Foreign source tasks/owners/forms require deliberate selection; inspection never sends, executes or exports.
 
 Requested acceptance, unverified exports, provider text and teaching previews/candidates never qualify. Current/stale/unavailable state and its reason stay inspectable; hiding retains the source, while purging its evidence removes receipt payloads. Content-free kind tombstones prevent repeated first awards until final project purge. No ribbon metadata enters provider context or portable handoffs, and no model call, permission or automatic action is added.
 
@@ -279,19 +290,19 @@ Sprites are nine original PokeAPI images that installers download and hash-verif
 
 | Machine | Package |
 | --- | --- |
-| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.13/ev-darwin-arm64.tar.gz) |
-| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.13/ev-darwin-x86_64.tar.gz) |
-| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.13/ev-linux-x86_64.tar.gz) |
-| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.13/ev-linux-arm64.tar.gz) |
-| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.13/ev-windows-x86_64.zip) |
+| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.22/ev-darwin-arm64.tar.gz) |
+| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.22/ev-darwin-x86_64.tar.gz) |
+| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.22/ev-linux-x86_64.tar.gz) |
+| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.22/ev-linux-arm64.tar.gz) |
+| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.22/ev-windows-x86_64.zip) |
 
 Installers verify SHA-256, refuse to overwrite commands they don't own, and never edit your shell profile or persistent PATH — the last step on each platform is yours.
 
 ### macOS
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.13/install.sh
-sh ./install-ev.sh --version v0.1.13          # installs to ~/.local/bin/ev
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.22/install.sh
+sh ./install-ev.sh --version v0.1.22          # installs to ~/.local/bin/ev
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && exec zsh
 ```
 
@@ -300,8 +311,8 @@ Builds are not notarized. The script installs via `curl`, which sets no quaranti
 ### Linux and WSL
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.13/install.sh
-sh ./install-ev.sh --version v0.1.13          # installs to ~/.local/bin/ev
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.22/install.sh
+sh ./install-ev.sh --version v0.1.22          # installs to ~/.local/bin/ev
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && exec bash
 ```
 
@@ -312,7 +323,7 @@ Inside WSL, use this Linux build, not the Windows one. For provider sign-in on W
 Run in **PowerShell** (5.1 or 7, no admin). Windows blocks downloaded `.ps1` files by default, so run the installer as a script block instead of `.\install.ps1`:
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.13/install.ps1))) -Version v0.1.13
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.22/install.ps1))) -Version v0.1.22
 ```
 
 It installs `%LOCALAPPDATA%\ev\bin\ev.exe`. Use it right away, and keep it on PATH for new terminals:
@@ -322,7 +333,7 @@ $env:PATH = "$env:LOCALAPPDATA\ev\bin;" + $env:PATH
 [Environment]::SetEnvironmentVariable('Path', "$env:LOCALAPPDATA\ev\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')
 ```
 
-Prefer a saved script? Run it with a process-only bypass: `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-ev.ps1 -Version v0.1.13`. Windows Terminal shows the sprites (Sixel); other consoles fall back to text.
+Prefer a saved script? Run it with a process-only bypass: `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-ev.ps1 -Version v0.1.22`. Windows Terminal shows the sprites (Sixel); other consoles fall back to text.
 
 ### Offline
 

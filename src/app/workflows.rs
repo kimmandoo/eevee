@@ -1890,6 +1890,9 @@ impl App {
         {
             return Err("Recipe cannot be staged: criteria must fit 256 UTF-8 bytes each and the merged task must fit 64 criteria. Nothing was applied.".into());
         }
+        if preview.recipe().schema_version != 1 {
+            return Err("Open schema-2 party arrangements with /formation; this desk stages schema-1 task recipes only.".into());
+        }
         self.workflows.apply_recipe(&preview, self.task_id)?;
         for criterion in &preview.recipe().completion_criteria {
             if !self

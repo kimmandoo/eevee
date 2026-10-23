@@ -27,9 +27,6 @@ desks-moves-no-moves-in-this-form-yet-teach = 아직 이 폼에 기술이 없습
     /teach-move: 승인된 로컬 작업, 선택한 핀, 전송한 사용자 작성 요청 또는 작업 카드에서 가르칩니다.
     기술 리마인더는 잊거나 미룬 기술을 보관합니다.
 
-desks-moves-arrows-choose-enter-review-use-d-details = Arrows 선택 / Enter 검토/사용 / d 상세
-    { " " }t 가르치기 / r 리마인더 / Esc 뒤로 (초안 유지)
-
 desks-moves-move-no-longer-available-esc-to-return = 기술을 더 이상 사용할 수 없습니다. Esc 돌아가기.
 
 desks-moves-use-normal-review = 사용 (일반 검토)

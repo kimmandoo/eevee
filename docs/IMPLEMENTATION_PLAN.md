@@ -1,19 +1,24 @@
 # Eevee Implementation Plan
 
-Updated: 2026-10-23. Public v0.1.21 is released with Schema 18 and complete SDK bridge 9. The current backlog has 38 unfinished tasks; [task.md](../task.md) is the sole execution-order index, and [completed specifications](../tasks/COMPLETED.md) are separate. Historical counts and credential blockers below describe their original checkpoints, not today's readiness.
+Updated: 2026-10-23. The four-task Pokémon milestone is implemented for v0.1.22; exact-source native/public release qualification remains active. Schema 18 and complete SDK bridge 9 are unchanged, but the new reduced-motion preference has strict older-reader compatibility requirements. [task.md](../task.md) indexes 34 unfinished tasks; completed specifications are separate. Historical counts and credential blockers below do not override today's readiness.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Current execution order — Pokémon completion first
+## Active request — four Pokémon-completion tasks, then release
 
-No next implementation task is automatically active after this release/documentation request. When implementation is requested, start **PT11**, then **MV08B → UX04B → PK03**:
+User authorized **PT11 → MV08B → UX04B → PK03**, followed by a qualified native release. All four implementation/runtime acceptance sets passed and are archived; no unrelated backlog feature or paid/live model call is authorized.
 
 1. PT11: save/reopen/apply a reviewed party formation through existing recipe and partner ownership, preserving busy guards and nonempty drafts.
 2. MV08B: portable inert TM definitions and explicit import, reusing create-only publication. Own the missing reviewed export slice here; full S04 workflow authoring is not a blocker.
 3. UX04B: persist reduced motion and complete explicit installer/update opt-out on existing frame gates.
 4. PK03: optional bounded picker transition on the released static receipt, after reduced motion; preserve static fallback, exact input forwarding and approval/live-code priority.
 
-Use each active specification's acceptance criteria and actual bilingual compact/wide runtime proof. General context/platform/provider tracks and just-in-time refactors follow this milestone. Only authenticated rows require external credentials; local Q01/Q02/P03 work is independently actionable.
+Actual bilingual compact/wide runtime passed formations, all portable TM kinds/forms through restart/two projects, persistent real activity, exact input forwarding and genuine previous-writer refusal/current resume. General context/platform/provider tracks and just-in-time refactors follow this milestone; only authenticated rows require external credentials.
+
+- PT11 uses bounded schema-2 local formation recipes with portable role/form/request definitions, explicit mapping and one existing-writer transaction for partner forms/modes/drafts. Existing nonempty drafts win; missing slots stay unmapped; stale/duplicate/busy mappings refuse atomically. Existing schema-1 task recipe semantics remain unchanged.
+- MV08B owns the reviewed portable-export slice, shared with create-only handoff publication. Imported definitions have explicit local provenance, no portable database IDs or prior execution/teacher authority; use remains freshly reviewed.
+- UX04B extends existing preferences and installer/updater gates, with explicit CLI precedence, restart and global parked-owner merging. PK03 reuses the existing receipt and input ownership; only accepted deliberate picker changes run one 240 ms timer.
+- Final pinned source passed 1,327 tests/two ignored, formatting, strict Clippy and release build; local runtime and installer details are recorded in the checkpoint. Commit the coherent integrated four-task source, require same-source Check/all-five-native qualification, publish immutable v0.1.22 packages, and verify every public asset plus downloaded installation/changed runtime before marking the request complete.
 
 ## Completed request — shallow everyday navigation; v0.1.21 released
 

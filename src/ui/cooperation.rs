@@ -153,7 +153,13 @@ pub(super) fn evolution_popup(
         &clipped(&identity, content.width as usize),
         paint.muted,
     );
-    let arrow = if config.ascii { "->" } else { "→" };
+    let arrow = match app.evolution_frame() {
+        Some(0) => ">    ",
+        Some(1) => " >   ",
+        Some(_) => "  >  ",
+        None if config.ascii => "->",
+        None => "→",
+    };
     let hero = Line::from(vec![
         Span::styled(crate::domain::FORMS[transition.from].name, paint.muted),
         Span::styled(format!("  {arrow}  "), paint.muted),

@@ -2038,3 +2038,227 @@ fn explicit_project_purge_cannot_resurrect_candidates_from_retained_journals() {
         6
     );
 }
+
+#[test]
+fn portable_import_is_local_inert_restartable_and_atomic() {
+    let fixture = Fixture::new();
+    let mut store = fixture.open();
+    let task = fixture.task(&mut store, 2);
+    let foreign = proposal(&task, 1, "Portable", Scope::Project);
+    let definition = domain::portable::Definition::from_proposal(&foreign).unwrap();
+    let path = fixture.root.join("portable.toml");
+    domain::portable::write_new(&path, &definition).unwrap();
+    let preview = call(
+        &mut store,
+        &task,
+        1,
+        2,
+        Operation::ReadPortable {
+            path: path.to_str().unwrap().into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(preview.portable, Some(definition.clone()));
+    assert!(preview.records.is_empty());
+    assert!(preview.usages.is_empty());
+    let import = |name: &str, scope, replace| Operation::ImportPortable {
+        definition: definition.clone(),
+        name: name.into(),
+        scope,
+        replace,
+    };
+    let learned = call(
+        &mut store,
+        &task,
+        1,
+        2,
+        import("Portable", Scope::Personal, None),
+    )
+    .unwrap();
+    let first = learned.records[0].clone();
+    assert_eq!(first.proposal.provenance.task_id, task.id);
+    assert_eq!(first.proposal.provenance.taught_by, None);
+    assert_eq!(first.proposal.provenance.teacher_name, None);
+    assert!(first.proposal.provenance.sources[0].starts_with("tm:"));
+    assert!(learned.usages.is_empty());
+    assert!(learned.candidates.is_empty());
+    assert!(
+        call(
+            &mut store,
+            &task,
+            1,
+            2,
+            import("PORTABLE", Scope::Project, None)
+        )
+        .is_err()
+    );
+    for name in ["Second", "Third", "Fourth"] {
+        call(&mut store, &task, 1, 2, import(name, Scope::Project, None)).unwrap();
+    }
+    assert!(
+        call(
+            &mut store,
+            &task,
+            1,
+            2,
+            import("Fifth", Scope::Project, None)
+        )
+        .is_err()
+    );
+    assert!(
+        call(
+            &mut store,
+            &task,
+            1,
+            2,
+            import(
+                "Fifth",
+                Scope::Project,
+                Some((first.id, first.revision + 1))
+            )
+        )
+        .is_err()
+    );
+    let snapshot = call(&mut store, &task, 1, 2, Operation::Load).unwrap();
+    assert_eq!(snapshot.records.iter().filter(|r| !r.forgotten).count(), 4);
+    let replaced = call(
+        &mut store,
+        &task,
+        1,
+        2,
+        import("Fifth", Scope::Personal, Some((first.id, first.revision))),
+    )
+    .unwrap();
+    assert!(
+        replaced
+            .records
+            .iter()
+            .find(|r| r.id == first.id)
+            .unwrap()
+            .forgotten
+    );
+    let fifth = replaced
+        .records
+        .iter()
+        .find(|r| r.proposal.name == "Fifth")
+        .unwrap()
+        .clone();
+    let exported = fixture.root.join("exported.toml");
+    call(
+        &mut store,
+        &task,
+        1,
+        2,
+        Operation::ExportPortable {
+            id: fifth.id,
+            revision: fifth.revision,
+            path: exported.to_str().unwrap().into(),
+        },
+    )
+    .unwrap();
+    let bytes = fs::read(&exported).unwrap();
+    assert!(
+        call(
+            &mut store,
+            &task,
+            1,
+            2,
+            Operation::ExportPortable {
+                id: fifth.id,
+                revision: fifth.revision,
+                path: exported.to_str().unwrap().into(),
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(fs::read(&exported).unwrap(), bytes);
+    drop(store);
+    let mut reopened = fixture.open();
+    let restored = call(&mut reopened, &task, 1, 2, Operation::Load).unwrap();
+    assert_eq!(restored.records, replaced.records);
+    assert!(restored.usages.is_empty());
+    fs::create_dir(fixture.root.join("other-project")).unwrap();
+    reopened.project = fixture.root.join("other-project").to_str().unwrap().into();
+    let other_task = fixture.task(&mut reopened, 2);
+    let other = call(&mut reopened, &other_task, 1, 2, Operation::Load).unwrap();
+    assert_eq!(other.records.iter().filter(|r| !r.forgotten).count(), 1);
+    assert_eq!(
+        other.records.iter().find(|r| !r.forgotten).unwrap().id,
+        fifth.id
+    );
+    assert!(other.usages.is_empty());
+}
+
+#[test]
+fn every_tm_form_imports_across_projects_without_evidence_or_capture() {
+    let fixture = Fixture::new();
+    let mut store = fixture.open();
+    let task = fixture.task(&mut store, 0);
+    for form in 0..9 {
+        let steps = match form {
+            0 => Steps::Task {
+                goal: "Local task".into(),
+                criteria: vec!["Review result".into()],
+            },
+            1 => Steps::Pins {
+                pins: vec![Pin {
+                    path: "not-present.txt".into(),
+                    start_line: 1,
+                    end_line: 3,
+                }],
+            },
+            2 | 5 | 6 => Steps::Run {
+                argv: vec!["cargo".into(), "test".into(), "".into()],
+                cwd: ".".into(),
+            },
+            _ => Steps::Request {
+                instruction: "Inspect the change".into(),
+                pins: vec![],
+            },
+        };
+        let definition = domain::portable::Definition {
+            schema_version: 1,
+            name: format!("TM {form}"),
+            form: crate::domain::FORMS[form].name.into(),
+            steps,
+        };
+        let imported = call(
+            &mut store,
+            &task,
+            1,
+            form,
+            Operation::ImportPortable {
+                definition: domain::portable::Definition::decode(&definition.encode().unwrap())
+                    .unwrap(),
+                name: definition.name.clone(),
+                scope: Scope::Project,
+                replace: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(imported.records[0].proposal.steps, definition.steps);
+        assert!(imported.usages.is_empty());
+        assert!(imported.candidates.is_empty());
+    }
+    let connection = store.connection.as_ref().unwrap();
+    for table in [
+        "executions",
+        "excerpts",
+        "provider_journal",
+        "move_sources",
+        "move_dispatches",
+        "move_usages",
+    ] {
+        let count: i64 = connection
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0, "{table}");
+    }
+    let snapshot = load_task(connection, &store.project, task.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(snapshot.goal, task.goal);
+    assert_eq!(snapshot.criteria, task.criteria);
+}

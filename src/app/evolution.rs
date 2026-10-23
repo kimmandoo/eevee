@@ -21,6 +21,7 @@ pub struct Transition {
 pub struct State {
     pub transition: Option<Transition>,
     pub popup_shown: bool,
+    pub(super) motion: Option<super::evolution_motion::Motion>,
 }
 
 struct Rule {

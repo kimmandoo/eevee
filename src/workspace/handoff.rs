@@ -382,8 +382,30 @@ pub fn decode(text: &str) -> Result<Document, String> {
 /// their fixed `/private` destinations are still traversed without following links.
 pub fn write_new(path: &Path, document: &Document, format: Format) -> Result<(), String> {
     let text = encode(document, format)?;
+    write_new_bytes(path, text.as_bytes())
+}
+
+/// Shared create-only publication boundary for reviewed portable documents.
+pub(crate) fn write_new_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let file = open_regular(path, true)?;
-    write_export(file, text.as_bytes())
+    write_export(file, bytes)
+}
+
+/// Read a literal regular file through the same no-link boundary as publication.
+pub(crate) fn read_bounded(path: &Path, max: usize) -> Result<String, String> {
+    let mut file = open_regular(path, false)?;
+    if file.metadata().map_err(|error| error.to_string())?.len() > max as u64 {
+        return Err(format!("Portable file exceeds the {max}-byte limit"));
+    }
+    let mut text = String::new();
+    Read::by_ref(&mut file)
+        .take((max + 1) as u64)
+        .read_to_string(&mut text)
+        .map_err(|_| "Cannot read portable file as bounded UTF-8 text".to_string())?;
+    if text.len() > max {
+        return Err(format!("Portable file exceeds the {max}-byte limit"));
+    }
+    Ok(text)
 }
 
 fn write_export(mut file: File, bytes: &[u8]) -> Result<(), String> {

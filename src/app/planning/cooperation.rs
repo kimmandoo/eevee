@@ -7,14 +7,13 @@ impl State {
         state.front = Some(owner);
         let (agent, selection) = self.global_route();
         state.agent = agent;
+        state.selection = selection.clone();
         let mut selections = self.selections.clone();
         if selections.get(&agent) != Some(selection) {
             selections.insert(agent, selection.clone());
         }
-        state.preference_event(Ok(Some(store::ProviderPreferences {
-            provider: state.agent,
-            selections,
-        })));
+        state.selections = selections;
+        state.inherit_preferences_from(self);
         state.catalogues = self.catalogues.clone();
         state.devin_credential = self.devin_credential.clone();
         state

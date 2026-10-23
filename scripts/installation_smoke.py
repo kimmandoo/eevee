@@ -396,6 +396,25 @@ def main():
                     session.close()
                     release.throttle = False
 
+            def static_install(command, environment, name, size):
+                release.throttle = False
+                if os.name != "nt":
+                    command = [sys.executable, "-c",
+                               "import subprocess,sys; sys.exit(subprocess.call(sys.argv[1:]))", *command]
+                session = terminal_smoke.Session(command, root, environment, size, output / name)
+                try:
+                    deadline = time.monotonic() + 360
+                    while session.alive() and time.monotonic() < deadline:
+                        session.pump(.05)
+                    assert not session.alive(), "static installation exceeded deadline"
+                    assert session.wait_exit(tui=False) == 0, session.display()
+                    assert "\x1b" not in session.text, "explicit opt-out emitted terminal animation/escapes"
+                    assert "Publishing verified Eevee installation" in session.text
+                    assert "Installed ev " in session.text
+                    session.capture("truthful-static-phases")
+                finally:
+                    session.close()
+
             def bootstrap():
                 downloaded = output / "downloaded-native" / "bin"
                 command = (["powershell.exe", "-NoLogo", "-NoProfile", "-File", str(package / "install.ps1"),
@@ -520,6 +539,30 @@ def main():
                         release.corrupt_checksum = False
 
                 run_case("self-update-checksum-failure-preserves-install", corrupt_update)
+                def reduced_motion_install_update():
+                    environment = terminal_smoke.terminal_environment("mono")
+                    environment.update(sprite_environment)
+                    environment.pop("CI", None)
+                    environment.pop("EV_VERSION", None)
+                    for size in [(120, 36), (60, 18)]:
+                        static_destination = output / f"static-install-{size[0]}" / "bin"
+                        command = (["powershell.exe", "-NoLogo", "-NoProfile", "-File", str(package / "install.ps1"),
+                                    "-NoAnimation", "-InstallDir", str(static_destination)] if os.name == "nt" else
+                                   ["sh", str(package / "install.sh"), "--no-animation", "--install-dir", str(static_destination)])
+                        static_install(command, environment, f"installer-optout-{size[0]}", size)
+                        assert sha(static_destination / binary_name) == original_hash
+                        succeeds(upgraded_archive, upgrade_sums)
+                        static_install([str(destination / binary_name), "update", "--no-animation"],
+                                       environment, f"updater-optout-{size[0]}", size)
+                        assert sha(destination / binary_name) == original_hash
+                    succeeds(upgraded_archive, upgrade_sums)
+                    result = lifecycle(["update", "--no-animation"])
+                    assert result.returncode == 0, result.stdout + result.stderr
+                    assert "Publishing verified Eevee installation" in result.stdout + result.stderr
+                    succeeds(upgraded_archive, upgrade_sums)
+
+                run_case("installer-and-self-update-explicit-motion-optout-both-sizes-and-redirected", reduced_motion_install_update)
+
 
                 def self_update():
                     environment = terminal_smoke.terminal_environment("mono")

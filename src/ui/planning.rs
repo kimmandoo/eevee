@@ -1852,6 +1852,7 @@ mod tests {
             language: crate::i18n::Language::ENGLISH,
             ascii: true,
             no_animation: true,
+            animation_override: Some(false),
             theme: Theme::Dark,
             color: ColorMode::TrueColor,
             images: ImageMode::Off,
@@ -2506,6 +2507,7 @@ mod tests {
                     steps: vec![],
                     validation_commands: vec![],
                     completion_criteria: vec![],
+                    roles: vec![],
                 });
                 let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
                 terminal

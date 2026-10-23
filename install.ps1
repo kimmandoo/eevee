@@ -13,6 +13,7 @@ param(
     [string]$InstallDir,
     [string]$Version,
     [switch]$Uninstall,
+    [switch]$NoAnimation,
     [int]$OwnerProcessId = 0,
     [switch]$ResolveRelease,
     [string]$ResolveOutput
@@ -161,7 +162,7 @@ function Test-BlockGlyphs {
 
 function Start-InstallAnimation([string]$Phase) {
     Stop-InstallAnimation
-    if ([Console]::IsOutputRedirected -or [Console]::IsErrorRedirected -or
+    if ($NoAnimation -or [Console]::IsOutputRedirected -or [Console]::IsErrorRedirected -or
         -not [string]::IsNullOrEmpty($env:CI) -or $env:TERM -eq 'dumb' -or
         $Host.Name -ne 'ConsoleHost') {
         [Console]::Error.WriteLine('ev installer: ' + $Phase)

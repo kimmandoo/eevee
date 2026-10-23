@@ -384,10 +384,14 @@ impl App {
         let len = ids.len();
         ids.rotate_left(self.cooperation.drive_cursor % len);
         self.cooperation.drive_cursor = (self.cooperation.drive_cursor + 1) % len;
+        let motion_choice = self.motion_choice;
         for id in ids {
             let preference_free = self.cooperation.preference_owners.is_empty();
             let move_receipt_pending = self.move_dispatch_pending(id);
             let state = self.planning_state_mut(id).expect("known partner slot");
+            if let Some(reduced) = motion_choice {
+                state.sync_motion_choice(reduced);
+            }
             state.settle_work();
             if sent == 0
                 && !state.work_inflight
@@ -543,7 +547,7 @@ impl App {
             .preference_owners
             .pop_front()
             .unwrap_or(self.lead.id);
-        let saved = result.as_ref().ok().and_then(|saved| saved.clone());
+        let shared = result.as_ref().ok().cloned();
         let failed = result.as_ref().err().cloned();
         if let Some(state) = self.planning_state_mut(id) {
             state.preference_event(result);
@@ -553,15 +557,16 @@ impl App {
                 "Provider preference storage failed for partner #{id}: {error}. /storage-retry retries storage only; the local selection and drafts are kept."
             );
         }
-        if let Some(saved) = saved {
+        if let Some(saved) = shared {
             for partner in self.planning_ids() {
                 if partner != id
                     && let Some(state) = self.planning_state_mut(partner)
                 {
-                    state.merge_preferences(&saved);
+                    state.receive_preferences(saved.as_ref());
                 }
             }
         }
+        self.sync_motion_choices();
         let ids: Vec<_> = self.party.iter().map(|partner| partner.id).collect();
         self.cooperation.parked.retain(|partner, state| {
             ids.contains(partner) || state.owns_work() || state.preferences_pending()
@@ -1961,6 +1966,7 @@ mod tests {
                 language,
                 ascii: true,
                 no_animation: true,
+                animation_override: Some(false),
                 theme: Theme::Dark,
                 color: ColorMode::Mono,
                 images: ImageMode::Off,
@@ -2543,6 +2549,98 @@ mod tests {
                     .devin_credential
                     .is_none()
             );
+        }
+    }
+    #[test]
+    fn global_motion_latest_choice_rewrites_older_pending_owner_snapshots() {
+        fn submit(app: &mut App, id: i64) -> store::ProviderPreferences {
+            assert!(app.cooperation.preference_owners.is_empty());
+            let reduced = app.motion_choice.unwrap();
+            let state = app.planning_state_mut(id).unwrap();
+            state.sync_motion_choice(reduced);
+            let Some(store::PreferenceRequest::Save(snapshot)) = state.preference_request().take()
+            else {
+                panic!("expected actual preference save");
+            };
+            state.preference_started();
+            app.cooperation.preference_owners.push_back(id);
+            snapshot
+        }
+        let mut app = app();
+        let original = store::ProviderPreferences {
+            provider: providers::Agent::ChatGPT,
+            selections: Default::default(),
+            reduced_motion: false,
+        };
+        app.cooperation_preference_event(Ok(Some(original)));
+        app.motion_command("motion-off");
+        let first = submit(&mut app, 1);
+        app.request_lead(2);
+        assert_eq!(app.lead.id, 2);
+        app.motion_command("motion-on");
+        assert!(
+            matches!(app.planning.preference_request(), Some(store::PreferenceRequest::Save(saved)) if !saved.reduced_motion)
+        );
+        app.request_lead(1);
+        assert_eq!(app.lead.id, 1);
+        app.motion_command("motion-off");
+        app.cooperation_preference_event(Ok(Some(first)));
+        let last = submit(&mut app, 2);
+        assert!(
+            last.reduced_motion,
+            "B's queued on cannot follow the latest global off"
+        );
+        assert_eq!(last.provider, providers::Agent::ChatGPT);
+        app.cooperation_preference_event(Ok(Some(last.clone())));
+        for id in app.planning_ids() {
+            let state = app.planning_state_mut(id).unwrap();
+            assert!(state.reduced_motion());
+            assert!(state.preference_request().is_none());
+        }
+        let mut restarted = planning::State::new();
+        restarted.preference_event(Ok(Some(last)));
+        assert!(
+            restarted.reduced_motion(),
+            "restart observes the latest durable snapshot"
+        );
+    }
+
+    #[test]
+    fn restored_second_lead_receives_empty_global_preference_hydration() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.planning
+            .set_startup_provider(providers::Agent::Codex, false);
+        let mut task = store::Snapshot::empty("/workspace".into());
+        task.id = 7;
+        task.lead_partner = 2;
+        app.store_event(store::Event::Loaded(store::Project {
+            tasks: vec![task],
+            partners: (1..=2)
+                .map(|id| store::Partner {
+                    id,
+                    ..Default::default()
+                })
+                .collect(),
+            active_id: Some(7),
+            usage_bytes: 0,
+        }));
+        assert_eq!(app.lead.id, 2);
+        assert!(
+            app.planning.reduced_motion(),
+            "unhydrated launch is temporarily static"
+        );
+        app.cooperation.preference_owners.push_back(1);
+        app.cooperation_preference_event(Ok(None));
+        assert!(
+            !app.planning.reduced_motion(),
+            "no persisted row must not become reduced motion"
+        );
+        assert!(app.motion_enabled());
+        for id in app.planning_ids() {
+            let state = app.planning_state_mut(id).unwrap();
+            assert!(!state.reduced_motion());
+            assert!(!state.preferences_loading());
+            assert!(state.preference_request().is_none());
         }
     }
 }

@@ -360,6 +360,7 @@ mod tests {
         Config {
             ascii: true,
             no_animation: true,
+            animation_override: Some(false),
             language: crate::i18n::Language::ENGLISH,
             theme: Theme::Dark,
             color: ColorMode::Mono,

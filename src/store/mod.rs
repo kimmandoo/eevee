@@ -9,6 +9,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, pa
 use serde::{Deserialize, Serialize};
 
 mod admission;
+pub mod formations;
 mod held;
 mod journal;
 mod memories;
@@ -497,9 +498,10 @@ pub struct MemoryRequest {
 }
 
 /// Party roster mutations. Results report the committed roster.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PartyRequest {
     Add,
+    Formation(Box<formations::Request>),
     Nickname {
         partner: i64,
         nickname: Option<String>,
@@ -531,6 +533,7 @@ pub enum Event {
     /// Committed party roster after a `PartyRequest`, or the refusal reason.
     Party(Result<Vec<Partner>, String>),
     PartyReleased(Result<Project, String>),
+    Formation(Result<formations::Response, String>),
     Work {
         request: WorkRequest,
         result: Result<Vec<WorkClaim>, String>,
@@ -901,12 +904,17 @@ fn run(
             Command::Party(PartyRequest::Release { partner }) => {
                 Event::PartyReleased(state.release_partner(partner).map_err(actionable))
             }
+            Command::Party(PartyRequest::Formation(request)) => {
+                Event::Formation(state.formation(*request).map_err(actionable))
+            }
             Command::Party(request) => Event::Party(match request {
                 PartyRequest::Add => state.add_partner().map_err(actionable),
                 PartyRequest::Nickname { partner, nickname } => state
                     .nickname_partner(partner, nickname)
                     .map_err(actionable),
-                PartyRequest::Release { .. } => unreachable!("release returns refreshed project"),
+                PartyRequest::Release { .. } | PartyRequest::Formation(_) => {
+                    unreachable!("specialized party response")
+                }
             }),
             Command::Run(request) => {
                 let task_id = request.task_id;

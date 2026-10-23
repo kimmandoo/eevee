@@ -350,7 +350,7 @@ impl App {
         if self.form_return_selected {
             match key {
                 KeyCode::Enter => {
-                    self.request_return_to_eevee();
+                    self.picker_return_to_eevee();
                     return true;
                 }
                 KeyCode::Down | KeyCode::Left | KeyCode::Right => {
@@ -382,7 +382,7 @@ impl App {
             }
             KeyCode::End => self.selected = count - 1,
             KeyCode::Enter => {
-                self.request_navigation(execution::Action::SelectForm(self.selected));
+                self.picker_select_form(self.selected);
                 return true;
             }
             _ => return false,

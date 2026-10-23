@@ -64,8 +64,11 @@ impl Popup {
             .unwrap_or(self.query.trim());
         let (name, argument) = query.split_once(char::is_whitespace)?;
         let argument = argument.trim();
-        (matches!(name, "lead" | "model" | "effort" | "connect") && !argument.is_empty())
-            .then_some((name, argument))
+        (matches!(
+            name,
+            "lead" | "model" | "effort" | "connect" | "formation" | "formation-save"
+        ) && !argument.is_empty())
+        .then_some((name, argument))
     }
 
     pub fn candidates(&self) -> impl Iterator<Item = &Choice> {
@@ -565,10 +568,23 @@ impl App {
             ("carry-over", "Reopen the last form carry-over; no work"),
             ("party", "Party roster"),
             (
+                "formation",
+                "Load / map a saved party formation; no work starts",
+            ),
+            (
+                "formation-save",
+                "Review saving current forms and request drafts as a new formation file",
+            ),
+            (
                 "move",
                 "This partner's four learned moves; nothing executed",
             ),
             ("teach-move", "Review teaching the current approved action"),
+            (
+                "move-import",
+                "Import a portable TM file; review local learning",
+            ),
+            ("move-export", "Review exporting a move to a new TM file"),
             (
                 "move-reminder",
                 "Forgotten and postponed moves for this partner/form",
@@ -606,6 +622,9 @@ impl App {
             ("inspect", "Task and storage details"),
             ("companion", "Show companion"),
             ("preview", "Local role preview"),
+            ("reduced-motion", "Toggle persistent reduced motion"),
+            ("motion-off", "Keep all motion static, persistently"),
+            ("motion-on", "Allow optional motion, persistently"),
             ("layout", "Toggle linear layout"),
             ("images", "Evolution artwork setup"),
             ("workflows", "Specialist workflows"),
@@ -846,6 +865,9 @@ impl App {
                     | "answer"
                     | "answers-review"
                     | "verbose"
+                    | "reduced-motion"
+                    | "motion-off"
+                    | "motion-on"
                     | "reset"
                     | "lead"
                     | "party"
@@ -1158,6 +1180,9 @@ impl App {
             Some((name, argument)) => (name, argument.trim()),
             None => (query, ""),
         };
+        if self.formation_command(name, argument) {
+            return true;
+        }
         if name == "lead" {
             self.command_popup = None;
             return self.lead_command(argument);
@@ -1230,6 +1255,12 @@ impl App {
             return true;
         }
         self.command_popup = None;
+        if self.motion_command(name) {
+            return true;
+        }
+        if self.formation_command(name, "") {
+            return true;
+        }
         if self.held_command(name) {
             return true;
         }
@@ -1249,6 +1280,8 @@ impl App {
             name,
             "move"
                 | "teach-move"
+                | "move-import"
+                | "move-export"
                 | "move-reminder"
                 | "move-details"
                 | "move-retry"

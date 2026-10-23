@@ -48,6 +48,7 @@ fn config(path: &Path) -> Config {
         language: crate::i18n::Language::ENGLISH,
         ascii: false,
         no_animation: false,
+        animation_override: None,
         theme: Theme::Dark,
         color: ColorMode::TrueColor,
         images: ImageMode::Cells,

@@ -4,6 +4,7 @@ mod chips;
 mod composer;
 mod cooperation;
 mod execution;
+mod formations;
 mod handoff;
 mod held;
 mod memory;
@@ -674,6 +675,7 @@ pub fn render(
             Overlay::Moves => moves::render(frame, area, app, config, &paint),
             Overlay::Records => records::render(frame, area, app, config, &paint),
             Overlay::Held => held::render(frame, area, app, config, &paint),
+            Overlay::Formations => formations::render(frame, area, app, config, &paint),
             Overlay::Party => party(frame, area, app, config, &paint),
             Overlay::PartyBoard => cooperation::board(frame, area, app, config, &paint),
             Overlay::Images => images(frame, area, app, config, &paint, artwork, graphics_status),
@@ -725,8 +727,8 @@ fn selection_text(state: &crate::app::planning::State) -> String {
     }
 }
 
-fn activity_marker(frame: u8, config: &Config) -> &'static str {
-    if config.no_animation {
+fn activity_marker(frame: u8, config: &Config, motion_enabled: bool) -> &'static str {
+    if !motion_enabled || config.no_animation {
         "*"
     } else if config.ascii {
         ["|", "/", "-", "\\"][usize::from(frame) % 4]
@@ -848,7 +850,7 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         "{}  /  {} {activity}",
         app.storage_label(),
         if !waiting && app.planning.activity_label().is_some() {
-            activity_marker(app.activity_frame, config)
+            activity_marker(app.activity_frame, config, app.motion_enabled())
         } else {
             ""
         }
@@ -1929,7 +1931,14 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
         .approval_response_queued()
         .then(|| paint.hint(Message::CoreResponseQueued));
     let notice = if !app.notice.is_empty() {
-        Some(brief(&app.notice))
+        Some(
+            app.motion_notice()
+                .or_else(|| app.formation_notice())
+                .map_or_else(
+                    || brief(&app.notice),
+                    |message| Cow::Borrowed(paint.hint(message)),
+                ),
+        )
     } else {
         queued_notice.map(Cow::Borrowed)
     };

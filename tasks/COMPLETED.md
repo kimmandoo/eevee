@@ -1,8 +1,56 @@
 # Completed work
 
-Archived on 2026-10-23 after v0.1.21. This is historical completion evidence, not an execution queue. Active work and its priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
+Updated on 2026-10-23 through the v0.1.22 implementation milestone. This is historical completion evidence, not an execution queue. Active work and its priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
 
 The specifications below retain their original acceptance notes and wording. Old schema numbers, limits, priorities, proposed ordering and release statements are historical; they do not override the current contract. Scoped completion does not establish authenticated conformance for every provider. T05 was dropped, not completed.
+
+## Pokémon completion milestone — v0.1.22
+
+Completed PT11 → MV08B → UX04B → PK03 with actual English/Korean 120×36 and 60×18 journeys, no implicit work or grants, exact draft/caret preservation and restart. Formations passed 28 groups; TMs round-tripped all nine forms/four kinds through ordinary fresh reviews, local replacement, refusals, two projects and restart; motion passed sixteen groups including actual v0.1.21 refusal/current resume and key/paste forwarding. Installer/update static opt-out passed both sizes and redirected output. Exact-source/public release proof is recorded separately in the checkpoint.
+
+### PT11 — Formations
+
+- [x] Save and reuse a party arrangement.
+- **Priority:** Pokémon milestone 1. **Needs:** —. **Builds on:** S03, PT05B, PT07A, PT08A, EV18.
+- **Existing foundation:** Strict versioned recipes already preview and stage task plans; they do not save role slots, assign partners or prepare multiple owned drafts.
+- **Change:** Save a reusable arrangement with optional role slots, then preview explicit local partner mappings and draft proposals before applying it. Extend the existing recipe model/versioning and owned store path; reuse lead/form and relay guards rather than assigning form fields directly.
+- **Accept:** Save, reopen and reapply a three-partner arrangement across restart. Show missing/unmapped slots and refuse duplicate or newly ineligible mappings. Preserve nonempty drafts/carets unless their exact replacement is explicitly confirmed; cancellation or failure leaves no unexplained partial application. Forms and automatic/manual mode remain coherent. No request, command, context selection or permission starts.
+- **Watch out:** Revalidate task/partner identity, busy state, write ownership and draft revisions at commit. A formation carries neither provider sessions nor grants; unmapped slots do not silently create partners.
+
+### MV08B — TM export and import
+
+- [x] Share moves across projects and people as files.
+- **Priority:** Pokémon milestone 2. **Needs:** —. **Builds on:** MV01A, MV01B, MV01C, MV02B, MV04, MV08A, S03, S01.
+- **Existing foundation:** Typed moves, four slots per partner/form, local teaching and fresh use-time reviews already exist. Database records contain local identities and are not a portable format.
+- **Change:** Export a bounded, versioned TOML TM definition containing only portable move semantics. Reuse existing create-only safe publication and step validation; implement the missing reviewed portable-export slice here so S04 can later reuse it. Full workflow extraction in S04 is not a prerequisite. Import previews name, kind/steps, form, chosen local partner, scope and free/replacement slot, then commits inert local learning through the existing writer.
+- **Accept:** Round-trip every supported move kind between projects and across restart. Exercise name collisions, full-slot replacement, cancellation, unsupported versions, unsafe paths, recognizable secrets and an already-existing output file. Export never overwrites. Imported pin selectors may be unavailable until use; missing files are shown honestly, never substituted or automatically captured. Using the move still requires fresh ordinary review.
+- **Watch out:** Never deserialize foreign task/partner/source IDs as local provenance or invent prior success, teacher authority or evidence. Explicit local learning and its existing milestone rules remain separate from imported claims. Import never sends, executes, selects context or restores approvals/sessions.
+
+| Form | Move kind | Example default name |
+|---|---|---|
+| Eevee | task template (goal + criteria) | Helping Hand |
+| Vaporeon | pin set (paths/ranges resolved at use) | Surf |
+| Jolteon | run (exact argv + project-relative cwd) | Thunderbolt |
+| Umbreon, Leafeon | run through Jolteon's review (diagnostic/measurement) | Foul Play, Leaf Blade |
+| Espeon, Flareon, Glaceon, Sylveon | request template (instruction + context selectors) | Future Sight, Flamethrower, Ice Beam, Moonblast |
+
+### UX04B — Reduced motion
+
+- [x] Turn off animation everywhere, persistently.
+- **Priority:** Pokémon milestone 3. **Needs:** —. **Builds on:** V01, UX01.
+- **Existing foundation:** `--no-animation` and unsuitable-terminal fallbacks already suppress TUI activity frames; installers already have static redirected/unsuitable-output routes.
+- **Change:** Add a persistent reduced-motion preference and an explicit installer/self-update animation opt-out. Reuse existing frame gates; the preference governs current activity indicators and future PK03 transitions. Keep CLI overrides unambiguous without treating color selection as motion intent.
+- **Accept:** Preference survives restart and applies to real activity at both sizes/languages. Install and self-update opt-out show truthful phase output with no animated frames; redirected output remains escape-free. Verify CLI/preference precedence and unchanged consent/input behavior. Complete both TUI and installer slices before marking UX04B done.
+- **Watch out:** NO_COLOR is not a reduced-motion request. Test a real assistive setup before claiming screen-reader support; reduced motion alone is not that proof.
+
+### PK03 — Evolution transition
+
+- [x] Add an optional picker-only transition to the released evolution receipt.
+- **Priority:** Pokémon milestone 4. **Needs:** UX04B. **Builds on:** EV02, EV18, V02B.
+- **Existing foundation:** v0.1.19 already shipped a localized static one-time popup for real manual/automatic changes, with safe deferral and input forwarding. Do not add a second popup or reimplement automatic evolution.
+- **Change:** Enhance an explicitly identified picker switch with a non-flashing transition lasting at most 300 ms. Reuse the actual species/reason receipt; automatic changes and text-only/reduced-motion routes keep complete static results. Update the current no-evolution-timer contract only when this bounded optional behavior is implemented.
+- **Accept:** Actual English/Korean compact/wide journeys cover rapid switches, resize, deferred/unseen transitions, same-form selection, restart and neutral return to Eevee. Never queue or replay transitions. A key or paste skips motion and reaches its original editor exactly once with draft/caret/focus intact; it cannot answer consent. Persistent reduced motion and `--no-animation` render no animated frames; no idle redraw remains afterward.
+- **Watch out:** Approval/waiting-owner facts and live generated code retain priority. Clear intersecting native images and restore them once; do not animate the idle portrait or replace factual state with effects. Screen-reader support requires separate actual assistive evidence.
 
 ## Original foundation index
 
@@ -40,7 +88,7 @@ The original scoped specifications were archived in git on 2026-10-15 (`git show
 
 ## Released corrective work
 
-File operations, continuous response scrolling, automatic file-review presentation, request-time evolution, one-time evolution popups, current-folder project ownership and provider boundary corrections shipped through v0.1.20. v0.1.21 removed everyday navigation detours without weakening consent. These releases do not complete PK03's optional transition/reduced-motion work or the missing authenticated provider rows. See version-specific changelog entries rather than recreating these features as new tasks.
+File operations, continuous response scrolling, automatic file-review presentation, request-time evolution, one-time evolution popups, current-folder project ownership and provider boundary corrections shipped through v0.1.20. v0.1.21 removed everyday navigation detours without weakening consent. The v0.1.22 milestone above completes formations, portable TMs, persistent reduced motion and optional picker motion; authenticated provider rows remain separate. See version-specific changelog entries rather than recreating shipped features as new tasks.
 
 ## A — Party: free form switching and cooperating partners
 

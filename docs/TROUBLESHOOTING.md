@@ -1,5 +1,33 @@
 # Troubleshooting
 
+### [2026-10-23] Global motion preference writes crossed partner snapshots
+
+- **Context / Symptom:** Review found that rapid off/on/off choices across front/parked partners could leave an older pending snapshot last, a motion-only save could persist a startup provider override, and an unhydrated restored lead could mistake its static safety fallback for the user's saved choice. A first inheritance correction then blocked 26 existing cooperation cases.
+- **Root Cause:** A global setting was merged through per-partner snapshots without normalizing all unsent owners. Provider preference projection and raw durable preference/admission state were conflated; deriving `restore_required` from `!loaded` manufactured a request-admission blocker.
+- **Solution:** Kept one preference writer, normalized every unsent snapshot and acknowledgment to the latest global motion intent, retained durable provider identity separately, and inherited the raw loaded/value/actual restore-required fields. Delivered shared hydration to unhydrated front/parked states. Allowed motion controls during owned work without changing its request authority.
+- **Prevention / Reference:** Regressions cover cross-partner write ordering, startup overrides, second-lead restoration and unknown-vs-saved values. Rust 1.90.0 passed 1,327 tests/two ignored and strict Clippy. Actual bilingual/both-size motion journeys persisted static live activity across restart, honored launch overrides and refused the real v0.1.21 writer with byte-identical data before current-version resume (`target/pokemon-0122-motion-c`).
+
+### [2026-10-23] Portable TM files were rejected by relative-only path exclusion
+
+- **Context / Symptom:** Store round-trip tests rejected valid absolute TM input/output files as excluded, despite bounded definitions and a safe publication target.
+- **Root Cause:** The portable filename validator passed an absolute pathname to the source-context exclusion matcher, whose contract is a project-relative selector. Root components therefore triggered the conservative rejection intended for unsafe source selectors.
+- **Solution:** Checked filename normal components for exclusions, explicitly rejected parent traversal, and retained the shared anchored no-link bounded reader/create-only writer for filesystem authority. Portable move selectors and run cwd/argv kept their stricter project-relative validation; no unsafe path was rewritten or widened.
+- **Prevention / Reference:** Store regressions cover all step kinds, existing outputs, import provenance, unsupported/foreign fields, replacement and unavailable selectors. Final C passed all four locale/size journeys, every form's fresh normal review, restart, two-project round-trip and missing-selector refusal without inference calls (`target/pokemon-0122-tm-c/results.json`).
+
+### [2026-10-23] Fast local reviews raced their exact retained draft save
+
+- **Context / Symptom:** Actual formation review rejected an immediate explicit `y` while its unchanged local save was pending. A pin TM's ordinary validation could observe the previous task revision; a retained export-success message then hid the new action's actual status.
+- **Root Cause:** Review identity was valid but task persistence had not settled. Move validation was queued before flushing that same local snapshot, and the portable success notice outlived its action.
+- **Solution:** A formation may wait only for its exact task/lead/revision/roster save after explicit confirmation; changed identity, work, cancellation, search, resize and quit revoke the pending intent. The store still revalidates atomically. Flushed the exact task snapshot before move validation, without relaxing callback guards, and cleared export success on the next accepted move action.
+- **Prevention / Reference:** Regression tests cover queued-intent revocation and preservation of explicit read-only roles. All 28 final-candidate formation groups passed across English/Korean and 120×36/60×18, including actual busy refusal, exact Unicode draft/caret, restart and no implicit effects (`target/pokemon-0122-formations-{en,ko}-c`).
+
+### [2026-10-23] New PTY drivers confused review deferral and process readiness
+
+- **Context / Symptom:** A restarted motion fixture reported a missing API base URL; TM fixtures tried to leave a deferred full-receipt request as if Escape cancelled it, then failed with `IndexError: list index out of range` at restart.
+- **Root Cause:** The connection was deliberately session-only, Escape correctly kept the owned request waiting, and existing SQLite rows proved an earlier process had initialized—not that the new process had rendered its first frame.
+- **Solution:** Explicitly reconnected the disposable loopback fixture after restart, explicitly cancelled owned request preparation and observed lease release before the next independent TM case, and waited for the new process's actual saved frame before footer/navigation access. Kept provider persistence, approval and ownership policy unchanged.
+- **Prevention / Reference:** Runtime drivers use disposable homes/projects, read-only SQL observation and actual terminal input; model inference POSTs stayed absent throughout final C TM import/export/use-review, restart and cross-project journeys in all four locale/size combinations. Motion restart/real-activity, exact key/paste forwarding and prior-writer refusal/current resume also passed all four (`target/pokemon-0122-motion-c2`).
+
 ### [2026-10-23] Navigation smoke confused list position and wrapped source details
 
 - **Context / Symptom:** The first driver selected task row zero and reported a same-task return failure, although the visible star belonged to row two. Compact capture text and wrapped payload text also fell outside literal whole-screen string selectors.

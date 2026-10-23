@@ -109,11 +109,11 @@ jobs:
           if os.name == "nt":
               archive = packages / "ev-${{ matrix.package }}.zip"
               command = ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", "install.ps1",
-                         "-Archive", archive, "-Checksums", packages / "SHA256SUMS", "-InstallDir", dest]
+                         "-Archive", archive, "-Checksums", packages / "SHA256SUMS", "-InstallDir", dest, "-NoAnimation"]
           else:
               archive = packages / "ev-${{ matrix.package }}.tar.gz"
               command = ["sh", "install.sh", "--archive", archive,
-                         "--checksums", packages / "SHA256SUMS", "--install-dir", dest]
+                         "--checksums", packages / "SHA256SUMS", "--install-dir", dest, "--no-animation"]
           subprocess.run([str(part) for part in command], check=True, timeout=120)
           binary = dest / ("ev.exe" if os.name == "nt" else "ev")
           subprocess.run([str(binary), "--version"], check=True, timeout=30)

@@ -66,6 +66,10 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         app.moves.failed_error.as_str()
     } else if app.moves.persistence_pending() {
         paint.hint(crate::i18n::Message::DesksMovesLoadingSavingLocalMoveFactsNoAction)
+    } else if app.moves.editing() && app.moves.mode != Mode::Name && app.moves.insertion_rejected {
+        paint.hint(crate::i18n::Message::TmPathRefused)
+    } else if app.moves.portable_exported {
+        paint.hint(crate::i18n::Message::TmExportSaved)
     } else if app.moves.notice.is_empty() {
         paint.hint(crate::i18n::Message::DesksMovesNamesAreLabelsOnlyEveryUseNeeds)
     } else {
@@ -195,7 +199,95 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             text(
                 frame,
                 footer,
-                paint.hint(crate::i18n::Message::DesksMovesArrowsChooseEnterReviewUseDDetails),
+                paint.hint(crate::i18n::Message::TmMenuControls),
+                paint.accent,
+            );
+        }
+        Mode::ImportPath | Mode::ExportPath => {
+            render_name(frame, body, footer, &app.moves, paint);
+        }
+        Mode::ImportTarget => {
+            text(
+                frame,
+                row(body, 0, 1),
+                paint.hint(crate::i18n::Message::TmImportTitle),
+                paint.accent,
+            );
+            let partners = app.partners();
+            let partner = partners
+                .get(app.moves.selected)
+                .map(App::partner_label)
+                .unwrap_or_default();
+            text(
+                frame,
+                row(body, 1, 1),
+                &paint.format(
+                    crate::i18n::Template::TmImportPartner,
+                    &[("partner", &partner)],
+                ),
+                paint.accent,
+            );
+            if let Some(definition) = &app.moves.portable {
+                let details = format!(
+                    "{}\n{}\n{}",
+                    paint.format(
+                        crate::i18n::Template::TmImportSummary,
+                        &[
+                            ("name", &definition.name),
+                            ("kind", kind(&definition.steps)),
+                            ("form", &definition.form)
+                        ]
+                    ),
+                    app.moves.portable_text,
+                    paint.hint(crate::i18n::Message::TmImportBoundary)
+                );
+                render_details(
+                    frame,
+                    row(body, 2, body.height.saturating_sub(2)),
+                    &details,
+                    &mut app.moves,
+                    paint,
+                );
+            }
+            text(
+                frame,
+                footer,
+                paint.hint(crate::i18n::Message::TmImportControls),
+                paint.accent,
+            );
+        }
+        Mode::ExportReview => {
+            text(
+                frame,
+                row(body, 0, 1),
+                paint.hint(crate::i18n::Message::TmExportTitle),
+                paint.accent,
+            );
+            if !app.moves.portable_text.is_empty() {
+                let details = paint.format(
+                    crate::i18n::Template::TmExportDetails,
+                    &[
+                        ("path", &app.moves.file_path),
+                        ("definition", &app.moves.portable_text),
+                    ],
+                );
+                render_details(
+                    frame,
+                    row(body, 1, body.height.saturating_sub(1)),
+                    &details,
+                    &mut app.moves,
+                    paint,
+                );
+                app.moves.reviewed = body.height >= 4;
+            }
+            text(
+                frame,
+                footer,
+                paint.hint(if app.moves.affirmative {
+                    crate::i18n::Message::TmExportArmed
+                } else {
+                    crate::i18n::Message::TmExportControls
+                }),
                 paint.accent,
             );
         }
@@ -509,7 +601,11 @@ fn render_details(frame: &mut Frame, area: Rect, details: &str, state: &mut Stat
 }
 fn render_name(frame: &mut Frame, body: Rect, footer: Rect, state: &State, paint: &Paint) {
     let learning = state.learning.as_ref();
-    let action = if matches!(learning, Some(Learning::Rename(_))) {
+    let action = if state.mode == Mode::ImportPath {
+        paint.hint(crate::i18n::Message::TmImportPath)
+    } else if state.mode == Mode::ExportPath {
+        paint.hint(crate::i18n::Message::TmExportPath)
+    } else if matches!(learning, Some(Learning::Rename(_))) {
         paint.hint(crate::i18n::Message::DesksMovesRenameLabelOnly)
     } else {
         paint.hint(crate::i18n::Message::DesksMovesMoveName)
@@ -542,6 +638,21 @@ fn render_name(frame: &mut Frame, body: Rect, footer: Rect, state: &State, paint
                 .saturating_add((caret_row.saturating_sub(top) as u16).min(input.height - 1)),
         ));
     }
+    if state.mode != Mode::Name {
+        text(
+            frame,
+            row(body, body.height.saturating_sub(2), 2),
+            paint.hint(crate::i18n::Message::TmPathBoundary),
+            paint.muted,
+        );
+        text(
+            frame,
+            footer,
+            paint.hint(crate::i18n::Message::TmPathControls),
+            paint.accent,
+        );
+        return;
+    }
     text(
         frame,
         row(body, body.height.saturating_sub(2), 2),
@@ -552,7 +663,7 @@ fn render_name(frame: &mut Frame, body: Rect, footer: Rect, state: &State, paint
                 ("scope", (state.scope.label())),
                 (
                     "change",
-                    (if matches!(learning, Some(Learning::Teach(_))) {
+                    (if matches!(learning, Some(Learning::Teach(_) | Learning::Import(_))) {
                         paint.hint(crate::i18n::Message::DesksMovesLeftRightChangesScope)
                     } else {
                         paint.hint(crate::i18n::Message::DesksMovesUnchanged)
@@ -746,6 +857,7 @@ fn review_details(state: &State, partner: &str, paint: &Paint) -> (String, Strin
     proposal.scope = state.scope;
     let action = match learning {
         Learning::Teach(_) => paint.hint(crate::i18n::Message::DesksMovesTeach),
+        Learning::Import(_) => paint.hint(crate::i18n::Message::TmImportAction),
         Learning::Relearn(_) => paint.hint(crate::i18n::Message::DesksMovesRelearnIdenticalSteps),
         Learning::Rename(_) => paint.hint(crate::i18n::Message::DesksMovesRenameLabel),
     };
@@ -758,6 +870,28 @@ fn review_details(state: &State, partner: &str, paint: &Paint) -> (String, Strin
         ],
     );
     let mut details = proposal_details(&proposal, paint);
+    if matches!(learning, Learning::Import(_)) {
+        details.insert_str(
+            0,
+            &format!(
+                "{}\n",
+                paint.format(
+                    crate::i18n::Template::TmImportPartner,
+                    &[("partner", partner)]
+                )
+            ),
+        );
+        if state.replacement.is_none() {
+            let slot = paint.format(
+                crate::i18n::Template::TmFreeSlot,
+                &[("slot", &(state.active().count() + 1).to_string())],
+            );
+            summary.push('\n');
+            summary.push_str(&slot);
+        }
+        details.push('\n');
+        details.push_str(paint.hint(crate::i18n::Message::TmImportBoundary));
+    }
     if let Some((id, revision)) = state.replacement
         && let Some(record) = state.records.iter().find(|r| r.id == id)
     {
@@ -874,6 +1008,7 @@ mod tests {
             ascii: true,
             language: crate::i18n::Language::ENGLISH,
             no_animation: true,
+            animation_override: Some(false),
             theme: crate::config::Theme::Dark,
             color: crate::config::ColorMode::Mono,
             images: crate::config::ImageMode::Off,

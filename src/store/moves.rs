@@ -44,6 +44,20 @@ pub enum Decision {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Operation {
     Load,
+    ReadPortable {
+        path: String,
+    },
+    ExportPortable {
+        id: i64,
+        revision: u64,
+        path: String,
+    },
+    ImportPortable {
+        definition: domain::portable::Definition,
+        name: String,
+        scope: Scope,
+        replace: Option<(i64, u64)>,
+    },
     Validate {
         id: i64,
         revision: u64,
@@ -87,6 +101,7 @@ pub struct Response {
     pub records: Vec<Record>,
     pub candidates: Vec<Candidate>,
     pub usages: Vec<Usage>,
+    pub portable: Option<domain::portable::Definition>,
 }
 
 /// Shared Unicode caseless key. Upper/lower expansion includes sharp-s,
@@ -297,11 +312,50 @@ impl State {
         if task.archived && !matches!(request.operation, Operation::Load) {
             return Err("Restore the archived task before changing moves".into());
         }
+        let mut portable = None;
         match &request.operation {
             Operation::Load => {
                 if !task.archived && backfill_runs(&transaction, &self.project, &request)? {
                     enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
                 }
+            }
+            Operation::ReadPortable { path } => {
+                portable = Some(domain::portable::read_file(Path::new(path))?);
+            }
+            Operation::ExportPortable { id, revision, path } => {
+                let record = selected(&visible, *id, *revision)?;
+                let definition = domain::portable::Definition::from_proposal(&record.proposal)?;
+                domain::portable::write_new(Path::new(path), &definition)?;
+            }
+            Operation::ImportPortable {
+                definition,
+                name,
+                scope,
+                replace,
+            } => {
+                let mut proposal = definition.proposal(request.task_id, request.partner, *scope)?;
+                if proposal.form != request.form {
+                    return Err("TM form differs from the reviewed local form".into());
+                }
+                proposal.name.clone_from(name);
+                domain::validate_for_root(Path::new(&self.project), &proposal)?;
+                unique_all(&transaction, &proposal, None)?;
+                capacity(&transaction, "moves", MAX_RECORDS)?;
+                make_slot(&transaction, &visible, *replace, None)?;
+                transaction.execute("INSERT INTO moves(revision,project,partner,form,scope,proposal,forgotten,created) VALUES(1,?1,?2,?3,?4,?5,0,?6)", params![self.project,proposal.partner,proposal.form as i64,self::scope(*scope),bounded_json(&proposal,MAX_JSON)?,timestamp()?]).map_err(sql)?;
+                let mut owner = Attribution::of(
+                    roster
+                        .iter()
+                        .find(|p| p.id == request.partner)
+                        .ok_or("Learning partner unavailable")?,
+                );
+                owner.form = request.form;
+                super::ribbons::move_taught(
+                    &transaction,
+                    &task,
+                    owner,
+                    transaction.last_insert_rowid(),
+                )?;
             }
             Operation::Validate { id, revision } => {
                 let record = selected(&visible, *id, *revision)?;
@@ -389,11 +443,16 @@ impl State {
         enforce_slots(&transaction)?;
         if !matches!(
             request.operation,
-            Operation::Load | Operation::Validate { .. } | Operation::Forget { .. }
+            Operation::Load
+                | Operation::Validate { .. }
+                | Operation::Forget { .. }
+                | Operation::ReadPortable { .. }
+                | Operation::ExportPortable { .. }
         ) {
             enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
         }
-        let response = response(&transaction, &self.project, request.partner, request.form)?;
+        let mut response = response(&transaction, &self.project, request.partner, request.form)?;
+        response.portable = portable;
         transaction
             .commit()
             .map_err(|error| format!("Cannot commit moves; no change persisted: {error}"))?;
@@ -1138,6 +1197,7 @@ fn response(
         records,
         candidates,
         usages,
+        portable: None,
     })
 }
 

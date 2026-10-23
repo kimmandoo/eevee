@@ -19,6 +19,8 @@ const MAX_NAME_BYTES: usize = 256;
 const MAX_NAME_GRAPHEMES: usize = 64;
 const MAX_SOURCES: usize = 16;
 
+pub mod portable;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Scope {
@@ -252,6 +254,7 @@ pub fn validate_steps(form: usize, steps: &Steps) -> Result<(), String> {
         completion_criteria: vec![
             "Review the actual result independently; no success is inferred".into(),
         ],
+        roles: Vec::new(),
     };
     match steps {
         Steps::Run { argv, cwd } => {

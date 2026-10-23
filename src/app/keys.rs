@@ -12,6 +12,8 @@ impl App {
     pub fn update_at(&mut self, event: Event, now: std::time::Instant) -> bool {
         let hide_carry_over = matches!(&event, Event::Paste(_))
             || matches!(&event, Event::Key(key) if key.kind != KeyEventKind::Release);
+        let motion_hidden = (hide_carry_over || matches!(&event, Event::Resize(_, _)))
+            && self.evolution.motion.take().is_some();
         let carry_over_hidden = hide_carry_over && self.carry_over.hide();
         let evolution_hidden = hide_carry_over
             && (self.evolution.popup_shown
@@ -29,10 +31,12 @@ impl App {
         let changed = match event {
             Event::Resize(width, height) => {
                 if (width, height) == (self.width, self.height) {
-                    return false;
+                    return motion_hidden;
                 }
                 self.width = width;
                 self.confirmation_reviewed = false;
+                self.formations.invalidate();
+                self.formations.apply_pending = false;
                 self.height = height;
                 self.agents.affirmative = false;
                 if let Some(popup) = &mut self.command_popup {
@@ -97,6 +101,9 @@ impl App {
                 self.insert_input(&text)
             }
             Event::Paste(text) if self.overlay == Some(Overlay::Moves) => self.move_paste(&text),
+            Event::Paste(text) if self.overlay == Some(Overlay::Formations) => {
+                self.formation_paste(&text)
+            }
             Event::Paste(_) if self.overlay == Some(Overlay::Held) => true,
             Event::Paste(text) if self.overlay == Some(Overlay::Records) => {
                 self.record_paste(&text)
@@ -165,7 +172,7 @@ impl App {
             self.changed_implicitly(now);
         }
         let presented = self.reconcile_file_review();
-        changed || presented || carry_over_hidden || evolution_hidden
+        changed || presented || carry_over_hidden || evolution_hidden || motion_hidden
     }
 
     fn response_mouse(&mut self, mouse: MouseEvent) -> bool {
@@ -748,6 +755,7 @@ impl App {
             || self.workflow.editor.is_some()
             || self.memory.editing()
             || self.moves.editing()
+            || self.overlay == Some(Overlay::Formations) && self.formations.editing()
             || self.handoff.editing
             || self.agents.connection_editing()
     }
@@ -881,6 +889,7 @@ impl App {
             return true;
         }
         match self.overlay {
+            Some(Overlay::Formations) => return self.formation_key(key),
             Some(Overlay::Held) => return self.held_key(key),
             Some(Overlay::Moves) => return self.move_key(key),
             Some(Overlay::Workflows) => return self.workflow_key(key),

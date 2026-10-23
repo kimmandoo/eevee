@@ -4,6 +4,13 @@
 
 The binary implements native ChatGPT/OpenAI/Anthropic/Gemini/compatible HTTP connections, the durable local workbench, Codex Plan/controlled Implement, an optional official Claude SDK bridge, ACP1 for OpenCode/Gemini/Devin, and version-1 handoff. **Implemented transport support is not authenticated interoperability acceptance.** Per-service live evidence is recorded in the checkpoint; missing credentials do not become a blanket model-browsing or custom-selection blocker. Existing A04/A06/full A07 agent-conformance gates remain separate. Binding rules live in [DESIGN_RULES.md](DESIGN_RULES.md).
 
+### v0.1.22 local Pokémon and motion boundaries
+
+Formations and portable TMs reuse existing local recipe/move/store owners; import, export, mapping and learning do not call a provider, restore a session or transfer permission. Each actual use opens its ordinary fresh receipt/command/capture/task review. Portable definitions carry no database identity or historical teacher/success claims, and local partner flavor stays out of provider packets.
+
+Reduced motion changes only display/persistent nonsecret preference state, including during owned work. A motion-only write never persists a launch-only provider override. Schema 18 and complete bridge9 remain unchanged, but a true reduced-motion field extends strict preference JSON: back up the complete data directory, and do not treat same SQL schema as proof of downgrade compatibility. Actual v0.1.21 refusal/current resume with unchanged bytes passed both sizes/languages locally; public release evidence remains in the checkpoint. No new authenticated-provider or assistive/native-pixel acceptance is inferred.
+
+
 ### v0.1.20 project and file-operation contract
 
 The canonical launch folder owns tasks, context paths, exclusions, provider cwd and mediated file operations; an enclosing Git repository is optional evidence, not a larger project grant. Plain folders retain filesystem browsing without invented Git verification. Changing tasks does not change projects; launch from another folder to select another project.
