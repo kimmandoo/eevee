@@ -1458,55 +1458,83 @@ pub(crate) fn source_visible(
     #[cfg(windows)]
     let path: &str = &git_path;
     #[cfg(target_os = "macos")]
-    if !path.is_ascii() {
-        return Ok(source_paths(root, stopped)?.is_some_and(|paths| paths.contains(relative)));
-    }
+    let composed = {
+        use unicode_normalization::UnicodeNormalization;
+        path.nfc().collect::<String>()
+    };
+    #[cfg(not(target_os = "macos"))]
+    let composed = path;
     let git = Git::new(root, stopped, Instant::now() + COMMAND_TIMEOUT)?;
-    let captured = git.required(
-        &[
-            "ls-files",
-            "--cached",
-            "--others",
-            "--exclude-standard",
-            "-z",
-            "--",
-            path,
-        ],
-        None,
-        4 * (path.len() + 1),
-    )?;
+    let arguments = [
+        "ls-files",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        "-z",
+        "--",
+        path,
+        &composed,
+    ];
+    // Ask only for this literal identity. Git may store NFC while the retained
+    // native namespace exposes NFD; compare returned opened-handle spellings,
+    // never widen an exact lookup into a repository-wide inventory.
+    let count = if composed == path { 7 } else { 8 };
+    let captured = git.required(&arguments[..count], None, 8 * (path.len() + 1))?;
     if captured.truncated {
         return Err("Source inventory membership exceeded its exact-path bound".into());
     }
-    Ok(complete_records(&captured.bytes).any(|record| record == path.as_bytes()))
+    for record in complete_records(&captured.bytes) {
+        if inventory_path(root, relative_path(record)?)? == relative {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Bounded nonignored filenames for controlled source tools. Plain directories
 /// have no Git policy; repository failures never silently disable that policy.
 pub(crate) fn source_paths(
     root: &Path,
+    directory: &Path,
     stopped: &AtomicBool,
 ) -> Result<Option<BTreeSet<PathBuf>>, String> {
     super::context::validate_project_root(root)?;
     if !has_git_marker(root)? {
         return Ok(None);
     }
+    let scope = if directory.as_os_str().is_empty() {
+        "."
+    } else {
+        source_path(directory)?
+    };
+    #[cfg(windows)]
+    let wire_scope = scope.replace('\\', "/");
+    #[cfg(windows)]
+    let scope = wire_scope.as_str();
+    #[cfg(target_os = "macos")]
+    let composed = {
+        use unicode_normalization::UnicodeNormalization;
+        scope.nfc().collect::<String>()
+    };
+    #[cfg(not(target_os = "macos"))]
+    let composed = scope;
     let git = Git::new(root, stopped, Instant::now() + COMMAND_TIMEOUT)?;
-    let output = git.required(
-        &[
-            "ls-files",
-            "--cached",
-            "--others",
-            "--exclude-standard",
-            "-z",
-            "--",
-            ".",
-        ],
-        None,
-        512 * 1024,
-    )?;
+    let arguments = [
+        "ls-files",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        "-z",
+        "--",
+        scope,
+        &composed,
+    ];
+    let count = if composed == scope { 7 } else { 8 };
+    let output = git.required(&arguments[..count], None, 512 * 1024)?;
     if output.truncated {
-        return Err("Source filename inventory exceeds 512 KiB; select a smaller project".into());
+        return Err(
+            "Source filename inventory exceeds 512 KiB; choose a narrower directory scope".into(),
+        );
     }
     complete_records(&output.bytes)
         .map(|bytes| inventory_path(root, relative_path(bytes)?))

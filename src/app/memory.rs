@@ -128,7 +128,7 @@ impl State {
         if provenance.task_id != self.task_id {
             return Err("The selected note belongs to a different task.".into());
         }
-        memory::validate_text(content, memory::MAX_CONTENT_BYTES)?;
+        memory::validate_content(content)?;
         let proposal = Proposal {
             scope: Scope::Task,
             content: content.into(),
@@ -310,10 +310,10 @@ impl State {
         {
             return Err("Memory draft has an invalid context selection.".into());
         }
-        memory::validate_text(&draft.text, memory::MAX_CONTENT_BYTES)?;
-        memory::validate_text(&draft.original, memory::MAX_CONTENT_BYTES)?;
+        memory::validate_content(&draft.text)?;
+        memory::validate_content(&draft.original)?;
         if let Some(candidate) = &draft.candidate {
-            memory::validate_text(&candidate.content, memory::MAX_CONTENT_BYTES)?;
+            memory::validate_content(&candidate.content)?;
             memory::validate_text(&candidate.provenance.reference, memory::MAX_REFERENCE_BYTES)?;
             if candidate.provenance.task_id <= 0 || candidate.provenance.reference.trim().is_empty()
             {
@@ -424,7 +424,7 @@ impl State {
             return true;
         }
         self.draft.insert_str(self.cursor, &text);
-        if let Err(error) = memory::validate_text(&self.draft, memory::MAX_CONTENT_BYTES) {
+        if let Err(error) = memory::validate_content(&self.draft) {
             self.draft
                 .replace_range(self.cursor..self.cursor + text.len(), "");
             self.notice = error;
@@ -515,11 +515,7 @@ impl State {
                     .rfind('\n')
                     .map_or(0, |index| index + 1)
             }
-            KeyCode::End => {
-                self.cursor = self.draft[self.cursor..]
-                    .find('\n')
-                    .map_or(self.draft.len(), |index| self.cursor + index)
-            }
+            KeyCode::End => self.cursor = self.line_content_end(self.cursor),
             KeyCode::Backspace => {
                 self.draft.replace_range(before..self.cursor, "");
                 self.cursor = before;
@@ -531,6 +527,16 @@ impl State {
             _ => {}
         }
         true
+    }
+    fn line_content_end(&self, start: usize) -> usize {
+        let end = self.draft[start..]
+            .find('\n')
+            .map_or(self.draft.len(), |index| start + index);
+        if end < self.draft.len() && end > 0 && self.draft.as_bytes()[end - 1] == b'\r' {
+            end - 1
+        } else {
+            end
+        }
     }
 
     fn vertical_cursor(&mut self, down: bool) {
@@ -551,9 +557,7 @@ impl State {
                 .rfind('\n')
                 .map_or(0, |index| index + 1)
         };
-        let end = self.draft[next_start..]
-            .find('\n')
-            .map_or(self.draft.len(), |index| next_start + index);
+        let end = self.line_content_end(next_start);
         self.cursor = self.draft[next_start..end]
             .grapheme_indices(true)
             .nth(column)
@@ -958,6 +962,65 @@ mod tests {
         assert!(!restored.reviewed);
         restored.reset(8, "/project/a");
         assert!(restored.restore_draft(&saved).is_err());
+    }
+
+    #[test]
+    fn source_note_crlf_end_vertical_edit_and_saved_draft_keep_valid_byte_boundaries() {
+        let exact = "中e\u{301}tail\r\n短\r\nlast";
+        let mut original = state();
+        original
+            .propose(
+                exact,
+                Provenance {
+                    kind: SourceKind::UserAuthored,
+                    reference: "task:7/source:41".into(),
+                    task_id: 7,
+                },
+                false,
+            )
+            .unwrap();
+        key(&mut original, KeyCode::Esc);
+        assert_eq!(original.mode, Mode::Edit);
+        original.cursor = 0;
+        key(&mut original, KeyCode::End);
+        assert_eq!(original.cursor, "中e\u{301}tail".len());
+        key(&mut original, KeyCode::Down);
+        assert_eq!(original.cursor, "中e\u{301}tail\r\n短".len());
+        assert_eq!(
+            &original.draft[original.cursor..original.cursor + 2],
+            "\r\n"
+        );
+        key(&mut original, KeyCode::Up);
+        assert_eq!(original.cursor, "中".len());
+        key(&mut original, KeyCode::End);
+        let first_end = original.cursor;
+        let saved = original.draft_snapshot();
+        let mut restored = state();
+        restored.restore_draft(&saved).unwrap();
+        assert_eq!(restored.cursor, first_end);
+        assert_eq!(restored.draft.as_bytes(), exact.as_bytes());
+        assert!(restored.paste("!"));
+        assert_eq!(restored.draft, "中e\u{301}tail!\r\n短\r\nlast");
+        let edited = restored.draft_snapshot();
+        let mut resumed = state();
+        resumed.restore_draft(&edited).unwrap();
+        assert_eq!(resumed.cursor, restored.cursor);
+        assert_eq!(resumed.draft.as_bytes(), restored.draft.as_bytes());
+        key(&mut resumed, KeyCode::Delete);
+        assert_eq!(resumed.draft, "中e\u{301}tail!短\r\nlast");
+        assert!(memory::validate_content(&resumed.draft).is_ok());
+        let merged = resumed.draft_snapshot();
+        restored.restore_draft(&merged).unwrap();
+        assert_eq!(restored.cursor, resumed.cursor);
+        assert_eq!(restored.draft.as_bytes(), resumed.draft.as_bytes());
+        key(&mut restored, KeyCode::Enter);
+        assert_eq!(restored.mode, Mode::Preview);
+        assert_eq!(
+            restored.candidate.as_ref().unwrap().provenance.reference,
+            "task:7/user-authored-memory-note",
+        );
+        assert!(restored.pending.is_none());
+        assert!(!restored.reviewed);
     }
 
     #[test]

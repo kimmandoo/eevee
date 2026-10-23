@@ -5,6 +5,11 @@ Requires pyte==0.8.2 and wcwidth==0.2.13; Windows uses native ConPTY pipes.
 The supplied binary must already be built. One isolated cargo example build
 exercises the real terminal module's error and panic paths; repository files
 and the user's terminal are never modified. All transcripts are local artifacts.
+
+Synchronous editor/navigation input requires bounded output quiescence on Windows.
+Dispatch/approval input may explicitly use send(..., settle=False): the owning
+journey must then wait for its actual protocol/storage/UI completion, since a
+working spinner or a deliberately gated response is not an idle terminal.
 """
 
 from __future__ import annotations
@@ -419,7 +424,10 @@ class Session:
             return False
         return self.process.isalive() if WINDOWS else self.process.poll() is None
 
-    def send(self, keys):
+    def send(self, keys, *, settle=None):
+        """Send all input; asynchronous actions opt out of idle-only settling."""
+        if settle is None:
+            settle = WINDOWS
         self.events.append({"input": repr(keys)})
         if WINDOWS:
             self.process.write(keys)
@@ -427,7 +435,7 @@ class Session:
             pending = keys.encode("utf-8")
             while pending:
                 pending = pending[os.write(self.master, pending):]
-        self.pump(settle=WINDOWS)
+        self.pump(settle=settle)
 
     def command(self, name):
         """Choose a semantic action; any subsequent consent remains separate."""

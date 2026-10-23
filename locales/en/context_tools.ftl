@@ -1,0 +1,11 @@
+context-tools-optimize = Preview ranked context under a local token budget
+context-tools-compact = Preview an evidence-linked local continuation ledger
+context-tools-apply = Apply the reviewed context packet; nothing sent
+context-tools-cancel = Cancel the context preview; nothing changed
+context-tools-clear = Clear the applied local context packet
+context-tools-receipts = Inspect retained outgoing request receipts
+context-tools-search = Search retained tool output
+context-tools-locations = Inspect retained failure locations
+context-tools-cache-retry = Retry only the failed local cache operation
+context-tools-cache-discard = Discard the failed local cache operation
+context-tools-cache-purge = Purge the local revision and token cache

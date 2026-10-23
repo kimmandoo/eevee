@@ -94,13 +94,24 @@ pub enum Mutation {
 /// Reject, rather than offer a partly redacted credential as a habit. Redaction
 /// detection remains best-effort; exclusions must also be checked at the source.
 pub fn validate_text(text: &str, max: usize) -> Result<(), String> {
+    validate_memory_text(text, max, false)
+}
+
+/// Source-adopted notes retain exact CRLF bytes. Only content permits paired
+/// carriage returns; paths, provenance and other metadata use `validate_text`.
+pub fn validate_content(text: &str) -> Result<(), String> {
+    validate_memory_text(text, MAX_CONTENT_BYTES, true)
+}
+
+fn validate_memory_text(text: &str, max: usize, allow_crlf: bool) -> Result<(), String> {
     if text.len() > max {
         return Err(format!(
             "Memory text exceeds {max} UTF-8 bytes; nothing was saved."
         ));
     }
-    if text.chars().any(|ch| {
-        (ch.is_control() && !matches!(ch, '\n' | '\t'))
+    if text.char_indices().any(|(offset, ch)| {
+        let paired_cr = allow_crlf && ch == '\r' && text.as_bytes().get(offset + 1) == Some(&b'\n');
+        (ch.is_control() && !matches!(ch, '\n' | '\t') && !paired_cr)
             || matches!(ch, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
     }) {
         return Err("Memory cannot contain terminal or directional control characters.".into());
@@ -114,7 +125,7 @@ pub fn validate_text(text: &str, max: usize) -> Result<(), String> {
 }
 
 pub fn validate_proposal(proposal: &Proposal) -> Result<(), String> {
-    validate_text(&proposal.content, MAX_CONTENT_BYTES)?;
+    validate_content(&proposal.content)?;
     validate_text(&proposal.provenance.reference, MAX_REFERENCE_BYTES)?;
     if proposal.content.trim().is_empty()
         || proposal.provenance.reference.trim().is_empty()
@@ -253,6 +264,33 @@ mod tests {
         assert!(revalidate(&planned, &[], "/project/a", 7).is_err());
         assert!(snapshot(&planned, &[], "/project/a", 7).unwrap().is_empty());
         assert!(snapshot(&planned, &[1], "/project/b", 7).is_err());
+    }
+
+    #[test]
+    fn content_retains_crlf_without_relaxing_metadata_or_other_controls() {
+        let exact = "first\r\n한글\tsecond\r\n";
+        let mut proposal = record(Scope::Task).proposal;
+        proposal.content = exact.into();
+        assert!(validate_proposal(&proposal).is_ok());
+        assert_eq!(proposal.content.as_bytes(), exact.as_bytes());
+        assert!(validate_text(exact, MAX_CONTENT_BYTES).is_err());
+        proposal.provenance.reference = "task:7/source:1\r\nmetadata".into();
+        assert!(validate_proposal(&proposal).is_err());
+        for unsafe_content in [
+            "lone\rcarriage",
+            "trailing\r",
+            "\r\r\n",
+            "terminal\u{1b}[31m\r\n",
+            "direction\u{202e}\r\n",
+            "token=private-value\r\n",
+            "[REDACTED]\r\n",
+        ] {
+            assert!(
+                validate_content(unsafe_content).is_err(),
+                "{unsafe_content:?}"
+            );
+        }
+        assert!(validate_content(&"x".repeat(MAX_CONTENT_BYTES + 1)).is_err());
     }
 
     #[test]

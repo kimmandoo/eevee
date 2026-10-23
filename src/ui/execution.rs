@@ -87,7 +87,7 @@ pub(super) fn render(
     );
     let banner = if let Some(error) = &state.error {
         paint.format(
-            Template::ProvidersExecutionErrorArtifactsDetailsJournalRetryStorageOnly,
+            Template::ProvidersExecutionErrorRunDetailsJournalRetryStorageOnly,
             &[("layer", (error.layer))],
         )
     } else if state.searching {
@@ -126,7 +126,7 @@ pub(super) fn render(
     } else if state.view == View::Details {
         paint.hint(Message::ProvidersExecutionUpDownPgupPgdnHomeEndInspect)
     } else {
-        paint.hint(Message::ProvidersExecutionChoicesCommandEditExecuteLocationsArtifactsArrows)
+        paint.hint(Message::ProvidersExecutionChoicesCommandEditExecuteLocationsRunDetailsArrows)
     };
     text(frame, footer, hints, paint.muted);
 }

@@ -2,10 +2,34 @@
 
 ## 2026-10-24
 
+- feat(context): implemented T01C restart-safe dispatched-request receipts with source-only purge and preserved exact local counts.
+- feat(context): implemented T02A/T02B reviewed budgeted ranking, syntax-aware ranges and honest text fallback with source-change dispatch refusal.
+- feat(context): implemented T03A/T03B capture-identity citations across entry points and offline revision/token/assembly caches with source/configuration invalidation.
+- feat(context): connected checked source-capture adoption to ordinary memory approval and explicit selection, preserved exact CRLF bytes and reserved mandatory note budget without duplicate instruction text.
+- fix(context): retained exact covered-capture citation ranges and normalized real compact-ledger/handoff digest representations without conflating source identities.
+- feat(context): implemented T04 deterministic evidence-linked compaction with retained failures, changed-source warnings and neutral cancellation.
+- feat(tools): implemented TC01A/TC01B reviewed local trusted metadata search and adapter-scoped versioned schema exposure through existing host execution.
+- feat(tools): implemented TC03A/TC03B immutable owned artifacts with exact paging, literal search, failure locations and provider retrieval through the same store writer.
+- fix(providers): preserved public controlled-implementation conversation across fresh threads, honored explicit fresh-conversation requests and retained attributed responses through model changes.
+- fix(sources): separated bounded observational reads from 64-KiB mutation eligibility and added recoverable directory-scoped discovery.
+- fix(storage): ordered in-process read-only admission snapshots and writer commands before SQLite locks without widening foreign-contention timeouts or adding retries.
+- fix(verification): separated animated asynchronous terminal actions from semantic completion and replaced thousands of no-op deletion keys with an exact input-size bound.
+- fix(context): revalidated current exclusions for historical compaction and refreshed committed failed-run evidence instead of treating pending or failed history hydration as empty.
+- fix(receipts): reserved bounded receipt capacity before provider admission and invalidated in-memory source views after committed artifact purges.
+- fix(tools): scoped trusted catalog revocation to its own provider rather than unrelated connection failures.
+- fix(privacy): limited provider artifact and historical-run metadata to numeric ownership, kept preparation/approval material local and retained full attribution in local evidence.
+- fix(context): persisted large assembly manifests as bounded explicit metadata instead of silently dropping them at the cache-key limit.
+- fix(context): reused exact intra-assembly token counts after budget rejection without duplicate revision writes, source-identity conflation or inflated persisted-cache hit counts.
+- fix(ux): prioritized current optimizer overflow and preview-versus-applied state at minimum terminal size while retaining complete scrollable metrics.
+- fix(artifacts): migrated the owned-run SQL reservation ceiling to 16 MiB and prioritized compact retained content while keeping full identity and purge scope inspectable.
+- fix(ux): made busy receipt recovery reachable and separated command diagnostics under `/run-details` from the generic artifact inspector.
+- fix(consent): rejected hidden affirmative execution choices for cancellation, navigation, purge and unknown-outcome exit until their current scope was visible.
 - fix(planning): recognized short implementation requests after planning and carried bounded completed public plan context into fresh implementation without transferring opaque provider permissions.
 - fix(providers): stopped implicit CLI credential import, distinguished missing/access-denied/unsafe authentication sources and accepted private Windows provider credentials with trusted elevated ownership and optional UTF-8 BOM.
 - fix(tools): clarified host-executed project discovery, nested creation and saved edits independently of provider-shell read-only policy.
 - test(platform): added real bilingual terminal file workflow gates on every native target, including ordinary planning followed by implementation and actual saved file bytes.
+- test(context): passed all ten selected contracts through bilingual compact/wide terminal journeys, exact outgoing packets, real three-entry citations, persisted local cache, failed-check compaction and immutable artifact paging/search.
+- docs(tasks): archived all ten accepted specifications and reconciled18 remaining tasks while keeping exact-source native qualification and publication separate.
 - docs(release): recorded immutable v0.1.28 publication from `801b921`, verified all public asset digests and archives, and passed downloaded installation24/terminal34/workbench35 plus bilingual planning, project creation and evolution journeys.
 - test(providers): preserved operating-system runtime variables in the isolated metadata diagnostic subprocess and reported child failures before fixture-thread failures.
 - test(workbench): removed the obsolete forced-Espeon initialization expectation and exercised explicit HTTP 503 diagnostic recovery with scrollable compact details; all 35 real workbench groups passed without changing the qualified executable.
@@ -96,6 +120,17 @@
 - docs(release): published v0.1.19 from source `63f1007` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.29
+
+- feat(context): added restart-safe outgoing receipts, reviewed budgeted/symbol-aware selection, cross-entry-point capture deduplication, offline revision/token/assembly caching and evidence-linked compaction.
+- feat(tools): added reviewed trusted local catalog search, supported-adapter lazy schemas, immutable tool artifacts, exact paging, literal search and failure locations through existing execution and storage boundaries.
+- fix(providers): corrected short planning-to-implementation requests, removed implicit CLI credential import, improved explicit Windows credential diagnostics and retained public follow-up conversation without carrying grants.
+- fix(sources): added scoped discovery and large-source observation while retaining exact-content mutation limits and fresh one-shot consent.
+- fix(storage): prevented same-process SQLite admission/writer contention, reserved receipt capacity before transport and added exact rollback-proven unsaved-receipt recovery without resending.
+- fix(verification): corrected asynchronous ConPTY capture and bounded literal input clearing without masking active work or widening final settling.
+- feat(storage)!: migrated Schema18 to Schema19 on the existing single writer; required a complete data-directory backup and refused incompatible older writers rather than supporting an in-place downgrade.
+- docs(compatibility): retained complete SDK bridge9 and separated deterministic local/loopback evidence from paid authenticated-provider conformance.
 
 ## 0.1.28
 

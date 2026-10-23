@@ -1006,6 +1006,246 @@ fn read_tool(path: &str) -> FileTool {
 }
 
 #[test]
+fn discovery_requires_an_explicit_directory_scope_without_legacy_argument_fallbacks() {
+    assert!(FileTool::parse("eevee_list_files", json!({"query":"","offset":0})).is_err());
+    assert!(
+        FileTool::parse(
+            "eevee_list_files",
+            json!({"directory":"","query":"","offset":0})
+        )
+        .is_ok()
+    );
+    assert!(
+        FileTool::parse(
+            "eevee_list_files",
+            json!({"directory":"","query":"","offset":0,"root":"elsewhere"})
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn scoped_unicode_discovery_returns_native_names_readable_by_exact_source_tools() {
+    let project = Project::new();
+    let directory = "cafe\u{301}";
+    std::fs::create_dir(project.root.join(directory)).unwrap();
+    std::fs::write(
+        project.root.join(directory).join("중앙.rs"),
+        "// actual Unicode source\r\n",
+    )
+    .unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&project.root)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    assert!(
+        std::process::Command::new("git")
+            .args(["config", "core.precomposeunicode", "true"])
+            .current_dir(&project.root)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    #[cfg(target_os = "macos")]
+    let requested = "café";
+    #[cfg(not(target_os = "macos"))]
+    let requested = directory;
+    let mut set = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    let names = set
+        .observe_tool(&FileTool::List {
+            directory: requested.into(),
+            query: "".into(),
+            offset: 0,
+        })
+        .unwrap();
+    assert_eq!(names["total"], 1);
+    assert_eq!(names["complete"], true);
+    let returned = names["paths"][0].as_str().unwrap();
+    assert_eq!(
+        set.observe_tool(&read_tool(returned)).unwrap()["content"],
+        "// actual Unicode source\r\n"
+    );
+}
+
+#[test]
+fn oversized_source_ranges_keep_full_identity_and_never_enroll_mutation() {
+    let project = Project::new();
+    std::fs::create_dir(project.root.join("src")).unwrap();
+    let path = "src/중앙-cafe\u{301}.rs";
+    let source: String = (1..=3000)
+        .map(|line| format!("// actual source line {line:04}: café 界 and dirty CRLF\r\n"))
+        .collect();
+    assert!(source.len() > MAX_BYTES);
+    std::fs::write(project.root.join(path), &source).unwrap();
+    let mut set = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    let names = set
+        .observe_tool(&FileTool::List {
+            directory: "src".into(),
+            query: "".into(),
+            offset: 0,
+        })
+        .unwrap();
+    assert_eq!(names["paths"], json!([path]));
+    assert_eq!(names["complete"], true);
+    let read = set
+        .observe_tool(&FileTool::Read {
+            path: path.into(),
+            start_line: 2500,
+            end_line: 2502,
+        })
+        .unwrap();
+    let expected: String = source.split_inclusive('\n').skip(2499).take(3).collect();
+    assert_eq!(read["content"], expected);
+    assert_eq!(read["bytes"], source.len());
+    assert_eq!(read["total_lines"], 3000);
+    assert_eq!(read["start_line"], 2500);
+    assert_eq!(read["end_line"], 2502);
+    assert_eq!(
+        read["sha256"],
+        format!("{:x}", Sha256::digest(source.as_bytes()))
+    );
+    assert_eq!(read["digest_scope"], "full_file");
+    assert_eq!(read["editable"], false);
+    assert_eq!(read["truncated"], true);
+    assert!(set.admit_paths(&[path.into()]).is_err());
+    assert!(set.targets.is_empty());
+    assert_eq!(
+        std::fs::read(project.root.join(path)).unwrap(),
+        source.as_bytes()
+    );
+
+    let first = set.observe_tool(&read_tool(path)).unwrap();
+    assert!(first["returned_bytes"].as_u64().unwrap() <= MAX_BYTES as u64);
+    assert_eq!(first["truncated"], true);
+    let next = first["next_start_line"].as_u64().unwrap() as usize;
+    assert!(next > 1);
+    let continuation = set
+        .observe_tool(&FileTool::Read {
+            path: path.into(),
+            start_line: next,
+            end_line: 0,
+        })
+        .unwrap();
+    assert_eq!(continuation["sha256"], first["sha256"]);
+    let expected: String = source
+        .split_inclusive('\n')
+        .skip(next - 1)
+        .take(continuation["end_line"].as_u64().unwrap() as usize - next + 1)
+        .collect();
+    assert_eq!(continuation["content"], expected);
+
+    // Validation covers the complete source, including bytes outside the range.
+    std::fs::write(
+        project.root.join(path),
+        format!("{source}password=private-tail-canary\r\n"),
+    )
+    .unwrap();
+    assert!(
+        set.observe_tool(&FileTool::Read {
+            path: path.into(),
+            start_line: 1,
+            end_line: 1,
+        })
+        .is_err()
+    );
+}
+
+#[test]
+fn discovery_and_exact_reads_recover_from_large_tree_and_git_inventory_bounds() {
+    let project = Project::new();
+    std::fs::create_dir(project.root.join("src")).unwrap();
+    let path = "src/cafe\u{301}.rs";
+    std::fs::write(project.root.join(path), "actual narrow source\r\n").unwrap();
+    for index in 0..10_001 {
+        std::fs::write(
+            project
+                .root
+                .join(format!("{index:05}-{}.txt", "a".repeat(80))),
+            "",
+        )
+        .unwrap();
+    }
+    for git in [false, true] {
+        if git {
+            assert!(
+                std::process::Command::new("git")
+                    .args(["init", "-q"])
+                    .current_dir(&project.root)
+                    .output()
+                    .unwrap()
+                    .status
+                    .success()
+            );
+            assert!(
+                std::process::Command::new("git")
+                    .args(["config", "core.precomposeunicode", "true"])
+                    .current_dir(&project.root)
+                    .output()
+                    .unwrap()
+                    .status
+                    .success()
+            );
+        }
+        let mut set = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+        assert_eq!(set.project_context()["filenames"]["complete"], false);
+        assert_eq!(set.project_context()["filenames"]["status"], "unavailable");
+        let error = set
+            .observe_tool(&FileTool::List {
+                directory: "".into(),
+                query: "src".into(),
+                offset: 0,
+            })
+            .unwrap_err();
+        assert!(error.contains("narrower directory scope"), "{error}");
+        let names = set
+            .observe_tool(&FileTool::List {
+                directory: "src".into(),
+                query: "".into(),
+                offset: 0,
+            })
+            .unwrap();
+        assert_eq!(names["paths"], json!([path]));
+        assert_eq!(names["total"], 1);
+        assert_eq!(names["complete"], true);
+        assert_eq!(
+            set.observe_tool(&read_tool(path)).unwrap()["content"],
+            "actual narrow source\r\n"
+        );
+        assert!(set.targets.is_empty());
+    }
+}
+
+#[test]
+fn oversized_filename_discovery_does_not_claim_source_capture_or_edit_eligibility() {
+    let project = Project::new();
+    let path = "large-source.rs";
+    let file = std::fs::File::create(project.root.join(path)).unwrap();
+    file.set_len(16 * 1024 * 1024 + 1).unwrap();
+    drop(file);
+    let mut set = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    assert_eq!(
+        set.observe_tool(&FileTool::List {
+            directory: "".into(),
+            query: "".into(),
+            offset: 0,
+        })
+        .unwrap()["paths"],
+        json!([path])
+    );
+    let error = set.observe_tool(&read_tool(path)).unwrap_err();
+    assert!(error.contains("16 MiB"));
+    assert!(set.observed.is_empty());
+    assert!(set.admit_paths(&[path.into()]).is_err());
+    assert!(set.targets.is_empty());
+}
+
+#[test]
 fn plain_project_discovery_read_generate_and_reviewed_edit_preserve_dirty_crlf() {
     let project = Project::new();
     std::fs::create_dir(project.root.join("src")).unwrap();
@@ -1014,6 +1254,7 @@ fn plain_project_discovery_read_generate_and_reviewed_edit_preserve_dirty_crlf()
     let mut set = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
     let names = set
         .observe_tool(&FileTool::List {
+            directory: PathBuf::new(),
             query: "src/".into(),
             offset: 0,
         })
@@ -1205,6 +1446,16 @@ fn source_ranges_limits_and_privacy_fail_closed() {
             "accepted {path}"
         );
     }
+    for directory in ["../outside", "/outside", "./", "own-data", "excluded"] {
+        assert!(
+            set.observe_tool(&FileTool::List {
+                directory: directory.into(),
+                query: "".into(),
+                offset: 0,
+            })
+            .is_err()
+        );
+    }
     let range = set
         .observe_tool(&FileTool::Read {
             path: "safe.txt".into(),
@@ -1225,15 +1476,16 @@ fn source_ranges_limits_and_privacy_fail_closed() {
     );
     let names = set
         .observe_tool(&FileTool::List {
+            directory: PathBuf::new(),
             query: "".into(),
             offset: 0,
         })
         .unwrap();
     let paths = names["paths"].as_array().unwrap();
+    assert!(paths.iter().any(|path| path == "large.txt"));
     assert!(!paths.iter().any(|path| path == ".env"
         || path == "own-data/private.txt"
-        || path == "excluded/context.txt"
-        || path == "large.txt"));
+        || path == "excluded/context.txt"));
 }
 
 #[cfg(unix)]
@@ -1261,6 +1513,7 @@ fn source_tools_never_follow_file_directory_or_hard_links() {
     }
     let names = set
         .observe_tool(&FileTool::List {
+            directory: PathBuf::new(),
             query: "".into(),
             offset: 0,
         })
@@ -1292,6 +1545,7 @@ fn normalized_privacy_aliases_never_enter_source_reads_or_discovery() {
     }
     let names = set
         .observe_tool(&FileTool::List {
+            directory: PathBuf::new(),
             query: "".into(),
             offset: 0,
         })
@@ -1333,6 +1587,7 @@ fn git_inventory_keeps_native_unicode_spelling_for_generated_sources() {
     assert_eq!(read["content"], "value = 1\r\n");
     let names = set
         .observe_tool(&FileTool::List {
+            directory: PathBuf::new(),
             query: "generated/".into(),
             offset: 0,
         })
@@ -1402,6 +1657,7 @@ fn project_observation_bounds_names_and_bytes_without_changing_frozen_preview() 
     assert_eq!(
         scope
             .observe_tool(&FileTool::List {
+                directory: PathBuf::new(),
                 query: String::new(),
                 offset: 0
             })
@@ -1435,6 +1691,7 @@ fn project_observation_bounds_names_and_bytes_without_changing_frozen_preview() 
     assert_eq!(
         scope
             .observe_tool(&FileTool::List {
+                directory: PathBuf::new(),
                 query: "later".into(),
                 offset: 0
             })
@@ -1529,6 +1786,7 @@ fn readonly_root_capture_and_source_tools_need_no_mutation_permissions() {
     assert_eq!(
         scope
             .observe_tool(&FileTool::List {
+                directory: PathBuf::new(),
                 query: String::new(),
                 offset: 0
             })

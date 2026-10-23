@@ -1,6 +1,5 @@
 context-comparison-title = Context selection · same-turn comparison
 context-comparison-hint = c refresh counts · Tab files · PgUp/Dn details · Esc back
-context-comparison-source-hint = c compare exact same-turn context · / more
 context-comparison-empty = No immutable full-turn receipt yet. Press c to prepare locally; no request is sent.
 context-comparison-waiting = Preparing the full request locally. No provider/network call, send approval or billing measurement.
 context-comparison-before-only = Previous selection retained; the current full request has not been prepared yet. Press c to refresh.

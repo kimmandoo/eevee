@@ -198,6 +198,7 @@ impl State {
         excerpts: &[context::Excerpt],
         report: Option<&Arc<repo::Report>>,
     ) {
+        let fresh_chat = std::mem::take(&mut self.conversation_flow.fresh_intent);
         if self.busy() || self.unknown_effects() {
             return;
         }
@@ -256,6 +257,7 @@ impl State {
         } else {
             self.selection.clone()
         };
+        self.freeze_chat_intent(task, fresh_chat && !inspect_models && !inspect_sessions);
         self.native_candidate = None;
         self.connection_invalidated = false;
         self.native_request_partner = if self.agent.is_direct() && !inspect_models {
@@ -307,6 +309,16 @@ impl State {
             } else {
                 excerpts.to_vec()
             },
+            context_plan: if !inspect_models && !inspect_sessions {
+                self.context_plan.clone()
+            } else {
+                None
+            },
+            tool_catalog: if !inspect_models && !inspect_sessions {
+                self.tool_catalog.clone()
+            } else {
+                None
+            },
             report: if inspect_models {
                 None
             } else {
@@ -337,10 +349,30 @@ impl State {
             selection: self.request_selection.clone(),
             conversation: if self.agent.is_direct()
                 && !inspect_models
+                && !self.conversation_flow.fresh_prepared
                 && self.operation != Operation::Review
             {
                 self.native_histories
                     .get(&(self.agent, self.operation))
+                    .cloned()
+            } else {
+                None
+            },
+            public_context: if self.agent == Agent::Codex
+                && self.operation == Operation::Implement
+                && !inspect_models
+                && !inspect_sessions
+                && !self.conversation_flow.fresh_prepared
+            {
+                self.native_histories
+                    .get(&(self.agent, self.operation))
+                    .filter(|history| {
+                        history.owner.task_id == task.id
+                            && history.owner.partner == task.lead_partner
+                            && history.owner.agent == self.agent
+                            && history.owner.operation == self.operation
+                            && history.owner.connection_scope.is_empty()
+                    })
                     .cloned()
             } else {
                 None

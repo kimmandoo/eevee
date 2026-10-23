@@ -354,7 +354,8 @@ cmd-locations = { "Inspect locations parsed from retained output only" }
 
 cmd-pin-location = { "Pin range from selected location" }
 
-cmd-artifacts = { "Inspect command and artifact details" }
+cmd-artifacts = { "Inspect retained task-owned tool output" }
+cmd-run-details = { "Inspect command identity and execution diagnostics" }
 
 cmd-purge = { "Review purging selected retained output" }
 

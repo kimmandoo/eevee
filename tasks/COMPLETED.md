@@ -1,8 +1,87 @@
 # Completed work
 
-Updated on 2026-10-23 through the source 0.1.27 implementation milestone (unreleased; public v0.1.26 unchanged). This is historical completion evidence, not an execution queue. Active work and its priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
+Updated on 2026-10-24 through the source 0.1.29 implementation milestone; publication is qualified separately in the checkpoint. This is historical completion evidence, not an execution queue. Active work and its priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
 
 The specifications below retain their original acceptance notes and wording. Old schema numbers, limits, priorities, proposed ordering and release statements are historical; they do not override the current contract. Scoped completion does not establish authenticated conformance for every provider. T05 was dropped, not completed.
+
+## Reviewed context and tool workflows — source 0.1.29
+
+All ten selected contracts passed source and actual runtime acceptance. CandidateG passed1,544 Rust tests/two ignored, strict source checks, all ten native protocol/size variants186 groups, four bilingual compact/wide context journeys and four artifact journeys16 groups. Context proof covers ranked defect/caller/check and honest fallback, mandatory overflow, real attachment/memory/tool-read citations, persisted offline cache, stale-source dispatch refusal and latest-decision/failed-check compaction without approval material. Receipt restart/purge/gap recovery,100-tool trusted setup/lazy schema and genuine v0.1.28→Schema19 refusal/resume also passed. Evidence: `target/ten-g3-context-{en,ko}`, `target/ten-g-{artifacts,native}`, `target/ten-d-*`; exact-source native qualification/publication remains separately gated.
+
+### T01C — Durable receipt identity
+
+- [x] Keep receipts across restarts and respect purge.
+- **Priority:** 2. **Needs:** —. **Builds on:** T01A, E03.
+- **Change:** Persist outgoing section receipts with their request identity. Already-persisted provider usage is not this receipt or its source/purge contract.
+- **Accept:** A receipt survives a restart; purge removes its source bytes but keeps counts according to E03.
+
+### T02A — Ranked context with reasons under a budget
+
+- [x] Assemble a smaller packet with visible reasons and omissions.
+- **Priority:** 1. **Needs:** —. **Builds on:** T01A, C02.
+- **Change:** From goal, diff and pins, rank candidate excerpts (text-only, labelled), dedup overlaps, and show reasons and omissions under a user budget. Overflow requires a decision.
+- **Accept:** In a multi-file bug fixture, the defect, caller and check are included with fewer tokens than the full-file baseline (one named tokenizer). Editing a source after preview stops dispatch.
+- **Watch out:** Never drop mandatory instructions or pins silently.
+
+### T02B — Symbol-aware excerpts
+
+- [x] Prefer definitions, signatures and direct references.
+- **Priority:** 2. **Needs:** T02A. **Builds on:** —.
+- **Change:** Use available local language tooling for symbols; unsupported syntax falls back to labelled text ranges.
+- **Accept:** A seeded cross-file requirement stays discoverable; unsupported files are labelled, never given fabricated symbols.
+
+### T03A — Cross-entry-point dedup
+
+- [x] Send a capture once even when it arrives through several entry points.
+- **Priority:** 2. **Needs:** T02A. **Builds on:** C02.
+- **Change:** Extend the shipped in-packet dedup (`same_bytes_as`, hoisted `source_root`) across attachments, memory, handoff facts and tool-result references.
+- **Accept:** The same capture through three entry points yields fewer tokens and every citation resolves; identical text from distinct sources is not conflated.
+
+### T03B — Local revision and tokenization cache
+
+- [x] Cache assembly and tokenization by content and configuration identity.
+- **Priority:** 2. **Needs:** T03A. **Builds on:** —.
+- **Change:** A persisted revision index; a changed source, policy or tokenizer invalidates entries.
+- **Accept:** Invalidation works for each cause with zero network access.
+- **Watch out:** A local cache hit never implies provider retention or a billing discount.
+
+### T04 — Evidence-linked compaction
+
+- [x] Continue long work with a compact local ledger.
+- **Priority:** 2. **Needs:** —. **Builds on:** T01A, C02, E02, R02.
+- **Change:** A deterministic packet of requirements, approved decisions, references, unresolved hypotheses and next action, with inferences kept separate from observations; preview before any request.
+- **Accept:** An offline resume with conflicting decisions, a failed check and a changed source keeps the latest decision and the failure; cancel changes nothing; processing cost and packet size are measured.
+- **Watch out:** No model summarization; an old approval is never a new grant.
+
+### TC01A — Local tool catalog search
+
+- [x] Search stored metadata of explicitly trusted tools.
+- **Priority:** 1. **Needs:** —. **Builds on:** A01, C02.
+- **Change:** A local catalog (populated by a separate reviewed setup action) with namespaced identity, trust origin and declared effects, and local ranking. SDK bridge 9's closed host-discovery tool is not an extensible trusted catalog; preserve actual adapter/MCP boundaries.
+- **Accept:** In a 100-tool fixture, the intended tool ranks first; collisions and malicious descriptions are handled without executing anything.
+- **Watch out:** Relevance is not authorization; a read-only hint is not a sandbox.
+
+### TC01B — Lazy schema exposure to adapters
+
+- [x] Send only the selected tool schemas where the adapter supports it.
+- **Priority:** 1. **Needs:** TC01A. **Builds on:** A02.
+- **Change:** Load exact versioned schemas for supported adapters; unsupported providers report that lazy exposure is unavailable.
+- **Accept:** Fewer schema tokens than the full catalog, with one real compatible round trip. A changed schema or disconnected server requires setup.
+- **Watch out:** No hidden schema fetch and no credential scraping.
+
+### TC03A — Paged tool-result artifacts
+
+- [x] Store tool output once and serve exact pages.
+- **Priority:** 1. **Needs:** —. **Builds on:** E03, R02.
+- **Change:** Extend existing owned-run retention/paging into immutable tool-artifact identities with an exit summary, total/captured/omitted sizes, preview and exact range retrieval. Inherit isolation, redaction, quota and purge. Artifact storage does not depend on catalog ranking.
+- **Accept:** For a 10 MiB log, errors outside the preview are retrieved by page; wrong-task, purged and stale handles are refused.
+
+### TC03B — Search within artifacts
+
+- [x] Find the relevant slice instead of paging blindly.
+- **Priority:** 1. **Needs:** TC03A. **Builds on:** EV10A.
+- **Change:** Extend existing retained-run search and failure-location parsing to the same owned tool-artifact identity and visibility rules.
+- **Accept:** Search finds the errors with much less input than the full log; a quota-limited run reports discarded bytes; instruction-like output cannot approve calls.
 
 ## Exact same-turn context comparison — source 0.1.28
 

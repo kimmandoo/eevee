@@ -4,6 +4,18 @@
 
 The binary implements native ChatGPT/OpenAI/Anthropic/Gemini/compatible HTTP connections, the durable local workbench, Codex Plan/controlled Implement, an optional official Claude SDK bridge, ACP1 for OpenCode/Gemini/Devin, and version-1 handoff. **Implemented transport support is not authenticated interoperability acceptance.** Per-service live evidence is recorded in the checkpoint; missing credentials do not become a blanket model-browsing or custom-selection blocker. Existing A04/A06/full A07 agent-conformance gates remain separate. Binding rules live in [DESIGN_RULES.md](DESIGN_RULES.md).
 
+### Source 0.1.29 context/tool and continuation boundaries
+
+Schema19 stores dispatched outgoing receipts, local context revision metadata, reviewed trusted catalog setup and immutable tool artifacts through the existing writer. Ranking, Unicode-boundary tokenization, syntax excerpts, identity dedup and evidence-ledger compaction are offline and explicitly reviewed; they neither claim provider token counts nor grant tool authority.
+
+Compatible Chat Completions supports selected exact versioned catalog schemas mapped to existing owned file tools. Other adapter/catalog combinations report unavailability rather than fetching schemas or fabricating support. Native host artifact range/search/location retrieval uses the same task-owned writer/spool and refuses stale/purged/wrong-task handles; provider output is not a permission.
+
+Provider evidence metadata keeps local companion names/forms out of both tool-artifact replies and historical run observations. Compaction and independent review use the same flat run projection with numeric owner, run/request/task identities, command/executable, outcome, retained/discarded counts and before/after snapshots. Preparation wrappers and approval-arrival/expiry fields stay local; these observations cannot reconstruct a dispatchable prepared command.
+
+Controlled Codex Implement keeps fresh threads and separately carries bounded canonical public pairs (32 turns/64KiB, per-answer32KiB with a truncation marker), never opaque sessions, private reasoning, tool logs or grants. `/new` and `/session-new` omit old matching native/public history; successful dispatch retires it, while cancelling an unsent preparation preserves it. Model changes retain attributed display while revoking session authority.
+
+Host discovery requires `directory` (`""` for root) before enumeration; bounded source reads can inspect safe files up to16MiB with full-source digest and explicit editability while mutations remain64KiB. ACP ranges use the same observation boundary and refuse silent truncation. Native/Codex and SDK discovery still retain their respective documented enforcement boundaries.
+
 ### Released 0.1.28 ordinary planning and local inspection
 
 Project planning works through ordinary Request without `/init`, separate Goal setup or writing authority. Ambiguous follow-ups preserve the planning operation and conversation; actual mutation intent still uses ordinary exact file approval. Explicit Plan/Review remains authoritative. Native missing-model recovery keeps the request and requires a deliberate send after selection.

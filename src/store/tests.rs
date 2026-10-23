@@ -4992,6 +4992,7 @@ fn schema15_auto_form_migration_is_conservative_atomic_and_preserves_all_other_r
             ],
         )
         .unwrap();
+    super::schema::remove_context_schema(&connection);
     connection
         .execute_batch(
             "UPDATE sqlite_sequence SET seq=700 WHERE name='partners';

@@ -163,9 +163,9 @@ fn approval_is_neutral_dismissible_one_shot_and_never_focus_stealing() {
     assert!(state.queue.is_empty());
     assert!(state.prepared.is_some());
     state.command("execute");
-    state.key(key(KeyCode::Right));
     state.shown = true;
     state.confirmation_visible = true;
+    state.key(key(KeyCode::Right));
     state.key(key(KeyCode::Enter));
     assert!(matches!(state.queue.front(), Some(StoreJob::Reserve(..))));
     assert_eq!(state.queue.len(), 1);
@@ -355,6 +355,11 @@ fn unknown_outcome_requires_an_informed_quit_even_after_journal_ack() {
     assert!(state.ready.is_none());
     state.request_navigation(Action::Quit);
     state.key(key(KeyCode::Right));
+    assert_eq!(state.key(key(KeyCode::Enter)), None);
+    assert!(state.final_unknown && state.ready.is_none());
+    state.request_navigation(Action::Quit);
+    state.confirmation_visible = true;
+    state.key(key(KeyCode::Right));
     assert_eq!(state.key(key(KeyCode::Enter)), Some(Action::Quit));
 }
 
@@ -434,6 +439,11 @@ fn active_form_changes_use_the_same_neutral_owned_work_guard() {
     state.key(key(KeyCode::Enter));
     assert!(state.prepared.is_some());
     state.request_navigation(Action::SelectForm(4));
+    state.key(key(KeyCode::Right));
+    assert_eq!(state.key(key(KeyCode::Enter)), None);
+    assert!(state.prepared.is_some() && !state.invalidation);
+    state.request_navigation(Action::SelectForm(4));
+    state.confirmation_visible = true;
     state.key(key(KeyCode::Right));
     assert_eq!(state.key(key(KeyCode::Enter)), Some(Action::SelectForm(4)));
     assert!(state.invalidation && state.prepared.is_none());
@@ -776,7 +786,10 @@ fn deferred_command_consent_requires_exact_owner_request_run_and_new_visibility(
         state.queue.is_empty(),
         "keyboard selection alone is not visible consent"
     );
+    assert!(!state.affirmative);
+    assert!(state.focus_approval(1, 1, &original.request_id, &original.run_id));
     state.confirmation_visible = true;
+    state.key(key(KeyCode::Right));
     state.key(key(KeyCode::Enter));
     assert!(matches!(state.queue.front(), Some(StoreJob::Reserve(p, _)) if p == &original));
 }

@@ -1,5 +1,103 @@
 # Troubleshooting
 
+### [2026-10-24] Recovery driver confused explicit lead stop with all-owner confirmation
+
+- **Context / Symptom:** The locked-journal journey at39×10 expected `/cancel` to leave its owned process alive until a later confirmation; the process stopped immediately.
+- **Root Cause:** `/cancel` deliberately stops only the current lead, including below minimum terminal size. The driver retained the older execution-popup confirmation sequence. Separately, inspection found that legacy execution confirmation selection and activation were not consistently gated on visible scope.
+- **Solution:** Exercised the explicit lead-only stop while SQLite remained locked, retaining the terminal-result preservation and storage-only retry assertions. Required visible/shown scope for all affirmative execution confirmations and ignored hidden affirmative selection keys; transition regressions require a fresh visible choice.
+- **Prevention / Reference:** Distinguish a safe explicit current-lead stop from neutral all-owner cancellation/quit and approval of new work. A confirmation object alone does not prove that its complete scope rendered.
+
+### [2026-10-24] Optimizer cancellation comparison used a consumed Request
+
+- **Context / Symptom:** The runtime optimizer driver reported different selected packets after cancelling a later preview. The first wire proof contained the original Request; both post-send SQLite snapshots showed that Request had already been consumed and cleared.
+- **Root Cause:** The next preview used different mandatory instruction facts. Source planning correctly invalidated the old applied packet before cancellation; the driver compared unlike preconditions.
+- **Solution:** Restored the exact Request, explicitly reviewed/reapplied the original plan and matched its real cache packet SHA to the first outgoing packet before previewing/cancelling the alternative. Kept strict outgoing byte/value equality and draft/pin preservation assertions. Made fixture request entry idempotent to avoid artificial clear/retype invalidation, and used ordinary Home caret navigation to release restored attachment-chip ownership before sending.
+- **Prevention / Reference:** Inspect the committed task and actual wire bytes around each transition; a previous successful send is not evidence that its consumed request still exists.
+
+### [2026-10-24] Provider evidence reused local attribution and command approval metadata
+
+- **Context / Symptom:** Actual artifact-list round trips on candidateD exposed companion names/forms at both sizes (`target/ten-d-artifact-owner-red`). The first complete wide compaction send also exposed full `prepared.partner`, `approval_arrival` and expiry metadata (`target/ten-e5-context-en/120x36/applied-evidence-linked-compaction-wire-proof.json`).
+- **Root Cause:** Artifact and run provider responses reused complete immutable local records, mixing UI attribution and dispatch preparation with historical evidence.
+- **Solution:** Allowlisted artifact metadata with numeric ownership and added a shared borrowed historical-run projection for compaction and independent review. Kept command/outcome/retention/input identities, excluded local display and approval material, and preserved full local records. Added privacy/control-invariance regressions and actual outgoing-wire checks.
+- **Prevention / Reference:** Tool results and compacted history belong to the provider-packet boundary just as initial task context does; stored evidence is not automatically a safe wire schema.
+
+### [2026-10-24] Compact optimizer hid mandatory overflow below verbose metrics
+
+- **Context / Symptom:** At60×18 the optimizer showed a previous applied-selection notice and token metrics, but the current refused preview was below the initial viewport. The footer still advertised apply.
+- **Root Cause:** Verbose accounting preceded the current refusal, while one status line did not distinguish an unapplied preview from the prior applied packet.
+- **Solution:** Prioritized current overflow/refusal in the fixed status and first summary rows, distinguished prior selection, and replaced the overflow footer with budget/cancel/details and blocked-apply guidance. Kept full metrics scrollable and the same no-effect apply guard. Runtime acceptance checks the initial compact screen.
+- **Prevention / Reference:** Inspect supported-size surfaces for the current decision, not only whether its text exists somewhere in the scroll buffer.
+
+### [2026-10-24] Canonical temporary project identity hid an already committed run activity
+
+- **Context / Symptom:** The actual failed command exited1 and its exact activity row existed, but the context driver timed out waiting for that activity.
+- **Root Cause:** Its temporary project used the macOS `/var` alias while the committed project identity used `/private/var`; inherited row filtering compared their strings.
+- **Solution:** Canonicalized the fixture root before constructing the journey, following the existing fixture convention. Kept exact task/run/owner and activity checks rather than repinning IDs or weakening ownership.
+- **Prevention / Reference:** The wide E5 journey then reached the complete compaction send. Resolve fixture identity once at construction, not separately at each assertion.
+
+### [2026-10-24] Rejected ranked candidates produced duplicate cache revisions
+
+- **Context / Symptom:** The real attachment/memory/tool-result measurement reached `Duplicate context revision key` while atomically saving optimizer revisions (`target/ten-d3-context-en`).
+- **Root Cause:** Optional definition/signature/reference candidates counted an exact range before budget acceptance. Rejection removed its overlap witness, allowing another role to revisit that range and append the same revision key again. The store correctly refused the duplicate batch.
+- **Solution:** Reused same-turn counts through an owned-key map and indexed persisted rows by borrowed keys; persisted each identity once without counting same-turn reuse as a persisted hit. Kept same-key/different-digest conflict refusal and the atomic store guard. Added budget-rejection, distinct-file identity, conflict/accounting and Sources-worker/store/UI regressions.
+- **Prevention / Reference:** Exercise real selection-to-persistence transitions with multiple syntax roles, not only standalone tokenizer/cache lookups.
+
+### [2026-10-24] Large optimizer manifests and owned logs exceeded inherited persistence constraints
+
+- **Context / Symptom:** The real multi-file optimizer preview showed valid reduced packets and persisted token rows, but no warm assembly manifest. Actual 10-MiB owned output could not start despite a configured 16-MiB retention budget. Compact artifact inspection initially displayed verbose IDs instead of the retained page.
+- **Root Cause:** Assembly JSON was embedded in a primary key and silently skipped above64KiB. The execution table still enforced its legacy8MiB reservation check. Long request/handle/revision fields consumed the minimum-size inspector.
+- **Solution:** Added a strict nullable assembly metadata column with stable hash keys, atomic persistence and actual UTF-8 quota accounting; removed the silent skip. Rebuilt execution reservations transactionally for16MiB, preserving rowids/data/other constraints and refusing unexpected dependent objects. Prioritized page/content and counts, with full identity available through `i` and unchanged complete-scope purge.
+- **Prevention / Reference:** Keep genuine historical8MiB fixtures and predecessor-binary upgrades. Exercise a >64KiB manifest through save/restart/warm reuse, full10MiB output/search/page, and a fresh64KiB-budget run whose retained/discarded counts reconcile exactly.
+
+### [2026-10-24] Busy receipt recovery and execution diagnostics were unreachable through their advertised commands
+
+- **Context / Symptom:** A real rolled-back outgoing receipt left work settlement pending, but `/receipts` was disabled as active provider work. A reservation failure advertised `/artifacts`, which now opened the generic tool inspector instead of the command error.
+- **Root Cause:** New blocking receipt state joined the provider busy predicate without adding its safe recovery navigation. A legacy execution detail action collided with the new global artifact command.
+- **Solution:** Allowed safe receipt/artifact/diagnostic inspection while busy, preserving each operation's own consent and ownership checks. Cut the old execution action over to global `/run-details` and migrated its banners, help, locales and recovery driver; no compatibility alias remains.
+- **Prevention / Reference:** Exercise recovery through the actual global chooser under real storage pressure. Inspecting evidence must not require the very settlement it is intended to unblock.
+
+### [2026-10-24] Actual context/tool terminals exposed palette and literal-editor routing gaps
+
+- **Context / Symptom:** `/tool-setup <path>` remained in an empty command palette; artifact `/` search opened global commands instead of its literal query. Backspace and slash inside the new catalog/artifact editors could reach global form/navigation shortcuts.
+- **Root Cause:** App-level command calls bypassed the palette's separate literal-argument admission list. New overlay editors had not joined the shared text-ownership guard, and their search shortcut ran after global slash dispatch.
+- **Solution:** Routed supported optimizer/catalog arguments through the canonical command path and its existing disabled-action guards. Gave artifact/catalog search entry and active literal editors their own key ownership without making paste a grant.
+- **Prevention / Reference:** Real terminal drivers must enter commands through the actual chooser, not call App methods as their only proof. Retain full draft/caret and no-dispatch assertions, plus the App-router search/paste/Backspace regression.
+
+### [2026-10-24] Smoke runtime version and consent-state assumptions obscured new acceptance
+
+- **Context / Symptom:** macOS's default Python3.9 failed `hashlib.file_digest` and `zip(..., strict=True)` in verification scripts. A receipt fixture compared a stale durable cursor while autosave was still pending. Other journeys waited behind a visible evolution receipt, treated Escape as cancellation, omitted explicit transport-diagnostic acknowledgment, or attempted an unknown-outcome quit without its required all-owner consent.
+- **Root Cause:** The verification environment differed from pinned CI Python3.12. Fixtures conflated local terminal state, delayed committed drafts, review navigation and authoritative cancellation/settlement.
+- **Solution:** Used installed Python3.12 with the already installed pure-Python pinned terminal dependencies, without changing product runtime prerequisites. Awaited exact committed text/caret before receipt baselines. Dismissed only identified transient views, focused the actual pending review, used explicit cancellation/recovery and opted into the existing all-owner quit review after an intentionally incomplete stream.
+- **Prevention / Reference:** Run verification with Python3.12 and `pyte==0.8.2`, `wcwidth==0.2.13`, as in native CI. Preserve first-failure terminal and database captures; subsequent exact wire, draft, no-network and claim assertions remain required.
+
+### [2026-10-24] Direct optimizer commands queued unrelated catalogue work
+
+- **Context / Symptom:** App-level coverage found `/optimize` and `/compact` opened Sources, queued its ordinary catalogue request and then rejected their own requested operation as busy. Keyboard evidence regressions initially also failed behind catalogue work their fixtures had never submitted.
+- **Root Cause:** Direct context actions reused a navigation path whose browsing side effect was inappropriate for a frozen optimizer request. Fixtures confused an unsent catalogue with settled Sources state, and one attempted to reopen an already-open overlay, which intentionally performs no new browsing work.
+- **Solution:** Shared Sources navigation while letting direct context actions omit catalogue creation. Preserved existing pending work instead of clearing it. Settled real worker catalogue requests in keyboard fixtures and used an actual close/reopen before asserting ordinary browsing behavior.
+- **Prevention / Reference:** App coverage asserts the requested operation, exact applied packet, unchanged draft/basket and preservation of already-pending work. The actual optimizer terminal driver exercises both direct commands separately.
+
+### [2026-10-24] Context/tool integration exposed stale evidence and unsaved-receipt settlement hazards
+
+- **Context / Symptom:** Review found compaction could include currently excluded historical captures, keyboard compaction could use stale or unhydrated run history, artifact purge could leave cached receipt source text, and an unrelated provider failure could revoke the compatible tool catalog. Receipt storage could also reach its per-task limit after transport or leave a definitively rolled-back write blocking completed work indefinitely.
+- **Root Cause:** Historical source identity was not independently checked against current policy; inspector snapshots outlived later commits; cache invalidation and connection revocation lacked the complete owning scope; receipt capacity was checked too late, and all failed writes shared one unresolved state.
+- **Solution:** Revalidated current historical-source eligibility before compaction and dispatch, refreshed committed evidence and refused pending/failed history hydration, cleared active/parked receipt source caches on artifact purge, and scoped catalog revocation to its provider. Reserved receipt capacity in the existing work-acquisition transaction. Added neutral exact-request recovery only for a correlated definite terminal outcome and rollback-proven storage failure, with an explicit memory-only missing-receipt disclosure; ambiguous commit outcomes remain blocked.
+- **Prevention / Reference:** Keep source bytes, durable evidence, cache state and provider outcome separate. Regression coverage includes concurrent final-slot admission, genuine quota rollback/storage-only retry, ambiguous-write refusal, stale consent, scoped purge and unrelated-provider failure. Actual terminal quota recovery is available through `scripts/receipts_smoke.py --quota-recovery`; its successful execution must be recorded separately.
+
+### [2026-10-24] Native file-workflow qualification exposed SQLite contention and ConPTY capture sequencing
+
+- **Context / Symptom:** Run39982573545 passed both macOS rows and Linux ARM, but Linux x86 ordinary requests stopped with `database is locked`; Windows file journeys failed `native console output did not settle within the bounded capture window`.
+- **Root Cause:** Read-only admission kept a rollback-journal SHARED lock throughout full-store inspection while the sole writer attempted COMMIT with a250ms busy timeout. A targeted transaction/cursor reproduction demonstrated this mechanism; the exact failing CI SQL statement was not traced. Windows captures showed an intentionally held response spinner during dispatch and thousands of empty synchronized frames generated by4096 no-op Delete keys.
+- **Solution:** Ordered same-process readers and writer commands through a per-canonical-store gate acquired before any SQLite lock and released before event backpressure, preserving foreign contention failures without retries/timeout inflation. Marked active asynchronous inputs as such and retained semantic completion assertions and strict final settling; cleared path restrictions using their actual input-size bound.
+- **Prevention / Reference:** Added actual worker/read contention and independent-store regressions, native animated ConPTY regression, and all-target bilingual file workflows. Keep platform failure artifacts; successful compilation or a macOS fixture is not Windows/WSL proof.
+
+### [2026-10-24] Public continuation, fresh-chat intent and source observation inherited unrelated capability limits
+
+- **Context / Symptom:** Source audit found controlled Codex Implement follow-ups omitted preceding public implementation dialogue, native `/new` still included canonical history, model changes erased visible output, and safe source files over64KiB disappeared from host discovery and even small range reads.
+- **Root Cause:** Fresh controlled threads retired opaque sessions without retaining canonical public pairs; native fresh/resume flags did not control history; model authority and display state were cleared together. Observational source identity reused the complete write-baseline cap, while queries/scopes were applied after exhaustive enumeration.
+- **Solution:** Kept bounded owner-scoped public conversation separately from opaque sessions, froze explicit fresh intent and retired matching history only on dispatch, preserved attributed display, and separated source observation from mutation eligibility. Added pre-enumeration directory scope, exact-path membership checks, full-source privacy/hash validation up to16MiB, bounded64KiB range outputs and explicit noneditability above the mutation limit.
+- **Prevention / Reference:** Actual native/Codex/ACP terminal drivers cover serialized continuation/fresh boundaries, cancelled unsent preparation, model display, oversized source reads and narrow discovery. These are deterministic runtime contracts, not live-model semantic acceptance.
+
 ### [2026-10-24] Short implementation requests remained read-only and implicit CLI auth blocked native setup
 
 - **Context / Symptom:** User reported WSL implementation refusal and PowerShell file-creation failure citing `auth.json`. Previous deterministic release checks did not cover these request/credential paths.

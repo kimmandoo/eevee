@@ -118,6 +118,9 @@ fn acquire(
     {
         return Err("Another partner is editing this task; wait for its write lease".into());
     }
+    if kind == "provider" {
+        super::receipts::reserve_capacity(connection, task.id)?;
+    }
     connection.execute("INSERT INTO active_work(task_id,partner,request_id,owner,writing,kind) VALUES (?1,?2,?3,?4,?5,?6)",
         params![claim.task_id, claim.owner.partner, claim.request_id, serde_json::to_string(&claim.owner).map_err(|error| error.to_string())?, claim.writing, kind])
         .map_err(|error| error.to_string())?;

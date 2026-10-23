@@ -198,7 +198,46 @@ impl App {
     }
 
     pub fn store_event(&mut self, event: store::Event) {
+        match &event {
+            store::Event::Journal {
+                task_id,
+                result: Ok(store::JournalResponse::Purged),
+            } => {
+                self.receipt_sources_purged(*task_id);
+            }
+            store::Event::Run {
+                task_id,
+                result: Ok(response),
+                ..
+            } if matches!(&**response, store::RunResponse::Purged { .. }) => {
+                self.receipt_sources_purged(*task_id);
+            }
+            store::Event::Context {
+                task_id,
+                result: Ok(excerpts),
+            } if excerpts.iter().any(|excerpt| !excerpt.available) => {
+                self.receipt_sources_purged(*task_id);
+            }
+            store::Event::Artifact {
+                request,
+                result: Ok(crate::workspace::artifacts::Response::Purged { .. }),
+            } => {
+                self.receipt_sources_purged(request.task_id);
+            }
+            _ => {}
+        }
         match event {
+            store::Event::Receipts { request, result } => self.receipt_store_event(request, result),
+            store::Event::Artifact { request, result } => {
+                self.artifacts.store_event(request, result)
+            }
+            store::Event::ToolCatalog { request, result } => {
+                self.tool_catalog.response(&request, result)
+            }
+            store::Event::ContextCache { request, result } => {
+                self.sources
+                    .context_cache_event(self.task_id, &request, result)
+            }
             store::Event::Formation(result) => self.formation_event(result),
             store::Event::Records { request, result } => {
                 if matches!(&request.operation, store::records::Operation::Usage { .. }) {

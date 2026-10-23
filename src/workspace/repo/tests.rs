@@ -193,7 +193,7 @@ fn protected_launch_ancestors_refuse_git_and_filesystem_source_observation() {
         assert!(matches!(state.refresh(), Event::Failed { .. }));
         assert!(state.baseline.is_none());
         let stopped = AtomicBool::new(false);
-        assert!(source_paths(&project, &stopped).is_err());
+        assert!(source_paths(&project, Path::new(""), &stopped).is_err());
         assert!(read_source(&project, Path::new("recovery.txt"), 1024, &stopped).is_err());
         assert_eq!(
             fs::read(project.join("recovery.txt")).unwrap(),

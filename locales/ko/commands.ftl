@@ -354,7 +354,8 @@ cmd-locations = { "보관 출력에서 추출된 위치만 확인" }
 
 cmd-pin-location = { "선택한 위치의 범위 고정" }
 
-cmd-artifacts = { "명령과 산출물 상세 확인" }
+cmd-artifacts = { "작업 소유 도구 출력 확인" }
+cmd-run-details = { "명령 식별 정보와 실행 진단 확인" }
 
 cmd-purge = { "선택한 보관 출력 폐기 검토" }
 

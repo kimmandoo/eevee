@@ -185,6 +185,17 @@ struct Baseline {
     hash: [u8; 32],
     digest: String,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SourceIdentity {
+    stamp: platform::FileStamp,
+    hash: [u8; 32],
+}
+impl SourceIdentity {
+    fn matches(&self, baseline: &Baseline) -> bool {
+        self.stamp == baseline.stamp && self.hash == baseline.hash
+    }
+}
 #[derive(Clone, Debug)]
 struct Target {
     path: PathBuf,
@@ -258,7 +269,7 @@ pub(crate) struct WriteSet {
     readonly: bool,
     protected_paths: Vec<PathBuf>,
     exclusions: Vec<PathBuf>,
-    observed: BTreeMap<PathBuf, std::sync::Arc<Baseline>>,
+    observed: BTreeMap<PathBuf, std::sync::Arc<SourceIdentity>>,
     /// Request-local filename observation; shared by cloned proposal scopes.
     project_context: std::sync::Arc<std::sync::OnceLock<Value>>,
 }
@@ -303,12 +314,15 @@ pub(crate) fn semantic_proposal_refusal(message: &str) -> bool {
             | "Only an exact reviewed selected path may be written"
             | "Controlled implementation permits at most 32 distinct file targets"
             | "Selected working bytes are oversized, binary, credential-bearing or contain unsafe controls"
+            | "Selected target must be a regular single-link UTF-8 file at most 64 KiB"
+            | "Windows file exceeds the controlled-write byte limit."
             | "Filesystem-equivalent selected target/absent-parent aliases refused; select unambiguous paths"
             | "Filesystem-equivalent or conflicting selected write paths refused"
             | "Unsafe or oversized proposed UTF-8 content refused"
             | "Exact content/path/parent review exceeds 256 KiB or 32768 lines; reduce the change"
             | "Source changed since read; read the file again before proposing a write"
             | "Edit requires a preceding successful read of this exact path"
+            | "Edit requires an unchanged admitted file at most 64 KiB; read again before proposing a write"
             | "Edit sha256 does not match the preceding source read; read again"
             | "Edit old_text must be nonempty and match exactly once; read and select an unambiguous literal span"
             | "Edit text exceeds the 64 KiB file bound"
@@ -704,7 +718,7 @@ impl WriteSet {
                     .targets
                     .last()
                     .and_then(|target| target.baseline.as_ref())
-                    != Some(observed.as_ref())
+                    .is_none_or(|baseline| !observed.matches(baseline))
             {
                 return Err(
                     "Source changed since read; read the file again before proposing a write"
@@ -825,12 +839,10 @@ impl WriteSet {
             .find(|target| target.path == path)
             .ok_or("Only an exact reviewed selected path may be written")?;
         if let Some(observed) = self.observed.get(&path)
-            && self
-                .targets
-                .iter()
-                .find(|target| target.path == path)
-                .and_then(|target| target.baseline.as_ref())
-                != Some(observed.as_ref())
+            && target
+                .baseline
+                .as_ref()
+                .is_none_or(|baseline| !observed.matches(baseline))
         {
             return Err(
                 "Source changed since read; read the file again before proposing a write".into(),

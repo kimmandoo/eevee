@@ -606,6 +606,9 @@ fn model_modalities_follow_installed_protocol_default_without_accepting_malforme
 #[test]
 fn model_inspection_has_no_task_prompt_or_source_or_edit_lookup() {
     let mut input = Input {
+        public_context: None,
+        tool_catalog: None,
+        context_plan: None,
         prior_plan: None,
         task: crate::store::Snapshot::empty("unopened-project".into()),
         work: None,
@@ -667,7 +670,7 @@ fn readonly_roles_capture_real_source_without_mutation_targets_or_writer_lease()
             .unwrap();
         assert!(!scope.writing());
         let list = requested_tool(
-            &json!({"tool":"eevee_list_files","arguments":{"query":".rs","offset":0}}),
+            &json!({"tool":"eevee_list_files","arguments":{"directory":"","query":".rs","offset":0}}),
         )
         .unwrap();
         assert_eq!(
@@ -1318,6 +1321,9 @@ fn outbound_task_facts_do_not_leak_generated_provider_session_provenance() {
     };
     let handoff = crate::workspace::handoff::from_task(&saved, &[], &[]).unwrap();
     let input = Input {
+        public_context: None,
+        tool_catalog: None,
+        context_plan: None,
         prior_plan: None,
         task: saved,
         work: None,
@@ -1769,9 +1775,10 @@ fn controlled_dynamic_tools_discover_read_edit_and_create_using_real_executor() 
     )
     .unwrap();
     let mut writes = WriteSet::capture_workspace(&fixture.root, &fixture.data, &[]).unwrap();
-    let list =
-        requested_tool(&json!({"tool":"eevee_list_files","arguments":{"query":".rs","offset":0}}))
-            .unwrap();
+    let list = requested_tool(
+        &json!({"tool":"eevee_list_files","arguments":{"directory":"","query":".rs","offset":0}}),
+    )
+    .unwrap();
     assert_eq!(
         writes.observe_tool(&list).unwrap()["paths"],
         json!(["existing.rs"])

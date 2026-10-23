@@ -836,3 +836,32 @@ fn prepared_commands_stamp_producer_arrival_and_legacy_records_default_to_zero()
     assert_eq!(restored.spec, p.spec);
     assert_eq!(restored.cwd, p.cwd);
 }
+
+#[test]
+fn provider_run_observation_omits_local_identity_and_dispatch_approval() {
+    let temp = Temp::new();
+    let mut preparation = prepared(&temp, fixture_spec(&[]));
+    preparation.partner = Some(crate::store::Attribution {
+        partner: 7,
+        name: "Only-local companion label".into(),
+        form: 2,
+    });
+    let mut record = RunRecord::awaiting(&preparation);
+    record.state = RunState::OutcomeUnknown;
+    record.output_unavailable = true;
+    record.revision_moving = true;
+    let public = serde_json::to_value(RunObservation::from(&record)).unwrap();
+    assert_eq!(public["partner_id"], 7);
+    let encoded = public.to_string();
+    for private in [
+        "Only-local companion label",
+        "\"prepared\"",
+        "\"partner\"",
+        "\"form\"",
+        "\"approval_arrival\"",
+        "\"expires_at_ms\"",
+        "\"cwd_identity\"",
+    ] {
+        assert!(!encoded.contains(private), "{private}");
+    }
+}

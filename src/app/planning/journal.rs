@@ -126,6 +126,8 @@ impl State {
                     && self.generation == Some(generation)
             })
             .map(|claim| (claim.clone(), generation));
+        self.receipts
+            .finished(self.journal_recovery.terminal.as_ref());
     }
 
     pub fn journal_event(&mut self, task_id: i64, result: Result<store::JournalResponse, String>) {

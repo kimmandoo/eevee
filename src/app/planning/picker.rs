@@ -463,9 +463,6 @@ impl State {
         self.preference_changed();
         if fresh {
             self.thread_id = None;
-            self.items.clear();
-            self.selected = 0;
-            self.omitted = 0;
             self.observed_model = None;
         }
         self.review_start();

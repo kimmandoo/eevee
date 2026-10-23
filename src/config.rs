@@ -93,7 +93,7 @@ Options:
   --quota-kib N        Local SQLite quota (default: 65536; minimum: 64 KiB)
   --retention-days N   Archived purge eligibility age (default: 30; explicit purge only)
   --exclude-context PATH Exclude a repository-relative prefix (repeatable, conservative case-insensitive)
-  --spool-kib N        Per-command capture reservation (default: 64; range: 1..8192 KiB)
+  --spool-kib N        Per-command capture reservation (default: 64; range: 1..16384 KiB)
   -h, --help           Show this help
   -V, --version        Show the version
 
@@ -325,9 +325,9 @@ fn parse_with(
             "--spool-kib" => {
                 let amount = value(flag, attached, &mut args)?
                     .parse::<u64>()
-                    .map_err(|_| "--spool-kib requires an integer in 1..8192")?;
-                if !(1..=8192).contains(&amount) {
-                    return Err("--spool-kib must be in 1..8192".into());
+                    .map_err(|_| "--spool-kib requires an integer in 1..16384")?;
+                if !(1..=16384).contains(&amount) {
+                    return Err("--spool-kib must be in 1..16384".into());
                 }
                 capture_capacity = amount * 1024;
             }

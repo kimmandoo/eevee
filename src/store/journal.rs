@@ -91,6 +91,7 @@ impl State {
             JournalOperation::Purge => {
                 no_active(&transaction, Some(request.task_id))?;
                 super::records::purge_provider(&transaction, &self.project, request.task_id)?;
+                super::receipts::purge_sources(&transaction, request.task_id, None)?;
                 transaction
                     .execute(
                         "DELETE FROM provider_journal WHERE task_id=?1",

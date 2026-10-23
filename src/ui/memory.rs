@@ -35,6 +35,18 @@ pub(super) fn render(
         return;
     }
     let compact = matches!(state.mode, Mode::Preview | Mode::Delete) && !super::VERBOSE.get();
+    let source_preview = state.mode == Mode::Preview
+        && state.candidate.as_ref().is_some_and(|candidate| {
+            candidate.provenance.kind == memory::SourceKind::UserAuthored
+                && candidate
+                    .provenance
+                    .reference
+                    .strip_prefix("task:")
+                    .and_then(|reference| reference.split_once("/source:"))
+                    .is_some_and(|(task, _)| {
+                        task.parse::<i64>().ok() == Some(candidate.provenance.task_id)
+                    })
+        });
     let height = if compact {
         18
     } else {
@@ -72,32 +84,41 @@ pub(super) fn render(
         }
     };
     text(frame, row(content, 0, 1), heading, paint.accent);
-    text(
-        frame,
-        row(content, 1, 2),
-        &super::brief(&state.notice),
-        paint.muted,
-    );
-    let label = match state.mode {
-        Mode::Edit | Mode::Preview | Mode::Discard => state
-            .candidate
-            .as_ref()
-            .map_or("No proposal", |candidate| candidate.scope.label())
-            .to_owned(),
-        _ => format!(
-            "Memory {}/{} | {} selected for future requests",
-            if state.records.is_empty() {
-                0
-            } else {
-                state.selected + 1
-            },
-            state.records.len(),
-            state.selected_ids.len()
-        ),
-    };
-    text(frame, row(content, 3, 1), &label, paint.accent);
+    // Adopted notes need the narrow review body for retention and consent.
+    // Their summary already shows scope; omit the duplicate label and notice.
+    if !compact || !source_preview {
+        text(
+            frame,
+            row(content, 1, 2),
+            &super::brief(&state.notice),
+            paint.muted,
+        );
+        let label = match state.mode {
+            Mode::Edit | Mode::Preview | Mode::Discard => state
+                .candidate
+                .as_ref()
+                .map_or("No proposal", |candidate| candidate.scope.label())
+                .to_owned(),
+            _ => format!(
+                "Memory {}/{} | {} selected for future requests",
+                if state.records.is_empty() {
+                    0
+                } else {
+                    state.selected + 1
+                },
+                state.records.len(),
+                state.selected_ids.len()
+            ),
+        };
+        text(frame, row(content, 3, 1), &label, paint.accent);
+    }
     let footer_rows = if compact { 2 } else { 3 };
-    let mut body = row(content, 4, content.height.saturating_sub(4 + footer_rows));
+    let body_start = if compact && source_preview { 1 } else { 4 };
+    let mut body = row(
+        content,
+        body_start,
+        content.height.saturating_sub(body_start + footer_rows),
+    );
     if state.editing() {
         editor(frame, body, state, paint);
     } else {
@@ -159,7 +180,12 @@ pub(super) fn render(
                     if super::VERBOSE.get() {
                         describe(candidate, &state.project, state.task_id, paint)
                     } else {
-                        summary(candidate, false, paint)
+                        summary(
+                            candidate,
+                            false,
+                            paint,
+                            source_preview.then_some(body.width as usize),
+                        )
                     }
                 }),
             Mode::Discard => paint.format(
@@ -173,7 +199,7 @@ pub(super) fn render(
                             "Memory #{} / revision {}\n{}",
                             record.id,
                             record.revision,
-                            summary(&record.proposal, true, paint)
+                            summary(&record.proposal, true, paint, None)
                         )
                     } else {
                         format!(
@@ -204,6 +230,10 @@ pub(super) fn render(
             }
             Mode::Edit => unreachable!(),
         };
+        if source_preview {
+            value.insert_str(0, "\n\n");
+            value.insert_str(0, paint.hint(crate::i18n::Message::SourceMemoryRetention));
+        }
         if state.mode == Mode::Preview && !state.habit_sources.is_empty() {
             value.push_str("\n\n");
             value.push_str(&paint.format(
@@ -337,14 +367,23 @@ pub(super) fn render(
     );
 }
 
-fn summary(proposal: &Proposal, deleting: bool, paint: &Paint) -> String {
+fn summary(
+    proposal: &Proposal,
+    deleting: bool,
+    paint: &Paint,
+    source_columns: Option<usize>,
+) -> String {
     let scope = match proposal.scope {
         memory::Scope::Task => paint.hint(crate::i18n::Message::DesksMemoryThisTask),
         memory::Scope::Project => paint.hint(crate::i18n::Message::DesksMemoryThisProject),
         memory::Scope::Personal => paint.hint(crate::i18n::Message::DesksMemoryAllProjects),
     };
     paint.format(
-        crate::i18n::Template::DesksMemorySummary,
+        if source_columns.is_some() {
+            crate::i18n::Template::SourceMemorySummary
+        } else {
+            crate::i18n::Template::DesksMemorySummary
+        },
         &[
             ("scope", (scope)),
             (
@@ -359,7 +398,10 @@ fn summary(proposal: &Proposal, deleting: bool, paint: &Paint) -> String {
             ),
             (
                 "content",
-                &(clipped(proposal.content.lines().next().unwrap_or(""), 100)),
+                &(clipped(
+                    proposal.content.lines().next().unwrap_or(""),
+                    source_columns.map_or(100, |columns| columns.saturating_sub(6)),
+                )),
             ),
             ("bytes", &(proposal.content.len()).to_string()),
         ],

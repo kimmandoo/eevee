@@ -1,7 +1,9 @@
 pub mod agents;
+pub mod artifacts;
 pub mod carryover;
 pub mod commands;
 pub mod composer;
+mod context_tools;
 pub mod cooperation;
 pub(crate) mod cooperation_journal;
 pub mod cooperation_ui;
@@ -20,6 +22,7 @@ pub mod records;
 pub mod relays;
 pub mod sources;
 pub mod suggestions;
+pub mod tool_catalog;
 pub mod updates;
 pub mod workflows;
 
@@ -80,6 +83,9 @@ pub enum Overlay {
     Held,
     Formations,
     Updates,
+    Artifacts,
+    ToolCatalog,
+    Receipts,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -268,6 +274,8 @@ pub struct App {
     pub workflows: crate::workspace::workflows::State,
     pub workflow: workflows::State,
     pub updates: updates::State,
+    pub artifacts: artifacts::State,
+    pub tool_catalog: tool_catalog::State,
     pub memory: memory::State,
     pub moves: moves::State,
     pub records: records::State,
@@ -280,8 +288,9 @@ pub struct App {
     deletion_preview_pending: bool,
     /// Saved command text plus the partner that asked for it (PT06A).
     pending_command: Option<(String, store::Attribution)>,
-    /// Enter's save barrier. Never restored from disk or triggered by autosave.
-    pending_request: Option<(u64, bool)>,
+    /// Enter's save barrier: revision, resume transport, explicit fresh chat.
+    /// Never restored from disk or triggered by autosave.
+    pending_request: Option<(u64, bool, bool)>,
     pending_request_owner: Option<i64>,
     /// Explicit cancellation intent, bound to the task and lead that requested it.
     return_after_cancel: Option<(i64, i64)>,
@@ -313,6 +322,8 @@ impl App {
             party_inflight: false,
             formations: formations::State::default(),
             updates: updates::State::default(),
+            artifacts: artifacts::State::default(),
+            tool_catalog: tool_catalog::State::default(),
             nickname_editor: None,
             nickname_pending: None,
             selected: 0,

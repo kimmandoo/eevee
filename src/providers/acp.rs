@@ -404,13 +404,8 @@ fn payload(
             &workspace.exclusions,
         )?;
     }
-    let sources = crate::workspace::context::planning_payload(
-        input.task.id,
-        input.report.as_ref(),
-        &input.excerpts,
-        &workspace.exclusions,
-    )?;
-    let text = serde_json::to_string_pretty(&json!({
+    let sources = input.source_payload(&workspace.exclusions)?;
+    let text = crate::workspace::context::optimizer::encode_context(json!({
         "purpose": if input.operation == Operation::Implement {
             "Implement the requested project changes. Use client fs/read_text_file to read actual working files and fs/write_text_file to create or replace full UTF-8 files; use absolute paths under session cwd. Each client write requires exact separate user consent; preserve unrelated dirty bytes. Do not substitute fenced code for requested file creation. Agent-owned tools remain external provider policy, not client confinement. No check or success may be claimed without observed results."
         } else {

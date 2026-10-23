@@ -41,18 +41,26 @@ pub(super) struct FileStamp {
     owner: u32,
     group: u32,
     mode: u32,
-    size: u64,
+    pub(super) size: u64,
     modified: (i64, i64),
     changed: (i64, i64),
 }
 pub(super) fn file_stamp(file: &File) -> Result<FileStamp, String> {
-    let metadata = file
-        .metadata()
-        .map_err(|_| "Cannot inspect selected file handle")?;
-    if !metadata.is_file() || metadata.nlink() != 1 || metadata.len() > MAX_BYTES as u64 {
+    let stamp = observation_stamp(file)?;
+    if stamp.size > MAX_BYTES as u64 {
         return Err(
             "Selected target must be a regular single-link UTF-8 file at most 64 KiB".into(),
         );
+    }
+    Ok(stamp)
+}
+
+pub(super) fn observation_stamp(file: &File) -> Result<FileStamp, String> {
+    let metadata = file
+        .metadata()
+        .map_err(|_| "Cannot inspect selected file handle")?;
+    if !metadata.is_file() || metadata.nlink() != 1 {
+        return Err("Source must be a regular single-link file".into());
     }
     Ok(FileStamp {
         device: metadata.dev(),
@@ -153,6 +161,32 @@ impl Directory {
         Ok(directory)
     }
 
+    #[cfg(target_os = "macos")]
+    pub(super) fn relative_path(&self, root: &Self) -> Result<std::path::PathBuf, String> {
+        self.verify()?;
+        root.verify()?;
+        let native_path = |file: &File| -> Result<std::path::PathBuf, String> {
+            let mut buffer = [0u8; libc::PATH_MAX as usize];
+            // SAFETY: the retained live handle and PATH_MAX destination satisfy F_GETPATH.
+            if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) } == -1
+            {
+                return Err("Native source directory spelling could not be resolved".into());
+            }
+            let length = buffer
+                .iter()
+                .position(|byte| *byte == 0)
+                .ok_or("Native source directory path exceeded its bound")?;
+            Ok(Path::new(OsStr::from_bytes(&buffer[..length])).to_path_buf())
+        };
+        let relative = native_path(&self.0.file)?
+            .strip_prefix(native_path(&root.0.file)?)
+            .map_err(|_| "Native source directory escaped the retained project root")?
+            .to_path_buf();
+        self.verify()?;
+        root.verify()?;
+        Ok(relative)
+    }
+
     pub(super) fn names(&self, limit: usize) -> Result<Vec<OsString>, String> {
         self.verify()?;
         let descriptor = unsafe {
@@ -196,7 +230,7 @@ impl Directory {
             }
             if names.len() == limit {
                 return Err(
-                    "Project discovery exceeds 10000 entries; choose a narrower project root"
+                    "Project discovery exceeds 10000 entries; choose a narrower directory scope"
                         .into(),
                 );
             }
@@ -369,7 +403,11 @@ impl Directory {
             ));
         }
         let file = unsafe { File::from_raw_fd(descriptor) };
-        file_stamp(&file)?;
+        if write {
+            file_stamp(&file)?;
+        } else {
+            observation_stamp(&file)?;
+        }
         if write && unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
             return Err("Selected file is busy; leaf replacement refused".into());
         }

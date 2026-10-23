@@ -27,6 +27,38 @@ use serde_json::{Value, json};
 /// Local preflight failure, before any model metadata or inference request.
 pub(crate) const MODEL_REQUIRED: &str = "Select an explicit model or configure a default before inference; discovery never guesses a fallback";
 
+/// Explicit local setup identity. Resolves only Eevee's own/environment connection
+/// settings; never contacts the server or imports another application's credentials.
+pub fn catalog_connection_scope(agent: super::Agent) -> Result<String, String> {
+    super::catalog::supported(agent)?;
+    let connection = config::resolve(agent)?;
+    if connection.protocol != Protocol::ChatCompletions {
+        return Err("Lazy trusted catalog exposure unavailable for this protocol; choose custom/local Chat Completions explicitly".into());
+    }
+    Ok(connection.fingerprint())
+}
+
+fn validate_catalog(input: &Input, connection: &Connection) -> Result<(), String> {
+    if let Some(selection) = &input.tool_catalog {
+        if connection.protocol != Protocol::ChatCompletions
+            || input.inspect_models
+            || input.inspect_sessions
+        {
+            return Err(
+                "Selected catalog schemas are unavailable for this adapter action/protocol".into(),
+            );
+        }
+        selection.validate(
+            input.agent,
+            input.task.id,
+            input.task.lead_partner,
+            input.operation,
+            &connection.fingerprint(),
+        )?;
+    }
+    Ok(())
+}
+
 const QUEUE_LIMIT: usize = 128;
 const QUEUE_RESERVE: usize = 24;
 const BODY_LIMIT: usize = 1024 * 1024;
@@ -449,6 +481,7 @@ fn payload(
         return Err("Native tool capability differs from the frozen operation scope".into());
     }
     input.validate_selection()?;
+    validate_catalog(input, connection)?;
     validate_conversation(input, &connection.conversation_scope())?;
     if input.inspect_models {
         return serde_json::to_string_pretty(&json!({
@@ -482,12 +515,7 @@ fn payload(
             serde_json::to_string(&evidence).map_err(|_| "Cannot encode review evidence")?,
         )
     } else {
-        let sources = crate::workspace::context::planning_payload(
-            input.task.id,
-            input.report.as_ref(),
-            &input.excerpts,
-            &workspace.exclusions,
-        )?;
+        let sources = input.source_payload(&workspace.exclusions)?;
         if let Some(document) = &input.handoff {
             crate::workspace::handoff::validate_dispatch(
                 document,
@@ -497,7 +525,7 @@ fn payload(
                 &workspace.exclusions,
             )?;
         }
-        let context = serde_json::to_string(&json!({
+        let context = crate::workspace::context::optimizer::encode_context(json!({
             "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
             "project_context": super::project_context(writes.ok_or("Native project scope missing")?, input.agent),
             "selected_write_scope": writes.map(|scope| scope.payload(&input.excerpts)),
@@ -543,7 +571,12 @@ fn payload(
     )?;
     let mut body = serde_json::to_value(body).map_err(|_| "Cannot encode native request")?;
     if writes.is_some() {
-        tools::advertise(&mut body, connection.protocol, native_writing(input));
+        tools::advertise_selected(
+            &mut body,
+            connection.protocol,
+            native_writing(input),
+            input.tool_catalog.as_ref(),
+        );
     }
     let text = serde_json::to_string_pretty(&body).map_err(|_| "Cannot encode native request")?;
     if text.len() > BODY_LIMIT {
@@ -1752,6 +1785,7 @@ impl Stream {
                 return if self.complete && sse.pending.is_empty() && sse.data.is_empty() {
                     Ok(())
                 } else {
+                    self.transport_failed = !control.cancelled();
                     Err("Native SSE ended without an authoritative completion; partial response only".into())
                 };
             };

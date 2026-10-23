@@ -54,7 +54,7 @@ jobs:
   native:
     name: Build / ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -119,16 +119,30 @@ jobs:
           subprocess.run([str(binary), "--version"], check=True, timeout=30)
       - name: Install terminal smoke dependencies
         run: python -m pip install pyte==0.8.2 wcwidth==0.2.13
+      - name: Exercise native console capture regressions
+        run: python -m unittest discover -s scripts -p test_windows_conpty.py
       - name: Exercise real file workflows in both languages
         run: |
           python scripts/file_creation_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output target/platform-files-en --language en
           python scripts/file_creation_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output target/platform-files-ko --language ko
+      - name: Exercise reviewed context tools and continuation
+        run: |
+          for language in en ko; do
+            python scripts/receipts_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output target/platform-tools-receipts-$language --language "$language"
+            python scripts/context_optimizer_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output target/platform-tools-context-$language --language "$language"
+            python scripts/tool_catalog_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output target/platform-tools-catalog-$language --language "$language"
+            python scripts/artifacts_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output target/platform-tools-artifacts-$language --language "$language"
+            python scripts/source_observation_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output target/platform-tools-sources-$language --language "$language" --mode native
+            python scripts/conversation_flow_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output target/platform-tools-conversation-$language --language "$language" --mode native
+          done
       - name: Retain platform file workflow evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: file-workflows-${{ matrix.package }}
-          path: target/platform-files-*
+          path: |
+            target/platform-files-*
+            target/platform-tools-*
           if-no-files-found: error
           retention-days: 14
       - name: Upload native installation package

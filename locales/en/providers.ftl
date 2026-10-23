@@ -454,8 +454,8 @@ providers-execution-up-down-pgup-pgdn-home-end-inspect =
     { "/ choices: journal-retry, execute, cancel · Esc output" }
     { "No command is retried automatically; task drafts stay" }
 
-providers-execution-choices-command-edit-execute-locations-artifacts-arrows =
-    { "/ choices: command-edit, execute, locations, artifacts" }
+providers-execution-choices-command-edit-execute-locations-run-details-arrows =
+    { "/ choices: command-edit, execute, locations, run-details" }
     { "Arrows scroll · /output-search Literal query" }
     { "/page-next, /page-previous · /refresh · Esc close" }
 
@@ -552,7 +552,7 @@ providers-execution-capture-truncated-excess-drained-discarded = { "CAPTURE TRUN
 
 providers-execution-live-queue-gap-inspect-retained-output = { "LIVE QUEUE GAP · inspect retained output" }
 
-providers-execution-output-unavailable-purged-missing-or-replaced-empty = { "Output unavailable (purged, missing, or replaced). Empty display is NOT an empty successful command. /artifacts shows the retained metadata and source-identity limits." }
+providers-execution-output-unavailable-purged-missing-or-replaced-empty = { "Output unavailable (purged, missing, or replaced). Empty display is NOT an empty successful command. /run-details shows the retained metadata and source-identity limits." }
 
 providers-execution-no-output-yet-command-edit-writes-a =
     { "No output yet." }
@@ -701,7 +701,7 @@ providers-execution-run-only-this-run-s-owned-local =
 
 providers-execution-search-current-window-page-enter-finds-esc = { "Search current window/page: /" }{ $query }{ "  Enter finds · Esc keeps" }
 
-providers-execution-error-artifacts-details-journal-retry-storage-only = { $layer }{ " error · /artifacts details · /journal-retry storage only" }
+providers-execution-error-run-details-journal-retry-storage-only = { $layer }{ " error · /run-details · /journal-retry storage only" }
 
 providers-setup-codex = { "Update the same Codex installation shown under Executable, not a second copy elsewhere on PATH. Homebrew: brew upgrade --cask codex. npm: npm install -g @openai/codex@latest. Then Refresh installed providers, check the observed path/version, and refresh /model. Eevee never upgrades it automatically." }
 

@@ -130,7 +130,7 @@ struct Identity {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct FileStamp {
     identity: Identity,
-    size: u64,
+    pub(super) size: u64,
     created: i64,
     written: i64,
     changed: i64,
@@ -474,7 +474,7 @@ impl Directory {
                 let name = OsString::from_wide(wide);
                 if name != "." && name != ".." {
                     if names.len() == limit {
-                        return Err("Project discovery exceeds 10000 entries; choose a narrower project root".into());
+                        return Err("Project discovery exceeds 10000 entries; choose a narrower directory scope".into());
                     }
                     names.push(name);
                 }
@@ -598,7 +598,11 @@ impl Directory {
             FILE_NON_DIRECTORY_FILE,
         )
         .map_err(nt_error)?;
-        file_stamp(&file)?;
+        if write {
+            file_stamp(&file)?;
+        } else {
+            observation_stamp(&file)?;
+        }
         if final_path(&file)? != self.node.path.join(name) {
             return Err("Windows file resolved to a different final path.".into());
         }
@@ -819,13 +823,18 @@ fn dispose(file: &File) -> Result<(), String> {
 }
 
 pub(super) fn file_stamp(file: &File) -> Result<FileStamp, String> {
+    let stamp = observation_stamp(file)?;
+    if stamp.size > MAX_BYTES as u64 {
+        return Err("Windows file exceeds the controlled-write byte limit.".into());
+    }
+    Ok(stamp)
+}
+
+pub(super) fn observation_stamp(file: &File) -> Result<FileStamp, String> {
     let info = information(file)?;
     let size = (u64::from(info.nFileSizeHigh) << 32) | u64::from(info.nFileSizeLow);
     if info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0 || info.nNumberOfLinks != 1 {
-        return Err("Windows writes require a regular file with exactly one hard link.".into());
-    }
-    if size > MAX_BYTES as u64 {
-        return Err("Windows file exceeds the controlled-write byte limit.".into());
+        return Err("Windows source requires a regular file with exactly one hard link.".into());
     }
     let mut basic = FILE_BASIC_INFO::default();
     if unsafe {

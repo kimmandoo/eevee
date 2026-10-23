@@ -382,6 +382,7 @@ fn run(config: Config) -> io::Result<()> {
                 outstanding_store += app.submit_execution_stores(&store);
             }
             local_store_first = !local_store_first;
+            outstanding_store += app.submit_context_tool_stores(&store);
             if sources.try_request(&mut app.sources.pending) {
                 outstanding_sources += 1;
             }
@@ -589,7 +590,7 @@ fn run(config: Config) -> io::Result<()> {
                 };
                 mailbox_pending |= index == 63;
                 outstanding_sources = outstanding_sources.saturating_sub(1);
-                app.sources.event(app.task_id, event);
+                app.context_source_event(event);
                 dirty = true;
             }
             let (execution_changed, execution_more) = app.poll_executions(&execution);

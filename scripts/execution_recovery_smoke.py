@@ -192,12 +192,11 @@ def main():
                 lock.execute('BEGIN IMMEDIATE')
                 session.resize((39, 10))
                 session.command('cancel')
-                wait_for(session, 'Cancel and wait')
-                session.capture('below-minimum-neutral-owned-cancel')
-                session.send(RIGHT + '\r')
+                until(session, lambda: not process.alive(), 'explicit lead-only stop while undersized and SQLite is locked')
+                assert rows()[-1][0]['state'] == 'Running' and rows()[-1][2]
+                session.capture('below-minimum-explicit-lead-only-stop')
                 session.resize((120, 36))
-                until(session, lambda: not process.alive(), 'owned cancellation while SQLite is locked')
-                session.command('artifacts')
+                session.command('run-details')
                 wait_for(session, 'ERROR LAYER: Storage')
                 assert rows()[-1][0]['state'] == 'Running' and rows()[-1][2]
                 session.capture('failed-journal-save-retains-owned-result')

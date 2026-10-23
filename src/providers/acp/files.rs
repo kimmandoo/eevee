@@ -70,8 +70,8 @@ fn relative_path(root: &Path, params: &Value) -> Result<PathBuf, String> {
         .map_err(|_| "ACP file path is outside the current project".into())
 }
 
-// ACP line/limit is a slice of actual full-file bytes. Read the bounded full file
-// through the executor first, preserving its observed baseline for a later edit.
+// ACP returns content only, so never silently return a byte-truncated slice.
+// Start at the requested line and require a narrower limit if output is bounded.
 fn read_content(scope: &mut WriteSet, path: PathBuf, params: &Value) -> Result<String, String> {
     let number = |key: &str, default: usize| -> Result<usize, String> {
         match params.get(key) {
@@ -87,17 +87,17 @@ fn read_content(scope: &mut WriteSet, path: PathBuf, params: &Value) -> Result<S
     let limit = number("limit", usize::MAX)?;
     let result = scope.observe_tool(&FileTool::Read {
         path,
-        start_line: 1,
+        start_line: line,
         end_line: 0,
     })?;
     let content = result["content"]
         .as_str()
         .ok_or("Source executor returned no content")?;
-    Ok(content
-        .split_inclusive('\n')
-        .skip(line - 1)
-        .take(limit)
-        .collect())
+    let selected: String = content.split_inclusive('\n').take(limit).collect();
+    if result["next_start_line"].is_number() && content.split_inclusive('\n').count() < limit {
+        return Err("ACP requested read exceeds the 64 KiB output bound; retry with a narrower line/limit range".into());
+    }
+    Ok(selected)
 }
 
 fn file_permission(proposal: &WriteProposal) -> PromptKind {

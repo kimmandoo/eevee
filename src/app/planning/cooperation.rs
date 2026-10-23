@@ -45,6 +45,7 @@ impl State {
             || !self.journal_inflight.is_empty()
             || self.journal_failed()
             || self.usage_pending()
+            || self.receipts.pending()
             || self.unknown_effects()
     }
 
@@ -167,6 +168,7 @@ impl State {
             && self.journal_inflight.is_empty()
             && !self.journal_failed()
             && !self.usage_pending()
+            && !self.receipts.pending()
             && !self.local_record_hold
             && !self.work_inflight
             && self.work_pending.is_none()

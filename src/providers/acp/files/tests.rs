@@ -67,6 +67,42 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn acp_reads_requested_ranges_beyond_mutation_bound_without_silent_output_truncation() {
+    let fixture = Fixture::new();
+    let path = "중앙-cafe\u{301}.rs";
+    let source: String = (1..=3000)
+        .map(|line| format!("// ACP actual source {line:04}: café 界\r\n"))
+        .collect();
+    assert!(source.len() > crate::providers::writes::MAX_BYTES);
+    std::fs::write(fixture.root.join(path), &source).unwrap();
+    let mut scope =
+        WriteSet::capture_workspace(&fixture.root, &fixture.root.join("private-data"), &[])
+            .unwrap();
+    let params = json!({"path":fixture.root.join(path),"line":2500,"limit":2});
+    let selected: String = source.split_inclusive('\n').skip(2499).take(2).collect();
+    assert_eq!(
+        read_content(&mut scope, path.into(), &params).unwrap(),
+        selected
+    );
+    let tail = json!({"path":fixture.root.join(path),"line":3000,"limit":50});
+    assert_eq!(
+        read_content(&mut scope, path.into(), &tail).unwrap(),
+        source.split_inclusive('\n').next_back().unwrap()
+    );
+    let unbounded = json!({"path":fixture.root.join(path)});
+    assert!(
+        read_content(&mut scope, path.into(), &unbounded)
+            .unwrap_err()
+            .contains("narrower line/limit")
+    );
+    assert!(scope.admit_paths(&[path.into()]).is_err());
+    assert_eq!(
+        std::fs::read(fixture.root.join(path)).unwrap(),
+        source.as_bytes()
+    );
+}
+
+#[test]
 fn shared_callbacks_read_create_replace_and_refuse_unsafe_scope_on_every_host() {
     for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
         let fixture = Fixture::new();

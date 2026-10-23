@@ -29,6 +29,7 @@ pub(crate) mod journal;
 mod pairings;
 mod picker;
 mod preferences;
+pub mod receipts;
 mod response;
 mod review;
 mod usage;
@@ -141,6 +142,9 @@ pub struct State {
     pub submitted_request: Arc<str>,
     submitted_instruction: Option<Arc<str>>,
     prior_plan: Option<Arc<NativeConversation>>,
+    pub receipts: receipts::State,
+    pub context_plan: Option<context::optimizer::Plan>,
+    pub tool_catalog: Option<crate::providers::catalog::Selection>,
     pub(super) plan_completed: bool,
     pub(super) failed_request: bool,
     /// An explicitly abandoned blocked generation; keep its local Request
@@ -178,11 +182,12 @@ pub struct State {
     pub switch_to: Option<Agent>,
     pub handoff: Option<crate::workspace::handoff::Document>,
     sessions: HashMap<(Agent, Operation), Session>,
-    /// Canonical native history is separate from display/provider sessions;
-    /// unexpected scope changes refuse it until an explicit local reset.
+    /// Canonical public history is separate from display/provider sessions.
+    /// Native routes retain connection ownership; controlled Codex retains no authority.
     native_histories: HashMap<(Agent, Operation), Arc<NativeConversation>>,
     native_candidate: Option<Arc<NativeConversation>>,
     native_request_partner: Option<i64>,
+    conversation_flow: conversation::Flow,
     connection_invalidated: bool,
     pub journal_mode: bool,
     pub journal_purge: bool,
@@ -272,6 +277,9 @@ impl State {
             submitted_request: Arc::default(),
             submitted_instruction: None,
             prior_plan: None,
+            receipts: receipts::State::default(),
+            context_plan: None,
+            tool_catalog: None,
             plan_completed: false,
             failed_request: false,
             connection_recovery: None,
@@ -289,6 +297,7 @@ impl State {
             paths_editor: None, switch_to: None, handoff: None, sessions: HashMap::new(),
             native_histories: HashMap::new(), native_candidate: None,
             native_request_partner: None,
+            conversation_flow: conversation::Flow::default(),
             connection_invalidated: false,
             journal_mode: false, journal_purge: false, journal_records: Vec::new(), journal_selected: 0,
             pending_journal: VecDeque::new(), journal_inflight: VecDeque::new(),
@@ -380,6 +389,7 @@ impl State {
             || self.work_pending.is_some()
             || self.work_inflight
             || self.usage_pending()
+            || self.receipts.pending()
     }
 
     pub fn task_id(&self) -> i64 {
@@ -818,6 +828,8 @@ impl State {
                 }) =>
             {
                 self.usage_submitted();
+                self.dispatch_chat_intent();
+                self.receipts.dispatched(generation, task_id, &request_id);
             }
             Event::Usage {
                 generation,
@@ -868,7 +880,7 @@ impl State {
             {
                 self.queue_record(task_id, record);
             }
-            Event::Preview(preview) if self.accepts_preview(&preview) => {
+            Event::Preview(mut preview) if self.accepts_preview(&preview) => {
                 self.awaiting_preview = false;
                 if self.recover_missing_model(&preview) {
                     return;
@@ -878,6 +890,15 @@ impl State {
                     slot.generation = Some(preview.generation);
                 }
                 self.receipt = crate::workspace::receipt::receipt(&preview.payload).lines();
+                if !self.inspect_models
+                    && !self.inspect_sessions
+                    && let Some(claim) = &self.work
+                    && let Err(error) =
+                        self.receipts
+                            .stage(&preview, claim, self.agent, self.operation)
+                {
+                    preview.blockers.push(error);
+                }
                 self.preview = Some(preview);
                 self.notice = "Review request scope and effects; Stay is the default. Details remain inspectable.".into();
                 self.review_start();

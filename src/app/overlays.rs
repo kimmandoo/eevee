@@ -35,12 +35,33 @@ impl App {
     }
 
     pub(super) fn open_overlay(&mut self, overlay: Overlay) {
+        self.open_overlay_with_source_catalogue(overlay, true);
+    }
+
+    /// Direct context actions already own a specific worker operation. Opening
+    /// their review must not enqueue an unrelated catalogue ahead of that work.
+    pub(super) fn open_context_sources(&mut self) {
+        self.open_overlay_with_source_catalogue(Overlay::Sources, false);
+    }
+
+    fn open_overlay_with_source_catalogue(&mut self, overlay: Overlay, request_catalogue: bool) {
         self.updates.leave();
         self.workflow.authoring.invalidate();
+        if overlay == Overlay::Sources
+            && let Some(task) = self
+                .tasks
+                .iter()
+                .find(|task| task.id == self.task_id)
+                .cloned()
+        {
+            self.sources.configure_optimizer(&task);
+            self.sources.set_optimizer_runs(&self.execution.history);
+        }
         if self.overlay == Some(Overlay::Moves) && overlay != Overlay::Moves {
             self.cancel_move_validation();
         }
         if overlay != Overlay::Sources {
+            self.sources.cancel_memory_adoption();
             self.pending_source_action = None;
         }
         if overlay != Overlay::Planning {
@@ -122,7 +143,7 @@ impl App {
                 .position(|partner| partner.id == self.lead.id)
                 .unwrap_or(0);
         }
-        if overlay == Overlay::Sources {
+        if overlay == Overlay::Sources && request_catalogue {
             self.sources.catalogue(
                 self.task_id,
                 self.repository.as_ref(),
@@ -140,6 +161,7 @@ impl App {
             self.cancel_move_validation();
         }
         if self.overlay == Some(Overlay::Sources) {
+            self.sources.cancel_memory_adoption();
             self.cancel_move_pins();
         }
         self.pending_source_action = None;

@@ -55,7 +55,7 @@ ev
 
 Terminal: **60 × 18 minimum**, **120 × 36 recommended**. Add `--language ko` for Korean.
 
-> **Upgrading?** Cleanly exit all instances and back up the **entire data directory**, including database, journals and outputs, before `ev update`. An older binary is not a supported downgrade; restore the complete pre-upgrade backup instead. Source 0.1.27's Comfortable density extends strict JSON: v0.1.26 refuses it even though SQL Schema 18 is unchanged.
+> **Upgrading?** Cleanly exit all instances and back up the **entire data directory**, including database, journals and outputs, before `ev update`. Source 0.1.29 migrates Schema18 to Schema19 for local receipts, context cache, reviewed tool catalog and tool artifacts. Older binaries must refuse the new store; restore the complete pre-upgrade backup rather than downgrading in place.
 
 ## Everyday use
 
@@ -129,6 +129,27 @@ Source 0.1.29 fixes short plan-to-implementation requests: after planning, `Impl
 
 Native account connections use Eevee's selected login/profile rather than silently reading CLI `auth.json`. To reuse CLI credentials, explicitly choose **Load CLI** in connection setup. Missing files, OS access denial and unsafe credential permissions are separate errors. Private Windows credentials owned by the current user or a trusted elevated owner are accepted only with a safe ACL; UTF-8 BOM is supported, UTF-16 is not. No credential file or permissions are silently repaired.
 
+### Reviewed context and tools — source 0.1.29
+
+| Action | Boundary |
+| --- | --- |
+| `/optimize` | Preview ranked source ranges under a local token budget, with reasons, omissions and mandatory-pin overflow decisions; apply separately. |
+| `/compact` | Preview a deterministic evidence-linked continuation ledger; failed checks and changed sources remain visible. No model summarization. |
+| `/context-apply` / `/context-cancel` | Apply a reviewed local packet or cancel without sending. Source changes stop later dispatch. |
+| `/remember-source` / Sources `m` | Review adopting an exact checked capture as a bounded memory note; approval and later context selection remain separate. |
+| `/receipts` | Inspect request identities and exact local section counts after restart; source-only purge preserves counts, not provider-side history. |
+| `/tools` / `/tool-setup` | Search local metadata or review explicit catalog setup. Selecting a schema grants no execution permission; unavailable adapters say so. |
+| `/artifacts` / `/artifact-search` | Inspect immutable owned tool output by exact pages, literal search and failure locations; purged, stale or wrong-task handles are refused. |
+| `/run-details` | Inspect command identity and execution/storage errors, separately from retained tool artifacts. |
+
+Optimizer counts use a named offline Unicode-boundary tokenizer, distinct from the existing heuristic estimate, provider usage and billing. Revision caches retain local identities and bounded assembly metadata, not a promise of provider caching. Tool catalog exposure is currently supported only by the compatible Chat Completions host-tool route. Artifact pages prioritize retained content; `i` opens full immutable identity and exit details.
+
+Receipt capacity is reserved before sending; a full task refuses without losing the draft. Failed writes offer storage-only retry, never automatic resend. After a definite matching request outcome and a proven rollback, `/receipts` → `d` can explicitly acknowledge an **unsaved receipt gap** through a neutral full-scope review. This releases only the failed local write: the gap stays memory-only and is lost on restart. Ambiguous writes remain blocked.
+
+Adopted source notes preserve exact bytes, including CRLF, and use explicit capture identity rather than matching equal text. They are independently approved data: capture, receipt or artifact purge **does not delete the saved note**. Use `/delete-memory` separately; neither operation promises secure erasure or deletion of provider-owned history.
+
+Filename discovery accepts a project-relative directory scope before scanning. Safe files larger than the 64-KiB mutation limit remain discoverable; bounded reads may inspect sources up to 16 MiB with a full-source digest and an explicit noneditable flag. The limit for approved create/replace content remains 64 KiB.
+
 | Feature | What it does |
 | --- | --- |
 | **Nine forms** | Automatic specialty selection or a fixed appearance; a real evolution gets a localized receipt. |
@@ -178,7 +199,7 @@ Default data directories: `~/.local/share/eevee` on Linux, `~/Library/Applicatio
 
 **Keep application storage separate from project source.** A project root used as `--data-dir` intentionally excludes that whole subtree from source tools. Provider configuration, hooks, external tools and resumed sessions may have effects beyond Eevee's mediated boundaries.
 
-Current storage is **Schema 18**; the Claude sidecar requires complete **bridge revision 9** source/policy/dependency files. Persistent reduced-motion preferences are incompatible with v0.1.21. See the upgrade warning above before opening existing data.
+Source 0.1.29 storage is **Schema 19**; the Claude sidecar still requires complete **bridge revision 9** source/policy/dependency files. Migration preserves existing Schema18 task/evidence data and adds the context/tool tables atomically. Older writers refuse before changing the new store. See the full-backup warning above.
 
 ## Installation
 

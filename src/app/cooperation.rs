@@ -139,6 +139,8 @@ impl App {
 
     pub(super) fn quit_requires_work_review(&self) -> bool {
         self.pending_request.is_some()
+            || self.artifacts.busy()
+            || self.tool_catalog.busy()
             || self.pending_command.is_some()
             || !self.cooperation.command_saves.is_empty()
             || std::iter::once(&self.planning)
@@ -418,6 +420,9 @@ impl App {
                 sent += 1;
             }
             let state = self.planning_state_mut(id).expect("known partner slot");
+            if sent == 0 && state.receipts.try_store(store) {
+                sent += 1;
+            }
             if sent == 0 && state.try_usage(store) {
                 sent += 1;
             }
@@ -1188,6 +1193,51 @@ impl App {
 
 impl App {
     pub fn provider_event(&mut self, partner: i64, event: crate::providers::Event) -> bool {
+        if let crate::providers::Event::ToolArtifact {
+            generation,
+            task_id,
+            capture,
+            reply,
+        } = event
+        {
+            let owned = self.planning_state(partner).is_some_and(|state| {
+                state.matches(generation, task_id)
+                    && state.work.as_ref().is_some_and(|claim| {
+                        claim.request_id == capture.request_id
+                            && capture.partner.as_ref() == Some(&claim.owner)
+                    })
+            });
+            if owned {
+                self.artifacts.retain_with_reply(task_id, capture, reply);
+            } else {
+                let _ = reply.try_send(Err(
+                    "Tool artifact producer lost its exact request ownership".into(),
+                ));
+            }
+            return owned;
+        }
+        if let crate::providers::Event::ArtifactLookup {
+            generation,
+            task_id,
+            operation,
+            reply,
+        } = event
+        {
+            let owned = self.planning_state(partner).is_some_and(|state| {
+                state.matches(generation, task_id)
+                    && state.work.as_ref().is_some_and(|claim| {
+                        claim.task_id == task_id && claim.owner.partner == partner
+                    })
+            });
+            if owned {
+                self.artifacts.enqueue_lookup(task_id, operation, reply);
+            } else {
+                let _ = reply.try_send(Err(
+                    "Artifact lookup lost its exact task/request ownership".into(),
+                ));
+            }
+            return owned;
+        }
         if let crate::providers::Event::ConnectionFailed {
             generation,
             task_id,
@@ -1206,6 +1256,7 @@ impl App {
             // Failure evidence can update its provider's diagnostics, never
             // front another owner, reconnect, submit work or answer permission.
             self.agents.connection_failed(*agent, *failure);
+            self.tool_catalog.disconnected(*agent);
             return true;
         }
         if let crate::providers::Event::Finished {
@@ -1546,7 +1597,7 @@ mod tests {
             destination: None,
             requires_connection_review: connection_review,
             trust: Vec::new(),
-            payload: format!("payload-{partner}"),
+            payload: serde_json::json!({"request": format!("payload-{partner}")}).to_string(),
             blockers: Vec::new(),
         }));
         if !connection_review {
@@ -1909,7 +1960,7 @@ mod tests {
                 0 => app.transitioning = true,
                 1 => app.reset_after_save = true,
                 2 => app.quit_after_save = true,
-                3 => app.pending_request = Some((app.revision, false)),
+                3 => app.pending_request = Some((app.revision, false, false)),
                 4 => app.open_cancel_review(false),
                 5 => {
                     app.composer_menu = Some(composer::Menu {

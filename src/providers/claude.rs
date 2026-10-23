@@ -1207,13 +1207,8 @@ fn payload(
             exclusions,
         )?;
     }
-    let sources = crate::workspace::context::planning_payload(
-        input.task.id,
-        input.report.as_ref(),
-        &input.excerpts,
-        exclusions,
-    )?;
-    let text = serde_json::to_string_pretty(&json!({
+    let sources = input.source_payload(exclusions)?;
+    let text = crate::workspace::context::optimizer::encode_context(json!({
         "purpose": if input.operation == Operation::Plan { "Answer the request directly; inspect safe source when useful. Produce a plan only when requested. No implementation tools are exposed." } else { "Answer the request directly and inspect safe source when useful. When changes are requested, implement using exact per-operation approval of each file and missing parent. Empty selected paths permit safe project-relative file proposals; nonempty selected paths are an exact restriction. Preserve existing dirty working content. This is external SDK agent policy, not strict OS confinement. Do not commit/merge. Report unverified patch for human diff review." },
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
         "project_context": project_context,

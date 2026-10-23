@@ -399,6 +399,7 @@ impl State {
                     )?;
                 }
                 for id in &ids {
+                    deleted_outputs.extend(super::artifacts::deletion_outputs(&transaction, *id)?);
                     let mut outputs = transaction
                         .prepare(
                             "SELECT output_name,output_identity FROM executions WHERE task_id=?1",
@@ -421,6 +422,15 @@ impl State {
                         .map_err(|error| error.to_string())?;
                     transaction
                         .execute("DELETE FROM provider_journal WHERE task_id=?1", [id])
+                        .map_err(|error| error.to_string())?;
+                    transaction
+                        .execute("DELETE FROM outgoing_receipts WHERE task_id=?1", [id])
+                        .map_err(|error| error.to_string())?;
+                    transaction
+                        .execute("DELETE FROM tool_artifacts WHERE task_id=?1", [id])
+                        .map_err(|error| error.to_string())?;
+                    transaction
+                        .execute("DELETE FROM context_revisions WHERE task_id=?1", [id])
                         .map_err(|error| error.to_string())?;
                     transaction
                         .execute("DELETE FROM memories WHERE task_id=?1", [id])

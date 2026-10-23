@@ -2692,6 +2692,7 @@ fn bounded_failure_paths(
 
 #[cfg(test)]
 pub(super) fn remove_schema(connection: &Connection) {
+    super::schema::remove_context_schema(connection);
     connection
         .execute_batch("DROP TABLE held_items; DROP TABLE ribbons;")
         .unwrap();
