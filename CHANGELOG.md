@@ -2,6 +2,9 @@
 
 ## 2026-10-23
 
+- docs(release): published v0.1.24 from exact source `19a217e` after unchanged Check/all-five-native qualification and immutable promotion; verified all eight public digests, seven manifest entries, source installers and exact qualified native archives.
+- test(release): verified downloaded v0.1.24 permission/48, file workflows/126, native protocols/176, provider UX/20 and bilingual automatic evolution; passed all 24 installation groups/34 installed-native scenarios and matched reinstalled/public executable bytes.
+
 - fix(files): routed explicit quoted filename changes and handoff-file creation through mutation tools after automatic read-only work while preserving explicit Plan/Review and literal-source boundaries.
 - fix(approvals): made file decisions selectable in automatic popups on every safe home pane and kept long exact scope scrollable with fixed controls instead of permanently disabling compact approval.
 - test(files): reproduced both missing-tool routes and the compact nested-path dead end in v0.1.23, then passed eight bilingual/both-size read/create/edit/handoff journeys with exact one-shot decisions and filesystem effects.
