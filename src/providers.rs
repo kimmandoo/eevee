@@ -4,6 +4,7 @@ pub mod agent;
 pub mod auth;
 pub mod claude;
 pub mod codex;
+pub mod diagnostics;
 pub mod direct;
 pub(crate) mod file_preview;
 pub(crate) mod writes;
@@ -619,6 +620,13 @@ pub struct Prompt {
 #[derive(Clone, Debug)]
 pub enum Event {
     Preview(Preview),
+    /// Content-free failure evidence from this exact owned request.
+    ConnectionFailed {
+        generation: u64,
+        task_id: i64,
+        agent: Agent,
+        failure: diagnostics::Failure,
+    },
     /// Authoritative submission evidence for the immutable claimed request.
     /// This does not establish remote completion or successful model execution.
     Dispatched {

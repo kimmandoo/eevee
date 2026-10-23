@@ -72,6 +72,10 @@ def peer():
                 record("session", method=method, thread=thread, tools=[tool["name"] for tool in params.get("dynamicTools", [])])
                 cwd = params["cwd"]
                 result = dict(thread=dict(id=thread), cwd=cwd, model=params.get("model", "fixture-coop"), reasoningEffort=params.get("config", {}).get("model_reasoning_effort"), approvalPolicy="on-request", approvalsReviewer="user", sandbox=dict(type="readOnly", networkAccess=False))
+                if os.environ.get("EV_COOP_POLICY_MISMATCH") == "1":
+                    # A truthful negotiated-policy refusal, before turn/start.
+                    result["approvalsReviewer"] = "fixture-incompatible"
+                    record("policy_mismatch", method=method)
             elif method == "turn/start":
                 text = "\n".join(item.get("text", "") for item in params.get("input", []))
                 markers = re.findall(r"COOP_[A-Z0-9_]+", text)

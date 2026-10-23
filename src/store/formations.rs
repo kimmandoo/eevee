@@ -11,6 +11,7 @@ pub enum Request {
         path: PathBuf,
         recipe: Recipe,
     },
+    ExportWorkflow(Box<crate::workspace::workflows::authoring::Export>),
     Apply {
         expected: Box<Snapshot>,
         roster: Vec<Partner>,
@@ -22,6 +23,9 @@ pub enum Request {
 pub enum Response {
     Read(Recipe),
     Exported,
+    WorkflowExported {
+        generation: u64,
+    },
     Applied {
         task: Box<Snapshot>,
         roster: Vec<Partner>,
@@ -31,6 +35,40 @@ pub enum Response {
 impl State {
     pub(super) fn formation(&mut self, request: Request) -> Result<Response, String> {
         match request {
+            Request::ExportWorkflow(export) => {
+                let (task_id, partner) = export.owner();
+                let connection = self.connection.as_ref().ok_or("Storage unavailable")?;
+                let task = load_task(connection, &self.project, task_id)?
+                    .ok_or("Workflow task is no longer available")?;
+                if task.revision != export.revision()
+                    || task.lead_partner != partner
+                    || export.root() != Path::new(&self.project)
+                {
+                    return Err("Workflow task, owner or project changed; preview again".into());
+                }
+                no_active(connection, Some(task_id))?;
+                super::partners::idle(connection, partner)?;
+                for expected in export.runs() {
+                    let retained = stored_run(connection, task_id, &expected.prepared.run_id)?;
+                    if retained.reserved || retained.record != *expected {
+                        return Err("Workflow validation evidence changed; preview again".into());
+                    }
+                    let output = SpoolDirectory::open(&self.data_dir)?
+                        .read(&retained.output_name, &retained.output_identity)?;
+                    if output
+                        .metadata()
+                        .map_err(|_| "Cannot inspect reviewed validation output")?
+                        .len()
+                        != expected.captured_bytes
+                    {
+                        return Err("Reviewed validation output is no longer complete".into());
+                    }
+                }
+                export.publish()?;
+                Ok(Response::WorkflowExported {
+                    generation: export.generation(),
+                })
+            }
             Request::Read { path } => {
                 let recipe = Recipe::read_file(&path)?;
                 if recipe.roles.is_empty() {

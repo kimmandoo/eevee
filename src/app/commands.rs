@@ -625,9 +625,19 @@ impl App {
             ("reduced-motion", "Toggle persistent reduced motion"),
             ("motion-off", "Keep all motion static, persistently"),
             ("motion-on", "Allow optional motion, persistently"),
+            ("density", "Toggle compact / comfortable text density"),
+            ("density-compact", "Use compact text density, persistently"),
+            (
+                "density-comfortable",
+                "Use comfortable text density, persistently",
+            ),
             ("layout", "Toggle linear layout"),
             ("images", "Evolution artwork setup"),
             ("workflows", "Specialist workflows"),
+            (
+                "recipe-save",
+                "Author and review a portable workflow from reviewed work",
+            ),
             ("memory", "Approved memories"),
             ("refresh", "Refresh repository inspection"),
             ("storage-retry", "Retry failed storage"),
@@ -759,6 +769,27 @@ impl App {
         {
             return Some("Finish the current confirmation or storage operation first.".into());
         }
+        if self.recipe_export_busy()
+            && !matches!(
+                name,
+                "quit"
+                    | "help"
+                    | "close"
+                    | "verbose"
+                    | "density"
+                    | "density-compact"
+                    | "density-comfortable"
+                    | "reduced-motion"
+                    | "motion-off"
+                    | "motion-on"
+            )
+        {
+            return Some(
+                crate::i18n::Language::ENGLISH
+                    .text(crate::i18n::Message::RecipeAuthoringBusy)
+                    .into(),
+            );
+        }
         if (self.sources.confirmation.is_some()
             || self.execution.confirmation.is_some()
             || self.agents.preview
@@ -868,6 +899,9 @@ impl App {
                     | "reduced-motion"
                     | "motion-off"
                     | "motion-on"
+                    | "density"
+                    | "density-compact"
+                    | "density-comfortable"
                     | "reset"
                     | "lead"
                     | "party"
@@ -1069,6 +1103,7 @@ impl App {
     }
 
     pub(super) fn open_commands(&mut self) {
+        self.workflow.authoring.invalidate();
         self.command_popup = Some(Popup {
             query: String::new(),
             selected: None,
@@ -1255,7 +1290,17 @@ impl App {
             return true;
         }
         self.command_popup = None;
+        if matches!(name, "cancel" | "cancel-all" | "quit") {
+            self.workflow.authoring.invalidate();
+        }
+        if name == "recipe-save" {
+            self.recipe_save();
+            return true;
+        }
         if self.motion_command(name) {
+            return true;
+        }
+        if self.density_command(name) {
             return true;
         }
         if self.formation_command(name, "") {

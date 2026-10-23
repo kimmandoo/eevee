@@ -2199,6 +2199,7 @@ fn terminal_native_unknown_allows_explicit_followup_and_task_switch_but_cli_unkn
                 provider: agent,
                 selections: std::collections::HashMap::new(),
                 reduced_motion: false,
+                text_density: store::TextDensity::Compact,
             })));
         app.update(Event::Paste("Interrupted request".into()));
         key(&mut app, KeyCode::Enter);

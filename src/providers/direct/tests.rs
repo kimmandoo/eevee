@@ -1306,7 +1306,7 @@ fn inference_headers_prove_one_frozen_dispatch_even_for_http_errors() {
         Protocol::Gemini,
     ]
     .into_iter()
-    .flat_map(|protocol| [200, 400, 401, 429, 500].map(|status| (protocol, status)))
+    .flat_map(|protocol| [200, 400, 401, 403, 429, 500].map(|status| (protocol, status)))
     {
         let mut run = prepared();
         *run.input = crate::providers::tests::claimed(Agent::Compatible, Operation::Plan, false);
@@ -1314,7 +1314,10 @@ fn inference_headers_prove_one_frozen_dispatch_even_for_http_errors() {
         let stopped = AtomicBool::new(false);
         let cancelled = AtomicU64::new(0);
         let control = control(&stopped, &cancelled);
-        let (url, server) = http_status_fixture(status, String::new());
+        let (url, server) = http_status_fixture(
+            status,
+            "authcode=private-provider-sentinel Bearer private-token-sentinel".into(),
+        );
         let connection = config::test_connection(protocol, &url, Some("fixture-model"));
         let response = runtime.block_on(async {
             let client = http_client().unwrap();
@@ -1333,12 +1336,22 @@ fn inference_headers_prove_one_frozen_dispatch_even_for_http_errors() {
         server.join().unwrap();
         assert_eq!(response.status().as_u16(), status);
         let events = events.lock();
-        assert_eq!(events.len(), 1);
+        assert_eq!(events.len(), if status == 200 { 1 } else { 2 });
         assert!(matches!(
             &events[0],
             Event::Dispatched { generation: 7, task_id: 7, request_id }
                 if request_id == "provider-admission-test"
         ));
+        if status != 200 {
+            assert!(matches!(
+                events[1],
+                Event::ConnectionFailed { generation: 7, task_id: 7, agent: Agent::Compatible, failure: super::super::diagnostics::Failure::Http(observed) }
+                    if observed == status
+            ));
+        }
+        let retained = format!("{events:?}");
+        assert!(!retained.contains("private-provider-sentinel"));
+        assert!(!retained.contains("private-token-sentinel"));
     }
 }
 
@@ -1904,4 +1917,101 @@ fn chronological_round_segments_keep_private_context_without_repeating_prior_tex
     assert!(!text.contains("opaque-key-material"));
     assert!(!text.contains("Earlier public explanation"));
     assert!(text.contains("Final public answer."));
+}
+
+#[test]
+fn real_metadata_http_auth_refusal_publishes_content_free_diagnostic_without_dispatch() {
+    const CHILD: &str = "EV_TEST_METADATA_DIAGNOSTIC";
+    if let Ok(status) = std::env::var(CHILD) {
+        let status: u16 = status.parse().unwrap();
+        let run = prepared();
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        let stopped = AtomicBool::new(false);
+        let cancelled = AtomicU64::new(0);
+        let control = control(&stopped, &cancelled);
+        // Resolve the actual isolated source, so production identity
+        // revalidation remains enabled before the metadata request.
+        let connection = config::resolve(Agent::Compatible).unwrap();
+        let result = runtime().block_on(async {
+            discover(
+                &http_client().unwrap(),
+                &connection,
+                None,
+                &control,
+                &run,
+                &events,
+            )
+            .await
+        });
+        assert!(result.is_err());
+        let retained = events.lock();
+        assert_eq!(retained.len(), 1);
+        assert!(matches!(
+            retained[0],
+            Event::ConnectionFailed {
+                generation: 7, agent: Agent::Compatible,
+                failure: super::super::diagnostics::Failure::Http(observed), ..
+            } if observed == status
+        ));
+        let detail = format!("{retained:?} {result:?}");
+        assert!(!detail.contains("private-auth-sentinel"));
+        assert!(!detail.contains("private-code-sentinel"));
+        return;
+    }
+    for status in [401, 403] {
+        let home = std::env::temp_dir().join(format!(
+            "eevee-metadata-diagnostic-{}-{}-{status}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        std::fs::create_dir(&home).unwrap();
+        let (url, server) = http_status_fixture(
+            status,
+            "Bearer private-auth-sentinel authcode=private-code-sentinel".into(),
+        );
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "providers::direct::tests::real_metadata_http_auth_refusal_publishes_content_free_diagnostic_without_dispatch", "--nocapture"])
+            .env_clear()
+            .env("HOME", &home)
+            .env("USERPROFILE", &home)
+            .env(CHILD, status.to_string())
+            .env("EV_API_BASE_URL", url)
+            .env("EV_API_KEYLESS", "1")
+            .env("EV_API_PROTOCOL", "responses")
+            .output();
+        let served = server.join();
+        std::fs::remove_dir_all(&home).unwrap();
+        served.unwrap();
+        let output = output.unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn diagnostic_and_terminal_outcome_survive_reserved_queue_pressure() {
+    let run = prepared();
+    let events = Arc::new(Mutex::new(VecDeque::new()));
+    for _ in 0..QUEUE_LIMIT - 2 {
+        events.lock().push_back(Event::Status {
+            generation: 7,
+            task_id: 7,
+            message: String::new(),
+        });
+    }
+    connection_failure(&events, &run, super::super::diagnostics::Failure::Http(401));
+    finish(&events, 7, 7, Outcome::Failed, "HTTP 401");
+    let retained = events.lock();
+    assert_eq!(retained.len(), QUEUE_LIMIT);
+    assert!(matches!(
+        retained[QUEUE_LIMIT - 2],
+        Event::ConnectionFailed { .. }
+    ));
+    assert!(matches!(retained[QUEUE_LIMIT - 1], Event::Finished { .. }));
 }

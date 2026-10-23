@@ -24,6 +24,7 @@ pub mod workflows;
 
 mod autosave;
 mod cooperation_execution;
+mod density;
 mod editing;
 mod events;
 pub mod evolution;
@@ -180,6 +181,8 @@ pub struct App {
     /// Explicit process-only motion choice; never persisted as a preference.
     pub motion_override: Option<bool>,
     pub motion_choice: Option<bool>,
+    /// Latest explicit store-global text density, retained through hydration.
+    pub density_choice: Option<store::TextDensity>,
     pub motion_visuals: bool,
     composer_catalogue: bool,
     composer_return: Option<store::EditorField>,
@@ -301,6 +304,7 @@ impl App {
             evolution: evolution::State::default(),
             motion_override: None,
             motion_choice: None,
+            density_choice: None,
             motion_visuals: false,
             party_request: None,
             party_inflight: false,

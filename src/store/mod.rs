@@ -38,7 +38,7 @@ use tasks::*;
 
 pub use admission::{review_run_observations, validate_planning_input, validate_work_input};
 pub use partners::validate_nickname;
-pub use preferences::{PreferenceRequest, ProviderPreferences};
+pub use preferences::{PreferenceRequest, ProviderPreferences, TextDensity};
 pub use recovery::export_readable;
 pub(crate) use runs::valid_run_id;
 

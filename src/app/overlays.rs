@@ -35,6 +35,7 @@ impl App {
     }
 
     pub(super) fn open_overlay(&mut self, overlay: Overlay) {
+        self.workflow.authoring.invalidate();
         if self.overlay == Some(Overlay::Moves) && overlay != Overlay::Moves {
             self.cancel_move_validation();
         }
@@ -132,6 +133,7 @@ impl App {
     }
 
     pub(super) fn close_overlay(&mut self) {
+        self.workflow.authoring.invalidate();
         if self.overlay == Some(Overlay::Moves) {
             self.cancel_move_validation();
         }
@@ -204,6 +206,7 @@ impl App {
             Overlay::Workflows => {
                 (back || key.code == KeyCode::Enter && was_specialist_editor)
                     && self.workflow.editor.is_none()
+                    && !self.workflow.authoring.active
                     && self.workflow.chooser.is_none()
                     && !self.workflow.preview
                     && self.workflow.relay.is_none()

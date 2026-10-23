@@ -954,8 +954,12 @@ fn workspace(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &
         ])
     };
     let (signature, action, label) = crate::domain::FIRST_ACTIONS[app.form().min(8)];
-    let mut lines = vec![
-        heading,
+    let mut lines = Vec::with_capacity(8);
+    lines.push(heading);
+    if app.text_density() == store::TextDensity::Comfortable && content.height >= 9 {
+        lines.push(Line::from(""));
+    }
+    lines.extend([
         Line::from(format!(
             "{} / {}: {signature}",
             crate::domain::FORMS[app.form().min(8)].name,
@@ -971,7 +975,7 @@ fn workspace(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &
         Line::from(""),
         Line::styled("@ Attach context / /connect Choose provider", paint.muted),
         Line::styled("/tasks Resume / /goal Optional task facts", paint.muted),
-    ];
+    ]);
     if app
         .drafts
         .iter()
@@ -1467,7 +1471,13 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
         return;
     }
     let selected = app.task_selection.min(count - 1);
-    let visible = count.min((content.height / 3).clamp(1, 6) as usize);
+    let stride = if app.text_density() == store::TextDensity::Comfortable && content.height >= 10 {
+        2
+    } else {
+        1
+    };
+    let visible = count.min(((content.height / 3) / stride).clamp(1, 6) as usize);
+    let list_rows = (visible as u16 * stride).saturating_sub(stride - 1);
     let start = selected.saturating_sub(visible - 1);
     for (index, task) in app.visible_tasks().enumerate().skip(start).take(visible) {
         let title = task
@@ -1487,7 +1497,7 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
         );
         text(
             frame,
-            row(content, (index - start) as u16, 1),
+            row(content, (index - start) as u16 * stride, 1),
             &clipped(&label, content.width as usize),
             if index == selected {
                 paint.selected
@@ -1498,7 +1508,7 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
     }
     text(
         frame,
-        row(content, visible as u16, 1),
+        row(content, list_rows, 1),
         &format!(
             "{} cards / /archived View / {} / /delete / /prune Retention",
             count,
@@ -1512,8 +1522,8 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
     );
     let details = row(
         content,
-        visible as u16 + 2,
-        content.height.saturating_sub(visible as u16 + 2),
+        list_rows + 2,
+        content.height.saturating_sub(list_rows + 2),
     );
     let task = app
         .visible_tasks()
@@ -1933,6 +1943,7 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
     let notice = if !app.notice.is_empty() {
         Some(
             app.motion_notice()
+                .or_else(|| app.density_notice())
                 .or_else(|| app.formation_notice())
                 .map_or_else(
                     || brief(&app.notice),

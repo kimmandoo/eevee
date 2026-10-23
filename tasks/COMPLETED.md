@@ -1,8 +1,35 @@
 # Completed work
 
-Updated on 2026-10-23 through the v0.1.22 implementation milestone. This is historical completion evidence, not an execution queue. Active work and its priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
+Updated on 2026-10-23 through the source 0.1.27 implementation milestone (unreleased; public v0.1.26 unchanged). This is historical completion evidence, not an execution queue. Active work and its priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
 
 The specifications below retain their original acceptance notes and wording. Old schema numbers, limits, priorities, proposed ordering and release statements are historical; they do not override the current contract. Scoped completion does not establish authenticated conformance for every provider. T05 was dropped, not completed.
+
+## Everyday platform milestone — source 0.1.27 (unreleased)
+
+Completed A08 → UX04A → S04 with actual English/Korean 120×36 and 60×18 journeys. Typed HTTP401/403, missing/installed executables, actual policy rejection and cancelled-login recovery retained drafts and no-replay boundaries. Density survived restart and actual v0.1.26 refusal/current resume with byte-identical data. Reviewed create-only workflows round-tripped through another project as inert plans; actual effects still required fresh command review. Final source passed 1,392 Rust tests/two ignored and all ten native variants/176 groups. Exact source, fixture limits and complementary regression evidence are recorded in the checkpoint; no new release or live-provider acceptance was claimed.
+
+### A08 — Actionable connection diagnostics
+
+- [x] Turn provider setup failures into one next step.
+- **Priority:** 1. **Needs:** —. **Builds on:** A01.
+- **Change:** Finish the actionable failure matrix on existing preflight/setup paths. Unified OpenAI methods, CLI-free account login, typed localized readiness, shallow API setup and direct no-send reconnect are implemented foundations; reuse them rather than rebuilding connections. Extend provider-specific next actions and redacted failure details across the remaining executable/version, authentication, eligibility and transport outcomes.
+- **Accept:** Missing executable, incompatible version, a real auth-required response and a cancelled login each show the blocker and the next action; no tokens or codes appear; a successful install is never shown as authenticated.
+- **Watch out:** Never implicitly read/copy credential stores, extract keychains or switch method/billing silently. Explicit native login and reviewed readable-file import retain the separate private-profile contract.
+
+### UX04A — Text density
+
+- [x] Choose compact or comfortable text density.
+- **Priority:** 2. **Needs:** —. **Builds on:** UX01, V01.
+- **Change:** A persistent density preference, distinct from the already-shipped responsive layouts and themes.
+- **Accept:** Both densities keep permission/error facts, keyboard focus and CJK editing at both sizes.
+
+### S04 — Recipes from reviewed work
+
+- [x] Save a verified workflow without its authority or secrets.
+- **Priority:** 2. **Needs:** —. **Builds on:** S03, R02, C02, MV08B.
+- **Change:** Preview a workflow from user-authored steps and real validation commands; edit name, scope and criteria, then export create-only TOML through the existing versioned recipe model. Reuse safe publication and the reviewed portable-export flow delivered with the earlier MV08B milestone rather than inventing another writer.
+- **Accept:** Export, reopen and apply in another project; each effect still requires fresh review. Cancel leaves no file, existing files are never overwritten and nothing auto-executes. A saved workflow describes its actual provenance without asserting that every future run is verified.
+- **Watch out:** Exclude grants, sessions, credentials, foreign local IDs and machine-specific absolute paths from portable definitions. Do not weaken S03's path/privacy validation for export convenience.
 
 ## Pokémon completion milestone — v0.1.22
 

@@ -4,6 +4,12 @@
 
 The binary implements native ChatGPT/OpenAI/Anthropic/Gemini/compatible HTTP connections, the durable local workbench, Codex Plan/controlled Implement, an optional official Claude SDK bridge, ACP1 for OpenCode/Gemini/Devin, and version-1 handoff. **Implemented transport support is not authenticated interoperability acceptance.** Per-service live evidence is recorded in the checkpoint; missing credentials do not become a blanket model-browsing or custom-selection blocker. Existing A04/A06/full A07 agent-conformance gates remain separate. Binding rules live in [DESIGN_RULES.md](DESIGN_RULES.md).
 
+### Source 0.1.27 actionable diagnostics — unreleased
+
+Typed provider-scoped observations distinguish missing executable, unknown failed version check, actual protocol/policy mismatch, cancelled/expired/failed login, HTTP authentication (401), access refusal (403), endpoint/request/quota and transport failures. HTTP 403 does not prove logout. Failure routing requires the current generation/task/partner; raw HTTP bodies/headers, authorization codes and login output are not retained as details.
+
+Diagnostics expose the blocker and one explicit existing next action. `n` opens setup/settings/install instructions without replaying inference, switching route/billing or granting permission. Installation, version success and model discovery cannot authenticate an account or erase an observed access refusal. Explicit remediation acknowledges attention, preserves the observation and exact draft, and lets a later deliberate send requalify normally. No universal retry/fallback or new credential-store reader was added.
+
 ### v0.1.26 native account configuration isolation
 
 Native OpenAI account connections no longer inspect external CLI `config.toml` for model/effort defaults. Select them in Eevee, retain an app-owned profile or deliberately supply `CODEX_MODEL` / `CODEX_REASONING_EFFORT`. External CLI profiles, malformed files, symlinks or workspace placement are not native-account prerequisites and cannot silently select a model for the fixed subscription endpoint. The separate CLI route keeps its own configuration.

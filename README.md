@@ -53,7 +53,7 @@ ev
 
 Terminal: **60 × 18 minimum**, **120 × 36 recommended**. Add `--language ko` for Korean.
 
-> **Upgrading?** Cleanly exit all instances and back up the **entire data directory**, including database, journals and outputs, before `ev update`. An older binary is not a supported downgrade; restore the complete pre-upgrade backup instead.
+> **Upgrading?** Cleanly exit all instances and back up the **entire data directory**, including database, journals and outputs, before `ev update`. An older binary is not a supported downgrade; restore the complete pre-upgrade backup instead. Source 0.1.27's Comfortable density extends strict JSON: v0.1.26 refuses it even though SQL Schema 18 is unchanged.
 
 ## Everyday use
 
@@ -94,6 +94,21 @@ ev --help
 - `/session-new` and `/session-resume` open advanced exact-payload review. `/chat-new` clears the scoped process-local native conversation, not your draft or durable evidence.
 - `/reset` reviews a new local task while retaining the old one. `/init` prepares an editable project-guide request; it never sends or writes a file by itself.
 - Search `/` for the full action list, including workflows, handoffs, memories, records and recovery actions.
+
+</details>
+
+<details>
+<summary>Source preview · 0.1.27 · not yet released</summary>
+
+| Improvement | Use |
+| --- | --- |
+| Actionable connection failures | `/connect` → diagnostics; **n** opens the displayed next step without replaying the request. HTTP 403 means access refusal, not proven logout. |
+| Persistent reading density | `/density` toggles; `/density-compact` and `/density-comfortable` choose explicitly. Independent of theme and reduced motion. |
+| Workflows from reviewed work | `/recipe-save` → edit portable steps/scope/criteria → select actual passing commands → inspect exact TOML → **y** creates a new file. |
+
+Recipe preview defaults to staying; **Enter/Esc** cancels without creating a file. Existing destinations are never overwritten. `/recipe-path`, `/load-recipe` and `/preview-recipe` reopen and stage a plan in another project; imported criteria remain unchecked and effects still require fresh review. Authoring drafts survive navigation in the current process, not restart.
+
+These commands describe source 0.1.27. Public downloads below remain v0.1.26.
 
 </details>
 

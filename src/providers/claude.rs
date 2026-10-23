@@ -1932,6 +1932,15 @@ fn transport(
                         }
                         return Ok(());
                     }
+                    let _ = emit(
+                        events,
+                        Event::ConnectionFailed {
+                            generation: run.generation,
+                            task_id: run.input.task.id,
+                            agent: run.input.agent,
+                            failure: super::diagnostics::Failure::Incompatible,
+                        },
+                    );
                     return Err("Installed SDK identity/bridge capability inspection failed".into());
                 }
                 if probe.eof {

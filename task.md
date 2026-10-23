@@ -5,9 +5,10 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 ## Current state
 
 - **Released:** [v0.1.26](https://github.com/kimmandoo/eevee/releases/tag/v0.1.26) corrected native-account configuration admission and direct blocked-request recovery after exact-source qualification, immutable publication and full downloaded runtime/install proof. It includes v0.1.25's form-independent coding/context, automatic permission reviews and concise README. The four-task Pokémon milestone remains complete.
-- **Compatibility:** Schema 18 and complete SDK bridge 9 remain unchanged. Persistent reduced motion extends strict preference JSON; v0.1.21 refused the new true setting without changing bytes. Back up the entire data directory before upgrading; an in-place downgrade is not backup restoration.
-- **Remaining:** **34 tasks**. The four-task Pokémon feature/accessibility milestone is implemented and archived; authenticated provider, full-product acceptance and general platform/context work remain separate.
-- **Active user request:** None. Account configuration/recovery, form-independent coding/permissions and README improvements completed with v0.1.26 release proof. The next ordinary backlog task remains **A08 — Actionable connection diagnostics**; do not begin it without a new request. No paid/live model trial is authorized.
+- **Implemented, unreleased:** Source 0.1.27 completed **A08 → UX04A → S04**: actionable connection diagnostics, persistent text density and reviewed portable workflow authoring. Full specifications moved to [COMPLETED.md](tasks/COMPLETED.md#everyday-platform-milestone--source-0127-unreleased).
+- **Compatibility:** Schema 18 and complete SDK bridge 9 remain unchanged, but strict preference JSON has expanded. Actual v0.1.21 refused true reduced motion; actual v0.1.26 refused Comfortable density without changing data bytes. Back up the entire data directory before upgrading; equal SQL schema numbers do not make an in-place downgrade safe.
+- **Remaining:** **31 tasks**. The Pokémon milestone and three everyday platform extensions are complete and archived; authenticated provider, full-product acceptance and general platform/context work remain separate.
+- **Active user request:** None. The requested next three tasks passed source and actual runtime acceptance. Next is **P04A — Update review screen**, followed by **P04B — Rollback eligibility**, only when requested. No new public release or paid/live model trial was authorized.
 
 ## Completed Pokémon milestone
 
@@ -20,7 +21,7 @@ Party, formations, portable TMs, moves, summary, Dex, held references, ribbons, 
 | File | Unfinished scope | Open |
 |---|---|---:|
 | [F — Context and tools](tasks/F-context-tools.md) | Context comparison/receipts, deterministic selection, tool artifacts/plans and measured optimization | 16 |
-| [G — UX and platform](tasks/G-ux-platform.md) | Diagnostics, density, workflow export, update review and format-aware rollback eligibility | 5 |
+| [G — UX and platform](tasks/G-ux-platform.md) | Update review and serialized-format-aware rollback eligibility | 2 |
 | [H — Acceptance](tasks/H-provider-acceptance.md) | Live-provider rows, composed quality/resource measurements and native distribution evidence | 6 |
 | [R — Structure](tasks/R-code-structure.md) | Responsibility-based, just-in-time extractions | 7 |
 
@@ -28,7 +29,7 @@ A/B/C/D/E are entirely completed and archived; only F/G/H/R remain active.
 
 ### Next order
 
-1. Finish everyday platform extensions: A08 → UX04A → S04 → P04A → P04B. Reuse existing setup/updater/export owners; S04 adds workflow authoring, not another portable-file writer.
+1. Finish everyday platform extensions: **P04A → P04B**. Reuse the existing updater, ownership and full serialized-format compatibility protections; A08/UX04A/S04 are completed foundations, not pending gates.
 2. Context track: T01B → T01C → T02A → T02B → T03A → T03B → T04. Completed T01A/C03A/C03B remain foundations, not pending gates.
 3. Tool track: TC01A → TC01B; independently TC03A → TC03B → TC04; then TC02 → TC05 → D01 → Q03. Respect each task's exact `Needs`; Q03's live trials require separate authorization.
 4. Reconcile local Q01 visual/state rows, Q02 current measured resource workloads and P03 supported-target install/upgrade evidence. They are not collectively blocked on provider credentials. Their outstanding authenticated rows remain explicitly incomplete.

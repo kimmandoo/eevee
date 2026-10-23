@@ -144,6 +144,18 @@ impl App {
             return false;
         }
         self.pending_request = None;
+        if self.agents.readiness(self.planning.agent.index()) == super::agents::Readiness::Blocked {
+            if self.agents.show_failure(self.planning.agent) {
+                self.composer_return = Some(EditorField::Request);
+                self.editing = false;
+                self.input.clear();
+                self.notice.clear();
+                self.open_overlay(Overlay::Agents);
+            } else {
+                self.notice.clone_from(&self.agents.notice);
+            }
+            return true;
+        }
         if matches!(
             self.agents.readiness(self.planning.agent.index()),
             super::agents::Readiness::MissingCli

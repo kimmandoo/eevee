@@ -17,6 +17,8 @@ pub(super) struct Preferences {
     dirty_routes: std::collections::HashSet<Agent>,
     reduced_motion: bool,
     motion_dirty: bool,
+    text_density: store::TextDensity,
+    density_dirty: bool,
     stored_provider: Option<Agent>,
 }
 
@@ -24,6 +26,33 @@ impl State {
     pub fn reduced_motion(&self) -> bool {
         // Remain static until the durable preference has been restored.
         !self.preferences.loaded || self.preferences.reduced_motion
+    }
+
+    pub fn text_density(&self) -> store::TextDensity {
+        self.preferences.text_density
+    }
+
+    /// Global latest intent also refreshes saves queued by a different partner.
+    pub fn sync_density_choice(&mut self, density: store::TextDensity) {
+        if self.preferences.text_density == density {
+            return;
+        }
+        self.preferences.text_density = density;
+        if matches!(
+            self.preferences.pending,
+            Some(store::PreferenceRequest::Save(_))
+        ) {
+            self.preferences.pending =
+                Some(store::PreferenceRequest::Save(self.preference_snapshot()));
+        }
+    }
+
+    pub fn set_text_density(&mut self, density: store::TextDensity) {
+        self.preferences.text_density = density;
+        self.preferences.density_dirty = true;
+        self.preferences.dirty = true;
+        self.preferences.error = None;
+        self.preferences.pending = None;
     }
 
     /// Apply the app-global latest choice to unsent provider snapshots. The
@@ -43,6 +72,7 @@ impl State {
         self.preferences.loaded = source.preferences.loaded;
         self.preferences.restore_required = source.preferences.restore_required;
         self.preferences.reduced_motion = source.preferences.reduced_motion;
+        self.preferences.text_density = source.preferences.text_density;
         self.preferences.stored_provider = source.preferences.stored_provider;
         self.preferences.remembered_selection = source.preferences.remembered_selection.clone();
     }
@@ -124,6 +154,7 @@ impl State {
             },
             selections: self.selections.clone(),
             reduced_motion: self.preferences.reduced_motion,
+            text_density: self.preferences.text_density,
         }
     }
 
@@ -169,6 +200,9 @@ impl State {
         if !self.preferences.motion_dirty {
             self.preferences.reduced_motion = saved.reduced_motion;
         }
+        if !self.preferences.density_dirty {
+            self.preferences.text_density = saved.text_density;
+        }
         for (agent, selection) in &saved.selections {
             if !self.preferences.dirty_routes.contains(agent) {
                 self.selections.insert(*agent, selection.clone());
@@ -209,7 +243,7 @@ impl State {
         match result {
             Err(error) => {
                 self.notice = format!(
-                    "Provider/model preference was NOT saved/restored: {error}. Your current selection and request draft remain in memory. /storage-retry retries; choose a different model if the ID is invalid."
+                    "Local display/provider/model preference was NOT saved/restored: {error}. Your current choices and request draft remain in memory. /storage-retry retries; choose a different model if the ID is invalid."
                 );
                 self.preferences.error = Some(self.notice.clone());
                 self.preferences.quit_waiting = false;
@@ -218,6 +252,9 @@ impl State {
                 if let Some(mut saved) = saved {
                     if !self.preferences.motion_dirty {
                         self.preferences.reduced_motion = saved.reduced_motion;
+                    }
+                    if !self.preferences.density_dirty {
+                        self.preferences.text_density = saved.text_density;
                     }
                     if self.preferences.remembered_selection.is_none() {
                         self.preferences.remembered_selection = Some((
@@ -254,6 +291,12 @@ impl State {
                     .is_some_and(|saved| saved.reduced_motion == self.preferences.reduced_motion)
                 {
                     self.preferences.motion_dirty = false;
+                }
+                if saved
+                    .as_ref()
+                    .is_some_and(|saved| saved.text_density == self.preferences.text_density)
+                {
+                    self.preferences.density_dirty = false;
                 }
                 self.preferences.dirty_routes.retain(|agent| {
                     saved.as_ref().is_none_or(|saved| {
@@ -305,7 +348,8 @@ impl State {
             self.preferences.quit_waiting = false;
         } else {
             self.preferences.quit_waiting = true;
-            self.notice = "Saving the last provider/model preference before quitting…".into();
+            self.notice =
+                "Saving the last local display/provider/model preferences before quitting…".into();
         }
         false
     }
@@ -319,6 +363,7 @@ mod tests {
     fn saved() -> store::ProviderPreferences {
         store::ProviderPreferences {
             reduced_motion: false,
+            text_density: store::TextDensity::Compact,
             provider: Agent::ChatGPT,
             selections: [
                 (
@@ -699,5 +744,80 @@ mod tests {
             partner.preference_request().is_none(),
             "shared hydration retires redundant load"
         );
+    }
+
+    #[test]
+    fn density_hydration_retry_and_latest_ack_preserve_route_motion_and_partner_inheritance() {
+        let mut state = State::new();
+        assert_eq!(state.text_density(), store::TextDensity::Compact);
+        submit(&mut state);
+        state.set_text_density(store::TextDensity::Comfortable);
+        state.set_reduced_motion(true);
+        let selection = ModelSelection {
+            model: Some("density/Exact".into()),
+            effort: Some("high".into()),
+        };
+        state.apply_selection(selection.clone(), false);
+        state.preference_event(Ok(Some(saved())));
+        assert_eq!(state.text_density(), store::TextDensity::Comfortable);
+        assert_eq!(state.selection, selection);
+        assert!(state.reduced_motion());
+        let store::PreferenceRequest::Save(first) = submit(&mut state) else {
+            panic!("density uses the shared preference writer");
+        };
+        assert_eq!(first.provider, Agent::Codex);
+        assert_eq!(
+            first.selections[&Agent::ChatGPT],
+            saved().selections[&Agent::ChatGPT]
+        );
+        assert_eq!(first.selections[&Agent::Codex], selection);
+        assert!(first.reduced_motion);
+        state.preference_event(Err("disk full".into()));
+        assert!(
+            state.preference_request().is_none(),
+            "failure never busy-retries"
+        );
+        assert!(!state.preferences_allow_quit(true));
+        state.retry_preferences();
+        let store::PreferenceRequest::Save(retry) = submit(&mut state) else {
+            panic!("retry retains exact preference intent");
+        };
+        assert_eq!(retry, first);
+        state.set_text_density(store::TextDensity::Compact);
+        state.preference_event(Ok(Some(retry)));
+        assert_eq!(state.text_density(), store::TextDensity::Compact);
+        assert!(
+            !state.preferences_allow_quit(true),
+            "old ack cannot settle latest density"
+        );
+        let store::PreferenceRequest::Save(last) = submit(&mut state) else {
+            panic!("latest density still needs a durable ack");
+        };
+        assert_eq!(last.text_density, store::TextDensity::Compact);
+        assert_eq!(last.provider, first.provider);
+        assert_eq!(last.selections, first.selections);
+        assert_eq!(last.reduced_motion, first.reduced_motion);
+        state.preference_event(Ok(Some(last.clone())));
+        assert!(state.preferences_allow_quit(false));
+        for density in [store::TextDensity::Compact, store::TextDensity::Comfortable] {
+            let mut restarted = State::new();
+            let mut stored = last.clone();
+            stored.text_density = density;
+            restarted.preference_event(Ok(Some(stored.clone())));
+            assert_eq!(restarted.text_density(), density);
+            assert_eq!(restarted.agent, stored.provider);
+            assert_eq!(restarted.selection, selection);
+            assert!(restarted.reduced_motion());
+            let partner = restarted.new_partner(
+                store::Attribution::of(&store::Partner {
+                    id: 2,
+                    ..Default::default()
+                }),
+                7,
+            );
+            assert_eq!(partner.text_density(), density);
+            assert!(partner.reduced_motion());
+            assert!(!partner.preferences_pending());
+        }
     }
 }

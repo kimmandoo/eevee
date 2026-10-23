@@ -1593,6 +1593,15 @@ impl Engine<'_> {
             })
             || result.get("cwd").and_then(Value::as_str) != self.project.to_str()
         {
+            let _ = emit(
+                self.events,
+                Event::ConnectionFailed {
+                    generation: self.run.generation,
+                    task_id: self.run.input.task.id,
+                    agent: self.run.input.agent,
+                    failure: super::diagnostics::Failure::Incompatible,
+                },
+            );
             return Err("Policy qualification refused: provider did not acknowledge exact model/reasoning effort/cwd/read-only/user-approval boundaries".into());
         }
         Ok(())

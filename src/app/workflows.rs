@@ -10,6 +10,8 @@ use crate::workspace::workflows::{
     self, EvidenceRef, EvidenceRelation, EvidenceStatus, EvidenceView, Verdict,
 };
 
+pub mod authoring;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Tab {
     #[default]
@@ -103,6 +105,8 @@ pub struct State {
     pub baseline_error: String,
     #[serde(skip)]
     pub addressed_fingerprint: Option<String>,
+    #[serde(skip)]
+    pub authoring: authoring::State,
 }
 impl State {
     pub fn draft_snapshot(&self) -> Value {
@@ -154,6 +158,9 @@ impl State {
             "Draft retained on Esc. Finish editing, then choose the explicit save action.".into();
     }
     pub fn paste(&mut self, input: &str) -> bool {
+        if self.authoring.active {
+            return self.authoring.paste(input);
+        }
         let Some(field) = self.editor else {
             return false;
         };
@@ -295,6 +302,7 @@ enum Action {
     Verdict(Verdict),
     LoadRecipe,
     PreviewRecipe,
+    AuthorRecipe,
     Refresh,
     DecisionCriteria,
     EditCriteria,
@@ -337,6 +345,7 @@ impl Action {
             Self::Verdict(Verdict::Accept) => "verdict-accept",
             Self::LoadRecipe => "load-recipe",
             Self::PreviewRecipe => "preview-recipe",
+            Self::AuthorRecipe => "recipe-save",
             Self::Refresh => "refresh-evidence",
             Self::Edit(Field::Criteria) => "edit-decision-criteria",
             Self::DecisionCriteria => "decision-criteria",
@@ -413,6 +422,10 @@ fn actions(tab: Tab) -> &'static [(Action, &'static str)] {
             (Refresh, "Refresh evidence status"),
         ],
         Tab::Recipe => &[
+            (
+                AuthorRecipe,
+                "Author / export a workflow from reviewed work",
+            ),
             (Edit(Field::RecipePath), "Edit literal recipe path"),
             (LoadRecipe, "Load recipe read-only"),
             (PreviewRecipe, "Preview complete recipe / apply plan only"),
@@ -584,7 +597,11 @@ impl App {
                 .iter()
                 .any(|(action, _)| action.command() == name)
         };
-        if self.workflow.editor.is_some() || self.workflow.preview || !available {
+        if self.workflow.editor.is_some()
+            || self.workflow.preview
+            || self.workflow.authoring.active
+            || !available
+        {
             return false;
         }
         if self.width < 60 || self.height < 18 {
@@ -639,6 +656,9 @@ impl App {
     pub fn workflow_key(&mut self, mut key: KeyEvent) -> bool {
         if key.kind == KeyEventKind::Release {
             return false;
+        }
+        if self.recipe_authoring_key(key) {
+            return true;
         }
         if self.relay_key(key) {
             return true;
@@ -1048,6 +1068,7 @@ impl App {
         };
         match action {
             Action::Edit(field) => self.workflow.edit(field),
+            Action::AuthorRecipe => self.recipe_save(),
             Action::AddHypothesis => {
                 self.workflows
                     .add_hypothesis(&self.workflow.hypothesis_text)?;
@@ -1934,6 +1955,9 @@ impl App {
                 let command_key = crate::command_help::key(action.command());
                 // Shared commands have distinct effects in each specialist tab.
                 let label_key = match (self.workflow.tab, action) {
+                    (Tab::Recipe, Action::AuthorRecipe) => {
+                        Some(crate::i18n::Message::RecipeAuthoringCommand)
+                    }
                     (Tab::Diagnosis, Action::Diagnostic) => {
                         Some(crate::i18n::Message::DesksWorkflowsDiagnosisDiagnostic)
                     }

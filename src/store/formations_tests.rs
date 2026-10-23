@@ -238,3 +238,196 @@ fn unmapped_roles_remain_empty_and_portable_export_never_overwrites() {
     );
     assert!(!task.partner_drafts.contains_key(&3));
 }
+
+fn workflow_run(store: &mut State, task: &Snapshot) -> crate::workspace::runner::RunRecord {
+    use crate::workspace::runner::*;
+    let now = timestamp().unwrap() as u64;
+    let snapshot = InputSnapshot {
+        fingerprint: Some("prior-reviewed-source".into()),
+        complete: true,
+        stable: true,
+    };
+    let prepared = Prepared {
+        request_id: "request-workflow".into(),
+        run_id: "run-workflow".into(),
+        task_id: task.id,
+        spec: CommandSpec::Direct {
+            program: "cargo".into(),
+            args: vec!["test".into()],
+        },
+        cwd: PathBuf::from(&task.project),
+        cwd_identity: "fixture-cwd".into(),
+        executable: ExecutableIdentity {
+            path: PathBuf::from("/fixture/cargo"),
+            sha256: "0".repeat(64),
+            bytes: 1,
+            modified_ns: 1,
+            file_id: "fixture-executable".into(),
+        },
+        prepared_at_ms: now,
+        expires_at_ms: now + 60_000,
+        approval_arrival: 1,
+        before: snapshot.clone(),
+        partner: Some(Attribution::of(&Partner::default())),
+        rerun_of: None,
+    };
+    store.reserve_run(task.id, prepared.clone(), 1024).unwrap();
+    let mut record = RunRecord::awaiting(&prepared);
+    record.state = RunState::Succeeded;
+    record.started_at_ms = Some(now);
+    record.ended_at_ms = Some(now + 1);
+    record.exit_code = Some(0);
+    record.tree = TreeOutcome::OwnedTreeExited;
+    record.after = snapshot;
+    store.update_run(task.id, record).unwrap()
+}
+fn workflow_export(
+    task: &Snapshot,
+    run: &crate::workspace::runner::RunRecord,
+    path: &str,
+) -> crate::workspace::workflows::authoring::Export {
+    crate::workspace::workflows::authoring::Draft {
+        name: "Reviewed workflow".into(),
+        scope: "missing.rs".into(),
+        criteria: "Inspect actual results".into(),
+        steps: "Flareon: Request a reviewed change".into(),
+        path: path.into(),
+        runs: vec![run.prepared.run_id.clone()],
+    }
+    .preview(
+        9,
+        task.id,
+        task.lead_partner,
+        task.revision,
+        Path::new(&task.project),
+        std::slice::from_ref(run),
+    )
+    .unwrap()
+}
+#[test]
+fn workflow_publication_requires_exact_committed_owner_revision_and_retained_output() {
+    let fixture = Fixture::new();
+    let mut state = fixture.open();
+    let task = setup(&mut state);
+    let run = workflow_run(&mut state, &task);
+    let export = workflow_export(&task, &run, "workflow.toml");
+    let before = load(state.connection.as_ref().unwrap(), &state.project).unwrap();
+    assert!(matches!(
+        state
+            .formation(Request::ExportWorkflow(Box::new(export.clone())))
+            .unwrap(),
+        Response::WorkflowExported { generation: 9 }
+    ));
+    let bytes = fs::read(export.path()).unwrap();
+    assert!(
+        state
+            .formation(Request::ExportWorkflow(Box::new(export)))
+            .is_err()
+    );
+    assert_eq!(fs::read(fixture.0.join("workflow.toml")).unwrap(), bytes);
+    assert_eq!(
+        load(state.connection.as_ref().unwrap(), &state.project).unwrap(),
+        before
+    );
+
+    let stale = workflow_export(&task, &run, "stale.toml");
+    let mut updated = task.clone();
+    updated.revision += 1;
+    let updated = state.save(updated).unwrap();
+    assert!(
+        state
+            .formation(Request::ExportWorkflow(Box::new(stale)))
+            .is_err()
+    );
+    assert!(!fixture.0.join("stale.toml").exists());
+
+    let stale = workflow_export(&updated, &run, "changed-evidence.toml");
+    let mut changed = run.clone();
+    changed.output_unavailable = true;
+    state
+        .connection
+        .as_ref()
+        .unwrap()
+        .execute(
+            "UPDATE executions SET record=?1 WHERE run_id=?2",
+            params![run_json(&changed).unwrap(), run.prepared.run_id],
+        )
+        .unwrap();
+    assert!(
+        state
+            .formation(Request::ExportWorkflow(Box::new(stale)))
+            .is_err()
+    );
+    assert!(!fixture.0.join("changed-evidence.toml").exists());
+    state
+        .connection
+        .as_ref()
+        .unwrap()
+        .execute(
+            "UPDATE executions SET record=?1 WHERE run_id=?2",
+            params![run_json(&run).unwrap(), run.prepared.run_id],
+        )
+        .unwrap();
+
+    let missing_output = workflow_export(&updated, &run, "missing-output.toml");
+    let retained = stored_run(
+        state.connection.as_ref().unwrap(),
+        task.id,
+        &run.prepared.run_id,
+    )
+    .unwrap();
+    state
+        .connection
+        .as_ref()
+        .unwrap()
+        .execute(
+            "UPDATE executions SET output_identity='foreign-output' WHERE run_id=?1",
+            [&run.prepared.run_id],
+        )
+        .unwrap();
+    assert!(
+        state
+            .formation(Request::ExportWorkflow(Box::new(missing_output)))
+            .is_err()
+    );
+    assert!(!fixture.0.join("missing-output.toml").exists());
+    state
+        .connection
+        .as_ref()
+        .unwrap()
+        .execute(
+            "UPDATE executions SET output_identity=?1 WHERE run_id=?2",
+            params![retained.output_identity, run.prepared.run_id],
+        )
+        .unwrap();
+
+    let mut foreign_owner = updated.clone();
+    foreign_owner.lead_partner = 2;
+    let export = workflow_export(&foreign_owner, &run, "foreign-owner.toml");
+    assert!(
+        state
+            .formation(Request::ExportWorkflow(Box::new(export)))
+            .is_err()
+    );
+    assert!(!fixture.0.join("foreign-owner.toml").exists());
+
+    let export = workflow_export(&updated, &run, "busy.toml");
+    let owner = Attribution::of(&partners(state.connection.as_ref().unwrap()).unwrap()[1]);
+    state
+        .work_request(&WorkRequest::Acquire {
+            claim: WorkClaim {
+                task_id: task.id,
+                request_id: "workflow-busy".into(),
+                owner,
+                writing: false,
+            },
+            task: Box::new(updated),
+        })
+        .unwrap();
+    assert!(
+        state
+            .formation(Request::ExportWorkflow(Box::new(export)))
+            .is_err()
+    );
+    assert!(!fixture.0.join("busy.toml").exists());
+}

@@ -76,6 +76,7 @@ pub enum Readiness {
     Configured,
     Setup,
     MissingCli,
+    Blocked,
     SignedIn,
     Session,
     SignedOut,
@@ -130,7 +131,10 @@ pub struct State {
     pub auth_details: bool,
     pub review_choice: usize,
     outcomes: Vec<Option<crate::providers::auth::Outcome>>,
-    pub auth_notice: Option<crate::providers::auth::Outcome>,
+    failures: [Option<crate::providers::diagnostics::Failure>; Agent::ALL.len()],
+    failure_attention: [bool; Agent::ALL.len()],
+    /// Only redacted host-preparation errors; provider/login response output never enters here.
+    preparation_details: [Option<String>; Agent::ALL.len()],
     /// Live website-OAuth credential expiry (unix seconds) for Devin launches;
     /// `u64::MAX` when the token has no JWT expiry, `None` when detached.
     pub session_credential_until: Option<u64>,
@@ -179,7 +183,9 @@ impl State {
             auth_details: false,
             review_choice: 0,
             outcomes: Vec::new(),
-            auth_notice: None,
+            failures: [None; Agent::ALL.len()],
+            failure_attention: [false; Agent::ALL.len()],
+            preparation_details: std::array::from_fn(|_| None),
             session_credential_until: None,
             family_choice: 0,
             login_persist: false,
@@ -364,6 +370,7 @@ impl State {
         self.family_choice =
             usize::from(intent.method == crate::providers::auth::Method::OpenAiDevice);
         if outcome != crate::providers::auth::Outcome::Authenticated {
+            self.auth_returned(plan.profile, outcome);
             self.notice = "Login did not complete. Retry the selected method.".into();
             return;
         }
@@ -375,6 +382,7 @@ impl State {
             Ok(applied) => {
                 if applied.changed {
                     self.connection_changes.push_back(Agent::ChatGPT);
+                    self.connection_succeeded(Agent::ChatGPT);
                 }
                 if let Some(profile) = self.profiles.get_mut(Agent::ChatGPT.index()) {
                     *profile = crate::providers::direct::config::profile(Agent::ChatGPT);
@@ -506,6 +514,20 @@ impl State {
         self.activate(Action::Connect);
     }
 
+    /// Opens a retained blocker without stealing an existing review/editor.
+    pub fn show_failure(&mut self, agent: Agent) -> bool {
+        if self.connection_editing() || self.preview || self.auth_preview.is_some() || self.busy() {
+            return false;
+        }
+        self.selected = agent.index();
+        self.search.clear();
+        self.page = Page::Diagnostics;
+        self.action = 0;
+        self.scroll = 0;
+        self.scroll_max = 0;
+        true
+    }
+
     pub fn connection_editing(&self) -> bool {
         self.connection.is_some() || self.forget_preview.is_some()
     }
@@ -633,8 +655,10 @@ impl State {
             &self.connection.as_ref().expect("private editor").form,
         ) {
             Ok(applied) => {
+                self.failure_attention[agent.index()] = false;
                 if applied.changed {
                     self.connection_changes.push_back(agent);
+                    self.connection_succeeded(agent);
                 }
                 self.connection = None;
                 self.page = Page::Providers;
@@ -721,6 +745,7 @@ impl State {
             Ok(applied) => {
                 if applied.changed {
                     self.connection_changes.push_back(agent);
+                    self.connection_succeeded(agent);
                 }
                 self.connection = None;
                 self.use_for_task = None;
@@ -934,6 +959,11 @@ impl State {
         {
             return Readiness::Checking;
         }
+        if self.failure(index).is_some()
+            && self.failure_attention.get(index).copied().unwrap_or(false)
+        {
+            return Readiness::Blocked;
+        }
         if let Some(agent) = Agent::from_index(index).filter(|agent| agent.is_direct()) {
             return if crate::providers::direct::config::configured(agent) {
                 Readiness::Configured
@@ -958,6 +988,85 @@ impl State {
             Some(crate::providers::auth::Outcome::Authenticated) => Readiness::SignedIn,
             Some(crate::providers::auth::Outcome::NotAuthenticated) => Readiness::SignedOut,
             _ => Readiness::Unknown,
+        }
+    }
+
+    /// Content-free, actual observations only. Parent validates request ownership first.
+    pub fn connection_failed(
+        &mut self,
+        agent: Agent,
+        failure: crate::providers::diagnostics::Failure,
+    ) {
+        self.failures[agent.index()] = Some(failure);
+        self.failure_attention[agent.index()] = true;
+        self.preparation_details[agent.index()] = None;
+        if matches!(
+            failure.kind(),
+            crate::providers::diagnostics::Kind::Authentication
+        ) && let Some(outcome) = self.outcomes.get_mut(agent.index())
+        {
+            *outcome = Some(crate::providers::auth::Outcome::NotAuthenticated);
+        }
+        if self.selected == agent.index() {
+            self.scroll = 0;
+        }
+    }
+
+    /// Only actual successful inference or a changed connection supersedes a failure;
+    /// successful metadata discovery is deliberately not authentication evidence.
+    pub fn connection_succeeded(&mut self, agent: Agent) {
+        self.failures[agent.index()] = None;
+        self.failure_attention[agent.index()] = false;
+        self.preparation_details[agent.index()] = None;
+    }
+
+    pub fn failure(&self, index: usize) -> Option<crate::providers::diagnostics::Failure> {
+        self.failures.get(index).copied().flatten()
+    }
+
+    pub fn preparation_detail(&self, index: usize) -> Option<&str> {
+        self.preparation_details
+            .get(index)
+            .and_then(|detail| detail.as_deref())
+    }
+
+    pub fn auth_outcome(&self, index: usize) -> Option<crate::providers::auth::Outcome> {
+        self.outcomes.get(index).copied().flatten()
+    }
+
+    pub fn missing_executable(&self, index: usize) -> bool {
+        !Agent::from_index(index).is_some_and(Agent::is_direct)
+            && index != Agent::Claude.index()
+            && self
+                .profiles
+                .get(index)
+                .is_some_and(|profile| profile.executable.is_none())
+    }
+
+    /// Opens existing local setup/review only. No resend, retry or grant is created.
+    fn remediate(&mut self) {
+        use crate::providers::diagnostics::{Failure, Kind};
+        // A deliberate next step acknowledges this observation, not authentication.
+        // Keep its content-free details; a later explicit send still requalifies.
+        self.failure_attention[self.selected] = false;
+        if self.missing_executable(self.selected)
+            || self.failure(self.selected).is_some_and(|failure| {
+                matches!(
+                    failure.kind(),
+                    Kind::Incompatible | Kind::VersionCheck | Kind::LoginRefused
+                ) && !Agent::from_index(self.selected).is_some_and(Agent::is_direct)
+            })
+        {
+            self.page = Page::Install;
+            self.scroll = 0;
+        } else if matches!(
+            self.failure(self.selected),
+            Some(Failure::Http(403 | 404 | 405 | 429 | 400 | 422))
+        ) && self.selected == self.active
+        {
+            self.activate(Action::Model);
+        } else {
+            self.activate(Action::Connect);
         }
     }
 
@@ -1096,7 +1205,26 @@ impl State {
     }
 
     pub fn auth_returned(&mut self, profile: usize, outcome: crate::providers::auth::Outcome) {
-        self.auth_notice = Some(outcome);
+        use crate::providers::diagnostics::Failure;
+        let failure = match outcome {
+            crate::providers::auth::Outcome::NotAuthenticated => Some(Failure::SignedOut),
+            crate::providers::auth::Outcome::Cancelled => Some(Failure::LoginCancelled),
+            crate::providers::auth::Outcome::Expired => Some(Failure::LoginExpired),
+            crate::providers::auth::Outcome::Failed => Some(Failure::LoginFailed),
+            crate::providers::auth::Outcome::Refused => Some(Failure::LoginRefused),
+            _ => None,
+        };
+        if let Some(agent) = Agent::from_index(profile) {
+            if let Some(failure) = failure {
+                self.connection_failed(agent, failure);
+            } else if outcome == crate::providers::auth::Outcome::Authenticated {
+                self.connection_succeeded(agent);
+            }
+        }
+        if failure.is_some() && profile == self.selected && profile != Agent::ChatGPT.index() {
+            self.page = Page::Actions;
+            self.action = self.default_action();
+        }
         self.notice = outcome.label().into();
         if let Some(current) = self.outcomes.get_mut(profile) {
             *current = Some(outcome);
@@ -1149,6 +1277,21 @@ impl State {
             } if self.inflight == Some((profile, generation)) => {
                 self.inflight = None;
                 if let Some(current) = self.profiles.get_mut(profile) {
+                    if result.version.starts_with("Probe failed:")
+                        && matches!(
+                            self.failures[profile],
+                            None | Some(crate::providers::diagnostics::Failure::VersionCheck)
+                        )
+                    {
+                        self.failures[profile] =
+                            Some(crate::providers::diagnostics::Failure::VersionCheck);
+                        self.failure_attention[profile] = true;
+                    } else if self.failures[profile]
+                        == Some(crate::providers::diagnostics::Failure::VersionCheck)
+                    {
+                        self.failures[profile] = None;
+                        self.failure_attention[profile] = false;
+                    }
                     *current = *result;
                 }
                 self.notice = "Version checked; authentication remains separate.".into();
@@ -1187,7 +1330,23 @@ impl State {
                         self.auth_details = false;
                         self.review_choice = 0;
                     }
-                    Err(reason) => self.notice = reason,
+                    Err(reason) => {
+                        if let Some(agent) = Agent::from_index(profile) {
+                            self.connection_failed(
+                                agent,
+                                crate::providers::diagnostics::Failure::LoginRefused,
+                            );
+                            let detail: String = crate::workspace::privacy::redact(&reason)
+                                .chars()
+                                .filter(|c| !c.is_control() && !matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
+                                .take(2048)
+                                .collect();
+                            self.preparation_details[profile] = Some(detail);
+                        }
+                        self.notice = crate::workspace::privacy::redact(&reason).into_owned();
+                        self.page = Page::Diagnostics;
+                        self.scroll = 0;
+                    }
                 }
             }
             _ => {}
@@ -1324,9 +1483,6 @@ impl State {
     }
 
     pub fn command(&mut self, name: &str, large_enough: bool) -> bool {
-        if self.auth_notice.take().is_some() {
-            self.notice.clear();
-        }
         if !large_enough {
             self.affirmative = false;
             self.reviewed = false;
@@ -1372,9 +1528,6 @@ impl State {
     }
 
     pub fn key(&mut self, mut key: KeyEvent, large_enough: bool) -> bool {
-        if self.auth_notice.take().is_some() {
-            self.notice.clear();
-        }
         if self.connection_editing() {
             return self.connection_key(key, large_enough);
         }
@@ -1512,6 +1665,19 @@ impl State {
             return false;
         }
         match key.code {
+            KeyCode::Char('d')
+                if matches!(
+                    self.page,
+                    Page::Actions | Page::Install | Page::Account | Page::Methods
+                ) =>
+            {
+                self.activate(Action::Diagnostics);
+            }
+            KeyCode::Char('n')
+                if !self.busy() && matches!(self.page, Page::Actions | Page::Diagnostics) =>
+            {
+                self.remediate();
+            }
             KeyCode::Enter if !self.busy() => match self.page {
                 Page::Providers if !self.provider_indices().any(|index| index == self.selected) => {
                 }
@@ -1538,7 +1704,7 @@ impl State {
                         .get(self.method)
                         .copied(),
                 ),
-                Page::Diagnostics => self.page = Page::Actions,
+                Page::Diagnostics => self.remediate(),
                 Page::OpenAi => self.select_openai_method(),
                 Page::Account => self.select_account_method(),
                 Page::Install => self.activate(Action::Refresh),
@@ -1890,6 +2056,18 @@ mod tests {
         assert!(state.pending.is_none());
         assert!(state.auth_preview.is_none());
         assert_eq!(state.readiness(0), Readiness::MissingCli);
+        assert!(state.missing_executable(0));
+        assert!(state.show_failure(Agent::Codex));
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.page, Page::Install);
+        assert!(state.pending.is_none() && state.pending_auth.is_none());
+        state.discovering = true;
+        state.event(Event::Discovered(vec![profile()]));
+        assert_eq!(state.readiness(0), Readiness::Unknown);
+        assert!(
+            state.pending_auth.is_none(),
+            "install discovery never authenticates or launches login"
+        );
     }
 
     #[test]
@@ -2092,7 +2270,6 @@ mod tests {
         state.auth_returned(0, crate::providers::auth::Outcome::Unknown);
         assert_eq!(state.readiness(0), Readiness::Unknown);
         state.auth_returned(0, crate::providers::auth::Outcome::NotAuthenticated);
-        assert_eq!(state.readiness(0), Readiness::SignedOut);
         press(&mut state, KeyCode::Esc);
         press(&mut state, KeyCode::Esc);
         assert!(state.at_root());
@@ -2684,5 +2861,115 @@ mod tests {
         );
         assert_eq!(api.active, Agent::Codex.index());
         assert!(api.use_for_task.is_none() && api.pending.is_none());
+    }
+
+    #[test]
+    fn diagnostics_remediation_keeps_observation_without_dispatch_or_authentication_claim() {
+        use crate::providers::diagnostics::Failure;
+        let mut state = discovered();
+        state.selected = Agent::OpenCode.index();
+        for failure in [
+            Failure::Http(401),
+            Failure::Http(403),
+            Failure::Transport,
+            Failure::Incompatible,
+            Failure::VersionCheck,
+            Failure::LoginCancelled,
+        ] {
+            state.connection_failed(Agent::OpenCode, failure);
+            assert_eq!(state.readiness(Agent::OpenCode.index()), Readiness::Blocked);
+            assert!(state.show_failure(Agent::OpenCode));
+            assert_eq!(state.page, Page::Diagnostics);
+            press(&mut state, KeyCode::Char('n'));
+            assert_eq!(state.failure(Agent::OpenCode.index()), Some(failure));
+            assert!(!matches!(
+                state.readiness(Agent::OpenCode.index()),
+                Readiness::SignedIn
+            ));
+            assert!(state.pending_auth.is_none() && state.use_for_task.is_none());
+            // Login preparation is only a local review; no launch/grant exists.
+            if let Some(pending) = state.pending.take() {
+                assert!(matches!(pending, Request::PrepareAuth { .. }));
+            }
+            state.cancel_preview();
+            state.selected = Agent::OpenCode.index();
+        }
+    }
+
+    #[test]
+    fn discovery_and_version_success_never_erase_real_auth_refusal() {
+        use crate::providers::diagnostics::Failure;
+        let mut state = discovered();
+        state.connection_failed(Agent::Codex, Failure::Http(401));
+        state.discovering = true;
+        state.event(Event::Discovered(vec![profile(); 5]));
+        assert_eq!(state.failure(0), Some(Failure::Http(401)));
+        assert_ne!(state.readiness(0), Readiness::SignedIn);
+        state.inflight = Some((0, 11));
+        let mut failed_probe = profile();
+        failed_probe.version = "Probe failed: unsupported output withheld".into();
+        state.event(Event::Probed {
+            profile: 0,
+            generation: 11,
+            result: Box::new(failed_probe),
+        });
+        assert_eq!(state.failure(0), Some(Failure::Http(401)));
+        state.inflight = Some((0, 12));
+        state.event(Event::Probed {
+            profile: 0,
+            generation: 12,
+            result: Box::new(profile()),
+        });
+        assert_eq!(state.failure(0), Some(Failure::Http(401)));
+        assert_eq!(state.readiness(0), Readiness::Blocked);
+    }
+
+    #[test]
+    fn cancelled_login_reports_cancel_and_neutral_navigation_never_launches() {
+        use crate::providers::{auth::Outcome, diagnostics::Failure};
+        let mut state = discovered();
+        state.auth_returned(0, Outcome::Cancelled);
+        assert_eq!(state.failure(0), Some(Failure::LoginCancelled));
+        assert_eq!(state.page, Page::Actions);
+        assert!(state.show_failure(Agent::Codex));
+        for key in [
+            KeyCode::Down,
+            KeyCode::PageDown,
+            KeyCode::Home,
+            KeyCode::Tab,
+            KeyCode::Esc,
+        ] {
+            press(&mut state, key);
+            assert!(state.pending.is_none() && state.pending_auth.is_none());
+            assert!(state.use_for_task.is_none() && state.pick.is_none());
+        }
+        state.preview = true;
+        let selected = state.selected;
+        assert!(!state.show_failure(Agent::OpenCode));
+        assert_eq!(state.selected, selected);
+    }
+
+    #[test]
+    fn prerequisite_failure_is_inspectable_redacted_and_never_launches_login() {
+        let mut state = discovered();
+        state.selected = Agent::OpenCode.index();
+        state.auth_preparing = Some((state.selected, 21));
+        state.event(Event::AuthPrepared {
+            profile: state.selected,
+            generation: 21,
+            result: Err(
+                "opencode missing; token=private-preflight-sentinel; refresh PATH\u{001b}[31m"
+                    .into(),
+            ),
+        });
+        assert_eq!(state.page, Page::Diagnostics);
+        assert_eq!(
+            state.failure(state.selected),
+            Some(crate::providers::diagnostics::Failure::LoginRefused)
+        );
+        let detail = state.preparation_detail(state.selected).unwrap();
+        assert!(!detail.contains("private-preflight-sentinel"));
+        assert!(!detail.chars().any(char::is_control));
+        assert!(state.pending.is_none() && state.pending_auth.is_none());
     }
 }

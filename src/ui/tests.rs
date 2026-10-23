@@ -2644,3 +2644,90 @@ fn partner_summary_ribbons_filter_historical_producer_hidden_and_flavor_without_
         }
     }
 }
+
+#[test]
+fn both_densities_keep_storage_error_and_focused_cjk_editor_at_supported_sizes() {
+    use ratatui::{Terminal, backend::TestBackend};
+    for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
+        for (width, height) in [(60, 18), (120, 36)] {
+            let mut config = home_config();
+            config.language = language;
+            let mut app = App::new("/workspace".into(), width, height);
+            app.editing = true;
+            app.editor_field = EditorField::Request;
+            app.input = "界e\u{301} 끝".into();
+            app.cursor = "界e\u{301}".len();
+            app.storage = crate::app::StorageState::Failed("disk full".into());
+            app.notice = "Local write refused".into();
+            let before = (app.input.clone(), app.cursor, app.effective_focus());
+            let mut artwork = Artwork::load(&config);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            for density in [store::TextDensity::Compact, store::TextDensity::Comfortable] {
+                app.planning.set_text_density(density);
+                terminal
+                    .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                    .unwrap();
+                let cursor = terminal.get_cursor_position().unwrap();
+                let rendered = screen_text(&terminal);
+                assert!(rendered.contains("界e\u{301} 끝"), "{rendered}");
+                assert!(rendered.contains(app.storage_label()), "{rendered}");
+                assert!(rendered.contains("Local write refused"), "{rendered}");
+                let composer = shell(
+                    Rect::new(0, 0, width, height),
+                    app.linear,
+                    app.effective_focus(),
+                )
+                .composer;
+                assert!(cursor.x >= composer.x && cursor.x < composer.right());
+                assert!(cursor.y > composer.y && cursor.y < composer.bottom());
+                assert_eq!(
+                    (app.input.clone(), app.cursor, app.effective_focus()),
+                    before
+                );
+                assert!(app.editing);
+                assert!(app.planning.pending.is_none());
+            }
+        }
+    }
+}
+
+#[test]
+fn comfortable_task_rows_add_space_without_hiding_the_keyboard_selection() {
+    use ratatui::{Terminal, backend::TestBackend};
+    for (width, height) in [(60, 18), (120, 36)] {
+        let config = home_config();
+        let paint = Paint::new(&config, &FORMS[0], 0);
+        let mut app = App::new("/workspace".into(), width, height);
+        app.tasks = (1..=6)
+            .map(|id| {
+                let mut task = store::Snapshot::empty("/workspace".into());
+                task.id = id;
+                task.goal = format!("Task {id} 界");
+                task
+            })
+            .collect();
+        app.task_selection = 5;
+        for density in [store::TextDensity::Compact, store::TextDensity::Comfortable] {
+            app.planning.set_text_density(density);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| tasks(frame, frame.area(), &mut app, &config, &paint))
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let row_of = |needle: &str| {
+                (0..height)
+                    .find(|y| {
+                        let line: String = (0..width).map(|x| buffer[(x, *y)].symbol()).collect();
+                        line.contains(needle)
+                    })
+                    .expect("selected and preceding card remain visible")
+            };
+            assert_eq!(
+                row_of(">  #6 ") - row_of("  #5 "),
+                if density.is_compact() { 1 } else { 2 },
+            );
+            assert_eq!(app.task_selection, 5);
+            assert!(app.planning.pending.is_none());
+        }
+    }
+}
