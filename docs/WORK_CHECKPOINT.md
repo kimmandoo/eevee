@@ -1,5 +1,15 @@
 # Work Checkpoint
 
+## 2026-10-23 — Shallow everyday navigation (active)
+
+- **Baseline / scope:** Started main/origin `958b3b6822e3eb17de50fb192ca60be0ca6189e0`; only the user's `.DS_Store` was untracked. User requested removing needless depth and unintuitive UX, then release.
+- **Active plan:** `docs/IMPLEMENTATION_PLAN.md` → “Active request — shallow everyday navigation, then release”.
+- **Observed baseline:** Actual public v0.1.20 at 60×18 Korean showed duplicate provider/connect rows and advanced session actions ahead of basic file/model/task actions (`target/ux-depth-before`). Both-size actual predecessor journeys reproduced all four detours, including the starred active task (`target/navigation-before-en-f`).
+- **Implemented / static verification:** Everyday registry ordering and locale-owned search aliases, direct source Preview/Payload→Files, same-task return, unchanged-model acceptance and neutral underlying reviews. Pinned Rust 1.90.0 passed 1,294 tests/two ignored, formatting, strict all-target/all-feature Clippy and release build. Frozen candidate `target/ux-0121-candidate/ev` returned `ev 0.1.21`, SHA256 `088b36e1fba437d6819d020ecf225ba6e59ad92c2ab533bb6d7747daeb5b8e49`.
+- **Runtime proof:** Candidate passed all four English/Korean compact/wide navigation journeys (`target/ux-0121-navigation-{en,ko}-c`), ten source-context cases, bilingual tooltips (30 observations per size/language), Korean live-file progress and continuous scrolling. Inspected actual compact Korean frames for common actions, one-Tab source return, unchanged-model return and current-task return with the response still streaming. Native connections passed ten variants/176 groups with zero failures (`target/ux-0121-native`); Python release checks passed fourteen tests/three platform skips.
+- **Next action:** Commit and qualify the exact source/all five native packages, publish immutable v0.1.21, then verify public downloads and installation. After release, finish the added task audit/reorganization: Pokémon features first, stale requirements corrected, completed work separated. No authenticated model calls or original user-state changes. Removed the completed throwaway baseline observer; retained diagnostic captures under ignored `target/`.
+- **Tool limit:** Rust references lookup exited code0 without results; reported, using scoped lookup/compiler/runtime evidence without inferred references.
+
 ## 2026-10-23 — Current-folder coding, provider parity and live-code UX (completed; v0.1.20 released)
 
 - **Scope / baseline:** Next single ready task PK06 after completed PK04, starting `3efc1a5` on main (one ahead of origin); only user's `.DS_Store` was untracked. PK03 still needs UX04B. Preserve original installation/auth/private data and public v0.1.19.

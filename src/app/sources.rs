@@ -439,11 +439,7 @@ impl State {
                 self.files = files;
                 self.rebuild_rankings();
                 self.file_selection = self.file_selection.min(self.files.len().saturating_sub(1));
-                self.status = format!(
-                    "{} eligible files / ignored, excluded, binary and linked paths omitted",
-                    self.files.len()
-                );
-                self.file_detail();
+                self.show_files();
             }
             Ok(context::Response::Inspected(mut excerpt)) => {
                 excerpt.origin_run = self.pending_origin_run.take();
@@ -872,14 +868,11 @@ impl State {
                 return Action::RefreshRepository;
             }
             "basket" => {
-                self.mode = if self.mode == Mode::Basket {
-                    Mode::Files
+                if self.mode == Mode::Basket {
+                    self.show_files();
                 } else {
-                    Mode::Basket
-                };
-                if self.mode == Mode::Files {
-                    self.file_detail();
-                } else {
+                    self.mode = Mode::Basket;
+                    self.status = format!("{} saved attachments / nothing sent", self.basket.len());
                     self.basket_detail();
                 }
             }
@@ -1037,6 +1030,11 @@ impl State {
             KeyCode::Enter if self.mode == Mode::Preview => {
                 return self.command("attach", task_id, report);
             }
+            KeyCode::Tab | KeyCode::BackTab
+                if matches!(self.mode, Mode::Preview | Mode::Payload) =>
+            {
+                self.show_files();
+            }
             KeyCode::Tab | KeyCode::BackTab => return self.command("basket", task_id, report),
             KeyCode::Char('s') => return self.command("search", task_id, report),
             KeyCode::Char('r') if self.mode != Mode::Basket => {
@@ -1166,6 +1164,14 @@ impl State {
                 .unwrap_or(0);
         }
         Action::Changed
+    }
+    fn show_files(&mut self) {
+        self.mode = Mode::Files;
+        self.status = format!(
+            "{} eligible files / ignored, excluded, binary and linked paths omitted",
+            self.files.len()
+        );
+        self.file_detail();
     }
     fn file_detail(&mut self) {
         self.detail = self.files.get(self.file_selection).map(|source|
@@ -1377,6 +1383,42 @@ mod tests {
         state.stored(7, 7, Ok(vec![capture()]));
         assert_eq!(state.basket.len(), 1);
         assert!(!state.take_return_to_composer());
+    }
+
+    #[test]
+    fn preview_and_payload_return_to_the_selected_file_without_attachment_effects() {
+        for mode in [Mode::Preview, Mode::Payload] {
+            let mut state = State {
+                mode,
+                files: ["first.rs", "sample.rs"]
+                    .into_iter()
+                    .map(|path| context::Source {
+                        path: path.into(),
+                        bytes: 20,
+                        sha256: [7; 32],
+                    })
+                    .collect(),
+                file_selection: 1,
+                query: ".rs".into(),
+                preview: Some(capture()),
+                preview_reviewed: true,
+                ..State::default()
+            };
+            state.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), 7, None);
+            assert!(state.mode == Mode::Files);
+            assert_eq!(
+                state.files[state.file_selection].path,
+                std::path::PathBuf::from("sample.rs")
+            );
+            assert_eq!(state.query, ".rs");
+            assert!(state.pending.is_none() && state.pending_store.is_none());
+            assert!(state.basket.is_empty() && !state.take_return_to_composer());
+            state.command("basket", 7, None);
+            assert!(state.mode == Mode::Basket);
+            state.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), 7, None);
+            assert!(state.mode == Mode::Files);
+            assert_eq!(state.file_selection, 1);
+        }
     }
 
     #[test]

@@ -278,7 +278,11 @@ impl App {
             .nth(self.task_selection)
             .map(|task| task.id);
         if let Some(id) = selected {
-            self.request_navigation(execution::Action::SwitchTask(id));
+            if id == self.task_id {
+                self.close_overlay();
+            } else {
+                self.request_navigation(execution::Action::SwitchTask(id));
+            }
         }
     }
 

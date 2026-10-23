@@ -2,6 +2,11 @@
 
 ## 2026-10-23
 
+- fix(ux): prioritized everyday searchable actions, collapsed duplicate alias rows and added locale-owned attachment, connection, cancellation and evidence keywords without a second dispatcher.
+- fix(navigation): returned source previews and payloads directly to Files, corrected their status/hints and removed redundant command-reinvocation guidance.
+- fix(tasks): returned to the already-active task without reloading or applying cross-task work guards, while preserving guards for another task.
+- fix(models): skipped reasoning for unchanged model/effort selections, focused missing retained IDs on Custom and cleared armed review state when opening a picker.
+
 - docs(release): published v0.1.20 from source `7e7259c` after complete exact-source Check/all-five-native qualification and immutable artifact promotion; verified all eight public assets, seven checksums and five native package identities with Schema 18/full-backup and complete SDK bridge 9 guidance.
 - test(release): verified downloaded v0.1.20 project roots, bilingual generated-code/file approval/scroll/ACP/record/evolution journeys, ten native protocol variants, genuine Schema16/17 upgrades and 23 installation groups including 34 installed-native scenarios; confirmed the reinstalled binary matched the public package.
 - fix(project): kept source inventory, exclusions, initialization and file operations inside the canonical launch folder instead of widening nested projects to Git toplevel.
@@ -15,6 +20,14 @@
 - docs(release): published v0.1.19 from source `63f1007` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.21
+
+- fix(ux): put everyday actions first and removed duplicate alias rows while retaining exact commands and localized semantic search.
+- fix(context): made Tab return directly from source preview/payload to Files without an Attachments detour; retained capture review, explicit attachment inspection and draft ownership.
+- fix(tasks): resumed the current task without reloading its live response or unsent draft; kept full safety guards for switching to another task.
+- fix(models): returned directly after accepting unchanged model/effort settings and kept changed-model reasoning/session reviews atomic; prevented reuse of an armed underlying review.
+- docs(compatibility): retained Schema 18 and complete SDK bridge 9 without a data migration or provider-policy expansion. Upgrades from older schemas still required a complete data-directory backup.
 
 ## 0.1.20
 

@@ -400,15 +400,11 @@ fn reasoning_back_keeps_exact_candidate_identity_after_catalogue_reordering() {
 }
 
 #[test]
-fn reasoning_back_restores_default_and_custom_actions_without_committing() {
+fn reasoning_back_restores_custom_action_without_committing() {
     let mut state = State::new();
     state.reset(7);
     state.catalogues.insert(Agent::Codex, catalogue());
     command(&mut state, "model", true);
-    press(&mut state, KeyCode::Enter, true);
-    press(&mut state, KeyCode::Left, true);
-    assert!(state.picker == Some(Picker::Model));
-    assert_eq!(state.picker_selected, 0);
     state.paste("advertised");
     custom_entry(&mut state);
     state.paste("advertised-model");
@@ -616,6 +612,63 @@ fn model_reasoning_flow_is_atomic_and_default_enter_accepts() {
     press(&mut state, KeyCode::Enter, true);
     assert_eq!(state.selection, ModelSelection::default());
     assert!(state.picker.is_none() && state.pending.is_none());
+}
+
+#[test]
+fn accepting_current_model_retains_effort_and_session_without_another_picker() {
+    for model in [None, Some("advertised-model")] {
+        for effort in [None, Some("high")] {
+            let mut state = State::new();
+            state.reset(7);
+            state.catalogues.insert(Agent::Codex, catalogue());
+            state.selection = ModelSelection {
+                model: model.map(str::to_owned),
+                effort: effort.map(str::to_owned),
+            };
+            state.thread_id = Some("owned-session".into());
+            let retained = state.selection.clone();
+            command(&mut state, "model", true);
+            press(&mut state, KeyCode::Enter, true);
+            assert!(state.picker.is_none() && state.pending_model.is_none());
+            assert!(state.selection_change.is_none() && state.pending.is_none());
+            assert!(state.pending_journal.is_empty());
+            assert_eq!(state.selection, retained);
+            assert_eq!(state.thread_id.as_deref(), Some("owned-session"));
+            command(&mut state, "effort", true);
+            assert!(state.picker == Some(Picker::Effort));
+            press(&mut state, KeyCode::Esc, true);
+            assert_eq!(state.selection, retained);
+        }
+    }
+}
+
+#[test]
+fn accepting_unchanged_model_cannot_reuse_an_armed_request_review() {
+    let mut state = State::new();
+    state.reset(7);
+    state.catalogues.insert(Agent::Codex, catalogue());
+    command(&mut state, "new", true);
+    assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
+    state.event(Event::Preview(Preview {
+        arrival: crate::providers::approval_arrival(),
+        destination: None,
+        requires_connection_review: true,
+        generation: 11,
+        task_id: 7,
+        thread_id: None,
+        trust: Vec::new(),
+        payload: "{}".into(),
+        blockers: Vec::new(),
+    }));
+    state.reviewed = true;
+    state.affirmative = true;
+    command(&mut state, "model", true);
+    press(&mut state, KeyCode::Enter, true);
+    assert!(state.picker.is_none() && state.preview.is_some());
+    assert!(!state.affirmative && state.pending.is_none());
+    state.reviewed = true;
+    press(&mut state, KeyCode::Enter, true);
+    assert!(!matches!(state.pending, Some(Request::Run { .. })));
 }
 
 #[test]
@@ -1723,9 +1776,13 @@ fn missing_retained_selection_is_never_marked_as_default_or_changed_on_open() {
     let selected = state.selection.clone();
     command(&mut state, "model", true);
     assert_eq!(state.picker_current(), None);
-    assert_eq!(state.picker_selected, state.picker_len() - 1);
     assert_eq!(state.selection, selected);
     assert!(state.pending.is_none());
+    press(&mut state, KeyCode::Enter, true);
+    assert!(state.custom_model.is_some());
+    assert!(state.pending.is_none());
+    assert_eq!(state.selection, selected);
+    press(&mut state, KeyCode::Esc, true);
     press(&mut state, KeyCode::Esc, true);
     command(&mut state, "effort", true);
     assert_eq!(state.picker_current(), None);

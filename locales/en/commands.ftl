@@ -10,7 +10,7 @@ cmd-session-resume = { "Advanced: review exact owned-session payload" }
 
 cmd-chat-new = { "Reset local native conversation; keep draft and journal" }
 
-cmd-response = { "Inspect current provider request / response drawer" }
+cmd-response = { "Return to the continuous response / inspect pending request" }
 
 cmd-task-new = { "Create local task" }
 
@@ -387,3 +387,8 @@ cmd-connection-method = { "Choose Codex native responses or CLI agent method" }
 cmd-provider-use = { "Use selected provider for task" }
 
 cmd-details = { "Toggle full connection review details" }
+
+cmd-search-provider = connect connection setup
+cmd-search-files = attachment files context
+cmd-search-cancellation = stop cancel
+cmd-search-evidence = evidence journal history
