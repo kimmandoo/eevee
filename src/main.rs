@@ -35,7 +35,10 @@ fn main() -> ExitCode {
             println!("ev {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
-        Ok(Command::Update { check_only }) => match distribution::update(check_only) {
+        Ok(Command::Update {
+            check_only,
+            no_animation,
+        }) => match distribution::update(check_only, no_animation) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("ev: {error}");
@@ -106,6 +109,7 @@ fn run(config: Config) -> io::Result<()> {
         let mut planning = std::collections::BTreeMap::new();
         let size = terminal.size()?;
         let mut app = App::new(cwd.clone(), size.width, size.height);
+        app.motion_override = config.animation_override;
         app.planning.set_startup_provider(
             providers::direct::config::preferred_agent(),
             std::env::var_os("EV_PROVIDER").is_some(),
@@ -116,6 +120,7 @@ fn run(config: Config) -> io::Result<()> {
         app.policy = config.storage_policy;
         app.held.exclusions.clone_from(&config.context_exclusions);
         app.images_enabled = config.images != config::ImageMode::Off;
+        app.motion_visuals = !config.ascii && config.images != config::ImageMode::Off;
         app.execution.set_capture_capacity(config.capture_capacity);
         let mut graphics = native::NativeGraphics::new(&config);
         // Auto mode falls back to cell art once detection settles without native support;
@@ -233,6 +238,7 @@ fn run(config: Config) -> io::Result<()> {
             dirty |= app.drive_records();
             // Restoration reports readiness, not a changed frame.
             app.records_restore_pairing();
+            animation_dirty |= app.tick_evolution(std::time::Instant::now());
             if dirty || animation_dirty {
                 ui::portrait_targets(
                     &app,
@@ -393,6 +399,10 @@ fn run(config: Config) -> io::Result<()> {
             } else {
                 save_wait
             };
+            let wait = match (wait, app.evolution_wait(std::time::Instant::now())) {
+                (Some(ordinary), Some(motion)) => Some(ordinary.min(motion)),
+                (ordinary, motion) => ordinary.or(motion),
+            };
             let event = if let Some(wait) = wait {
                 input.read_timeout(wait)?
             } else {
@@ -513,11 +523,12 @@ fn run(config: Config) -> io::Result<()> {
             dirty |= execution_changed;
             mailbox_pending |= execution_more;
             dirty |= app.settle_planning();
+            dirty |= app.settle_formations();
             app.settle_exit();
             // Only genuine, visible provider work animates. Local reviews,
             // permission prompts and idle screens keep their blocking/no-redraw
             // behavior; frame changes never mutate persisted task state.
-            let animate = !config.no_animation
+            let animate = app.motion_enabled()
                 && app.width >= 60
                 && app.height >= 18
                 && matches!(app.overlay, None | Some(app::Overlay::Planning))

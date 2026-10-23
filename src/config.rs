@@ -35,6 +35,7 @@ pub enum LayoutMode {
 pub struct Config {
     pub ascii: bool,
     pub no_animation: bool,
+    pub animation_override: Option<bool>,
     pub language: Language,
     pub theme: Theme,
     pub color: ColorMode,
@@ -52,8 +53,14 @@ pub struct Config {
 pub enum Command {
     Run(Config),
     Download(Config),
-    Export { data_dir: PathBuf, output: PathBuf },
-    Update { check_only: bool },
+    Export {
+        data_dir: PathBuf,
+        output: PathBuf,
+    },
+    Update {
+        check_only: bool,
+        no_animation: bool,
+    },
     Uninstall,
     Help,
     Version,
@@ -62,7 +69,7 @@ pub enum Command {
 pub const HELP: &str = "Eevee — local-first evolution workbench
 
 Usage: ev [OPTIONS]
-       ev update [--check]
+       ev update [--check] [--no-animation]
        ev uninstall
 
 Binary lifecycle:
@@ -74,7 +81,8 @@ Options:
   --theme dark|light    Terminal theme (default: dark)
   --color auto|256|mono Color mode (default: auto)
   --ascii              Use ASCII borders (cell previews use luminance)
-  --no-animation       Keep activity indicators static (reduced motion)
+  --no-animation       Force static activity and transitions for this launch
+  --animation          Allow motion for this launch, overriding saved preference
   --language auto|TAG   UI language (default: auto; EV_LANGUAGE overrides locale)
   --images auto|cells|off Native pixels, low-res cell preview, or no image (default: auto)
   --assets-dir PATH    Local PNG directory (default: platform cache/eevee/sprites)
@@ -148,17 +156,27 @@ fn parse_with(
         {
             return Ok(Command::Help);
         }
-        let check_only = update && option.as_ref().is_some_and(|value| value == "--check");
-        if (option.is_some() && !check_only) || args.next().is_some() {
-            return Err(if update {
-                "usage: ev update [--check]"
+        let mut check_only = false;
+        let mut no_animation = false;
+        for option in option.into_iter().chain(args) {
+            if update && option == "--check" && !check_only {
+                check_only = true;
+            } else if update && option == "--no-animation" && !no_animation {
+                no_animation = true;
             } else {
-                "usage: ev uninstall"
+                return Err(if update {
+                    "usage: ev update [--check] [--no-animation]"
+                } else {
+                    "usage: ev uninstall"
+                }
+                .into());
             }
-            .into());
         }
         return Ok(if update {
-            Command::Update { check_only }
+            Command::Update {
+                check_only,
+                no_animation,
+            }
         } else {
             Command::Uninstall
         });
@@ -167,6 +185,7 @@ fn parse_with(
     let mut color = None;
     let mut ascii = false;
     let mut no_animation = false;
+    let mut animation_override = None;
     let mut language = None;
     let mut images = ImageMode::Auto;
     let mut assets_dir = default_assets_dir(&environment);
@@ -314,7 +333,14 @@ fn parse_with(
             }
             "--download-artwork" if attached.is_none() => download = true,
             "--ascii" if attached.is_none() => ascii = true,
-            "--no-animation" if attached.is_none() => no_animation = true,
+            "--no-animation" if attached.is_none() => {
+                no_animation = true;
+                animation_override = Some(false);
+            }
+            "--animation" if attached.is_none() => {
+                no_animation = false;
+                animation_override = Some(true);
+            }
             "--help" | "-h" if attached.is_none() => action = Some(Command::Help),
             "--version" | "-V" if attached.is_none() => action = Some(Command::Version),
             _ => return Err(format!("unrecognized argument {text:?}; see --help")),
@@ -393,6 +419,11 @@ fn parse_with(
     let config = Config {
         ascii: ascii || dumb || !utf8,
         no_animation: no_animation || dumb,
+        animation_override: if dumb || !utf8 {
+            Some(false)
+        } else {
+            animation_override
+        },
         language,
         theme,
         color,
@@ -684,11 +715,17 @@ mod tests {
         let lifecycle = |args: &[&str]| parse_with(args.iter().map(OsString::from), |_| None);
         assert!(matches!(
             lifecycle(&["update", "--check"]),
-            Ok(Command::Update { check_only: true })
+            Ok(Command::Update {
+                check_only: true,
+                no_animation: false
+            })
         ));
         assert!(matches!(
             lifecycle(&["update"]),
-            Ok(Command::Update { check_only: false })
+            Ok(Command::Update {
+                check_only: false,
+                no_animation: false
+            })
         ));
         assert!(matches!(lifecycle(&["uninstall"]), Ok(Command::Uninstall)));
         let invalid: &[&[&str]] = &[
@@ -807,5 +844,39 @@ mod tests {
         let invalid = OsString::from_vec(vec![0xff]);
         assert!(parse_with([invalid.clone()], |_| None).is_err());
         assert!(parse_with([OsString::from("--theme"), invalid], |_| None).is_err());
+    }
+    #[test]
+    fn motion_cli_is_last_wins_and_independent_of_color() {
+        let utf8 = &[("LANG", "en_US.UTF-8")];
+        assert_eq!(
+            config(
+                &["--animation"],
+                &[("LANG", "en_US.UTF-8"), ("NO_COLOR", "1")]
+            )
+            .animation_override,
+            Some(true)
+        );
+        assert_eq!(
+            config(&["--no-animation", "--animation"], utf8).animation_override,
+            Some(true)
+        );
+        assert_eq!(
+            config(&["--animation", "--no-animation"], utf8).animation_override,
+            Some(false)
+        );
+        assert_eq!(
+            config(&["--animation"], &[("TERM", "dumb")]).animation_override,
+            Some(false)
+        );
+        assert!(matches!(
+            parse_with(
+                ["update", "--no-animation", "--check"].map(OsString::from),
+                |_| None
+            ),
+            Ok(Command::Update {
+                check_only: true,
+                no_animation: true
+            })
+        ));
     }
 }

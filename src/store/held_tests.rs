@@ -693,6 +693,7 @@ fn schema16_upgrade_is_atomic_preserves_every_old_table_and_modes() {
         .preference_request(PreferenceRequest::Save(ProviderPreferences {
             provider: crate::providers::Agent::Codex,
             selections: std::collections::HashMap::new(),
+            reduced_motion: false,
         }))
         .unwrap();
     let mut connection = state.connection.take().unwrap();

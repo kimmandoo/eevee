@@ -159,6 +159,7 @@ mod tests {
         state.merge_preferences(&crate::store::ProviderPreferences {
             provider: Agent::Compatible,
             selections: [(Agent::Compatible, latest.clone())].into_iter().collect(),
+            reduced_motion: false,
         });
         assert_eq!(state.agent, passive_agent);
         assert_eq!(state.selection, passive_selection);
@@ -186,6 +187,7 @@ mod tests {
         let provider = Agent::Compatible;
         state.preference_event(Ok(Some(crate::store::ProviderPreferences {
             provider,
+            reduced_motion: false,
             selections: [(
                 provider,
                 ModelSelection {
@@ -202,6 +204,7 @@ mod tests {
         };
         state.merge_preferences(&crate::store::ProviderPreferences {
             provider,
+            reduced_motion: false,
             selections: [(provider, latest.clone())].into_iter().collect(),
         });
         assert_eq!(
@@ -237,6 +240,7 @@ mod tests {
             )]
             .into_iter()
             .collect(),
+            reduced_motion: false,
         };
         let mut state = State::new();
         state.preference_event(Ok(Some(global.clone())));
@@ -254,6 +258,7 @@ mod tests {
             )]
             .into_iter()
             .collect(),
+            reduced_motion: false,
         };
         state.merge_preferences(&newer);
         assert_eq!(state.selection.model.as_deref(), Some("exact/Mizu"));

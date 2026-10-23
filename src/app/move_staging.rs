@@ -179,6 +179,11 @@ impl App {
             return Err("Wait for the pending move validation or local save.".into());
         }
         moves::validate_proposal(&record.proposal)?;
+        // Opening the menu may have just retained its invoking draft/caret.
+        // Commit that exact revision before the queued validation callback.
+        if self.revision != self.saved_revision {
+            self.flush_save();
+        }
         self.move_runtime.validation =
             Some((self.task_id, self.revision, record.clone(), self.moves.mode));
         self.queue_move_operation(

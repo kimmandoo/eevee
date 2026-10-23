@@ -1148,6 +1148,8 @@ pub struct Recipe {
     pub steps: Vec<RecipeStep>,
     pub validation_commands: Vec<Vec<String>>,
     pub completion_criteria: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles: Vec<FormationSlot>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1155,6 +1157,15 @@ pub struct Recipe {
 pub struct RecipeStep {
     pub form: String,
     pub action: String,
+}
+
+/// Portable, local-only formation intent; partner IDs and authority are never serialized.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FormationSlot {
+    pub role: String,
+    pub form: String,
+    pub request: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1232,8 +1243,26 @@ impl Recipe {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema_version != 1 {
-            return Err("Unsupported recipe schema; supported version is 1".into());
+        if !matches!(self.schema_version, 1 | 2)
+            || self.schema_version == 1 && !self.roles.is_empty()
+            || self.schema_version == 2 && self.roles.is_empty()
+        {
+            return Err("Unsupported recipe schema or formation fields".into());
+        }
+        if self.roles.len() > 6 {
+            return Err("A formation has at most six role slots".into());
+        }
+        let mut names = std::collections::HashSet::new();
+        for slot in &self.roles {
+            text(&slot.role, 64)?;
+            if !names.insert(slot.role.to_lowercase())
+                || !crate::domain::FORMS
+                    .iter()
+                    .any(|form| form.name == slot.form)
+            {
+                return Err("Formation roles must be unique and name an existing form".into());
+            }
+            safe_text(&slot.request, MAX_TEXT_BYTES)?;
         }
         text(&self.name, 256)?;
         if self.scope.len() > MAX_ENTRIES

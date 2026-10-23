@@ -199,6 +199,7 @@ impl App {
 
     pub fn store_event(&mut self, event: store::Event) {
         match event {
+            store::Event::Formation(result) => self.formation_event(result),
             store::Event::Records { request, result } => {
                 if matches!(&request.operation, store::records::Operation::Usage { .. }) {
                     self.cooperation_usage_event(*request, result);

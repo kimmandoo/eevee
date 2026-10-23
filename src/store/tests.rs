@@ -4002,6 +4002,7 @@ fn provider_preferences_survive_restart_and_preserve_exact_route_ids_and_task_da
         ]
         .into_iter()
         .collect(),
+        reduced_motion: true,
     };
     let mut pending = Some(PreferenceRequest::Save(preferences.clone()));
     assert!(worker.try_preferences(&mut pending));
@@ -4022,7 +4023,8 @@ fn provider_preferences_survive_restart_and_preserve_exact_route_ids_and_task_da
         })
         .unwrap();
     let json: serde_json::Value = serde_json::from_str(&record).unwrap();
-    assert_eq!(json.as_object().unwrap().len(), 2);
+    assert_eq!(json.as_object().unwrap().len(), 3);
+    assert_eq!(json["reduced_motion"], true);
     for selection in json["selections"].as_object().unwrap().values() {
         assert_eq!(selection.as_object().unwrap().len(), 2);
         assert!(selection.get("model").is_some() && selection.get("effort").is_some());
@@ -4046,6 +4048,7 @@ fn failed_preference_save_preserves_committed_preference_and_task_draft() {
         )]
         .into_iter()
         .collect(),
+        reduced_motion: false,
     };
     store
         .preference_request(PreferenceRequest::Save(preferences.clone()))
@@ -4188,6 +4191,7 @@ fn schema_ten_dismissal_migration_preserves_rows_and_rolls_back_atomically() {
         )]
         .into_iter()
         .collect(),
+        reduced_motion: false,
     };
     store
         .preference_request(PreferenceRequest::Save(preferences.clone()))

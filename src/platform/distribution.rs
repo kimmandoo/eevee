@@ -435,9 +435,12 @@ fn animated_release_tag() -> Result<String, String> {
 }
 
 /// Check or explicitly update the original native installation, never task data.
-pub fn update(check_only: bool) -> Result<(), String> {
+pub fn update(check_only: bool, no_animation: bool) -> Result<(), String> {
     let installation = current_installation()?;
-    let (tag, explicit) = release_tag(!check_only)?;
+    if no_animation {
+        eprintln!("ev updater: Checking release");
+    }
+    let (tag, explicit) = release_tag(!check_only && !no_animation)?;
     let target = Version::tag(&tag)?;
     if target == installation.version {
         println!(
@@ -465,13 +468,13 @@ pub fn update(check_only: bool) -> Result<(), String> {
     if check_only {
         return Ok(());
     }
-    run_installer(&installation.directory, Some(&tag))
+    run_installer(&installation.directory, Some(&tag), no_animation)
 }
 
 /// Remove only the verified owned executable and its exact license metadata.
 pub fn uninstall() -> Result<(), String> {
     let installation = current_installation()?;
-    run_installer(&installation.directory, None)
+    run_installer(&installation.directory, None, false)
 }
 
 fn installer_environment(command: &mut Command) {
@@ -514,7 +517,7 @@ fn installer_environment(command: &mut Command) {
 }
 
 #[cfg(unix)]
-fn run_installer(directory: &Path, tag: Option<&str>) -> Result<(), String> {
+fn run_installer(directory: &Path, tag: Option<&str>, no_animation: bool) -> Result<(), String> {
     use std::os::unix::process::CommandExt;
     // No on-disk script or remote code: exec preserves terminal, signals and the
     // installer's actual exit status, including cleanup on interruption.
@@ -523,6 +526,9 @@ fn run_installer(directory: &Path, tag: Option<&str>) -> Result<(), String> {
         .arg("-c")
         .arg(include_str!("../../install.sh"))
         .arg("ev-installer");
+    if no_animation {
+        command.arg("--no-animation");
+    }
     if let Some(tag) = tag {
         command.arg("--version").arg(tag);
     } else {
@@ -537,7 +543,7 @@ fn run_installer(directory: &Path, tag: Option<&str>) -> Result<(), String> {
 }
 
 #[cfg(windows)]
-fn run_installer(directory: &Path, tag: Option<&str>) -> Result<(), String> {
+fn run_installer(directory: &Path, tag: Option<&str>, no_animation: bool) -> Result<(), String> {
     use std::io::Write;
     use std::process::Stdio;
     let directory = directory
@@ -550,10 +556,13 @@ fn run_installer(directory: &Path, tag: Option<&str>) -> Result<(), String> {
     let powershell =
         PathBuf::from(system_root).join("System32/WindowsPowerShell/v1.0/powershell.exe");
     inspect(&powershell, false)?;
-    let operation = tag.map_or_else(
+    let mut operation = tag.map_or_else(
         || "-Uninstall".to_owned(),
         |tag| format!("-Version '{tag}'"),
     );
+    if no_animation {
+        operation.push_str(" -NoAnimation");
+    }
     let expression = format!(
         "$ErrorActionPreference='Stop'; try {{ [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); $s=[Console]::In.ReadToEnd(); & ([scriptblock]::Create($s)) {operation} -InstallDir '{}' -OwnerProcessId {} }} catch {{ [Console]::Error.WriteLine($_.Exception.Message); exit 1 }}",
         directory.replace('\'', "''"),
@@ -596,7 +605,7 @@ fn run_installer(directory: &Path, tag: Option<&str>) -> Result<(), String> {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn run_installer(_directory: &Path, _tag: Option<&str>) -> Result<(), String> {
+fn run_installer(_directory: &Path, _tag: Option<&str>, _no_animation: bool) -> Result<(), String> {
     Err("Native installation lifecycle is unsupported on this platform".into())
 }
 

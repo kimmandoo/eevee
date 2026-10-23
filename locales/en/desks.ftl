@@ -27,9 +27,6 @@ desks-moves-no-moves-in-this-form-yet-teach = No moves in this form yet.
     /teach-move: teach from approved local work, selected pins, a sent user-authored request, or the task card.
     Move Reminder keeps forgotten and postponed moves.
 
-desks-moves-arrows-choose-enter-review-use-d-details = Arrows Choose / Enter Review/use / d Details
-    { " " }t Teach / r Reminder / Esc Back (draft retained)
-
 desks-moves-move-no-longer-available-esc-to-return = Move no longer available. Esc to return.
 
 desks-moves-use-normal-review = Use (normal review)

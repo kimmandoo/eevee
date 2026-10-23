@@ -10,12 +10,18 @@ const MAX_PREFERENCE_BYTES: usize = 16 * 1024;
 pub struct ProviderPreferences {
     pub provider: Agent,
     pub selections: HashMap<Agent, ModelSelection>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub reduced_motion: bool,
 }
 
 #[derive(Clone, Debug)]
 pub enum PreferenceRequest {
     Load,
     Save(ProviderPreferences),
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 fn validate_preferences(preferences: &ProviderPreferences) -> Result<(), String> {
@@ -105,5 +111,46 @@ impl State {
                 Ok(Some(preferences))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod motion_tests {
+    use super::*;
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct PreviousPreferences {
+        #[serde(rename = "provider")]
+        _provider: Agent,
+        #[serde(rename = "selections")]
+        _selections: HashMap<Agent, ModelSelection>,
+    }
+
+    #[test]
+    fn legacy_default_is_compatible_but_an_old_strict_reader_refuses_motion_data() {
+        let legacy = ProviderPreferences {
+            provider: Agent::Codex,
+            selections: HashMap::new(),
+            reduced_motion: false,
+        };
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        assert!(serde_json::from_slice::<PreviousPreferences>(&bytes).is_ok());
+        assert!(
+            !serde_json::from_slice::<ProviderPreferences>(&bytes)
+                .unwrap()
+                .reduced_motion
+        );
+        let reduced = ProviderPreferences {
+            reduced_motion: true,
+            ..legacy
+        };
+        let bytes = serde_json::to_vec(&reduced).unwrap();
+        assert!(serde_json::from_slice::<PreviousPreferences>(&bytes).is_err());
+        assert!(
+            serde_json::from_slice::<ProviderPreferences>(&bytes)
+                .unwrap()
+                .reduced_motion
+        );
     }
 }

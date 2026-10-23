@@ -15,9 +15,55 @@ pub(super) struct Preferences {
     error: Option<String>,
     quit_waiting: bool,
     dirty_routes: std::collections::HashSet<Agent>,
+    reduced_motion: bool,
+    motion_dirty: bool,
+    stored_provider: Option<Agent>,
 }
 
 impl State {
+    pub fn reduced_motion(&self) -> bool {
+        // Remain static until the durable preference has been restored.
+        !self.preferences.loaded || self.preferences.reduced_motion
+    }
+
+    /// Apply the app-global latest choice to unsent provider snapshots. The
+    /// single store queue admits at most one preference owner at a time.
+    pub fn sync_motion_choice(&mut self, reduced: bool) {
+        self.preferences.reduced_motion = reduced;
+        if matches!(
+            self.preferences.pending,
+            Some(store::PreferenceRequest::Save(_))
+        ) {
+            self.preferences.pending =
+                Some(store::PreferenceRequest::Save(self.preference_snapshot()));
+        }
+    }
+
+    pub(super) fn inherit_preferences_from(&mut self, source: &Self) {
+        self.preferences.loaded = source.preferences.loaded;
+        self.preferences.restore_required = source.preferences.restore_required;
+        self.preferences.reduced_motion = source.preferences.reduced_motion;
+        self.preferences.stored_provider = source.preferences.stored_provider;
+        self.preferences.remembered_selection = source.preferences.remembered_selection.clone();
+    }
+
+    pub fn receive_preferences(&mut self, saved: Option<&store::ProviderPreferences>) {
+        if !self.preferences.loaded {
+            self.preferences.pending = None;
+            self.preference_event(Ok(saved.cloned()));
+        } else if let Some(saved) = saved {
+            self.merge_preferences(saved);
+        }
+    }
+
+    pub fn set_reduced_motion(&mut self, reduced: bool) {
+        self.preferences.reduced_motion = reduced;
+        self.preferences.motion_dirty = true;
+        self.preferences.dirty = true;
+        self.preferences.error = None;
+        self.preferences.pending = None;
+    }
+
     pub fn set_startup_provider(&mut self, provider: Agent, explicit: bool) {
         self.agent = provider;
         self.preferences.explicit_provider = explicit;
@@ -66,7 +112,9 @@ impl State {
 
     fn preference_snapshot(&self) -> store::ProviderPreferences {
         store::ProviderPreferences {
-            provider: if self.remembered_pairing.is_some() {
+            provider: if self.preferences.dirty_routes.is_empty() {
+                self.preferences.stored_provider.unwrap_or(Agent::Codex)
+            } else if self.remembered_pairing.is_some() {
                 self.preferences
                     .remembered_selection
                     .as_ref()
@@ -75,6 +123,7 @@ impl State {
                 self.agent
             },
             selections: self.selections.clone(),
+            reduced_motion: self.preferences.reduced_motion,
         }
     }
 
@@ -116,6 +165,10 @@ impl State {
     }
 
     pub fn merge_preferences(&mut self, saved: &store::ProviderPreferences) {
+        self.preferences.stored_provider = Some(saved.provider);
+        if !self.preferences.motion_dirty {
+            self.preferences.reduced_motion = saved.reduced_motion;
+        }
         for (agent, selection) in &saved.selections {
             if !self.preferences.dirty_routes.contains(agent) {
                 self.selections.insert(*agent, selection.clone());
@@ -150,6 +203,9 @@ impl State {
 
     pub fn preference_event(&mut self, result: Result<Option<store::ProviderPreferences>, String>) {
         self.preferences.inflight = false;
+        if let Ok(Some(saved)) = &result {
+            self.preferences.stored_provider = Some(saved.provider);
+        }
         match result {
             Err(error) => {
                 self.notice = format!(
@@ -160,6 +216,9 @@ impl State {
             }
             Ok(saved) if !self.preferences.loaded => {
                 if let Some(mut saved) = saved {
+                    if !self.preferences.motion_dirty {
+                        self.preferences.reduced_motion = saved.reduced_motion;
+                    }
                     if self.preferences.remembered_selection.is_none() {
                         self.preferences.remembered_selection = Some((
                             saved.provider,
@@ -190,6 +249,12 @@ impl State {
                 self.preferences.loaded = true;
             }
             Ok(saved) => {
+                if saved
+                    .as_ref()
+                    .is_some_and(|saved| saved.reduced_motion == self.preferences.reduced_motion)
+                {
+                    self.preferences.motion_dirty = false;
+                }
                 self.preferences.dirty_routes.retain(|agent| {
                     saved.as_ref().is_none_or(|saved| {
                         saved.selections.get(agent) != self.selections.get(agent)
@@ -253,6 +318,7 @@ mod tests {
 
     fn saved() -> store::ProviderPreferences {
         store::ProviderPreferences {
+            reduced_motion: false,
             provider: Agent::ChatGPT,
             selections: [
                 (
@@ -548,5 +614,90 @@ mod tests {
         assert!(!state.preferences_loading());
         assert!(state.preference_restore_error().is_none());
         assert_eq!(state.agent, Agent::ChatGPT);
+    }
+    #[test]
+    fn motion_hydration_preserves_new_choice_and_merges_parked_slots() {
+        let mut state = State::new();
+        assert!(state.reduced_motion(), "startup is static until hydration");
+        state.set_reduced_motion(true);
+        state.preference_event(Ok(Some(saved())));
+        assert!(state.reduced_motion(), "a choice during load wins");
+        let store::PreferenceRequest::Save(snapshot) = submit(&mut state) else {
+            panic!("motion must use the existing save queue");
+        };
+        assert!(snapshot.reduced_motion);
+        state.preference_event(Ok(Some(snapshot.clone())));
+        assert!(!state.preferences_pending());
+        let mut parked = State::new();
+        parked.preference_event(Ok(Some(saved())));
+        parked.merge_preferences(&snapshot);
+        parked.preference_changed();
+        let store::PreferenceRequest::Save(parked_save) = submit(&mut parked) else {
+            panic!("route change should retain the merged motion choice");
+        };
+        assert!(parked_save.reduced_motion);
+        parked.set_reduced_motion(false);
+        parked.merge_preferences(&snapshot);
+        assert!(
+            !parked.reduced_motion(),
+            "stale owner acknowledgement cannot overwrite a newer choice"
+        );
+    }
+    #[test]
+    fn motion_only_snapshot_preserves_durable_route_under_startup_and_parked_choices() {
+        let mut state = State::new();
+        state.set_startup_provider(Agent::Codex, true);
+        state.preference_event(Ok(Some(saved())));
+        state.set_reduced_motion(true);
+        let store::PreferenceRequest::Save(snapshot) = submit(&mut state) else {
+            panic!("expected motion save");
+        };
+        assert_eq!(snapshot.provider, Agent::ChatGPT);
+        assert_eq!(snapshot.selections, saved().selections);
+        state.preference_event(Ok(Some(snapshot)));
+        let mut latest = saved();
+        latest.provider = Agent::OpenAI;
+        state.merge_preferences(&latest);
+        state.set_reduced_motion(false);
+        let store::PreferenceRequest::Save(snapshot) = submit(&mut state) else {
+            panic!("expected second motion save");
+        };
+        assert_eq!(
+            snapshot.provider,
+            Agent::OpenAI,
+            "passive parked route is not durable intent"
+        );
+        assert_eq!(
+            state.agent,
+            Agent::Codex,
+            "startup choice remains process-local"
+        );
+    }
+
+    #[test]
+    fn partner_inheritance_keeps_unhydrated_motion_distinct_from_saved_reduction() {
+        let mut source = State::new();
+        source.set_startup_provider(Agent::Codex, false);
+        let owner = store::Attribution::of(&store::Partner {
+            id: 2,
+            ..Default::default()
+        });
+        let mut partner = source.new_partner(owner, 7);
+        assert!(partner.reduced_motion(), "startup waits for hydration");
+        assert!(partner.preferences_loading());
+        assert!(matches!(
+            partner.preference_request(),
+            Some(store::PreferenceRequest::Load)
+        ));
+        partner.receive_preferences(None);
+        assert!(
+            !partner.reduced_motion(),
+            "no saved row uses the real default"
+        );
+        assert!(!partner.preferences_loading());
+        assert!(
+            partner.preference_request().is_none(),
+            "shared hydration retires redundant load"
+        );
     }
 }

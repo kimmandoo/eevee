@@ -32,6 +32,7 @@ it makes no network requests and does not populate a missing sprite cache.
 Rerun to update an installer-owned executable. --uninstall removes only verified
 owned executable/metadata, keeping all task, provider, and cache data.
 No sudo, shell profile changes, or task/provider data changes are performed.
+Use --no-animation to keep truthful phase output static, including in a terminal.
 USAGE
 }
 
@@ -45,8 +46,11 @@ selected_tag=${EV_VERSION:-}
 version_set=0
 uninstall=0
 resolve_release=0
+no_animation=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        --no-animation)
+            no_animation=1; shift ;;
         --archive)
             [ "$#" -ge 2 ] && [ -n "$2" ] || { usage >&2; fail '--archive requires a path'; }
             [ "$archive_set" -eq 0 ] || fail 'provide --archive only once'
@@ -240,7 +244,7 @@ ball_lines() {
 }
 phase() {
     stop_animation
-    if [ -t 2 ] && [ "${TERM:-dumb}" != dumb ] && [ -z "${CI:-}" ] && terminal_size; then
+    if [ "$no_animation" -eq 0 ] && [ -t 2 ] && [ "${TERM:-dumb}" != dumb ] && [ -z "${CI:-}" ] && terminal_size; then
         # Keep the phase outside the redraw area: resizing can reflow ordinary
         # text without moving a long animated line across the screen.
         printf '%.*s\n' "$((columns - 1))" "$1" >&2

@@ -2,6 +2,14 @@
 
 ## 2026-10-23
 
+- feat(party): added reviewed create-only formation recipes and atomic explicit local role mapping while preserving nonempty drafts/carets, busy ownership and manual/automatic form policy.
+- feat(moves): added bounded portable TOML TM export/import for every supported form and step kind, with explicit local teaching, collision/replacement review and fresh ordinary use-time approval.
+- feat(preferences)!: persisted global reduced motion across partners/restarts and added explicit installer/update opt-out with launch-only CLI precedence; retained Schema 18 but required a full backup because older writers refused the extended preference JSON.
+- feat(evolution): added a restrained 240 ms picker-only transition ending in the existing static receipt, with key/paste forwarding, priority cancellation and no idle/restart replay.
+- fix(reviews): settled exact local autosaves before formation application and move validation, revoked stale queued intent and cleared obsolete export-success feedback without weakening ownership or consent.
+- test(pokemon): verified actual bilingual compact/wide formations, all nine portable TM forms through fresh reviews/two projects/restarts, persistent motion and exact key/paste forwarding, real previous-writer refusal/current resume, 24 cooperation groups and automatic-evolution regressions.
+- docs(tasks): archived four completed milestone specifications, preserved all 67 prior detailed sections and retained 34 unfinished tasks with validated counts, dependencies and links; clarified serialized-format-aware rollback requirements.
+
 - docs(tasks): prioritized formations, portable TMs, persistent reduced motion and the remaining picker transition before general context/provider/refactor work; corrected export, authentication, schema and already-implemented foundation requirements.
 - docs(tasks): separated 67 completed detailed specifications and the original foundation index into `tasks/COMPLETED.md`, archived UX03 and retained 38 unfinished tasks with checked dependency/link integrity.
 - docs(release): published v0.1.21 from exact source `96f4479` after complete Check/all-five-native qualification and immutable promotion; verified all eight public asset digests, seven manifest entries, native identities and source installers without changing Schema 18 or complete SDK bridge 9.
@@ -25,6 +33,14 @@
 - docs(release): published v0.1.19 from source `63f1007` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.22
+
+- feat(party): saved and reused party formations through explicit local mapping and one atomic store transaction without starting work or replacing nonempty drafts.
+- feat(moves): exported and imported inert versioned TM files across projects; retained fresh ordinary command, capture, request and task reviews on use.
+- feat(accessibility): persisted reduced motion and honored POSIX/PowerShell installer and self-update opt-out; kept NO_COLOR independent and CLI overrides launch-local.
+- feat(evolution): displayed optional bounded deliberate-picker motion while automatic/text-only/reduced-motion changes stayed static and input/approval ownership remained unchanged.
+- docs(compatibility)!: retained Schema 18 and complete SDK bridge 9, but required a full data-directory backup before the new strict preference JSON; v0.1.21 refused that setting without mutation and downgrade required full backup restoration.
 
 ## 0.1.21
 

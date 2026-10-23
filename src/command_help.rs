@@ -7,6 +7,11 @@ pub fn key(command: &str) -> Option<Message> {
         return Some(message);
     }
     Some(match command {
+        "formation" => Message::FormationCommand,
+        "formation-save" => Message::FormationSaveCommand,
+        "reduced-motion" => Message::MotionCommandToggle,
+        "motion-off" => Message::MotionCommandOff,
+        "motion-on" => Message::MotionCommandOn,
         "held" => Message::CmdHeld,
         "held-file" => Message::CmdHeldFile,
         "held-set-file" => Message::CmdHeldSetFile,
@@ -36,6 +41,8 @@ pub fn key(command: &str) -> Option<Message> {
         "tasks" => Message::CmdTasks,
         "party" => Message::CmdParty,
         "move" => Message::CmdMove,
+        "move-import" => Message::CmdMoveImport,
+        "move-export" => Message::CmdMoveExport,
         "teach-move" => Message::CmdTeachMove,
         "move-reminder" => Message::CmdMoveReminder,
         "move-details" => Message::CmdMoveDetails,

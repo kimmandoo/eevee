@@ -7,6 +7,7 @@ pub(crate) mod cooperation_journal;
 pub mod cooperation_ui;
 pub mod execution;
 pub mod execution_relays;
+pub mod formations;
 pub mod habits;
 pub mod handoff;
 pub mod held;
@@ -26,7 +27,9 @@ mod cooperation_execution;
 mod editing;
 mod events;
 pub mod evolution;
+mod evolution_motion;
 mod keys;
+mod motion;
 mod move_staging;
 mod overlays;
 mod tasks;
@@ -73,6 +76,7 @@ pub enum Overlay {
     Moves,
     Records,
     Held,
+    Formations,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,6 +155,7 @@ pub struct App {
     pub party_request: Option<store::PartyRequest>,
     /// A party mutation was handed to the store and awaits its committed roster.
     pub party_inflight: bool,
+    pub formations: formations::State,
     /// Independent local identity editor; never borrows the task composer.
     pub nickname_editor: Option<party::NicknameEditor>,
     nickname_pending: Option<i64>,
@@ -172,6 +177,10 @@ pub struct App {
     pub command_popup: Option<commands::Popup>,
     /// Transient activity animation; never persisted as task navigation.
     pub activity_frame: u8,
+    /// Explicit process-only motion choice; never persisted as a preference.
+    pub motion_override: Option<bool>,
+    pub motion_choice: Option<bool>,
+    pub motion_visuals: bool,
     composer_catalogue: bool,
     composer_return: Option<store::EditorField>,
     composer_return_owner: Option<(i64, i64)>,
@@ -289,8 +298,12 @@ impl App {
             lead: store::Partner::default(),
             party: Vec::new(),
             evolution: evolution::State::default(),
+            motion_override: None,
+            motion_choice: None,
+            motion_visuals: false,
             party_request: None,
             party_inflight: false,
+            formations: formations::State::default(),
             nickname_editor: None,
             nickname_pending: None,
             selected: 0,
@@ -483,6 +496,7 @@ impl App {
     /// Backspace / `/back-form` can return to it (PT03B), and the picker's
     /// selection follows so it opens on the form that is actually active.
     pub(super) fn set_form(&mut self, form: usize) {
+        self.evolution.motion = None;
         if self.lead.form != form {
             self.evolution.transition = Some(evolution::Transition {
                 from: self.lead.form,

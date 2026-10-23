@@ -24,11 +24,16 @@ pub enum Mode {
     TeachTarget,
     LoadingTarget,
     TaskReview,
+    ImportPath,
+    ExportPath,
+    ExportReview,
+    ImportTarget,
 }
 
 #[derive(Clone, Debug)]
 pub enum Learning {
     Teach(Proposal),
+    Import(Proposal),
     Relearn(Record),
     Rename(Record),
 }
@@ -36,7 +41,7 @@ pub enum Learning {
 impl Learning {
     pub fn proposal(&self) -> &Proposal {
         match self {
-            Self::Teach(p) => p,
+            Self::Teach(p) | Self::Import(p) => p,
             Self::Relearn(r) | Self::Rename(r) => &r.proposal,
         }
     }
@@ -77,6 +82,10 @@ pub struct State {
     pub scroll_max: u16,
     pub scroll_page: u16,
     pub notice: String,
+    pub portable: Option<moves::portable::Definition>,
+    pub file_path: String,
+    pub portable_text: String,
+    pub portable_exported: bool,
     /// Candidate ids already displayed in this process; decisions are persisted separately.
     pub displayed: HashSet<String>,
     deferred: Option<String>,
@@ -104,7 +113,7 @@ impl State {
         self.form = form;
     }
     pub fn editing(&self) -> bool {
-        self.mode == Mode::Name
+        matches!(self.mode, Mode::Name | Mode::ImportPath | Mode::ExportPath)
     }
     pub fn invalidate_review(&mut self) {
         self.reviewed = false;
@@ -148,13 +157,21 @@ impl State {
                 ),
             ];
         }
-        if self.mode == Mode::Name || self.persistence_pending() {
+        if self.editing() || self.persistence_pending() {
             return Vec::new();
         }
         let mut choices = vec![
             Choice::new("move", "Move menu; no action executed"),
             Choice::new("teach-move", "Teach from actual approved work"),
             Choice::new("move-reminder", "Forgotten and postponed moves"),
+            Choice::new(
+                "move-import",
+                "Import a portable TM file; review local learning",
+            ),
+            Choice::new(
+                "move-export",
+                "Review exporting the highlighted move to a new TM file",
+            ),
         ];
         if self.mode == Mode::Menu && self.active().next().is_some() {
             choices.push(Choice::new("move-details", "Inspect the highlighted move"));
@@ -177,7 +194,7 @@ impl State {
             .any(|request| {
                 !matches!(
                     request.operation,
-                    Operation::Load | Operation::Validate { .. }
+                    Operation::Load | Operation::Validate { .. } | Operation::ReadPortable { .. }
                 )
             })
     }
@@ -289,13 +306,14 @@ impl State {
         Ok(())
     }
     pub fn paste(&mut self, text: &str) -> bool {
-        if self.mode != Mode::Name || self.scope_focus || self.input_blocked() {
+        if !self.editing() || self.scope_focus || self.input_blocked() {
             return false;
         }
         if text
             .chars()
             .any(|ch| ch.is_control() || !super::safe_character(ch))
-            || self.name.len().saturating_add(text.len()) > 256
+            || self.name.len().saturating_add(text.len())
+                > if self.mode == Mode::Name { 256 } else { 4096 }
         {
             self.insertion_rejected = true;
             self.notice = "Name insertion refused: use a single line within 256 UTF-8 bytes, without controls.".into();
@@ -315,15 +333,19 @@ impl State {
     }
     fn name_key(&mut self, key: KeyEvent) {
         if key.code == KeyCode::Tab || key.code == KeyCode::BackTab {
-            self.scope_focus = !self.scope_focus;
+            if self.mode == Mode::Name {
+                self.scope_focus = !self.scope_focus;
+            }
             return;
         }
         if self.scope_focus {
             if matches!(
                 key.code,
                 KeyCode::Left | KeyCode::Right | KeyCode::Char(' ')
-            ) && matches!(self.learning, Some(Learning::Teach(_)))
-            {
+            ) && matches!(
+                self.learning,
+                Some(Learning::Teach(_) | Learning::Import(_))
+            ) {
                 self.scope = match self.scope {
                     Scope::Project => Scope::Personal,
                     Scope::Personal => Scope::Project,
@@ -396,6 +418,12 @@ impl State {
             .as_ref()
             .ok_or("No move selected for learning.")?;
         let operation = match learning {
+            Learning::Import(_) => Operation::ImportPortable {
+                definition: self.portable.clone().ok_or("No reviewed TM definition")?,
+                name: self.name.clone(),
+                scope: self.scope,
+                replace: self.replacement,
+            },
             Learning::Rename(record) => Operation::Rename {
                 id: record.id,
                 revision: record.revision,
@@ -485,6 +513,8 @@ impl App {
             "move"
                 | "teach-move"
                 | "move-reminder"
+                | "move-import"
+                | "move-export"
                 | "move-use"
                 | "move-details"
                 | "move-rename"
@@ -504,6 +534,7 @@ impl App {
         if self.overlay != Some(Overlay::Moves) {
             return true;
         }
+        self.moves.portable_exported = false;
         if command == "move-retry" {
             self.moves.retry_failed();
             return true;
@@ -525,6 +556,8 @@ impl App {
         match command {
             "move" => self.moves.enter(Mode::Menu),
             "move-reminder" => self.moves.enter(Mode::Reminder),
+            "move-import" => self.move_file_editor(false),
+            "move-export" => self.move_file_editor(true),
             "move-use" | "move-details" | "move-rename" | "move-forget" | "move-teach" => {
                 if command == "move-details" && was_menu {
                     self.move_menu_details();
@@ -579,6 +612,41 @@ impl App {
     pub fn move_paste(&mut self, value: &str) -> bool {
         self.moves.paste(value)
     }
+    fn move_file_editor(&mut self, export: bool) {
+        if export && self.moves.mode == Mode::Menu {
+            let selected = self.moves.active().nth(self.moves.selected).map(|r| r.id);
+            self.moves.detail = selected;
+        }
+        if export && self.moves.selected_record().is_none() {
+            return;
+        }
+        if export {
+            let result = self
+                .moves
+                .selected_record()
+                .ok_or_else(|| "Choose a move to export".to_string())
+                .and_then(|record| moves::portable::Definition::from_proposal(&record.proposal))
+                .and_then(|definition| definition.encode());
+            match result {
+                Ok(text) => self.moves.portable_text = text,
+                Err(error) => {
+                    self.moves.notice = error;
+                    return;
+                }
+            }
+        }
+        self.moves.portable_exported = false;
+        self.moves.name.clear();
+        self.moves.cursor = 0;
+        self.moves.scope_focus = false;
+        self.moves.insertion_rejected = false;
+        self.moves.notice.clear();
+        self.moves.enter(if export {
+            Mode::ExportPath
+        } else {
+            Mode::ImportPath
+        });
+    }
     pub fn move_key(&mut self, key: KeyEvent) -> bool {
         if self.overlay != Some(Overlay::Moves) {
             return false;
@@ -586,6 +654,7 @@ impl App {
         if key.kind == KeyEventKind::Release {
             return true;
         }
+        self.moves.portable_exported = false;
         if key.code == KeyCode::Esc {
             if self.moves.failed.is_some() {
                 self.close_overlay();
@@ -674,10 +743,21 @@ impl App {
         if self.moves.input_blocked() {
             return true;
         }
-        if self.moves.mode == Mode::Name {
+        if self.moves.editing() {
             if key.code == KeyCode::Enter {
-                if let Err(error) = self.moves.finish_name() {
-                    self.moves.notice = error;
+                if self.moves.mode == Mode::Name {
+                    if let Err(error) = self.moves.finish_name() {
+                        self.moves.notice = error;
+                    }
+                } else if !self.moves.name.is_empty() && !self.moves.insertion_rejected {
+                    self.moves.file_path = self.moves.name.clone();
+                    if self.moves.mode == Mode::ImportPath {
+                        self.moves.request(Operation::ReadPortable {
+                            path: self.moves.file_path.clone(),
+                        });
+                    } else {
+                        self.moves.enter(Mode::ExportReview);
+                    }
                 }
             } else {
                 self.moves.name_key(key);
@@ -709,7 +789,10 @@ impl App {
             _ => {}
         }
         let mode = self.moves.mode;
-        if matches!(mode, Mode::Review | Mode::Forget | Mode::TaskReview) {
+        if matches!(
+            mode,
+            Mode::Review | Mode::Forget | Mode::TaskReview | Mode::ExportReview
+        ) {
             match key.code {
                 KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::BackTab
                     if self.moves.reviewed =>
@@ -734,6 +817,7 @@ impl App {
             Mode::Replace => self.moves.active().count() + 1,
             Mode::Reminder => self.moves.reminders().count() + self.moves.postponed().count(),
             Mode::Learn => 3,
+            Mode::ImportTarget => self.partners().len(),
             Mode::TeachTarget => self
                 .partners()
                 .iter()
@@ -776,6 +860,10 @@ impl App {
             KeyCode::Char('t') if mode == Mode::Menu => self.teach_move(),
             KeyCode::Char('r') if mode == Mode::Menu => self.moves.enter(Mode::Reminder),
             KeyCode::Char('d') if mode == Mode::Menu => self.move_menu_details(),
+            KeyCode::Char('i') if mode == Mode::Menu => self.move_file_editor(false),
+            KeyCode::Char('e') if matches!(mode, Mode::Menu | Mode::Detail) => {
+                self.move_file_editor(true)
+            }
             KeyCode::Char('u') if mode == Mode::Detail => self.move_use_selected(),
             KeyCode::Char('r') if mode == Mode::Detail => self.move_rename_selected(),
             KeyCode::Char('f') if mode == Mode::Detail => self.moves.enter(Mode::Forget),
@@ -799,6 +887,17 @@ impl App {
         }
     }
     fn move_confirm(&mut self) {
+        if self.moves.mode == Mode::ExportReview {
+            if let Some(record) = self.moves.selected_record().cloned() {
+                self.moves.request(Operation::ExportPortable {
+                    id: record.id,
+                    revision: record.revision,
+                    path: self.moves.file_path.clone(),
+                });
+                self.moves.invalidate_review();
+            }
+            return;
+        }
         if self.moves.mode == Mode::TaskReview {
             if let Some(record) = self.moves.selected_record().cloned() {
                 match moves::validate_proposal(&record.proposal)
@@ -832,6 +931,26 @@ impl App {
     fn move_activate(&mut self) {
         let selected = self.moves.selected;
         match self.moves.mode {
+            Mode::ImportTarget => {
+                let partners = self.partners();
+                let Some(target) = partners.get(selected) else {
+                    return;
+                };
+                let Some(definition) = self.moves.portable.as_ref() else {
+                    return;
+                };
+                match definition.proposal(self.moves.task_id, target.id, Scope::Project) {
+                    Ok(proposal) => {
+                        self.moves.partner = target.id;
+                        self.moves.form = proposal.form;
+                        self.moves.learning = Some(Learning::Import(proposal));
+                        self.moves.loaded = false;
+                        self.moves.enter(Mode::LoadingTarget);
+                        self.moves.request(Operation::Load);
+                    }
+                    Err(error) => self.moves.notice = error,
+                }
+            }
             Mode::Menu => {
                 self.move_menu_details();
                 if self.moves.detail.is_some() {
@@ -956,6 +1075,7 @@ impl App {
         let mutation = matches!(
             request.operation,
             Operation::Teach { .. }
+                | Operation::ImportPortable { .. }
                 | Operation::Rename { .. }
                 | Operation::Forget { .. }
                 | Operation::Relearn { .. }
@@ -983,6 +1103,24 @@ impl App {
                     self.moves.candidates = response.candidates;
                     self.moves.usages = response.usages;
                     self.moves.loaded = true;
+                    if let Some(definition) = response.portable
+                        && self.moves.mode == Mode::ImportPath
+                        && self.overlay == Some(Overlay::Moves)
+                    {
+                        match definition.encode() {
+                            Ok(text) => self.moves.portable_text = text,
+                            Err(error) => {
+                                self.moves.notice = error;
+                                return;
+                            }
+                        }
+                        self.moves.portable = Some(definition);
+                        self.moves.enter(Mode::ImportTarget);
+                    } else if matches!(request.operation, Operation::ExportPortable { .. }) {
+                        self.moves.enter(Mode::Menu);
+                        self.moves.notice.clear();
+                        self.moves.portable_exported = true;
+                    }
                     if mutation {
                         self.moves.offered = None;
                         self.move_return_menu();
@@ -1314,6 +1452,7 @@ mod tests {
                 records: vec![record(1, "Old owner")],
                 candidates: vec![],
                 usages: vec![],
+                portable: None,
             }),
         );
         assert_eq!(app.moves.records[0].id, 9);
@@ -1357,6 +1496,7 @@ mod tests {
                 records,
                 candidates: vec![],
                 usages: vec![],
+                portable: None,
             }),
         );
         assert_eq!(app.moves.mode, Mode::Name);
@@ -1606,5 +1746,136 @@ mod tests {
             assert!(app.execution.prepared.is_none());
             assert!(app.planning.pending.is_none());
         }
+    }
+    #[test]
+    fn portable_file_preview_and_neutral_export_have_no_effect() {
+        let mut app = app();
+        app.overlay = Some(Overlay::Moves);
+        app.moves.records.push(record(1, "Surf"));
+        app.move_file_editor(true);
+        assert_eq!(app.moves.mode, Mode::ExportPath);
+        assert!(app.moves.pending.is_none());
+        assert!(app.move_paste("new.toml"));
+        app.move_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.moves.mode, Mode::ExportReview);
+        assert!(app.moves.pending.is_none());
+        app.moves.reviewed = true;
+        app.move_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.moves.mode, Mode::Menu);
+        assert!(app.moves.pending.is_none());
+        app.move_file_editor(false);
+        app.move_paste("source.toml");
+        app.move_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(matches!(
+            app.moves.pending.as_ref().unwrap().operation,
+            Operation::ReadPortable { .. }
+        ));
+        let definition = moves::portable::Definition::from_proposal(&proposal("Surf")).unwrap();
+        app.move_store_event(
+            1,
+            1,
+            1,
+            Ok(Response {
+                portable: Some(definition),
+                ..Response::default()
+            }),
+        );
+        assert_eq!(app.moves.mode, Mode::ImportTarget);
+        assert!(app.moves.learning.is_none());
+        assert!(app.moves.pending.is_none());
+        app.move_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.moves.pending.is_none());
+        assert!(app.execution.active.is_none());
+        assert!(app.execution.prepared.is_none());
+        assert!(app.planning.pending.is_none());
+    }
+
+    #[test]
+    fn cancelled_portable_read_cannot_reopen_learning() {
+        let mut app = app();
+        app.overlay = Some(Overlay::Moves);
+        app.move_file_editor(false);
+        app.move_paste("source.toml");
+        app.move_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        app.move_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        let definition = moves::portable::Definition::from_proposal(&proposal("Surf")).unwrap();
+        app.move_store_event(
+            1,
+            1,
+            1,
+            Ok(Response {
+                portable: Some(definition),
+                ..Response::default()
+            }),
+        );
+        assert!(app.overlay.is_none());
+        assert!(app.moves.learning.is_none());
+        assert_ne!(app.moves.mode, Mode::ImportTarget);
+        assert!(app.moves.pending.is_none());
+    }
+
+    #[test]
+    fn imported_learning_uses_the_same_naming_slot_and_review_rules() {
+        let mut state = state();
+        let definition = moves::portable::Definition::from_proposal(&proposal("Surf")).unwrap();
+        state.portable = Some(definition.clone());
+        state.records = (1..=4)
+            .map(|id| record(id, &format!("Local {id}")))
+            .collect();
+        state.begin_learning(Learning::Import(
+            definition.proposal(1, 1, Scope::Personal).unwrap(),
+        ));
+        state.finish_name().unwrap();
+        assert_eq!(state.mode, Mode::Replace);
+        assert_eq!(state.selected, 0);
+        assert!(state.pending.is_none());
+        state.replacement = Some((2, 1));
+        state.commit_learning().unwrap();
+        assert_eq!(
+            state.pending.unwrap().operation,
+            Operation::ImportPortable {
+                definition,
+                name: "Surf".into(),
+                scope: Scope::Personal,
+                replace: Some((2, 1)),
+            }
+        );
+    }
+    #[test]
+    fn imported_partner_choice_is_local_and_never_a_teaching_claim() {
+        let mut app = app();
+        app.overlay = Some(Overlay::Moves);
+        app.party = vec![
+            app.lead.clone(),
+            crate::store::Partner {
+                id: 2,
+                nickname: Some("Mizu".into()),
+                ..crate::store::Partner::default()
+            },
+        ];
+        let definition = moves::portable::Definition::from_proposal(&proposal("Surf")).unwrap();
+        app.moves.portable = Some(definition);
+        app.moves.enter(Mode::ImportTarget);
+        assert!(app.moves.pending.is_none());
+        app.moves.selected = 1;
+        app.move_activate();
+        assert_eq!(app.lead.id, 1);
+        assert_eq!(app.moves.partner, 2);
+        assert_eq!(app.moves.mode, Mode::LoadingTarget);
+        assert!(matches!(
+            app.moves.pending.as_ref().unwrap().operation,
+            Operation::Load
+        ));
+        let imported = app.moves.learning.as_ref().unwrap().proposal();
+        assert_eq!(imported.partner, 2);
+        assert_eq!(imported.provenance.task_id, 1);
+        assert_eq!(imported.provenance.taught_by, None);
+        assert_eq!(imported.provenance.teacher_name, None);
+        app.move_store_event(1, 2, 1, Ok(Response::default()));
+        assert_eq!(app.moves.mode, Mode::Name);
+        assert_eq!(app.moves.name, "Surf");
+        assert!(app.moves.pending.is_none());
+        assert!(app.execution.active.is_none());
+        assert!(app.planning.pending.is_none());
     }
 }
