@@ -1233,7 +1233,7 @@ mod tests {
                 .uncertain
         );
         fs::write(temp.0.join("existing-large"), vec![b'x'; MAX_BYTES + 1]).unwrap();
-        assert!(root.open_file(OsStr::new("existing-large"), false).is_err());
+        assert!(root.open_file(OsStr::new("existing-large"), true).is_err());
         assert_eq!(fs::read_dir(&temp.0).unwrap().count(), 1);
     }
 }

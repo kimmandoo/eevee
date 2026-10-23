@@ -14,6 +14,8 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 
 Steps1–4 implementation and local acceptance passed on candidateG:1,544 Rust tests/two ignored, strict source checks, all ten native API/size variants186 groups, bilingual compact/wide context/compaction and artifact journeys, durable receipts, trusted100-tool setup, real file workflows, genuine upgrade/refusal/resume and owned recovery. Full selected specifications are archived;18 backlog tasks remain. Current step5 requires exact-source Check/all-five-native success and public release proof; do not infer publication from these local results.
 
+The first full source run40022572931 passed both Linux targets but exposed Linux-only Clippy borrows, Windows fixture/read-versus-write assumptions and the former60-minute macOS job ceiling. Corrected these without dropping any bilingual journey; the native ceiling is now120 minutes. CandidateH and a fresh exact-source full run must qualify before tagging; partial package uploads and the earlier Linux successes are not release authorization.
+
 
 ## Integrated repair — Windows authentication and WSL file workflow (qualification pending)
 

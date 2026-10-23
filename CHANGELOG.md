@@ -29,6 +29,7 @@
 - fix(tools): clarified host-executed project discovery, nested creation and saved edits independently of provider-shell read-only policy.
 - test(platform): added real bilingual terminal file workflow gates on every native target, including ordinary planning followed by implementation and actual saved file bytes.
 - test(context): passed all ten selected contracts through bilingual compact/wide terminal journeys, exact outgoing packets, real three-entry citations, persisted local cache, failed-check compaction and immutable artifact paging/search.
+- fix(platform): corrected platform-native ledger fixtures and Linux-only path borrows, preserved Windows mutation limits independently of observation, and expanded the native qualification deadline without dropping acceptance steps.
 - docs(tasks): archived all ten accepted specifications and reconciled18 remaining tasks while keeping exact-source native qualification and publication separate.
 - docs(release): recorded immutable v0.1.28 publication from `801b921`, verified all public asset digests and archives, and passed downloaded installation24/terminal34/workbench35 plus bilingual planning, project creation and evolution journeys.
 - test(providers): preserved operating-system runtime variables in the isolated metadata diagnostic subprocess and reported child failures before fixture-thread failures.
