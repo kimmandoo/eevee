@@ -1,16 +1,18 @@
 # Eevee Implementation Plan
 
-Updated: 2026-10-23. Immutable v0.1.25 published the form-independent coding/permission correction and concise README; downloaded verification is recorded in the checkpoint. The newly reported native-account configuration blocker takes priority below and requires separate v0.1.26. Schema 18 and complete SDK bridge 9 remain unchanged. [task.md](../task.md) retains 34 unfinished backlog tasks.
+Updated: 2026-10-23. Immutable v0.1.26 completed the native-account configuration/direct-recovery correction after full source, public-package, downloaded runtime and installation proof. v0.1.25 completed form-independent coding/permissions and the concise README. Both user requests are complete; no active implementation step remains. Schema18/bridge9 and the 34 unfinished backlog tasks remain unchanged.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Active request — native account configuration blocker and direct recovery
+## Completed request — native account configuration blocker and direct recovery; v0.1.26 released
 
 1. Reproduce the reported zero-byte blocked account Implement preview with the downloaded public executable and isolated credentials/files; do not rerun the user's real request or authorize paid traffic.
 2. Remove unrelated external CLI model-file admission from native account resolution/setup. App choices/profiles and explicit environment defaults remain authoritative; selected authentication and API config retain strict filesystem/privacy checks.
 3. Give genuinely blocked prepared requests an accurate blocked state, complete readable reason at minimum size and a deliberate direct setup action. Cancel-and-settle the old preview, preserve submitted/future drafts and never automatically resend after setup.
 4. Verify actual account preparation and bilingual compact/wide recovery, no credential/file repair or inference, existing provider/file/ownership regressions and locked source checks.
 5. Record failures/resolutions and exact source evidence; qualify/publish immutable v0.1.26, verify public assets plus downloaded runtime/installation, then complete both requests without replacing v0.1.25.
+
+Steps 1–5 passed. Source `140b71d82b1e312091a86726a529d3b45ab636d7` passed Rust1.90 formatting, 1,366 tests/two ignored, strict Clippy/release build and Python14/three skips. Native run `39939098618` attempt1 qualified Check/all five packages; publication `39940810803` created immutable release `421723045`. Eight public digests, seven checksum records, source installers and exact qualified archive identities passed. Downloaded runtime passed account36, file126, native176, providerUX20 and cooperation24; installation24 included34 installed-native scenarios with byte-identical reinstalled/public executables. Actual account preparation remained undispatched; no live-account/billing conformance is claimed.
 
 ## Completed request — form-independent project coding and permission UX; v0.1.25 released
 

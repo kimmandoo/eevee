@@ -12,6 +12,8 @@ Selected credential import still validates `auth.json` identity/privacy and acco
 
 Blocked preparation exposes complete scrollable reasons and localized direct `c` setup recovery. It cancels only that old preview, retains the original Request and future draft/caret, and does not send or retry after setup. Twelve bilingual/both-size actual journeys/36 groups passed preparation and recovery with synthetic credentials; no live-account/billing conformance is claimed.
 
+Published v0.1.26 passed downloaded account preparation/recovery36, bilingual file126, native protocol176, providerUX20 and cooperation24 groups; installation24 included34 installed-native scenarios with exact reinstalled/public executable identity. Source qualification/publication and digest evidence is recorded in the checkpoint; deterministic or undispatched account preparation is not authenticated interoperability.
+
 ### v0.1.25 form-independent coding and required consent
 
 Every automatic/manual form uses request-selected operation capabilities rather than a species-based read/write gate. Fixed forms retain their appearance; explicit Plan/independent Review and literal read-only intent remain restrictive. Cosmetic transitions retain same-policy canonical conversation; real policy changes retire incompatible history. Exact writer ownership, exclusions and one-shot filesystem consent are unchanged.

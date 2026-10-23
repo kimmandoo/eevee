@@ -5,6 +5,8 @@
 - fix(providers): decoupled native OpenAI account model defaults from external CLI configuration so unrelated unsafe or malformed files no longer blocked request preparation.
 - fix(ux): exposed complete scrollable blockers and direct localized connection setup while retaining frozen requests, future drafts and explicit cancellation without automatic resend.
 - test(providers): verified twelve bilingual compact/wide account-preparation and direct-recovery journeys/36 groups without dispatching inference, altering provider files or bypassing unsafe selected credentials.
+- docs(release): published immutable v0.1.26 from qualified source `140b71d` and verified eight public digests, seven checksum records, source installers and all five exact native archive identities.
+- test(release): passed downloaded account recovery36, file126, native176, providerUX20 and cooperation24 groups plus installation24/34 installed-native scenarios, with byte-identical reinstalled/public executables.
 
 - fix(forms): separated project coding capability from automatic/manual evolution, preserved explicit readonly policy across form/formation changes and retained same-policy conversation through cosmetic transitions.
 - fix(context): supplied a bounded frozen current-folder filename observation across native, Codex, SDK and ACP requests without attaching source bodies or granting writes.
