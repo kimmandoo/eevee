@@ -377,7 +377,6 @@ def main():
                 assert preserved["goal"] == old_task["goal"]
                 assert lead_drafts(preserved) == lead_drafts(old_task), "/reset discarded saved drafts"
                 fresh.command("init")
-                wait_for(fresh, "Espeon")
                 assert "LOCAL PREVIEW" not in fresh.display(), "/init submitted without Enter"
                 fresh.send("\x13")
                 rows = stored_when(first_use_data, lambda rows: len(rows) == 2)
@@ -560,6 +559,28 @@ def main():
                     assert lead_drafts(inspect_store(native_data)[0]) == lead_drafts(before_refresh[0])
                     wait_for(native, third_request)
                     passed("native-fixture-failed-metadata-refresh-retains-rows-error-and-draft-" + str(width))
+
+                    # A failed catalogue request retains an actionable diagnostic.
+                    # Deliberately inspect its next step; recovery never replays inference.
+                    native.command("connect")
+                    native.command("diagnostics")
+                    for _ in range(32):
+                        if "Observed HTTP status: 503" in native.display():
+                            break
+                        native.send("\x1b[6~")
+                    else:
+                        raise AssertionError("HTTP 503 diagnostic details not reachable\n" + native.display())
+                    native.send("n")
+                    wait_for(native, "Endpoint:")
+                    for _ in range(8):
+                        footer = native.display().rstrip().splitlines()[-1].strip()
+                        if footer.startswith(("Type Request /", "Enter Send /", "Enter draft")):
+                            break
+                        native.send("\x1b")
+                    else:
+                        raise AssertionError("retained request not reachable after explicit recovery")
+                    assert saved_request(inspect_store(native_data)) == third_request
+                    assert len(fixture.snapshot("GET")) == 3 and len(fixture.snapshot("POST")) == 2
 
                     native.send("\r")
                     deadline = time.monotonic() + 5

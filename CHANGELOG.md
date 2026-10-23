@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-24
+
+- test(workbench): removed the obsolete forced-Espeon initialization expectation and exercised explicit HTTP 503 diagnostic recovery with scrollable compact details; all 35 real workbench groups passed without changing the qualified executable.
+
 ## 2026-10-23
 
 - fix(init): prepared actual reviewed project-guide creation without installing a persistent read-only policy or changing selected paths and appearance.
