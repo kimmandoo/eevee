@@ -14,6 +14,96 @@ use crate::{
     i18n::{Message, Template},
 };
 
+fn readiness_label(state: &crate::app::agents::State, index: usize, paint: &Paint) -> &'static str {
+    use crate::app::agents::Readiness;
+    paint.hint(match state.readiness(index) {
+        Readiness::Checking => Message::ProvidersStatusChecking,
+        Readiness::Configured => Message::ProvidersStatusConfigured,
+        Readiness::Setup => Message::ProvidersStatusSetup,
+        Readiness::MissingCli => Message::ProvidersStatusMissing,
+        Readiness::SignedIn => Message::ProvidersStatusSignedIn,
+        Readiness::Session => Message::ProvidersStatusSession,
+        Readiness::SignedOut => Message::ProvidersStatusSignedOut,
+        Readiness::Unknown => Message::ProvidersStatusUnknown,
+    })
+}
+
+fn notice<'a>(state: &'a crate::app::agents::State, paint: &Paint) -> &'a str {
+    if state.page == Page::Install {
+        return paint.hint(Message::ProvidersNextInstall);
+    }
+    if let Some(outcome) = state.auth_notice {
+        return paint.hint(match outcome {
+            crate::providers::auth::Outcome::Authenticated => Message::ProvidersNextModel,
+            crate::providers::auth::Outcome::Unknown => Message::ProvidersLoginUnknown,
+            _ => Message::ProvidersLoginRetry,
+        });
+    }
+    let message = match state.notice.as_str() {
+        "" | "Enter chooses a ready provider; Right opens Actions and setup." => {
+            Message::ProvidersNextSetup
+        }
+        "Private setup cancelled; no connection settings changed." => {
+            Message::ProvidersSetupCancelled
+        }
+        "Login continuation expired; no connection settings changed." => {
+            Message::ProvidersLoginStale
+        }
+        "Login did not complete. Retry the selected method."
+        | "Login returned no usable credential; retry this method." => Message::ProvidersLoginRetry,
+        "Preparing connection review; no provider program launched." => {
+            Message::ProvidersPreparingReview
+        }
+        "Connection review cancelled; no provider program launched." => {
+            Message::ProvidersReviewCancelled
+        }
+        "Refreshing provider configuration; no program or network request launched." => {
+            Message::ProvidersRefreshing
+        }
+        "Blank key keeps source. Ctrl+U clears a field; Ctrl+S saves locally without model metadata." => {
+            Message::ProvidersPrivateEditing
+        }
+        "Login saved; choose model metadata only. No task sent." => Message::ProvidersLoginSaved,
+        _ => return &state.notice,
+    };
+    paint.hint(message)
+}
+
+/// Byte-safe viewport whose caret and clipping are measured in terminal cells.
+fn field_view(value: &str, cursor: usize, capacity: usize) -> (&str, usize) {
+    let capacity = capacity.max(1);
+    let cursor = value
+        .char_indices()
+        .map(|(index, _)| index)
+        .chain(std::iter::once(value.len()))
+        .take_while(|index| *index <= cursor)
+        .last()
+        .unwrap_or(0);
+    let mut start = cursor;
+    let mut before = 0;
+    for (index, character) in value[..cursor].char_indices().rev() {
+        let width = ratatui::text::Span::raw(&value[index..index + character.len_utf8()]).width();
+        if before + width >= capacity {
+            break;
+        }
+        start = index;
+        before += width;
+    }
+    let mut end = start;
+    let mut width = 0;
+    for (index, character) in value[start..].char_indices() {
+        let cells =
+            ratatui::text::Span::raw(&value[start + index..start + index + character.len_utf8()])
+                .width();
+        if width + cells > capacity {
+            break;
+        }
+        width += cells;
+        end = start + index + character.len_utf8();
+    }
+    (&value[start..end], before)
+}
+
 fn setup_hint(selected: usize, paint: &Paint) -> &'static str {
     use crate::providers::Agent;
     paint.hint(match Agent::from_index(selected) {
@@ -34,6 +124,8 @@ fn setup_hint(selected: usize, paint: &Paint) -> &'static str {
 fn method_label(method: crate::providers::auth::Method, paint: &Paint) -> &'static str {
     use crate::providers::auth::Method;
     paint.hint(match method {
+        Method::OpenAiBrowser => Message::ProvidersAgentsBrowserLogin,
+        Method::OpenAiDevice => Message::ProvidersAgentsDeviceLogin,
         Method::CodexBrowser => Message::ProvidersAuthLabelCodexBrowser,
         Method::CodexDevice => Message::ProvidersAuthLabelCodexDevice,
         Method::OpenCode => Message::ProvidersAuthLabelOpenCode,
@@ -76,11 +168,7 @@ fn action_hint<'a>(paint: &Paint, action: &'a str) -> &'a str {
         "Use for task" => Message::ProvidersActionUseForTask,
         "Choose model" => Message::ProvidersActionChooseModel,
         "Choose reasoning effort" => Message::ProvidersActionChooseReasoningEffort,
-        "Change Codex connection method" => Message::ProvidersActionChangeCodexConnectionMethod,
-        "Set up native responses (scoped coding)" => {
-            Message::ProvidersActionSetUpNativeResponsesScopedCoding
-        }
-        "Set up CLI agent (tools / edits)" => Message::ProvidersActionSetUpCliAgentToolsEdits,
+        "Choose OpenAI connection method" => Message::ProvidersFamilyMethods,
         "Setup" => Message::ProvidersActionSetup,
         _ => return action,
     };
@@ -164,17 +252,34 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 }
                 for (offset, index) in indices.skip(first).take(capacity).enumerate() {
                     let agent = crate::providers::Agent::from_index(index);
-                    let name =
-                        agent.map_or(state.profiles[index].name.as_str(), |agent| agent.label());
+                    let name = if crate::app::agents::openai_family(index) {
+                        "OpenAI"
+                    } else {
+                        agent.map_or(state.profiles[index].name.as_str(), |agent| agent.label())
+                    };
                     text(
                         frame,
                         row(body, 1 + offset as u16, 1),
                         &format!(
                             "{}{} {} | {}",
                             if index == state.selected { ">" } else { " " },
-                            if index == state.active { "*" } else { " " },
+                            if index == state.active
+                                || crate::app::agents::openai_family(index)
+                                    && crate::app::agents::openai_family(state.active)
+                            {
+                                "*"
+                            } else {
+                                " "
+                            },
                             name,
-                            state.connection_status(index)
+                            if crate::app::agents::openai_family(index)
+                                && state.readiness(index)
+                                    == crate::app::agents::Readiness::MissingCli
+                            {
+                                paint.hint(Message::ProvidersStatusSetup)
+                            } else {
+                                readiness_label(state, index, paint)
+                            }
                         ),
                         if index == state.selected {
                             paint.accent
@@ -183,6 +288,102 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                         },
                     );
                 }
+            }
+            Page::OpenAi | Page::Account => {
+                let account = state.page == Page::Account;
+                text(
+                    frame,
+                    row(body, 0, 1),
+                    if account {
+                        paint.hint(Message::ProvidersAccountBoundary)
+                    } else {
+                        "OpenAI"
+                    },
+                    paint.accent,
+                );
+                let labels: &[Message] = if account {
+                    &[
+                        Message::ProvidersAgentsBrowserLogin,
+                        Message::ProvidersAgentsDeviceLogin,
+                        Message::ProvidersAgentsStorage,
+                        Message::ProvidersFamilyAdvanced,
+                    ]
+                } else if state.family_has_current() {
+                    &[
+                        Message::ProvidersFamilyAccount,
+                        Message::ProvidersFamilyApi,
+                        Message::ProvidersFamilyCustom,
+                        Message::ProvidersFamilyCli,
+                        Message::ProvidersFamilyCurrent,
+                    ]
+                } else {
+                    &[
+                        Message::ProvidersFamilyAccount,
+                        Message::ProvidersFamilyApi,
+                        Message::ProvidersFamilyCustom,
+                        Message::ProvidersFamilyCli,
+                    ]
+                };
+                for (index, &label) in labels.iter().enumerate() {
+                    let label = paint.hint(label);
+                    let value = if account && index == 2 {
+                        format!(
+                            "{label}: {}",
+                            paint.hint(if state.login_persist {
+                                Message::ProvidersAgentsSavePrivateLocalPlaintext
+                            } else {
+                                Message::ProvidersAgentsSessionOlderSavedProfileUnchanged
+                            })
+                        )
+                    } else if !account && index == 4 {
+                        format!(
+                            "{label} · {}",
+                            crate::providers::Agent::from_index(state.selected)
+                                .map_or("", |agent| agent
+                                    .command()
+                                    .trim_start_matches("provider-"))
+                        )
+                    } else {
+                        label.to_owned()
+                    };
+                    text(
+                        frame,
+                        row(body, 1 + index as u16, 1),
+                        &format!(
+                            "{} {value}",
+                            if state.family_choice == index {
+                                ">"
+                            } else {
+                                " "
+                            }
+                        ),
+                        if state.family_choice == index {
+                            paint.accent
+                        } else {
+                            paint.surface
+                        },
+                    );
+                }
+                text(
+                    frame,
+                    row(body, 6, body.height.saturating_sub(6)),
+                    if account {
+                        paint.hint(Message::ProvidersAccountReplace)
+                    } else {
+                        paint.hint(Message::ProvidersFamilyBoundary)
+                    },
+                    paint.muted,
+                );
+            }
+            Page::Install => {
+                state.scroll_max = selection_details(
+                    frame,
+                    body,
+                    Paragraph::new(setup_hint(state.selected, paint))
+                        .style(paint.surface)
+                        .wrap(Wrap { trim: false }),
+                    state.scroll,
+                );
             }
             Page::Methods => {
                 text(
@@ -233,7 +434,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     &format!(
                         "{} | {}",
                         profile.name,
-                        state.connection_status(state.selected)
+                        readiness_label(state, state.selected, paint)
                     ),
                     paint.accent,
                 );
@@ -304,10 +505,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         text(
             frame,
             row(content, content.height.saturating_sub(4), 2),
-            &crate::workspace::privacy::redact(&state.notice),
+            &crate::workspace::privacy::redact(notice(state, paint)),
             paint.muted,
         );
         let footer = match state.page {
+            Page::OpenAi | Page::Account => paint.hint(Message::ProvidersFamilyNavigation).into(),
+            Page::Install => paint.hint(Message::ProvidersNextInstall).into(),
             Page::Providers => paint.format(
                 Template::ProvidersAgentsTypeSearchUpDownSelectEnterRight,
                 &[("action", (action_hint(paint, state.enter_hint())))],
@@ -349,8 +552,33 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         state.reviewed = false;
     } else {
         let version_summary;
+        let native_summary;
         let summary = if let Some(plan) = &state.auth_preview {
-            &plan.summary
+            if matches!(
+                plan.method,
+                crate::providers::auth::Method::OpenAiBrowser
+                    | crate::providers::auth::Method::OpenAiDevice
+            ) {
+                native_summary = vec![
+                    format!("OpenAI / ChatGPT · {}", method_label(plan.method, paint)),
+                    paint.hint(Message::ProvidersAccountBoundary).into(),
+                    paint.hint(Message::ProvidersAccountEndpoint).into(),
+                    paint.hint(Message::ProvidersAccountReplace).into(),
+                    paint
+                        .hint(if state.openai_login_persist() {
+                            Message::ProvidersAccountPrivate
+                        } else {
+                            Message::ProvidersAccountSession
+                        })
+                        .into(),
+                    paint.hint(Message::ProvidersAccountPlaintext).into(),
+                    paint.hint(Message::ProvidersAccountContinue).into(),
+                    paint.hint(Message::ProvidersAccountExpiry).into(),
+                ];
+                &native_summary
+            } else {
+                &plan.summary
+            }
         } else {
             version_summary = vec![
                 format!("{} · version check only", profile.name),
@@ -457,7 +685,7 @@ fn render_connection(
         return;
     };
     let fields = state.connection_fields();
-    let notice = &state.notice;
+    let notice = notice(state, paint).to_owned();
     let editor = state
         .connection
         .as_mut()
@@ -474,7 +702,12 @@ fn render_connection(
     };
     text(frame, row(content, 0, 1), &title, paint.accent);
     let room = content.width >= 54 && content.height >= 12;
-    editor.visible = room;
+    let disclosure = paint.hint(Message::ProvidersAgentsSaveModelSelectRouteMetadataNeverSend);
+    let disclosure_fits = disclosure.lines().count() <= 2
+        && disclosure
+            .lines()
+            .all(|line| ratatui::text::Span::raw(line).width() <= usize::from(content.width));
+    editor.visible = room && disclosure_fits;
     let has_effort = editor.form.effort.is_some();
     let capacity = usize::from(
         content
@@ -570,20 +803,6 @@ fn render_connection(
                     .into(),
                 false,
             ),
-            ConnectionField::Browser => (
-                paint.hint(Message::ProvidersAgentsBrowserLogin),
-                paint
-                    .hint(Message::ProvidersAgentsOwnTokenStaysOfficialCodexCli)
-                    .into(),
-                false,
-            ),
-            ConnectionField::Device => (
-                paint.hint(Message::ProvidersAgentsDeviceLogin),
-                paint
-                    .hint(Message::ProvidersAgentsOwnTokenStaysOfficialCodexCli)
-                    .into(),
-                false,
-            ),
             ConnectionField::LoadCli => (
                 paint.hint(Message::ProvidersAgentsLoadCliToken),
                 paint
@@ -596,6 +815,11 @@ fn render_connection(
                 paint
                     .hint(Message::ProvidersAgentsReviewOwnOverrideDeletionOnly)
                     .into(),
+                false,
+            ),
+            ConnectionField::Advanced => (
+                paint.hint(Message::ProvidersFamilyAdvanced),
+                if editor.advanced { "-" } else { "+" }.into(),
                 false,
             ),
         };
@@ -614,19 +838,18 @@ fn render_connection(
         let capacity = usize::from(content.width)
             .saturating_sub(prefix_width)
             .max(1);
-        let displayed = if private || value.chars().count() <= capacity {
-            value.clone()
+        let (displayed, caret) = if private {
+            (value.as_ref(), 0)
         } else {
-            let prefix_chars = value
-                .char_indices()
-                .take_while(|(index, _)| *index < editor.cursor)
-                .count();
-            let start = if editor.field == index {
-                prefix_chars.saturating_sub(capacity.saturating_sub(1))
-            } else {
-                0
-            };
-            value.chars().skip(start).take(capacity).collect()
+            field_view(
+                &value,
+                if editor.field == index {
+                    editor.cursor
+                } else {
+                    0
+                },
+                capacity,
+            )
         };
         text(
             frame,
@@ -648,7 +871,7 @@ fn render_connection(
                     8
                 }
             } else {
-                editor.cursor.min(capacity.saturating_sub(1))
+                caret
             };
             if 1 + (offset as u16) < content.height && content.width > 0 {
                 frame.set_cursor_position((
@@ -684,7 +907,7 @@ fn render_connection(
             paint.accent,
         );
     }
-    let disclosure = paint.hint(Message::ProvidersAgentsSaveModelSelectRouteMetadataNeverSend);
+    // Two fixed rows; saving is disabled unless every disclosure cell fits.
     text(
         frame,
         row(content, content.height.saturating_sub(5), 2),
@@ -694,7 +917,7 @@ fn render_connection(
     state.scroll_max = selection_details(
         frame,
         row(content, content.height.saturating_sub(3), 2),
-        Paragraph::new(crate::workspace::privacy::redact(notice))
+        Paragraph::new(crate::workspace::privacy::redact(&notice))
             .style(paint.muted)
             .wrap(Wrap { trim: false }),
         state.scroll,
@@ -703,7 +926,7 @@ fn render_connection(
     text(
         frame,
         row(content, content.height.saturating_sub(1), 1),
-        if room {
+        if editor.visible {
             paint.hint(Message::ProvidersAgentsTabFieldsEnterCtrlSLocalPgup)
         } else {
             paint.hint(Message::ProvidersAgentsResizeTo60x18EscCancelNothingSaved)
@@ -761,122 +984,125 @@ mod tests {
     use ratatui::{Terminal, backend::TestBackend, style::Style};
 
     #[test]
-    fn private_setup_masks_paste_and_shows_storage_scope_at_supported_sizes() {
-        let style = Style::default();
-        let paint = Paint {
-            language: crate::i18n::Language::ENGLISH,
-            base: style,
-            surface: style,
-            muted: style,
-            border: style,
-            accent: style,
-            selected: style,
-        };
-        for (width, height) in [(60, 18), (120, 36)] {
-            for agent in [
-                crate::providers::Agent::ChatGPT,
-                crate::providers::Agent::Compatible,
-            ] {
-                let mut state = crate::app::agents::State::new();
-                state.selected = agent.index();
-                state.connection = Some(crate::app::agents::ConnectionEditor {
-                    form: crate::providers::direct::config::Setup {
-                        credential: String::new(),
-                        base_url: "https://api.example/v1".into(),
-                        model: "chosen-model".into(),
-                        effort: None,
-                        effort_model: None,
-                        account_id: "private-account-sentinel".into(),
-                        responses: true,
-                        keyless: false,
-                        persist: false,
-                        source_notice: None,
-                    },
-                    field: 0,
-                    cursor: 0,
-                    visible: false,
-                });
-                assert!(state.paste_connection("private-credential-sentinel"));
-                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-                terminal
-                    .draw(|frame| {
-                        render_connection(
-                            frame,
-                            Rect::new(2, 3, width - 4, height - 6),
-                            &mut state,
+    fn full_connection_sheet_displays_every_disclosure_cell_in_both_languages() {
+        for language in ["en", "ko"] {
+            let language = crate::i18n::Language::parse(language).unwrap();
+            let config = Config {
+                ascii: true,
+                language,
+                no_animation: true,
+                animation_override: Some(false),
+                theme: crate::config::Theme::Dark,
+                color: crate::config::ColorMode::Mono,
+                images: crate::config::ImageMode::Off,
+                assets_dir: std::path::PathBuf::new(),
+                layout: crate::config::LayoutMode::Linear,
+                layout_explicit: true,
+                data_dir: std::path::PathBuf::new(),
+                storage_policy: crate::store::Policy::default(),
+                context_exclusions: vec![],
+                capture_capacity: 1024,
+            };
+            let style = Style::default();
+            let paint = Paint {
+                language,
+                base: style,
+                surface: style,
+                muted: style,
+                border: style,
+                accent: style,
+                selected: style,
+            };
+            for (width, height) in [(60, 18), (120, 36)] {
+                for agent in [
+                    crate::providers::Agent::ChatGPT,
+                    crate::providers::Agent::OpenAI,
+                    crate::providers::Agent::Compatible,
+                ] {
+                    let mut app = App::new("/unused".into(), width, height);
+                    app.agents.selected = agent.index();
+                    app.agents.connection = Some(crate::app::agents::ConnectionEditor {
+                        form: crate::providers::direct::config::Setup {
+                            credential: String::new(),
+                            base_url: "https://api.example/v1".into(),
+                            model: "한글-model".into(),
+                            effort: None,
+                            effort_model: None,
+                            account_id: "private-account-sentinel".into(),
+                            responses: true,
+                            keyless: false,
+                            persist: false,
+                            source_notice: None,
+                        },
+                        field: 0,
+                        cursor: 0,
+                        visible: false,
+                        advanced: true,
+                    });
+                    app.agents.paste_connection("private-credential-sentinel");
+                    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                    for save_selected in [false, true] {
+                        if save_selected {
+                            app.agents.connection.as_mut().unwrap().field = app
+                                .agents
+                                .connection_fields()
+                                .iter()
+                                .position(|field| *field == ConnectionField::Save)
+                                .unwrap();
+                        }
+                        terminal
+                            .draw(|frame| render(frame, frame.area(), &mut app, &config, &paint))
+                            .unwrap();
+                        assert!(app.agents.connection.as_ref().unwrap().visible);
+                        let buffer = terminal.backend().buffer();
+                        let display: String =
+                            buffer.content.iter().map(|cell| cell.symbol()).collect();
+                        assert!(!display.contains("private-credential-sentinel"));
+                        assert!(!display.contains("private-account-sentinel"));
+                        let outer = sheet(Rect::new(0, 0, width, height), 104, height - 2);
+                        // Use the panel's content bounds, including horizontal padding.
+                        let content = panel(
+                            paint.hint(Message::ProvidersAgentsConnections),
+                            &config,
                             &paint,
+                            true,
                         )
-                    })
-                    .unwrap();
-                let display: String = terminal
-                    .backend()
-                    .buffer()
-                    .content
-                    .iter()
-                    .map(|cell| cell.symbol())
-                    .collect();
-                assert!(!display.contains("private-credential-sentinel"));
-                assert!(!display.contains("private-account-sentinel"));
-                assert!(display.contains("********"));
-                assert!(display.contains("SESSION"));
-                assert!(display.contains("NOT encrypted/keychain"));
-                assert!(state.connection.as_ref().unwrap().visible);
-                state.connection.as_mut().unwrap().field = state
-                    .connection_fields()
-                    .iter()
-                    .position(|field| *field == ConnectionField::Save)
-                    .unwrap();
-                terminal
-                    .draw(|frame| {
-                        render_connection(
-                            frame,
-                            Rect::new(2, 3, width - 4, height - 6),
-                            &mut state,
-                            &paint,
-                        )
-                    })
-                    .unwrap();
-                let display: String = terminal
-                    .backend()
-                    .buffer()
-                    .content
-                    .iter()
-                    .map(|cell| cell.symbol())
-                    .collect();
-                assert!(display.contains("Save & choose model"));
-                assert!(display.contains("NEVER send task"));
-                assert!(!display.contains("private-credential-sentinel"));
-                if agent == crate::providers::Agent::ChatGPT {
-                    let editor = state.connection.as_mut().unwrap();
-                    editor.form.effort = Some("high".into());
-                    editor.form.effort_model = Some("chosen-model".into());
-                    editor.form.model = "different-model".into();
+                        .inner(outer);
+                        let disclosure = paint
+                            .hint(Message::ProvidersAgentsSaveModelSelectRouteMetadataNeverSend);
+                        for (line, value) in disclosure.lines().enumerate() {
+                            let mut x = content.x;
+                            let y = content.y + content.height - 5 + line as u16;
+                            for character in value.chars() {
+                                let glyph = character.to_string();
+                                assert_eq!(
+                                    buffer[(x, y)].symbol(),
+                                    glyph,
+                                    "{language:?} {width}x{height} {agent:?}, save_selected={save_selected}, disclosure cell ({x}, {y})"
+                                );
+                                x += ratatui::text::Span::raw(glyph).width() as u16;
+                            }
+                            assert!(x <= content.right());
+                        }
+                    }
+                    terminal = Terminal::new(TestBackend::new(52, 16)).unwrap();
+                    app.width = 52;
+                    app.height = 16;
                     terminal
-                        .draw(|frame| {
-                            render_connection(
-                                frame,
-                                Rect::new(2, 3, width - 4, height - 6),
-                                &mut state,
-                                &paint,
-                            )
-                        })
+                        .draw(|frame| render(frame, frame.area(), &mut app, &config, &paint))
                         .unwrap();
-                    let display: String = terminal
-                        .backend()
-                        .buffer()
-                        .content
-                        .iter()
-                        .map(|cell| cell.symbol())
-                        .collect();
-                    assert!(display.contains("Save resets default effort"));
-                    assert!(display.contains("Save & choose model"));
-                    assert!(display.contains("NOT encrypted/keychain"));
-                    assert_eq!(
-                        state.connection.as_ref().unwrap().form.effort.as_deref(),
-                        Some("high")
-                    );
+                    assert!(!app.agents.connection.as_ref().unwrap().visible);
                 }
             }
         }
+    }
+
+    #[test]
+    fn private_unicode_viewport_keeps_utf8_boundaries_and_cell_caret() {
+        assert_eq!(field_view("한글abc", 6, 5), ("한글a", 4));
+        assert_eq!(field_view("한글abc", 9, 5), ("abc", 3));
+        assert_eq!(field_view("한글abc", 3, 4), ("한글", 2));
+        let (value, caret) = field_view("a한글b", 7, 4);
+        assert_eq!((value, caret), ("글b", 2));
     }
 }

@@ -754,12 +754,12 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         use crate::providers::Agent;
         let route = match app.planning.agent {
             Agent::Codex => "Codex/CLI",
-            Agent::ChatGPT => "Codex/native",
+            Agent::ChatGPT => "OpenAI/OAuth",
             Agent::Claude => "Claude/SDK",
             Agent::OpenCode => "OpenCode/ACP",
             Agent::Gemini => "Gemini/ACP",
             Agent::Devin => "Devin/ACP",
-            Agent::OpenAI => "OpenAI",
+            Agent::OpenAI => "OpenAI/API",
             Agent::Anthropic => "Anthropic",
             Agent::Google => "Gemini/API",
             Agent::Compatible => "Custom",

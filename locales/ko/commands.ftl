@@ -1,4 +1,4 @@
-cmd-provider = { "제공자 연결 선택; 요청을 전송하지 않음" }
+cmd-provider = { "제공자 계열·연결 선택; 요청 전송 없음" }
 
 cmd-new = { "일반 요청을 새 대화로 전송" }
 
@@ -290,7 +290,7 @@ cmd-sylveon = { "Sylveon 폼 선택" }
 
 cmd-provider-codex = { "Codex CLI 방식 (도구 / 편집)" }
 
-cmd-provider-chatgpt = { "Codex 네이티브 방식 (범위 코딩 / 대화)" }
+cmd-provider-chatgpt = { "OpenAI 계정 경로 선택 (ChatGPT 요금제)" }
 
 cmd-provider-claude = { "Claude 선택" }
 
@@ -382,7 +382,7 @@ cmd-version = { "설치된 제공자 버전 확인 검토" }
 
 cmd-diagnostics = { "제공자 진단 정보 확인" }
 
-cmd-connection-method = { "Codex 네이티브 응답 또는 CLI 에이전트 방식 선택" }
+cmd-connection-method = { "OpenAI 계정·API 키·사용자 지정·고급 CLI 선택" }
 
 cmd-provider-use = { "선택한 제공자를 작업에 사용" }
 

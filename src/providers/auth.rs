@@ -1,4 +1,4 @@
-//! Explicit provider-owned authentication. No task prompt or credential is retained here.
+//! Explicit provider authentication. No task prompt or credential is journaled here.
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -7,6 +7,11 @@ use std::time::{Duration, Instant};
 
 use crate::{providers::agent, workspace::runner};
 
+mod openai;
+pub use openai::OpenAiCredential;
+#[cfg(test)]
+pub(crate) use openai::test_credential as test_openai_credential;
+
 const LIFETIME: Duration = Duration::from_secs(300);
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(600);
 const STATUS_TIMEOUT: Duration = Duration::from_secs(15);
@@ -14,6 +19,8 @@ static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Method {
+    OpenAiBrowser,
+    OpenAiDevice,
     CodexBrowser,
     CodexDevice,
     OpenCode,
@@ -34,6 +41,8 @@ pub enum Method {
 impl Method {
     pub fn label(self) -> &'static str {
         match self {
+            Self::OpenAiBrowser => "OpenAI account / browser sign-in",
+            Self::OpenAiDevice => "OpenAI account / device authorization",
             Self::CodexBrowser => "ChatGPT / browser OAuth",
             Self::CodexDevice => "ChatGPT / device authorization",
             Self::OpenCode => "Official provider and auth-method chooser",
@@ -72,10 +81,19 @@ impl Method {
     }
     /// Eevee-owned website flow: no provider executable or credential store.
     pub fn is_web(self) -> bool {
-        matches!(self, Self::DevinWeb)
+        matches!(
+            self,
+            Self::DevinWeb | Self::OpenAiBrowser | Self::OpenAiDevice
+        )
     }
     pub fn guidance(self) -> Option<&'static str> {
         match self {
+            Self::OpenAiBrowser => Some(
+                "Signs in directly with OpenAI, without an installed CLI. The browser returns to http://127.0.0.1:1455/auth/callback (1457 if available instead); paste the complete redirect URL into the hidden terminal input if the callback cannot reach this machine. PKCE and state bind this attempt. Esc/Ctrl+C cancels; old redirects cannot be reused. For WSL/SSH, device authorization needs no callback.",
+            ),
+            Self::OpenAiDevice => Some(
+                "Signs in directly with OpenAI without a CLI or localhost callback. Enable device-code authorization in ChatGPT Settings > Security (workspace policy may require an administrator). Open https://auth.openai.com/codex/device and enter only the one-time code shown in this terminal for the login you initiated. Keep this terminal open; Esc/Ctrl+C cancels. No automatic browser fallback.",
+            ),
             Self::CodexBrowser => Some(
                 "Browser login requires the browser to reach the CLI's localhost listener (Codex uses port 1455, or 1457). On WSL, Windows reserved TCP ranges can block both ports even when the Linux listener is healthy. Use Device authorization to avoid host forwarding and administrator/network changes. Keep browser login running until its callback (10 min limit); expired/cancelled callback URLs cannot be reused. Never share callback URLs.",
             ),
@@ -114,7 +132,7 @@ impl Method {
             Self::OpenCode => &["auth", "login", "--pure"],
             Self::CodexStatus => &["login", "status"],
             Self::OpenCodeStatus => &["auth", "list"],
-            Self::DevinWeb => &[],
+            Self::DevinWeb | Self::OpenAiBrowser | Self::OpenAiDevice => &[],
             Self::DevinBrowser => &["auth", "login"],
             Self::DevinManualToken => &["auth", "login", "--force-manual-token-flow"],
             Self::DevinStatus => &["auth", "status"],
@@ -137,6 +155,9 @@ pub fn methods(profile: usize) -> &'static [Method] {
             Method::DevinBrowser,
             Method::DevinManualToken,
         ],
+        profile if profile == crate::providers::Agent::ChatGPT.index() => {
+            &[Method::OpenAiBrowser, Method::OpenAiDevice]
+        }
         _ => &[],
     }
 }
@@ -159,7 +180,10 @@ pub fn default_method(profile: usize) -> usize {
     // Codex device auth and Claude paste-code sit at index 1; Devin's only
     // callback-free method with a persisted credential store is its manual
     // token CLI flow at index 2.
-    if *CALLBACK_FREE && matches!(profile, 0 | 1 | agent::DEVIN) {
+    if *CALLBACK_FREE
+        && (matches!(profile, 0 | 1 | agent::DEVIN)
+            || profile == crate::providers::Agent::ChatGPT.index())
+    {
         if profile == agent::DEVIN { 2 } else { 1 }
     } else {
         0
@@ -466,6 +490,9 @@ impl Plan {
         if !method.is_web() {
             return Err("Authentication method does not belong to this provider".into());
         }
+        if matches!(method, Method::OpenAiBrowser | Method::OpenAiDevice) {
+            return Ok(openai::plan(profile, method));
+        }
         let mut lines = vec![
             format!("Selected method: {}", method.label()),
             "No provider executable is launched. Eevee binds a loopback HTTP listener on 127.0.0.1:59653 (/callback, /launch), opens or prints the provider's official sign-in URL, verifies the returned state, and POSTs the authorization code and PKCE verifier to https://api.devin.ai/auth/cli/token. No other host or credential is contacted.".into(),
@@ -562,17 +589,19 @@ impl Outcome {
         }
     }
 }
-/// A completed authentication attempt; `credential` is only ever present for
-/// Eevee-owned website flows and holds the returned session token in memory.
+/// A completed authentication attempt. Typed credentials are transient and may
+/// be applied only by the owner of the matching, still-approved attempt.
 pub struct Completion {
     pub outcome: Outcome,
     pub credential: Option<SessionCredential>,
+    pub openai_credential: Option<OpenAiCredential>,
 }
 impl Completion {
     fn bare(outcome: Outcome) -> Self {
         Self {
             outcome,
             credential: None,
+            openai_credential: None,
         }
     }
 }
@@ -589,7 +618,10 @@ pub fn run(plan: &Plan, project: &Path) -> Completion {
         if INTERRUPTED.load(Ordering::Acquire) {
             return Completion::bare(Outcome::Cancelled);
         }
-        return devin_web::login();
+        return match plan.method {
+            Method::OpenAiBrowser | Method::OpenAiDevice => openai::login(plan.method),
+            _ => devin_web::login(),
+        };
     }
     let prepared = match plan.qualify(project) {
         Ok(value) => value,
@@ -1300,17 +1332,42 @@ mod devin_web {
         }
     }
 
-    fn open_browser(url: &str) {
-        let result = if cfg!(target_os = "macos") {
-            std::process::Command::new("open").arg(url).spawn()
-        } else if cfg!(target_os = "windows") {
-            std::process::Command::new("cmd")
-                .args(["/c", "start", "", url])
-                .spawn()
-        } else {
-            std::process::Command::new("xdg-open").arg(url).spawn()
+    pub(super) fn open_browser(url: &str) {
+        #[cfg(windows)]
+        let failed = {
+            use windows_sys::Win32::UI::Shell::ShellExecuteW;
+            use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+            // Pass the complete URL as data, not through cmd.exe: OAuth query
+            // separators and other shell metacharacters must remain untouched.
+            let url: Vec<u16> = url.encode_utf16().chain(Some(0)).collect();
+            // SAFETY: the URL is NUL-terminated and lives through this call.
+            // A null operation selects the URL handler's default (open) verb.
+            unsafe {
+                ShellExecuteW(
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                    url.as_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    SW_SHOWNORMAL,
+                ) as isize
+                    <= 32
+            }
         };
-        if result.is_err() {
+        #[cfg(not(windows))]
+        let failed = {
+            let program = if cfg!(target_os = "macos") {
+                "open"
+            } else {
+                "xdg-open"
+            };
+            std::process::Command::new(program)
+                .arg(url)
+                .spawn()
+                .is_err()
+        };
+        if failed {
             println!("Could not launch a browser; open the URL above manually.");
         }
     }
@@ -1428,6 +1485,7 @@ mod devin_web {
                                 Ok(credential) => Completion {
                                     outcome: Outcome::Authenticated,
                                     credential: Some(credential),
+                                    openai_credential: None,
                                 },
                                 Err(reason) => {
                                     println!("Devin token exchange failed: {reason}.\r");
@@ -1465,6 +1523,7 @@ mod devin_web {
                                         token: trimmed.to_string(),
                                         expires_at: jwt_expiry(trimmed),
                                     }),
+                                    openai_credential: None,
                                 };
                             }
                             let (code, got_state) = parse_callback_input(&pasted);
@@ -1475,6 +1534,7 @@ mod devin_web {
                                         Ok(credential) => Completion {
                                             outcome: Outcome::Authenticated,
                                             credential: Some(credential),
+                                            openai_credential: None,
                                         },
                                         Err(reason) => {
                                             println!("Devin token exchange failed: {reason}.\r");

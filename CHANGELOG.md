@@ -2,6 +2,12 @@
 
 ## 2026-10-23
 
+- feat(providers): unified OpenAI account, API, custom endpoint and advanced CLI setup under one family while preserving durable routes and explicit billing/account boundaries.
+- feat(auth): added standalone OpenAI browser PKCE and device login with reviewed session/private storage, bounded exchanges and owner-bound model continuation without a CLI prerequisite.
+- fix(providers): made setup actionable and bilingual, simplified primary API fields, isolated private paste/carets and kept complete plaintext/not-keychain disclosures visible at minimum size.
+- fix(auth): preserved unrelated conversations on native cancellation, deferred post-login route/model selection across small terminals, restored blocking accepted sockets and opened complete Windows authorization URLs without a command shell.
+- fix(config): replaced stale selected account overrides after approved login, separated credential import from malformed model configuration and excluded custom-server defaults from subscription routing.
+
 - docs(release): published v0.1.22 from exact source `4b253b5` after complete same-attempt Check/all-five-native qualification and immutable promotion; verified eight public digests, seven manifest entries, source installers and all native package identities.
 - test(release): verified downloaded bilingual compact/wide formations, every portable TM form/kind through two projects/restarts, motion/key/paste and actual previous-writer refusal/resume; passed all 24 installation groups including 34 installed-native scenarios and matched the reinstalled executable to the public package.
 
@@ -36,6 +42,14 @@
 - docs(release): published v0.1.19 from source `63f1007` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.23
+
+- feat(providers): unified OpenAI setup and routed explicit account, API-key, custom and advanced CLI methods without silent billing/account fallback.
+- feat(auth): added CLI-free browser/device account login, reviewed private persistence and scoped credential replacement; retained explicit reconnect on access-grant expiry.
+- fix(ux): localized shallow connection actions, protected drafts/private paste and Unicode carets, and rendered complete compact storage disclosures before saving.
+- fix(auth): preserved existing sessions on native cancellation, retained resize-delayed model continuation and removed Windows shell parsing from browser launch.
+- docs(compatibility): retained Schema 18 and complete SDK bridge 9; kept full-backup guidance and distinguished deterministic local proof from live account acceptance.
 
 ## 0.1.22
 

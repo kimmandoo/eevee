@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
 use super::{App, Overlay};
-use crate::store::EditorField;
+use crate::{providers::Agent, store::EditorField};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -144,18 +144,25 @@ impl App {
             return false;
         }
         self.pending_request = None;
-        let status = self.agents.connection_status(self.planning.agent.index());
-        if matches!(status, "Not installed" | "Not connected") {
-            self.agents.selected = self.planning.agent.index();
-            self.agents.page = super::agents::Page::Actions;
-            self.agents.action = 0;
-            self.agents.notice = format!(
-                "{status}. Connect or install this provider, then return to your retained request and press Enter."
-            );
+        if matches!(
+            self.agents.readiness(self.planning.agent.index()),
+            super::agents::Readiness::MissingCli
+                | super::agents::Readiness::SignedOut
+                | super::agents::Readiness::Setup
+        ) {
             self.composer_return = Some(EditorField::Request);
             self.editing = false;
             self.input.clear();
+            self.notice.clear();
             self.open_overlay(Overlay::Agents);
+            if matches!(
+                self.planning.agent,
+                Agent::Codex | Agent::ChatGPT | Agent::OpenAI | Agent::Compatible
+            ) {
+                self.agents.begin_openai_family();
+            } else {
+                self.agents.begin_connection(self.planning.agent);
+            }
             return true;
         }
         // Only the committed snapshot supplies provider input, including redaction.

@@ -574,15 +574,19 @@ def terminal_environment(mode):
     return environment
 
 
-def confirm_exit(session, choice=RIGHT + "\r"):
-    """Finish a requested exit: a clean task exits directly, otherwise the
-    Confirm exit review appears and `choice` selects save-and-quit."""
+def confirm_exit(session, choice=RIGHT + "\r", *, owned_work=False):
+    """Finish a requested exit; all-owner cancellation needs explicit fixture opt-in."""
     deadline = time.monotonic() + 10
-    while session.alive() and "Confirm exit" not in session.display():
+    while session.alive():
+        if "Confirm exit" in session.display():
+            session.send(choice)
+            return
+        if owned_work and "Quit / ALL owned work" in session.display():
+            session.send(RIGHT + "\r")
+            owned_work = False
+            continue
         assert time.monotonic() < deadline, "application neither exited nor offered exit review"
         session.pump(0.02)
-    if session.alive():
-        session.send(choice)
 
 
 def without_notice(screen):

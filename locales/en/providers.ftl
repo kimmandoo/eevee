@@ -36,7 +36,7 @@ providers-agents-back-check-version-y-n-d-tab = { "Back [Check version] | y/n d 
 
 providers-agents-back-check-version-y-n-d-tab-2 = { "[Back] Check version | y/n d Tab Enter" }
 
-providers-agents-codex-native-official-chatgpt-scoped-coding = { "Codex native | official ChatGPT | scoped coding" }
+providers-agents-codex-native-official-chatgpt-scoped-coding = { "OpenAI account | ChatGPT plan | Advanced token" }
 
 providers-agents-blank-keeps-selected-source = { "(blank keeps selected source)" }
 
@@ -58,8 +58,6 @@ providers-agents-select-route-metadata-only = { "Select route; metadata only" }
 
 providers-agents-browser-login = { "Browser login" }
 
-providers-agents-own-token-stays-official-codex-cli = { "Own token stays; official Codex CLI" }
-
 providers-agents-device-login = { "Device login" }
 
 providers-agents-load-cli-token = { "Load CLI token" }
@@ -73,8 +71,46 @@ providers-agents-review-own-override-deletion-only = { "Review own override dele
 providers-agents-model-changed-save-resets-default-effort-choose = { "Model changed: Save resets default effort; choose anew." }
 
 providers-agents-save-model-select-route-metadata-never-send =
-    { "Save+model: select route + metadata; NEVER send task." }
-    { "Saved plaintext; NOT encrypted/keychain. Ctrl+S local." }
+    { "Save+model: route + metadata only; NEVER send task." }
+    { "Plaintext; NOT encrypted/keychain. Ctrl+S local." }
+
+providers-family-account = Sign in with ChatGPT
+providers-family-api = Use an API key
+providers-family-custom = Custom / local endpoint
+providers-family-cli = Advanced: CLI agent
+providers-family-current = Use current connection
+providers-family-advanced = Advanced settings
+providers-family-navigation = Up/Down or Tab select | Enter open | Esc back
+providers-family-boundary = Account: ChatGPT plan. API: API billing. No fallback.
+providers-account-boundary = ChatGPT plan / official account; no CLI required.
+providers-account-replace = Login replaces active app account; never sends task.
+providers-account-session = Session only; saved account unchanged until exit.
+providers-account-private = Replace saved account; private local plaintext.
+providers-account-plaintext = NOT encrypted / NOT keychain.
+providers-account-continue = After login: select ChatGPT + model metadata only.
+providers-account-endpoint = Fixed: https://chatgpt.com/backend-api/codex
+providers-status-checking = Checking
+providers-status-configured = Settings found · unchecked
+providers-status-setup = Setup needed
+providers-status-missing = CLI installation needed
+providers-status-signed-in = Sign-in reported · unchecked
+providers-status-session = Session sign-in · unchecked
+providers-status-signed-out = Sign in needed
+providers-status-unknown = Status unknown
+providers-next-setup = Choose a connection method; no task is sent.
+providers-next-model = Choose model; eligibility is not yet checked.
+providers-next-install = Install the CLI, then Enter to refresh.
+providers-login-retry = Login did not complete. Retry the selected method.
+providers-login-stale = Login continuation expired; settings unchanged.
+providers-login-saved = Login saved; choose model metadata. No task sent.
+providers-setup-cancelled = Setup cancelled; settings unchanged.
+providers-family-methods = Choose OpenAI connection method
+providers-account-expiry = Reconnect when login expires; no auto-renewal.
+providers-login-unknown = Login status unknown; check status or choose model.
+providers-preparing-review = Preparing review; no login or task sent.
+providers-review-cancelled = Review cancelled; no login or task sent.
+providers-refreshing = Refreshing local configuration; no network request.
+providers-private-editing = Blank key keeps source. Ctrl+U clears; Ctrl+S saves locally.
 
 providers-agents-tab-fields-enter-ctrl-s-local-pgup = { "Tab Fields | Enter | Ctrl+S Local | PgUp/Dn | Esc" }
 
@@ -687,7 +723,7 @@ providers-setup-gemini = { "Install/update latest stable Gemini on PATH: npm ins
 
 providers-setup-devin = { "Install latest stable Devin from https://docs.devin.ai/cli/; update an existing installation with devin update. Then Refresh installed providers. Eevee does not run an installer automatically." }
 
-providers-setup-chatgpt = { "Native ChatGPT uses a provider access token, not an OpenAI API key. Enter a current token here, use CODEX_ACCESS_TOKEN (+ optional CODEX_ACCOUNT_ID), or explicitly delegate browser/device login to the official Codex CLI and use its read-only CODEX_HOME/auth.json. No app-owned ChatGPT OAuth client is available; without Codex, supply an access token or choose OpenAI API with separate API billing. Keychain-only login is not readable. Tokens can expire; renew through the provider, then replace the token or log in again. Eevee does not refresh tokens or modify the provider store. Native Implement proposes new/existing workspace paths and creates or replaces only after exact one-shot permission; /paths optionally restricts targets and [] clears the restriction. Up to eight files, 64 KiB per file. Plan/Review remain read-only. Setup offers session-only storage by default, or explicitly saved private local plaintext (not encrypted or an OS keychain). Configuration and metadata access do not prove inference, account access or billing." }
+providers-setup-chatgpt = { "Choose Browser or Device login directly; no installed CLI is needed. This selects the official ChatGPT account route and its plan, not metered OpenAI API billing. Review account replacement, session-only or private local plaintext storage, and model-metadata-only continuation before login. Saved credentials are not encrypted or stored in a keychain. Reconnect when the access grant expires; Eevee does not auto-renew it or modify a provider credential store. Advanced settings retain manual access token/account entry and explicit CLI-token import. Native Implement proposes new/existing workspace paths and creates or replaces only after exact one-shot permission; /paths optionally restricts targets. Plan/Review remain read-only. Configuration and metadata access do not prove model eligibility." }
 
 providers-setup-openai = { "Enter an OpenAI API key here, or use OPENAI_API_KEY; optional OPENAI_BASE_URL and OPENAI_MODEL. This is metered API access, not ChatGPT subscription authentication. Setup offers session-only storage by default, or explicitly saved private local plaintext (not encrypted or an OS keychain). Configuration and metadata access do not prove inference, account access or billing." }
 
@@ -750,12 +786,6 @@ providers-action-use-for-task = { "Use for task" }
 providers-action-choose-model = { "Choose model" }
 
 providers-action-choose-reasoning-effort = { "Choose reasoning effort" }
-
-providers-action-change-codex-connection-method = { "Change Codex connection method" }
-
-providers-action-set-up-native-responses-scoped-coding = { "Set up native responses (scoped coding)" }
-
-providers-action-set-up-cli-agent-tools-edits = { "Set up CLI agent (tools / edits)" }
 
 providers-action-setup = { "Setup" }
 
