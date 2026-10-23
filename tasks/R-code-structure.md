@@ -1,44 +1,36 @@
 # R — Code structure
 
-Done on 2026-10-15 (`refactor(src)`): modules grouped into `store/`, `workspace/`, `providers/`, `platform/`; `store.rs` split by role; inline tests of large files moved into sibling `tests.rs`. RF03 done the same day: `impl App` split into `app/{events,tasks,keys,editing,overlays}.rs`. Remaining goal: no non-test source file above ~1,200 lines, split along responsibilities rather than line counts.
+The initial store/workspace/provider/platform grouping, RF03 app split and RF05 planning split are complete; see [COMPLETED.md](COMPLETED.md). Remaining work separates actual responsibilities. File size is a diagnostic, not a reason to invent abstraction or duplicate already-shared tooling.
 
 Rules for every RF task:
-- **Behavior-free:** a pure move or extraction, with no logic or visibility widening beyond `pub(super)`. The test count (375 passed, 2 ignored at `d93402a`) must be unchanged.
-- **Self-referencing test filters:** grep `'"[a-z_:]*tests::'` before moving a module; runner tests launch themselves by test path.
-- **Script paths:** `scripts/terminal_smoke.py` copies `platform/terminal.rs` + `platform/input.rs` standalone, so they must keep using `super::input`. `scripts/installation_smoke.py` reads `platform/distribution.rs` and `ui/artwork.rs`.
-- **One file per commit:** `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`, `cargo test`. Update README's source-layout table when a folder changes.
-- **Order:** do RF tasks right before the feature task that touches the same file (e.g. RF06 before PT06B), not as a big-bang pass.
+- **Behavior-free:** preserve the immediately preceding source's behavior, tests and visibility boundaries; do not pin the historical 375-test baseline or remove meaningful coverage to keep a count.
+- **Self-referencing fixtures:** find and update exact self-spawn test filters together with module moves. Preserve their real process behavior.
+- **Script paths:** check actual source dependencies in terminal/installation drivers before moving modules; keep standalone `platform/terminal.rs` and `platform/input.rs` linkage working.
+- **Coherent commits:** one responsibility extraction at a time, with pinned Rust 1.90.0 formatting, locked all-target/all-feature tests, strict Clippy and the affected actual smoke journey. Update README's source-layout table when ownership changes.
+- **Order:** just before the feature that genuinely needs the extraction, not a cleanup wave ahead of Pokémon completion. Completed PT06B is not a future prerequisite.
 
-### RF01 — Split `providers/codex.rs` (2,592 lines)
+### RF01 — Separate remaining Codex transport responsibilities
 
-- [ ] Separate edit tooling, model listing and transport.
-- **Priority:** 2. **Needs:** —. **Builds on:** —.
-- **Change:** `codex/edit.rs` (EditBaseline, digest, read/apply replacement), `codex/models.rs` (ModelListing), `codex/transport.rs` (`run_transport`, about 1,400 lines: extract its per-message handlers first), keeping `codex.rs` as the worker/payload entry point.
+- [ ] Separate model listing and transport handlers without duplicating shared file tooling.
+- **Priority:** 2. **Needs:** —. **Builds on:** A02, A03.
+- **Change:** Extract remaining `ModelListing` and `run_transport` responsibilities into focused modules, keeping the worker/payload entry point clear. Codex already uses `providers::writes` for shared proposals, validation and file tools; do not recreate the obsolete private `codex/edit.rs` plan.
 - **Accept:** Codex tests and `scripts/planning_smoke.py`/`implementation_smoke.py` (offline cases) pass unchanged.
 
-### RF02 — Split `providers/acp.rs` (2,188 lines)
+### RF02 — Separate remaining ACP protocol responsibilities
 
 - [ ] Separate framing, negotiation/permissions, models and the transport loop.
 - **Priority:** 2. **Needs:** —. **Builds on:** —.
-- **Change:** `acp/rpc.rs` (Framer, rpc id validation, bounds), `acp/permissions.rs` (permission options, selections), `acp/models.rs`, `acp/transport.rs`.
-- **Accept:** The ACP tests pass unchanged.
+- **Change:** Separate framing/RPC identity and bounds, negotiation/permission selections, model handling and transport along existing ownership. Preserve the already-extracted `acp/files.rs` shared filesystem route rather than making another file-policy implementation.
+- **Accept:** ACP behavior tests and actual controlled prompt/permission/cancel/filesystem journeys pass unchanged.
 
-### RF04 — Split `ui.rs` (1,974 lines)
+### RF04 — Separate remaining UI layout and chrome
 
 - [ ] Separate layout helpers from surfaces.
 - **Priority:** 2. **Needs:** —. **Builds on:** —.
 - **Change:** `ui/layout.rs` (shell, centered, inner, grid_cell, occlusion), `ui/workspace.rs` (workspace/inspect/repository), `ui/chrome.rs` (header, footer, selection line, confirmation), with `Paint` staying in `ui.rs`.
 - **Accept:** UI tests and the workbench smoke pass unchanged.
 
-### RF05 — Split `app/planning.rs` (1,866 lines)
-
-- [x] Separate the planning picker, review and journal state.
-- **Priority:** 2. **Needs:** —. **Builds on:** —.
-- **Change:** Split along the existing picker / review / journal sections.
-- **Accept:** Planning tests pass unchanged.
-- **Watch out:** Do this before PT06B, which replaces this state with per-partner slots.
-
-### RF06 — Split `workspace/runner.rs` (1,775 lines)
+### RF06 — Separate runner validation, capture and native ownership
 
 - [ ] Separate spec validation, process ownership, capture and the native transport.
 - **Priority:** 2. **Needs:** —. **Builds on:** —.
@@ -47,21 +39,21 @@ Rules for every RF task:
 
 ### RF07 — Split `providers/claude.rs`, `providers/auth.rs`, `providers/agent.rs`
 
-- [ ] Bring each provider file below the limit.
-- **Priority:** 3. **Needs:** —. **Builds on:** —.
-- **Change:** One commit per file: claude (sidecar process vs credential routes), auth (per-provider login methods), agent (preflight vs catalogue).
+- [ ] Separate sidecar transport, credential routes, login methods and catalogue responsibilities.
+- **Priority:** 3. **Needs:** —. **Builds on:** A01.
+- **Change:** Make sequential coherent extractions: Claude sidecar process versus credential routes, provider-specific auth methods, and preflight versus catalogue. Preserve the existing shared policy and credential-ownership boundaries.
 - **Accept:** Tests and `auth_smoke.py` offline cases pass unchanged.
 
 ### RF08 — Split `app/execution.rs`, `app/workflows.rs`, `workspace/repo.rs`
 
-- [ ] Bring the remaining files below the limit.
-- **Priority:** 3. **Needs:** —. **Builds on:** —.
-- **Change:** One commit per file along existing section boundaries.
+- [ ] Separate remaining execution, workflow and repository responsibilities.
+- **Priority:** 3. **Needs:** —. **Builds on:** R01, S03, C01.
+- **Change:** Extract one existing responsibility at a time while preserving its owner and callers; do not split merely to satisfy a line-count target.
 - **Accept:** Tests and the related smoke scripts pass unchanged.
 
-### RF09 — Split `store/tests.rs` (3,239 lines)
+### RF09 — Split remaining legacy store tests by responsibility
 
 - [ ] Mirror the store submodules in tests.
 - **Priority:** 3. **Needs:** —. **Builds on:** —.
-- **Change:** Turn `store/tests.rs` into `store/tests/{tasks,runs,schema,recovery,memories}.rs` with shared fixtures in `store/tests.rs`.
-- **Accept:** The same test count passes; `store::tests::interrupted_migration_process_fixture` keeps a path the self-spawning test can find (update its filter string if it moves).
+- **Change:** Group remaining task/run/schema/recovery/memory tests with shared fixtures, reusing the already-dedicated move/record/held/ribbon test modules.
+- **Accept:** Preserve the immediately preceding meaningful cases and outcomes; `store::tests::interrupted_migration_process_fixture` retains a discoverable exact self-spawn filter, updated together if its path moves. Exercise the actual interrupted-migration scenario.

@@ -387,7 +387,8 @@ Please keep the approval, storage and cancellation contracts intact, add a focus
 | [Design rules](docs/DESIGN_RULES.md) | Product, visual, privacy and lifecycle contract |
 | [Agent compatibility](docs/AGENT_COMPATIBILITY.md) | Protocols, authentication and control boundaries |
 | [Implementation plan](docs/IMPLEMENTATION_PLAN.md) | Architecture and acceptance gates |
-| [Task backlog](task.md) | Open work index and recommended order; details in `tasks/` |
+| [Task backlog](task.md) | Unfinished work, Pokémon-first milestones and genuine prerequisites |
+| [Completed work](tasks/COMPLETED.md) | Archived specifications, stable task IDs and scoped completion evidence |
 | [Work checkpoint](docs/WORK_CHECKPOINT.md) | Verification evidence and platform limits |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Terminal and operational diagnostics |
 

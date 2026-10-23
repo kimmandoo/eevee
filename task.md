@@ -1,81 +1,55 @@
-# Tasks
+# Active tasks
 
-Index of open work. Each section lives in its own file under [`tasks/`](tasks/); every ID is one small, separately committed unit. Completed specs were removed on 2026-10-15 and remain in git history (`git show fadc6f4:task.md`), `docs/WORK_CHECKPOINT.md` and `CHANGELOG.md`. Contract: [design rules](docs/DESIGN_RULES.md). Architecture: [implementation plan](docs/IMPLEMENTATION_PLAN.md). Adapters: [agent compatibility](docs/AGENT_COMPATIBILITY.md).
+Only unfinished work belongs here. Completed specifications and stable dependency IDs are in [tasks/COMPLETED.md](tasks/COMPLETED.md); dated execution/release evidence remains in [WORK_CHECKPOINT.md](docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](CHANGELOG.md). Contract: [design rules](docs/DESIGN_RULES.md). Provider boundaries: [agent compatibility](docs/AGENT_COMPATIBILITY.md).
 
-| File | Section | Open |
+## Current state
+
+- **Released:** [v0.1.21](https://github.com/kimmandoo/eevee/releases/tag/v0.1.21), removing everyday navigation detours while preserving reviews, live-task ownership and drafts. Exact-source native qualification and public asset verification passed; detailed runtime/installation evidence is recorded in the checkpoint.
+- **Compatibility:** Schema 18 and complete SDK bridge 9, unchanged from v0.1.20. Back up the full data directory before upgrading from an older schema; an in-place downgrade is not backup restoration.
+- **Remaining:** **38 tasks**. Pokémon completion has **three product features plus one enabling accessibility task**; the other 34 follow that milestone. UX03 is complete, not a new implementation task.
+- **Next implementation when requested:** **PT11 — Formations**. This reorganization does not itself authorize implementing the remaining backlog or running paid/live model trials.
+
+## Pokémon completion first
+
+| Order | Task | Deliverable and genuine prerequisite |
 |---|---|---|
-| [A-party.md](tasks/A-party.md) | Party: free form switching and cooperating partners | 1 |
-| [B-partner-basics.md](tasks/B-partner-basics.md) | Partner basics and form suggestion | 0 |
-| [C-relays.md](tasks/C-relays.md) | Form relays | 0 |
-| [D-moves.md](tasks/D-moves.md) | Moves: teaching and learning skills | 1 |
-| [E-partner-record.md](tasks/E-partner-record.md) | Partner record and flavor | 1 |
-| [F-context-tools.md](tasks/F-context-tools.md) | Context, token economy and tool calling | 16 |
-| [G-ux-platform.md](tasks/G-ux-platform.md) | UX, platform and release | 7 |
-| [H-provider-acceptance.md](tasks/H-provider-acceptance.md) | Provider acceptance (blocked) | 6 |
-| [R-code-structure.md](tasks/R-code-structure.md) | Code structure | 7 |
+| 1 | [PT11](tasks/A-party.md) | Save, preview and reapply a party formation using existing recipes and owned partner state; preserve drafts and never start work. Ready now. |
+| 2 | [MV08B](tasks/D-moves.md) | Portable TM export/import for every supported move kind, explicit local teaching and fresh use-time review. Reuse existing create-only publication; the missing reviewed portable-export slice belongs here, not behind all of S04. Ready now. |
+| 3 | [UX04B](tasks/G-ux-platform.md) | Persistent reduced motion plus explicit installer/update opt-out, extending the existing `--no-animation` behavior. Finish the whole task rather than leaving an unnamed installer remainder. |
+| 4 | [PK03](tasks/E-partner-record.md) | Optional bounded picker transition on the existing one-time evolution receipt. Needs UX04B; static text, approval priority and input preservation remain mandatory. |
 
-## Status
+**Milestone exit:** All four acceptance sets pass, including actual English/Korean 120×36 and 60×18 journeys, restart, neutral cancellation, busy ownership and no implicit send/run/grant. Party, moves, summary, Dex, held references, ribbons, automatic form selection and the static evolution popup are already implemented; do not rebuild them. No XP, levels, streaks, random unlocks or provider access gates are added.
 
-- **Released:** [0.1.20](https://github.com/kimmandoo/eevee/releases/tag/v0.1.20) (tags v0.1.0–v0.1.20), adding canonical current-folder projects, shared mediated file operations, distinct actual-arrival code presentation, held references and factual milestone history. Schema 18 requires a complete data-directory backup; SDK bridge 9 requires the complete sidecar update. Exact-source Check/all-five-native qualification, immutable publication, every public asset and downloaded installation/runtime passed.
-- **Latest user request — active:** Shallow everyday navigation is implemented for the next release: common/semantic actions, direct source-list return, current-task return without reload and unchanged-model acceptance without redundant reasoning. Finish actual runtime and native release qualification first; after publication, audit and reorganize remaining tasks around Pokémon feature completion, correct stale requirements and separate completed work.
-- **Done:** the 25 original tasks plus PT01, PT02A/PT02B, PT03A/PT03B, PT04A/PT04B/PT04C, PT05A/PT05B, RF05, PT06A/PT06B/PT06C, PT07A/PT07B/PT07C, PT08A/PT08B, PT09, EV04, EV03A, EV03B, EV07, PK01, EV01A, EV01B, EV01C, EV02, EV10A, EV10B, EV14, EV12, EV13A, EV13B, EV15, EV16, PT10, MV01A/MV01B/MV01C, MV02A/MV02B, MV03A/MV03B/MV03C, MV04/MV05/MV06/MV07, MV08A, C03A/C03B/T01A, EV05/EV06/PK02/EV08A/EV08B/PK05A/PK05B/EV09/EV17/EV11/EV18/PK04/PK06 and the first code-structure pass (index below). **Open:** 39 small tasks. **Dropped:** T05.
-- **Blocked:** section H needs permitted Claude credentials and completed Gemini authentication.
-- **Partially implemented:** T01's remaining context-comparison/receipt track, T03 (in-packet dedup), A04/A06/A07 adapters.
+## Remaining tracks
 
-### Completed index (referenced by "Builds on")
+| File | Unfinished scope | Open |
+|---|---|---:|
+| [A — Party](tasks/A-party.md) | Formations | 1 |
+| [D — Moves](tasks/D-moves.md) | Portable TM files | 1 |
+| [E — Partner record](tasks/E-partner-record.md) | Optional evolution transition | 1 |
+| [F — Context and tools](tasks/F-context-tools.md) | Context comparison/receipts, deterministic selection, tool artifacts/plans and measured optimization | 16 |
+| [G — UX and platform](tasks/G-ux-platform.md) | Reduced motion, remaining diagnostics, density, workflow export, update review and rollback eligibility | 6 |
+| [H — Acceptance](tasks/H-provider-acceptance.md) | Live-provider rows, composed quality/resource measurements and native distribution evidence | 6 |
+| [R — Structure](tasks/R-code-structure.md) | Responsibility-based, just-in-time extractions | 7 |
 
-V01 sanctuary layout · P01 native terminal lifecycle · V02A/V02B species art and native graphics · V03 evolution picker · UX01 focus/editing · E01 durable goal · E02 task cards/resume · E03 task lifecycle/privacy/quota · C01 repository baseline/diff · C02 Vaporeon source map/basket · R01 Jolteon approve/run/cancel · R02 execution journal/freshness · UX02 interruption/recovery · P02 filesystem/process parity · A01 agent preflight · A02 Espeon planning request · A03 Flareon implementation · A05 OpenCode ACP · U01 Umbreon hypotheses · L01 Leafeon refactor comparison · G01 Glaceon review desk · S01 Sylveon handoff · S02 curated memory (Bond) · S03 Evolution Stone recipes · PT01 party contract (DESIGN_RULES § Party: ≤6 partners, ≤3 working per task, one writer) · PT02A/PT02B partner table and lead accessor · PT03A/PT03B named form commands and previous-form toggle · PT04A/PT04B party roster and add partner · PT06A partner attribution · PT06B per-partner request slot · PT06C partner-named approvals · EV04 form empty states · EV03A capability chip · EV03B owning-form redirect · RF03 `app.rs` split.
+B (partner basics) and C (relays) are entirely completed and have moved into the archive, not the active sequence.
 
-EV07 guarded return to Eevee · PK01 personal partner nicknames · EV01A evidence-based form suggestions · EV01B picker recommendation and durable dismissal · EV02 nonblocking form carry-over.
+### After the Pokémon milestone
 
-EV10A retained failure locations · EV10B run-linked guarded captures · EV14 freshly approved stale reruns · EV12 supported hypothesis fixes · EV13A finding fixes · EV13B range addressing and independent re-review · EV15 decision-linked criteria · EV16 retained refactor baselines · PT10 reference-only party relays · EV01C idle partner hints.
+1. Finish everyday platform extensions: A08 → UX04A → S04 → P04A → P04B. Reuse existing setup/updater/export owners; S04 adds workflow authoring, not another portable-file writer.
+2. Context track: T01B → T01C → T02A → T02B → T03A → T03B → T04. Completed T01A/C03A/C03B remain foundations, not pending gates.
+3. Tool track: TC01A → TC01B; independently TC03A → TC03B → TC04; then TC02 → TC05 → D01 → Q03. Respect each task's exact `Needs`; Q03's live trials require separate authorization.
+4. Reconcile local Q01 visual/state rows, Q02 current measured resource workloads and P03 supported-target install/upgrade evidence. They are not collectively blocked on provider credentials. Their outstanding authenticated rows remain explicitly incomplete.
+5. Run A04/A06 when permitted Claude credentials and eligible Gemini authentication are available; then finish full A07 and the dependent composed-provider Q01 rows. Implemented transports and deterministic fixtures are not live acceptance.
+6. Perform RF01/RF02/RF04/RF06/RF07/RF08/RF09 immediately before a feature genuinely needs the same extraction, not as a prerequisite cleanup wave. Local priorities in track files never outrank Pokémon completion.
 
-C03A removable attachment chips · C03B exact chip previews/staleness/wire budget · EV05 factual form artifacts · EV06 attributed non-evidence routes · PK02 store-backed partner summary · PK05A redacted project failure signatures · PK05B supported historical resolution leads.
+## Execution rules
 
-T01A durable scoped provider usage and actual owned Codex resume reconciliation · EV08A exactly-once factual finished-run lines.
-
-EV08B exactly-once review/handoff/staleness lines and persistent off preference.
-
-EV09 explicitly approved exact-repeat instruction memories · EV17 project/partner/form provider-model pairings · EV11 cached form-specific attachment ranking with unchanged match sets.
-
-EV18 automatic request-time form selection with persistent manual overrides, observational tools and unchanged explicit permission boundaries.
-
-PK04 project/partner/form held file or exact approved-memory references, visible removable proposals, explicit ordinary-context acceptance, current-policy revalidation and local frozen receipts.
-
-PK06 optional first-recorded effective review, verified-support handoff and explicitly learned-move history, actual producer/source attribution, durable hiding and purge-safe first-only receipts.
-
-## How to pick work
-
-- Take the first ready task in **Recommended order**. A task is ready when every ID in **Needs** is done; **Builds on** lists completed work to reuse.
-- One task = one actual-TUI demo at 120×36 and 60×18 (or the stated check for non-UI work), its tests, a changelog/checkpoint update and one commit. A mock, a build-only change or an inactive control is not completion.
-- Reuse the existing modules (see README's source-layout table); no parallel dispatcher, executor, recipe parser or agent runtime. Put new store tables in their own `src/store/<name>.rs`.
-- Keep keyboard-only operation, draft/focus preservation, cancel/quit, terminal restoration and honest evidence. Navigation, paste, suggestions, relays and form switches never execute, approve or send anything.
-- When suggestion, ranking or learning rules change, report the observed behavior on fixtures.
-
-### Cross-cutting watch-outs
-
-- **Unreleased Schema 18 upgrade:** PK06 adds bounded first-recorded milestone references after PK04's Schema 17 held references. Back up the entire data directory before opening the new build. Older Schema 16/17 writers must refuse without mutation; downgrade requires the backup. Public v0.1.19 remains Schema 16 and complete SDK bridge 8.
-- **Schema history:** v0.1.10 used 11, wave 3 used 12, v0.1.11/v0.1.12 used 13, v0.1.13 used 14 and v0.1.14–v0.1.16 used 15. v0.1.17–v0.1.19 used 16. Historical SDK bridges were 4/5/6 in v0.1.13/v0.1.14/v0.1.15, 7 in v0.1.16/v0.1.17 and 8 in v0.1.18/v0.1.19.
-- **Packets:** Partner flavor (nicknames, partner names, move names, dialogue, ribbons, routes) never enters provider packets or handoffs. The receipt must show zero flavor bytes.
-- **Facts first:** Pokémon-style copy wraps a factual line (command, exit code, permission scope), never replaces it. Monochrome, ASCII and linear layouts keep the same information.
-- **No fake progression:** No XP, levels, affection, streaks, hunger or random unlocks. Raising partners means learned moves, nicknames and real records. Add each new concept (Moves, Dex) to DESIGN_RULES when it ships.
-- **Party concurrency:** Partners never start work on their own or chain another partner's work. Every event, approval and journal entry carries its partner; each provider request keeps its own review and receipt; one writer per task.
-- **Rights:** Canonical move names are labels; Q01's naming/art-rights review must cover them before the next distribution.
-- **Local only:** Detection, ranking and learning use local data. No flavor or optimizer feature makes a network or model call.
-
-## Recommended order
-
-| Wave | Tasks (in order) | Why this order |
-|---|---|---|
-| Completed user correction | File-creation UX → EV18 → v0.1.17 release | Passed implementation, exact-source native qualification and actual public installation/runtime; no unrelated wave was started. |
-| 1. Party foundation | PT02A → PT02B → PT03A → PT03B → PT04A → PT04B → PT05A → PT05B → RF05 → PT06A → PT06B → PT06C | Partner model and bounded storage, then switching, roster, drafts, and request routing (still one working partner). |
-| 2. Partner basics | EV04 → EV03A → EV03B → EV07 → PK01 → EV01A → EV01B → EV02 | Small UI slices reused later. |
-| 3. Form relays | EV10A → EV10B → EV14 → EV12 → EV13A → EV13B → EV15 → EV16 → PT10 → EV01C | Highest daily value; PT10 lets relays target a party member. |
-| 4. Cooperation | PT08A → PT08B → PT07A → PT07B → PT07C → PT09 → PT04C | Write lease before concurrency; queue and cancel-all before the board. |
-| 5. Moves | MV01A → MV01B → MV02A → MV02B → MV03A → MV03B → MV06 → MV04 → MV05 → MV07 → MV01C → MV03C → MV08A | Teach → use → learn → name → forget/relearn → record. |
-| 6. Partner record | EV05 → EV06 → PK02 → EV08A → EV08B → PK05A → PK05B → EV09 (after T01A) → EV17 → EV11 | Uses attribution, moves and relays from earlier waves. |
-| 7. Optional flavor | PK03 (after UX04B) → PK04 (after C03A) → PK06 → PT11 | Polish; drop anything that starts to feel like gamification. |
-| Context/token track | C03A → C03B → T01A → T01B → T01C → T02A → T02B → T03A → T03B → T04 · TC01A → TC01B → TC03A → TC03B → TC04 · TC02 → TC05 · D01 · Q03 last | Independent of the waves; can interleave. |
-| UX/platform track | UX03, A08 → UX04A, UX04B → S04 → MV08B → P04A → P04B | UX04B unblocks PK03; S04 and MV08B share one export path. |
-| Code structure | RF01, RF02, RF04, RF06, RF07, RF08, RF09 | Each right before the feature that next touches that file. |
-| Blocked | A04, A06 → A07 → Q01 → Q02 → P03 | Resume only after the user prepares permitted authentication. |
+- Take the first ready task in the ordered milestone. `Needs` names unfinished prerequisites; `Builds on` names completed foundations in the archive. External prerequisites are explicitly identified in H.
+- Complete a coherent task with behavior-focused tests and an actual runtime demonstration, update changelog/checkpoint, and commit. A large responsibility extraction may use sequential commits; an arbitrary file count is not acceptance.
+- Reuse existing dispatch, recipes, shared file policy, store writer and provider transports. No parallel executor, parser, receipt authority or approval queue.
+- Preserve exact draft/caret/focus, cancellation, terminal restoration, source identity and truthful evidence. Navigation, imports, suggestions, formations and relays never execute or grant permission by themselves.
+- Keep partner flavor out of provider packets and portable handoffs; local imported definitions must not manufacture historical evidence. Missing usage remains unknown, not zero.
+- Report fixture observations when suggestion, ranking or learning rules change. Keep local deterministic work separate from paid/live provider acceptance.
+- New persistence must start from current Schema 18 and use the existing admission/migration/older-writer-refusal contract; do not revive historical Schema 7/14 planning.
+- Preserve the existing naming/art distribution review and its non-clearance limitation. New asset/name changes require a scoped rights review; Q01 still owns complete-product acceptance. T05 remains dropped, not completed.
