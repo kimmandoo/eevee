@@ -2,6 +2,13 @@
 
 ## 2026-10-23
 
+- fix(files): routed explicit quoted filename changes and handoff-file creation through mutation tools after automatic read-only work while preserving explicit Plan/Review and literal-source boundaries.
+- fix(approvals): made file decisions selectable in automatic popups on every safe home pane and kept long exact scope scrollable with fixed controls instead of permanently disabling compact approval.
+- test(files): reproduced both missing-tool routes and the compact nested-path dead end in v0.1.23, then passed eight bilingual/both-size read/create/edit/handoff journeys with exact one-shot decisions and filesystem effects.
+
+- docs(release): published v0.1.23 from exact source `55999ab` after Check/all-five-native qualification and immutable promotion; verified all eight public digests, seven manifest entries, source installers and exact target-specific qualified archive identities.
+- test(release): verified downloaded v0.1.23 provider UX/20 groups, native protocols/176, bilingual file workflows/126, CLI auth/10 and workbench/35; passed all 24 installation groups/34 installed-native scenarios and matched the reinstalled executable to the public package.
+
 - feat(providers): unified OpenAI account, API, custom endpoint and advanced CLI setup under one family while preserving durable routes and explicit billing/account boundaries.
 - feat(auth): added standalone OpenAI browser PKCE and device login with reviewed session/private storage, bounded exchanges and owner-bound model continuation without a CLI prerequisite.
 - fix(providers): made setup actionable and bilingual, simplified primary API fields, isolated private paste/carets and kept complete plaintext/not-keychain disclosures visible at minimum size.
@@ -43,6 +50,13 @@
 - docs(release): published v0.1.19 from source `63f1007` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.24
+
+- fix(files): enabled explicit filename creation/editing after discovery, including quoted paths and handoff files, without overriding read-only choices or treating quoted source as instructions.
+- fix(approvals): presented actionable automatic file popups with visible Deny/Allow-once selection, deliberate Enter confirmation and scrollable complete path/parent scope at minimum terminal size.
+- fix(ux): retained drafts and return focus on every safe home pane, preserved no-effect denial and prevented typing, repeat/paste or skipped scope from granting permission.
+- docs(compatibility): retained Schema 18, complete SDK bridge 9, exact filesystem consent and full-backup guidance; distinguished local runtime proof from live-account acceptance.
 
 ## 0.1.23
 

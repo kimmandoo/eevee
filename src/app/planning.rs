@@ -101,6 +101,14 @@ pub struct Slot {
     pub generation: Option<u64>,
 }
 
+#[derive(Default)]
+pub struct FileConsent {
+    pub choice: Option<usize>,
+    pub seen_rows: usize,
+    pub scope_rows: usize,
+    pub width: u16,
+}
+
 pub struct State {
     pub pending: Option<Request>,
     pub decision: Option<String>,
@@ -128,6 +136,7 @@ pub struct State {
     pub review_details: bool,
     /// Automatically presented file review still awaiting deliberate engagement.
     pub auto_file_review: bool,
+    pub file_consent: FileConsent,
     pub submitted_request: Arc<str>,
     submitted_instruction: Option<Arc<str>>,
     pub(super) failed_request: bool,
@@ -251,6 +260,7 @@ impl State {
             scroll: 0, scroll_max: 0, reviewed: false, affirmative: false,
             review_details: false,
             auto_file_review: false,
+            file_consent: FileConsent::default(),
             submitted_request: Arc::default(),
             submitted_instruction: None,
             failed_request: false,

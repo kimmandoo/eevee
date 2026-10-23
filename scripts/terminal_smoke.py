@@ -581,7 +581,7 @@ def confirm_exit(session, choice=RIGHT + "\r", *, owned_work=False):
         if "Confirm exit" in session.display():
             session.send(choice)
             return
-        if owned_work and "Quit / ALL owned work" in session.display():
+        if owned_work and any(title in session.display() for title in ("Quit / ALL owned work", "종료 / 모든 소유 작업")):
             session.send(RIGHT + "\r")
             owned_work = False
             continue

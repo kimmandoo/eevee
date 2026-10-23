@@ -4,6 +4,14 @@
 
 The binary implements native ChatGPT/OpenAI/Anthropic/Gemini/compatible HTTP connections, the durable local workbench, Codex Plan/controlled Implement, an optional official Claude SDK bridge, ACP1 for OpenCode/Gemini/Devin, and version-1 handoff. **Implemented transport support is not authenticated interoperability acceptance.** Per-service live evidence is recorded in the checkpoint; missing credentials do not become a blanket model-browsing or custom-selection blocker. Existing A04/A06/full A07 agent-conformance gates remain separate. Binding rules live in [DESIGN_RULES.md](DESIGN_RULES.md).
 
+### v0.1.24 file intent and permission correction
+
+Explicit quoted filename changes and handoff-file creation use the existing Implement/writer/tool path even after an automatic read-only request. Only filename object context survives literal filtering; quoted instructions, provider output, explicit Plan/Review and read-only constraints cannot authorize mutation.
+
+Typed current-owner file permissions automatically appear on safe home panes. Deliberate button selection followed by Enter, or engaged a/y, answers only the existing one-shot request. Compact long scope remains scrollable with fixed decisions and requires contiguous complete scope exposure before Allow. No prose-to-file conversion, automatic approval, new writer or widened provider policy was added.
+
+Actual local OpenAI Responses and compatible Chat Completions journeys passed English/Korean at 120×36 and 60×18: real read-only discovery followed by quoted creation, nested-parent denial/allow, digest-bound edit denial/allow and handoff-file creation. Exact bytes/CRLF, no preapproval effects and correlated continuation were checked. This is deterministic runtime proof, not live-account acceptance.
+
 ### v0.1.23 unified OpenAI connections
 
 The root presents one OpenAI family with explicit account login, API-key, custom/local and advanced CLI methods. Durable transport identities remain unchanged; the method and selected credential source route requests, not model-name guesses or error-triggered fallback. API billing, subscription access, custom destinations and CLI sessions never substitute for one another silently.
@@ -11,6 +19,8 @@ The root presents one OpenAI family with explicit account login, API-key, custom
 Native browser PKCE/state/callback or pasted redirect and device authorization need no installed CLI. Fixed official endpoints, bounded exchanges, account/expiry consistency, reviewed session/private storage and scoped replacement are implemented. Refresh tokens are discarded; expiry requires explicit reconnect. Cancelled/failed native login preserves existing conversations and credentials; accepted mutation affects only the account route and retains ordinary switch review plus owner-bound resize-delayed model selection.
 
 Actual English/Korean compact/wide PTYs exercised family setup, both native login reviews without consent/network, private paste/draft/caret retention, complete storage disclosure, API metadata and one exact loopback Responses request. Local callback/token/device HTTP fixtures exercise the real native exchange implementation. Neither establishes live issuer acceptance, account entitlement or authenticated cross-platform model conformance.
+
+Public v0.1.23 additionally passed all downloaded provider UX/20 groups, ten native protocol variants/176 groups, bilingual file workflows/126 groups, CLI auth/10 and workbench/35 groups. All 24 installation groups/34 installed-native scenarios passed, with installed/public executable hashes equal; exact qualification and publication identities are recorded in the checkpoint.
 
 ### v0.1.22 local Pokémon and motion boundaries
 

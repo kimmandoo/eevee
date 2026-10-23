@@ -3962,7 +3962,6 @@ fn file_review_state() -> State {
 fn neutral_file_review_enter_inspects_without_sending_the_initial_denial() {
     let mut state = file_review_state();
     state.reviewed = true;
-    press(&mut state, KeyCode::Tab, true);
     press(&mut state, KeyCode::Enter, true);
     press(&mut state, KeyCode::Enter, true);
     assert!(state.review_details && state.request.is_some());
@@ -4004,5 +4003,45 @@ fn file_allow_keys_require_a_visible_summary_and_a_deliberate_press() {
                 if request_id == &json!("file-review") && answer == &json!({"permission":"once"})
         ));
         assert!(state.request.is_none());
+    }
+}
+
+#[test]
+fn automatic_file_buttons_need_deliberate_selection_and_rendered_scope() {
+    for (choices, answer) in [
+        (&[KeyCode::Left][..], "deny"),
+        (&[KeyCode::Right][..], "once"),
+        (&[KeyCode::Tab, KeyCode::Tab][..], "deny"),
+    ] {
+        let mut state = file_review_state();
+        state.auto_file_review = true;
+        state.reviewed = true;
+        for &choice in choices {
+            press(&mut state, choice, true);
+        }
+        assert!(!state.auto_file_review && state.pending.is_none());
+        assert!(!state.reviewed);
+        if answer == "once" {
+            press(&mut state, KeyCode::Enter, true);
+            assert!(
+                state.pending.is_none(),
+                "selection must render before approval"
+            );
+        }
+        state.reviewed = true;
+        state.key(
+            KeyEvent::new_with_kind(KeyCode::Enter, KeyModifiers::NONE, KeyEventKind::Repeat),
+            true,
+            &task(),
+            &[],
+            None,
+        );
+        assert!(state.pending.is_none());
+        press(&mut state, KeyCode::Enter, true);
+        assert!(matches!(
+            state.pending.as_ref(),
+            Some(Request::Answer { request_id, answer: actual, .. })
+                if request_id == &json!("file-review") && actual == &json!({"permission":answer})
+        ));
     }
 }

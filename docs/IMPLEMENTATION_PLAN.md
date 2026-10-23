@@ -1,10 +1,19 @@
 # Eevee Implementation Plan
 
-Updated: 2026-10-23. Public v0.1.22 completed the four-task Pokémon milestone and passed exact-source native qualification, immutable publication and public installation/runtime proof. Schema 18 and complete SDK bridge 9 remain unchanged, but reduced-motion JSON requires full-backup/older-reader guidance. The user now prioritizes unified OpenAI connections/provider UX. [task.md](../task.md) retains 34 unfinished backlog tasks; historical counts and blockers below do not override the active request.
+Updated: 2026-10-23. Public v0.1.23 completed unified OpenAI-family connections/provider UX with exact-source qualification, immutable publication and public runtime/install proof. The subsequent file create/edit permission report remains active below; do not start another backlog task. Schema 18 and complete SDK bridge 9 remain unchanged. [task.md](../task.md) retains 34 unfinished backlog tasks.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Active request — unified OpenAI connections and provider UX
+## Active request — actionable file create/edit permission popup
+
+1. Treat the reported missing approval/write flow as a production failure. Compare the supplied reference's tool dispatch, awaited permission decision and create/edit execution with current ordinary requests, provider events and popup ownership; do not mistake synthetic tool replies for real request admission.
+2. Reuse the existing typed file proposal, exact content/target/parent authority, one-shot decision and sole writer. Present actionable create/edit consent automatically at an eligible current-owner surface, with clear localized controls and no approval-menu detour. Preserve drafts, cancellation, background ownership and no preapproval effects.
+3. Reproduce the uncovered path with the actual executable, then verify creation and modification through popup approval and denial, exact resulting bytes, Korean/English compact/wide layouts and affected provider routes. Do not convert prose/code blocks into writes, grant blanket permissions or make paid/live account calls.
+4. Finish v0.1.23 downloaded evidence without replacing its immutable assets. Update contracts, troubleshooting and checkpoint, commit the correction, qualify a new exact-source version and verify its published runtime/install flow.
+
+Final B `target/file-permission-0124-b/ev` returned v0.1.24, SHA256 `95be4aa40445291e3a07128f33bc2a1d53122a02580391f1a8dad59033e783d5`. Source passed 1,354 Rust tests/two ignored, strict Clippy, formatting and release build; Python contracts passed fourteen/three skips. B passed all eight bilingual/both-size permission journeys/48 groups with actual exact create/edit/deny effects and Tab/arrow selection. A also passed all native protocol variants/176 groups, ordinary file/126 groups, provider UX/20 and bilingual evolution. Complete B legacy-file regression and exact-source native/public qualification remain publication gates.
+
+## Completed request — unified OpenAI connections and provider UX; v0.1.23 released
 
 The user reported difficult provider setup and requested one integrated OpenAI-family entry with automatic appropriate routing, not ChatGPT presented as a separate provider family, plus improved connection UI/UX. This takes priority over beginning A08 as an isolated backlog task.
 
@@ -14,7 +23,7 @@ The user reported difficult provider setup and requested one integrated OpenAI-f
 4. Exercise real disposable PTY setup/model/request flows with deterministic protocol/auth fixtures, all relevant provider regressions and source checks. Document unresolved real-account limits without touching original credentials or making paid model calls.
 5. Record actual fixes/contracts/troubleshooting, commit a separate corrective version, qualify exact-source native packages and publish/verify the downloaded release. Do not retarget or replace v0.1.22 assets.
 
-Implementation, source and local runtime gates are complete. Frozen B `target/provider-0123-b/ev` is v0.1.23, SHA256 `a1b2e7aadb469ea802778c51cdaa7d6c8d661ffb6ae895fff1569da611181f31`; pinned Rust passed 1,352 tests/two ignored, formatting, strict Clippy and release build. B passed bilingual provider UX/20 groups, ten native protocol variants/176 groups and the complete 35-group workbench journey. A additionally passed 24 bilingual file journeys/126 groups and ten CLI auth lifecycle groups. Initial source `eef959c` passed Check/all-five-native rows in `39908809778`; final driver corrections must be committed and qualified at their exact source before immutable publication/public runtime proof. Native loopback OAuth proof is not live issuer/account acceptance.
+Source `55999ab31c076a483b1f3e511e077f20d78f4dea` passed unchanged strict Check/all-five-native qualification in `39910693938` attempt1; publication `39912051817` created immutable v0.1.23 release `421518234`. All eight public digests, seven manifest entries, source installers and five exact target-specific qualified archive comparisons passed. Downloaded host passed provider UX/20, native protocols/176, bilingual file/126, CLI auth/10 and workbench/35 groups. Installation passed 24 groups/34 installed-native scenarios; reinstalled and downloaded hashes matched. Local source passed 1,352 Rust tests/two ignored, strict Clippy, release build, SDK44 and Python14/three platform skips. Native loopback OAuth proof is not live issuer/account acceptance. The subsequent uncovered file-intent and compact consent failures are the active corrective request above.
 
 
 ## Completed request — four Pokémon-completion tasks; v0.1.22 released

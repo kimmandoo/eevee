@@ -864,7 +864,9 @@ providers-planning-file-preview = { "파일 미리보기" }
 
 providers-planning-file-label = { "[파일]" }
 
-providers-planning-file-auto-review-actions = { "파일 제안 준비됨 · Enter 검토 · Esc 나중에" }
+providers-planning-file-auto-review-actions =
+    { "파일 제안 준비됨 · Enter 검토" }
+    { "Tab 선택 | Enter 확인 | Esc 나중에" }
 
 providers-planning-file-generating = { "생성 중 · 저장 안 됨" }
 
@@ -973,15 +975,19 @@ providers-planning-file-external = { "외부 SDK 정책이며 OS 격리가 아�
 providers-planning-file-details = { "d 전체 변경·범위·정확한 요청 보기" }
 
 providers-planning-file-actions =
-    { "a/y 한 번 허용 | n 거부 | Enter/d 상세" }
-    { "이 요청만 한 번 허용 · Enter는 상세 보기" }
+    { "Tab 선택 · Enter 확인 · a/y 한 번 허용" }
+    { "n 거부 | d 상세 | PgUp/Dn | Esc 나중에" }
 
 providers-planning-file-unavailable =
-    { "a/y 허용 불가 · 전체 범위가 보이도록 크기 조정" }
-    { "n 거부 | Enter/d 상세 (결정하지 않음)" }
+    { "PgUp/Dn으로 전체 범위를 확인한 뒤 허용하세요." }
+    { "Home 처음 | Tab 선택 | n 거부 | d 상세" }
 
 providers-planning-file-details-actions =
     { "d 돌아가기 | PgUp/Dn 스크롤 | n 거부" }
     { "Enter는 상세에 머무릅니다. 허용은 요약에서만." }
+
+providers-planning-file-deny-button = { "[ 거부 ]" }
+
+providers-planning-file-allow-button = { "[ 한 번 허용 ]" }
 
 providers-planning-waiting-for-review = { "검토 대기" }

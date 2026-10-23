@@ -49,13 +49,15 @@ struct WriteFixture {
 #[cfg(unix)]
 impl WriteFixture {
     fn new() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
-            "eevee-codex-write-{}-{}",
+            "eevee-codex-write-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         ));
         std::fs::create_dir(&root).unwrap();
         let root = root.canonicalize().unwrap();
