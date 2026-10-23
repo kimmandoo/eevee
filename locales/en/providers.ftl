@@ -259,8 +259,8 @@ providers-planning-run-blocked-n-cancel-esc-cancel-d =
     { " d Details: prerequisites / no connection" }
 
 providers-planning-cancel-run-unavailable-until-summary-is-visible =
-    { "[Cancel] / Run unavailable until summary is visible" }
-    { "Resize / Esc Cancel" }
+    { "[Cancel] / Run needs the complete scope" }
+    { "PgUp/Dn Scroll / n Cancel / Esc Later" }
 
 providers-planning-cancel-run-once-y-run-n-cancel =
     { "Cancel / [Run once] · y Run / n Cancel" }
@@ -272,7 +272,7 @@ providers-planning-cancel-run-once-y-run-n-cancel-2 =
 
 providers-planning-deny-allow-unavailable-until-summary-is-visible =
     { "[Deny] / Allow needs the complete visible scope" }
-    { "d Details / Resize / Enter Deny / Esc Cancel" }
+    { "PgUp/Dn Scroll / n Deny / Enter Deny / Esc Later" }
 
 providers-planning-a-allow-once-n-deny-y-send =
     { "a Allow once / n Deny / y Send selected / d Details" }
@@ -630,8 +630,6 @@ providers-planning-who-asks-this-provider-request-only = { $owner }{ " asks · "
 
 providers-planning-selected-permission = { "Selected: " }{ $label }
 
-providers-planning-permission-effect = { "Effect: " }{ $description }
-
 providers-planning-blocked-d-for-all-prerequisites = { "BLOCKED: " }{ $reason }{ " (d for all prerequisites)" }
 
 providers-planning-writes-selected-paths-inspect-exact-scope-d = { "Create/replace: " }{ $count }{ " paths; parents + exact content (d)." }
@@ -864,9 +862,11 @@ providers-planning-file-preview = { "File preview" }
 
 providers-planning-file-label = { "[FILE]" }
 
-providers-planning-file-auto-review-actions =
-    { "File proposal ready · Enter review" }
-    { "Left/Right choose · Enter confirms | Esc later" }
+providers-planning-permission-required = { "Permission required" }
+
+providers-planning-permission-auto-review-actions =
+    { "Permission required · Enter to review (not approve)" }
+    { "Then choose and confirm | Esc later · no approval" }
 
 providers-planning-file-generating = { "Generating · not saved" }
 

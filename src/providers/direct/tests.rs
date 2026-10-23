@@ -921,8 +921,6 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
         let connection =
             config::test_connection(protocol, "https://example.invalid/v1", Some("exact-model"));
         let scope = connection.conversation_scope();
-        let writes =
-            WriteSet::capture_readonly(&workspace.project, &workspace.data_dir, &[]).unwrap();
         let mut history = None;
         let mut expected = Vec::new();
         for (index, (user, assistant)) in [
@@ -955,6 +953,14 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
             input.inspect_models = false;
             input.task = task.clone();
             input.conversation = history.clone();
+            let observed_name = format!("turn-{index}.rs");
+            std::fs::write(
+                workspace.project.join(&observed_name),
+                "not automatic source context",
+            )
+            .unwrap();
+            let writes =
+                WriteSet::capture_readonly(&workspace.project, &workspace.data_dir, &[]).unwrap();
             let payload = payload(&workspace, &input, &connection, Some(&writes)).unwrap();
             let body: Value = serde_json::from_str(&payload).unwrap();
             expected.push(("user".into(), user.into()));
@@ -968,6 +974,8 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
                     .unwrap(),
             };
             assert!(policy.contains(&task.goal) && policy.contains("untrusted data"));
+            assert!(policy.contains(&observed_name));
+            assert!(!policy.contains("not automatic source context"));
             assert!(
                 !payload.contains(&scope),
                 "opaque credential ownership is never prompt context"
@@ -1057,6 +1065,8 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
             );
             expected.push(("assistant".into(), assistant.into()));
         }
+        let writes =
+            WriteSet::capture_readonly(&workspace.project, &workspace.data_dir, &[]).unwrap();
         let mut oversized = input();
         oversized.inspect_models = false;
         oversized.task = task.clone();

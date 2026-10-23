@@ -663,7 +663,19 @@ fn readonly_roles_capture_real_source_without_mutation_targets_or_writer_lease()
             entry["name"].as_str(),
             Some("eevee_read_file" | "eevee_list_files")
         )));
-        assert!(payload(&fixture.data, &input, &[], Some(&scope)).is_ok());
+        let text = payload(&fixture.data, &input, &[], Some(&scope)).unwrap();
+        let envelope: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(envelope["project_context"]["root"], json!(fixture.root));
+        assert_eq!(
+            envelope["project_context"]["filenames"]["paths"],
+            json!(["actual.rs"])
+        );
+        assert_eq!(envelope["project_context"]["filenames"]["complete"], true);
+        assert!(
+            !envelope["project_context"]
+                .to_string()
+                .contains("actual dirty bytes")
+        );
         assert!(!fixture.root.join("unapproved").exists());
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("actual.rs")).unwrap(),

@@ -12,6 +12,8 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 4. Present required owner-bound permission reviews automatically at the relevant safe surface, with clear English/Korean controls, retained drafts, complete compact scope and no approval-menu detour. Verify all manual forms and automatic evolution through actual discovery, create/edit, denial and approved bytes.
 5. Update binding contracts, affected tests/drivers, troubleshooting and handoff; commit and qualify a new corrective release. Verify immutable public packages and downloaded runtime/installation. No paid/live account calls or original installation/private-data changes.
 
+Steps 1–4 passed. Final B passed Rust 1.90.0 formatting, 1,364 tests/two ignored, strict Clippy and release build; SDK policy/IPC passed 44 cases and Python release contracts fourteen/three skips. A passed all 72 nine-form bilingual/both-size journeys/576 groups, 24 ACP automatic-permission journeys/72 groups, bilingual evolution and provider UX/20. B passed actual fixed-form coding and compact Korean prepared/generic/file consent with the final title. Step 5 remains active: exact-source qualification, immutable publication, remaining regressions and downloaded runtime/install proof.
+
 ## Completed request — actionable file create/edit permission popup; v0.1.24 released
 
 1. Treat the reported missing approval/write flow as a production failure. Compare the supplied reference's tool dispatch, awaited permission decision and create/edit execution with current ordinary requests, provider events and popup ownership; do not mistake synthetic tool replies for real request admission.

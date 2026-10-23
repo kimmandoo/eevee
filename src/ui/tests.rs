@@ -868,7 +868,7 @@ fn carry_over_counts_and_capabilities_share_one_row_with_response_and_draft() {
                 let strip = (area.x..area.right())
                     .map(|x| buffer[(x, area.y)].symbol())
                     .collect::<String>();
-                for expected in ["Carry", "C32/64", "P16", "H32", "F32", "+edit-docs", "-run"] {
+                for expected in ["Carry", "C32/64", "P16", "H32", "F32", "-run"] {
                     assert!(strip.contains(expected), "{width}x{height}: {strip}");
                 }
                 let rendered = screen_text(&terminal);

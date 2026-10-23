@@ -1,6 +1,19 @@
 use super::*;
 
 impl State {
+    /// Questions retain their existing explicit-answer presentation contract.
+    pub fn required_permission_review(&self) -> bool {
+        self.preview
+            .as_ref()
+            .is_some_and(|preview| preview.requires_connection_review)
+            || self.request.as_ref().is_some_and(|request| {
+                matches!(
+                    request.kind,
+                    PromptKind::Permission { .. } | PromptKind::Approval { .. }
+                )
+            })
+    }
+
     pub fn new_partner(&self, owner: store::Attribution, task: i64) -> Self {
         let mut state = Self::new();
         state.task = task;

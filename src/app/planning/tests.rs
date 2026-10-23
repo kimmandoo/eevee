@@ -46,7 +46,7 @@ fn ordinary_coding_requires_writer_ownership_without_overriding_explicit_readonl
         state.reset(7);
         state.agent = agent;
         state.set_operation(Operation::Plan);
-        state.prepare_ordinary_operation(0);
+        state.prepare_ordinary_operation();
         command(&mut state, "new", true);
         let Some(Request::Preview(input)) = state.pending.take() else {
             panic!("missing preparation")
@@ -56,7 +56,7 @@ fn ordinary_coding_requires_writer_ownership_without_overriding_explicit_readonl
         let mut state = State::new();
         state.reset(7);
         state.agent = agent;
-        state.select_form_operation(6);
+        state.prepare_ordinary_operation();
         command(&mut state, "new", true);
         let Some(Request::Preview(input)) = state.pending.take() else {
             panic!("missing implementation preparation")
@@ -66,14 +66,14 @@ fn ordinary_coding_requires_writer_ownership_without_overriding_explicit_readonl
         state.reset(7);
         state.agent = agent;
         state.set_operation(Operation::Review);
-        state.prepare_ordinary_operation(0);
+        state.prepare_ordinary_operation();
         assert_eq!(state.operation, Operation::Review);
     }
     for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
         let mut state = State::new();
         state.reset(7);
         state.agent = agent;
-        state.prepare_ordinary_operation(0);
+        state.prepare_ordinary_operation();
         command(&mut state, "new", true);
         let Some(Request::Preview(input)) = state.pending.take() else {
             panic!("missing external preparation")
@@ -1079,7 +1079,9 @@ fn active_account_change_preserves_submitted_bytes_and_revokes_every_terminal_se
             payload: "submitted payload".into(),
             blockers: Vec::new(),
         }));
-        assert!(state.dispatch_prepared());
+        assert!(!state.dispatch_prepared());
+        state.reviewed = true;
+        press(&mut state, KeyCode::Char('y'), true);
         assert!(matches!(
             state.pending.take(),
             Some(Request::Run { generation: 11 })
@@ -4014,12 +4016,12 @@ fn automatic_file_buttons_need_deliberate_selection_and_rendered_scope() {
         (&[KeyCode::Tab, KeyCode::Tab][..], "deny"),
     ] {
         let mut state = file_review_state();
-        state.auto_file_review = true;
+        state.auto_permission_review = true;
         state.reviewed = true;
         for &choice in choices {
             press(&mut state, choice, true);
         }
-        assert!(!state.auto_file_review && state.pending.is_none());
+        assert!(!state.auto_permission_review && state.pending.is_none());
         assert!(!state.reviewed);
         if answer == "once" {
             press(&mut state, KeyCode::Enter, true);

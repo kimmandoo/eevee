@@ -4,6 +4,16 @@
 
 The binary implements native ChatGPT/OpenAI/Anthropic/Gemini/compatible HTTP connections, the durable local workbench, Codex Plan/controlled Implement, an optional official Claude SDK bridge, ACP1 for OpenCode/Gemini/Devin, and version-1 handoff. **Implemented transport support is not authenticated interoperability acceptance.** Per-service live evidence is recorded in the checkpoint; missing credentials do not become a blanket model-browsing or custom-selection blocker. Existing A04/A06/full A07 agent-conformance gates remain separate. Binding rules live in [DESIGN_RULES.md](DESIGN_RULES.md).
 
+### v0.1.25 form-independent coding and required consent
+
+Every automatic/manual form uses request-selected operation capabilities rather than a species-based read/write gate. Fixed forms retain their appearance; explicit Plan/independent Review and literal read-only intent remain restrictive. Cosmetic transitions retain same-policy canonical conversation; real policy changes retire incompatible history. Exact writer ownership, exclusions and one-shot filesystem consent are unchanged.
+
+Ordinary native, Codex, SDK and ACP envelopes share canonical project identity and a request-frozen safe filename observation without requiring attachments. Initial names are bounded to 128/16 KiB over at most 10,000 scanned entries; unavailable/truncated discovery is explicit. Names add neither source bodies nor selected evidence/write authority. Metadata inspection omits this context. ACP's own tools remain external policy, and managed independent Review remains unsupported.
+
+Required file, generic tool and prepared connection/external-policy reviews automatically open for the current owner at safe surfaces. Neutral arrival cannot approve from typing; review and explicit supported one-shot decision remain separate. Fixed controls and scrollable scope work at 60×18 in English/Korean. Questions remain separately owned input.
+
+Actual v0.1.24 reproduced fixed-form capability failures. Corrective runtime passed all 72 nine-form English/Korean Responses/Chat Completions journeys at 120×36/60×18, 576 behavioral groups, plus 24 ACP prepared/generic/file permission journeys/72 groups. Final localized-title validation separately exercised actual fixed-form coding and compact Korean permissions. Exact candidate/publication identities are recorded in the checkpoint; deterministic fixtures are not authenticated provider acceptance.
+
 ### v0.1.24 file intent and permission correction
 
 Explicit quoted filename changes and handoff-file creation use the existing Implement/writer/tool path even after an automatic read-only request. Only filename object context survives literal filtering; quoted instructions, provider output, explicit Plan/Review and read-only constraints cannot authorize mutation.

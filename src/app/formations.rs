@@ -412,20 +412,9 @@ impl App {
             }
             Ok(store::formations::Response::Applied { task, roster }) => {
                 for partner in &roster {
-                    let changed = self
-                        .formations
-                        .roster
-                        .iter()
-                        .find(|old| old.id == partner.id)
-                        .is_some_and(|old| {
-                            old.form != partner.form || old.auto_form != partner.auto_form
-                        });
                     if self.formations.mapping.contains(&Some(partner.id))
                         && let Some(state) = self.planning_state_mut(partner.id)
                     {
-                        if changed {
-                            state.select_form_operation(partner.form);
-                        }
                         state.front = Some(store::Attribution::of(partner));
                     }
                 }

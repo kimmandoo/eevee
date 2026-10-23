@@ -94,8 +94,8 @@ impl App {
             return true;
         }
         let intent_operation = self.evolve_request();
-        if !intent_operation && (self.form() == 0 || !self.lead().auto_form) {
-            self.planning.prepare_ordinary_operation(self.form());
+        if !intent_operation {
+            self.planning.prepare_ordinary_operation();
         }
         if self.goal.trim().is_empty() {
             self.goal.clone_from(&self.input);

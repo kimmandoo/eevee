@@ -259,8 +259,8 @@ providers-planning-run-blocked-n-cancel-esc-cancel-d =
     { " d 상세: 사전 조건 / 연결 없음" }
 
 providers-planning-cancel-run-unavailable-until-summary-is-visible =
-    { "[취소] / 요약이 보일 때까지 실행 불가" }
-    { "크기 조정 / Esc 취소" }
+    { "[취소] / 전체 범위 검토 후 실행 가능" }
+    { "PgUp/Dn 스크롤 / n 취소 / Esc 나중에" }
 
 providers-planning-cancel-run-once-y-run-n-cancel =
     { "취소 / [한 번 실행] · y 실행 / n 취소" }
@@ -272,7 +272,7 @@ providers-planning-cancel-run-once-y-run-n-cancel-2 =
 
 providers-planning-deny-allow-unavailable-until-summary-is-visible =
     { "[거부] / 전체 범위가 보여야 허용 가능" }
-    { "d 상세 / 크기 조정 / Enter 거부 / Esc 취소" }
+    { "PgUp/Dn 스크롤 / n 거부 / Enter 거부 / Esc 나중에" }
 
 providers-planning-a-allow-once-n-deny-y-send =
     { "a 한 번 허용 / n 거부 / y 선택 전송 / d 상세" }
@@ -630,8 +630,6 @@ providers-planning-who-asks-this-provider-request-only = { $owner }{ "의 요청
 
 providers-planning-selected-permission = { "선택: " }{ $label }
 
-providers-planning-permission-effect = { "효과: " }{ $description }
-
 providers-planning-blocked-d-for-all-prerequisites = { "차단됨: " }{ $reason }{ " (d 모든 사전 조건)" }
 
 providers-planning-writes-selected-paths-inspect-exact-scope-d = { "생성/교체 " }{ $count }{ "개 · 상위 폴더/정확한 내용(d)." }
@@ -864,9 +862,11 @@ providers-planning-file-preview = { "파일 미리보기" }
 
 providers-planning-file-label = { "[파일]" }
 
-providers-planning-file-auto-review-actions =
-    { "파일 제안 준비됨 · Enter 검토" }
-    { "Tab 선택 | Enter 확인 | Esc 나중에" }
+providers-planning-permission-required = { "권한 검토 필요" }
+
+providers-planning-permission-auto-review-actions =
+    { "권한 검토 필요 · Enter 검토 (승인 아님)" }
+    { "검토 후 선택·확인 | Esc 나중에 · 승인 안 됨" }
 
 providers-planning-file-generating = { "생성 중 · 저장 안 됨" }
 

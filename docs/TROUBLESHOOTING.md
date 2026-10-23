@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-23] Fixed evolution forms blocked coding and hid required consent
+
+- **Context / Symptom:** Public v0.1.24 gave a manually fixed Vaporeon only read/list tools for a create request, while a fixed Flareon read request acquired a writer lease. Cosmetic evolution also discarded same-policy conversation. Non-file and prepared external-policy permissions required an approval-menu detour.
+- **Root Cause:** Form-to-operation defaults discarded fixed-form request classification, form selection reset explicit policy, and operation commands forced specialty changes. Empty attachments omitted initial native project identity; automatic presentation admitted only typed file requests.
+- **Solution:** Separated request capability from appearance, preserved explicit restrictive policy and same-policy history, and made exact path restrictions directly accessible in every form. Shared a bounded frozen safe filename observation across provider envelopes. Reused current-owner consent presentation for generic/prepared permissions with neutral arrival, complete scrollable scope and explicit decisions. Permission titles identify waiting for consent rather than preparing changes.
+- **Prevention / Reference:** `target/form-capability-before` records RED. The actual corrective fixed-Vaporeon journey passed read/create/edit denial and approval, exact CRLF bytes, current-folder exclusions and retained same-policy history. Compact Korean ACP exercised automatic prepared consent, generic deny/allow and separately approved real writes. Drivers recognize typed file controls plus neutral consent, rather than an obsolete file-only sentence, and wait for local/provider settlement before opening a path editor.
+
 ### [2026-10-23] File requests stayed read-only and nested permission scope could not be approved
 
 - **Context / Symptom:** Actual v0.1.23 sent only read/list tools for `Create handoff.md` and for a quoted filename creation after source discovery. At 60×18, `src/components/workspace/editor/permissions/FilePermissionDialog.tsx` opened a popup but its repeated parent paths clipped required scope; Allow remained disabled and no file was created.

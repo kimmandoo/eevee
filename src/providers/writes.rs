@@ -259,6 +259,8 @@ pub(crate) struct WriteSet {
     protected_paths: Vec<PathBuf>,
     exclusions: Vec<PathBuf>,
     observed: BTreeMap<PathBuf, std::sync::Arc<Baseline>>,
+    /// Request-local filename observation; shared by cloned proposal scopes.
+    project_context: std::sync::Arc<std::sync::OnceLock<Value>>,
 }
 
 fn line_endings(text: &str) -> String {
@@ -557,6 +559,12 @@ impl WriteSet {
             .canonicalize()
             .map_err(|_| "Cannot bind the selected project root")?;
         context::validate_project_root(&canonical)?;
+        if canonical
+            .to_str()
+            .is_none_or(|path| !safe_text(path) || path.chars().any(char::is_control))
+        {
+            return Err("Current project identity contains private or unsafe text; it cannot be sent as context".into());
+        }
         let private_data = absolute_frozen_path(data_dir)?;
         let executable = std::env::current_exe()
             .map_err(|_| "Cannot identify the running executable")?
@@ -576,6 +584,7 @@ impl WriteSet {
             protected_paths: vec![private_data, executable],
             exclusions: exclusions.to_vec(),
             observed: BTreeMap::new(),
+            project_context: Default::default(),
         };
         set.verify()?;
         Ok(set)

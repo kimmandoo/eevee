@@ -179,9 +179,11 @@ Session connections stay in memory. Selecting private persistence writes only th
 
 Account login uses the fixed subscription endpoint; API keys use metered API access. Custom endpoints and CLI agents remain separate authorities. Saved selections keep their exact route; errors never switch account, billing, protocol or model automatically. Native account access grants expire and require explicit reconnect; refresh tokens are not retained and automatic renewal is not claimed. Cancelling login preserves existing conversations and credentials. An accepted login replaces only the reviewed account connection, then opens model selection through any required session-switch review; resizing below the minimum defers that continuation instead of losing it.
 
-**Automatic evolution and code generation.** Describe the task in the ordinary Eevee composer. On explicit send, the same partner locally selects the appropriate form; no extra classifier/model request is made. Choosing a specialist manually fixes that form; `/eevee` restores automatic selection. Current form plus automatic/manual mode persist per partner. Typing, browsing and incoming events never evolve or start work. Automatic transitions preserve the selected provider/model and do not restore another form's pairing or opaque session. Explicit filename creation/editing, including quoted paths and handoff files after source discovery, enables proposals instead of staying accidentally read-only. Quoted verbs/source are not instructions; explicit Plan/Review and read-only choices remain non-writing. Every change still needs exact one-shot consent.
+**Forms do not gate coding.** All nine forms can discover/read the current project and request file creation or modification. On explicit send, local English/Korean intent selects the actual operation without an extra model call; automatic mode also selects a specialty. Manual selection fixes appearance, not tools, and `/eevee` restores automatic appearance selection. Explicit Plan/independent Review and literal read-only requests stay nonwriting across form/formation changes. Ordinary review does not require independent-review evidence merely because Glaceon is displayed. `/paths` and ordinary Implement selection need no Flareon detour or form change. Every actual change still needs exact one-shot consent.
 
 Native/Codex noninspection Plan/Review expose bounded `eevee_list_files` and `eevee_read_file` without a writer lease or mutation approval. Implement additionally exposes `eevee_write_file` and `eevee_edit_file`. Discovery includes plain non-Git projects; reads return actual source, line metadata and SHA256. Targeted edits require the observed digest and one unique literal match, preserving unrelated dirty content and LF/CRLF. The model must use actual write/edit tools for requested changes, not claim that a displayed code block created a file. `/paths` optionally restricts exact write targets; `[]` clears that restriction locally, without granting directory writes.
+
+Ordinary native, Codex, SDK and ACP requests receive the canonical current-folder root plus a filtered filename observation even without attachments. Initial discovery is bounded to 128 names/16 KiB over at most 10,000 scanned entries, with explicit truncation or unavailability. It is frozen for the reviewed request and refreshed next time; source bodies are not automatically attached, names are not selected evidence and no write authority is added. Metadata-only requests omit project context.
 
 Discovery returns `/`-separated tool paths on every host and matches literal queries against that spelling (`src/` matches that exact substring). Unicode filename bytes/spelling and the native filesystem identities used for safe access are not normalized.
 
@@ -189,13 +191,13 @@ Native/Codex retain eight distinct write targets up to 64 KiB each. **Deny** is 
 
 ACP routes support project filesystem callbacks and an explicitly reviewed external-policy implementation session. Client file writes use the same exact consent and executor; the agent's own tools/configuration remain outside that mediated boundary. `/paths` restricts client writes, not arbitrary external tool effects. Structured file results distinguish actual client-applied bytes from provider-reported success/failure. Terminal callbacks and managed independent Review remain unavailable.
 
-Current-owner file proposals **automatically open** from safe home panes, retaining the draft, caret and return focus. **Left/Right** choose **Deny/Allow once**; **Tab** cycles the choices, and **Enter** confirms the explicitly selected decision. The selected button has a plain-text `>` marker as well as highlighting. Enter without a choice only engages inspection; **a/y** then allows once and **n** denies. Arriving typing, paste and repeated/modified keys cannot grant anything. Long path/parent scope scrolls with **PgUp/PgDn** inside the popup; every scope row must be displayed before Allow is enabled, without resizing the terminal. **d** shows the complete change. **Esc** defers without answering or immediately reopening. Other sheets/editors and background owners are not interrupted; Enter from the owning Request or **Alt+A** reopens a deferred review. No `/approvals` search or `/paths` preselection is needed for ordinary generation.
+Required current-owner permissions **automatically open** on safe home panes: file changes, supported generic tool approvals and prepared connection/external-policy consent. No `/approvals` search is needed. Arrival is neutral: **Enter reviews, not approves**; typing, paste and repeated/modified keys grant nothing. File decisions use **Left/Right** or **Tab**, then **Enter**, with a visible `>` selection marker; engaged **a/y** allows once and **n** denies. Long scope scrolls with **PgUp/PgDn** and fixed controls; all required file scope must be displayed before Allow. **d** shows the complete change. **Esc** defers without answering or immediately reopening. Draft/caret and return focus are retained; other sheets/editors and background owners are not interrupted. Enter from the owning Request or **Alt+A** reopens deferred consent. Questions remain separately owned input, never permission.
 
 **Live file previews.** Generated files have a fixed filename/status, separate numbered code surface and structural gutter, distinct from prose in monochrome or mid-card scrolling. An emphasized writing edge follows actual received source; whole-call proposals display immediately without invented token streaming. Generating/received code is **not saved**: exact approval precedes mediated effects, and provider-reported success/failure remains distinct from verified Applied or Unknown. Cancellation never claims an unfinished proposal succeeded. Redacted previews stay outside canonical replies, decisions, journals and source evidence; paused scrolling and future drafts/carets remain owned.
 
 **Evolution popup.** A real automatic/manual form change shows a themed, localized previous→next form receipt once, behind approvals, other sheets and live generated code. Only a deliberate form-picker commit may show a restrained 240 ms transition; automatic/named-command/formation changes and reduced-motion/text-only routes show the complete static result. A key or paste skips visible motion and reaches the original editor once. Resize or a higher-priority surface stops motion without replay; same-form selection, task restoration and restart never replay it. Evolution never approves a file change or animates the idle portrait.
 
-Native file tools use bounded request-local continuations (at most eight HTTP rounds and sixteen calls), one durable request lease (writing only for Implement) and one authored dispatch receipt. Tool fragments never execute. Only completed public user/assistant pairs enter canonical history; private reasoning, signed tool metadata and transient tool transcripts are not persisted there. History is process-local and scoped to the task, partner, connection and role. An automatic role transition starts a disclosed fresh owned context while keeping the visible transcript; `/chat-new` remains the explicit reset for the current role. Managed Review stays independent. Account/endpoint drift refuses old-context transmission; no retry, account fallback or automatic resend is introduced. Custom endpoints require HTTPS except loopback HTTP; redirects are refused.
+Native file tools use bounded request-local continuations (at most eight HTTP rounds and sixteen calls), one durable lease (writing only for Implement) and one authored dispatch receipt. Tool fragments never execute. Only completed public user/assistant pairs enter canonical history; private reasoning and transient tool transcripts do not. History is process-local and scoped to task, partner, connection and actual operation. Cosmetic evolution preserves same-policy conversation; actual policy changes disclose fresh context while retaining the visible transcript. `/chat-new` remains an explicit reset, and independent Review stays separate. Account/endpoint drift refuses old-context transmission; no retry, account fallback or automatic resend is introduced. Custom endpoints require HTTPS except loopback HTTP; redirects are refused.
 
 A canceled/disconnected native request releases local ownership only after its reader and storage settle. Known completed client writes remain on disk; partial model output and remote completion/billing remain unverified. A later explicit request is allowed only when local effects are settled. Uncertain filesystem effects and external-agent effects remain blocking even after changing the selected route.
 
@@ -292,19 +294,19 @@ Sprites are nine original PokeAPI images that installers download and hash-verif
 
 | Machine | Package |
 | --- | --- |
-| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.24/ev-darwin-arm64.tar.gz) |
-| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.24/ev-darwin-x86_64.tar.gz) |
-| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.24/ev-linux-x86_64.tar.gz) |
-| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.24/ev-linux-arm64.tar.gz) |
-| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.24/ev-windows-x86_64.zip) |
+| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.25/ev-darwin-arm64.tar.gz) |
+| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.25/ev-darwin-x86_64.tar.gz) |
+| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.25/ev-linux-x86_64.tar.gz) |
+| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.25/ev-linux-arm64.tar.gz) |
+| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.25/ev-windows-x86_64.zip) |
 
 Installers verify SHA-256, refuse to overwrite commands they don't own, and never edit your shell profile or persistent PATH — the last step on each platform is yours.
 
 ### macOS
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.24/install.sh
-sh ./install-ev.sh --version v0.1.24          # installs to ~/.local/bin/ev
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.25/install.sh
+sh ./install-ev.sh --version v0.1.25          # installs to ~/.local/bin/ev
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && exec zsh
 ```
 
@@ -313,8 +315,8 @@ Builds are not notarized. The script installs via `curl`, which sets no quaranti
 ### Linux and WSL
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.24/install.sh
-sh ./install-ev.sh --version v0.1.24          # installs to ~/.local/bin/ev
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.25/install.sh
+sh ./install-ev.sh --version v0.1.25          # installs to ~/.local/bin/ev
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && exec bash
 ```
 
@@ -325,7 +327,7 @@ Inside WSL, use this Linux build, not the Windows one. For OpenAI account sign-i
 Run in **PowerShell** (5.1 or 7, no admin). Windows blocks downloaded `.ps1` files by default, so run the installer as a script block instead of `.\install.ps1`:
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.24/install.ps1))) -Version v0.1.24
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.25/install.ps1))) -Version v0.1.25
 ```
 
 It installs `%LOCALAPPDATA%\ev\bin\ev.exe`. Use it right away, and keep it on PATH for new terminals:

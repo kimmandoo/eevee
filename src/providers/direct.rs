@@ -450,6 +450,11 @@ fn payload(
     {
         let mut evidence: Value =
             serde_json::from_str(&review).map_err(|_| "Cannot decode native review evidence")?;
+        evidence["project_context"] = serde_json::to_value(super::project_context(
+            writes.ok_or("Native project scope missing")?,
+            input.agent,
+        ))
+        .map_err(|_| "Cannot encode project context")?;
         // The raw current request has its own user role, not a planning envelope.
         evidence
             .as_object_mut()
@@ -481,6 +486,7 @@ fn payload(
         }
         let context = serde_json::to_string(&json!({
             "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
+            "project_context": super::project_context(writes.ok_or("Native project scope missing")?, input.agent),
             "selected_write_scope": writes.map(|scope| scope.payload(&input.excerpts)),
             "proposed_edit_paths_only": if writes.is_none() { &input.edit_paths[..] } else { &[] },
             "handoff": input.handoff,

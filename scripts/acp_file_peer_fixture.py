@@ -78,6 +78,19 @@ def main():
         emit(dict(method="session/update", params=dict(sessionId=session, update=dict(
             sessionUpdate="tool_call_update", toolCallId="external-edit", status=status))))
 
+    if os.environ.get("EEVEE_ACP_GENERIC_PERMISSION") == "1":
+        for decision in ("cancelled", "selected"):
+            result = call("session/request_permission",
+                          toolCall=dict(toolCallId="generic-" + decision,
+                                        title="External fixture operation", kind="other",
+                                        status="pending", rawInput=dict(scope="fixture-only")),
+                          options=[dict(optionId="once", name="Allow external operation once",
+                                        kind="allow_once")])
+            expected = dict(outcome=decision)
+            if decision == "selected":
+                expected["optionId"] = "once"
+            assert result.get("result", {}).get("outcome") == expected, result
+
     emit(dict(method="session/update", params=dict(sessionId=session, update=dict(
         sessionUpdate="tool_call", toolCallId="external-edit", title="External diff observation",
         kind="edit", status="in_progress", content=[dict(type="diff", path=str(root / "reported.rs"),

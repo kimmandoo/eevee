@@ -153,6 +153,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             }),
             crate::store::Attribution::label(app.planning.owner()),
         ))
+    } else if app.planning.required_permission_review() {
+        Some(format!(
+            "{} · {}",
+            paint.hint(Message::ProvidersPlanningPermissionRequired),
+            crate::store::Attribution::label(app.planning.owner()),
+        ))
     } else {
         app.write_owner().map(|claim| {
             paint.format(
@@ -199,6 +205,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     };
     let area = super::sheet(area, if compact_picker { 80 } else { 112 }, height);
     frame.render_widget(Clear, area);
+    let form = app.form();
     let state = &mut app.planning;
     let title = if local_picker {
         format!(
@@ -213,11 +220,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     } else {
         format!(
             " {} / {} {} ",
-            match state.operation {
-                Operation::Plan => "Espeon",
-                Operation::Implement => "Flareon",
-                Operation::Review => "Glaceon",
-            },
+            crate::domain::FORMS[form].name,
             state.agent.label(),
             match state.operation {
                 Operation::Plan => paint.hint(Message::ProvidersPlanningPlanning),
@@ -290,24 +293,31 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 );
                 summary.insert(1, format!("Request: {request}"));
             }
-            state.reviewed = if matches!(
-                state.request.as_ref().map(|request| &request.kind),
-                Some(PromptKind::Permission { .. })
-            ) {
+            if let Some(preview) = &state.preview
+                && preview.requires_connection_review
+            {
+                summary.extend(preview.trust.iter().cloned());
+            }
+            if state.required_permission_review() {
                 let paragraph = Paragraph::new(summary.join("\n"))
                     .style(paint.surface)
                     .wrap(Wrap { trim: false });
-                let visible = frame.area().width >= 60
+                let scope_rows = paragraph.line_count(body.width.max(1));
+                state.scroll_max = scope_rows
+                    .saturating_sub(usize::from(body.height))
+                    .min(u16::MAX as usize) as u16;
+                state.scroll = state.scroll.min(state.scroll_max);
+                state.reviewed = frame.area().width >= 60
                     && frame.area().height >= 18
                     && body.width >= 40
-                    && paragraph.line_count(body.width.max(1)) <= usize::from(body.height);
-                frame.render_widget(paragraph, body);
-                visible
+                    && body.height > 0
+                    && usize::from(state.scroll) + usize::from(body.height) >= scope_rows;
+                frame.render_widget(paragraph.scroll((state.scroll, 0)), body);
             } else {
-                render_summary(frame, body, &summary, paint)
-            };
-            state.scroll = 0;
-            state.scroll_max = 0;
+                state.reviewed = render_summary(frame, body, &summary, paint);
+                state.scroll = 0;
+                state.scroll_max = 0;
+            }
         }
         review_controls(frame, content, state, paint);
         return;
@@ -848,18 +858,10 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
                     description
                         .lines()
                         .filter(|line| !line.trim().is_empty())
-                        .take(3)
                         .map(str::to_owned),
                 );
-                if let Some(option) = options.get(state.option) {
-                    lines.push(paint.format(
-                        Template::ProvidersPlanningSelectedPermission,
-                        &[("label", &option.label)],
-                    ));
-                    lines.push(paint.format(
-                        Template::ProvidersPlanningPermissionEffect,
-                        &[("description", &option.description)],
-                    ));
+                for option in options {
+                    lines.push(format!("{}: {}", option.label, option.description));
                 }
                 lines.push(
                     paint
@@ -939,8 +941,8 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
             state.request.as_ref().map(|request| &request.kind),
             Some(PromptKind::Permission { file: Some(_), .. })
         );
-    let controls = if state.auto_file_review {
-        paint.hint(Message::ProvidersPlanningFileAutoReviewActions)
+    let controls = if state.auto_permission_review {
+        paint.hint(Message::ProvidersPlanningPermissionAutoReviewActions)
     } else if file_details {
         paint.hint(Message::ProvidersPlanningFileDetailsActions)
     } else if state.review_details {
@@ -953,6 +955,28 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
             state.request.as_ref().map(|request| &request.kind),
             Some(PromptKind::Permission { file: Some(_), .. })
         );
+    let permission_choice = if !state.review_details && !file_summary {
+        match state.request.as_ref().map(|request| &request.kind) {
+            Some(PromptKind::Permission { options, .. }) => options.get(state.option),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some(option) = permission_choice {
+        text(
+            frame,
+            row(area, area.height.saturating_sub(3), 1),
+            &clipped(
+                &paint.format(
+                    Template::ProvidersPlanningSelectedPermission,
+                    &[("label", &option.label)],
+                ),
+                area.width as usize,
+            ),
+            paint.accent,
+        );
+    }
     if file_summary {
         let button = |index, message| {
             Span::styled(
@@ -985,12 +1009,17 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
             row(area, area.height.saturating_sub(3), 1),
         );
     }
+    let controls_rows = if file_summary || permission_choice.is_some() {
+        2
+    } else {
+        3
+    };
     text(
         frame,
         row(
             area,
-            area.height.saturating_sub(if file_summary { 2 } else { 3 }),
-            if file_summary { 2 } else { 3 },
+            area.height.saturating_sub(controls_rows),
+            controls_rows,
         ),
         controls,
         paint.accent,
@@ -1247,8 +1276,8 @@ fn file_style(phase: FilePhase, paint: &Paint) -> Style {
 }
 
 fn controls(state: &State, paint: &Paint) -> &'static str {
-    if state.auto_file_review {
-        return paint.hint(Message::ProvidersPlanningFileAutoReviewActions);
+    if state.auto_permission_review {
+        return paint.hint(Message::ProvidersPlanningPermissionAutoReviewActions);
     }
     if let Some(preview) = &state.preview {
         return if !preview.blockers.is_empty() {
@@ -1264,7 +1293,9 @@ fn controls(state: &State, paint: &Paint) -> &'static str {
     if let Some(request) = &state.request {
         return match &request.kind {
             PromptKind::Permission { file, options, .. } => {
-                if file.is_some() && !state.reviewed {
+                if options.len() < 2 {
+                    paint.hint(Message::ProvidersPlanningDenyAllowUnavailableNOrEnterDeny)
+                } else if file.is_some() && !state.reviewed {
                     paint.hint(Message::ProvidersPlanningFileUnavailable)
                 } else if !state.reviewed {
                     paint.hint(Message::ProvidersPlanningDenyAllowUnavailableUntilSummaryIsVisible)
@@ -1960,7 +1991,7 @@ mod tests {
         app.planning.event(Event::Preview(Preview {
             arrival: crate::providers::approval_arrival(),
             destination: None,
-            requires_connection_review: true,
+            requires_connection_review: false,
             generation: 11,
             task_id: 7,
             thread_id: None,
@@ -3081,7 +3112,7 @@ mod tests {
         app.planning.event(Event::Preview(Preview {
             arrival: crate::providers::approval_arrival(),
             destination: None,
-            requires_connection_review: true,
+            requires_connection_review: false,
             generation: 11,
             task_id: 7,
             thread_id: None,
@@ -3112,6 +3143,106 @@ mod tests {
             .map(|y| rendered_row(buffer, buffer.area, y))
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    #[test]
+    fn required_permission_and_connection_scope_scroll_with_explicit_controls_in_both_languages() {
+        for tag in ["en", "ko"] {
+            let language = crate::i18n::Language::parse(tag).unwrap();
+            for (width, height) in [(60, 18), (120, 36)] {
+                for connection in [false, true] {
+                    let (mut app, task) = if connection {
+                        let (mut app, task) = preview(width, height);
+                        app.planning
+                            .preview
+                            .as_mut()
+                            .unwrap()
+                            .requires_connection_review = true;
+                        (app, task)
+                    } else {
+                        let (mut app, task) = bolt_prompt(PromptKind::Permission {
+                            description: format!("{}final-exact-scope", "scope row\n".repeat(50)),
+                            file: None,
+                            options: vec![
+                                PermissionOption {
+                                    label: "Deny".into(),
+                                    description: "No effects".into(),
+                                    answer: serde_json::json!("deny"),
+                                },
+                                PermissionOption {
+                                    label: "Allow once".into(),
+                                    description: "This call only".into(),
+                                    answer: serde_json::json!("once"),
+                                },
+                            ],
+                        });
+                        app.width = width;
+                        app.height = height;
+                        (app, task)
+                    };
+                    app.planning.auto_permission_review = true;
+                    let shown = screen(&draw_language(&mut app, language));
+                    assert!(shown.contains("Enter"), "{shown}");
+                    for code in [KeyCode::Char('a'), KeyCode::Char('y'), KeyCode::Char('n')] {
+                        key(&mut app, &task, code);
+                    }
+                    app.planning.paste("y\na\n");
+                    assert!(app.planning.pending.is_none());
+                    key(&mut app, &task, KeyCode::Enter);
+                    assert!(!app.planning.auto_permission_review);
+                    draw_language(&mut app, language);
+                    assert!(!app.planning.reviewed);
+                    key(
+                        &mut app,
+                        &task,
+                        KeyCode::Char(if connection { 'y' } else { 'a' }),
+                    );
+                    assert!(app.planning.pending.is_none());
+                    let mut shown = String::new();
+                    while app.planning.scroll < app.planning.scroll_max {
+                        key(&mut app, &task, KeyCode::PageDown);
+                        shown = screen(&draw_language(&mut app, language));
+                    }
+                    assert!(app.planning.reviewed, "{shown}");
+                    if connection {
+                        assert!(shown.contains("executable/configuration"), "{shown}");
+                    } else {
+                        assert!(shown.contains("final-exact-scope"), "{shown}");
+                        assert!(shown.contains("Deny"), "{shown}");
+                    }
+                    for (modifiers, kind) in [
+                        (KeyModifiers::NONE, KeyEventKind::Repeat),
+                        (KeyModifiers::CONTROL, KeyEventKind::Press),
+                    ] {
+                        app.planning.key(
+                            KeyEvent::new_with_kind(KeyCode::Char('y'), modifiers, kind),
+                            true,
+                            &task,
+                            &[],
+                            None,
+                        );
+                    }
+                    assert!(app.planning.pending.is_none());
+                    key(
+                        &mut app,
+                        &task,
+                        KeyCode::Char(if connection { 'y' } else { 'a' }),
+                    );
+                    if connection {
+                        assert!(matches!(
+                            app.planning.pending,
+                            Some(Request::Run { generation: 11 })
+                        ));
+                    } else {
+                        assert!(matches!(
+                            app.planning.pending.as_ref(),
+                            Some(Request::Answer { generation: 11, answer, .. })
+                                if answer == &serde_json::json!("once")
+                        ));
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -3151,7 +3282,7 @@ mod tests {
                     },
                 ],
             });
-            app.planning.auto_file_review = true;
+            app.planning.auto_permission_review = true;
             draw_language(&mut app, language);
             key(&mut app, &task, KeyCode::Right);
             draw_language(&mut app, language);

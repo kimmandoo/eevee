@@ -67,8 +67,8 @@ pub const FORMS: [Form; 9] = [
     Form {
         name: "Glaceon",
         element: "Ice",
-        role: "Independent review & release readiness",
-        evidence: "Expected: evidence-linked findings and accept, request changes, or inconclusive. Review never edits source.",
+        role: "Code review & release readiness",
+        evidence: "Expected: evidence-linked findings. Explicit independent Review stays read-only; ordinary file changes require exact consent.",
         rgb: (144, 204, 233),
         indexed: 117,
     },
@@ -133,16 +133,10 @@ pub const FIRST_ACTIONS: [(&str, Option<&str>, &str); 9] = [
     ),
 ];
 
-/// Default capabilities per form (EV03A), condensed from the DESIGN_RULES role
-/// table. Descriptive only: enforcement stays in the approval flows.
-pub const CAPABILITIES: [&str; 9] = [
-    "read · edit",
-    "read",
-    "read · run",
-    "read · edit",
-    "read · edit plans",
-    "read",
-    "read · edit",
-    "read",
-    "read · edit docs",
-];
+/// Requestable capabilities, not grants. Every form supports project discovery
+/// and guarded coding; operation policy and exact approval remain authoritative.
+pub const CAPABILITIES: [&str; 9] = {
+    let mut capabilities = ["read · edit"; 9];
+    capabilities[2] = "read · edit · run";
+    capabilities
+};

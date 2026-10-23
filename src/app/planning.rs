@@ -134,8 +134,8 @@ pub struct State {
     pub reviewed: bool,
     /// Full technical review is optional; summary visibility still gates consent.
     pub review_details: bool,
-    /// Automatically presented file review still awaiting deliberate engagement.
-    pub auto_file_review: bool,
+    /// Automatically presented permission review awaiting deliberate engagement.
+    pub auto_permission_review: bool,
     pub file_consent: FileConsent,
     pub submitted_request: Arc<str>,
     submitted_instruction: Option<Arc<str>>,
@@ -259,7 +259,7 @@ impl State {
             notice: "No response yet. Send from Request; /session-new and /session-resume prepare an exact outgoing-payload review. /connect manages provider connections separately.".into(),
             scroll: 0, scroll_max: 0, reviewed: false, affirmative: false,
             review_details: false,
-            auto_file_review: false,
+            auto_permission_review: false,
             file_consent: FileConsent::default(),
             submitted_request: Arc::default(),
             submitted_instruction: None,
@@ -565,43 +565,26 @@ impl State {
     }
 
     /// Ordinary coding offers reviewed tools, not a grant to mutate files.
-    /// Explicit role choices win; external agents retain their reviewed policy boundary.
-    pub fn prepare_ordinary_operation(&mut self, form: usize) {
+    /// Explicit policy wins; a partner's appearance never removes tools.
+    pub fn prepare_ordinary_operation(&mut self) {
         if self.operation_explicit || self.busy() {
             return;
         }
-        let operation = match form {
-            0 | 3 | 6 => Operation::Implement,
-            7 => Operation::Review,
-            _ => Operation::Plan,
-        };
-        self.set_operation(operation);
-        self.operation_explicit = false;
-    }
-
-    pub fn select_form_operation(&mut self, form: usize) {
-        if !self.busy() {
-            self.operation_explicit = false;
-            self.prepare_ordinary_operation(form);
-        }
+        self.prepare_automatic_operation(Operation::Implement);
     }
 
     pub(in crate::app) fn explicit_operation(&self) -> Option<Operation> {
         self.operation_explicit.then_some(self.operation)
     }
 
-    /// Automatic role selection never restores a cached role session or pairing.
-    /// Keep the visible transcript/journal, but retire opaque authority/history.
-    pub(in crate::app) fn prepare_automatic_operation(
-        &mut self,
-        operation: Operation,
-        form_changed: bool,
-    ) -> bool {
+    /// Policy changes retire opaque authority; appearance changes do not.
+    /// Keep the visible transcript and never restore an old role session.
+    pub(in crate::app) fn prepare_automatic_operation(&mut self, operation: Operation) -> bool {
         if self.busy() {
             return false;
         }
         let operation = self.explicit_operation().unwrap_or(operation);
-        if self.operation == operation && !form_changed {
+        if self.operation == operation {
             return false;
         }
         self.close_request();
@@ -622,7 +605,8 @@ impl State {
         if self.busy() {
             return;
         }
-        self.operation_explicit = true;
+        // Implement returns to ordinary request capabilities, not a sticky grant.
+        self.operation_explicit = operation != Operation::Implement;
         if self.operation == operation {
             return;
         }
@@ -1433,7 +1417,7 @@ impl State {
             self.request_quit();
             return true;
         }
-        if self.auto_file_review {
+        if self.auto_permission_review {
             return false;
         }
         if name == "journal-retry" {
