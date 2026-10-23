@@ -10,7 +10,7 @@ Explicit quoted filename changes and handoff-file creation use the existing Impl
 
 Typed current-owner file permissions automatically appear on safe home panes. Deliberate button selection followed by Enter, or engaged a/y, answers only the existing one-shot request. Compact long scope remains scrollable with fixed decisions and requires contiguous complete scope exposure before Allow. No prose-to-file conversion, automatic approval, new writer or widened provider policy was added.
 
-Actual local OpenAI Responses and compatible Chat Completions journeys passed English/Korean at 120×36 and 60×18: real read-only discovery followed by quoted creation, nested-parent denial/allow, digest-bound edit denial/allow and handoff-file creation. Exact bytes/CRLF, no preapproval effects and correlated continuation were checked. This is deterministic runtime proof, not live-account acceptance.
+Downloaded v0.1.24 OpenAI Responses and compatible Chat Completions journeys passed English/Korean at 120×36 and 60×18: real read-only discovery followed by quoted creation, nested-parent denial/allow, digest-bound edit denial/allow and handoff-file creation. All eight journeys/48 groups checked exact bytes/CRLF, no preapproval effects and correlated continuation. The public binary additionally passed ordinary file/126 groups, native protocols/176, provider UX/20 and bilingual automatic evolution; all 24 installation groups/34 installed-native scenarios passed with identical reinstalled/public bytes. This is deterministic runtime proof, not live-account acceptance or proof that every manual form is free of capability restrictions.
 
 ### v0.1.23 unified OpenAI connections
 
