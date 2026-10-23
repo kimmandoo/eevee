@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-24] Reused compiler output directories and Windows path spellings blocked native evidence
+
+- **Context / Symptom:** Run40031296268 passed Check and both complete macOS jobs. Both Linux file drivers stopped at `FileExistsError` for `target/platform-files-en` before creating evidence. Windows passed all unit checks, bilingual file workflows and English receipts, then timed out waiting for an already committed owned-run activity.
+- **Root Cause:** Fresh-only acceptance outputs lived inside the compiler-cache target tree; the next Linux run found restored empty directories. The Windows timeout snapshot contained the exact expected event and owner under the task's canonical `\\?\C:\...` project, while the fixture filtered with a differently spelled path. The catalog's SQL lookup shared that same spelling assumption.
+- **Solution:** Moved every native journey's output to an attempt-specific runner temporary namespace outside compiler caches and retained upload of all evidence. Kept fresh-only directory creation. Compared fixture project directories with `Path.samefile`, including catalog lookup, preserving exact project ownership rather than accepting all rows or dropping the activity/catalog assertions.
+- **Prevention / Reference:** `041-timeout-sqlite.json` under `target/native-029-second-windows-failure` proves the committed event/task/run identities. Keep executable/package provenance, complete bilingual criteria and fresh exact-source qualification mandatory; a passing earlier row is not reusable release authorization.
+
 ### [2026-10-24] Expanded native qualification exposed platform-specific fixtures and job exhaustion
 
 - **Context / Symptom:** Native run40022572931 passed both Linux targets but failed Check on two `needless_borrow` diagnostics, Windows on five unit cases, and both macOS jobs at the 60-minute limit while still progressing through mandatory bilingual context/tool journeys.
