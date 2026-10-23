@@ -19,11 +19,37 @@ pub(super) fn canonical_parent(path: &Path) -> Result<PathBuf, String> {
         .map_err(|error| format!("Cannot resolve the storage directory: {error}"))
 }
 
+pub(super) type StoreAccess = std::sync::Arc<parking_lot::Mutex<()>>;
+
+/// Orders in-process snapshot readers and the store worker before SQLite locks.
+/// The caller supplies the canonical data directory and must acquire this gate
+/// before opening a read transaction or dispatching a worker command. Never
+/// acquire it from inside an existing SQLite transaction.
+pub(super) fn store_access(canonical_data_dir: &Path) -> StoreAccess {
+    use std::collections::BTreeMap;
+    use std::sync::{Arc, LazyLock, Weak};
+
+    type Registry = parking_lot::Mutex<BTreeMap<PathBuf, Weak<parking_lot::Mutex<()>>>>;
+    static STORES: LazyLock<Registry> = LazyLock::new(Registry::default);
+    let mut stores = STORES.lock();
+    if let Some(access) = stores.get(canonical_data_dir).and_then(Weak::upgrade) {
+        return access;
+    }
+    stores.retain(|_, access| access.strong_count() != 0);
+    let access = Arc::new(parking_lot::Mutex::new(()));
+    stores.insert(canonical_data_dir.to_path_buf(), Arc::downgrade(&access));
+    access
+}
+
 pub(super) fn open_readonly(path: &Path) -> Result<Connection, String> {
     let path = canonical_parent(path)?;
-    regular_target(&path, false)?;
+    open_readonly_canonical(&path)
+}
+
+pub(super) fn open_readonly_canonical(path: &Path) -> Result<Connection, String> {
+    regular_target(path, false)?;
     let connection =
-        Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY | sqlite_no_follow())
+        Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | sqlite_no_follow())
             .map_err(|error| format!("Cannot open the existing database read-only: {error}"))?;
     connection
         .busy_timeout(BUSY_TIMEOUT)

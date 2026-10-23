@@ -78,7 +78,10 @@ def peer():
                     record("policy_mismatch", method=method)
             elif method == "turn/start":
                 text = "\n".join(item.get("text", "") for item in params.get("input", []))
-                markers = re.findall(r"COOP_[A-Z0-9_]+", text)
+                # Public history can contain earlier fixture markers. Select
+                # this immutable request, not the final marker in the payload.
+                request = json.loads(text)["request"]
+                markers = re.findall(r"COOP_[A-Z0-9_]+", request)
                 marker = markers[-1] if markers else "COOP_UNKNOWN"
                 completed, asked = False, False
                 tool_chain, tool_step, tool_waiting = None, 0, False

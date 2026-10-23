@@ -130,7 +130,7 @@ fn stored(state: &State) -> Vec<Item> {
     items(state.connection.as_ref().unwrap(), &state.project).unwrap()
 }
 fn retained(connection: &Connection) -> BTreeMap<String, Vec<Vec<rusqlite::types::Value>>> {
-    let names: Vec<String> = connection.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT GLOB 'sqlite_*' AND name NOT IN('held_items','ribbons') ORDER BY name").unwrap()
+    let names: Vec<String> = connection.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT GLOB 'sqlite_*' AND name NOT IN('held_items','ribbons','context_revisions','outgoing_receipts','tool_artifacts','tool_catalog') ORDER BY name").unwrap()
         .query_map([], |row| row.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
     names
         .into_iter()
@@ -698,6 +698,7 @@ fn schema16_upgrade_is_atomic_preserves_every_old_table_and_modes() {
         }))
         .unwrap();
     let mut connection = state.connection.take().unwrap();
+    super::super::schema::remove_context_schema(&connection);
     connection
         .execute_batch("DROP TABLE held_items; DROP TABLE ribbons; PRAGMA user_version=16;")
         .unwrap();

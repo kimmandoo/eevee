@@ -46,6 +46,34 @@ impl State {
         .expect("serializable local preparation facts");
         let mut hash = Sha256::new();
         hash.update(bytes);
+        hash.update(
+            serde_json::to_vec(&self.context_plan.as_ref().map(|plan| {
+                (
+                    &plan.packet,
+                    &plan.basis,
+                    &plan.policy,
+                    &plan.tokenizer,
+                    plan.budget,
+                    &plan.guards,
+                )
+            }))
+            .expect("serializable frozen context identity"),
+        );
+        hash.update(
+            serde_json::to_vec(&self.tool_catalog.as_ref().map(|catalog| {
+                (
+                    &catalog.document_digest,
+                    &catalog.source_path,
+                    &catalog.source_sha256,
+                    &catalog.connection_scope,
+                    catalog.agent,
+                    catalog.task_id,
+                    catalog.partner,
+                    &catalog.entries,
+                )
+            }))
+            .expect("serializable frozen catalog identity"),
+        );
         hash.update([
             u8::from(self.authentication_invalidated),
             u8::from(self.connection_invalidated),
@@ -236,6 +264,11 @@ impl App {
             self.sources.clear_wire_request();
             self.sources.error =
                 "The prepared session changed; no context comparison retained.".into();
+            return true;
+        }
+        if let Err(error) = self.prepare_context_tools(&task) {
+            self.sources.comparison_refresh = false;
+            self.sources.error = error;
             return true;
         }
         if let Err(error) = self.planning.prepare_context_receipt(

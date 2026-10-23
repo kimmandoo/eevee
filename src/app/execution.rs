@@ -301,7 +301,7 @@ impl Default for State {
 }
 impl State {
     pub fn set_capture_capacity(&mut self, bytes: u64) {
-        self.capture_capacity = bytes.clamp(1024, 8 * 1024 * 1024);
+        self.capture_capacity = bytes.clamp(1024, 16 * 1024 * 1024);
     }
     /// A failed lazy runner start revokes dispatch without affecting other partners.
     pub fn runner_unavailable(&mut self, error: String) {
@@ -468,7 +468,7 @@ impl State {
             self.attach(task_id);
         }
         self.shown = true;
-        if self.history.is_empty() {
+        if self.history.is_empty() && !self.history_pending(task_id) {
             self.optional(StoreJob::Load(task_id));
         }
     }
@@ -1004,11 +1004,14 @@ impl State {
                     self.reserving = false;
                     self.fail("Storage / reservation", message, "Nothing was dispatched. Reopen v and approve again only after resolving quota/storage.");
                 } else {
-                    let critical = job.critical();
-                    if critical {
+                    let retained = job.critical() || matches!(job, StoreJob::Load(_));
+                    let history = matches!(job, StoreJob::Load(_));
+                    if retained {
                         self.failed = Some(job);
                     }
-                    self.fail("Storage / journal", message, if critical { "Use /journal-retry to retry only this journal save. No command is re-executed; cancellation remains available." } else { "Refresh/reopen the selected journal artifact after resolving local storage." });
+                    self.fail(if history { "Storage / history" } else { "Storage / journal" }, message,
+                        if retained { "Use /journal-retry to retry only this storage operation. No command is re-executed; cancellation remains available." }
+                        else { "Refresh/reopen the selected journal artifact after resolving local storage." });
                 }
             }
             Ok(store::RunResponse::Reserved(mut permit)) => {
@@ -1071,6 +1074,9 @@ impl State {
                 }
             }
             Ok(store::RunResponse::Runs(records)) => {
+                if matches!(&self.failed, Some(StoreJob::Load(owner)) if *owner == task_id) {
+                    self.failed = None;
+                }
                 if task_id == self.task_id {
                     self.history = records;
                     self.history_index = self
@@ -1112,7 +1118,7 @@ impl State {
                     self.upsert(record);
                     self.notice = "Only this run's owned local output was purged; metadata remains explicitly unavailable. Not secure erasure.".into();
                     if let Some(warning) = warning {
-                        self.notice = "Output reference is purged/unavailable; physical cleanup has a warning. Use /artifacts for full details.".into();
+                        self.notice = "Output reference is purged/unavailable; physical cleanup has a warning. Use /run-details for full details.".into();
                         self.fail("Storage / purge cleanup", warning, "The unavailable metadata committed. Inspect the cleanup warning; do not treat this as a no-op or a verified result.");
                     }
                 }
@@ -1374,7 +1380,11 @@ impl State {
                     }
                 }),
             ),
-            choice("artifacts", "Inspect command and artifact details", reason),
+            choice(
+                "run-details",
+                "Inspect command identity and execution diagnostics",
+                reason,
+            ),
             choice(
                 "journal-retry",
                 "Retry journal persistence only",
@@ -1518,7 +1528,7 @@ impl State {
                 self.notice =
                     "Requested fresh source/history observation; no command is rerun.".into();
             }
-            "artifacts" => {
+            "run-details" => {
                 self.view = View::Details;
                 self.detail_scroll = 0;
             }
@@ -1570,6 +1580,7 @@ impl State {
             }
             if key.modifiers.is_empty()
                 && self.confirmation_visible
+                && self.shown
                 && matches!(key.code, KeyCode::Char('y' | 'n'))
             {
                 self.affirmative = key.code == KeyCode::Char('y');
@@ -1577,8 +1588,12 @@ impl State {
             }
             match key.code {
                 KeyCode::Left => self.affirmative = false,
-                KeyCode::Right => self.affirmative = true,
-                KeyCode::Tab => self.affirmative = !self.affirmative,
+                KeyCode::Right if self.confirmation_visible && self.shown => {
+                    self.affirmative = true
+                }
+                KeyCode::Tab if self.confirmation_visible && self.shown => {
+                    self.affirmative = !self.affirmative
+                }
                 KeyCode::Esc => {
                     if self.defer_approval() {
                         return None;
@@ -1599,10 +1614,7 @@ impl State {
                     self.affirmative = false;
                 }
                 KeyCode::Enter => {
-                    if matches!(self.confirmation, Some(Confirmation::Approval))
-                        && self.affirmative
-                        && (!self.confirmation_visible || !self.shown)
-                    {
+                    if self.affirmative && (!self.confirmation_visible || !self.shown) {
                         return None;
                     }
                     self.confirmation_visible = false;
@@ -1745,7 +1757,7 @@ impl State {
                     self.reserving = true;
                     self.critical(StoreJob::Reserve(
                         p.clone(),
-                        self.capture_capacity.clamp(1024, 8 * 1024 * 1024),
+                        self.capture_capacity.clamp(1024, 16 * 1024 * 1024),
                     ));
                     self.notice = "Requesting a committed private output reservation; executable has not started.".into();
                 }
@@ -2092,7 +2104,7 @@ pub fn approval_details(p: &runner::Prepared, capacity: u64) -> String {
         }
         runner::CommandSpec::Shell { executable, dialect, text: shell } => text.push_str(&format!("Route: explicit shell {:?}\nShell executable = {}\nExact shell text (JSON escaped) = {}\n", dialect, serde_json::to_string(executable).unwrap(), serde_json::to_string(shell).unwrap())),
     }
-    text.push_str(&format!("\nPermission duration: ONE command; no reusable grant or automatic retry. Runtime duration: until exit or deliberate cancellation; no promised completion time.\nScope: arbitrary filesystem/network effects UNKNOWN. Not read-only, not sandboxed.\nEnforcement: Eevee dispatch checks + {} cancellation ownership before user execution. Escaped POSIX sessions/external effects are not contained.\nNull stdin; no interactive-shell inheritance.\nPrivate output capacity: {} bytes, committed under local quota BEFORE dispatch. Sanitized/redacted best-effort capture; full capture/queues drain and discard with explicit partial-evidence notices.\nBefore source identity: {:?}\n", if cfg!(windows) { "Windows kill-on-close Job" } else { "POSIX process group" }, capacity.clamp(1024, 8 * 1024 * 1024), p.before));
+    text.push_str(&format!("\nPermission duration: ONE command; no reusable grant or automatic retry. Runtime duration: until exit or deliberate cancellation; no promised completion time.\nScope: arbitrary filesystem/network effects UNKNOWN. Not read-only, not sandboxed.\nEnforcement: Eevee dispatch checks + {} cancellation ownership before user execution. Escaped POSIX sessions/external effects are not contained.\nNull stdin; no interactive-shell inheritance.\nPrivate output capacity: {} bytes, committed under local quota BEFORE dispatch. Sanitized/redacted best-effort capture; full capture/queues drain and discard with explicit partial-evidence notices.\nBefore source identity: {:?}\n", if cfg!(windows) { "Windows kill-on-close Job" } else { "POSIX process group" }, capacity.clamp(1024, 16 * 1024 * 1024), p.before));
     text.push_str("Storage additionally reserves 256 KiB of bounded journal/metadata headroom; shared quota may refuse the request before any execution.\n");
     text
 }

@@ -538,12 +538,7 @@ fn payload(
         return serde_json::to_string_pretty(&review)
             .map_err(|_| "Cannot encode review context".into());
     }
-    let sources = crate::workspace::context::planning_payload(
-        input.task.id,
-        input.report.as_ref(),
-        &input.excerpts,
-        exclusions,
-    )?;
+    let sources = input.source_payload(exclusions)?;
     if let Some(document) = &input.handoff {
         crate::workspace::handoff::validate_dispatch(
             document,
@@ -560,12 +555,13 @@ fn payload(
         }
         (_, _) => json!([]),
     };
-    let text = serde_json::to_string_pretty(&json!({
+    let text = crate::workspace::context::optimizer::encode_context(json!({
         "purpose": if input.operation == Operation::Plan { "Answer the user's current request directly; plan only when requested and do not implement changes. When project context is needed, use eevee_list_files and eevee_read_file for actual bounded safe working bytes. No mutation tools, mutation permission, commands or verification. Ask the user when a decision is needed; report proposals as unverified planning, never as local execution evidence." } else { "Answer the user's current request directly; do not force ordinary conversation into planning or unnecessary tool calls. When project context is needed, use eevee_list_files to discover safe names and eevee_read_file to inspect actual working bytes. When file changes are requested, actually call eevee_write_file to create files or eevee_edit_file with a preceding read sha256 and unique literal old_text to edit them; fenced code alone is not a filesystem change. Mutations accept literal root-relative paths, at most 64 KiB per resulting file and 32 distinct write targets. Empty edit_paths allows workspace targets; nonempty edit_paths restricts writes, not context reads. Freeze every target and full resulting content before exact allow-once review. Preserve unrelated dirty bytes and CRLF; do not replace a file from partial read context. Never use apply_patch, shell writes, MCP, delegation, commits or merge. Native filesystem writes and command escalations are denied. Refusals are not success. Report local effects only from actual tool results; no verification is implied." },
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
         "project_context": super::project_context(writes.ok_or("Codex project scope missing")?, input.agent),
         "request": input.instruction(),
         "prior_plan": input.prior_plan_payload(),
+        "public_context": input.public_context_payload(),
         "file_tool_policy": file_tool_instructions(input.operation),
         "operation": input.operation,
         "selection": input.selection,
@@ -969,6 +965,7 @@ struct PendingCall {
     deadline: Instant,
 }
 struct Item {
+    order: usize,
     kind: ItemKind,
     raw: String,
     complete: bool,
@@ -1926,7 +1923,9 @@ impl Engine<'_> {
                     .into(),
             );
         }
+        let order = self.items.len();
         let item = self.items.entry(id.clone()).or_insert_with(|| Item {
+            order,
             kind,
             raw: String::new(),
             complete: false,
@@ -2020,6 +2019,31 @@ impl Engine<'_> {
             ));
             if outcome == Outcome::Completed {
                 outcome = Outcome::Failed;
+            }
+        }
+        if outcome == Outcome::Completed
+            && self.cancelling.is_none()
+            && self.run.input.operation == Operation::Implement
+        {
+            let mut public = self
+                .items
+                .values()
+                .filter(|item| {
+                    item.complete && matches!(item.kind, ItemKind::Message | ItemKind::Plan)
+                })
+                .collect::<Vec<_>>();
+            public.sort_unstable_by_key(|item| item.order);
+            if let Some(conversation) = self.run.input.completed_public_context(
+                public.into_iter().map(|item| safe_stream(&item.raw, true)),
+            ) {
+                emit(
+                    self.events,
+                    Event::NativeCompleted {
+                        generation: self.run.generation,
+                        task_id: self.run.input.task.id,
+                        conversation,
+                    },
+                )?;
             }
         }
         self.terminal = Some((outcome, message));

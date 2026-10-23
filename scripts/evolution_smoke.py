@@ -214,7 +214,7 @@ def run(binary, output, root, size, ascii_mode, language):
             answer = 'READ_ONLY_SOURCE_OBSERVED'
             before = journey.begin(read_request, [
                 files.response_plan(peer, calls=[{'id': 'readonly-list', 'name': 'eevee_list_files',
-                    'arguments': {'query': 'src/', 'offset': 0}}]),
+                    'arguments': {'directory': '', 'query': 'src/', 'offset': 0}}]),
                 files.response_plan(peer, calls=[{'id': 'readonly-read', 'name': 'eevee_read_file',
                     'arguments': {'path': SOURCE, 'start_line': 1, 'end_line': 0}}], number=1),
                 files.response_plan(peer, text=answer, number=2)], writing=False)

@@ -116,6 +116,67 @@ pub struct RunRecord {
     pub error: Option<String>,
     pub after: InputSnapshot,
 }
+
+/// Historical provider evidence, never a dispatchable preparation or UI attribution.
+#[derive(Serialize)]
+pub struct RunObservation<'a> {
+    pub request_id: &'a str,
+    pub run_id: &'a str,
+    pub task_id: i64,
+    pub partner_id: Option<i64>,
+    pub command: &'a CommandSpec,
+    pub cwd: &'a Path,
+    pub executable: &'a ExecutableIdentity,
+    pub before: &'a InputSnapshot,
+    pub after: &'a InputSnapshot,
+    pub state: RunState,
+    pub started_at_ms: Option<u64>,
+    pub ended_at_ms: Option<u64>,
+    pub exit_code: Option<i32>,
+    pub signal: Option<i32>,
+    pub tree: TreeOutcome,
+    pub cancelled: bool,
+    pub truncated: bool,
+    pub output_unavailable: bool,
+    pub revision_moving: bool,
+    pub captured_bytes: u64,
+    pub discarded_bytes: u64,
+    pub dropped_live_bytes: u64,
+    pub error: Option<&'a str>,
+    pub rerun_of: Option<&'a str>,
+}
+
+impl<'a> From<&'a RunRecord> for RunObservation<'a> {
+    fn from(record: &'a RunRecord) -> Self {
+        let prepared = &record.prepared;
+        Self {
+            request_id: &prepared.request_id,
+            run_id: &prepared.run_id,
+            task_id: prepared.task_id,
+            partner_id: prepared.partner.as_ref().map(|owner| owner.partner),
+            command: &prepared.spec,
+            cwd: &prepared.cwd,
+            executable: &prepared.executable,
+            before: &prepared.before,
+            after: &record.after,
+            state: record.state,
+            started_at_ms: record.started_at_ms,
+            ended_at_ms: record.ended_at_ms,
+            exit_code: record.exit_code,
+            signal: record.signal,
+            tree: record.tree,
+            cancelled: record.cancelled,
+            truncated: record.truncated,
+            output_unavailable: record.output_unavailable,
+            revision_moving: record.revision_moving,
+            captured_bytes: record.captured_bytes,
+            discarded_bytes: record.discarded_bytes,
+            dropped_live_bytes: record.dropped_live_bytes,
+            error: record.error.as_deref(),
+            rerun_of: prepared.rerun_of.as_deref(),
+        }
+    }
+}
 impl RunRecord {
     pub fn awaiting(prepared: &Prepared) -> Self {
         Self {

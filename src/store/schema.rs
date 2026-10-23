@@ -213,6 +213,23 @@ pub(super) enum Schema {
 
 pub(super) type ColumnSpec = (&'static str, &'static str, bool, i64);
 
+#[cfg(test)]
+pub(super) fn remove_context_schema(connection: &Connection) {
+    connection.execute_batch("DROP TABLE outgoing_receipts; DROP TABLE context_revisions; DROP TABLE tool_catalog; DROP TABLE tool_artifacts;").unwrap();
+    // Historical fixtures must retain the actual pre-19 execution constraint,
+    // not merely relabel a current table with an older user_version.
+    connection.execute_batch(
+        "ALTER TABLE executions RENAME TO executions_v19_fixture;
+         CREATE TABLE executions(run_id TEXT PRIMARY KEY,task_id INTEGER NOT NULL,request_id TEXT NOT NULL UNIQUE,
+           record TEXT NOT NULL CHECK(length(CAST(record AS BLOB)) <= 131072),
+           output_name TEXT NOT NULL UNIQUE,output_identity TEXT NOT NULL,capacity INTEGER NOT NULL CHECK(capacity >= 1024 AND capacity <= 8388608),
+           reserved INTEGER NOT NULL CHECK(reserved IN (0,1)));
+         INSERT INTO executions(rowid,run_id,task_id,request_id,record,output_name,output_identity,capacity,reserved)
+           SELECT rowid,run_id,task_id,request_id,record,output_name,output_identity,capacity,reserved FROM executions_v19_fixture;
+         DROP TABLE executions_v19_fixture;"
+    ).unwrap();
+}
+
 pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
     let mut check = connection
         .prepare("PRAGMA quick_check")
@@ -229,9 +246,9 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if !(0..=18).contains(&version) {
+    if !(0..=19).contains(&version) {
         return Err(format!(
-            "Unsupported database schema version {version}; this ev supports versions 0 through 18"
+            "Unsupported database schema version {version}; this ev supports versions 0 through 19"
         ));
     }
     let mut statement = connection
@@ -384,9 +401,11 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
         {
             Schema::Current
         }
-        (15..=18, objects)
+        (15..=19, objects)
             if objects.len()
-                == (if version >= 18 {
+                == (if version >= 19 {
+                    33
+                } else if version >= 18 {
                     29
                 } else if version >= 17 {
                     28
@@ -398,6 +417,7 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
                     .zip(
                         [
                             "active_work",
+                            "context_revisions",
                             "diagnosis_transitions",
                             "excerpts",
                             "executions",
@@ -417,6 +437,7 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
                             "move_sources",
                             "move_usages",
                             "moves",
+                            "outgoing_receipts",
                             "partner_pairings",
                             "partners",
                             "provider_journal",
@@ -426,11 +447,21 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
                             "ribbons",
                             "selections",
                             "tasks",
+                            "tool_artifacts",
+                            "tool_catalog",
                         ]
                         .into_iter()
                         .filter(|name| {
                             (version >= 17 || *name != "held_items")
                                 && (version >= 18 || *name != "ribbons")
+                                && (version >= 19
+                                    || !matches!(
+                                        *name,
+                                        "context_revisions"
+                                            | "outgoing_receipts"
+                                            | "tool_artifacts"
+                                            | "tool_catalog"
+                                    ))
                         }),
                     )
                     .all(|((kind, name), expected)| kind == "table" && name == expected) =>
@@ -620,6 +651,12 @@ pub(super) fn inspect(connection: &Connection) -> Result<Schema, String> {
             if version >= 18 {
                 super::ribbons::inspect(connection)?;
             }
+            if version >= 19 {
+                super::receipts::inspect(connection)?;
+                super::artifacts::inspect(connection)?;
+                super::context_cache::inspect(connection)?;
+                super::tool_catalog::inspect(connection)?;
+            }
             return Ok(schema);
         }
     };
@@ -744,6 +781,15 @@ pub(super) fn migrate(connection: &Connection, schema: Schema) -> Result<(), Str
     }
     if version < 18 {
         super::ribbons::migrate(connection)?;
+    }
+    if version < 19 {
+        super::receipts::migrate(connection)?;
+        super::artifacts::migrate(connection)?;
+        super::context_cache::migrate(connection)?;
+        super::tool_catalog::migrate(connection)?;
+        connection
+            .execute_batch("PRAGMA user_version=19;")
+            .map_err(|error| format!("Cannot migrate context and tool storage: {error}"))?;
     }
     Ok(())
 }

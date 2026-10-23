@@ -38,6 +38,8 @@ impl App {
                 self.formations.invalidate();
                 self.workflow.authoring.invalidate();
                 self.updates.invalidate();
+                self.tool_catalog.invalidate();
+                self.artifacts.review_visible = false;
                 self.formations.apply_pending = false;
                 self.height = height;
                 self.agents.affirmative = false;
@@ -87,6 +89,14 @@ impl App {
             }
             Event::Paste(_) if self.reset_after_save || self.confirmation.is_some() => false,
             Event::Paste(_) if self.overlay == Some(Overlay::Updates) => false,
+            Event::Paste(text) if self.overlay == Some(Overlay::ToolCatalog) => {
+                self.tool_catalog.paste(&text);
+                true
+            }
+            Event::Paste(text) if self.overlay == Some(Overlay::Artifacts) => {
+                self.artifacts.paste(&text)
+            }
+            Event::Paste(_) if self.overlay == Some(Overlay::Receipts) => false,
             Event::Paste(text) if self.nickname_editor.is_some() => self.nickname_paste(&text),
             Event::Paste(text)
                 if self.overlay == Some(Overlay::Agents) && self.agents.connection_editing() =>
@@ -444,6 +454,12 @@ impl App {
             .find(|task| task.id == self.task_id)
             .cloned()
             .unwrap_or_else(|| store::Snapshot::empty(self.cwd.clone()));
+        if matches!(name, "new" | "resume")
+            && let Err(error) = self.prepare_context_tools(&task)
+        {
+            self.planning.notice = error;
+            return true;
+        }
         let changed = self.planning.command(
             name,
             self.width >= 60 && self.height >= 18,
@@ -549,6 +565,7 @@ impl App {
         let mut changed = false;
         while let Some(agent) = self.agents.take_connection_change() {
             self.planning.invalidate_connection(agent);
+            self.tool_catalog.disconnected(agent);
             for state in self.cooperation.parked.values_mut() {
                 state.invalidate_connection(agent);
             }
@@ -809,6 +826,12 @@ impl App {
             || self.memory.editing()
             || self.moves.editing()
             || self.overlay == Some(Overlay::Formations) && self.formations.editing()
+            || self.overlay == Some(Overlay::Artifacts) && self.artifacts.editor.is_some()
+            || self.overlay == Some(Overlay::ToolCatalog)
+                && matches!(
+                    self.tool_catalog.mode,
+                    tool_catalog::Mode::Search | tool_catalog::Mode::Path
+                )
             || self.handoff.editing
             || self.agents.connection_editing()
     }
@@ -917,6 +940,16 @@ impl App {
             return true;
         }
         if key.kind == KeyEventKind::Press
+            && key.code == KeyCode::Char('/')
+            && key.modifiers.is_empty()
+            && matches!(
+                self.overlay,
+                Some(Overlay::Artifacts | Overlay::ToolCatalog)
+            )
+        {
+            return self.context_tool_key(key);
+        }
+        if key.kind == KeyEventKind::Press
             && !self.command_surface_editing()
             && ((key.code == KeyCode::Char('/')
                 && key.modifiers.is_empty()
@@ -945,6 +978,9 @@ impl App {
         }
         match self.overlay {
             Some(Overlay::Updates) => return self.lifecycle_key(key),
+            Some(Overlay::Artifacts | Overlay::ToolCatalog | Overlay::Receipts) => {
+                return self.context_tool_key(key);
+            }
             Some(Overlay::Formations) => return self.formation_key(key),
             Some(Overlay::Held) => return self.held_key(key),
             Some(Overlay::Moves) => return self.move_key(key),
@@ -1290,6 +1326,7 @@ impl App {
     }
 
     pub(super) fn request_quit(&mut self) {
+        self.sources.cancel_memory_adoption();
         self.workflow.authoring.invalidate();
         if self.quit_requires_work_review()
             || self.planning_any_unknown()

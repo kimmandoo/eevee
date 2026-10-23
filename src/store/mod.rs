@@ -9,6 +9,8 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, pa
 use serde::{Deserialize, Serialize};
 
 mod admission;
+pub mod artifacts;
+pub mod context_cache;
 pub mod formations;
 mod held;
 mod journal;
@@ -17,6 +19,7 @@ mod memories;
 pub mod moves;
 mod partners;
 mod preferences;
+pub mod receipts;
 pub mod records;
 mod recovery;
 mod ribbons;
@@ -26,6 +29,7 @@ mod spool;
 mod tasks;
 #[cfg(test)]
 mod tests;
+pub mod tool_catalog;
 mod work;
 
 use journal::*;
@@ -568,6 +572,22 @@ pub enum Event {
         request: Box<records::Request>,
         result: Result<Box<records::Response>, String>,
     },
+    Receipts {
+        request: receipts::Request,
+        result: Result<receipts::Response, String>,
+    },
+    Artifact {
+        request: artifacts::Request,
+        result: Result<artifacts::Response, String>,
+    },
+    ToolCatalog {
+        request: tool_catalog::Request,
+        result: Result<tool_catalog::Response, String>,
+    },
+    ContextCache {
+        request: context_cache::Request,
+        result: Result<context_cache::Response, String>,
+    },
 }
 
 struct Managed {
@@ -589,6 +609,10 @@ enum Command {
     Work(WorkRequest),
     Preferences(PreferenceRequest),
     Records(Box<records::Request>),
+    Receipts(receipts::Request),
+    Artifact(artifacts::Request),
+    ToolCatalog(tool_catalog::Request),
+    ContextCache(context_cache::Request),
     Retry,
 }
 
@@ -664,6 +688,86 @@ impl Worker {
             Err(
                 TrySendError::Full(Command::Context(request))
                 | TrySendError::Disconnected(Command::Context(request)),
+            ) => {
+                *pending = Some(request);
+                false
+            }
+            Err(_) => unreachable!("try_send returns the submitted command"),
+        }
+    }
+
+    pub fn try_receipts(&self, pending: &mut Option<receipts::Request>) -> bool {
+        let Some(commands) = &self.commands else {
+            return false;
+        };
+        let Some(request) = pending.take() else {
+            return false;
+        };
+        match commands.try_send(Command::Receipts(request)) {
+            Ok(()) => true,
+            Err(
+                TrySendError::Full(Command::Receipts(request))
+                | TrySendError::Disconnected(Command::Receipts(request)),
+            ) => {
+                *pending = Some(request);
+                false
+            }
+            Err(_) => unreachable!("try_send returns the submitted command"),
+        }
+    }
+
+    pub fn try_artifact(&self, pending: &mut Option<artifacts::Request>) -> bool {
+        let Some(commands) = &self.commands else {
+            return false;
+        };
+        let Some(request) = pending.take() else {
+            return false;
+        };
+        match commands.try_send(Command::Artifact(request)) {
+            Ok(()) => true,
+            Err(
+                TrySendError::Full(Command::Artifact(request))
+                | TrySendError::Disconnected(Command::Artifact(request)),
+            ) => {
+                *pending = Some(request);
+                false
+            }
+            Err(_) => unreachable!("try_send returns the submitted command"),
+        }
+    }
+
+    pub fn try_tool_catalog(&self, pending: &mut Option<tool_catalog::Request>) -> bool {
+        let Some(commands) = &self.commands else {
+            return false;
+        };
+        let Some(request) = pending.take() else {
+            return false;
+        };
+        match commands.try_send(Command::ToolCatalog(request)) {
+            Ok(()) => true,
+            Err(
+                TrySendError::Full(Command::ToolCatalog(request))
+                | TrySendError::Disconnected(Command::ToolCatalog(request)),
+            ) => {
+                *pending = Some(request);
+                false
+            }
+            Err(_) => unreachable!("try_send returns the submitted command"),
+        }
+    }
+
+    pub fn try_context_cache(&self, pending: &mut Option<context_cache::Request>) -> bool {
+        let Some(commands) = &self.commands else {
+            return false;
+        };
+        let Some(request) = pending.take() else {
+            return false;
+        };
+        match commands.try_send(Command::ContextCache(request)) {
+            Ok(()) => true,
+            Err(
+                TrySendError::Full(Command::ContextCache(request))
+                | TrySendError::Disconnected(Command::ContextCache(request)),
             ) => {
                 *pending = Some(request);
                 false
@@ -870,10 +974,32 @@ fn run(
         lock: None,
         connection: None,
     };
-    let _ = events.send(state.reopen_startup());
+    let startup = state.reopen_startup();
+    let mut access_path = state.data_dir.clone();
+    let mut access = store_access(&access_path);
+    let _ = events.send(startup);
     while let Ok(command) = commands.recv() {
+        // Take the process-local ordering gate before SQLite acquires any lock.
+        // Read-only admission never blocks a commit while waiting on this gate.
+        let access_guard = access.lock();
         let event = match command {
             Command::Retry => state.reopen(),
+            Command::Receipts(request) => {
+                let result = state.receipts_request(&request).map_err(actionable);
+                Event::Receipts { request, result }
+            }
+            Command::Artifact(request) => {
+                let result = state.artifact_request(&request).map_err(actionable);
+                Event::Artifact { request, result }
+            }
+            Command::ToolCatalog(request) => {
+                let result = state.tool_catalog_request(&request).map_err(actionable);
+                Event::ToolCatalog { request, result }
+            }
+            Command::ContextCache(request) => {
+                let result = state.context_cache_request(&request).map_err(actionable);
+                Event::ContextCache { request, result }
+            }
             Command::Records(request) => {
                 let result = state.records(&request).map(Box::new).map_err(actionable);
                 Event::Records { request, result }
@@ -971,6 +1097,11 @@ fn run(
                 },
             },
         };
+        drop(access_guard);
+        if access_path != state.data_dir {
+            access_path.clone_from(&state.data_dir);
+            access = store_access(&access_path);
+        }
         // Blocking provides bounded backpressure without losing acknowledgements.
         // Drop disconnects this receiver before joining, so shutdown cannot deadlock.
         let _ = events.send(event);

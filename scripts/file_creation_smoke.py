@@ -24,12 +24,12 @@ from unittest.mock import patch
 import cooperation_smoke
 from native_connection_smoke import MATRIX, MODEL, Peer, decoded_payload, until
 from response_smoke import SurfaceJourney, SurfaceSession, SURFACE
-from terminal_smoke import confirm_exit, inspect_permission_scope, permission_run_available
+from terminal_smoke import WINDOWS, confirm_exit, inspect_permission_scope, permission_run_available
 from workbench_smoke import wait_for
 from connection_smoke_helpers import focus_field, open_setup
 
 ESC = '\x1b'
-UP, HOME, DELETE = ESC + '[A', ESC + '[H', ESC + '[3~'
+HOME, DELETE = ESC + '[H', ESC + '[3~'
 TOOL = 'eevee_write_file'
 FIRST = 'generated 界/cafe\u0301.py'
 EMPTY = 'generated 界/empty.txt'
@@ -284,10 +284,17 @@ class CreationJourney(SurfaceJourney):
             self.session.command('paths')
             return 'JSON' in self.session.display()
         until(self.session, open_paths, 'settled path selector did not open', timeout=40)
-        self.session.send(UP * 16 + HOME + DELETE * 4096)
+        # This single-line editor has Home/Delete, not Ctrl+U. Its initial
+        # value is the compact JSON of the last applied restriction. A Delete
+        # per code point bounds grapheme deletion (including combining paths)
+        # without thousands of no-op keys and synchronized-update frames.
+        previous = json.dumps(getattr(self, '_selected_paths', []),
+                              ensure_ascii=False, separators=(',', ':'))
+        self.session.send(HOME + DELETE * len(previous))
         self.session.paste(json.dumps(paths, ensure_ascii=False))
         self.session.send('\r')
         self.workspace()
+        self._selected_paths = list(paths)
         assert len(self.peer.snapshot('POST')) == posts, 'path selection dispatched inference'
         assert self.snapshot()['executions'] == before['executions'], 'path selection ran a command'
         self.capture('selected-paths-' + str(posts))
@@ -297,7 +304,9 @@ class CreationJourney(SurfaceJourney):
         before = len(self.peer.snapshot('POST'))
         for plan in plans:
             self.peer.plans.put(plan)
-        self.session.send('\r')
+        # This action starts streaming, including a deliberately held terminal
+        # frame. The semantic dispatch/gate waits, not spinner silence, own it.
+        self.session.send('\r', settle=False)
         approved = False
 
         def submitted():
@@ -307,7 +316,7 @@ class CreationJourney(SurfaceJourney):
             view = self.session.display()
             if not approved and permission_run_available(self.session):
                 self.capture('request-scope-before-inference-' + str(before))
-                self.session.send('y')
+                self.session.send('y', settle=False)
                 approved = True
             elif not approved and inspect_permission_scope(self.session):
                 pass
@@ -319,7 +328,8 @@ class CreationJourney(SurfaceJourney):
         claims = self.snapshot()['claims']
         assert len(claims) == 1 and bool(claims[0]['writing']) is writing, 'native operation bypassed its actual lease mode'
         body = self.peer.snapshot('POST')[before]['body']
-        expected = {'eevee_list_files', 'eevee_read_file'}
+        expected = {'eevee_list_files', 'eevee_read_file', 'eevee_artifact_list',
+                    'eevee_artifact_read', 'eevee_artifact_search', 'eevee_artifact_locations'}
         if writing:
             expected |= {'eevee_write_file', 'eevee_edit_file'}
         assert advertised_tools(self.protocol, body) == expected, 'native operation advertised the wrong file capability'
@@ -373,7 +383,9 @@ class CreationJourney(SurfaceJourney):
             self.capture('enter-inspects-without-answer')
             self.session.send('d')  # Leave optional technical inspection; exact summary must render again.
         self.session.send(ESC + ('[C' if allow else '[D'))
-        self.session.send('\r')
+        # The selected one-shot decision may immediately start the next HTTP
+        # round. settled() waits for its real response and released ownership.
+        self.session.send('\r', settle=False)
 
     def settled(self, answer, post_count):
         def complete():
@@ -387,6 +399,9 @@ class CreationJourney(SurfaceJourney):
                     and (answer is None or answer in view))
         until(self.session, complete,
               'native tool result and durable ownership did not settle', timeout=40)
+        # Only the completed operation is expected to become quiet. Preserve
+        # the strict bounded capture check, with every output byte retained.
+        self.session.pump(settle=WINDOWS)
         self.capture('settled-' + str(post_count))
         assert self.snapshot()['executions'] == 0, 'file implementation fabricated a local command'
         self.workspace()
@@ -463,7 +478,7 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
             edited_content = CONTENT.replace('"public fixture"', '"edited fixture"')
             before = journey.begin(inspect_request, [
                 response_plan(peer, calls=[{'id': 'discover-source', 'name': 'eevee_list_files',
-                    'arguments': {'query': 'generated', 'offset': 0}}], number=4),
+                    'arguments': {'directory': '', 'query': 'generated', 'offset': 0}}], number=4),
                 response_plan(peer, calls=[{'id': 'read-source', 'name': 'eevee_read_file',
                     'arguments': {'path': FIRST, 'start_line': 1, 'end_line': 0}}], number=5),
                 response_plan(peer, calls=[{'id': 'edit-source', 'name': 'eevee_edit_file',
@@ -661,8 +676,23 @@ def codex_case(binary, output, size, language):
         journey.workspace()
         assert not (journey.project / FIRST).parent.exists()
         before_original = journey.source.read_bytes()
+        public_history = []
         for marker, allow in (('COOP_CREATE_DENY', False), ('COOP_CREATE_ALLOW', True)):
             journey.request(1, marker)
+            payload = json.loads(journey.peers('started', marker)[-1]['text'])
+            assert payload['request'] == marker
+            public = payload.get('public_context')
+            assert (public or {}).get('messages', []) == public_history, \
+                'fresh controlled thread lost or contaminated preceding public corrections'
+            if public:
+                encoded_public = json.dumps(public)
+                for forbidden in ('coop-thread-', 'coop-turn-', 'public observation',
+                                  'edit-call', '"success"', 'connection_scope', 'write_baseline'):
+                    assert forbidden not in encoded_public, 'opaque authority/tool output entered public dialogue'
+            sessions = journey.peers('session')
+            assert all(row['method'] == 'thread/start' for row in sessions)
+            assert len({row['thread'] for row in sessions}) == len(sessions), \
+                'controlled Implement reused opaque thread authority'
             assert all(row['writing'] for row in journey.snapshot()[2]), 'controlled creation lost writer lease'
             journey.prompt(marker, 'edit')
             journey.until(lambda: file_review_pending(journey.session),
@@ -695,12 +725,17 @@ def codex_case(binary, output, size, language):
             journey.workspace()
             journey.until(lambda: 'Completed ' + marker in journey.session.display(),
                           'controlled final answer was hidden behind earlier tool observations')
+            public_history.extend([{'role': 'user', 'text': marker},
+                                   {'role': 'assistant', 'text': 'Completed ' + marker}])
             assert journey.source.read_bytes() == before_original, 'new-file tool modified an unrelated existing file'
             result['cases'].append('controlled direct file review with neutral inspection and ' + ('allow' if allow else 'explicit denial'))
         marker = 'COOP_SOURCE_CHAIN'
         journey.request(1, marker)
+        payload = json.loads(journey.peers('started', marker)[-1]['text'])
+        assert payload['public_context']['messages'] == public_history, \
+            'third fresh Implement thread omitted earlier implementation correction'
         journey.publish(marker + '.prompt', json.dumps([
-            {'name': 'eevee_list_files', 'arguments': {'query': 'generated', 'offset': 0}},
+            {'name': 'eevee_list_files', 'arguments': {'directory': '', 'query': 'generated', 'offset': 0}},
             {'name': 'eevee_read_file', 'arguments': {'path': FIRST, 'start_line': 1, 'end_line': 0}},
             {'name': 'eevee_edit_file', 'arguments': {'path': FIRST,
                 'sha256': hashlib.sha256(CONTENT.encode()).hexdigest(),
@@ -735,15 +770,33 @@ def codex_case(binary, output, size, language):
         result['cases'].append('ordinary controlled discovery/read/hash-bound edit with real CRLF bytes and one-shot consent')
         journey.until(lambda: not journey.session.display().rstrip().splitlines()[-1].strip().startswith(journey.surface['draft']),
                       'controlled writer UI did not finish settling')
+        before_switch = len(journey.peers('started'))
+        journey.session.command('model fixture-replacement')
+        journey.until(lambda: 'fixture-replacement' in journey.session.display(),
+                      'exact model replacement review not reachable')
+        journey.session.capture('model-switch-retains-old-response-review')
+        journey.session.send('\t\r')
+        journey.workspace()
+        journey.session.send(ESC + '[1;3F')
+        journey.until(lambda: 'Completed ' + marker in journey.session.display(),
+                      'accepting model change erased preceding attributed public response')
+        assert len(journey.peers('started')) == before_switch, 'model selection replayed provider work'
+        journey.session.capture('model-switch-old-response-still-visible-no-replay')
+        result['cases'].append('accepted model change retires opaque thread authority while retaining attributed public response without replay')
         journey.session.command('role-plan')
         journey.workspace()
         marker = 'COOP_SOURCE_READONLY'
         journey.request(1, marker)
+        readonly_payload = json.loads(journey.peers('started', marker)[-1]['text'])
+        assert readonly_payload['selection']['model'] == 'fixture-replacement', \
+            'model review was not actually accepted for the next immutable request'
+        assert journey.peers('session')[-1]['method'] == 'thread/start', \
+            'model/role replacement reauthorized an old opaque provider session'
         claims = journey.snapshot()[2]
         assert len(claims) == 1 and not claims[0]['writing'], 'controlled Plan acquired writing authority'
         assert set(journey.peers('session')[-1]['tools']) == {'eevee_list_files', 'eevee_read_file'}, 'controlled Plan advertised mutation tools'
         journey.publish(marker + '.prompt', json.dumps([
-            {'name': 'eevee_list_files', 'arguments': {'query': 'generated', 'offset': 0}},
+            {'name': 'eevee_list_files', 'arguments': {'directory': '', 'query': 'generated', 'offset': 0}},
             {'name': 'eevee_read_file', 'arguments': {'path': FIRST, 'start_line': 1, 'end_line': 0}}]))
         journey.until(lambda: len(journey.peers('answer', marker)) == 2, 'controlled readonly source calls did not settle')
         answers = journey.peers('answer', marker)

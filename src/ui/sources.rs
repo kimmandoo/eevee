@@ -15,6 +15,7 @@ use crate::{
 };
 
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
+    app.sources.optimizer_reviewed = false;
     if app.sources.editor.is_some() {
         editor(frame, area, app, config, paint);
         return;
@@ -59,8 +60,22 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     text(
         frame,
         row(content, 1, 1),
-        &clipped(&state.status, content.width as usize),
-        paint.muted,
+        if state.mode == Mode::Optimizer {
+            paint.hint(state.optimizer_notice())
+        } else if let Some(message) = state.memory_notice {
+            paint.hint(message)
+        } else {
+            &state.status
+        },
+        if state
+            .optimizer_preview
+            .as_ref()
+            .is_some_and(|plan| plan.overflow)
+        {
+            paint.accent
+        } else {
+            paint.muted
+        },
     );
     let list_rows = if matches!(state.mode, Mode::Files | Mode::Basket) {
         (content.height / 3).clamp(1, 7)
@@ -121,7 +136,11 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         2 + list_rows,
         content.height.saturating_sub(5 + list_rows),
     );
-    let comparison = (state.mode == Mode::Comparison).then(|| comparison_lines(state, paint));
+    let comparison = match state.mode {
+        Mode::Comparison => Some(comparison_lines(state, paint)),
+        Mode::Optimizer => Some(optimizer_lines(state, paint)),
+        _ => None,
+    };
     let errors = || {
         state
             .error
@@ -186,6 +205,18 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     paint.hint(crate::i18n::Message::DesksSourcesMoreTabFilesPgupDnDetailsEsc)
                 }
                 Mode::Comparison => paint.hint(crate::i18n::Message::ContextComparisonHint),
+                Mode::Optimizer => paint.hint(
+                    if app
+                        .sources
+                        .optimizer_preview
+                        .as_ref()
+                        .is_some_and(|plan| plan.overflow)
+                    {
+                        crate::i18n::Message::ContextOptimizerOverflowHint
+                    } else {
+                        crate::i18n::Message::ContextOptimizerHint
+                    },
+                ),
             }
         },
         paint.muted,
@@ -197,15 +228,27 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             paint.hint(crate::i18n::Message::HeldSourceHint),
             paint.muted,
         );
+    } else if app.sources.mode == Mode::Basket {
+        text(
+            frame,
+            row(content, content.height.saturating_sub(3), 1),
+            paint.hint(crate::i18n::Message::SourceMemoryHint),
+            paint.muted,
+        );
     } else if app.sources.mode != Mode::Comparison {
         text(
             frame,
             row(content, content.height.saturating_sub(3), 1),
-            paint.hint(crate::i18n::Message::ContextComparisonSourceHint),
+            paint.hint(crate::i18n::Message::ContextOptimizerSourceHint),
             paint.muted,
         );
     }
     app.sources.preview_reviewed = preview_reviewed;
+    app.sources.optimizer_reviewed = app.sources.mode == Mode::Optimizer
+        && app.sources.optimizer_preview.is_some()
+        && frame.area().width >= 60
+        && frame.area().height >= 18
+        && details.height >= 4;
 }
 
 fn comparison_lines(state: &crate::app::sources::State, paint: &Paint) -> Vec<String> {
@@ -323,6 +366,69 @@ fn comparison_lines(state: &crate::app::sources::State, paint: &Paint) -> Vec<St
     lines.push(paint.hint(Message::ContextComparisonBoundary).into());
     lines
 }
+fn optimizer_lines(state: &crate::app::sources::State, paint: &Paint) -> Vec<String> {
+    use crate::i18n::{Message, Template};
+    let Some(plan) = &state.optimizer_preview else {
+        return vec![paint.hint(Message::ContextOptimizerTitle).into()];
+    };
+    let mut lines = Vec::with_capacity(8 + plan.included.len() + plan.omissions.len());
+    if plan.overflow {
+        lines.push(paint.hint(Message::ContextOptimizerOverflow).into());
+    }
+    lines.extend([
+        paint.hint(Message::ContextOptimizerTitle).into(),
+        paint.format(
+            Template::ContextOptimizerSummary,
+            &[
+                ("kind", &plan.kind),
+                ("tokens", &plan.tokens.to_string()),
+                ("budget", &plan.budget.to_string()),
+                ("baseline", &plan.baseline_tokens.to_string()),
+            ],
+        ),
+        paint.format(
+            Template::ContextOptimizerContributions,
+            &[
+                ("packet", &plan.packet_tokens.to_string()),
+                ("notes", &plan.mandatory_note_tokens.to_string()),
+            ],
+        ),
+        paint.format(
+            Template::ContextOptimizerMeasurements,
+            &[
+                ("bytes", &plan.packet.len().to_string()),
+                ("micros", &plan.processing_micros.to_string()),
+                ("hits", &plan.cache_hits.to_string()),
+            ],
+        ),
+        paint.format(
+            Template::ContextOptimizerTokenizer,
+            &[("tokenizer", &plan.tokenizer)],
+        ),
+    ]);
+    lines.push(paint.hint(Message::ContextOptimizerApplyNotice).into());
+    for item in &plan.included {
+        lines.push(format!(
+            "{} {}:{}-{} — {}",
+            paint.hint(if item.mandatory {
+                Message::ContextOptimizerPin
+            } else {
+                Message::ContextOptimizerIncluded
+            }),
+            item.path,
+            item.start_line,
+            item.end_line,
+            item.reason
+        ));
+    }
+    lines.extend(
+        plan.omissions
+            .iter()
+            .map(|reason| format!("{}: {reason}", paint.hint(Message::ContextOptimizerOmitted))),
+    );
+    lines.push(plan.packet.clone());
+    lines
+}
 
 fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
     let Some(editor) = &app.sources.editor else {
@@ -334,6 +440,7 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         match editor.kind {
             EditKind::Search => paint.hint(crate::i18n::Message::DesksSourcesFilenameFilterLiteral),
             EditKind::Range => paint.hint(crate::i18n::Message::DesksSourcesSourceRangeInclusive),
+            EditKind::Budget => paint.hint(crate::i18n::Message::ContextOptimizerBudgetTitle),
         },
         config,
         paint,
@@ -351,6 +458,7 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
             EditKind::Range => {
                 paint.hint(crate::i18n::Message::DesksSourcesOneBasedStartEndEGExact)
             }
+            EditKind::Budget => paint.hint(crate::i18n::Message::ContextOptimizerBudgetHint),
         }
     };
     text(frame, row(content, 0, 2), hint, paint.muted);

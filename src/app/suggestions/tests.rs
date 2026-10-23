@@ -537,7 +537,7 @@ fn dismissal_is_deliberate_local_and_stable_until_a_new_failure() {
     app.input = "Unsent draft 한글".into();
     app.cursor = 7;
     app.editing = true;
-    app.pending_request = Some((app.revision, false));
+    app.pending_request = Some((app.revision, false, false));
     let pending = app.pending_request;
     let revision = app.revision;
     assert!(app.command("suggestion-dismiss"));

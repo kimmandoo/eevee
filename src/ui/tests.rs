@@ -89,6 +89,17 @@ fn caret_tracks_wide_wrapped_and_combining_graphemes() {
 }
 
 #[test]
+fn crlf_is_one_visible_break_with_exact_grapheme_byte_carets() {
+    let input = "한\r\ne\u{301}\r\n";
+    let (rows, caret) = editor_rows(input, input.len(), 8);
+    assert_eq!(rows, ["한", "e\u{301}", ""]);
+    assert_eq!(caret, (2, 0));
+    assert_eq!(editor_rows(input, "한".len(), 8).1, (0, 2));
+    assert_eq!(editor_rows(input, "한\r\n".len(), 8).1, (1, 0));
+    assert_eq!(editor_rows(input, "한\r\ne\u{301}".len(), 8).1, (1, 1));
+}
+
+#[test]
 fn home_keeps_partner_visible_and_primary_surfaces_usable() {
     for (width, height) in [(120, 36), (100, 30), (90, 24), (80, 24), (70, 24), (60, 18)] {
         let area = Rect::new(0, 0, width, height);

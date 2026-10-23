@@ -1,0 +1,11 @@
+context-tools-optimize = 로컬 토큰 예산 안에서 맥락 순위 미리보기
+context-tools-compact = 증거와 연결된 로컬 이어가기 원장 미리보기
+context-tools-apply = 검토한 맥락 묶음 적용 · 전송하지 않음
+context-tools-cancel = 맥락 미리보기 취소 · 변경하지 않음
+context-tools-clear = 적용된 로컬 맥락 묶음 해제
+context-tools-receipts = 저장된 요청 영수증과 정확한 분량 확인
+context-tools-search = 저장된 도구 출력 안에서 검색
+context-tools-locations = 저장된 오류 위치 확인
+context-tools-cache-retry = 실패한 로컬 캐시 작업만 재시도
+context-tools-cache-discard = 실패한 로컬 캐시 작업 버리기
+context-tools-cache-purge = 로컬 리비전·토큰 캐시 삭제

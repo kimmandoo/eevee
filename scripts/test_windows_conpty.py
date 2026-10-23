@@ -1,4 +1,4 @@
-"""Real Windows ConPTY byte-transport regressions (no terminal emulator required)."""
+"""Bounded capture regressions and real Windows ConPTY byte-transport proof."""
 import codecs
 import hashlib
 import json
@@ -11,6 +11,10 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
+
+import terminal_smoke
 
 if sys.platform == 'win32':
     from windows_conpty import ConPTYProcess
@@ -28,7 +32,7 @@ TIMEOUT = 15.0
 # so ConPTY cannot coalesce two title updates before the parent observes them.
 # Windows documents OSC 0/2 and split WriteFile sequences:
 # https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences
-CHILD = f'PAYLOAD = {UNICODE_TEXT!r}\n' + r'''
+CHILD_SETUP = f'PAYLOAD = {UNICODE_TEXT!r}\n' + r'''
 import ctypes
 from ctypes import wintypes
 import hashlib
@@ -36,6 +40,7 @@ import json
 import msvcrt
 import os
 import sys
+import threading
 import time
 
 kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
@@ -80,6 +85,9 @@ def command(expected):
     if received != expected:
         raise RuntimeError(f'expected {expected!r}, received {received!r}')
 
+'''
+
+CHILD = CHILD_SETUP + r'''
 # Keep this title below the documented 255-character limit even when the
 # runner's temporary directory is long; verify its full path by digest.
 title('EEVEE_READY:' + json.dumps({
@@ -97,12 +105,124 @@ title('EEVEE_DONE:23')
 sys.exit(23)
 '''
 
+ANIMATED_CHILD = CHILD_SETUP + r'''
+title('EEVEE_BUSY_READY')
+command('animate')
+stopped = threading.Event()
+
+def animate():
+    index = 0
+    while not stopped.wait(0.04):
+        os.write(sys.stdout.fileno(), ('\r' + '|/-\\'[index % 4]).encode())
+        index += 1
+
+animation = threading.Thread(target=animate)
+animation.start()
+title('EEVEE_ANIMATING')
+command('stop')
+stopped.set()
+animation.join()
+title('EEVEE_SETTLED')
+command('exit')
+title('EEVEE_DONE:23')
+sys.exit(23)
+'''
+
+
+def capture_session(process, data):
+    """Exercise the actual pump without requiring pyte for transport tests."""
+    session = object.__new__(terminal_smoke.Session)
+    session.process, session.data = process, data
+    session.events, session.text, session.eof = [], '', False
+    session.decoder = codecs.getincrementaldecoder('utf-8')('strict')
+    fragments = []
+    session.stream = SimpleNamespace(feed=fragments.append)
+    return session, fragments
+
+
+class ClockedOutput:
+    """A continuously animated byte queue with a deterministic capture clock."""
+    def __init__(self):
+        self.now = 0.0
+        self.pending = [(index * 0.04, b'\r' + b'|/-\\'[index % 4:index % 4 + 1])
+                        for index in range(1, 101)]
+
+    def empty(self):
+        return not self.pending or self.pending[0][0] > self.now
+
+    def get(self, timeout):
+        end = self.now + timeout
+        if self.pending and self.pending[0][0] <= end:
+            self.now, data = self.pending.pop(0)
+            return data
+        self.now = end
+        raise queue.Empty
+
+
+class CaptureTests(unittest.TestCase):
+    def setUp(self):
+        self.output = ClockedOutput()
+        self.writes = []
+        self.session, self.fragments = capture_session(
+            SimpleNamespace(write=self.writes.append), self.output)
+        windows = patch.object(terminal_smoke, 'WINDOWS', True)
+        clock = patch.object(terminal_smoke.time, 'monotonic', lambda: self.output.now)
+        windows.start()
+        clock.start()
+        self.addCleanup(windows.stop)
+        self.addCleanup(clock.stop)
+
+    def test_async_send_captures_animation_without_waiting_for_silence(self):
+        self.session.send('\r', settle=False)
+        self.assertEqual(self.writes, ['\r'])
+        self.assertAlmostEqual(self.output.now, 0.25)
+        self.assertTrue(self.output.pending)
+        self.assertTrue(self.session.text)
+        self.assertEqual(self.session.text, ''.join(self.fragments))
+        self.assertEqual(self.session.events, [{'input': repr('\r')}])
+
+    def test_default_settle_still_rejects_continuous_output_at_original_bound(self):
+        with self.assertRaisesRegex(AssertionError, 'native console output did not settle'):
+            self.session.send('\r')
+        self.assertAlmostEqual(self.output.now, 2.25)
+        self.assertEqual(self.session.text, ''.join(self.fragments))
+        self.assertTrue(self.output.pending)
+
+    def test_async_action_can_settle_after_actual_completion(self):
+        self.session.send('\r', settle=False)
+        self.output.pending = [event for event in self.output.pending if event[0] <= 0.4]
+        self.session.pump(settle=True)
+        self.assertFalse(self.output.pending)
+        self.assertGreaterEqual(self.output.now, 0.4 + 0.12)
+        self.assertLess(self.output.now, 2.25)
+        self.assertEqual(self.session.text, ''.join(self.fragments))
+
+    def test_path_editor_clear_is_bounded_by_actual_prior_json(self):
+        from file_creation_smoke import CreationJourney, DELETE, FIRST, HOME
+
+        journey = object.__new__(CreationJourney)
+        journey.session = Mock()
+        journey.session.display.return_value = 'JSON'
+        journey.peer = SimpleNamespace(snapshot=lambda method: [])
+        journey.snapshot = lambda: {'executions': 0}
+        journey.workspace = Mock()
+        journey.capture = Mock()
+        journey.paths([FIRST])
+        self.assertEqual(journey.session.send.call_args_list[0].args, (HOME + DELETE * 2,))
+        journey.session.reset_mock()
+        journey.paths([])
+        previous = json.dumps([FIRST], ensure_ascii=False, separators=(',', ':'))
+        self.assertEqual(journey.session.send.call_args_list[0].args,
+                         (HOME + DELETE * len(previous),))
+        self.assertEqual(journey._selected_paths, [])
+        self.assertNotIn('\x1b[A', journey.session.send.call_args_list[0].args[0])
+
 
 @unittest.skipUnless(sys.platform == 'win32', 'requires native Windows ConPTY')
 class ConPTYTests(unittest.TestCase):
-    def spawn_child(self, directory):
+    def spawn_child(self, directory, *, child=CHILD, read_size=1):
         process = ConPTYProcess.spawn(
-            [sys.executable, '-u', '-c', CHILD, ARGUMENT],
+            [sys.executable, '-u', '-c', child, ARGUMENT],
             cwd=str(directory),
             env={**os.environ, 'EEVEE_CONPTY_TEST': ENVIRONMENT_VALUE},
             dimensions=(20, 160),
@@ -112,11 +232,11 @@ class ConPTYTests(unittest.TestCase):
         def drain():
             try:
                 while True:
-                    chunk = process.read(1)
+                    chunk = process.read(read_size)
                     if not isinstance(chunk, bytes):
-                        raise TypeError(f'read(1) returned {type(chunk).__name__}, not bytes')
-                    if len(chunk) > 1:
-                        raise ValueError(f'read(1) returned {len(chunk)} bytes')
+                        raise TypeError(f'read({read_size}) returned {type(chunk).__name__}, not bytes')
+                    if len(chunk) > read_size:
+                        raise ValueError(f'read({read_size}) returned {len(chunk)} bytes')
                     chunks.put(chunk)
                     if not chunk:
                         return
@@ -218,6 +338,34 @@ class ConPTYTests(unittest.TestCase):
         self.assertFalse(process.isalive())
         self.assertIsNotNone(process.exitstatus)
         # Cleanup closes it again and also proves that its blocking reader exits.
+
+    def test_animated_action_then_semantic_completion(self):
+        temporary = tempfile.TemporaryDirectory(prefix='eevee conpty animated ')
+        self.addCleanup(temporary.cleanup)
+        process, chunks = self.spawn_child(Path(temporary.name),
+                                           child=ANIMATED_CHILD, read_size=65536)
+        session, fragments = capture_session(process, chunks)
+
+        def observed(marker):
+            deadline = time.monotonic() + TIMEOUT
+            while marker not in session.text:
+                self.assertLess(time.monotonic(), deadline, f'missing {marker!r}')
+                session.pump(0.05)
+
+        observed('EEVEE_BUSY_READY')
+        session.send('animate\r', settle=False)
+        observed('EEVEE_ANIMATING')
+        before = len(session.text)
+        # Longer than the unchanged 2.25-second idle-settle maximum. This
+        # action is intentionally working until the explicit stop command.
+        session.pump(2.4)
+        self.assertGreater(len(session.text), before)
+        session.send('stop\r')
+        observed('EEVEE_SETTLED')
+        self.assertTrue(process.isalive())
+        session.send('exit\r', settle=False)
+        observed('EEVEE_DONE:23')
+        self.assertEqual(session.text, ''.join(fragments))
 
     def test_close_after_owned_job_termination(self):
         from terminal_smoke import WindowsJob

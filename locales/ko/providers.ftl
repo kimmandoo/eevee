@@ -454,8 +454,8 @@ providers-execution-up-down-pgup-pgdn-home-end-inspect =
     { "/ 선택지: journal-retry, execute, cancel · Esc 출력" }
     { "명령은 자동 재시도하지 않으며 작업 초안은 유지" }
 
-providers-execution-choices-command-edit-execute-locations-artifacts-arrows =
-    { "/ 선택지: command-edit, execute, locations, artifacts" }
+providers-execution-choices-command-edit-execute-locations-run-details-arrows =
+    { "/ 선택지: command-edit, execute, locations, run-details" }
     { "방향키 스크롤 · /output-search 문자 그대로 검색" }
     { "/page-next, /page-previous · /refresh · Esc 닫기" }
 
@@ -552,7 +552,7 @@ providers-execution-capture-truncated-excess-drained-discarded = { "캡처 잘�
 
 providers-execution-live-queue-gap-inspect-retained-output = { "실시간 큐 누락 · 보관 출력 확인" }
 
-providers-execution-output-unavailable-purged-missing-or-replaced-empty = { "출력 사용 불가(삭제, 누락 또는 교체됨). 빈 화면이 출력 없는 명령 성공을 뜻하지 않습니다. /artifacts에서 보관 메타데이터와 소스 식별 한계를 확인하세요." }
+providers-execution-output-unavailable-purged-missing-or-replaced-empty = { "출력 사용 불가(삭제, 누락 또는 교체됨). 빈 화면이 출력 없는 명령 성공을 뜻하지 않습니다. /run-details에서 보관 메타데이터와 소스 식별 한계를 확인하세요." }
 
 providers-execution-no-output-yet-command-edit-writes-a =
     { "아직 출력이 없습니다." }
@@ -701,7 +701,7 @@ providers-execution-run-only-this-run-s-owned-local =
 
 providers-execution-search-current-window-page-enter-finds-esc = { "현재 창/페이지 검색: /" }{ $query }{ "  Enter 찾기 · Esc 유지" }
 
-providers-execution-error-artifacts-details-journal-retry-storage-only = { $layer }{ " 오류 · /artifacts 상세 · /journal-retry 저장만 재시도" }
+providers-execution-error-run-details-journal-retry-storage-only = { $layer }{ " 오류 · /run-details · /journal-retry 저장만 재시도" }
 
 providers-setup-codex = { "Executable에 표시된 동일 Codex 설치를 업데이트하세요. PATH의 다른 복사본이 아닙니다. Homebrew: brew upgrade --cask codex. npm: npm install -g @openai/codex@latest. 이후 설치된 제공자 새로 고침에서 관찰된 경로/버전을 확인하고 /model을 새로 고치세요. Eevee는 자동으로 업그레이드하지 않습니다." }
 

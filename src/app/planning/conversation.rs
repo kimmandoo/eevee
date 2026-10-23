@@ -1,8 +1,34 @@
-//! Process-local native history is not reconstructed from display or durable observations.
+//! Canonical public history is not reconstructed from display or durable observations.
 use super::*;
 use crate::providers::ConversationRole;
 
+#[derive(Default)]
+pub(super) struct Flow {
+    pub(super) fresh_intent: bool,
+    pub(super) fresh_prepared: bool,
+    public_request_partner: Option<i64>,
+}
+
 impl State {
+    /// Explicit /new intent survives the save barrier, not a provider thread ID.
+    pub(in crate::app) fn prepare_fresh_chat(&mut self, fresh: bool) {
+        self.conversation_flow.fresh_intent = fresh;
+    }
+
+    pub(super) fn freeze_chat_intent(&mut self, task: &store::Snapshot, fresh: bool) {
+        self.conversation_flow.fresh_prepared = fresh;
+        self.conversation_flow.public_request_partner = (self.agent == Agent::Codex
+            && self.operation == Operation::Implement)
+            .then_some(task.lead_partner);
+    }
+
+    pub(super) fn dispatch_chat_intent(&mut self) {
+        if std::mem::take(&mut self.conversation_flow.fresh_prepared) {
+            self.native_histories.remove(&(self.agent, self.operation));
+            self.native_candidate = None;
+        }
+    }
+
     /// Invalidate only one route's future state. Submitted Inputs stay frozen;
     /// an old-account completion cannot seed a new connection's local chat.
     pub fn invalidate_connection(&mut self, agent: Agent) {
@@ -50,21 +76,50 @@ impl State {
 
     pub(super) fn capture_native(&mut self, conversation: Arc<NativeConversation>) {
         let owner = &conversation.owner;
-        if !self.agent.is_direct()
+        let controlled = self.agent == Agent::Codex && self.operation == Operation::Implement;
+        if (!self.agent.is_direct() && !controlled)
             || self.operation == Operation::Review
             || owner.task_id != self.task
             || owner.agent != self.agent
             || owner.operation != self.operation
-            || self.native_request_partner != Some(owner.partner)
+            || self
+                .native_request_partner
+                .or(self.conversation_flow.public_request_partner)
+                != Some(owner.partner)
             || self
                 .owner()
                 .is_some_and(|slot| slot.partner != owner.partner)
         {
             return;
         }
-        let prior = self.native_histories.get(&(self.agent, self.operation));
+        let prior = if self.conversation_flow.fresh_prepared {
+            None
+        } else {
+            self.native_histories.get(&(self.agent, self.operation))
+        };
         let messages = conversation.messages.as_ref();
         let previous = prior.map_or(&[][..], |history| history.messages.as_ref());
+        // Controlled public context is a bounded rolling suffix of complete
+        // request/answer pairs, never tool output or an opaque session.
+        let prefix = messages.len().saturating_sub(2);
+        let previous = if controlled {
+            if !owner.connection_scope.is_empty()
+                || messages.len() < 2
+                || messages.len() > 64
+                || !messages.len().is_multiple_of(2)
+                || messages
+                    .iter()
+                    .map(|message| message.text.len())
+                    .sum::<usize>()
+                    > 64 * 1024
+                || prefix > previous.len()
+            {
+                return;
+            }
+            &previous[previous.len() - prefix..]
+        } else {
+            previous
+        };
         if messages.len() != previous.len() + 2
             || prior.is_some_and(|history| history.owner != *owner)
             || !messages
@@ -692,5 +747,239 @@ mod tests {
         assert_eq!(state.operation, Operation::Review);
         let review = start(&mut state, &task("Independent review"), 4);
         assert!(review.conversation.is_none() && review.resume.is_none());
+    }
+    #[test]
+    fn explicit_fresh_preparation_keeps_old_history_until_real_dispatch_and_expects_empty_prefix() {
+        let mut state = native();
+        let first = start(&mut state, &task("Completed A"), 1);
+        let old = conversation(&first, "Answer A");
+        state.event(Event::NativeCompleted {
+            generation: 1,
+            task_id: 7,
+            conversation: old.clone(),
+        });
+        finish(&mut state, 1, Outcome::Completed);
+        state
+            .native_histories
+            .insert((Agent::OpenAI, Operation::Plan), old.clone());
+
+        state.prepare_fresh_chat(true);
+        assert!(state.command("new", true, &task("Unsent B"), &[], None));
+        let Some(Request::Preview(unsent)) = state.pending.take() else {
+            panic!("fresh preview")
+        };
+        assert!(unsent.conversation.is_none());
+        assert!(Arc::ptr_eq(
+            &state.native_histories[&(Agent::Compatible, Operation::Plan)],
+            &old
+        ));
+        state.event(Event::Preview(Preview {
+            comparison_scope: None,
+            arrival: crate::providers::approval_arrival(),
+            destination: None,
+            requires_connection_review: false,
+            generation: 99,
+            task_id: 7,
+            thread_id: None,
+            trust: Vec::new(),
+            payload: "Fresh unsent payload".into(),
+            blockers: Vec::new(),
+        }));
+        state.cancel();
+        assert!(matches!(
+            state.pending.take(),
+            Some(Request::Cancel { generation: 99 })
+        ));
+        finish(&mut state, 99, Outcome::Cancelled);
+        let retained = start(&mut state, &task("After cancelled preparation"), 2);
+        assert!(Arc::ptr_eq(retained.conversation.as_ref().unwrap(), &old));
+        finish(&mut state, 2, Outcome::Failed);
+
+        state.prepare_fresh_chat(true);
+        let fresh = start(&mut state, &task("Fresh B"), 3);
+        assert!(fresh.conversation.is_none());
+        // A queued Run alone is not actual adapter submission.
+        assert!(
+            state
+                .native_histories
+                .contains_key(&(Agent::Compatible, Operation::Plan))
+        );
+        state.dispatch_chat_intent();
+        assert!(
+            !state
+                .native_histories
+                .contains_key(&(Agent::Compatible, Operation::Plan))
+        );
+        assert!(
+            state
+                .native_histories
+                .contains_key(&(Agent::OpenAI, Operation::Plan))
+        );
+        state.event(Event::NativeCompleted {
+            generation: 3,
+            task_id: 7,
+            conversation: conversation(&fresh, "Answer B"),
+        });
+        finish(&mut state, 3, Outcome::Completed);
+        let followup = start(&mut state, &task("Ordinary follow-up"), 4);
+        let messages = &followup.conversation.as_ref().unwrap().messages;
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].text.as_ref(), "Fresh B");
+        assert_eq!(messages[1].text.as_ref(), "Answer B");
+    }
+
+    #[test]
+    fn controlled_codex_public_context_survives_fresh_threads_without_display_or_authority() {
+        let mut state = State::new();
+        state.reset(7);
+        state.set_operation(Operation::Implement);
+        let first = start(
+            &mut state,
+            &task("Create parser with the first requirement"),
+            1,
+        );
+        assert!(first.resume.is_none() && first.public_context.is_none());
+        let canonical = first
+            .completed_public_context(["Created parser; preserve the first correction.".into()])
+            .unwrap();
+        state.event(Event::NativeCompleted {
+            generation: 1,
+            task_id: 7,
+            conversation: canonical.clone(),
+        });
+        finish(&mut state, 1, Outcome::Completed);
+        state.items.clear();
+        state.thread_id = Some("opaque-provider-thread-never-transferred".into());
+        let second = start(&mut state, &task("Also handle the second correction"), 2);
+        assert!(second.resume.is_none() && second.conversation.is_none());
+        let history = second.public_context.as_ref().unwrap();
+        assert!(Arc::ptr_eq(history, &canonical));
+        assert!(history.owner.connection_scope.is_empty());
+        assert_eq!(history.messages[0].text.as_ref(), first.instruction());
+        assert_eq!(
+            history.messages[1].text.as_ref(),
+            "Created parser; preserve the first correction."
+        );
+        let wire = serde_json::to_string(&second.public_context_payload()).unwrap();
+        for forbidden in [
+            "opaque-provider-thread",
+            "connection_scope",
+            "tool_results",
+            "grants",
+        ] {
+            assert!(!wire.contains(forbidden));
+        }
+        state.event(Event::NativeCompleted {
+            generation: 2,
+            task_id: 7,
+            conversation: second
+                .completed_public_context(["Second correction applied; still unverified.".into()])
+                .unwrap(),
+        });
+        finish(&mut state, 2, Outcome::Completed);
+        let third = start(&mut state, &task("Keep both corrections"), 3);
+        assert_eq!(third.public_context.as_ref().unwrap().messages.len(), 4);
+        let mut other_partner = task("Other partner");
+        other_partner.lead_partner += 1;
+        finish(&mut state, 3, Outcome::Failed);
+        let isolated = start(&mut state, &other_partner, 4);
+        assert!(isolated.public_context.is_none());
+    }
+
+    #[test]
+    fn controlled_context_rolls_whole_pairs_and_marks_unicode_answer_truncation() {
+        let mut state = State::new();
+        state.reset(7);
+        state.set_operation(Operation::Implement);
+        for generation in 1..=40 {
+            let input = start(
+                &mut state,
+                &task(&format!("Correction {generation}")),
+                generation,
+            );
+            let completed = input
+                .completed_public_context([format!("Public answer {generation}")])
+                .unwrap();
+            assert!(completed.messages.len() <= 64);
+            assert!(completed.messages.len().is_multiple_of(2));
+            state.event(Event::NativeCompleted {
+                generation,
+                task_id: 7,
+                conversation: completed,
+            });
+            finish(&mut state, generation, Outcome::Completed);
+        }
+        let input = start(&mut state, &task("Final correction"), 41);
+        let previous = input.public_context.as_ref().unwrap();
+        assert_eq!(previous.messages.len(), 64);
+        assert_eq!(previous.messages[0].text.as_ref(), "Correction 9");
+        let completed = input
+            .completed_public_context(["界".repeat(20_000)])
+            .unwrap();
+        let answer = &completed.messages.last().unwrap().text;
+        assert!(answer.len() <= 32 * 1024 && answer.contains("Public answer truncated"));
+        assert!(
+            completed
+                .messages
+                .iter()
+                .map(|message| message.text.len())
+                .sum::<usize>()
+                <= 64 * 1024
+        );
+        state.event(Event::NativeCompleted {
+            generation: 41,
+            task_id: 7,
+            conversation: completed,
+        });
+        finish(&mut state, 41, Outcome::Completed);
+        let next = start(&mut state, &task("Continue after bounded history"), 42);
+        assert!(
+            next.public_context.is_some(),
+            "rolling suffix must still pass canonical capture"
+        );
+    }
+
+    #[test]
+    fn model_change_retires_session_authority_but_keeps_attributed_response() {
+        let mut state = State::new();
+        state.reset(7);
+        state.front = Some(store::Attribution {
+            partner: task("owner").lead_partner,
+            name: "Original partner".into(),
+            form: 0,
+        });
+        let input = start(&mut state, &task("Original model request"), 1);
+        state.event(Event::Item {
+            generation: 1,
+            task_id: 7,
+            thread_id: "original-model-thread".into(),
+            turn_id: "turn".into(),
+            item_id: "answer".into(),
+            kind: ItemKind::Message,
+            text: "Original attributed public output".into(),
+            complete: true,
+        });
+        finish(&mut state, 1, Outcome::Completed);
+        state.thread_id = Some("original-model-thread".into());
+        state.observed_model = Some("original-model".into());
+        let owner = state.items[0].owner.clone();
+        assert!(owner.is_some());
+        let request = state.items[0].request.clone();
+        state.apply_selection(
+            ModelSelection {
+                model: Some("new-model".into()),
+                effort: None,
+            },
+            true,
+        );
+        assert!(state.thread_id.is_none() && state.observed_model.is_none());
+        assert_eq!(state.items.len(), 1);
+        assert_eq!(state.items[0].text, "Original attributed public output");
+        assert_eq!(state.items[0].owner, owner);
+        assert!(Arc::ptr_eq(&state.items[0].request, &request));
+        assert!(!state.reviewed && !state.affirmative && state.pending.is_none());
+        let next = start(&mut state, &task("New model request"), 2);
+        assert!(next.resume.is_none() && next.public_context.is_none());
+        assert_eq!(input.instruction(), "Original model request");
     }
 }

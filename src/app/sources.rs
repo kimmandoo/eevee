@@ -13,11 +13,13 @@ pub enum Mode {
     Preview,
     Payload,
     Comparison,
+    Optimizer,
 }
 #[derive(Clone, Copy)]
 pub enum EditKind {
     Search,
     Range,
+    Budget,
 }
 pub struct Editor {
     pub kind: EditKind,
@@ -36,6 +38,7 @@ pub enum Action {
     Close,
     RefreshRepository,
     Compare,
+    RememberSource(i64),
     Quit,
     Scroll(KeyCode),
 }
@@ -44,6 +47,15 @@ enum Mutation {
     Pin,
     Remove(i64),
     Purge(i64),
+}
+
+pub(super) struct MemoryAdoption {
+    pub capture: context::Excerpt,
+    pub owner: store::Attribution,
+    pub revision: u64,
+    pub report: Arc<repo::Report>,
+    basket: [u8; 32],
+    checked: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,6 +87,8 @@ pub struct State {
     pub query: String,
     pub status: String,
     pub error: String,
+    pub memory_notice: Option<crate::i18n::Message>,
+    memory_adoption: Option<MemoryAdoption>,
     pub editor: Option<Editor>,
     pub confirmation: Option<Confirmation>,
     pub pending: Option<context::Request>,
@@ -102,11 +116,270 @@ pub struct State {
     pub(crate) comparison_resume: Option<String>,
     pub(crate) comparison_scope: Option<crate::providers::ComparisonScope>,
     rankings: Rankings,
+    pub context_cache_request: Option<store::context_cache::Request>,
+    pub optimizer_preview: Option<context::optimizer::Plan>,
+    pub optimizer_reviewed: bool,
+    optimizer_preview_applied: bool,
+    optimizer_applied: Option<context::optimizer::Plan>,
+    optimizer_task: Option<store::Snapshot>,
+    optimizer_runs: Vec<crate::workspace::runner::RunRecord>,
+    optimizer_cache: Vec<context::CacheRevision>,
+    optimizer_cache_failed: bool,
+    optimizer_budget: usize,
 }
 
 impl State {
+    pub fn cancel_memory_adoption(&mut self) {
+        self.memory_adoption = None;
+        self.memory_notice = None;
+    }
+
+    pub(super) fn begin_memory_adoption(
+        &mut self,
+        id: i64,
+        task_id: i64,
+        owner: store::Attribution,
+        revision: u64,
+        report: Option<&Arc<repo::Report>>,
+    ) {
+        use crate::i18n::Message;
+        self.cancel_memory_adoption();
+        if self.busy() || self.store_failed || self.editor.is_some() || self.confirmation.is_some()
+        {
+            self.memory_notice = Some(Message::SourceMemoryBusy);
+            return;
+        }
+        let Some(capture) = self.basket.get(self.basket_selection).filter(|capture| {
+            self.mode == Mode::Basket
+                && capture.id == id
+                && capture.id > 0
+                && capture.task_id == task_id
+                && capture.available
+        }) else {
+            self.memory_notice = Some(Message::SourceMemorySelect);
+            return;
+        };
+        if capture.text.len() > crate::workspace::memory::MAX_CONTENT_BYTES {
+            self.memory_notice = Some(Message::SourceMemoryTooLarge);
+            return;
+        }
+        let Some(report) =
+            report.filter(|report| report.repository.root.to_str() == Some(capture.root.as_str()))
+        else {
+            self.memory_notice = Some(Message::SourceMemoryUnavailable);
+            return;
+        };
+        let capture = capture.clone();
+        self.memory_adoption = Some(MemoryAdoption {
+            capture: capture.clone(),
+            owner,
+            revision,
+            report: Arc::clone(report),
+            basket: context::selection_identity(&self.basket),
+            checked: false,
+        });
+        self.queue(
+            task_id,
+            context::Operation::Check {
+                report: Arc::clone(report),
+                excerpts: vec![capture],
+            },
+        );
+        self.memory_notice = Some(Message::SourceMemoryChecking);
+    }
+
+    pub(super) fn memory_adoption_matches(&self, intent: &MemoryAdoption) -> bool {
+        self.mode == Mode::Basket
+            && self.editor.is_none()
+            && self.confirmation.is_none()
+            && !self.store_busy
+            && !self.store_failed
+            && self.basket.get(self.basket_selection) == Some(&intent.capture)
+            && context::selection_identity(&self.basket) == intent.basket
+    }
+
+    pub(super) fn take_ready_memory_adoption(&mut self) -> Option<MemoryAdoption> {
+        if self
+            .memory_adoption
+            .as_ref()
+            .is_some_and(|intent| intent.checked)
+        {
+            self.memory_adoption.take()
+        } else {
+            None
+        }
+    }
+
+    pub fn configure_optimizer(&mut self, task: &store::Snapshot) {
+        if self.memory_adoption.as_ref().is_some_and(|intent| {
+            intent.capture.task_id != task.id || intent.revision != task.revision
+        }) {
+            self.cancel_memory_adoption();
+        }
+        let basis = context::optimizer::Facts::from_task(task).basis;
+        if self
+            .optimizer_applied
+            .as_ref()
+            .is_some_and(|plan| plan.task_id != task.id || plan.basis != basis)
+        {
+            self.optimizer_applied = None;
+        }
+        if self
+            .optimizer_preview
+            .as_ref()
+            .is_some_and(|plan| plan.task_id != task.id || plan.basis != basis)
+        {
+            self.optimizer_preview = None;
+            self.optimizer_reviewed = false;
+            self.optimizer_preview_applied = false;
+        }
+        let new_owner = self
+            .optimizer_task
+            .as_ref()
+            .is_none_or(|old| old.id != task.id);
+        self.optimizer_task = Some(task.clone());
+        if task.id > 0 && new_owner && self.context_cache_request.is_none() {
+            self.context_cache_request = Some(store::context_cache::Request {
+                task_id: task.id,
+                operation: store::context_cache::Operation::Load,
+            });
+        }
+    }
+    pub fn set_optimizer_runs(&mut self, runs: &[crate::workspace::runner::RunRecord]) {
+        self.optimizer_runs = runs
+            .iter()
+            .filter(|run| {
+                self.optimizer_task
+                    .as_ref()
+                    .is_some_and(|task| run.prepared.task_id == task.id)
+            })
+            .cloned()
+            .collect();
+    }
+    pub fn applied_plan(&self) -> Option<&context::optimizer::Plan> {
+        self.optimizer_applied.as_ref().filter(|plan| {
+            self.optimizer_task.as_ref().is_some_and(|task| {
+                task.id == plan.task_id
+                    && context::optimizer::Facts::from_task(task).basis == plan.basis
+            }) && plan.pin_selection == context::selection_identity(&self.basket)
+        })
+    }
+    pub fn optimizer_notice(&self) -> crate::i18n::Message {
+        use crate::i18n::Message;
+        let previous = self.applied_plan().is_some();
+        if self
+            .optimizer_preview
+            .as_ref()
+            .is_some_and(|plan| plan.overflow)
+        {
+            return if previous {
+                Message::ContextOptimizerOverflowPrevious
+            } else {
+                Message::ContextOptimizerOverflowUnapplied
+            };
+        }
+        if previous && self.optimizer_preview_applied {
+            Message::ContextOptimizerApplied
+        } else if previous {
+            Message::ContextOptimizerPriorApplied
+        } else {
+            Message::ContextOptimizerUnapplied
+        }
+    }
+    pub fn context_cache_event(
+        &mut self,
+        task_id: i64,
+        request: &store::context_cache::Request,
+        result: Result<store::context_cache::Response, String>,
+    ) {
+        if request.task_id != task_id {
+            return;
+        }
+        match result {
+            Ok(response) => {
+                self.optimizer_cache = response.rows;
+                self.optimizer_cache_failed = false;
+            }
+            Err(error) => {
+                self.optimizer_cache_failed = true;
+                self.context_cache_request = Some(request.clone());
+                self.error = safe_error(error);
+            }
+        }
+    }
+    pub fn context_cache_retryable(&self) -> bool {
+        !self.optimizer_cache_failed
+    }
+    fn optimize(
+        &mut self,
+        task_id: i64,
+        report: Option<&Arc<repo::Report>>,
+        compact: bool,
+        budget: usize,
+    ) {
+        let Some(report) = report else {
+            self.error = "Refresh repository evidence before context optimization.".into();
+            return;
+        };
+        if self.optimizer_cache_failed {
+            self.error = "Context cache save failed; context-cache-retry retries or context-cache-discard explicitly drops the cache write.".into();
+            return;
+        }
+        let Some(task) = self
+            .optimizer_task
+            .as_ref()
+            .filter(|task| task.id == task_id)
+        else {
+            self.error = "Save the active task before context optimization.".into();
+            return;
+        };
+        if !(64..=1_000_000).contains(&budget) {
+            self.error = "Use a local-token budget from 64 to 1000000.".into();
+            return;
+        }
+        self.optimizer_budget = budget;
+        self.optimizer_reviewed = false;
+        let operation = if compact {
+            context::Operation::Compact {
+                report: Arc::clone(report),
+                task: Box::new(task.clone()),
+                excerpts: self.basket.clone(),
+                runs: self.optimizer_runs.clone(),
+                budget,
+            }
+        } else {
+            let mut facts = context::optimizer::Facts::from_task(task);
+            facts.changed_paths = self
+                .rankings
+                .changed
+                .iter()
+                .filter_map(|path| path.to_str().map(str::to_owned))
+                .collect();
+            facts.failure_paths = self
+                .rankings
+                .failures
+                .iter()
+                .filter_map(|path| path.to_str().map(str::to_owned))
+                .collect();
+            context::Operation::Optimize {
+                report: Arc::clone(report),
+                excerpts: self.basket.clone(),
+                facts,
+                budget,
+                cache: self.optimizer_cache.clone(),
+            }
+        };
+        self.queue(task_id, operation);
+    }
     /// Updates only the next capture's producer, never an in-flight capture.
     pub fn set_producer(&mut self, producer: Option<store::Attribution>) {
+        if self
+            .memory_adoption
+            .as_ref()
+            .is_some_and(|intent| producer.as_ref() != Some(&intent.owner))
+        {
+            self.cancel_memory_adoption();
+        }
         self.producer = producer;
     }
 
@@ -313,7 +586,9 @@ impl State {
         }
     }
     pub fn invalidate_review(&mut self) {
+        self.cancel_memory_adoption();
         self.preview_reviewed = false;
+        self.optimizer_reviewed = false;
         if let Some(confirmation) = &mut self.confirmation {
             confirmation.reviewed = false;
             confirmation.destructive = false;
@@ -340,6 +615,7 @@ impl State {
         report: Option<&Arc<repo::Report>>,
         repository_pending: bool,
     ) {
+        self.cancel_memory_adoption();
         if self.store_failed {
             self.error =
                 "Context save failed. Open /files and press Enter to retry the retained operation."
@@ -424,6 +700,7 @@ impl State {
         self.error.clear();
     }
     pub fn observed_repository(&mut self, task_id: i64, report: Option<&Arc<repo::Report>>) {
+        self.cancel_memory_adoption();
         let changed = report
             .map(|report| {
                 report
@@ -459,7 +736,28 @@ impl State {
             return;
         }
         self.source_busy = false;
+        if self.memory_adoption.is_some()
+            && !matches!(&event.result, Ok(context::Response::Checked(_)) | Err(_))
+        {
+            self.memory_adoption = None;
+            self.memory_notice = Some(crate::i18n::Message::SourceMemoryStale);
+        }
         match event.result {
+            Ok(context::Response::Optimized(plan)) => {
+                if !plan.revisions.is_empty() {
+                    self.context_cache_request = Some(store::context_cache::Request {
+                        task_id,
+                        operation: store::context_cache::Operation::Save(plan.revisions.clone()),
+                    });
+                    self.optimizer_cache_failed = false;
+                }
+                self.detail = plan.review();
+                self.optimizer_preview = Some(plan);
+                self.optimizer_reviewed = false;
+                self.optimizer_preview_applied = false;
+                self.mode = Mode::Optimizer;
+                self.status = "Local context preview only; apply or cancel explicitly.".into();
+            }
             Ok(context::Response::Catalogue(files)) => {
                 self.files = files;
                 self.rebuild_rankings();
@@ -478,6 +776,21 @@ impl State {
                     "Review local capture / Enter attaches / nothing sent to provider".into();
             }
             Ok(context::Response::Checked(observations)) => {
+                if let Some(intent) = self.memory_adoption.as_ref() {
+                    let current = self.memory_adoption_matches(intent)
+                        && observations.len() == 1
+                        && observations[0].id == intent.capture.id
+                        && observations[0].freshness == context::Freshness::Current;
+                    if current {
+                        self.memory_adoption
+                            .as_mut()
+                            .expect("pending adoption")
+                            .checked = true;
+                    } else {
+                        self.memory_adoption = None;
+                        self.memory_notice = Some(crate::i18n::Message::SourceMemoryStale);
+                    }
+                }
                 if observations.iter().any(|observation| {
                     !matches!(observation.freshness, context::Freshness::Current)
                 }) {
@@ -500,6 +813,9 @@ impl State {
                     "Source identities checked; validating persisted basket references…".into();
             }
             Err(error) => {
+                if self.memory_adoption.take().is_some() {
+                    self.memory_notice = Some(crate::i18n::Message::SourceMemoryUnavailable);
+                }
                 self.pending_origin_run = None;
                 self.error = safe_error(error);
                 self.pending_payload = None;
@@ -518,6 +834,9 @@ impl State {
             return;
         }
         self.store_busy = false;
+        if self.memory_adoption.is_some() {
+            self.cancel_memory_adoption();
+        }
         match result {
             Ok(rows) => {
                 if self.store_mutation
@@ -725,6 +1044,7 @@ impl State {
         let limit: usize = match editor.kind {
             EditKind::Search => 1024,
             EditKind::Range => 64,
+            EditKind::Budget => 16,
         };
         let capacity = limit.saturating_sub(editor.text.len());
         let mut text = String::with_capacity(input.len().min(capacity));
@@ -770,6 +1090,36 @@ impl State {
         };
         vec![
             choice("search", "Edit literal filename filter", blocked),
+            choice(
+                "optimize",
+                "Rank local excerpts under an explicit budget",
+                blocked,
+            ),
+            choice(
+                "compact",
+                "Preview an evidence-linked local resume ledger",
+                blocked,
+            ),
+            choice(
+                "context-apply",
+                "Apply the reviewed packet to the next request",
+                blocked.or_else(|| {
+                    self.optimizer_preview
+                        .as_ref()
+                        .is_none_or(|plan| plan.overflow)
+                        .then_some("Preview a packet within budget first.")
+                }),
+            ),
+            choice(
+                "context-cancel",
+                "Cancel this context preview without changing selection",
+                blocked,
+            ),
+            choice(
+                "context-clear",
+                "Remove applied context optimization for future requests",
+                blocked,
+            ),
             choice("refresh", "Refresh repository source evidence", blocked),
             choice("basket", "Switch between files and pinned basket", blocked),
             choice(
@@ -821,6 +1171,18 @@ impl State {
                     self.basket
                         .is_empty()
                         .then_some("Pin source excerpts first.")
+                }),
+            ),
+            choice(
+                "remember-source",
+                "Adopt selected capture as a reviewed memory note",
+                blocked.or_else(|| {
+                    (self.mode != Mode::Basket
+                        || self
+                            .basket
+                            .get(self.basket_selection)
+                            .is_none_or(|capture| capture.id <= 0 || !capture.available))
+                    .then_some("Select an available committed basket capture first.")
                 }),
             ),
             choice(
@@ -880,7 +1242,13 @@ impl State {
         task_id: i64,
         report: Option<&Arc<repo::Report>>,
     ) -> Action {
+        if name != "remember-source" {
+            self.cancel_memory_adoption();
+        }
         if self.editor.is_some() || self.confirmation.is_some() {
+            if name == "remember-source" {
+                self.memory_notice = Some(crate::i18n::Message::SourceMemoryBusy);
+            }
             return Action::Changed;
         }
         if name == "close" {
@@ -889,6 +1257,9 @@ impl State {
             return Action::Close;
         }
         if self.busy() {
+            if name == "remember-source" {
+                self.memory_notice = Some(crate::i18n::Message::SourceMemoryBusy);
+            }
             self.error = "A context operation is pending; PgUp/Dn and Esc remain available.".into();
             return Action::Changed;
         }
@@ -909,6 +1280,82 @@ impl State {
             return Action::Changed;
         }
         match name {
+            "remember-source" => {
+                if self.mode == Mode::Basket
+                    && let Some(capture) = self.basket.get(self.basket_selection)
+                {
+                    return Action::RememberSource(capture.id);
+                }
+                self.memory_notice = Some(crate::i18n::Message::SourceMemorySelect);
+            }
+            "context-cache-retry" => {
+                self.optimizer_cache_failed = false;
+            }
+            "context-cache-discard" => {
+                if self.optimizer_cache_failed {
+                    self.context_cache_request = None;
+                    self.optimizer_cache_failed = false;
+                }
+            }
+            "context-cache-purge" => {
+                if self.context_cache_request.is_none() {
+                    self.context_cache_request = Some(store::context_cache::Request {
+                        task_id,
+                        operation: store::context_cache::Operation::Purge,
+                    });
+                }
+            }
+            name if name.starts_with("optimize ") || name.starts_with("compact ") => {
+                let (command, budget) = name.split_once(' ').expect("matched command argument");
+                match budget.parse::<usize>() {
+                    Ok(budget) => self.optimize(task_id, report, command == "compact", budget),
+                    Err(_) => {
+                        self.error =
+                            "Use optimize <local-token-budget> or compact <local-token-budget>."
+                                .into()
+                    }
+                }
+            }
+            "optimize" => {
+                let text = self.optimizer_budget.max(2048).to_string();
+                self.editor = Some(Editor {
+                    kind: EditKind::Budget,
+                    cursor: text.len(),
+                    text,
+                });
+            }
+            "compact" => self.optimize(task_id, report, true, self.optimizer_budget.max(4096)),
+            "context-apply" => {
+                if !self.optimizer_reviewed {
+                    self.error = "Review the visible context packet before applying.".into();
+                } else if let Some(plan) = &self.optimizer_preview {
+                    if plan.overflow {
+                        self.error = "Mandatory instructions, pins or notes exceed budget; increase budget or cancel.".into();
+                    } else if self.optimizer_task.as_ref().is_none_or(|task| {
+                        context::optimizer::Facts::from_task(task).basis != plan.basis
+                    }) || plan.pin_selection != context::selection_identity(&self.basket)
+                    {
+                        self.error = "Task facts or pins changed; preview context again.".into();
+                    } else {
+                        self.optimizer_applied = Some(plan.clone());
+                        self.optimizer_preview_applied = true;
+                        self.clear_wire_request();
+                        self.status = "Exact context packet applied for the next ordinary request; no request started.".into();
+                    }
+                }
+            }
+            "context-cancel" => {
+                self.optimizer_preview = None;
+                self.optimizer_reviewed = false;
+                self.optimizer_preview_applied = false;
+                self.show_basket();
+            }
+            "context-clear" => {
+                self.optimizer_applied = None;
+                self.optimizer_preview_applied = false;
+                self.clear_wire_request();
+                self.status = "Future requests use ordinary selected context.".into();
+            }
             "context-compare" => return Action::Compare,
             "search" => {
                 self.editor = Some(Editor {
@@ -1008,6 +1455,7 @@ impl State {
             return Action::Changed;
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            self.cancel_memory_adoption();
             self.confirmation = None;
             return Action::Quit;
         }
@@ -1063,6 +1511,12 @@ impl State {
             return Action::Changed;
         }
         if key.code == KeyCode::Esc {
+            self.cancel_memory_adoption();
+            if self.mode == Mode::Optimizer {
+                self.optimizer_preview = None;
+                self.optimizer_reviewed = false;
+                self.optimizer_preview_applied = false;
+            }
             self.return_after_attach = false;
             self.return_to_composer = false;
             return Action::Close;
@@ -1081,6 +1535,17 @@ impl State {
             return Action::Changed;
         }
         match key.code {
+            KeyCode::Char('m') if self.mode == Mode::Basket => {
+                return self.command("remember-source", task_id, report);
+            }
+            KeyCode::Char('o') => return self.command("optimize", task_id, report),
+            KeyCode::Char('l') => return self.command("compact", task_id, report),
+            KeyCode::Char('a') if self.mode == Mode::Optimizer => {
+                return self.command("context-apply", task_id, report);
+            }
+            KeyCode::Char('n') if self.mode == Mode::Optimizer => {
+                return self.command("context-cancel", task_id, report);
+            }
             KeyCode::Enter if self.mode == Mode::Files => self.inspect_file(task_id, report),
             KeyCode::Enter if self.mode == Mode::Preview => {
                 return self.command("attach", task_id, report);
@@ -1151,6 +1616,15 @@ impl State {
             }
             let editor = self.editor.take().expect("active source editor");
             match editor.kind {
+                EditKind::Budget => match editor.text.parse::<usize>() {
+                    Ok(budget) if (64..=1_000_000).contains(&budget) => {
+                        self.optimize(task_id, report, false, budget)
+                    }
+                    _ => {
+                        self.error = "Use a local-token budget from 64 to 1000000.".into();
+                        self.editor = Some(editor);
+                    }
+                },
                 EditKind::Search => {
                     self.query = editor.text;
                     self.file_selection = 0;
@@ -1809,3 +2283,7 @@ mod tests {
         assert!(state.pending.is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "sources_optimizer_tests.rs"]
+mod optimizer_tests;

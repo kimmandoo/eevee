@@ -85,7 +85,7 @@ fn advertisements_are_exact_native_function_declarations() {
         Protocol::Gemini,
     ] {
         let mut body = json!({"policy":"immutable"});
-        advertise(&mut body, protocol, true);
+        advertise_selected(&mut body, protocol, true, None);
         assert_eq!(body["policy"], "immutable");
         let declaration = match protocol {
             Protocol::Responses | Protocol::Codex | Protocol::Messages => &body["tools"][0],
@@ -917,7 +917,7 @@ fn mixed_file_tool_identities_survive_every_protocol_continuation() {
     let typed = [
         (
             "eevee_list_files",
-            json!({"query":"src","offset":0}),
+            json!({"directory":"","query":"src","offset":0}),
             ToolKind::List,
         ),
         (

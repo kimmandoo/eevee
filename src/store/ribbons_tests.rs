@@ -616,6 +616,7 @@ fn schema17_migration_is_atomic_preserves_rows_and_never_awards_legacy_sources()
     let task = commit_review(&mut state, task, "predecessor-review");
     let learned = taught(&mut state, &task, 1, "Predecessor learned action");
     let mut connection = state.connection.take().unwrap();
+    super::super::super::schema::remove_context_schema(&connection);
     connection
         .execute_batch("DROP TABLE ribbons; PRAGMA user_version=17;")
         .unwrap();
@@ -666,7 +667,7 @@ fn schema17_migration_is_atomic_preserves_rows_and_never_awards_legacy_sources()
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        18
+        19
     );
     let after: String = connection
         .query_row(
@@ -761,7 +762,7 @@ fn strict_rows_unknown_fields_foreign_owners_and_schema_versions_refuse_without_
     let fixture = Fixture::new();
     let mut state = fixture.open();
     let task = fixture.task(&mut state);
-    for version in [17, 19] {
+    for version in [18, 20] {
         state
             .connection
             .as_ref()

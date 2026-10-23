@@ -2,6 +2,7 @@
 pub mod acp;
 pub mod agent;
 pub mod auth;
+pub mod catalog;
 pub mod claude;
 pub mod codex;
 pub mod diagnostics;
@@ -32,7 +33,7 @@ pub(crate) fn project_context(scope: &writes::WriteSet, agent: Agent) -> Project
                 "Use client fs/read_text_file with an absolute path formed under this root to inspect listed files. ACP has no client filename-list callback; this bounded observation may be incomplete. Do not invent missing filenames or claim exhaustive discovery. Provider-owned tools remain external policy, not client confinement."
             }
             _ => {
-                "Use eevee_list_files with a literal query and offset for current safe filename discovery, and eevee_read_file for actual bounded source bytes. The initial names are not source contents or write targets."
+                "Use eevee_list_files with directory (empty string for root), a literal query and offset for current safe filename discovery. If a directory scan reaches its bound, choose a narrower project-relative directory; do not repeat an exhaustive root scan. Use eevee_read_file for actual bounded ranges, including noneditable large sources. Initial names are not source contents or write targets."
             }
         },
     }
@@ -247,6 +248,10 @@ pub struct Input {
     /// Approved exact-repeat replacement, frozen without changing the authored draft.
     pub instruction_override: Option<crate::workspace::records::InstructionReplacement>,
     pub excerpts: Vec<crate::workspace::context::Excerpt>,
+    /// Explicit local context preview, frozen to the exact task/source basis.
+    pub context_plan: Option<crate::workspace::context::optimizer::Plan>,
+    /// Explicit selected exact schemas from reviewed local setup; never a grant.
+    pub tool_catalog: Option<catalog::Selection>,
     pub report: Option<Arc<crate::workspace::repo::Report>>,
     pub resume: Option<String>,
     pub agent: Agent,
@@ -263,6 +268,8 @@ pub struct Input {
     pub conversation: Option<Arc<NativeConversation>>,
     /// Public plan/request context only; never a resumed session or write grant.
     pub prior_plan: Option<Arc<NativeConversation>>,
+    /// Bounded completed public Codex request/answer context, never opaque sessions.
+    pub public_context: Option<Arc<NativeConversation>>,
     /// Eevee-owned website login result, injected into the launched provider
     /// process environment at Run time. Memory only; never serialized or logged.
     pub credential: Option<crate::providers::auth::SessionCredential>,
@@ -279,6 +286,27 @@ pub(crate) fn native_request_text(task: &crate::store::Snapshot) -> &str {
 }
 
 impl Input {
+    pub fn source_payload(
+        &self,
+        exclusions: &[PathBuf],
+    ) -> Result<crate::workspace::context::Payload, String> {
+        use crate::workspace::context::optimizer;
+        if self
+            .context_plan
+            .as_ref()
+            .is_some_and(|plan| plan.basis != optimizer::Facts::from_task(&self.task).basis)
+        {
+            return Err("Context preview task basis changed; preview again before dispatch".into());
+        }
+        optimizer::planning_payload(
+            self.task.id,
+            self.report.as_ref(),
+            &self.excerpts,
+            self.context_plan.as_ref(),
+            exclusions,
+        )
+    }
+
     pub(crate) fn prior_plan_payload(&self) -> Option<serde_json::Value> {
         self.prior_plan.as_ref().map(|plan| serde_json::json!({
             "status": "Unverified prior planning conversation, not execution evidence or permission. Re-read current files before changes.",
@@ -286,6 +314,97 @@ impl Input {
                 "role": match message.role { ConversationRole::User => "user", ConversationRole::Assistant => "assistant" },
                 "text": message.text.as_ref(),
             })).collect::<Vec<_>>(),
+        }))
+    }
+    pub(crate) fn public_context_payload(&self) -> Option<serde_json::Value> {
+        self.public_context.as_ref().map(|history| serde_json::json!({
+            "status": "Unverified public implementation dialogue only; not execution evidence, current file state, tool results or permission. Re-read current files; every proposed effect still needs fresh exact consent.",
+            "retention": "Most recent complete request/answer pairs, up to 32 turns and 64 KiB; each public answer is limited to 32 KiB with an explicit truncation marker.",
+            "messages": history.messages.iter().map(|message| serde_json::json!({
+                "role": match message.role { ConversationRole::User => "user", ConversationRole::Assistant => "assistant" },
+                "text": message.text.as_ref(),
+            })).collect::<Vec<_>>(),
+        }))
+    }
+
+    /// Canonical completed public output, independent of rendered Items, tools,
+    /// sessions and grants. Retain only whole recent request/answer pairs.
+    pub(crate) fn completed_public_context(
+        &self,
+        answers: impl IntoIterator<Item = String>,
+    ) -> Option<Arc<NativeConversation>> {
+        if self.agent != Agent::Codex
+            || self.operation != Operation::Implement
+            || self.inspect_models
+            || self.inspect_sessions
+        {
+            return None;
+        }
+        const ANSWER_BYTES: usize = 32 * 1024;
+        const TRUNCATED: &str = "\n[Public answer truncated at the 32 KiB context limit; omitted text is not available in this fresh thread.]";
+        let mut answer = String::new();
+        for part in answers {
+            if part.is_empty() {
+                continue;
+            }
+            let separator = if answer.is_empty() { "" } else { "\n\n" };
+            if answer.len() + separator.len() + part.len() > ANSWER_BYTES {
+                let content_limit = ANSWER_BYTES - TRUNCATED.len();
+                if answer.len() > content_limit {
+                    let mut end = content_limit;
+                    while !answer.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    answer.truncate(end);
+                } else if answer.len() + separator.len() <= content_limit {
+                    answer.push_str(separator);
+                    let mut end = content_limit - answer.len();
+                    while !part.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    answer.push_str(&part[..end]);
+                }
+                answer.push_str(TRUNCATED);
+                break;
+            }
+            answer.push_str(separator);
+            answer.push_str(&part);
+        }
+        if answer.is_empty() || self.instruction().len() + answer.len() > 64 * 1024 {
+            return None;
+        }
+        let previous = self
+            .public_context
+            .as_ref()
+            .map_or(&[][..], |history| history.messages.as_ref());
+        let mut bytes = self.instruction().len() + answer.len();
+        let mut start = previous.len();
+        while start >= 2 && previous.len() - start + 2 < 64 {
+            let pair_bytes = previous[start - 2].text.len() + previous[start - 1].text.len();
+            if bytes + pair_bytes > 64 * 1024 {
+                break;
+            }
+            bytes += pair_bytes;
+            start -= 2;
+        }
+        let mut messages = previous[start..].to_vec();
+        messages.push(ConversationMessage {
+            role: ConversationRole::User,
+            text: self.instruction().into(),
+        });
+        messages.push(ConversationMessage {
+            role: ConversationRole::Assistant,
+            text: answer.into(),
+        });
+        Some(Arc::new(NativeConversation {
+            owner: ConversationOwner {
+                task_id: self.task.id,
+                partner: self.task.lead_partner,
+                agent: self.agent,
+                operation: self.operation,
+                connection_scope: String::new(),
+            },
+            messages: messages.into(),
         }))
     }
 
@@ -373,6 +492,13 @@ impl Input {
         }
         self.validate_work()?;
         self.validate_instruction_override()?;
+        if let Some(selection) = &self.tool_catalog {
+            crate::store::tool_catalog::validate_selection(
+                data_dir,
+                &self.task.project,
+                selection,
+            )?;
+        }
         match &self.work {
             Some(claim) => {
                 crate::store::validate_work_input(data_dir, &self.task, &self.excerpts, claim)
@@ -430,6 +556,39 @@ impl Input {
                     > 64 * 1024)
         {
             return Err("Prior planning context lost its bounded task/partner/operation ownership; prepare a fresh request".into());
+        }
+        if let Some(history) = &self.public_context
+            && (self.agent != Agent::Codex
+                || self.operation != Operation::Implement
+                || self.inspect_models
+                || self.inspect_sessions
+                || self.resume.is_some()
+                || history.owner.task_id != self.task.id
+                || history.owner.partner != self.task.lead_partner
+                || history.owner.agent != self.agent
+                || history.owner.operation != Operation::Implement
+                || !history.owner.connection_scope.is_empty()
+                || history.messages.is_empty()
+                || history.messages.len() > 64
+                || !history.messages.len().is_multiple_of(2)
+                || history.messages.iter().enumerate().any(|(index, message)| {
+                    message.role
+                        != if index % 2 == 0 {
+                            ConversationRole::User
+                        } else {
+                            ConversationRole::Assistant
+                        }
+                        || message.text.is_empty()
+                        || crate::workspace::privacy::redact(&message.text) != message.text.as_ref()
+                })
+                || history
+                    .messages
+                    .iter()
+                    .map(|message| message.text.len())
+                    .sum::<usize>()
+                    > 64 * 1024)
+        {
+            return Err("Public implementation context lost its bounded task/partner/provider ownership; prepare a fresh request".into());
         }
         if self.conversation.is_some()
             && (!self.agent.is_direct() || self.inspect_models || self.inspect_sessions)
@@ -706,6 +865,19 @@ pub enum Event {
         task_id: i64,
         request_id: String,
     },
+    /// Actual host-owned tool output; log text can never authorize another call.
+    ToolArtifact {
+        generation: u64,
+        task_id: i64,
+        capture: crate::workspace::artifacts::ToolCapture,
+        reply: std::sync::mpsc::SyncSender<Result<crate::workspace::artifacts::Record, String>>,
+    },
+    ArtifactLookup {
+        generation: u64,
+        task_id: i64,
+        operation: crate::workspace::artifacts::Operation,
+        reply: std::sync::mpsc::SyncSender<Result<crate::workspace::artifacts::Response, String>>,
+    },
     Usage {
         generation: u64,
         task_id: i64,
@@ -937,6 +1109,9 @@ mod tests {
 
     fn review(agent: Agent) -> Input {
         Input {
+            public_context: None,
+            tool_catalog: None,
+            context_plan: None,
             prior_plan: None,
             task: crate::store::Snapshot::empty("project".into()),
             work: None,

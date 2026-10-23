@@ -525,6 +525,18 @@ impl App {
         if self.width < 60 || self.height < 18 {
             self.sources.invalidate_review();
         }
+        if key.kind == KeyEventKind::Press
+            && key.modifiers.is_empty()
+            && key.code == KeyCode::Char('l')
+            && self.sources.editor.is_none()
+            && self.sources.confirmation.is_none()
+        {
+            if self.execution.history_pending(self.task_id) {
+                self.sources.error = "Wait for run history to load before compacting; resolve journal storage failures explicitly.".into();
+                return true;
+            }
+            self.sources.set_optimizer_runs(&self.execution.history);
+        }
         let action = self
             .sources
             .key(key, self.task_id, self.repository.as_ref());
@@ -536,6 +548,7 @@ impl App {
             sources::Action::Close => self.close_overlay(),
             sources::Action::Quit => self.request_quit(),
             sources::Action::Compare => return self.open_context_comparison(),
+            sources::Action::RememberSource(id) => self.remember_source(id),
             sources::Action::RefreshRepository => {
                 self.repo_refresh = true;
                 self.repo_loading = true;

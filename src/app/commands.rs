@@ -66,7 +66,16 @@ impl Popup {
         let argument = argument.trim();
         (matches!(
             name,
-            "lead" | "model" | "effort" | "connect" | "formation" | "formation-save"
+            "lead"
+                | "model"
+                | "effort"
+                | "connect"
+                | "formation"
+                | "formation-save"
+                | "optimize"
+                | "compact"
+                | "tools"
+                | "tool-setup"
         ) && !argument.is_empty())
         .then_some((name, argument))
     }
@@ -180,6 +189,13 @@ const DIRECT_ACTIONS: &[(&str, Overlay, &str, &str, bool)] = &[
         Overlay::Execution,
         "runs",
         "Inspect retained local run history",
+        false,
+    ),
+    (
+        "run-details",
+        Overlay::Execution,
+        "run-details",
+        "Inspect command identity and execution diagnostics",
         false,
     ),
     (
@@ -547,6 +563,46 @@ impl App {
                 "context-compare",
                 "Compare exact context selection bytes for this turn",
             ),
+            (
+                "optimize",
+                "Preview ranked context under a local token budget",
+            ),
+            (
+                "compact",
+                "Preview an evidence-linked local continuation ledger",
+            ),
+            (
+                "context-apply",
+                "Apply the reviewed context packet; nothing sent",
+            ),
+            (
+                "context-cancel",
+                "Cancel the context preview; nothing changed",
+            ),
+            ("context-clear", "Clear the applied local context packet"),
+            (
+                "context-cache-retry",
+                "Retry only the failed local cache operation",
+            ),
+            (
+                "context-cache-discard",
+                "Discard the failed local cache operation",
+            ),
+            (
+                "context-cache-purge",
+                "Purge the local revision and token cache",
+            ),
+            (
+                "remember-source",
+                "Adopt the selected capture as a reviewed memory note",
+            ),
+            ("receipts", "Inspect retained outgoing request receipts"),
+            ("tools", "Search reviewed local tool metadata"),
+            ("tool-setup", "Review explicit local tool catalog setup"),
+            ("tool-clear", "Clear outgoing tool schema selection"),
+            ("artifacts", "Inspect owned immutable tool output"),
+            ("artifact-search", "Search retained tool output"),
+            ("artifact-locations", "Inspect retained failure locations"),
             ("new", "Send ordinary Request as a fresh conversation"),
             (
                 "resume",
@@ -902,6 +958,11 @@ impl App {
                     | "connect"
                     | "response"
                     | "runs"
+                    | "receipts"
+                    | "artifacts"
+                    | "artifact-search"
+                    | "artifact-locations"
+                    | "run-details"
                     | "answer"
                     | "answers-review"
                     | "verbose"
@@ -1221,6 +1282,14 @@ impl App {
             Some((name, argument)) => (name, argument.trim()),
             None => (query, ""),
         };
+        if matches!(name, "optimize" | "compact" | "tools" | "tool-setup") {
+            if let Some(reason) = self.command_disabled_reason(name) {
+                self.notice = reason;
+                self.offer_owner(name);
+                return true;
+            }
+            return self.command(query);
+        }
         if self.formation_command(name, argument) {
             return true;
         }
@@ -1300,6 +1369,9 @@ impl App {
             return true;
         }
         self.command_popup = None;
+        if self.context_tool_command(name) {
+            return true;
+        }
         if matches!(name, "cancel" | "cancel-all" | "quit") {
             self.workflow.authoring.invalidate();
         }
@@ -1407,9 +1479,10 @@ impl App {
             let changed = self.submit_request();
             if name == "new"
                 && !already_saving
-                && let Some((_, resume)) = &mut self.pending_request
+                && let Some((_, resume, fresh_chat)) = &mut self.pending_request
             {
                 *resume = false;
+                *fresh_chat = true;
             }
             return changed;
         }
@@ -1572,6 +1645,7 @@ impl App {
             "session-new" | "session-resume" => {
                 self.planning.prepare_session_operation();
                 self.open_overlay(Overlay::Planning);
+                self.planning.prepare_fresh_chat(name == "session-new");
                 return self.planning_command(if name == "session-new" {
                     "new"
                 } else {

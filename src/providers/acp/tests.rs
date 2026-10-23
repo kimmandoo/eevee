@@ -434,6 +434,9 @@ fn managed_review_is_refused_before_loading_or_dispatching_an_acp_session() {
     };
     for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
         let input = Input {
+            public_context: None,
+            tool_catalog: None,
+            context_plan: None,
             prior_plan: None,
             task: crate::store::Snapshot::empty("unopened-project".into()),
             work: None,
@@ -470,6 +473,9 @@ fn model_metadata_needs_no_saved_task_or_managed_role_and_retains_identity_check
     for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
         for operation in [Operation::Plan, Operation::Implement, Operation::Review] {
             let mut input = Input {
+                public_context: None,
+                tool_catalog: None,
+                context_plan: None,
                 prior_plan: None,
                 task: crate::store::Snapshot::empty("unopened-project".into()),
                 work: None,

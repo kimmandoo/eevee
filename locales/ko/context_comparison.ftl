@@ -1,6 +1,5 @@
 context-comparison-title = 컨텍스트 선택 · 같은 턴 비교
 context-comparison-hint = c 수치 새로 고침 · Tab 파일 · PgUp/Dn 상세 · Esc 돌아가기
-context-comparison-source-hint = c 같은 턴의 정확한 컨텍스트 비교 · / 더 보기
 context-comparison-empty = 아직 고정된 전체 턴 영수증이 없습니다. c로 로컬 준비합니다. 요청은 전송하지 않습니다.
 context-comparison-waiting = 전체 요청을 로컬에서 준비 중입니다. 제공자/네트워크 호출, 전송 승인, 청구 측정은 없습니다.
 context-comparison-before-only = 이전 선택을 보관했습니다. 현재 전체 요청은 아직 준비되지 않았습니다. c로 새로 고칩니다.

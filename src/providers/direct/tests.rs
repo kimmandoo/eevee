@@ -7,6 +7,9 @@ fn decoded_body(body: NativeBody<'_>) -> Value {
 
 fn input() -> Input {
     Input {
+        public_context: None,
+        tool_catalog: None,
+        context_plan: None,
         prior_plan: None,
         task: crate::store::Snapshot::empty("unopened-project".into()),
         instruction_override: None,

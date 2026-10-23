@@ -1,10 +1,21 @@
 # Eevee Implementation Plan
 
-Updated: 2026-10-24. Active user priority: fix WSL implementation refusal and PowerShell auth.json/file-creation rejection; compare reference folder/read/create/edit/save behavior read-only and repair real workflow/UX. Published v0.1.28 remains immutable and its fixture proof does not refute the user's observed failures. No paid/live model calls or original installation/private-data mutation is authorized.
+Updated: 2026-10-24. The ten selected context/tool tasks and evidence-backed provider/agent repairs passed implementation and local acceptance. Active step: exact-source native qualification, immutable v0.1.29 publication and public installation/runtime verification. Existing Windows/Linux gates remain mandatory; public v0.1.28 stays immutable. No paid/live calls or original private-data mutation is authorized.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Active request — Windows authentication and WSL file workflow
+## Active release — Ten context/tool tasks and complete provider flow repair
+
+1. Implement all ten selected contracts now archived in `tasks/COMPLETED.md`: durable receipts/purge; reasoned budget selection and syntax-aware fallback; cross-entry-point capture identity dedup; persisted revision/token cache; evidence-linked compaction; reviewed trusted catalog/lazy adapter schemas; immutable paged/searchable tool artifacts.
+2. Use one Schema19 migration and existing store writer/spool/approvals. Keep exact source and owner revalidation, honest tokenizer/usage distinctions, mandatory-pin overflow decisions and no hidden network.
+3. Integrate actual bilingual compact/wide UI, provider packets and real result producers; no hidden engines or empty wiring. Compare ordinary submit/continuation, tool results, approval/cancel/resume and authentication recovery with the read-only reference and fix evidence-backed gaps.
+4. Resolve current Windows ConPTY and Linux SQLite failures without weakening acceptance. Run all ten acceptance fixtures and actual provider/file runtime journeys, then source and all-five-native gates.
+5. Archive only completed specifications, update contracts/troubleshooting/changelog/checkpoint, commit and publish the qualified immutable release. Verify downloads/installation/actual runtime separately from live model semantics.
+
+Steps1–4 implementation and local acceptance passed on candidateG:1,544 Rust tests/two ignored, strict source checks, all ten native API/size variants186 groups, bilingual compact/wide context/compaction and artifact journeys, durable receipts, trusted100-tool setup, real file workflows, genuine upgrade/refusal/resume and owned recovery. Full selected specifications are archived;18 backlog tasks remain. Current step5 requires exact-source Check/all-five-native success and public release proof; do not infer publication from these local results.
+
+
+## Integrated repair — Windows authentication and WSL file workflow (qualification pending)
 
 1. Trace native credential selection, explicit CLI import and Windows provider-file ACL checks; distinguish configuration/authentication from filesystem authority. Recover through an actionable existing connection flow without losing the request.
 2. Trace ordinary planning followed by short Korean implementation requests. Preserve public plan context while changing actual operation/tool availability; do not carry opaque provider permissions or override explicit read-only intent.
@@ -12,7 +23,7 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 4. Exercise English/Korean real terminal file workflows on Linux and Windows, including nested creation, exact saved bytes, read/edit/overwrite, denied writes and unrelated dirty-file preservation. Keep real WSL/live-auth limitations explicit; deterministic peers are not live model semantics.
 5. Update contracts, troubleshooting, changelog and checkpoint; commit verified fixes. Do not claim completion from v0.1.28 publication.
 
-## Active request — natural project and agent workflow
+## Completed request — natural project and agent workflow; v0.1.28 released
 
 1. Trace published startup and `/init` through ordinary submission, actual tool execution and approval. Compare reference startup, guide initialization, tool continuation and popup ownership without copying code/prompts or branding.
 2. Remove the internally imposed sticky Plan policy from `/init`; prepare useful guide creation/update while retaining explicit user policy, form and path restrictions. Verify init followed by ordinary file creation, not just draft preparation.

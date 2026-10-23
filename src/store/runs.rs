@@ -4,7 +4,7 @@ use super::*;
 pub(super) const MAX_RUN_BYTES: usize = 128 * 1024;
 pub(super) const MAX_RUNS: usize = 256;
 pub(super) const RUN_HEADROOM: u64 = 256 * 1024;
-pub(super) const MAX_SPOOL_BYTES: u64 = 8 * 1024 * 1024;
+pub(super) const MAX_SPOOL_BYTES: u64 = 16 * 1024 * 1024;
 pub(super) const RUN_COLUMNS: &str = "record,output_name,output_identity,capacity,reserved";
 
 pub(super) struct StoredRun {
@@ -331,6 +331,7 @@ impl State {
             }
             ContextOperation::Purge(ids) => {
                 no_active(&transaction, Some(task.id))?;
+                super::receipts::purge_sources(&transaction, task.id, Some(&ids))?;
                 if ids.is_empty() || ids.len() > crate::workspace::context::MAX_EXCERPTS {
                     return Err("Purge requires a bounded nonempty excerpt selection".into());
                 }
@@ -423,7 +424,7 @@ impl State {
         capacity: u64,
     ) -> Result<CommittedRunPermit, String> {
         if prepared.task_id != task_id || !(1024..=MAX_SPOOL_BYTES).contains(&capacity) {
-            return Err("Run owner or capture reservation bound is invalid (1 KiB–8 MiB)".into());
+            return Err("Run owner or capture reservation bound is invalid (1 KiB–16 MiB)".into());
         }
         if timestamp()? as u64 >= prepared.expires_at_ms {
             return Err("Prepared request expired before quota reservation; review again".into());
@@ -446,6 +447,7 @@ impl State {
             }
         }
         super::records::reserve_capacity(&transaction, &self.project)?;
+        super::artifacts::reserve_capacity(&transaction, task_id)?;
         let revision_moving = super::work::acquire_command(&transaction, &task, &prepared)?;
         let mut record = crate::workspace::runner::RunRecord::awaiting(&prepared);
         record.revision_moving = revision_moving;
@@ -560,6 +562,7 @@ impl State {
         write_run(&transaction, &stored)?;
         if !stored.reserved && stored.record.started_at_ms.is_some() {
             super::records::record_run(&transaction, &self.project, &stored)?;
+            super::artifacts::publish_run(&transaction, &self.data_dir, &stored)?;
         }
         // Reservation includes bounded terminal metadata headroom. Do not evict evidence
         // or reject an honest terminal transition solely because the quota was lowered.
@@ -679,6 +682,8 @@ impl State {
         stored.record.output_unavailable = true;
         write_run(&transaction, &stored)?;
         super::records::purge_run(&transaction, &self.project, task_id, run_id)?;
+        super::artifacts::purge_run(&transaction, task_id, run_id)?;
+        super::receipts::purge_sources(&transaction, task_id, None)?;
         transaction.commit().map_err(|error| error.to_string())?;
         // Metadata becomes unavailable before physical cleanup. A replaced link is
         // never followed, and a cleanup failure cannot resurrect successful evidence.

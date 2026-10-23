@@ -1,4 +1,5 @@
 mod agents;
+mod artifacts;
 pub mod artwork;
 mod chips;
 mod composer;
@@ -12,6 +13,7 @@ mod moves;
 mod planning;
 mod records;
 mod sources;
+mod tool_catalog;
 mod updates;
 mod workflows;
 
@@ -684,6 +686,9 @@ pub fn render(
             Overlay::Held => held::render(frame, area, app, config, &paint),
             Overlay::Formations => formations::render(frame, area, app, config, &paint),
             Overlay::Updates => updates::render(frame, area, app, config, &paint),
+            Overlay::Artifacts => artifacts::render(frame, area, &mut app.artifacts, config),
+            Overlay::ToolCatalog => tool_catalog::render(frame, area, app, config, &paint),
+            Overlay::Receipts => app.planning.receipts.render(frame, area, config.language),
             Overlay::Party => party(frame, area, app, config, &paint),
             Overlay::PartyBoard => cooperation::board(frame, area, app, config, &paint),
             Overlay::Images => images(frame, area, app, config, &paint, artwork, graphics_status),
@@ -2016,15 +2021,20 @@ fn editor_rows(input: &str, cursor: usize, width: usize) -> (Vec<String>, (usize
     let mut column = 0;
     let mut caret = (0, 0);
     for (index, grapheme) in input.grapheme_indices(true) {
-        let size = Span::raw(grapheme).width();
-        if grapheme != "\n" && column + size > width {
+        let newline = matches!(grapheme, "\n" | "\r\n");
+        let size = if newline {
+            0
+        } else {
+            Span::raw(grapheme).width()
+        };
+        if !newline && column + size > width {
             lines.push(String::new());
             column = 0;
         }
         if index == cursor {
             caret = (lines.len() - 1, column);
         }
-        if grapheme == "\n" {
+        if newline {
             lines.push(String::new());
             column = 0;
         } else {

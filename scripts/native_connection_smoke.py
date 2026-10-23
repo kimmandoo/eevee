@@ -541,6 +541,20 @@ class Journey:
         assert len(self.peer.snapshot('POST')) == before + 1, 'hidden resend after ' + label
         self.capture(label + '-after-settlement')
         self.cases.append(label)
+        if mode == 'incomplete':
+            # An observed transport failure requires an explicit local next
+            # step. Inspecting setup is not a retry or authentication claim.
+            counts = (len(self.peer.snapshot('GET')), len(self.peer.snapshot('POST')))
+            self.session.command('connect')
+            self.session.command('diagnostics')
+            wait_for(self.session, 'Transport failed')
+            self.session.send('n')
+            wait_for(self.session, 'Ctrl+S Local')
+            self.workspace()
+            assert (len(self.peer.snapshot('GET')), len(self.peer.snapshot('POST'))) == counts, \
+                'acknowledging the transport diagnostic performed network work'
+            self.capture(label + '-explicit-recovery-no-network')
+            self.cases.append('explicit-transport-diagnostic-next-step-no-network')
         return history + [('user', text), ('assistant', answer)] if mode == 'complete' else history
 
     def forget_override(self, task_history):
