@@ -344,6 +344,11 @@ impl App {
             self.freeze_held_receipt(&input);
             self.planning.pending = Some(crate::providers::Request::Preview(input));
         }
+        if self.planning.context_inspection() {
+            self.remember_context_preparation(true);
+            return;
+        }
+        self.remember_context_preparation(false);
         static REQUEST: AtomicU64 = AtomicU64::new(1);
         let claim = store::WorkClaim {
             task_id: self.task_id,
@@ -1219,16 +1224,24 @@ impl App {
         {
             self.agents.connection_succeeded(agent);
         }
+        if partner == self.lead.id
+            && self.planning.context_inspection()
+            && let crate::providers::Event::Error {
+                generation: None,
+                message,
+            } = &event
+        {
+            self.sources.clear_wire_request();
+            self.sources.error.clone_from(message);
+        }
         let content_preview = partner == self.lead.id
             && matches!(&event,
             crate::providers::Event::Preview(preview)
                 if self.planning.accepts_preview(preview)
-                    && !self.planning.inspect_models && !self.planning.inspect_sessions);
-        if content_preview
-            && let crate::providers::Event::Preview(preview) = &event
-            && let Err(error) = self.sources.set_wire_request(&preview.payload)
-        {
-            self.sources.status = format!("Exact request receipt unavailable: {error}");
+                    && (self.planning.context_inspection()
+                        || !self.planning.inspect_models && !self.planning.inspect_sessions));
+        if content_preview && let crate::providers::Event::Preview(preview) = &event {
+            self.record_context_preview(preview);
         }
         let foreground_drawer = partner == self.lead.id && self.overlay == Some(Overlay::Planning);
         let response_settled = match (&self.cooperation.queued_response, &event) {
@@ -1525,6 +1538,7 @@ mod tests {
             Some(providers::Request::Preview(_))
         ));
         state.event(providers::Event::Preview(providers::Preview {
+            comparison_scope: None,
             arrival,
             generation: 7,
             task_id: 7,
@@ -2289,7 +2303,7 @@ mod tests {
                         KeyCode::Enter,
                         KeyModifiers::NONE,
                     )));
-                    assert!(!app.planning.auto_permission_review && !app.planning.review_details);
+                    assert!(!app.planning.auto_permission_review && app.planning.review_details);
                     assert!(!app.planning.reviewed && app.planning.pending.is_none());
                     app.update(Event::Key(KeyEvent::new(
                         KeyCode::Char('a'),
@@ -2300,6 +2314,11 @@ mod tests {
                         "engagement does not reuse prior render authority"
                     );
                     let engaged = draw(&mut app);
+                    app.update(Event::Key(KeyEvent::new(
+                        KeyCode::Char('d'),
+                        KeyModifiers::NONE,
+                    )));
+                    let engaged = format!("{engaged}{}", draw(&mut app));
                     assert!(app.planning.reviewed, "{engaged}");
                     app.update(Event::Key(KeyEvent::new(
                         KeyCode::Char('a'),

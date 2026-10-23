@@ -33,7 +33,7 @@ fn command(state: &mut State, name: &str, large: bool) {
 }
 
 #[test]
-fn ordinary_coding_requires_writer_ownership_without_overriding_explicit_readonly() {
+fn advanced_sessions_require_writer_ownership_without_overriding_explicit_readonly() {
     for agent in [
         Agent::Compatible,
         Agent::Codex,
@@ -46,7 +46,7 @@ fn ordinary_coding_requires_writer_ownership_without_overriding_explicit_readonl
         state.reset(7);
         state.agent = agent;
         state.set_operation(Operation::Plan);
-        state.prepare_ordinary_operation();
+        state.prepare_session_operation();
         command(&mut state, "new", true);
         let Some(Request::Preview(input)) = state.pending.take() else {
             panic!("missing preparation")
@@ -56,7 +56,7 @@ fn ordinary_coding_requires_writer_ownership_without_overriding_explicit_readonl
         let mut state = State::new();
         state.reset(7);
         state.agent = agent;
-        state.prepare_ordinary_operation();
+        state.prepare_session_operation();
         command(&mut state, "new", true);
         let Some(Request::Preview(input)) = state.pending.take() else {
             panic!("missing implementation preparation")
@@ -66,14 +66,14 @@ fn ordinary_coding_requires_writer_ownership_without_overriding_explicit_readonl
         state.reset(7);
         state.agent = agent;
         state.set_operation(Operation::Review);
-        state.prepare_ordinary_operation();
+        state.prepare_session_operation();
         assert_eq!(state.operation, Operation::Review);
     }
     for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
         let mut state = State::new();
         state.reset(7);
         state.agent = agent;
-        state.prepare_ordinary_operation();
+        state.prepare_session_operation();
         command(&mut state, "new", true);
         let Some(Request::Preview(input)) = state.pending.take() else {
             panic!("missing external preparation")
@@ -650,6 +650,7 @@ fn accepting_unchanged_model_cannot_reuse_an_armed_request_review() {
     command(&mut state, "new", true);
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
+        comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
@@ -1000,6 +1001,7 @@ fn authentication_change_cancels_stale_resume_previews_without_fresh_fallback() 
         };
         assert_eq!(input.resume.as_deref(), Some("old-account-thread"));
         let preview = Preview {
+            comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             generation: 11,
             task_id: 7,
@@ -1069,6 +1071,7 @@ fn active_account_change_preserves_submitted_bytes_and_revokes_every_terminal_se
         state.committed_input = Some(Box::new(input.task.clone()));
         let committed_address = state.committed_input.as_deref().unwrap() as *const store::Snapshot;
         state.event(Event::Preview(Preview {
+            comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             generation: 11,
             task_id: 7,
@@ -1403,6 +1406,7 @@ fn custom_id_is_exact_local_and_invalidates_previous_review_and_effort() {
     command(&mut state, "new", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
@@ -1516,6 +1520,7 @@ fn refresh_failure_retains_last_successful_rows_and_retry_replaces_them() {
     assert!(state.catalogues.contains_key(&Agent::Codex));
     state.pending.take();
     state.event(Event::Preview(Preview {
+        comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: false,
@@ -1568,6 +1573,7 @@ fn first_fetch_failure_remains_retryable_and_empty_success_is_not_fake_failure()
     state.start_automatic_catalogue(&task(), &[], None);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: false,
@@ -1630,6 +1636,7 @@ fn model_picker_is_local_and_refresh_requires_preview_run_without_journal() {
     assert!(input.inspect_models && !input.inspect_sessions && input.resume.is_none());
     assert_eq!(input.selection, ModelSelection::default());
     state.event(Event::Preview(Preview {
+        comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
@@ -1740,6 +1747,7 @@ fn advertised_effort_and_model_are_snapshotted_and_preview_change_revokes_consen
     assert_eq!(input.selection.model.as_deref(), Some("advertised-model"));
     assert_eq!(input.selection.effort.as_deref(), Some("high"));
     state.event(Event::Preview(Preview {
+        comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
@@ -1883,6 +1891,7 @@ fn start_catalogue(state: &mut State, task: &store::Snapshot, generation: u64) {
     state.start_automatic_catalogue(task, &[], None);
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
+        comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: false,
@@ -2010,6 +2019,7 @@ fn blocked_preview_and_preview_error_retain_reason_without_automatic_manual_run(
             });
         } else {
             state.event(Event::Preview(Preview {
+                comparison_scope: None,
                 arrival: crate::providers::approval_arrival(),
                 destination: None,
                 requires_connection_review: true,
@@ -2044,6 +2054,7 @@ fn blocked_preview_and_preview_error_retain_reason_without_automatic_manual_run(
         state.command("models-refresh", true, &task, &[], None);
         assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
         state.event(Event::Preview(Preview {
+            comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
             requires_connection_review: true,
@@ -2165,6 +2176,7 @@ fn preview() -> State {
     command(&mut state, "new", true);
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
+        comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
@@ -2179,11 +2191,66 @@ fn preview() -> State {
 }
 
 #[test]
+fn missing_model_recovery_does_not_replace_cancellation_or_unrelated_blockers() {
+    for (agent, cancelled, blocker) in [
+        (
+            Agent::Compatible,
+            true,
+            crate::providers::direct::MODEL_REQUIRED,
+        ),
+        (
+            Agent::Codex,
+            false,
+            crate::providers::direct::MODEL_REQUIRED,
+        ),
+        (
+            Agent::Compatible,
+            false,
+            "Selected provider credential is unavailable",
+        ),
+    ] {
+        let mut state = State::new();
+        state.reset(7);
+        state.agent = agent;
+        command(&mut state, "new", true);
+        assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
+        if cancelled {
+            assert!(state.cancel());
+        }
+        state.event(Event::Preview(Preview {
+            comparison_scope: None,
+            arrival: crate::providers::approval_arrival(),
+            destination: None,
+            requires_connection_review: false,
+            generation: 11,
+            task_id: 7,
+            thread_id: None,
+            trust: Vec::new(),
+            payload: String::new(),
+            blockers: vec![blocker.into()],
+        }));
+        assert!(state.picker.is_none() && !state.auto_models);
+        assert_eq!(state.agent, agent);
+        assert!(!state.failed_request);
+        if cancelled {
+            assert!(matches!(
+                state.pending,
+                Some(Request::Cancel { generation: 11 })
+            ));
+        } else {
+            assert_eq!(state.preview.as_ref().unwrap().blockers, vec![blocker]);
+            assert!(state.pending.is_none());
+        }
+    }
+}
+
+#[test]
 fn preview_shows_local_receipt() {
     let mut state = State::new();
     command(&mut state, "new", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
@@ -2623,6 +2690,7 @@ fn prior_unknown_outcome_survives_later_completion_and_authentication_reset() {
     command(&mut state, "sessions", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
@@ -2907,6 +2975,7 @@ fn run_request(state: &mut State, generation: u64, request: &str) {
     command(state, "new", true);
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
+        comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
@@ -3560,6 +3629,7 @@ fn cancelling_connection_review_does_not_reopen_a_hidden_model_picker() {
     command(&mut state, "models-refresh", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
@@ -3602,6 +3672,7 @@ fn journal_records_carry_the_partner_bound_when_the_request_was_prepared() {
     command(&mut state, "new", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
@@ -3664,6 +3735,7 @@ fn journal_event(generation: u64, id: &str) -> Event {
 fn prepared_at(state: &mut State, generation: u64) {
     state.pending.take();
     state.event(Event::Preview(Preview {
+        comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,

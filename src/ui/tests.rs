@@ -2150,7 +2150,12 @@ fn evolution_popup_is_one_shot_localized_and_preserves_real_editor_input() {
                 .unwrap();
             let screen = screen_text(&terminal);
             assert!(app.evolution.popup_shown, "{screen}");
-            assert!(screen.contains("Eevee  ->  Flareon"), "{screen}");
+            assert!(screen.contains("Eevee -> Flareon"), "{screen}");
+            assert!(
+                screen.contains(language.text(Message::CoreEvolutionPopupTitle))
+                    && screen.contains(language.text(Message::CoreEvolutionPopupContinue)),
+                "{screen}"
+            );
             assert_eq!((app.input.as_str(), app.cursor), ("future 界draft", 7));
             assert!(app.planning.pending.is_none());
             app.update(Event::Paste("한".into()));
@@ -2158,13 +2163,13 @@ fn evolution_popup_is_one_shot_localized_and_preserves_real_editor_input() {
             terminal
                 .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
                 .unwrap();
-            assert!(!screen_text(&terminal).contains("Eevee  ->  Flareon"));
+            assert!(!screen_text(&terminal).contains("Eevee -> Flareon"));
             app.command("flareon");
             terminal
                 .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
                 .unwrap();
             assert!(
-                !screen_text(&terminal).contains("Eevee  ->  Flareon"),
+                !screen_text(&terminal).contains("Eevee -> Flareon"),
                 "unchanged form replayed evolution"
             );
         }
@@ -2235,8 +2240,8 @@ fn evolution_popup_keeps_native_portraits_outside_its_visible_bounds() {
     );
     let portrait = companion_portrait(layout.rail.unwrap());
     assert!(
-        portrait.intersects(popup),
-        "fixture must exercise native image overlap"
+        !portrait.intersects(popup) && targets.contains(&(app.form(), portrait)),
+        "roomy receipt must leave the existing native portrait visible"
     );
     let config = home_config();
     let mut artwork = Artwork::load(&config);
@@ -2251,8 +2256,140 @@ fn evolution_popup_keeps_native_portraits_outside_its_visible_bounds() {
     portrait_targets(&app, window, &mut targets);
     assert!(
         targets.contains(&(app.form(), portrait)),
-        "acknowledged popup must restore the real companion portrait"
+        "acknowledged popup must retain the real companion portrait"
     );
+}
+
+#[test]
+fn evolution_receipt_is_edge_anchored_and_reserves_response_and_composer() {
+    for (width, height) in [(60, 18), (120, 36)] {
+        for linear in [false, true] {
+            let mut app = App::new("/workspace".into(), width, height);
+            app.linear = linear;
+            app.command("flareon");
+            // A nonzero origin catches accidental screen-relative placement.
+            let window = Rect::new(3, 4, width, height);
+            let layout = shell(window, linear, app.effective_focus());
+            let popup = evolution_popup_area(window, &app).unwrap();
+            assert!(!popup.intersects(layout.header));
+            assert!(!popup.intersects(layout.composer));
+            assert!(!popup.intersects(layout.footer));
+            if width == 120 && !linear {
+                assert_eq!((popup.width, popup.height), (26, 7));
+                assert!(!popup.intersects(layout.workspace));
+                assert!(popup.y > layout.rail.unwrap().bottom());
+            } else {
+                assert_eq!(popup.x, layout.workspace.x);
+                assert_eq!(popup.width, layout.workspace.width);
+                assert_eq!(popup.y, layout.workspace.y);
+                assert_eq!(popup.right(), layout.workspace.right());
+                assert!(layout.workspace.bottom() - popup.bottom() >= 3);
+            }
+        }
+    }
+}
+
+#[test]
+fn evolution_receipt_keeps_localized_hierarchy_in_ascii_mono_and_color() {
+    use ratatui::{Terminal, backend::TestBackend};
+    for (width, height) in [(60, 18), (120, 36)] {
+        for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
+            for (ascii, color) in [
+                (true, ColorMode::Mono),
+                (false, ColorMode::Mono),
+                (false, ColorMode::TrueColor),
+            ] {
+                let mut config = home_config();
+                config.language = language;
+                config.ascii = ascii;
+                config.color = color;
+                let mut app = App::new("/workspace".into(), width, height);
+                app.command("vaporeon");
+                app.command("jolteon");
+                let paint = Paint::new(&config, &FORMS[app.form()], app.form());
+                let area = evolution_popup_area(Rect::new(0, 0, width, height), &app).unwrap();
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal
+                    .draw(|frame| {
+                        cooperation::evolution_popup(frame, area, &mut app, &config, &paint)
+                    })
+                    .unwrap();
+                let screen = screen_text(&terminal);
+                assert!(
+                    screen.contains(if ascii {
+                        "Vaporeon -> Jolteon"
+                    } else {
+                        "Vaporeon →  Jolteon"
+                    }),
+                    "{screen}"
+                );
+                assert!(
+                    screen.contains(language.text(Message::CoreEvolutionPopupTitle)),
+                    "{screen}"
+                );
+                assert!(
+                    screen.contains(language.text(Message::CoreEvolutionManual)),
+                    "{screen}"
+                );
+                assert!(
+                    screen.contains(language.text(Message::CoreEvolutionPopupContinue)),
+                    "{screen}"
+                );
+                for word in language
+                    .text(Message::CoreEvolutionPopupManualReason)
+                    .split_whitespace()
+                {
+                    assert!(screen.contains(word), "receipt clipped {word}: {screen}");
+                }
+                let buffer = terminal.backend().buffer();
+                assert_eq!(
+                    buffer[(area.x, area.y)].symbol(),
+                    if ascii { "+" } else { "╭" }
+                );
+                assert!(
+                    buffer.content.iter().any(|cell| {
+                        cell.symbol() == "J" && cell.modifier.contains(Modifier::BOLD)
+                    }),
+                    "destination lost its visual emphasis: {screen}"
+                );
+                assert_eq!(app.evolution_frame(), None);
+            }
+        }
+    }
+}
+
+#[test]
+fn evolution_receipt_survives_resize_without_consuming_the_next_typed_key() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    let mut app = App::new("/workspace".into(), 120, 36);
+    app.task_id = 7;
+    app.storage = crate::app::StorageState::Saved;
+    app.input = "한界draft".into();
+    app.cursor = "한".len();
+    app.editing = true;
+    app.editor_field = EditorField::Request;
+    app.command("flareon");
+    let mut artwork = Artwork::load(&config);
+    app.update(Event::Resize(59, 17));
+    let mut tiny = Terminal::new(TestBackend::new(59, 17)).unwrap();
+    tiny.draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+        .unwrap();
+    assert!(!app.evolution.popup_shown);
+    app.update(Event::Resize(60, 18));
+    let mut compact = Terminal::new(TestBackend::new(60, 18)).unwrap();
+    compact
+        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+        .unwrap();
+    assert!(app.evolution.popup_shown);
+    app.update(Event::Key(KeyEvent::new(
+        KeyCode::Char('x'),
+        KeyModifiers::NONE,
+    )));
+    assert_eq!((app.input.as_str(), app.cursor), ("한x界draft", 4));
+    assert!(app.planning.pending.is_none());
+    app.update(Event::Resize(120, 36));
+    assert!(evolution_popup_area(Rect::new(0, 0, 120, 36), &app).is_none());
 }
 
 #[test]

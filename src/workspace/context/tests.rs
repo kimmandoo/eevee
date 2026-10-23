@@ -1125,3 +1125,90 @@ fn wire_receipt_counts_pretty_entry_whitespace_but_not_user_json_lookalikes() {
     assert!(wire_receipt("not JSON").is_err());
     assert!(wire_receipt("{\"selected_sources\":{\"captures\":42}}").is_err());
 }
+
+#[test]
+fn removing_an_overlap_representative_compares_reassembled_exact_envelopes() {
+    let fixture = Fixture::new();
+    let report = fixture.report(&[(
+        "src/資料.rs",
+        "let quoted = \"한글\\\\n\";\nsecond 日本語\n".as_bytes(),
+    )]);
+    let stopped = AtomicBool::new(false);
+    let mut wide = capture(7, &report, Path::new("src/資料.rs"), 1, 2, &[], &stopped).unwrap();
+    wide.id = 91;
+    let mut narrow = capture(7, &report, Path::new("src/資料.rs"), 2, 2, &[], &stopped).unwrap();
+    narrow.id = 92;
+    let before = vec![wide, narrow.clone()];
+    let after = vec![narrow];
+    let assemble = |excerpts: &[Excerpt]| {
+        let Response::Assembled(payload) = execute(
+            7,
+            Operation::Assemble {
+                report: Arc::clone(&report),
+                excerpts: excerpts.to_vec(),
+                dispatch: false,
+            },
+            &[],
+            &stopped,
+        )
+        .unwrap() else {
+            panic!("expected immutable source envelope");
+        };
+        serde_json::from_str::<serde_json::Value>(&payload.text).unwrap()
+    };
+    let before_sources = assemble(&before);
+    let after_sources = assemble(&after);
+    assert_eq!(before_sources["captures"][1]["same_bytes_as"], 91);
+    assert!(before_sources["captures"][1].get("text").is_none());
+    assert_eq!(after_sources["captures"][0]["text"], "second 日本語\n");
+    assert!(after_sources["captures"][0].get("same_bytes_as").is_none());
+    let prepared = |sources: &serde_json::Value| {
+        serde_json::to_string_pretty(&serde_json::json!({
+            "purpose": "unchanged",
+            "task": {"request": "same turn \"escaped\" 한국어"},
+            "selected_sources": sources,
+            "approved_memories": [],
+        }))
+        .unwrap()
+    };
+    let previous = prepared(&before_sources);
+    let current = prepared(&after_sources);
+    let mut comparison = SelectionComparison::default();
+    let turn = ComparisonTurn {
+        task_id: 7,
+        partner: 1,
+        agent: crate::providers::Agent::Codex,
+        operation: crate::providers::Operation::Plan,
+        request: 1,
+    };
+    let before_wire = comparison.record(turn.clone(), &previous, &before).unwrap();
+    comparison.selection_changed(&before, &after);
+    let after_wire = comparison.record(turn, &current, &after).unwrap();
+    let delta = comparison.delta().unwrap();
+    let attachment = delta
+        .sections
+        .iter()
+        .find(|section| section.name == "Attachments")
+        .unwrap();
+    assert_eq!(
+        attachment.bytes.previous,
+        serde_json::to_string(&before_sources).unwrap().len()
+    );
+    assert_eq!(
+        attachment.bytes.current,
+        serde_json::to_string(&after_sources).unwrap().len()
+    );
+    assert_eq!(delta.bytes.previous, previous.len());
+    assert_eq!(delta.bytes.current, current.len());
+    assert_eq!(delta.deduplicated.previous, 1);
+    assert_eq!(delta.deduplicated.current, 0);
+    assert_ne!(
+        delta.bytes.delta(),
+        -(before_wire.captures[0].bytes as i128)
+    );
+    assert_eq!(after_wire.captures[0].id, 92);
+    // Re-preparation still validates fresh source bytes; comparison never grants
+    // an exemption to the existing dispatch boundary.
+    fs::write(fixture.0.join("src/資料.rs"), "changed\n").unwrap();
+    assert!(planning_payload(7, Some(&report), &after, &[]).is_err());
+}

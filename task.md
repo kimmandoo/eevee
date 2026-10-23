@@ -7,8 +7,8 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 - **Released:** [v0.1.26](https://github.com/kimmandoo/eevee/releases/tag/v0.1.26) corrected native-account configuration admission and direct blocked-request recovery after exact-source qualification, immutable publication and full downloaded runtime/install proof. It includes v0.1.25's form-independent coding/context, automatic permission reviews and concise README. The four-task Pokémon milestone remains complete.
 - **Implemented, unreleased:** Source 0.1.27 completed **A08 → UX04A → S04**: actionable connection diagnostics, persistent text density and reviewed portable workflow authoring. Full specifications moved to [COMPLETED.md](tasks/COMPLETED.md#everyday-platform-milestone--source-0127-unreleased).
 - **Compatibility:** Schema 18 and complete SDK bridge 9 remain unchanged, but strict preference JSON has expanded. Actual v0.1.21 refused true reduced motion; actual v0.1.26 refused Comfortable density without changing data bytes. Back up the entire data directory before upgrading; equal SQL schema numbers do not make an in-place downgrade safe.
-- **Remaining:** **31 tasks**. The Pokémon milestone and three everyday platform extensions are complete and archived; authenticated provider, full-product acceptance and general platform/context work remain separate.
-- **Active user request:** None. The requested next three tasks passed source and actual runtime acceptance. Next is **P04A — Update review screen**, followed by **P04B — Rollback eligibility**, only when requested. No new public release or paid/live model trial was authorized.
+- **Remaining:** **28 tasks**. P04A/P04B/T01B passed actual lifecycle/context acceptance and joined the completed archive; authenticated provider, full-product acceptance and remaining context/tool work stay separate.
+- **Active user request:** Make ordinary project planning respond without unnecessary permissions or mandatory `/init`, polish the evolution popup, finish project/file-flow verification, then publish and verify a new release. Source 0.1.28 is under verification. No paid/live model trial or original installation/private-data mutation is authorized.
 
 ## Completed Pokémon milestone
 
@@ -20,17 +20,16 @@ Party, formations, portable TMs, moves, summary, Dex, held references, ribbons, 
 
 | File | Unfinished scope | Open |
 |---|---|---:|
-| [F — Context and tools](tasks/F-context-tools.md) | Context comparison/receipts, deterministic selection, tool artifacts/plans and measured optimization | 16 |
-| [G — UX and platform](tasks/G-ux-platform.md) | Update review and serialized-format-aware rollback eligibility | 2 |
+| [F — Context and tools](tasks/F-context-tools.md) | Durable receipts, deterministic selection, tool artifacts/plans and measured optimization | 15 |
 | [H — Acceptance](tasks/H-provider-acceptance.md) | Live-provider rows, composed quality/resource measurements and native distribution evidence | 6 |
 | [R — Structure](tasks/R-code-structure.md) | Responsibility-based, just-in-time extractions | 7 |
 
-A/B/C/D/E are entirely completed and archived; only F/G/H/R remain active.
+A/B/C/D/E/G are entirely completed and archived; only F/H/R remain active.
 
 ### Next order
 
-1. Finish everyday platform extensions: **P04A → P04B**. Reuse the existing updater, ownership and full serialized-format compatibility protections; A08/UX04A/S04 are completed foundations, not pending gates.
-2. Context track: T01B → T01C → T02A → T02B → T03A → T03B → T04. Completed T01A/C03A/C03B remain foundations, not pending gates.
+1. Complete the active ordinary-planning/evolution UX request and runtime qualification before publication. P04A/P04B/T01B are completed foundations, not pending implementation gates.
+2. Context track: T01C → T02A → T02B → T03A → T03B → T04. Completed T01A/T01B/C03A/C03B remain foundations, not pending gates.
 3. Tool track: TC01A → TC01B; independently TC03A → TC03B → TC04; then TC02 → TC05 → D01 → Q03. Respect each task's exact `Needs`; Q03's live trials require separate authorization.
 4. Reconcile local Q01 visual/state rows, Q02 current measured resource workloads and P03 supported-target install/upgrade evidence. They are not collectively blocked on provider credentials. Their outstanding authenticated rows remain explicitly incomplete.
 5. Run A04/A06 when permitted Claude credentials and eligible Gemini authentication are available; then finish full A07 and the dependent composed-provider Q01 rows. Implemented transports and deterministic fixtures are not live acceptance.

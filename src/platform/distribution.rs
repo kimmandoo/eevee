@@ -7,6 +7,9 @@ use std::time::Duration;
 
 use sha2::{Digest, Sha256};
 
+mod lifecycle;
+pub use lifecycle::{LifecycleReview, Operation, apply_review, prepare_rollback, prepare_update};
+
 const LATEST_URL: &str = "https://github.com/kimmandoo/eevee/releases/latest";
 const TAG_PREFIX: &str = "https://github.com/kimmandoo/eevee/releases/tag/";
 const MAX_BINARY: u64 = 256 * 1024 * 1024;
@@ -174,9 +177,11 @@ fn hash_file(path: &Path, limit: u64) -> Result<String, String> {
     Ok(format!("{:x}", digest.finalize()))
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct Installation {
     directory: PathBuf,
     version: Version,
+    owner: String,
 }
 
 fn owned_installation(executable: &Path) -> Result<Installation, String> {
@@ -237,6 +242,7 @@ fn owned_installation(executable: &Path) -> Result<Installation, String> {
     Ok(Installation {
         directory: directory.to_path_buf(),
         version: marker.version,
+        owner: hash_file(&marker_path, 4096)?,
     })
 }
 
@@ -449,7 +455,10 @@ pub fn update(check_only: bool, no_animation: bool) -> Result<(), String> {
         );
         return Ok(());
     }
-    if !explicit && target < installation.version {
+    if target < installation.version {
+        if explicit {
+            return Err("The selected release is older than this installation. ev update cannot downgrade, including through EV_VERSION; use the verified retained-package rollback review.".into());
+        }
         println!(
             "ev {} is newer than the latest published release ({tag}); no changes made.",
             env!("CARGO_PKG_VERSION")
@@ -468,13 +477,14 @@ pub fn update(check_only: bool, no_animation: bool) -> Result<(), String> {
     if check_only {
         return Ok(());
     }
-    run_installer(&installation.directory, Some(&tag), no_animation)
+    let review = lifecycle::update_review(installation, tag, explicit)?;
+    apply_review(&review, no_animation)
 }
 
 /// Remove only the verified owned executable and its exact license metadata.
 pub fn uninstall() -> Result<(), String> {
     let installation = current_installation()?;
-    run_installer(&installation.directory, None, false)
+    run_installer(&installation.directory, None, false, None, None)
 }
 
 fn installer_environment(command: &mut Command) {
@@ -517,10 +527,14 @@ fn installer_environment(command: &mut Command) {
 }
 
 #[cfg(unix)]
-fn run_installer(directory: &Path, tag: Option<&str>, no_animation: bool) -> Result<(), String> {
-    use std::os::unix::process::CommandExt;
-    // No on-disk script or remote code: exec preserves terminal, signals and the
-    // installer's actual exit status, including cleanup on interruption.
+fn run_installer(
+    directory: &Path,
+    tag: Option<&str>,
+    no_animation: bool,
+    expected_owner: Option<&str>,
+    package: Option<(&Path, &Path, &str)>,
+) -> Result<(), String> {
+    // Wait rather than exec: a terminal-loan caller must resume its exact task.
     let mut command = Command::new("/bin/sh");
     command
         .arg("-c")
@@ -535,15 +549,38 @@ fn run_installer(directory: &Path, tag: Option<&str>, no_animation: bool) -> Res
         command.arg("--uninstall");
     }
     command.arg("--install-dir").arg(directory);
+    if let Some(owner) = expected_owner {
+        command.arg("--expected-owner").arg(owner);
+    }
+    if let Some((archive, checksums, hash)) = package {
+        command
+            .arg("--archive")
+            .arg(archive)
+            .arg("--checksums")
+            .arg(checksums);
+        command.arg("--expected-archive").arg(hash);
+    }
     installer_environment(&mut command);
-    Err(format!(
-        "Cannot execute embedded installer: {}",
-        command.exec()
-    ))
+    let status = command
+        .status()
+        .map_err(|error| format!("Cannot execute embedded installer: {error}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Embedded installer failed ({status}); review its recovery details above"
+        ))
+    }
 }
 
 #[cfg(windows)]
-fn run_installer(directory: &Path, tag: Option<&str>, no_animation: bool) -> Result<(), String> {
+fn run_installer(
+    directory: &Path,
+    tag: Option<&str>,
+    no_animation: bool,
+    expected_owner: Option<&str>,
+    package: Option<(&Path, &Path, &str)>,
+) -> Result<(), String> {
     use std::io::Write;
     use std::process::Stdio;
     let directory = directory
@@ -562,6 +599,21 @@ fn run_installer(directory: &Path, tag: Option<&str>, no_animation: bool) -> Res
     );
     if no_animation {
         operation.push_str(" -NoAnimation");
+    }
+    if let Some(owner) = expected_owner {
+        operation.push_str(&format!(" -ExpectedOwner '{owner}'"));
+    }
+    if let Some((archive, checksums, hash)) = package {
+        operation.push_str(&format!(" -ExpectedArchive '{hash}'"));
+        for (flag, path) in [("-Archive", archive), ("-Checksums", checksums)] {
+            let path = path
+                .to_str()
+                .ok_or("Retained package path is not valid Unicode")?;
+            if path.chars().any(char::is_control) {
+                return Err("Retained package path contains control characters".into());
+            }
+            operation.push_str(&format!(" {flag} '{}'", path.replace('\'', "''")));
+        }
     }
     let expression = format!(
         "$ErrorActionPreference='Stop'; try {{ [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); $s=[Console]::In.ReadToEnd(); & ([scriptblock]::Create($s)) {operation} -InstallDir '{}' -OwnerProcessId {} }} catch {{ [Console]::Error.WriteLine($_.Exception.Message); exit 1 }}",
@@ -605,7 +657,13 @@ fn run_installer(directory: &Path, tag: Option<&str>, no_animation: bool) -> Res
 }
 
 #[cfg(not(any(unix, windows)))]
-fn run_installer(_directory: &Path, _tag: Option<&str>, _no_animation: bool) -> Result<(), String> {
+fn run_installer(
+    _directory: &Path,
+    _tag: Option<&str>,
+    _no_animation: bool,
+    _expected_owner: Option<&str>,
+    _package: Option<(&Path, &Path, &str)>,
+) -> Result<(), String> {
     Err("Native installation lifecycle is unsupported on this platform".into())
 }
 

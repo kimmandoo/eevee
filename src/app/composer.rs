@@ -93,10 +93,9 @@ impl App {
             self.notice = "Restore this task before preparing a request.".into();
             return true;
         }
-        let intent_operation = self.evolve_request();
-        if !intent_operation {
-            self.planning.prepare_ordinary_operation();
-        }
+        // Ambiguous follow-ups retain the current capability and conversation.
+        // Only recognized intent changes it; explicit read-only policy wins.
+        self.evolve_request();
         if self.goal.trim().is_empty() {
             self.goal.clone_from(&self.input);
         }

@@ -16,7 +16,9 @@ param(
     [switch]$NoAnimation,
     [int]$OwnerProcessId = 0,
     [switch]$ResolveRelease,
-    [string]$ResolveOutput
+    [string]$ResolveOutput,
+    [string]$ExpectedOwner,
+    [string]$ExpectedArchive
 )
 
 Set-StrictMode -Version 2.0
@@ -475,7 +477,10 @@ function Assert-OwnedInstall([string]$Binary, [string]$Metadata) {
     Assert-SafePath $Metadata $true $false
     $hasBinary = $null -ne (Get-PathAttributes $Binary)
     $hasMetadata = $null -ne (Get-PathAttributes $Metadata)
-    if (-not $hasBinary -and -not $hasMetadata) { return $false }
+    if (-not $hasBinary -and -not $hasMetadata) {
+        if (-not [string]::IsNullOrEmpty($ExpectedOwner)) { throw 'Reviewed installation disappeared; no replacement performed.' }
+        return $false
+    }
     if (-not $hasBinary -or -not $hasMetadata) {
         throw 'Refusing an unowned or incomplete existing ev installation.'
     }
@@ -502,6 +507,12 @@ function Assert-OwnedInstall([string]$Binary, [string]$Metadata) {
     if ((Get-BinarySha256 ([IO.Path]::Combine($Metadata, 'LICENSE'))) -cne $licenseHash -or
         (Get-BinarySha256 ([IO.Path]::Combine($Metadata, 'THIRD_PARTY_NOTICES'))) -cne $noticesHash) {
         throw 'Existing license metadata does not match its ownership marker; refusing to change it.'
+    }
+    if (-not [string]::IsNullOrEmpty($ExpectedOwner)) {
+        if ($ExpectedOwner -cnotmatch '\A[0-9a-f]{64}\z' -or
+            (Get-BinarySha256 $markerPath) -cne $ExpectedOwner) {
+            throw 'Installation changed after review; no replacement performed.'
+        }
     }
     return $true
 }
@@ -698,6 +709,9 @@ try {
     $archiveStream = [IO.File]::Open($archivePath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
     if ($archiveStream.Length -gt $archiveLimit) { throw 'Archive exceeds the 64 MiB limit.' }
     if ((Get-StreamSha256 $archiveStream) -cne $expectedHash) { throw 'Archive SHA-256 mismatch; nothing was installed.' }
+    if (-not [string]::IsNullOrEmpty($ExpectedArchive) -and $expectedHash -cne $ExpectedArchive) {
+        throw 'Retained archive changed after review; nothing was installed.'
+    }
     $archiveStream.Position = 0
     Add-Type -AssemblyName System.IO.Compression
     $zip = [IO.Compression.ZipArchive]::new($archiveStream, [IO.Compression.ZipArchiveMode]::Read, $true)

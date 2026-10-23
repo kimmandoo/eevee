@@ -51,6 +51,8 @@ ev
 2. **Ask:** type in the composer and press **Enter**. **Ctrl+S** saves locally without sending.
 3. **Review changes:** required permissions appear automatically. Inspect the scope, then allow once or deny.
 
+**No `/init` is required.** Ask a question or request a project plan directly. `/init` is only an optional request to create or update the project's `AGENTS.md` guide; it is not account setup, project registration or permission to write.
+
 Terminal: **60 × 18 minimum**, **120 × 36 recommended**. Add `--language ko` for Korean.
 
 > **Upgrading?** Cleanly exit all instances and back up the **entire data directory**, including database, journals and outputs, before `ev update`. An older binary is not a supported downgrade; restore the complete pre-upgrade backup instead. Source 0.1.27's Comfortable density extends strict JSON: v0.1.26 refuses it even though SQL Schema 18 is unchanged.
@@ -92,29 +94,36 @@ ev --help
 - `EV_LANGUAGE=ko` also selects Korean. CLI wins; automatic selection uses the locale environment with English fallback. Korean still requires UTF-8 in ASCII mode.
 - Output scrolling pauses following without moving the draft caret. **Alt+Up/Down** jumps between transcript segments; **Alt+Home** reaches the start.
 - `/session-new` and `/session-resume` open advanced exact-payload review. `/chat-new` clears the scoped process-local native conversation, not your draft or durable evidence.
-- `/reset` reviews a new local task while retaining the old one. `/init` prepares an editable project-guide request; it never sends or writes a file by itself.
+- `/reset` reviews a new local task while retaining the old one. `/init` prepares an editable request to inspect the current project and create or update `AGENTS.md`; Enter starts it, and each file change needs approval. It preserves your explicit read-only policy, selected paths and form.
 - Search `/` for the full action list, including workflows, handoffs, memories, records and recovery actions.
 
 </details>
 
 <details>
-<summary>Source preview · 0.1.27 · not yet released</summary>
+<summary>Source preview · 0.1.28 · not yet released</summary>
 
 | Improvement | Use |
 | --- | --- |
 | Actionable connection failures | `/connect` → diagnostics; **n** opens the displayed next step without replaying the request. HTTP 403 means access refusal, not proven logout. |
 | Persistent reading density | `/density` toggles; `/density-compact` and `/density-comfortable` choose explicitly. Independent of theme and reduced motion. |
 | Workflows from reviewed work | `/recipe-save` → edit portable steps/scope/criteria → select actual passing commands → inspect exact TOML → **y** creates a new file. |
+| Reviewed application update | `/update` → inspect version/source/cache/data scope → explicitly apply; the saved task resumes after replacement. |
+| Safe retained-package rollback | `/rollback` → inspect compatibility and scope → explicitly apply. Unknown or incompatible serialized formats refuse; equal SQL schema alone is not enough. |
+| Exact context comparison | `/context-compare` or **c** in Sources prepares counts locally. Change attachments to compare the same turn; no model request is sent. |
 
 Recipe preview defaults to staying; **Enter/Esc** cancels without creating a file. Existing destinations are never overwritten. `/recipe-path`, `/load-recipe` and `/preview-recipe` reopen and stage a plan in another project; imported criteria remain unchecked and effects still require fresh review. Authoring drafts survive navigation in the current process, not restart.
 
-These commands describe source 0.1.27. Public downloads below remain v0.1.26.
+These commands describe source 0.1.28, which includes the unreleased 0.1.27 improvements. Public downloads below remain v0.1.26.
 
 </details>
 
 ## Your party, without coding restrictions
 
 **Every form can discover, read, create and edit project files.** Evolution changes the companion's appearance and specialty, not permission. Explicit Plan, independent Review and read-only requests remain nonwriting.
+
+File-based project setup supports up to 32 distinct reviewed files per request, each up to 64 KiB. Native HTTP tool loops allow 128 calls across 129 rounds, bounded to 1 MiB per request body and 64 MiB cumulatively. Earlier completed writes remain if a later operation fails; cancellation is not rollback. Dependency installation and shell-based scaffolding require the separate command-review flow.
+
+Missing native model configuration opens the local model picker and keeps your request. Selecting a model does not send it: press Enter deliberately afterward. A file permission's Enter opens the proposed content; return to its decision controls to allow once or deny after inspecting the complete scope. Merely typing into an arriving popup grants nothing.
 
 | Feature | What it does |
 | --- | --- |

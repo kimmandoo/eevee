@@ -860,6 +860,10 @@ providers-planning-permission-auto-review-actions =
     { "Permission required · Enter to review (not approve)" }
     { "Then choose and confirm | Esc later · no approval" }
 
+providers-planning-file-auto-review-actions =
+    { "Left/Right choose · Enter inspect or confirm choice" }
+    { "Nothing selected yet · Esc later; draft kept" }
+
 providers-planning-file-generating = { "Generating · not saved" }
 
 providers-planning-file-received = { "Received · proposal" }

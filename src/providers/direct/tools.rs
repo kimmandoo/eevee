@@ -1045,7 +1045,9 @@ impl Calls {
             .saturating_sub(comma_adjustment)
             > BODY_LIMIT
         {
-            return Err("Native continuation body exceeds byte capacity".into());
+            return Err(format!(
+                "Native continuation body exceeds {BODY_LIMIT} bytes; no continuation sent. Earlier completed file effects remain; no rollback."
+            ));
         }
         body.get_mut(field)
             .and_then(Value::as_array_mut)

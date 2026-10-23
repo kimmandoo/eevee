@@ -1269,6 +1269,7 @@ fn partner_status_tracks_live_request_and_approval_states() {
     let lead = app.lead().clone();
     // A provider preview awaiting the user's review is a waiting status.
     app.planning.preview = Some(crate::providers::Preview {
+        comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
         requires_connection_review: true,
@@ -1526,6 +1527,7 @@ fn lead_switch_keeps_live_work_and_its_approval_on_the_owning_partner() {
     app.planning.pending.take();
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
+            comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
             requires_connection_review: true,
@@ -1752,6 +1754,7 @@ fn finish_catalogue(app: &mut App, task_id: i64, blockers: Vec<String>) {
     assert!(input.inspect_models && input.resume.is_none());
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
+            comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
             requires_connection_review: false,
@@ -2078,6 +2081,7 @@ fn request_preview(app: &mut App) {
     ));
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
+            comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
             requires_connection_review: true,
@@ -2123,6 +2127,7 @@ fn composer_enter_dispatches_the_committed_request_once_without_a_popup() {
     assert!(app.overlay.is_none());
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
+            comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             generation: 91,
             task_id: app.task_id,
@@ -2152,6 +2157,160 @@ fn composer_enter_dispatches_the_committed_request_once_without_a_popup() {
         !app.planning.holds_committed_input(),
         "the request owns private input rather than freezing draft saves"
     );
+}
+
+#[test]
+fn native_missing_model_opens_local_picker_and_retains_request_without_retry() {
+    use crate::providers::{Agent, Event as ProviderEvent, Preview, Request};
+    if std::env::var_os("EV_TEST_MISSING_MODEL").is_none() {
+        let home = std::env::temp_dir().join(format!(
+            "eevee-missing-model-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&home).unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "app::tests::native_missing_model_opens_local_picker_and_retains_request_without_retry",
+                "--nocapture",
+            ])
+            .env_clear()
+            .env("HOME", &home)
+            .env("USERPROFILE", &home)
+            .env("EV_TEST_MISSING_MODEL", "1")
+            .env("EV_PROVIDER", "compatible")
+            .env("OPENAI_API_KEY", "synthetic-model-fixture-not-a-real-key")
+            .env("EV_API_BASE_URL", "http://127.0.0.1:9/v1")
+            .env("EV_API_KEY", "synthetic-model-fixture-not-a-real-key")
+            .output();
+        std::fs::remove_dir_all(home).unwrap();
+        let output = output.unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    assert_eq!(
+        crate::providers::direct::config::preferred_agent(),
+        Agent::Compatible,
+        "explicit native route wins over another configured key"
+    );
+    for agent in [Agent::OpenAI, Agent::Compatible] {
+        for future_draft in [false, true] {
+            let mut app = request_app();
+            app.planning.agent = agent;
+            app.planning
+                .preference_event(Ok(Some(store::ProviderPreferences {
+                    provider: agent,
+                    selections: std::collections::HashMap::new(),
+                    reduced_motion: false,
+                    text_density: store::TextDensity::Compact,
+                })));
+            assert_eq!(
+                app.agents.readiness(agent.index()),
+                agents::Readiness::Configured
+            );
+            let original = "Create src/한글.rs\nwith exact content";
+            app.update(Event::Paste(original.into()));
+            key(&mut app, KeyCode::Enter);
+            save_request(&mut app);
+            app.settle_planning();
+            acknowledge_work(&mut app);
+            let Some(Request::Preview(input)) = app.planning.pending.take() else {
+                panic!("configured route must prepare its explicit request");
+            };
+            assert_eq!(input.agent, agent);
+            assert_eq!(input.task.request_text(), original);
+            assert!(input.selection.model.is_none());
+            if future_draft {
+                app.input = "future request".into();
+                app.cursor = 6;
+            } else {
+                app.input.clear();
+                app.cursor = 0;
+            }
+            app.changed_task();
+            app.provider_event(
+                1,
+                ProviderEvent::Preview(Preview {
+                    comparison_scope: None,
+                    arrival: crate::providers::approval_arrival(),
+                    generation: 91,
+                    task_id: app.task_id,
+                    thread_id: None,
+                    destination: None,
+                    requires_connection_review: false,
+                    trust: Vec::new(),
+                    payload: String::new(),
+                    blockers: vec![crate::providers::direct::MODEL_REQUIRED.into()],
+                }),
+            );
+            app.settle_planning();
+            acknowledge_work(&mut app);
+            assert_eq!(app.overlay, Some(Overlay::Planning));
+            assert!(app.planning.picker == Some(planning::Picker::Model));
+            assert_eq!(app.planning.agent, agent);
+            assert_eq!(app.planning.inspection.as_deref(), Some(original));
+            assert!(!app.planning.owns_work());
+            assert!(!app.planning.auto_models && !app.planning.send_after_prepare);
+            assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+            key(&mut app, KeyCode::Enter); // Exact-ID editor, not implicit Default.
+            app.update(Event::Paste("chosen/Exact:1".into()));
+            key(&mut app, KeyCode::Enter);
+            let expected = if future_draft {
+                "future request"
+            } else {
+                original
+            };
+            let cursor = if future_draft { 6 } else { original.len() };
+            assert!(app.overlay.is_none() && app.composer_is_request());
+            assert_eq!((&*app.input, app.cursor), (expected, cursor));
+            assert_eq!(
+                app.planning.selection.model.as_deref(),
+                Some("chosen/Exact:1")
+            );
+            assert!(app.planning.pending.is_none() && app.pending_request.is_none());
+            key(&mut app, KeyCode::Enter);
+            save_request(&mut app);
+            app.settle_planning();
+            acknowledge_work(&mut app);
+            let Some(Request::Preview(input)) = app.planning.pending.take() else {
+                panic!("only explicit composer Enter prepares the retained draft");
+            };
+            assert_eq!(input.task.request_text(), expected);
+            assert_eq!(input.selection.model.as_deref(), Some("chosen/Exact:1"));
+            assert!(!input.inspect_models && !input.inspect_sessions);
+            app.provider_event(
+                1,
+                ProviderEvent::Preview(Preview {
+                    comparison_scope: None,
+                    arrival: crate::providers::approval_arrival(),
+                    generation: 92,
+                    task_id: app.task_id,
+                    thread_id: None,
+                    destination: Some("http://127.0.0.1:9/v1/responses".into()),
+                    requires_connection_review: false,
+                    trust: Vec::new(),
+                    payload: "{}".into(),
+                    blockers: Vec::new(),
+                }),
+            );
+            app.settle_planning();
+            assert!(matches!(
+                app.planning.pending.take(),
+                Some(Request::Run { generation: 92 })
+            ));
+            app.settle_planning();
+            assert!(app.planning.pending.is_none());
+        }
+    }
 }
 
 #[test]
@@ -2218,6 +2377,7 @@ fn terminal_native_unknown_allows_explicit_followup_and_task_switch_but_cli_unkn
         app.provider_event(
             1,
             ProviderEvent::Preview(Preview {
+                comparison_scope: None,
                 arrival: crate::providers::approval_arrival(),
                 generation: 91,
                 task_id: app.task_id,
@@ -2305,6 +2465,7 @@ fn terminal_native_unknown_allows_explicit_followup_and_task_switch_but_cli_unkn
         app.provider_event(
             1,
             ProviderEvent::Preview(Preview {
+                comparison_scope: None,
                 arrival: crate::providers::approval_arrival(),
                 generation: 92,
                 task_id: app.task_id,
@@ -2383,6 +2544,7 @@ fn followup_draft_isolated_and_blocked_preparation_never_sends() {
         }
         app.planning.event(crate::providers::Event::Preview(
             crate::providers::Preview {
+                comparison_scope: None,
                 arrival: crate::providers::approval_arrival(),
                 generation: 92,
                 task_id: app.task_id,
@@ -2500,6 +2662,7 @@ fn running_request_keeps_claimed_admission_while_followup_saves_and_releases_exa
     app.provider_event(
         1,
         crate::providers::Event::Preview(crate::providers::Preview {
+            comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
             requires_connection_review: true,
@@ -2954,65 +3117,39 @@ fn reset_does_not_transfer_or_cancel_another_partners_command() {
 }
 
 #[test]
-fn init_uses_current_project_even_with_enclosing_git_observation() {
+fn init_preserves_policy_and_followup_can_create_files() {
+    use crate::providers::Operation;
+    for operation in [Operation::Implement, Operation::Plan, Operation::Review] {
+        let mut app = request_app();
+        app.set_form(3);
+        app.planning.set_operation(operation);
+        app.planning.edit_paths.push("AGENTS.md".into());
+        app.command("init");
+        assert!(app.composer_is_request());
+        assert_eq!(app.form(), 3);
+        assert_eq!(app.planning.operation, operation);
+        assert_eq!(
+            app.planning.edit_paths,
+            vec![std::path::PathBuf::from("AGENTS.md")]
+        );
+        assert!(app.pending_request.is_none());
+        assert!(app.planning.pending.is_none());
+        assert!(!app.execution.busy());
+        app.evolve_request();
+        assert_eq!(app.planning.operation, operation);
+        app.input = "Create src/main.py for this project.".into();
+        app.cursor = app.input.len();
+        app.evolve_request();
+        assert_eq!(app.planning.operation, operation);
+    }
     let mut app = request_app();
-    app.cwd = "/workspace/nested-project".into();
-    let snapshot = std::sync::Arc::new(repo::Snapshot {
-        head: None,
-        files: Default::default(),
-        working_diff: Default::default(),
-        complete: true,
-        stable: true,
-        warnings: Vec::new(),
-    });
-    app.repository = Some(std::sync::Arc::new(repo::Report {
-        repository: repo::RepositoryIdentity {
-            root: "/workspace/nested-project".into(),
-            git_root: Some("/workspace".into()),
-            git_dir: Some("/workspace/.git".into()),
-            storage_root: None,
-        },
-        baseline: snapshot.clone(),
-        current: snapshot,
-        changes: Vec::new(),
-        initial: true,
-    }));
     app.command("init");
-    assert!(app.input.starts_with("Prepare a project-initialization proposal for the current project at \"/workspace/nested-project\"."));
-    assert!(app.planning.pending.is_none());
-}
-
-#[test]
-fn init_prepares_editable_plan_request_without_sending_or_writing() {
-    let mut app = request_app();
-    app.set_form(3);
-    app.planning
-        .set_operation(crate::providers::Operation::Implement);
-    app.planning.edit_paths.push("AGENTS.md".into());
-    app.command("init");
-    assert!(app.composer_is_request());
-    assert_eq!(app.form(), 4);
-    assert_eq!(app.planning.operation, crate::providers::Operation::Plan);
-    assert!(app.planning.edit_paths.is_empty());
-    assert!(app.input.contains("/workspace"));
-    assert!(app.input.contains("including any AGENTS.md"));
-    assert!(
-        app.input
-            .contains("Do not create, overwrite or change AGENTS.md")
-    );
-    assert!(app.input.contains("later, separate explicit approval"));
-    assert!(app.input.contains("do not invent commands or results"));
-    assert!(app.goal.is_empty());
-    assert!(app.pending_request.is_none());
-    assert!(app.planning.pending.is_none());
-    assert!(!app.execution.busy());
-    assert!(app.management.is_none());
-    key(&mut app, KeyCode::Char('!'));
-    assert!(app.input.ends_with('!'));
-    request_preview(&mut app);
-    assert_eq!(app.planning.operation, crate::providers::Operation::Plan);
-    assert!(app.planning.preview.is_some());
-    assert!(app.planning.pending.is_none(), "review is not Run consent");
+    app.evolve_request();
+    assert_eq!(app.planning.operation, Operation::Implement);
+    app.input = "Create src/main.py for this project.".into();
+    app.cursor = app.input.len();
+    app.evolve_request();
+    assert_eq!(app.planning.operation, Operation::Implement);
 }
 
 #[test]
@@ -3040,10 +3177,6 @@ fn init_replacement_is_neutral_and_preserves_other_fact_drafts() {
     );
     key(&mut app, KeyCode::Right);
     key(&mut app, KeyCode::Enter);
-    assert!(
-        app.input
-            .starts_with("Prepare a project-initialization proposal")
-    );
     assert!(app.drafts.iter().any(|draft| {
         draft.field == store::EditorField::Goal && draft.text == "old goal draft"
     }));
@@ -3452,6 +3585,7 @@ fn return_to_eevee_waits_for_explicit_provider_cancellation_and_known_outcome() 
         app.planning.pending.take();
         app.planning
             .event(crate::providers::Event::Preview(Preview {
+                comparison_scope: None,
                 arrival: crate::providers::approval_arrival(),
                 destination: None,
                 requires_connection_review: false,

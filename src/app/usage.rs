@@ -56,6 +56,7 @@ mod tests {
         state.work_event(acquire, Ok(vec![claim]));
         state.pending.take();
         state.event(Event::Preview(Preview {
+            comparison_scope: None,
             arrival: 1,
             generation: 11,
             task_id: 7,

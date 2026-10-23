@@ -12,6 +12,7 @@ mod admission;
 pub mod formations;
 mod held;
 mod journal;
+mod lifecycle;
 mod memories;
 pub mod moves;
 mod partners;
@@ -37,6 +38,7 @@ use spool::*;
 use tasks::*;
 
 pub use admission::{review_run_observations, validate_planning_input, validate_work_input};
+pub use lifecycle::inspect_lifecycle_data;
 pub use partners::validate_nickname;
 pub use preferences::{PreferenceRequest, ProviderPreferences, TextDensity};
 pub use recovery::export_readable;

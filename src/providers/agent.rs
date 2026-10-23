@@ -218,7 +218,7 @@ struct Snapshot {
     cwd: Option<PathBuf>,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, serde::Serialize)]
 struct Stamp {
     executable: Option<crate::workspace::runner::ExecutableIdentity>,
     selected: Option<PathBuf>,
@@ -228,7 +228,7 @@ struct Stamp {
     project: Option<PathBuf>,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, serde::Serialize)]
 struct SourceStamp {
     path: PathBuf,
     canonical: Option<PathBuf>,
@@ -415,7 +415,7 @@ fn capabilities(index: usize) -> Vec<Capability> {
             (
                 "Command/file/permission requests",
                 "Eevee-mediated callbacks",
-                "Implement: model-proposed workspace paths, optionally restricted by /paths; exact creation/replacement and missing parents via Eevee tool with one-shot patch approval; at most 8 files, 64 KiB per file; native edits/escalation refused",
+                "Implement: model-proposed workspace paths, optionally restricted by /paths; exact creation/replacement and missing parents via Eevee tool with one-shot patch approval; at most 32 files, 64 KiB per file; native edits/escalation refused",
                 "Not every provider/MCP/hook action necessarily reaches a callback",
             ),
             (
@@ -1152,6 +1152,10 @@ pub(crate) struct PlanningTrust {
 }
 
 impl PlanningTrust {
+    pub(crate) fn comparison_scope(&self) -> Option<super::ComparisonScope> {
+        super::ComparisonScope::from_identity(&(&self.snapshot.stamp, &self.project_identity))
+    }
+
     pub(crate) fn requires_connection_review(&self) -> bool {
         let Some(project) = self.snapshot.stamp.project.as_deref() else {
             return true;
@@ -1349,6 +1353,18 @@ pub(crate) struct ExternalTrust {
 }
 
 impl ExternalTrust {
+    pub(crate) fn comparison_scope(
+        &self,
+        credential: Option<&str>,
+    ) -> Option<super::ComparisonScope> {
+        super::ComparisonScope::from_identity(&(
+            &self.snapshot.stamp,
+            &self.project_identity,
+            &self.prepared.spec,
+            credential,
+        ))
+    }
+
     pub(crate) fn observed_version(&self) -> Option<&str> {
         self.observed_version.get().map(String::as_str)
     }

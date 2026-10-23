@@ -45,10 +45,11 @@ fn capture_writes(
         return Ok(None);
     }
     input.validate_committed(data_dir)?;
-    if input
-        .work
-        .as_ref()
-        .is_none_or(|claim| claim.writing != super::writing_required(input.operation))
+    if !input.local_only
+        && input
+            .work
+            .as_ref()
+            .is_none_or(|claim| claim.writing != super::writing_required(input.operation))
     {
         return Err("Codex file tools require their operation-bound durable lease".into());
     }
@@ -317,6 +318,7 @@ fn worker(
                 generation = generation.saturating_add(1);
                 preview_owner = Some((generation, input.task.id));
                 let mut preview = Preview {
+                    comparison_scope: None,
                     arrival: super::approval_arrival(),
                     destination: None,
                     requires_connection_review: true,
@@ -337,6 +339,7 @@ fn worker(
                 if let Ok(trust) = &trust {
                     preview.requires_connection_review = trust.requires_connection_review()
                         || input.operation == Operation::Implement;
+                    preview.comparison_scope = trust.comparison_scope();
                     preview.trust = trust.lines.iter().map(|line| safe(line)).collect();
                 } else if let Err(error) = &trust {
                     preview.blockers.push(safe(error));
@@ -359,7 +362,7 @@ fn worker(
                     preview.blockers.push(safe(error));
                 }
                 if !input.inspect_models && input.operation == Operation::Implement {
-                    preview.trust.push("Controlled route: source read/list can inspect bounded safe project context without write grants. eevee_write_file and eevee_edit_file propose complete resulting content for workspace-relative files, or optional exact /paths selections. Each file is frozen before full-content review and allow-once; at most 8 write targets, 64 KiB each. Targeted edits require a preceding read digest and unique literal match. Protected, excluded, link and appeared paths are refused. No directory/session write grant; native file-write and command escalation denied.".into());
+                    preview.trust.push("Controlled route: source read/list can inspect bounded safe project context without write grants. eevee_write_file and eevee_edit_file propose complete resulting content for workspace-relative files, or optional exact /paths selections. Each file is frozen before full-content review and allow-once; at most 32 write targets, 64 KiB each. Targeted edits require a preceding read digest and unique literal match. Protected, excluded, link and appeared paths are refused. No directory/session write grant; native file-write and command escalation denied.".into());
                     preview.trust.push("Provider readOnly/network-disabled policy is acknowledged, not an Eevee process sandbox. Independent provider/config/MCP reads or side effects are outside this tool's coverage. No workspace-write trust configuration is changed.".into());
                     preview.trust.push("Baseline distinguishes absent targets from existing current working bytes (including dirty user edits). No reset/commit/merge. Each creation or replacement is reviewed against the frozen scope; changed baselines require fresh consent.".into());
                     if input.resume.is_some() {
@@ -398,6 +401,7 @@ fn worker(
                     Err(error) => preview.blockers.push(safe(&error)),
                 }
                 if preview.blockers.is_empty()
+                    && !input.local_only
                     && let Ok(trust) = trust
                 {
                     prepared = Some(Prepared {
@@ -542,7 +546,7 @@ fn payload(
         (_, _) => json!([]),
     };
     let text = serde_json::to_string_pretty(&json!({
-        "purpose": if input.operation == Operation::Plan { "Answer the user's current request directly; plan only when requested and do not implement changes. When project context is needed, use eevee_list_files and eevee_read_file for actual bounded safe working bytes. No mutation tools, mutation permission, commands or verification. Ask the user when a decision is needed; report proposals as unverified planning, never as local execution evidence." } else { "Answer the user's current request directly; do not force ordinary conversation into planning or unnecessary tool calls. When project context is needed, use eevee_list_files to discover safe names and eevee_read_file to inspect actual working bytes. When file changes are requested, actually call eevee_write_file to create files or eevee_edit_file with a preceding read sha256 and unique literal old_text to edit them; fenced code alone is not a filesystem change. Mutations accept literal root-relative paths, at most 64 KiB per resulting file and 8 distinct write targets. Empty edit_paths allows workspace targets; nonempty edit_paths restricts writes, not context reads. Freeze every target and full resulting content before exact allow-once review. Preserve unrelated dirty bytes and CRLF; do not replace a file from partial read context. Never use apply_patch, shell writes, MCP, delegation, commits or merge. Native filesystem writes and command escalations are denied. Refusals are not success. Report local effects only from actual tool results; no verification is implied." },
+        "purpose": if input.operation == Operation::Plan { "Answer the user's current request directly; plan only when requested and do not implement changes. When project context is needed, use eevee_list_files and eevee_read_file for actual bounded safe working bytes. No mutation tools, mutation permission, commands or verification. Ask the user when a decision is needed; report proposals as unverified planning, never as local execution evidence." } else { "Answer the user's current request directly; do not force ordinary conversation into planning or unnecessary tool calls. When project context is needed, use eevee_list_files to discover safe names and eevee_read_file to inspect actual working bytes. When file changes are requested, actually call eevee_write_file to create files or eevee_edit_file with a preceding read sha256 and unique literal old_text to edit them; fenced code alone is not a filesystem change. Mutations accept literal root-relative paths, at most 64 KiB per resulting file and 32 distinct write targets. Empty edit_paths allows workspace targets; nonempty edit_paths restricts writes, not context reads. Freeze every target and full resulting content before exact allow-once review. Preserve unrelated dirty bytes and CRLF; do not replace a file from partial read context. Never use apply_patch, shell writes, MCP, delegation, commits or merge. Native filesystem writes and command escalations are denied. Refusals are not success. Report local effects only from actual tool results; no verification is implied." },
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
         "project_context": super::project_context(writes.ok_or("Codex project scope missing")?, input.agent),
         "request": input.instruction(),

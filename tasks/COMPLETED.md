@@ -4,6 +4,36 @@ Updated on 2026-10-23 through the source 0.1.27 implementation milestone (unrele
 
 The specifications below retain their original acceptance notes and wording. Old schema numbers, limits, priorities, proposed ordering and release statements are historical; they do not override the current contract. Scoped completion does not establish authenticated conformance for every provider. T05 was dropped, not completed.
 
+## Exact same-turn context comparison — source 0.1.28
+
+T01B passed four English/Korean 120×36 and 60×18 terminal journeys on the qualified candidate. Removing one of two overlapping captures committed before automatic same-turn comparison; every section plus the JSON envelope reconciled to exact full-payload bytes. No inference, work claim, journal or execution occurred. Draft/caret and source bytes survived; equal-byte-length request changes invalidated the baseline. Evidence: `target/context-028-final-{en,ko}`. Provider usage/billing remains separate.
+
+### T01B — Before/after selection comparison
+
+- [x] Compare two context selections for the same turn.
+- **Priority:** 2. **Needs:** —. **Builds on:** T01A, C03B.
+- **Change:** Extend existing exact section receipts with a current-versus-previous context-selection comparison for the same turn; provider usage reconciliation is separate.
+- **Accept:** Removing a chip shows the exact byte and estimate drop per section.
+
+## Reviewed installation lifecycle — source 0.1.28
+
+P04A and P04B passed four actual English/Korean 120×36 and 60×18 journeys, 24 acceptance groups. Neutral/undersize/unseen-scope refusal, corrupt checksum preservation, reviewed update with exact task/draft/caret restart, compatible offline cross-version rollback, unknown-format refusal and actual v0.1.21/v0.1.26 byte-identical refusal/current resume passed. Evidence and fixture-source limits: `target/lifecycle-028-acceptance-r3` and the checkpoint. Publication is separately gated.
+
+### P04A — Update review screen
+
+- [x] Explain an update before replacing anything.
+- **Priority:** 2. **Needs:** —. **Builds on:** P02, E01.
+- **Change:** Add a TUI entry to the existing checksum-verified command-line updater, showing current/target version, source, sprite-cache effects and retained-data policy. Preserve its ownership and failed-replacement recovery checks.
+- **Accept:** Cancel changes no files; an approved update resumes the task; a checksum failure keeps the last usable install.
+
+### P04B — Rollback eligibility
+
+- [x] Offer rollback only when it is safe.
+- **Priority:** 2. **Needs:** P04A. **Builds on:** UX04B, UX04A.
+- **Change:** Rollback is offered only when the retained package, SQL schema and strict serialized-format compatibility are established; matching SQL schema numbers alone are insufficient.
+- **Accept:** A retained package with established compatibility rolls back successfully. An actual incompatible older writer refuses with byte-identical data, including v0.1.21 against Schema 18's true reduced-motion JSON field and v0.1.26 against Comfortable text density. Unknown compatibility also refuses. Repeat against current persistence when it changes.
+- **Watch out:** Existing install replacement recovery is not a schema-aware rollback gate. Never rewrite user data to let an older binary start; restoring a complete backup is a separate explicit recovery operation. No elevation or profile edits.
+
 ## Everyday platform milestone — source 0.1.27 (unreleased)
 
 Completed A08 → UX04A → S04 with actual English/Korean 120×36 and 60×18 journeys. Typed HTTP401/403, missing/installed executables, actual policy rejection and cancelled-login recovery retained drafts and no-replay boundaries. Density survived restart and actual v0.1.26 refusal/current resume with byte-identical data. Reviewed create-only workflows round-tripped through another project as inert plans; actual effects still required fresh command review. Final source passed 1,392 Rust tests/two ignored and all ten native variants/176 groups. Exact source, fixture limits and complementary regression evidence are recorded in the checkpoint; no new release or live-provider acceptance was claimed.

@@ -860,6 +860,10 @@ providers-planning-permission-auto-review-actions =
     { "권한 검토 필요 · Enter 검토 (승인 아님)" }
     { "검토 후 선택·확인 | Esc 나중에 · 승인 안 됨" }
 
+providers-planning-file-auto-review-actions =
+    { "←/→ 선택 · Enter 내용 보기 또는 선택 확인" }
+    { "아직 선택 안 됨 · Esc 나중에; 초안 유지" }
+
 providers-planning-file-generating = { "생성 중 · 저장 안 됨" }
 
 providers-planning-file-received = { "수신됨 · 제안" }

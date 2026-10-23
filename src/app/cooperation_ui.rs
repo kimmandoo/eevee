@@ -427,6 +427,7 @@ mod tests {
             state.pending.take();
             if partner.id != 1 {
                 state.event(providers::Event::Preview(providers::Preview {
+                    comparison_scope: None,
                     arrival: providers::approval_arrival(),
                     destination: None,
                     requires_connection_review: true,

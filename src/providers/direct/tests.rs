@@ -10,6 +10,7 @@ fn input() -> Input {
         task: crate::store::Snapshot::empty("unopened-project".into()),
         instruction_override: None,
         work: None,
+        local_only: false,
         excerpts: Vec::new(),
         report: None,
         resume: None,

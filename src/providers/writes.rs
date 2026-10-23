@@ -28,7 +28,7 @@ mod tools;
 pub(crate) use tools::{FileTool, ToolKind, definitions};
 
 pub(crate) const TOOL_NAME: &str = "eevee_write_file";
-pub(crate) const MAX_FILES: usize = 8;
+pub(crate) const MAX_FILES: usize = 32;
 pub(crate) const MAX_BYTES: usize = 64 * 1024;
 const REVIEW_BYTES: usize = 256 * 1024;
 const REVIEW_LINES: usize = 32_768;
@@ -301,7 +301,7 @@ pub(crate) fn semantic_proposal_refusal(message: &str) -> bool {
         "Protected, excluded, duplicate, conflicting or non-literal proposed write path refused"
             | "Read-only file scope refuses mutation"
             | "Only an exact reviewed selected path may be written"
-            | "Controlled implementation permits at most 8 distinct file targets"
+            | "Controlled implementation permits at most 32 distinct file targets"
             | "Selected working bytes are oversized, binary, credential-bearing or contain unsafe controls"
             | "Filesystem-equivalent selected target/absent-parent aliases refused; select unambiguous paths"
             | "Filesystem-equivalent or conflicting selected write paths refused"
@@ -540,7 +540,7 @@ impl WriteSet {
     ) -> Result<Self, String> {
         if paths.is_empty() || paths.len() > MAX_FILES {
             return Err(
-                "Controlled implementation requires 1–8 explicitly selected create/replace paths"
+                "Controlled implementation requires 1–32 explicitly selected create/replace paths"
                     .into(),
             );
         }
@@ -648,7 +648,9 @@ impl WriteSet {
             }
         }
         if self.targets.len() + additional > MAX_FILES {
-            return Err("Controlled implementation permits at most 8 distinct file targets".into());
+            return Err(
+                "Controlled implementation permits at most 32 distinct file targets".into(),
+            );
         }
         if additional == 0 {
             return Ok(());

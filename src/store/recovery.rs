@@ -107,6 +107,19 @@ pub(super) fn read_regular(path: &Path) -> Result<File, String> {
 }
 
 pub(super) fn recovery_digest(path: &Path, copy: Option<&Path>) -> Result<[u8; 32], String> {
+    let destination = copy
+        .map(|path| OpenOptions::new().write(true).create_new(true).open(path))
+        .transpose()
+        .map_err(|error| format!("Cannot create private recovery copy: {error}"))?;
+    recovery_digest_into(path, destination)
+}
+
+/// Share the bounded hash/copy loop with callers that require an anchored,
+/// owner-only destination rather than inherited temporary-directory permissions.
+pub(super) fn recovery_digest_into(
+    path: &Path,
+    mut destination: Option<File>,
+) -> Result<[u8; 32], String> {
     use sha2::{Digest, Sha256};
     use std::io::Read;
     // Automatic recovery is deliberately bounded, including files growing while
@@ -116,10 +129,6 @@ pub(super) fn recovery_digest(path: &Path, copy: Option<&Path>) -> Result<[u8; 3
     if source.metadata().map_err(|error| error.to_string())?.len() > MAX_RECOVERY_FILE {
         return Err("Automatic interrupted-migration recovery is limited to 64 MiB per database/journal file".into());
     }
-    let mut destination = copy
-        .map(|path| OpenOptions::new().write(true).create_new(true).open(path))
-        .transpose()
-        .map_err(|error| format!("Cannot create private recovery copy: {error}"))?;
     let mut digest = Sha256::new();
     let mut buffer = [0; 8192];
     let mut total = 0_u64;

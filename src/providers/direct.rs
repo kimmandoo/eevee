@@ -24,9 +24,13 @@ use config::{Connection, Protocol};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 
+/// Local preflight failure, before any model metadata or inference request.
+pub(crate) const MODEL_REQUIRED: &str = "Select an explicit model or configure a default before inference; discovery never guesses a fallback";
+
 const QUEUE_LIMIT: usize = 128;
 const QUEUE_RESERVE: usize = 24;
 const BODY_LIMIT: usize = 1024 * 1024;
+const REQUEST_BYTES_LIMIT: usize = 64 * BODY_LIMIT;
 const PAGE_LIMIT: usize = 4 * 1024 * 1024;
 const CATALOGUE_LIMIT: usize = 4096;
 const PAGE_COUNT: usize = 128;
@@ -37,8 +41,9 @@ const HISTORY_MESSAGES: usize = 128;
 const HISTORY_BYTES: usize = 2 * BODY_LIMIT;
 const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
-const ROUND_LIMIT: usize = 8;
-const TOOL_CALL_LIMIT: usize = 16;
+// Allow discovery, reads and writes for a 32-file scaffold, then a final response.
+const TOOL_CALL_LIMIT: usize = 128;
+const ROUND_LIMIT: usize = TOOL_CALL_LIMIT + 1;
 
 type Events = Arc<Mutex<VecDeque<Event>>>;
 pub struct Worker {
@@ -238,7 +243,7 @@ fn worker(
                 generation = generation.saturating_add(1);
                 current.store(generation, Ordering::Release);
                 owner = Some((generation, input.task.id));
-                let mut preview = Preview { arrival: super::approval_arrival(), destination: None, requires_connection_review: false, generation, task_id: input.task.id, thread_id: None, trust: vec![
+                let mut preview = Preview { comparison_scope: None, arrival: super::approval_arrival(), destination: None, requires_connection_review: false, generation, task_id: input.task.id, thread_id: None, trust: vec![
                     "Native HTTPS request; no provider executable, project hooks, shell commands, MCP, or automatic retries. Canonical chat is bounded public user/assistant memory in the current task/partner state, cleared on task change or app restart; /chat-new resets it locally.".into(),
                     "The initial HTTP JSON body below is frozen. Bounded derived continuations contain complete provider file-tool calls and actual results: Plan/Review are read/list only; Implement mutations require exact one-shot approval. Credentials are scoped request headers, never prompt context or persisted.".into(),
                     "Cancellation closes the local response reader; remote completion is not confirmed stopped. Each HTTP round has a bounded deadline; file permission has a separate five-minute expiry.".into(),
@@ -276,14 +281,21 @@ fn worker(
                 });
                 match result {
                     Ok((body, fingerprint, writes)) => {
-                        preview.payload = body.clone();
-                        prepared = Some(Prepared {
-                            generation,
-                            input,
-                            payload: body,
-                            fingerprint,
-                            writes,
-                        });
+                        preview.comparison_scope =
+                            super::ComparisonScope::from_identity(&fingerprint);
+                        if input.local_only {
+                            // A receipt is not a one-shot Run capability.
+                            preview.payload = body;
+                        } else {
+                            preview.payload = body.clone();
+                            prepared = Some(Prepared {
+                                generation,
+                                input,
+                                payload: body,
+                                fingerprint,
+                                writes,
+                            });
+                        }
                     }
                     Err(error) => preview.blockers.push(safe(&error, true)),
                 }
@@ -389,10 +401,11 @@ fn capture_writes(workspace: &Workspace, input: &Input) -> Result<Option<WriteSe
         return Ok(None);
     }
     input.validate_committed(&workspace.data_dir)?;
-    if input
-        .work
-        .as_ref()
-        .is_none_or(|claim| claim.writing != native_writing(input))
+    if !input.local_only
+        && input
+            .work
+            .as_ref()
+            .is_none_or(|claim| claim.writing != native_writing(input))
     {
         return Err("Native file tools require their operation-bound durable lease".into());
     }
@@ -630,7 +643,12 @@ fn completed_conversation(
 }
 
 fn selected_model<'a>(input: &'a Input, connection: &'a Connection) -> Result<&'a str, String> {
-    input.selection.model.as_deref().or(connection.model.as_deref()).ok_or_else(|| "Select an explicit model or configure a default before inference; discovery never guesses a fallback".into())
+    input
+        .selection
+        .model
+        .as_deref()
+        .or(connection.model.as_deref())
+        .ok_or_else(|| MODEL_REQUIRED.into())
 }
 fn selected_effort<'a>(input: &'a Input, connection: &'a Connection) -> Option<&'a str> {
     input.selection.effort.as_deref().or_else(|| {
@@ -940,6 +958,12 @@ fn dispatch(
     control: &Control<'_>,
     incoming: &Receiver<Request>,
 ) -> (Outcome, String) {
+    if run.input.local_only {
+        return (
+            Outcome::Failed,
+            "Local context inspection cannot dispatch; no HTTP request or file operation".into(),
+        );
+    }
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

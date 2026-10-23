@@ -115,6 +115,43 @@ impl State {
         catalogue.models.iter().find(|model| &model.id == id)
     }
 
+    /// A native preflight with no model cannot own a runnable preparation.
+    /// Recover locally; browsing cached IDs never authorizes metadata or a retry.
+    pub(super) fn recover_missing_model(&mut self, preview: &crate::providers::Preview) -> bool {
+        if !self.agent.is_direct()
+            || self.inspect_models
+            || self.inspect_sessions
+            || self.context_inspection()
+            || self.cancel_when_ready
+            || preview.blockers.len() != 1
+            || preview.blockers[0] != crate::providers::direct::MODEL_REQUIRED
+        {
+            return false;
+        }
+        self.preview = None;
+        self.pending = None;
+        self.generation = None;
+        self.send_after_prepare = false;
+        self.failed_request = true;
+        self.auto_models = false;
+        self.auto_run = false;
+        self.auto_picker = false;
+        self.inspection = Some(self.submitted_request.to_string());
+        self.open_picker(Picker::Model);
+        // Default is exactly what failed; offer a cached ID or the exact-ID editor.
+        self.picker_selected = if self.picker_matches() == 0 {
+            self.picker_len() - 2
+        } else {
+            1
+        };
+        self.notice = format!(
+            "{} needs a model. Choose a cached model or enter an exact ID; Refresh explicitly loads metadata. Your request is retained; select a model, then press Enter in the composer to send. Nothing was sent.",
+            self.agent.label()
+        );
+        self.settle_work();
+        true
+    }
+
     /// Opens a local picker on the exact current value, without granting a connection.
     pub(super) fn open_picker(&mut self, picker: Picker) {
         self.picker = Some(picker);
