@@ -6,6 +6,7 @@
 - fix(context): supplied a bounded frozen current-folder filename observation across native, Codex, SDK and ACP requests without attaching source bodies or granting writes.
 - fix(permissions): automatically presented required file, generic tool and prepared external-policy reviews with neutral arrival, localized controls and explicit one-shot consent.
 - test(forms): passed all 72 nine-form bilingual/both-size coding journeys/576 groups and 24 ACP prepared/generic/file-permission journeys/72 groups with actual request context, denial and approved filesystem effects.
+- docs(readme): replaced long onboarding prose with a compact project overview, daily-control and feature tables, visible safety guidance and optional advanced setup sections.
 
 - docs(release): published v0.1.24 from exact source `19a217e` after unchanged Check/all-five-native qualification and immutable promotion; verified all eight public digests, seven manifest entries, source installers and exact qualified native archives.
 - test(release): verified downloaded v0.1.24 permission/48, file workflows/126, native protocols/176, provider UX/20 and bilingual automatic evolution; passed all 24 installation groups/34 installed-native scenarios and matched reinstalled/public executable bytes.

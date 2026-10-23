@@ -37,6 +37,24 @@ WINDOWS = os.name == "nt"
 CONSOLE_MARKER = "EEVEE_CONSOLE_RESTORATION="
 
 
+def permission_run_available(session):
+    """Match the consent control, never prose such as 'Only Run sends'."""
+    return any(control in line for line in session.display().splitlines()
+               for control in ('· y Run / n Cancel', '· y 실행 / n 취소'))
+
+
+def inspect_permission_scope(session):
+    """Navigate a required review without granting or answering permission."""
+    view = session.display()
+    if any(label in view for label in ('Enter to review (not approve)', 'Enter 검토 (승인 아님)')):
+        session.send('\r')
+        return True
+    if any(label in view for label in ('Run needs the complete scope', '전체 범위 검토 후 실행 가능')):
+        session.send(ESC + '[6~')
+        return True
+    return False
+
+
 def save_json(path, value):
     Path(path).write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 

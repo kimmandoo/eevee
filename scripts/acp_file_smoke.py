@@ -19,7 +19,7 @@ import traceback
 from native_connection_smoke import until
 from file_creation_smoke import file_review_pending
 from response_smoke import SurfaceSession, SURFACE, ALT_END
-from terminal_smoke import terminal_environment, confirm_exit
+from terminal_smoke import terminal_environment, confirm_exit, permission_run_available
 from workbench_smoke import wait_for
 
 ESC = '\x1b'
@@ -100,7 +100,7 @@ def journey(binary, output, route, language, size, mode):
             session.send('\r')
 
             def preview():
-                if any(label in session.display() for label in ('y Run', 'y 실행')):
+                if permission_run_available(session):
                     return True
                 session.send('\x1b[6~')
                 return False

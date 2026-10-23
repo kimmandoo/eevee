@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-23] Controlled-runtime smoke skipped complete prepared scope
+
+- **Context / Symptom:** The ordinary native file matrix passed, but both controlled Codex sizes stopped at `Run needs the complete scope`. A reopened cooperation review retained its scrolled position, so the harness could not see the immutable Request near the top.
+- **Root Cause:** The older driver waited for Run without inspecting the complete executable/configuration trust scope. Its substring selector then mistook `Only Run sends...` in descriptive body text for the `y Run` control, stopped scrolling and sent an unreviewed key that Eevee correctly refused. It also assumed a species selected read/write policy and reopening reset the viewport.
+- **Solution:** Added navigation-only review inspection and matched the actual bilingual Run/Cancel control rather than prose. Kept the separate explicit Run action and all scope guards. Controlled fixtures choose actual Plan/Implement policy; the future-draft check returns to the top before inspecting immutable Request bytes and reviewing complete scope again.
+- **Prevention / Reference:** Corrected controlled Codex journeys passed English 120×36 and Korean 60×18 (eight groups). Full native protocol verification passed ten variants/176 groups. Exact file controls, immutable request bytes, writer ownership and no preapproval effects remain assertions; no consent guard or scope requirement was weakened.
+
 ### [2026-10-23] Fixed evolution forms blocked coding and hid required consent
 
 - **Context / Symptom:** Public v0.1.24 gave a manually fixed Vaporeon only read/list tools for a create request, while a fixed Flareon read request acquired a writer lease. Cosmetic evolution also discarded same-policy conversation. Non-file and prepared external-policy permissions required an approval-menu detour.
