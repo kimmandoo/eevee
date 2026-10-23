@@ -1,5 +1,26 @@
 # Troubleshooting
 
+### [2026-10-23] File requests stayed read-only and nested permission scope could not be approved
+
+- **Context / Symptom:** Actual v0.1.23 sent only read/list tools for `Create handoff.md` and for a quoted filename creation after source discovery. At 60×18, `src/components/workspace/editor/permissions/FilePermissionDialog.tsx` opened a popup but its repeated parent paths clipped required scope; Allow remained disabled and no file was created.
+- **Root Cause:** Literal filtering erased filename object context and documentation routing omitted explicit handoff-file mutation. Unclassified follow-ups retained their previous nonwriting operation. The review required all scope to fit one viewport and offered no scrollable summary, creating a permanent compact-layout dead end.
+- **Solution:** Retained bounded filename object markers without quoted verbs, recognized explicit file creation/edit/save intent and kept readonly clauses nonwriting. Reused the existing tool/lease/writer path. Added explicit decision selection, fixed localized buttons and contiguous scope exposure through scrolling, with no skipped-row approval. Safe home panes now present the current owner's exact request without an approval-menu detour.
+- **Prevention / Reference:** RED captures are `target/file-permission-before-{intent,nested}`. Final candidate B passed eight English/Korean Responses/Chat Completions journeys at both sizes, including real reads, nested create denial/allow, exact hash-bound edit denial/allow, handoff-file creation, Tab cycling and plain-text selection (`target/file-permission-0124-ux-{en,ko}-b`). No original credentials, paid model calls or prose-to-file recovery were used.
+
+### [2026-10-23] Parallel write fixtures collided and permission checks pinned old presentation
+
+- **Context / Symptom:** The integrated suite hit `AlreadyExists` creating a Codex fixture directory; old popup tests also treated navigation as inert and matched an entire localized paragraph inside a bordered terminal frame. The Korean diagnostic teardown could not recognize the owned-work quit review.
+- **Root Cause:** PID plus wall-clock nanoseconds did not guarantee uniqueness across concurrent fixture constructors. Presentation assertions predated explicit decision buttons and multiline controls; the quit driver matched only its English title.
+- **Solution:** Added a process-local atomic fixture sequence without weakening create-only checks. Removed obsolete wording/incidental-index assertions and retained behavioral checks for no implicit approval, exact request identity, draft/focus and one-shot effects. Matched both localized quit titles only under the helper's existing explicit all-owner opt-in.
+- **Prevention / Reference:** The integrated Rust suite passed 1,354 tests/two ignored after correction. `scripts/file_permission_smoke.py` exercises actual decision buttons, scope scrolling and file bytes rather than manufacturing a permission through an approval command.
+
+### [2026-10-23] Public-package verification assumed identical native dependency notices
+
+- **Context / Symptom:** Public v0.1.23 asset digests and manifest checks passed, but the one-session verifier rejected cross-platform `THIRD_PARTY_NOTICES` differences.
+- **Root Cause:** The verifier incorrectly required identical notices across native dependency graphs. Architecture-specific `safe_arch`, Linux dependencies and Windows license grouping legitimately differ; newline normalization cannot make different dependency graphs identical.
+- **Solution:** Compared each public archive byte-for-byte by SHA256 with its own exact-source, qualified native CI artifact instead. Retained all eight public digest checks, seven manifest checks, safe archive/member bounds, source license/installers, project notice and native executable identities. All five target-specific comparisons passed; no package, dependency notice, qualification rule or published asset was changed.
+- **Prevention / Reference:** `target/release-0123-public-verification.json` records each qualified artifact ID and native notice hash. Native CI generated and checked notice coverage for its locked dependency graph. Text-only newline normalization never changes raw package or binary hashes.
+
 ### [2026-10-23] Provider runtime drivers retained obsolete payload and exit assumptions
 
 - **Context / Symptom:** The connection journeys passed, but older auth/workbench drivers waited for removed status prose, asserted a single JSON user message without tools, and waited for the old `Exit with unknown outcome` popup.

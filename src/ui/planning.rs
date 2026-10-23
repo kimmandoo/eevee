@@ -275,40 +275,40 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         paint.accent,
     );
     if is_review && !state.review_details {
-        let mut summary = review_summary(state, paint);
-        if state.preview.is_some() && !state.inspect_models && !state.inspect_sessions {
-            let request = state.immutable_task().map_or(
-                paint.hint(
-                    Message::ProvidersPlanningImmutableRequestUnavailableInspectExactPayloadDetails,
-                ),
-                |task| task.request_text(),
-            );
-            summary.insert(1, format!("Request: {request}"));
-        }
         let body = row(content, 1, content.height.saturating_sub(4));
-        state.reviewed = if let Some(PromptKind::Permission {
-            file: Some(file), ..
-        }) = state.request.as_ref().map(|request| &request.kind)
-        {
-            render_file_summary(frame, body, file, paint)
-        } else if matches!(
+        if matches!(
             state.request.as_ref().map(|request| &request.kind),
-            Some(PromptKind::Permission { .. })
+            Some(PromptKind::Permission { file: Some(_), .. })
         ) {
-            let paragraph = Paragraph::new(summary.join("\n"))
-                .style(paint.surface)
-                .wrap(Wrap { trim: false });
-            let visible = frame.area().width >= 60
-                && frame.area().height >= 18
-                && body.width >= 40
-                && paragraph.line_count(body.width.max(1)) <= usize::from(body.height);
-            frame.render_widget(paragraph, body);
-            visible
+            state.reviewed = render_file_summary(frame, body, state, paint);
         } else {
-            render_summary(frame, body, &summary, paint)
-        };
-        state.scroll = 0;
-        state.scroll_max = 0;
+            let mut summary = review_summary(state, paint);
+            if state.preview.is_some() && !state.inspect_models && !state.inspect_sessions {
+                let request = state.immutable_task().map_or(
+                    paint.hint(Message::ProvidersPlanningImmutableRequestUnavailableInspectExactPayloadDetails),
+                    |task| task.request_text(),
+                );
+                summary.insert(1, format!("Request: {request}"));
+            }
+            state.reviewed = if matches!(
+                state.request.as_ref().map(|request| &request.kind),
+                Some(PromptKind::Permission { .. })
+            ) {
+                let paragraph = Paragraph::new(summary.join("\n"))
+                    .style(paint.surface)
+                    .wrap(Wrap { trim: false });
+                let visible = frame.area().width >= 60
+                    && frame.area().height >= 18
+                    && body.width >= 40
+                    && paragraph.line_count(body.width.max(1)) <= usize::from(body.height);
+                frame.render_widget(paragraph, body);
+                visible
+            } else {
+                render_summary(frame, body, &summary, paint)
+            };
+            state.scroll = 0;
+            state.scroll_max = 0;
+        }
         review_controls(frame, content, state, paint);
         return;
     }
@@ -569,10 +569,16 @@ pub(super) fn render_summary(
     area.width >= 40 && area.height as usize >= lines.len()
 }
 
-/// Exact operation/path/parent scope owns its rows. Excerpts use only the
-/// remaining space, so long source lines can never hide approval scope.
-fn render_file_summary(frame: &mut Frame, area: Rect, file: &FileReview, paint: &Paint) -> bool {
-    let scope = [
+/// Scope can wrap and scroll without hiding the fixed decision controls.
+/// Consent requires contiguous exposure of every immutable scope row.
+fn render_file_summary(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) -> bool {
+    let file: &FileReview = match state.request.as_ref().map(|request| &request.kind) {
+        Some(PromptKind::Permission {
+            file: Some(file), ..
+        }) => file,
+        _ => return false,
+    };
+    let mut scope = [
         paint
             .hint(match file.kind {
                 FileReviewKind::Create => Message::ProvidersPlanningFileCreate,
@@ -600,30 +606,64 @@ fn render_file_summary(frame: &mut Frame, area: Rect, file: &FileReview, paint: 
         ),
     ]
     .join("\n");
-    let scope = Paragraph::new(scope)
+    let scope_paragraph = Paragraph::new(scope.as_str())
         .style(paint.surface)
         .wrap(Wrap { trim: false });
-    let scope_rows = scope.line_count(area.width.max(1));
+    let scope_rows = scope_paragraph.line_count(area.width.max(1));
     let mut footer = String::new();
     if file.external {
         footer.push_str(paint.hint(Message::ProvidersPlanningFileExternal));
         footer.push('\n');
     }
     footer.push_str(paint.hint(Message::ProvidersPlanningFileDetails));
-    let footer = Paragraph::new(footer)
+    let footer_paragraph = Paragraph::new(footer.as_str())
         .style(paint.muted)
         .wrap(Wrap { trim: false });
-    let footer_rows = footer.line_count(area.width.max(1));
-    let fits = frame.area().width >= 60
-        && frame.area().height >= 18
-        && area.width >= 40
-        && scope_rows + footer_rows < usize::from(area.height);
-    if !fits {
-        frame.render_widget(scope, area);
+    let footer_rows = footer_paragraph.line_count(area.width.max(1));
+    let required_rows = scope_rows + footer_rows;
+    if state.file_consent.width != area.width || state.file_consent.scope_rows != required_rows {
+        if state.file_consent.width != 0 {
+            state.file_consent.choice = None;
+        }
+        state.file_consent.width = area.width;
+        state.file_consent.scope_rows = required_rows;
+        state.file_consent.seen_rows = 0;
+        state.scroll = 0;
+    }
+    if frame.area().width < 60 || frame.area().height < 18 || area.width < 40 || area.height == 0 {
+        state.scroll_max = 0;
         return false;
     }
-    frame.render_widget(scope, row(area, 0, scope_rows as u16));
-    let preview_rows = usize::from(area.height) - scope_rows - footer_rows;
+    if required_rows >= usize::from(area.height) {
+        scope.push('\n');
+        scope.push_str(&footer);
+        for line in file.excerpt.lines().take(4) {
+            scope.push('\n');
+            scope.push_str(&clipped(line, area.width as usize));
+        }
+        let paragraph = Paragraph::new(scope)
+            .style(paint.surface)
+            .wrap(Wrap { trim: false });
+        state.scroll_max = paragraph
+            .line_count(area.width)
+            .saturating_sub(usize::from(area.height))
+            .min(u16::MAX as usize) as u16;
+        state.scroll = state.scroll.min(state.scroll_max);
+        if usize::from(state.scroll) <= state.file_consent.seen_rows {
+            state.file_consent.seen_rows = state
+                .file_consent
+                .seen_rows
+                .max(usize::from(state.scroll) + usize::from(area.height))
+                .min(required_rows);
+        }
+        frame.render_widget(paragraph.scroll((state.scroll, 0)), area);
+        return state.file_consent.seen_rows == required_rows;
+    }
+    state.scroll = 0;
+    state.scroll_max = 0;
+    state.file_consent.seen_rows = required_rows;
+    frame.render_widget(scope_paragraph, row(area, 0, scope_rows as u16));
+    let preview_rows = usize::from(area.height) - required_rows;
     if file.excerpt.is_empty() {
         text(
             frame,
@@ -642,7 +682,7 @@ fn render_file_summary(frame: &mut Frame, area: Rect, file: &FileReview, paint: 
         }
     }
     frame.render_widget(
-        footer,
+        footer_paragraph,
         row(area, area.height - footer_rows as u16, footer_rows as u16),
     );
     true
@@ -908,9 +948,50 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
     } else {
         controls(state, paint)
     };
+    let file_summary = !state.review_details
+        && matches!(
+            state.request.as_ref().map(|request| &request.kind),
+            Some(PromptKind::Permission { file: Some(_), .. })
+        );
+    if file_summary {
+        let button = |index, message| {
+            Span::styled(
+                paint.hint(message),
+                if state.file_consent.choice == Some(index) {
+                    paint
+                        .accent
+                        .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+                } else {
+                    paint.surface
+                },
+            )
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::raw(if state.file_consent.choice == Some(0) {
+                    "> "
+                } else {
+                    "  "
+                }),
+                button(0, Message::ProvidersPlanningFileDenyButton),
+                Span::raw("  "),
+                Span::raw(if state.file_consent.choice == Some(1) {
+                    "> "
+                } else {
+                    "  "
+                }),
+                button(1, Message::ProvidersPlanningFileAllowButton),
+            ])),
+            row(area, area.height.saturating_sub(3), 1),
+        );
+    }
     text(
         frame,
-        row(area, area.height.saturating_sub(3), 3),
+        row(
+            area,
+            area.height.saturating_sub(if file_summary { 2 } else { 3 }),
+            if file_summary { 2 } else { 3 },
+        ),
         controls,
         paint.accent,
     );
@@ -2768,8 +2849,6 @@ mod tests {
                 assert!(screen.contains(scope), "{screen}");
             }
             assert!(app.planning.reviewed);
-            assert_eq!(app.planning.scroll, 0);
-            assert_eq!(app.planning.option, 0);
             key(&mut app, &task, KeyCode::Char('d'));
             draw_language(&mut app, language);
             key(&mut app, &task, KeyCode::PageDown);
@@ -3036,6 +3115,80 @@ mod tests {
     }
 
     #[test]
+    fn long_file_scope_scrolls_without_skipping_consent_or_hiding_buttons() {
+        for tag in ["en", "ko"] {
+            let language = crate::i18n::Language::parse(tag).unwrap();
+            let directories: Vec<String> = (1..=8)
+                .map(|count| {
+                    "long_component/"
+                        .repeat(count)
+                        .trim_end_matches('/')
+                        .to_owned()
+                })
+                .collect();
+            let path = format!("{}/new.rs", directories.last().unwrap());
+            let (mut app, task) = bolt_prompt(PromptKind::Permission {
+                description: format!("Create {path} with exact content"),
+                file: Some(FileReview {
+                    path,
+                    directories,
+                    kind: FileReviewKind::Create,
+                    bytes: 12,
+                    excerpt: "exact content".into(),
+                    edit: false,
+                    external: false,
+                }),
+                options: vec![
+                    PermissionOption {
+                        label: "Deny".into(),
+                        description: String::new(),
+                        answer: serde_json::json!("deny"),
+                    },
+                    PermissionOption {
+                        label: "Allow once".into(),
+                        description: String::new(),
+                        answer: serde_json::json!("once"),
+                    },
+                ],
+            });
+            app.planning.auto_file_review = true;
+            draw_language(&mut app, language);
+            key(&mut app, &task, KeyCode::Right);
+            draw_language(&mut app, language);
+            assert!(!app.planning.reviewed);
+            key(&mut app, &task, KeyCode::End);
+            draw_language(&mut app, language);
+            key(&mut app, &task, KeyCode::Enter);
+            assert!(
+                app.planning.pending.is_none(),
+                "jumping past unseen scope cannot grant"
+            );
+            key(&mut app, &task, KeyCode::Home);
+            draw_language(&mut app, language);
+            for _ in 0..100 {
+                if app.planning.scroll == app.planning.scroll_max {
+                    break;
+                }
+                key(&mut app, &task, KeyCode::PageDown);
+                let visible = screen(&draw_language(&mut app, language));
+                assert!(visible.contains(if tag == "en" {
+                    "[ Allow once ]"
+                } else {
+                    "[ 한 번 허용 ]"
+                }));
+                assert!(app.planning.pending.is_none());
+            }
+            assert!(app.planning.reviewed);
+            key(&mut app, &task, KeyCode::Enter);
+            assert!(matches!(
+                app.planning.pending.as_ref(),
+                Some(Request::Answer { request_id, answer, .. })
+                    if request_id == &serde_json::json!(44) && answer == &serde_json::json!("once")
+            ));
+        }
+    }
+
+    #[test]
     fn typed_file_summary_shows_localized_operation_empty_and_unicode_source_at_minimum_size() {
         for tag in ["en", "ko"] {
             let language = crate::i18n::Language::parse(tag).unwrap();
@@ -3102,73 +3255,6 @@ mod tests {
                         assert!(app.planning.pending.is_none());
                     }
                 }
-            }
-        }
-    }
-
-    #[test]
-    fn automatically_presented_file_review_advertises_engagement_without_consent() {
-        for (width, height) in [(60, 18), (120, 36)] {
-            for tag in ["en", "ko"] {
-                let language = crate::i18n::Language::parse(tag).unwrap();
-                let content = "let 인사 = \"안녕\";\n";
-                let (mut app, task) = bolt_prompt(PromptKind::Permission {
-                    description: "Not the typed scope".into(),
-                    file: Some(FileReview {
-                        path: "src/새.rs".into(),
-                        kind: FileReviewKind::Create,
-                        directories: vec!["src".into()],
-                        bytes: content.len(),
-                        excerpt: FileReview::excerpt(content),
-                        edit: false,
-                        external: false,
-                    }),
-                    options: vec![
-                        PermissionOption {
-                            label: "Deny".into(),
-                            description: String::new(),
-                            answer: serde_json::json!({"permission":"deny"}),
-                        },
-                        PermissionOption {
-                            label: "Allow once".into(),
-                            description: String::new(),
-                            answer: serde_json::json!({"permission":"once"}),
-                        },
-                    ],
-                });
-                app.width = width;
-                app.height = height;
-                app.planning.auto_file_review = true;
-                let visible = screen(&draw_language(&mut app, language));
-                assert!(
-                    visible
-                        .contains(language.text(Message::ProvidersPlanningFileAutoReviewActions))
-                        && visible.contains("src/새.rs")
-                        && visible.contains("안녕")
-                        && visible.contains(&content.len().to_string()),
-                    "{visible}"
-                );
-                assert!(
-                    !visible.contains("a/y") && !visible.contains("Not the typed scope"),
-                    "{visible}"
-                );
-                assert!(
-                    app.planning.auto_file_review,
-                    "rendering cannot engage a review"
-                );
-                assert!(app.planning.pending.is_none() && app.planning.decision.is_none());
-                key(&mut app, &task, KeyCode::Enter);
-                assert!(!app.planning.auto_file_review);
-                assert!(app.planning.pending.is_none() && app.planning.decision.is_none());
-                let engaged = screen(&draw_language(&mut app, language));
-                assert!(
-                    engaged.contains("src/새.rs") && engaged.contains("a/y"),
-                    "{engaged}"
-                );
-                assert!(
-                    !engaged
-                        .contains(language.text(Message::ProvidersPlanningFileAutoReviewActions))
-                );
             }
         }
     }

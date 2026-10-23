@@ -106,6 +106,7 @@ const RULES: &[Rule] = &[
             "create",
             "generate",
             "update",
+            "save",
             "draft",
             "document",
             "prepare",
@@ -116,6 +117,7 @@ const RULES: &[Rule] = &[
             "수정",
             "갱신",
             "정리",
+            "저장",
             "요약",
             "준비",
         ],
@@ -170,6 +172,7 @@ const RULES: &[Rule] = &[
             "generate",
             "produce",
             "write",
+            "save",
             "make",
             "edit",
             "modify",
@@ -184,6 +187,7 @@ const RULES: &[Rule] = &[
             "뽑",
             "제작",
             "작성",
+            "저장",
             "수정",
             "고쳐",
             "고치",
@@ -278,18 +282,47 @@ fn any(text: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| contains(text, needle))
 }
 
+fn filename(text: &str) -> bool {
+    let text = text.trim().trim_end_matches('.');
+    let text = ["에서", "으로", "을", "를", "에", "로", "의"]
+        .iter()
+        .find_map(|suffix| text.strip_suffix(suffix))
+        .unwrap_or(text);
+    if text.is_empty()
+        || text.contains("://")
+        || text.contains([
+            '\n', '\r', '\t', '(', ')', '{', '}', '[', ']', ';', '=', '<', '>', '|',
+        ])
+    {
+        return false;
+    }
+    let name = text.rsplit(['/', '\\']).next().unwrap_or(text);
+    name.rsplit_once('.').is_some_and(|(_, extension)| {
+        !extension.is_empty()
+            && extension.len() <= 16
+            && extension
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            && extension.bytes().any(|byte| byte.is_ascii_alphabetic())
+    }) || text.contains('/') && !text.chars().any(char::is_whitespace)
+        || [
+            "dockerfile",
+            "makefile",
+            "readme",
+            "license",
+            "notice",
+            "justfile",
+            "gemfile",
+            "rakefile",
+        ]
+        .iter()
+        .any(|candidate| name.eq_ignore_ascii_case(candidate))
+}
+
 fn source_path(text: &str) -> bool {
     text.split_whitespace().any(|token| {
         let token = token.trim_matches([':', ',', ';', '(', ')']);
-        !token.contains("://")
-            && (token == "."
-                || token.contains('/')
-                || [
-                    ".rs", ".py", ".ts", ".tsx", ".js", ".jsx", ".toml", ".json", ".yaml", ".yml",
-                    ".md", ".txt", ".go", ".c", ".cpp", ".h", ".java", ".sh",
-                ]
-                .iter()
-                .any(|extension| token.trim_end_matches('.').ends_with(extension)))
+        token == "." || filename(token)
     })
 }
 
@@ -297,8 +330,8 @@ fn task_object(text: &str, rule: &Rule) -> bool {
     any(text, rule.objects) || matches!(rule.form, 1 | 3 | 6 | 7) && source_path(text)
 }
 
-/// Strip literal/source regions before matching. This bounded copy never enters
-/// a provider packet; the original draft remains the sole submitted instruction.
+/// Strip literal/source instructions, retaining only a filename object marker.
+/// Quoted verbs never become actions; the original draft alone is submitted.
 fn instruction(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut fence = None;
@@ -350,20 +383,27 @@ fn instruction(text: &str) -> String {
         }
         let mut quote = None;
         let mut previous = ' ';
-        for ch in line.chars() {
-            if let Some(end) = quote {
+        for (offset, ch) in line.char_indices() {
+            if let Some((end, start)) = quote {
                 if ch == end {
                     quote = None;
-                    result.push(' ');
+                    if filename(&line[start..offset]) {
+                        result.push_str(" ./ ");
+                    } else {
+                        result.push(' ');
+                    }
                 }
             } else if matches!(ch, '`' | '"' | '“' | '‘')
                 || ch == '\'' && !previous.is_alphanumeric()
             {
-                quote = Some(match ch {
-                    '“' => '”',
-                    '‘' => '’',
-                    _ => ch,
-                });
+                quote = Some((
+                    match ch {
+                        '“' => '”',
+                        '‘' => '’',
+                        _ => ch,
+                    },
+                    offset + ch.len_utf8(),
+                ));
                 result.push(' ');
             } else {
                 result.extend(ch.to_lowercase());
@@ -429,6 +469,7 @@ pub fn classify(text: &str) -> Option<Selection> {
         literal
             .split(". ")
             .flat_map(|part| part.split(" but "))
+            .flat_map(|part| part.split(" without "))
             .flat_map(|part| part.split("말고"))
             .flat_map(|part| part.split(['\n', ';', ',', '!', '?']))
             .filter(|clause| {
@@ -474,19 +515,23 @@ pub fn classify(text: &str) -> Option<Selection> {
                     any(
                         clause,
                         &[
-                            "write", "create", "update", "generate", "작성", "생성", "수정", "갱신",
+                            "write", "create", "update", "generate", "save", "작성", "생성",
+                            "수정", "갱신", "저장",
                         ],
-                    ) && any(
-                        clause,
-                        &[
-                            "documentation",
-                            "docs",
-                            "readme",
-                            "changelog",
-                            "문서",
-                            "변경 기록",
-                        ],
-                    )
+                    ) && (source_path(clause)
+                        || any(
+                            clause,
+                            &[
+                                "documentation",
+                                "docs",
+                                "readme",
+                                "changelog",
+                                "file",
+                                "파일",
+                                "문서",
+                                "변경 기록",
+                            ],
+                        ))
                 });
             return Some(Selection {
                 form: rule.form,
@@ -785,16 +830,46 @@ mod tests {
     }
 
     #[test]
-    fn unclassified_file_request_keeps_ordinary_eevee_coding_available() {
-        let mut app = app();
-        app.planning.agent = Agent::Compatible;
-        app.update(Event::Paste("Save this exact text as notes.custom.".into()));
-        assert!(classify(&app.input).is_none());
-        app.submit_request();
-        assert_eq!(app.form(), 0);
-        assert!(app.lead().auto_form);
-        assert_eq!(app.planning.operation, Operation::Implement);
-        assert!(app.pending_request.is_some());
+    fn explicit_file_changes_leave_automatic_readonly_roles() {
+        for text in [
+            "Create `hello.py`",
+            "Edit \"src/main.rs\"",
+            "`새 파일.py`를 생성해줘.",
+            "Save this exact text as notes.custom.",
+            "Create handoff.md",
+            "handoff.md를 생성해줘.",
+            "Create `Dockerfile`",
+            "Save the handoff file.",
+        ] {
+            let mut app = app();
+            app.planning.agent = Agent::Compatible;
+            app.input = "Read src/main.rs".into();
+            assert!(app.evolve_request());
+            assert_eq!(app.planning.operation, Operation::Plan);
+            app.input = text.into();
+            app.cursor = app.input.len();
+            app.submit_request();
+            assert_eq!(app.planning.operation, Operation::Implement, "{text}");
+            assert!(app.pending_request.is_some(), "{text}");
+        }
+        for text in [
+            "\"Create hello.py\"",
+            "`Edit src/main.rs`",
+            "Provider: create hello.py",
+            "Do not create `hello.py`.",
+        ] {
+            assert!(classify(text).is_none(), "{text}");
+        }
+        assert_eq!(
+            classify("Prepare a handoff summary.").unwrap().operation,
+            Operation::Plan
+        );
+        assert_eq!(
+            classify("Read `src/main.rs` without writing.")
+                .unwrap()
+                .operation,
+            Operation::Plan
+        );
     }
 
     #[test]

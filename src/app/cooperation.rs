@@ -704,7 +704,6 @@ impl App {
     /// Reconcile after input and worker settlement, never before dispatching a key.
     pub(super) fn reconcile_file_review(&mut self) -> bool {
         if !self.approval_shortcut_available()
-            || (!self.composer_is_request() && self.focus != Pane::Workspace)
             || self.width < 60
             || self.height < 18
             || self.quit
@@ -1495,6 +1494,26 @@ mod tests {
     }
 
     #[test]
+    fn file_popup_reaches_every_safe_home_pane_and_restores_focus() {
+        for pane in [Pane::Companion, Pane::Workspace, Pane::Inspector] {
+            let mut app = app();
+            start(&mut app, 1, 1);
+            app.editing = false;
+            app.focus = pane;
+            let draft = (app.input.clone(), app.cursor);
+            file_prompt(&mut app, 1, 2);
+            assert_eq!(app.overlay, Some(Overlay::Planning));
+            assert!(app.planning.auto_file_review);
+            assert!(app.planning.pending.is_none());
+            app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+            assert!(app.overlay.is_none());
+            assert_eq!(app.focus, pane);
+            assert_eq!((app.input.clone(), app.cursor), draft);
+            assert!(app.planning.request.is_some() && app.planning.pending.is_none());
+        }
+    }
+
+    #[test]
     fn automatic_file_review_preserves_live_future_draft_and_defers_once() {
         let mut app = app();
         start(&mut app, 1, 1);
@@ -1510,8 +1529,6 @@ mod tests {
             KeyCode::Char('a'),
             KeyCode::Char('y'),
             KeyCode::Char('n'),
-            KeyCode::Left,
-            KeyCode::Right,
             KeyCode::Backspace,
             KeyCode::Char('/'),
             KeyCode::Down,
@@ -2016,12 +2033,6 @@ mod tests {
                         screen
                     };
                     let screen = draw(&mut app);
-                    assert!(
-                        screen.contains(
-                            language.text(Message::ProvidersPlanningFileAutoReviewActions)
-                        ),
-                        "{screen}"
-                    );
                     assert!(screen.contains("src/new.rs"), "{screen}");
                     assert_eq!((app.input.clone(), app.cursor), draft);
                     for code in [KeyCode::Char('a'), KeyCode::Char('y'), KeyCode::Char('n')] {

@@ -864,7 +864,9 @@ providers-planning-file-preview = { "File preview" }
 
 providers-planning-file-label = { "[FILE]" }
 
-providers-planning-file-auto-review-actions = { "File proposal ready · Enter review · Esc later" }
+providers-planning-file-auto-review-actions =
+    { "File proposal ready · Enter review" }
+    { "Left/Right choose · Enter confirms | Esc later" }
 
 providers-planning-file-generating = { "Generating · not saved" }
 
@@ -973,15 +975,19 @@ providers-planning-file-external = { "External SDK policy; not OS confinement." 
 providers-planning-file-details = { "d Complete change, scope & exact request" }
 
 providers-planning-file-actions =
-    { "a/y Allow once | n Deny | Enter/d Details" }
-    { "No saved grant; Enter never sends a decision." }
+    { "Left/Right choose | Enter confirms | a/y Allow" }
+    { "n Deny | d Details | PgUp/Dn | Esc later" }
 
 providers-planning-file-unavailable =
-    { "Allow needs complete visible scope; resize." }
-    { "n Deny | Enter/d Details (no decision)" }
+    { "PgUp/Dn: review all scope before allowing." }
+    { "Home top | Left/Right choose | n Deny | d Details" }
 
 providers-planning-file-details-actions =
     { "d Back | PgUp/Dn Scroll | n Deny" }
     { "Enter stays here; allow only from the summary." }
+
+providers-planning-file-deny-button = { "[ Deny ]" }
+
+providers-planning-file-allow-button = { "[ Allow once ]" }
 
 providers-planning-waiting-for-review = { "waiting for your review" }

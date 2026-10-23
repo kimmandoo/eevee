@@ -55,6 +55,7 @@ impl State {
     pub fn invalidate_review(&mut self) {
         self.reviewed = false;
         self.affirmative = false;
+        self.file_consent = super::FileConsent::default();
         if matches!(
             self.request.as_ref().map(|request| &request.kind),
             Some(PromptKind::Permission { .. })
@@ -605,7 +606,14 @@ impl State {
             if large_enough
                 && key.kind == KeyEventKind::Press
                 && key.modifiers.is_empty()
-                && key.code == KeyCode::Enter
+                && matches!(
+                    key.code,
+                    KeyCode::Enter
+                        | KeyCode::Tab
+                        | KeyCode::BackTab
+                        | KeyCode::Left
+                        | KeyCode::Right
+                )
                 && matches!(
                     self.request.as_ref().map(|request| &request.kind),
                     Some(PromptKind::Permission { file: Some(_), .. })
@@ -615,6 +623,11 @@ impl State {
                 self.review_details = false;
                 self.scroll = 0;
                 self.invalidate_review();
+                self.file_consent.choice = match key.code {
+                    KeyCode::Right | KeyCode::Tab => Some(1),
+                    KeyCode::Left | KeyCode::BackTab => Some(0),
+                    _ => None,
+                };
                 return true;
             }
             // Request typing cannot become an answer on asynchronous arrival.
@@ -911,6 +924,20 @@ impl State {
         }) = self.request.as_ref().map(|request| &request.kind)
         {
             match key.code {
+                KeyCode::Enter if self.file_consent.choice.is_some() && !self.review_details => {
+                    if key.kind != KeyEventKind::Press
+                        || !key.modifiers.is_empty()
+                        || options.len() != 2
+                    {
+                        return false;
+                    }
+                    let choice = self.file_consent.choice.unwrap();
+                    if choice == 0 || self.reviewed {
+                        self.send_answer(options[choice].answer.clone());
+                        return true;
+                    }
+                    return false;
+                }
                 KeyCode::Enter => {
                     if key.kind != KeyEventKind::Press
                         || !key.modifiers.is_empty()
@@ -936,8 +963,21 @@ impl State {
                     self.send_answer(options[index].answer.clone());
                     return true;
                 }
-                KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right => {
-                    return false;
+                KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right
+                    if key.kind == KeyEventKind::Press
+                        && key.modifiers.is_empty()
+                        && !self.review_details =>
+                {
+                    self.file_consent.choice = Some(match key.code {
+                        KeyCode::Left => 0,
+                        KeyCode::Right => 1,
+                        _ => self
+                            .file_consent
+                            .choice
+                            .map_or(usize::from(key.code == KeyCode::Tab), |choice| 1 - choice),
+                    });
+                    self.reviewed = false;
+                    return true;
                 }
                 _ => {}
             }
