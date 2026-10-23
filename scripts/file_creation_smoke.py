@@ -24,7 +24,7 @@ from unittest.mock import patch
 import cooperation_smoke
 from native_connection_smoke import MATRIX, MODEL, Peer, decoded_payload, until
 from response_smoke import SurfaceJourney, SurfaceSession, SURFACE
-from terminal_smoke import confirm_exit
+from terminal_smoke import confirm_exit, inspect_permission_scope, permission_run_available
 from workbench_smoke import wait_for
 from connection_smoke_helpers import focus_field, open_setup
 
@@ -306,12 +306,12 @@ class CreationJourney(SurfaceJourney):
             if len(self.peer.snapshot('POST')) >= before + 1:
                 return True
             view = self.session.display()
-            if not approved and any(value in view for value in ('y Run', 'y 실행')):
+            if not approved and permission_run_available(self.session):
                 self.capture('request-scope-before-inference-' + str(before))
                 self.session.send('y')
                 approved = True
-            elif not approved and any(value in view for value in ('Enter to review (not approve)', 'Enter 검토 (승인 아님)')):
-                self.session.send('\r')
+            elif not approved and inspect_permission_scope(self.session):
+                pass
             elif 'Alt+A' in view:
                 self.session.send(ESC + 'a')
             return False
@@ -601,11 +601,11 @@ class CodexCreationJourney(cooperation_smoke.Journey):
             if predicate():
                 return True
             view = self.session.display()
-            if approve_preview and not approved and any(value in view for value in ('y Run', 'y 실행')):
+            if approve_preview and not approved and permission_run_available(self.session):
                 self.session.send('y')
                 approved = True
-            elif approve_preview and not approved and any(value in view for value in ('Enter to review (not approve)', 'Enter 검토 (승인 아님)')):
-                self.session.send('\r')
+            elif approve_preview and not approved and inspect_permission_scope(self.session):
+                pass
             elif approve_preview and 'Alt+A' in view:
                 self.session.send(ESC + 'a')
             return False
@@ -621,6 +621,7 @@ def codex_case(binary, output, size, language):
         journey = CodexCreationJourney(binary, output, size, language)
         journey.setup(count=1)
         journey.session.command('eevee')
+        journey.session.command('role-implement')
         journey.workspace()
         assert not (journey.project / FIRST).parent.exists()
         before_original = journey.source.read_bytes()

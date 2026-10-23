@@ -17,7 +17,7 @@ import sys
 import tempfile
 import time
 
-from terminal_smoke import Session, confirm_exit, terminal_environment
+from terminal_smoke import Session, confirm_exit, inspect_permission_scope, permission_run_available, terminal_environment
 from workbench_smoke import wait_for
 
 ESC = "\x1b"
@@ -92,9 +92,11 @@ class Journey:
         deadline, approved = time.monotonic() + timeout, False
         while not predicate():
             assert self.session.alive() and time.monotonic() < deadline, reason + "\n" + self.session.display()
-            if approve_preview and "y Run" in self.session.display() and not approved:
+            if approve_preview and permission_run_available(self.session) and not approved:
                 self.session.send("y")
                 approved = True
+            elif approve_preview and not approved and inspect_permission_scope(self.session):
+                pass
             elif approve_preview and "Alt+A" in self.session.display():
                 self.session.send(ESC + "a")
             else:
@@ -128,10 +130,13 @@ class Journey:
         self.until(lambda: self.draft(partner) is not None and self.draft(partner)["text"] == text, "literal Request draft was not committed")
         if review_future:
             self.session.send("\r")
-            if "y Run" not in self.session.display():
-                self.until(lambda: "Alt+A" in self.session.display(), "write review was not queued")
-                self.session.send(ESC + "a")
-            wait_for(self.session, "y Run", timeout=40)
+            def review_ready():
+                if permission_run_available(self.session):
+                    return True
+                if not inspect_permission_scope(self.session) and "Alt+A" in self.session.display():
+                    self.session.send(ESC + "a")
+                return False
+            self.until(review_ready, "write scope was not reviewable")
             self.session.send(ESC)
             if self.workspace().startswith("Type Request /"):
                 self.session.send("\r")
@@ -141,8 +146,10 @@ class Journey:
             self.session.send("\x13")
             self.until(lambda: self.draft(partner) is not None and self.draft(partner)["text"] == future, "future draft did not commit")
             self.session.send(ESC + "a")
+            self.session.send(HOME)
             self.until(lambda: any("Request:" in line and text in line for line in self.session.display().splitlines()), "consent did not show the immutable submitted request")
             self.session.capture("immutable-preview-with-newer-draft")
+            self.until(review_ready, "reopened immutable scope was not fully reviewed")
             self.session.send("y")
         else:
             self.session.send("\r")
@@ -166,6 +173,7 @@ class Journey:
         for partner, nickname, form in PARTNERS[:count]:
             self.lead(partner)
             self.session.command(form)
+            self.session.command("role-implement" if form in ("flareon", "leafeon") else "role-plan")
             self.session.command("nickname")
             self.session.paste(nickname)
             self.session.send("\r")

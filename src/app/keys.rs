@@ -306,7 +306,6 @@ impl App {
                     .cloned()
             })
             .unwrap_or_else(|| store::Snapshot::empty(self.cwd.clone()));
-        let operation = self.planning.operation;
         let choosing_locally = self.planning.picker.is_some()
             || self.planning.selection_change.is_some()
             || self.planning.switch_to.is_some();
@@ -356,16 +355,6 @@ impl App {
             && key.code == KeyCode::Esc
         {
             self.request_home(false);
-        }
-        if operation != self.planning.operation {
-            self.lead.auto_form = false;
-            self.evolution.transition = None;
-            self.set_form(match self.planning.operation {
-                crate::providers::Operation::Implement => 3,
-                crate::providers::Operation::Review => 7,
-                crate::providers::Operation::Plan => 4,
-            });
-            self.changed_task();
         }
         changed
     }
