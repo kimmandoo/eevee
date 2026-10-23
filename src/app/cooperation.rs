@@ -385,12 +385,16 @@ impl App {
         ids.rotate_left(self.cooperation.drive_cursor % len);
         self.cooperation.drive_cursor = (self.cooperation.drive_cursor + 1) % len;
         let motion_choice = self.motion_choice;
+        let density_choice = self.density_choice;
         for id in ids {
             let preference_free = self.cooperation.preference_owners.is_empty();
             let move_receipt_pending = self.move_dispatch_pending(id);
             let state = self.planning_state_mut(id).expect("known partner slot");
             if let Some(reduced) = motion_choice {
                 state.sync_motion_choice(reduced);
+            }
+            if let Some(density) = density_choice {
+                state.sync_density_choice(density);
             }
             state.settle_work();
             if sent == 0
@@ -554,7 +558,7 @@ impl App {
         }
         if let Some(error) = failed {
             self.notice = format!(
-                "Provider preference storage failed for partner #{id}: {error}. /storage-retry retries storage only; the local selection and drafts are kept."
+                "Local preference storage failed for partner #{id}: {error}. /storage-retry retries storage only; the local choices and drafts are kept."
             );
         }
         if let Some(saved) = shared {
@@ -567,6 +571,7 @@ impl App {
             }
         }
         self.sync_motion_choices();
+        self.sync_density_choices();
         let ids: Vec<_> = self.party.iter().map(|partner| partner.id).collect();
         self.cooperation.parked.retain(|partner, state| {
             ids.contains(partner) || state.owns_work() || state.preferences_pending()
@@ -631,7 +636,11 @@ impl App {
             self.cooperation.quit_preferences_waiting = false;
             return false;
         }
-        if allowed && !self.planning_any_busy() && !self.execution_any_pending() {
+        if allowed
+            && !self.planning_any_busy()
+            && !self.execution_any_pending()
+            && !self.recipe_export_busy()
+        {
             self.cooperation.quit_preferences_waiting = false;
             true
         } else {
@@ -1174,6 +1183,42 @@ impl App {
 
 impl App {
     pub fn provider_event(&mut self, partner: i64, event: crate::providers::Event) -> bool {
+        if let crate::providers::Event::ConnectionFailed {
+            generation,
+            task_id,
+            agent,
+            failure,
+        } = &event
+        {
+            let owned = self.planning_state(partner).is_some_and(|state| {
+                state.agent == *agent
+                    && state.matches(*generation, *task_id)
+                    && state.owner().is_none_or(|owner| owner.partner == partner)
+            });
+            if !owned {
+                return false;
+            }
+            // Failure evidence can update its provider's diagnostics, never
+            // front another owner, reconnect, submit work or answer permission.
+            self.agents.connection_failed(*agent, *failure);
+            return true;
+        }
+        if let crate::providers::Event::Finished {
+            generation,
+            task_id,
+            outcome: crate::providers::Outcome::Completed,
+            ..
+        } = &event
+            && let Some(agent) = self.planning_state(partner).and_then(|state| {
+                (state.matches(*generation, *task_id)
+                    && !state.inspect_models
+                    && !state.inspect_sessions
+                    && state.owner().is_none_or(|owner| owner.partner == partner))
+                .then_some(state.agent)
+            })
+        {
+            self.agents.connection_succeeded(agent);
+        }
         let content_preview = partner == self.lead.id
             && matches!(&event,
             crate::providers::Event::Preview(preview)
@@ -1366,6 +1411,92 @@ mod tests {
             usage_bytes: 0,
         }));
         app
+    }
+
+    #[test]
+    fn diagnostic_failures_keep_their_owner_and_reject_stale_observations() {
+        use crate::providers::diagnostics::Failure;
+        let mut app = app();
+        app.agents.pending.take();
+        start(&mut app, 1, 1);
+        start(&mut app, 2, 2);
+        let agent = app.planning_state(2).unwrap().agent;
+        let other = if agent == providers::Agent::OpenAI {
+            providers::Agent::Google
+        } else {
+            providers::Agent::OpenAI
+        };
+        app.input = "Future 界 draft".into();
+        app.cursor = "Future ".len();
+        app.overlay = Some(Overlay::Memory);
+        let kept = (app.lead.id, app.input.clone(), app.cursor, app.overlay);
+        for (partner, generation, task_id, route) in [
+            (99, 7, 7, agent),
+            (2, 8, 7, agent),
+            (2, 7, 8, agent),
+            (2, 7, 7, other),
+        ] {
+            assert!(!app.provider_event(
+                partner,
+                providers::Event::ConnectionFailed {
+                    generation,
+                    task_id,
+                    agent: route,
+                    failure: Failure::Http(401),
+                }
+            ));
+            assert!(app.agents.failure(agent.index()).is_none());
+        }
+        assert!(app.provider_event(
+            2,
+            providers::Event::ConnectionFailed {
+                generation: 7,
+                task_id: 7,
+                agent,
+                failure: Failure::Http(401),
+            }
+        ));
+        assert_eq!(app.agents.failure(agent.index()), Some(Failure::Http(401)));
+        assert_eq!(
+            (app.lead.id, app.input.clone(), app.cursor, app.overlay),
+            kept
+        );
+        assert!(app.agents.pending.is_none() && app.agents.pending_auth.is_none());
+    }
+
+    #[test]
+    fn only_owned_inference_success_retires_a_connection_failure() {
+        use crate::providers::diagnostics::Failure;
+        for metadata in [false, true] {
+            let mut app = app();
+            start(&mut app, 1, 1);
+            let agent = app.planning.agent;
+            app.agents.connection_failed(agent, Failure::Http(401));
+            app.planning.inspect_models = metadata;
+            app.provider_event(
+                1,
+                providers::Event::Finished {
+                    generation: 8,
+                    task_id: 7,
+                    outcome: providers::Outcome::Completed,
+                    message: "Foreign completion".into(),
+                },
+            );
+            assert_eq!(app.agents.failure(agent.index()), Some(Failure::Http(401)));
+            app.provider_event(
+                1,
+                providers::Event::Finished {
+                    generation: 7,
+                    task_id: 7,
+                    outcome: providers::Outcome::Completed,
+                    message: "Owned completion".into(),
+                },
+            );
+            assert_eq!(
+                app.agents.failure(agent.index()),
+                metadata.then_some(Failure::Http(401))
+            );
+        }
     }
 
     fn start(app: &mut App, partner: i64, arrival: u64) {
@@ -2694,6 +2825,7 @@ mod tests {
             provider: providers::Agent::ChatGPT,
             selections: Default::default(),
             reduced_motion: false,
+            text_density: store::TextDensity::Compact,
         };
         app.cooperation_preference_event(Ok(Some(original)));
         app.motion_command("motion-off");
@@ -2726,6 +2858,79 @@ mod tests {
             restarted.reduced_motion(),
             "restart observes the latest durable snapshot"
         );
+    }
+
+    #[test]
+    fn global_density_latest_intent_survives_parked_saves_without_losing_model_or_motion() {
+        fn submit(app: &mut App, id: i64) -> store::ProviderPreferences {
+            assert!(app.cooperation.preference_owners.is_empty());
+            let density = app.density_choice.unwrap();
+            let motion = app.motion_choice;
+            let state = app.planning_state_mut(id).unwrap();
+            state.sync_density_choice(density);
+            if let Some(reduced) = motion {
+                state.sync_motion_choice(reduced);
+            }
+            let Some(store::PreferenceRequest::Save(snapshot)) = state.preference_request().take()
+            else {
+                panic!("expected the actual preference owner snapshot");
+            };
+            state.preference_started();
+            app.cooperation.preference_owners.push_back(id);
+            snapshot
+        }
+        let mut app = app();
+        let original = store::ProviderPreferences {
+            provider: providers::Agent::ChatGPT,
+            selections: Default::default(),
+            reduced_motion: false,
+            text_density: store::TextDensity::Compact,
+        };
+        app.cooperation_preference_event(Ok(Some(original)));
+        app.density_command("density-comfortable");
+        let first = submit(&mut app, 1);
+        app.request_lead(2);
+        assert_eq!(app.lead.id, 2);
+        let model = providers::ModelSelection {
+            model: Some("latest/Exact".into()),
+            effort: Some("high".into()),
+        };
+        app.planning.selection = model.clone();
+        app.planning.remember_used_selection();
+        app.motion_command("motion-off");
+        app.density_command("density-compact");
+        assert!(matches!(
+            app.planning.preference_request(),
+            Some(store::PreferenceRequest::Save(saved))
+                if saved.text_density == store::TextDensity::Compact
+        ));
+        app.request_lead(1);
+        assert_eq!(app.lead.id, 1);
+        app.density_command("density-comfortable");
+        app.cooperation_preference_event(Ok(Some(first)));
+        let last = submit(&mut app, 2);
+        assert_eq!(last.text_density, store::TextDensity::Comfortable);
+        assert!(last.reduced_motion);
+        assert_eq!(last.provider, providers::Agent::ChatGPT);
+        assert_eq!(last.selections[&providers::Agent::ChatGPT], model);
+        app.cooperation_preference_event(Ok(Some(last.clone())));
+        let settled = submit(&mut app, 1);
+        assert_eq!(
+            settled, last,
+            "the earlier owner settles only the latest shared fields"
+        );
+        app.cooperation_preference_event(Ok(Some(settled)));
+        for id in app.planning_ids() {
+            let state = app.planning_state_mut(id).unwrap();
+            assert_eq!(state.text_density(), store::TextDensity::Comfortable);
+            assert!(state.reduced_motion());
+            assert!(state.preference_request().is_none());
+        }
+        let mut restarted = planning::State::new();
+        restarted.preference_event(Ok(Some(last)));
+        assert_eq!(restarted.text_density(), store::TextDensity::Comfortable);
+        assert_eq!(restarted.selection, model);
+        assert!(restarted.reduced_motion());
     }
 
     #[test]

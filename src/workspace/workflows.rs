@@ -12,6 +12,8 @@ pub const MAX_RECIPE_BYTES: usize = 64 * 1024;
 const MAX_STATE_BYTES: usize = 256 * 1024;
 const MAX_LINKS: usize = 16;
 
+pub mod authoring;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct State {

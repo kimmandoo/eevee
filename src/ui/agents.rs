@@ -21,6 +21,7 @@ fn readiness_label(state: &crate::app::agents::State, index: usize, paint: &Pain
         Readiness::Configured => Message::ProvidersStatusConfigured,
         Readiness::Setup => Message::ProvidersStatusSetup,
         Readiness::MissingCli => Message::ProvidersStatusMissing,
+        Readiness::Blocked => Message::DiagnosticsStatusBlocked,
         Readiness::SignedIn => Message::ProvidersStatusSignedIn,
         Readiness::Session => Message::ProvidersStatusSession,
         Readiness::SignedOut => Message::ProvidersStatusSignedOut,
@@ -28,15 +29,103 @@ fn readiness_label(state: &crate::app::agents::State, index: usize, paint: &Pain
     })
 }
 
+fn diagnostic_reason(state: &crate::app::agents::State, paint: &Paint) -> &'static str {
+    use crate::providers::diagnostics::Kind;
+    if state.missing_executable(state.selected) {
+        return paint.hint(Message::DiagnosticsMissing);
+    }
+    paint.hint(
+        match state.failure(state.selected).map(|failure| failure.kind()) {
+            Some(Kind::Authentication) => Message::DiagnosticsAuthentication,
+            Some(Kind::Eligibility) => Message::DiagnosticsEligibility,
+            Some(Kind::Endpoint) => Message::DiagnosticsEndpoint,
+            Some(Kind::RateLimit) => Message::DiagnosticsRateLimit,
+            Some(Kind::Request) => Message::DiagnosticsRequest,
+            Some(Kind::Transport) => Message::DiagnosticsTransport,
+            Some(Kind::Incompatible) => Message::DiagnosticsIncompatible,
+            Some(Kind::VersionCheck) => Message::DiagnosticsVersionCheck,
+            Some(Kind::LoginCancelled) => Message::DiagnosticsLoginCancelled,
+            Some(Kind::LoginExpired) => Message::DiagnosticsLoginExpired,
+            Some(Kind::LoginFailed) => Message::DiagnosticsLoginFailed,
+            Some(Kind::LoginRefused) => Message::DiagnosticsLoginRefused,
+            None => Message::DiagnosticsUnknown,
+        },
+    )
+}
+
+fn diagnostic_next(state: &crate::app::agents::State, paint: &Paint) -> &'static str {
+    use crate::providers::{Agent, diagnostics::Kind};
+    let agent = Agent::from_index(state.selected);
+    let kind = state.failure(state.selected).map(|failure| failure.kind());
+    paint.hint(
+        if state.missing_executable(state.selected)
+            || (matches!(
+                kind,
+                Some(Kind::Incompatible | Kind::VersionCheck | Kind::LoginRefused)
+            ) && !agent.is_some_and(Agent::is_direct))
+        {
+            Message::DiagnosticsNextInstall
+        } else if matches!(
+            kind,
+            Some(Kind::Eligibility | Kind::Endpoint | Kind::RateLimit | Kind::Request)
+        ) {
+            Message::DiagnosticsNextSettings
+        } else if matches!(kind, Some(Kind::Transport)) {
+            Message::DiagnosticsNextSetup
+        } else {
+            match agent {
+                Some(Agent::ChatGPT) => Message::DiagnosticsNextAccount,
+                Some(Agent::Claude) => Message::DiagnosticsNextClaude,
+                Some(Agent::Gemini) => Message::DiagnosticsNextGemini,
+                Some(Agent::Devin) => Message::DiagnosticsNextDevin,
+                Some(agent) if agent.is_direct() => Message::DiagnosticsNextApi,
+                _ => Message::DiagnosticsNextLogin,
+            }
+        },
+    )
+}
+
+/// Keep the complete blocker and next step above the independently scrolling details.
+fn diagnostic_summary(
+    frame: &mut Frame,
+    area: Rect,
+    state: &crate::app::agents::State,
+    paint: &Paint,
+) -> u16 {
+    let summary = Paragraph::new(format!(
+        "{}\n{}",
+        diagnostic_reason(state, paint),
+        diagnostic_next(state, paint)
+    ))
+    .style(paint.accent)
+    .wrap(Wrap { trim: false });
+    let height = (summary.line_count(area.width.max(1)) as u16).min(area.height);
+    frame.render_widget(summary, row(area, 0, height));
+    height
+}
+
 fn notice<'a>(state: &'a crate::app::agents::State, paint: &Paint) -> &'a str {
     if state.page == Page::Install {
         return paint.hint(Message::ProvidersNextInstall);
     }
-    if let Some(outcome) = state.auth_notice {
+    if state.failure(state.selected).is_some() {
+        if state.page == Page::Providers {
+            return diagnostic_reason(state, paint);
+        }
+        if matches!(state.page, Page::Actions | Page::Diagnostics) {
+            // The fixed failure summary owns these pages, not an older setup/auth toast.
+            return "";
+        }
+    }
+    if let Some(outcome) = state.auth_outcome(state.selected) {
         return paint.hint(match outcome {
             crate::providers::auth::Outcome::Authenticated => Message::ProvidersNextModel,
             crate::providers::auth::Outcome::Unknown => Message::ProvidersLoginUnknown,
-            _ => Message::ProvidersLoginRetry,
+            crate::providers::auth::Outcome::NotAuthenticated => Message::DiagnosticsAuthentication,
+            crate::providers::auth::Outcome::Cancelled => Message::DiagnosticsLoginCancelled,
+            crate::providers::auth::Outcome::Expired => Message::DiagnosticsLoginExpired,
+            crate::providers::auth::Outcome::Failed => Message::DiagnosticsLoginFailed,
+            crate::providers::auth::Outcome::Refused => Message::DiagnosticsLoginRefused,
         });
     }
     let message = match state.notice.as_str() {
@@ -438,7 +527,14 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     ),
                     paint.accent,
                 );
+                let summary_height = diagnostic_summary(
+                    frame,
+                    row(body, 1, body.height.saturating_sub(1)),
+                    state,
+                    paint,
+                );
                 let actions = state.actions();
+                let capacity = usize::from(body.height.saturating_sub(1 + summary_height)).max(1);
                 let first = state.action.saturating_sub(capacity.saturating_sub(1));
                 for (offset, (index, action)) in actions
                     .iter()
@@ -449,7 +545,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 {
                     text(
                         frame,
-                        row(body, 1 + offset as u16, 1),
+                        row(body, 1 + summary_height + offset as u16, 1),
                         &format!(
                             "{} {}",
                             if index == state.action { ">" } else { " " },
@@ -464,7 +560,8 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 }
             }
             Page::Diagnostics => {
-                let mut value = format!(
+                let summary_height = diagnostic_summary(frame, body, state, paint);
+                let profile_details = format!(
                     "{}\n{}\n\n{}\nInstalled: {}\nExecutable: {:?}\nArguments: {:?}\nVersion: {}\nAuthentication: {}\nBilling: {}\nAdapter: {}\nAdapter revision: {}\nProfile action: {}\n",
                     profile.name,
                     setup_hint(state.selected, paint),
@@ -479,6 +576,30 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     profile.revision,
                     profile.action
                 );
+                let mut value = String::new();
+                value.push_str(paint.hint(Message::DiagnosticsDetailBoundary));
+                if let Some(failure) = state.failure(state.selected) {
+                    value.push('\n');
+                    value.push_str(&match failure {
+                        crate::providers::diagnostics::Failure::Http(status) => paint.format(
+                            Template::DiagnosticsDetailHttp,
+                            &[("status", &status.to_string())],
+                        ),
+                        _ => paint.format(
+                            Template::DiagnosticsDetailLocal,
+                            &[("category", diagnostic_reason(state, paint))],
+                        ),
+                    });
+                }
+                if let Some(detail) = state.preparation_detail(state.selected) {
+                    value.push('\n');
+                    value.push_str(&paint.format(
+                        Template::DiagnosticsDetailPreparation,
+                        &[("detail", detail)],
+                    ));
+                }
+                value.push('\n');
+                value.push_str(&profile_details);
                 for blocker in &profile.blockers {
                     value.push_str(&format!("\nBlocker / remedy: {blocker}"));
                 }
@@ -493,7 +614,11 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 }
                 state.scroll_max = selection_details(
                     frame,
-                    body,
+                    row(
+                        body,
+                        summary_height,
+                        body.height.saturating_sub(summary_height),
+                    ),
                     Paragraph::new(crate::workspace::privacy::redact(&value))
                         .style(paint.surface)
                         .wrap(Wrap { trim: false }),
@@ -509,21 +634,16 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             paint.muted,
         );
         let footer = match state.page {
-            Page::OpenAi | Page::Account => paint.hint(Message::ProvidersFamilyNavigation).into(),
+            Page::OpenAi => paint.hint(Message::ProvidersFamilyNavigation).into(),
+            Page::Account => paint.hint(Message::DiagnosticsAccountNavigation).into(),
             Page::Install => paint.hint(Message::ProvidersNextInstall).into(),
             Page::Providers => paint.format(
                 Template::ProvidersAgentsTypeSearchUpDownSelectEnterRight,
                 &[("action", (action_hint(paint, state.enter_hint())))],
             ),
-            Page::Methods => paint
-                .hint(Message::ProvidersAgentsUpDownSelectEnterReviewMethodTab)
-                .into(),
-            Page::Actions => paint
-                .hint(Message::ProvidersAgentsUpDownSelectEnterOpenActionTab)
-                .into(),
-            Page::Diagnostics => paint
-                .hint(Message::ProvidersAgentsUpDownScrollTabProvidersChoicesEsc)
-                .into(),
+            Page::Methods => paint.hint(Message::DiagnosticsMethodNavigation).into(),
+            Page::Actions => paint.hint(Message::DiagnosticsActionsNavigation).into(),
+            Page::Diagnostics => paint.hint(Message::DiagnosticsNavigation).into(),
         };
         text(
             frame,
@@ -982,6 +1102,67 @@ fn render_forget(
 mod tests {
     use super::*;
     use ratatui::{Terminal, backend::TestBackend, style::Style};
+    #[test]
+    fn minimum_diagnostic_summary_keeps_complete_reason_and_next_step_in_both_languages() {
+        use crate::providers::{Agent, diagnostics::Failure};
+        for language in ["en", "ko"] {
+            let language = crate::i18n::Language::parse(language).unwrap();
+            let style = Style::default();
+            let paint = Paint {
+                language,
+                base: style,
+                surface: style,
+                muted: style,
+                border: style,
+                accent: style,
+                selected: style,
+            };
+            for width in [54, 114] {
+                let mut app = App::new("/unused".into(), width + 6, 18);
+                app.agents.selected = Agent::Compatible.index();
+                for failure in [
+                    Failure::Http(401),
+                    Failure::Http(403),
+                    Failure::Http(404),
+                    Failure::Http(429),
+                    Failure::Transport,
+                    Failure::Incompatible,
+                    Failure::VersionCheck,
+                    Failure::LoginCancelled,
+                    Failure::LoginExpired,
+                    Failure::LoginFailed,
+                    Failure::LoginRefused,
+                ] {
+                    app.agents.connection_failed(Agent::Compatible, failure);
+                    let mut terminal = Terminal::new(TestBackend::new(width, 8)).unwrap();
+                    terminal
+                        .draw(|frame| {
+                            let height =
+                                diagnostic_summary(frame, frame.area(), &app.agents, &paint);
+                            assert!(
+                                height <= 6,
+                                "reason/next must leave inspectable detail rows"
+                            );
+                        })
+                        .unwrap();
+                    let buffer = terminal.backend().buffer();
+                    let cells: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+                    let visible: String = cells.chars().filter(|c| !c.is_whitespace()).collect();
+                    for fact in [
+                        diagnostic_reason(&app.agents, &paint),
+                        diagnostic_next(&app.agents, &paint),
+                    ] {
+                        let complete: String =
+                            fact.chars().filter(|c| !c.is_whitespace()).collect();
+                        assert!(
+                            visible.contains(&complete),
+                            "complete diagnostic fact must remain visible"
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn full_connection_sheet_displays_every_disclosure_cell_in_both_languages() {

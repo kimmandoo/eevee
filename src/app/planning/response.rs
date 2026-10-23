@@ -12,6 +12,7 @@ struct Identity(String, String, String);
 struct Row {
     range: Range<usize>,
     header: bool,
+    spacer: bool,
 }
 
 /// A visible row borrows the cached header or original observation. File styling
@@ -48,12 +49,32 @@ pub(super) struct Layout {
     width: u16,
     verbose: bool,
     attributed: bool,
+    comfortable: bool,
     language: Option<Language>,
     anchor: Option<Anchor>,
     total: usize,
 }
 
-fn wrap(rows: &mut Vec<Row>, text: &str, width: usize, header: bool) {
+fn wrap(rows: &mut Vec<Row>, text: &str, width: usize, header: bool, spaced: bool) {
+    let mut push = |range: Range<usize>| {
+        if spaced
+            && !range.is_empty()
+            && rows
+                .last()
+                .is_some_and(|row| row.header == header && !row.range.is_empty())
+        {
+            rows.push(Row {
+                range: range.start..range.start,
+                header,
+                spacer: true,
+            });
+        }
+        rows.push(Row {
+            range,
+            header,
+            spacer: false,
+        });
+    };
     let mut base = 0;
     for line in text.split_terminator('\n') {
         let mut start = 0;
@@ -68,10 +89,7 @@ fn wrap(rows: &mut Vec<Row>, text: &str, width: usize, header: bool) {
             let size = Span::raw(grapheme).width();
             if used + size > width && cursor > start {
                 let end = word_break.filter(|end| *end > start).unwrap_or(cursor);
-                rows.push(Row {
-                    range: base + start..base + end,
-                    header,
-                });
+                push(base + start..base + end);
                 start = end;
                 cursor = end;
                 used = 0;
@@ -84,10 +102,7 @@ fn wrap(rows: &mut Vec<Row>, text: &str, width: usize, header: bool) {
                 word_break = Some(cursor);
             }
         }
-        rows.push(Row {
-            range: base + start..base + line.len(),
-            header,
-        });
+        push(base + start..base + line.len());
         base += line.len() + 1;
     }
 }
@@ -119,10 +134,19 @@ impl Layout {
         }
     }
 
-    fn update(&mut self, width: u16, items: &[Item], agent: &str, verbose: bool) {
+    fn update(
+        &mut self,
+        width: u16,
+        items: &[Item],
+        agent: &str,
+        verbose: bool,
+        comfortable: bool,
+    ) {
         let attributed = items.len() > 1;
-        let reflow =
-            self.width != width || self.verbose != verbose || self.attributed != attributed;
+        let reflow = self.width != width
+            || self.verbose != verbose
+            || self.attributed != attributed
+            || self.comfortable != comfortable;
         self.segments.truncate(items.len());
         self.total = 0;
         for (index, item) in items.iter().enumerate() {
@@ -232,13 +256,26 @@ impl Layout {
                         &segment.header,
                         usize::from(content_width),
                         true,
+                        false,
                     );
+                }
+                if comfortable
+                    && matches!(item.kind, ItemKind::Message | ItemKind::Plan)
+                    && !segment.header.is_empty()
+                    && !item.text.is_empty()
+                {
+                    segment.rows.push(Row {
+                        range: 0..0,
+                        header: false,
+                        spacer: true,
+                    });
                 }
                 wrap(
                     &mut segment.rows,
                     &item.text,
                     usize::from(content_width),
                     false,
+                    comfortable && matches!(item.kind, ItemKind::Message | ItemKind::Plan),
                 );
                 segment.valid = true;
             }
@@ -247,6 +284,7 @@ impl Layout {
         self.width = width;
         self.verbose = verbose;
         self.attributed = attributed;
+        self.comfortable = comfortable;
     }
 
     fn segment_at(&self, row: usize) -> Option<usize> {
@@ -272,7 +310,7 @@ impl Layout {
             .find(|segment| segment.identity == anchor.identity)?;
         let mut fallback = None;
         for (index, row) in segment.rows.iter().enumerate() {
-            if row.header == anchor.header {
+            if !row.spacer && row.header == anchor.header {
                 fallback = Some(segment.start + index);
                 if row.range.end > anchor.byte || row.range.start >= anchor.byte {
                     return fallback;
@@ -287,7 +325,12 @@ impl Layout {
             return;
         };
         let segment = &self.segments[index];
-        if let Some(row) = segment.rows.get(row.saturating_sub(segment.start)) {
+        if let Some(row) = segment
+            .rows
+            .iter()
+            .skip(row.saturating_sub(segment.start))
+            .find(|row| !row.spacer)
+        {
             self.anchor = Some(Anchor {
                 identity: Arc::clone(&segment.identity),
                 byte: row.range.start,
@@ -543,8 +586,12 @@ impl State {
         verbose: bool,
     ) -> impl Iterator<Item = ResponseRow<'_>> {
         self.response_height = height;
+        // Tight viewports keep the same content budget for safety/status and editing.
+        let comfortable = self.text_density() == crate::store::TextDensity::Comfortable
+            && width >= 20
+            && height >= 4;
         self.response_cache
-            .update(width, &self.items, self.agent.label(), verbose);
+            .update(width, &self.items, self.agent.label(), verbose, comfortable);
         self.response_max = self
             .response_cache
             .total

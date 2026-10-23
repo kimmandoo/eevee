@@ -36,6 +36,7 @@ impl App {
                 self.width = width;
                 self.confirmation_reviewed = false;
                 self.formations.invalidate();
+                self.workflow.authoring.invalidate();
                 self.formations.apply_pending = false;
                 self.height = height;
                 self.agents.affirmative = false;
@@ -145,8 +146,8 @@ impl App {
                 if self.confirmation.is_none() {
                     self.confirmation_reviewed = false;
                 }
-                let was_specialist_editor =
-                    self.overlay == Some(Overlay::Workflows) && self.workflow.editor.is_some();
+                let was_specialist_editor = self.overlay == Some(Overlay::Workflows)
+                    && (self.workflow.editor.is_some() || self.workflow.authoring.editing());
                 let changed = self.key(key, now);
                 let settled = self.settle_direct_action(key, was_specialist_editor);
                 changed || settled
@@ -498,6 +499,7 @@ impl App {
             && !self.sources.busy()
             && !self.sources.store_failed
             && !self.planning.journal_failed()
+            && !self.recipe_export_busy()
             && !self.transitioning
             && self.management.is_none()
             && self.switch_task.is_none()
@@ -792,6 +794,7 @@ impl App {
             || self.planning.custom_model.is_some()
             || self.planning.editing
             || self.workflow.editor.is_some()
+            || self.workflow.authoring.editing()
             || self.memory.editing()
             || self.moves.editing()
             || self.overlay == Some(Overlay::Formations) && self.formations.editing()
@@ -1273,6 +1276,7 @@ impl App {
     }
 
     pub(super) fn request_quit(&mut self) {
+        self.workflow.authoring.invalidate();
         if self.quit_requires_work_review()
             || self.planning_any_unknown()
             || self.execution_any_unknown()
@@ -1308,6 +1312,7 @@ impl App {
         } else if self.planning_any_busy()
             || self.execution_any_pending()
             || self.moves.persistence_pending()
+            || self.recipe_export_busy()
         {
             self.quit_after_save = true;
             self.notice = "Finishing local persistence before exit…".into();

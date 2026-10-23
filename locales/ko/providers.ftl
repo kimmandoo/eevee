@@ -4,17 +4,6 @@ providers-agents-checking-installed-providers-esc-back =
 
 providers-agents-no-matching-route-backspace-edits-esc-clears = { "일치하는 경로가 없습니다. Backspace 편집; Esc 지우기." }
 
-providers-agents-up-down-select-enter-review-method-tab =
-    { "Up/Down 선택 | Enter 방식 검토" }
-    { "Tab 제공자 | / 선택지 | Esc 돌아가기" }
-
-providers-agents-up-down-select-enter-open-action-tab =
-    { "Up/Down 선택 | Enter 동작 열기" }
-    { "Tab 제공자 | / 선택지 | Esc 돌아가기" }
-
-providers-agents-up-down-scroll-tab-providers-choices-esc =
-    { "Up/Down 스크롤 | Tab 제공자" }
-    { "/ 선택지 | Esc 돌아가기" }
 
 providers-agents-runs-executable-with-version-argument-no-task = { "버전 인자로 실행 파일을 실행하며 작업은 전송하지 않습니다." }
 

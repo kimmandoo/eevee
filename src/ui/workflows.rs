@@ -14,6 +14,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     if area.width < 60 || area.height < 18 {
         frame.render_widget(Clear, area);
         app.workflow.reviewed = false;
+        app.workflow.authoring.invalidate();
         if let Some(relay) = &mut app.workflow.relay {
             relay.reviewed = false;
         }
@@ -21,9 +22,17 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         text(
             frame,
             area,
-            paint.hint(crate::i18n::Message::DesksWorkflowsSpecialistDeskNeedXDraftRetainedResize),
+            paint.hint(if app.workflow.authoring.active {
+                crate::i18n::Message::RecipeAuthoringResize
+            } else {
+                crate::i18n::Message::DesksWorkflowsSpecialistDeskNeedXDraftRetainedResize
+            }),
             paint.accent,
         );
+        return;
+    }
+    if app.workflow.authoring.active {
+        render_authoring(frame, area, app, config, paint);
         return;
     }
     // Keep project/storage status and the global safe-exit footer visible.
@@ -336,4 +345,255 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         },
         paint.accent,
     );
+}
+
+fn render_authoring(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
+    use crate::app::workflows::authoring::{Field, Mode};
+    use crate::i18n::Message;
+    let review_visible = app.command_popup.is_none()
+        && app.confirmation.is_none()
+        && app.nickname_editor.is_none()
+        && app.composer_menu.is_none()
+        && app.cooperation_ui.release.is_none()
+        && app.cooperation.cancel_review.is_none()
+        && app.cooperation.journal_discard.is_none();
+    let area = centered(
+        row(area, 2, area.height.saturating_sub(4)),
+        116,
+        area.height.saturating_sub(4),
+    );
+    frame.render_widget(Clear, area);
+    let block = panel(
+        paint.hint(Message::RecipeAuthoringTitle),
+        config,
+        paint,
+        true,
+    );
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    let state = &mut app.workflow.authoring;
+    let notice = if !state.error.is_empty() {
+        state.error.as_str()
+    } else {
+        paint.hint(state.notice.unwrap_or(Message::RecipeAuthoringPolicy))
+    };
+    text(
+        frame,
+        row(content, 0, 2),
+        notice,
+        if state.error.is_empty() {
+            paint.muted
+        } else {
+            paint.accent
+        },
+    );
+    let body = row(content, 2, content.height.saturating_sub(4));
+    let footer = row(content, content.height.saturating_sub(2), 2);
+    state.page = body.height.max(1);
+    if let Some(field) = state.field {
+        text(
+            frame,
+            row(body, 0, 2),
+            paint.hint(field.title()),
+            paint.accent,
+        );
+        let input = row(body, 2, body.height.saturating_sub(3));
+        let (lines, (caret_row, caret_column)) = editor_rows(
+            state.value(field),
+            state.cursor,
+            input.width.saturating_sub(1) as usize,
+        );
+        let top = caret_row.saturating_sub(input.height.saturating_sub(1) as usize);
+        frame.render_widget(
+            Paragraph::new(lines.into_iter().map(Line::from).collect::<Vec<_>>())
+                .style(paint.surface)
+                .scroll((top.min(u16::MAX as usize) as u16, 0)),
+            input,
+        );
+        if !state.done && input.width > 0 && input.height > 0 {
+            frame.set_cursor_position((
+                input
+                    .x
+                    .saturating_add((caret_column as u16).min(input.width - 1)),
+                input
+                    .y
+                    .saturating_add((caret_row.saturating_sub(top) as u16).min(input.height - 1)),
+            ));
+        }
+        text(
+            frame,
+            row(body, body.height.saturating_sub(1), 1),
+            paint.hint(Message::RecipeAuthoringDone),
+            if state.done {
+                paint.accent
+            } else {
+                paint.muted
+            },
+        );
+        text(
+            frame,
+            footer,
+            paint.hint(Message::RecipeAuthoringEditorHint),
+            paint.accent,
+        );
+        return;
+    }
+    match state.mode {
+        Mode::Menu => {
+            let fields = [
+                Field::Name,
+                Field::Scope,
+                Field::Criteria,
+                Field::Steps,
+                Field::Path,
+            ];
+            let mut rows: Vec<String> = fields
+                .iter()
+                .map(|field| {
+                    let value = state.value(*field);
+                    format!(
+                        "{}: {}",
+                        paint.hint(field.title()),
+                        if value.is_empty() {
+                            paint.hint(Message::RecipeAuthoringEmpty).into()
+                        } else {
+                            value.replace('\n', " ")
+                        }
+                    )
+                })
+                .collect();
+            rows.push(format!(
+                "{} ({})",
+                paint.hint(Message::RecipeAuthoringCommands),
+                state.draft.runs.len()
+            ));
+            rows.push(paint.hint(Message::RecipeAuthoringPreview).into());
+            let selected = state.selected.min(rows.len() - 1);
+            // Keep keyboard focus and its complete value reachable at the minimum size.
+            let top = selected.saturating_sub(body.height.saturating_sub(1) as usize);
+            for (index, label) in rows.iter().enumerate().skip(top).take(body.height as usize) {
+                text(
+                    frame,
+                    row(body, (index - top) as u16, 1),
+                    &format!("{} {label}", if index == selected { ">" } else { " " }),
+                    if index == selected {
+                        paint.accent
+                    } else {
+                        paint.muted
+                    },
+                );
+            }
+            text(
+                frame,
+                footer,
+                paint.hint(Message::RecipeAuthoringMenuHint),
+                paint.accent,
+            );
+        }
+        Mode::Commands => {
+            let runs: Vec<_> = app
+                .execution
+                .history
+                .iter()
+                .filter(|run| run.prepared.task_id == app.task_id)
+                .collect();
+            let details = if let Some(run) = runs.get(state.selected) {
+                let eligibility = crate::workspace::workflows::authoring::command(
+                    std::path::Path::new(&app.cwd),
+                    app.task_id,
+                    run,
+                );
+                let status = match &eligibility {
+                    Ok(_) => paint.hint(Message::RecipeAuthoringEligible).to_string(),
+                    Err(error) => format!(
+                        "{}: {error}",
+                        paint.hint(Message::RecipeAuthoringUnavailable)
+                    ),
+                };
+                let mut details = format!(
+                    "{}/{}  {}  {}\n{}\n",
+                    state.selected + 1,
+                    runs.len(),
+                    run.prepared.run_id,
+                    if state.draft.runs.contains(&run.prepared.run_id) {
+                        paint.hint(Message::RecipeAuthoringSelected)
+                    } else {
+                        ""
+                    },
+                    status
+                );
+                details.push_str(&format!("{:?}\ncwd: {}\n{:?} / exit {:?} / {:?}\nstart {:?} / end {:?}\nsource before {:?}\nsource after {:?}\n",
+                    run.prepared.spec, run.prepared.cwd.display(), run.state, run.exit_code, run.tree,
+                    run.started_at_ms, run.ended_at_ms, run.prepared.before, run.after));
+                details
+            } else {
+                paint.hint(Message::RecipeAuthoringNoRuns).into()
+            };
+            let max = selection_details(
+                frame,
+                body,
+                Paragraph::new(details)
+                    .style(paint.surface)
+                    .wrap(Wrap { trim: false }),
+                state.scroll,
+            );
+            state.scroll_max = max;
+            state.scroll = state.scroll.min(max);
+            text(
+                frame,
+                footer,
+                paint.hint(Message::RecipeAuthoringCommandHint),
+                paint.accent,
+            );
+        }
+        Mode::Review => {
+            let details = state
+                .export
+                .as_ref()
+                .map(|export| {
+                    let mut details = format!(
+                        "{}: {}\n\n{}\n",
+                        paint.hint(Message::RecipeAuthoringOutput),
+                        export.path().display(),
+                        paint.hint(Message::RecipeAuthoringEvidence)
+                    );
+                    for run in export.runs() {
+                        details.push_str(&format!(
+                            "{} / exit {:?} / {:?} / {:?}–{:?}\nsource {:?}\n",
+                            run.prepared.run_id,
+                            run.exit_code,
+                            run.tree,
+                            run.started_at_ms,
+                            run.ended_at_ms,
+                            run.after.fingerprint
+                        ));
+                    }
+                    details.push_str(&format!(
+                        "\n{}\n\n{}",
+                        paint.hint(Message::RecipeAuthoringDefinition),
+                        export.bytes()
+                    ));
+                    details
+                })
+                .unwrap_or_default();
+            let max = selection_details(
+                frame,
+                body,
+                Paragraph::new(details)
+                    .style(paint.surface)
+                    .wrap(Wrap { trim: false }),
+                state.scroll,
+            );
+            state.scroll_max = max;
+            state.scroll = state.scroll.min(max);
+            state.reviewed =
+                review_visible && body.height >= 3 && state.scroll == max && state.export.is_some();
+            text(
+                frame,
+                footer,
+                paint.hint(Message::RecipeAuthoringReviewHint),
+                paint.accent,
+            );
+        }
+    }
 }

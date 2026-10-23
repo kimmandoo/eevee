@@ -160,6 +160,21 @@ def fixture_size(binary, output, size, ascii_mode):
                 return
             raise AssertionError('native login process survives return to Eevee')
 
+        def recover_methods(label):
+            # The explicit next-step control replaces the old automatic return
+            # to method selection; observing failure cannot restart login.
+            deadline = time.monotonic() + 12
+            while not any(re.search(r'(?:^|[|║])\s*n:\s', line)
+                          for line in session.display().splitlines()):
+                assert session.alive() and time.monotonic() < deadline, session.display()
+                session.pump(.05)
+            before = argv()
+            session.capture(label + '-actionable-failure')
+            session.send('n')
+            wait_for(session, 'Enter review')
+            assert argv() == before, 'opening recovery launched login without consent'
+            assert request_retained(), 'recovery changed the saved unsent Request'
+
         retained_request = 'Auth fixture retained request; do not automatically send.'
 
         def request_retained():
@@ -188,7 +203,7 @@ def fixture_size(binary, output, size, ascii_mode):
             assert argv() == [], 'discovery/review ran a provider without consent'
             preview('device authorization')
             authorize()
-            wait_for(session, 'Enter Review method')
+            recover_methods('device-refusal')
             assert argv() == [['--version'], ['login', '--device-auth']], 'unapproved device fallback'
             results['cases'].append('remote default uses exact device argv; failure cannot launch browser or model')
             session.send('\x1b[A')  # Explicit Browser selection despite remote default.
@@ -202,7 +217,7 @@ def fixture_size(binary, output, size, ascii_mode):
                 os.kill(value['pid'], 0)
                 assert argv()[-1] == ['login'], 'login returned before its callback'
             request(value, '/complete')
-            wait_for(session, 'Enter Review method')
+            recover_methods('reported-signed-out')
             closed(value)
             assert argv() == [['--version'], ['login', '--device-auth'],
                               ['--version'], ['login'], ['login', 'status']]
@@ -214,7 +229,7 @@ def fixture_size(binary, output, size, ascii_mode):
             session.capture('foreground-listener-before-cancel')
             request(value, '/waiting')
             session.send('\x03')
-            wait_for(session, 'Enter Review method')
+            recover_methods('cancelled-login')
             closed(value)
             assert argv() == [['--version'], ['login', '--device-auth'],
                               ['--version'], ['login'], ['login', 'status'],

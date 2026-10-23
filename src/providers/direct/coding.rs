@@ -140,6 +140,9 @@ async fn inference_rounds(
             wait_http(response, &round_control).await
         }
         .map_err(|error| {
+            if round > 1 && !round_control.cancelled() {
+                connection_failure(events, run, super::super::diagnostics::Failure::Transport);
+            }
             (
                 Outcome::Unknown,
                 format!("{error}; remote outcome unknown after dispatch; no retry"),
@@ -147,6 +150,13 @@ async fn inference_rounds(
         })?;
         if !response.status().is_success() {
             let status = response.status().as_u16();
+            if round > 1 {
+                connection_failure(
+                    events,
+                    run,
+                    super::super::diagnostics::Failure::Http(status),
+                );
+            }
             return Err((
                 if (400..500).contains(&status) {
                     Outcome::Failed
@@ -166,6 +176,9 @@ async fn inference_rounds(
             })
             .await
         {
+            if stream.transport_failed {
+                connection_failure(events, run, super::super::diagnostics::Failure::Transport);
+            }
             let _ = stream.publish_partial(events, run);
             return Err((
                 if stream.failed {

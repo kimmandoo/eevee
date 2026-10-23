@@ -380,9 +380,17 @@ impl App {
     }
     pub(super) fn formation_event(&mut self, result: Result<store::formations::Response, String>) {
         self.party_inflight = false;
+        if self.recipe_export_busy() {
+            self.recipe_export_event(result.and_then(|response| match response {
+                store::formations::Response::WorkflowExported { generation } => Ok(generation),
+                _ => Err("Unexpected workflow export response; no authority transferred".into()),
+            }));
+            return;
+        }
         self.formations.loading = false;
         self.transitioning = false;
         match result {
+            Ok(store::formations::Response::WorkflowExported { .. }) => {}
             Err(error) => {
                 self.formations.error = error;
                 self.formations.invalidate();

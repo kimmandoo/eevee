@@ -3978,56 +3978,72 @@ fn schema_eight_migrates_request_drafts_without_changing_task_facts() {
 #[test]
 fn provider_preferences_survive_restart_and_preserve_exact_route_ids_and_task_data() {
     use crate::providers::{Agent, ModelSelection};
-    let directory = Directory::new();
-    let worker = worker(&directory, "project");
-    loaded(&worker);
-    let task = create(&worker, snapshot("project", 1));
-    let preferences = ProviderPreferences {
-        provider: Agent::ChatGPT,
-        selections: [
-            (
-                Agent::Codex,
-                ModelSelection {
-                    model: Some("cli/EXACT-2026".into()),
-                    effort: Some("high".into()),
-                },
-            ),
-            (
-                Agent::ChatGPT,
-                ModelSelection {
-                    model: Some("native/EXACT-2026".into()),
-                    effort: Some("medium".into()),
-                },
-            ),
-        ]
-        .into_iter()
-        .collect(),
-        reduced_motion: true,
-    };
-    let mut pending = Some(PreferenceRequest::Save(preferences.clone()));
-    assert!(worker.try_preferences(&mut pending));
-    assert!(matches!(event(&worker), Event::Preferences(Ok(Some(saved))) if saved == preferences));
-    drop(worker);
-    let restarted =
-        super::Worker::start(directory.0.clone(), "project".into(), Policy::default()).unwrap();
-    assert_eq!(loaded(&restarted).tasks, vec![task]);
-    let mut pending = Some(PreferenceRequest::Load);
-    assert!(restarted.try_preferences(&mut pending));
-    assert!(
-        matches!(event(&restarted), Event::Preferences(Ok(Some(saved))) if saved == preferences)
-    );
-    let connection = open_readonly(&directory.0.join(DATABASE)).unwrap();
-    let record: String = connection
-        .query_row("SELECT record FROM provider_preferences", [], |row| {
-            row.get(0)
-        })
-        .unwrap();
-    let json: serde_json::Value = serde_json::from_str(&record).unwrap();
-    assert_eq!(json.as_object().unwrap().len(), 3);
-    assert_eq!(json["reduced_motion"], true);
-    for selection in json["selections"].as_object().unwrap().values() {
-        assert_eq!(selection.as_object().unwrap().len(), 2);
-        assert!(selection.get("model").is_some() && selection.get("effort").is_some());
+    for density in [TextDensity::Compact, TextDensity::Comfortable] {
+        let directory = Directory::new();
+        let worker = worker(&directory, "project");
+        loaded(&worker);
+        let task = create(&worker, snapshot("project", 1));
+        let preferences = ProviderPreferences {
+            provider: Agent::ChatGPT,
+            selections: [
+                (
+                    Agent::Codex,
+                    ModelSelection {
+                        model: Some("cli/EXACT-2026".into()),
+                        effort: Some("high".into()),
+                    },
+                ),
+                (
+                    Agent::ChatGPT,
+                    ModelSelection {
+                        model: Some("native/EXACT-2026".into()),
+                        effort: Some("medium".into()),
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            reduced_motion: true,
+            text_density: density,
+        };
+        let mut pending = Some(PreferenceRequest::Save(preferences.clone()));
+        assert!(worker.try_preferences(&mut pending));
+        assert!(
+            matches!(event(&worker), Event::Preferences(Ok(Some(saved))) if saved == preferences)
+        );
+        drop(worker);
+        let restarted =
+            super::Worker::start(directory.0.clone(), "project".into(), Policy::default()).unwrap();
+        assert_eq!(loaded(&restarted).tasks, vec![task]);
+        let mut pending = Some(PreferenceRequest::Load);
+        assert!(restarted.try_preferences(&mut pending));
+        assert!(
+            matches!(event(&restarted), Event::Preferences(Ok(Some(saved))) if saved == preferences)
+        );
+        let connection = open_readonly(&directory.0.join(DATABASE)).unwrap();
+        let record: String = connection
+            .query_row("SELECT record FROM provider_preferences", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_str(&record).unwrap();
+        assert_eq!(
+            json.as_object().unwrap().len(),
+            if density.is_compact() { 3 } else { 4 }
+        );
+        assert_eq!(
+            json.get("text_density").and_then(serde_json::Value::as_str),
+            if density.is_compact() {
+                None
+            } else {
+                Some("comfortable")
+            },
+        );
+        assert_eq!(json["reduced_motion"], true);
+        for selection in json["selections"].as_object().unwrap().values() {
+            assert_eq!(selection.as_object().unwrap().len(), 2);
+            assert!(selection.get("model").is_some() && selection.get("effort").is_some());
+        }
     }
 }
 
@@ -4049,6 +4065,7 @@ fn failed_preference_save_preserves_committed_preference_and_task_draft() {
         .into_iter()
         .collect(),
         reduced_motion: false,
+        text_density: TextDensity::Compact,
     };
     store
         .preference_request(PreferenceRequest::Save(preferences.clone()))
@@ -4192,6 +4209,7 @@ fn schema_ten_dismissal_migration_preserves_rows_and_rolls_back_atomically() {
         .into_iter()
         .collect(),
         reduced_motion: false,
+        text_density: TextDensity::Compact,
     };
     store
         .preference_request(PreferenceRequest::Save(preferences.clone()))

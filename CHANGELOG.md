@@ -2,6 +2,13 @@
 
 ## 2026-10-23
 
+- feat(providers): added provider-scoped actionable diagnostics for executable/version, authentication, access, policy, quota and transport failures without retaining private response/login output or replaying requests.
+- feat(preferences)!: persisted compact/comfortable text density through the existing global preference writer while preserving CJK editing, consent facts and independent provider/motion choices; retained Schema 18 but required a complete backup because v0.1.26 refused Comfortable's strict JSON extension.
+- feat(workflows): added reviewed schema-1 workflow authoring from user steps and actual retained passing commands through the existing store worker and create-only publisher, with inert cross-project plans and fresh effect approvals.
+- fix(ux): prioritized current observed connection failures over older setup/auth success notices while preserving explicit recovery, method/editor feedback and exact drafts.
+- test(platform): passed 1,392 Rust tests/two ignored, strict source checks, SDK44, final bilingual compact/wide diagnostics/density/workflow acceptance, genuine v0.1.26 refusal/resume and all ten native protocol variants/176 groups.
+- docs(tasks): archived A08, UX04A and S04 after actual acceptance, retained 74 completed detailed specifications and reconciled 31 remaining tasks with validated dependencies and links without publishing a new release.
+
 - fix(providers): decoupled native OpenAI account model defaults from external CLI configuration so unrelated unsafe or malformed files no longer blocked request preparation.
 - fix(ux): exposed complete scrollable blockers and direct localized connection setup while retaining frozen requests, future drafts and explicit cancellation without automatic resend.
 - test(providers): verified twelve bilingual compact/wide account-preparation and direct-recovery journeys/36 groups without dispatching inference, altering provider files or bypassing unsafe selected credentials.
@@ -67,6 +74,13 @@
 - docs(release): published v0.1.19 from source `63f1007` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.27 — unreleased
+
+- feat(providers): exposed localized failure categories and one explicit next step without hidden retries, authentication claims from installation or billing fallback.
+- feat(preferences)!: added persistent compact/comfortable reading density and documented actual previous-writer refusal despite unchanged SQL schema.
+- feat(workflows): added editable reviewed portable workflow export, honest historical provenance, collision-safe creation and separately reviewed cross-project application.
+- docs(release): kept public downloads and immutable v0.1.26 assets unchanged; no new release was requested.
 
 ## 0.1.26
 

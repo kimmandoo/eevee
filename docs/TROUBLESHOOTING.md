@@ -1,5 +1,33 @@
 # Troubleshooting
 
+### [2026-10-23] Complete runtime matrices exceeded the runner deadline
+
+- **Context / Symptom:** The 600-second cooperation invocation ended after 22 successful groups before completing both sizes. The serial native-protocol invocation likewise ended before its full ten variants finished. Neither interrupted run was a completed pass.
+- **Root Cause:** The unchanged full cooperation workload took approximately 666 seconds; the imposed runner deadline was shorter than that observed workload. The serial native matrix also needed more than the imposed deadline.
+- **Solution:** Re-ran cooperation with a sufficient 1800-second deadline: all 24 groups passed, including journal-quota disposal and real hard-kill recovery. Ran every original native `MATRIX` row through unchanged complete `Journey.run` with three isolated owners: all ten variants/176 groups passed in approximately 251 seconds. No assertion or production consent/ownership rule changed.
+- **Prevention / Reference:** Distinguish a process deadline from an application failure. Preserve completed evidence but do not report an interrupted matrix as a pass; allow the full workload to settle and clean up.
+
+### [2026-10-23] Current access refusal retained an older setup-success notice
+
+- **Context / Symptom:** The actual compact Korean HTTP403 diagnostic correctly showed access refusal and its next step, but also displayed the earlier `Native settings saved; choosing this route's model metadata only...` toast. The provider list could likewise retain outdated setup/auth guidance.
+- **Root Cause:** Shared connection feedback consulted cached authentication outcomes and generic setup notices independently of the newer typed failure summary.
+- **Solution:** Gave observed failures priority on the provider list and let the fixed failure/next-step summary own Actions/Diagnostics without the older toast. Kept active setup, method selection and installation feedback distinct.
+- **Prevention / Reference:** Final source passed eight real English/Korean 120×36/60×18 HTTP401/403 journeys after successful setup, including root-list/diagnostic captures, private-output exclusion, exact retained drafts and explicit no-replay remedies. No failure or consent guard was suppressed.
+
+### [2026-10-23] Metadata diagnostic fixture failed before reaching its HTTP listener
+
+- **Context / Symptom:** The new actual 401/403 metadata regression observed no correlated failure because its synthetic connection never reached the loopback listener.
+- **Root Cause:** Production metadata execution re-resolved and revalidated the configured source before network dispatch. A fabricated in-memory connection did not have a corresponding safely configured source in the child environment, so the prerequisite refusal correctly preceded HTTP.
+- **Solution:** Ran the real configured keyless Compatible source in an isolated child HOME/environment against an owned ephemeral listener. Retained configuration/source admission rather than bypassing it to force the fixture through.
+- **Prevention / Reference:** Exercise actual source resolution when testing transport boundaries. The regression checks typed status and private-body/header exclusion for 401 and 403 without credentials or paid calls.
+
+### [2026-10-23] Auth smoke confused prose and centered borders with the recovery control
+
+- **Context / Symptom:** The login fixture intermittently sent recovery input before the returned action screen, then the stricter wide-screen selector waited despite a visible `n:` next step. The compact variant could pass.
+- **Root Cause:** Searching for the substring `n:` also matched descriptive text. Requiring it at the start of a whole terminal row then failed for centered overlays, whose underlying left pane preceded the inner border.
+- **Solution:** Matched the actual `n:` control after an inner ASCII/Unicode border, waited for its displayed state, and then used the explicit next-step key. No production consent, replay or input-ownership guard was relaxed.
+- **Prevention / Reference:** The corrected actual auth fixture passed both 120×36 and 60×18, including failed device login, foreground callback/status and cancellation/listener cleanup while retaining the exact saved Request.
+
 ### [2026-10-23] Native account requests depended on unrelated external CLI configuration
 
 - **Context / Symptom:** Account Implement stopped before dispatch with `Send 0 payload bytes`, an unavailable destination and `Cannot read user provider config safely: require an absolute, non-project, user-owned regular file...`. Reproduced the exact public v0.1.25 preview using an isolated synthetic account environment and symlinked CLI `config.toml`, without approving network dispatch.

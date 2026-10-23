@@ -2925,14 +2925,20 @@ mod tests {
 
     #[test]
     fn complete_creation_scope_is_visible_and_permission_is_one_shot() {
-        for (width, height, tag) in [
-            (60, 18, "en"),
-            (120, 36, "en"),
-            (60, 18, "ko"),
-            (120, 36, "ko"),
+        use crate::store::TextDensity::{Comfortable, Compact};
+        for (width, height, tag, density) in [
+            (60, 18, "en", Compact),
+            (120, 36, "en", Compact),
+            (60, 18, "ko", Compact),
+            (120, 36, "ko", Compact),
+            (60, 18, "en", Comfortable),
+            (120, 36, "en", Comfortable),
+            (60, 18, "ko", Comfortable),
+            (120, 36, "ko", Comfortable),
         ] {
             let language = crate::i18n::Language::parse(tag).unwrap();
             let (mut app, task) = preview(width, height);
+            app.planning.set_text_density(density);
             draw_language(&mut app, language);
             key(&mut app, &task, KeyCode::Char('y'));
             assert!(matches!(

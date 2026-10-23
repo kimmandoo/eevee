@@ -1,8 +1,21 @@
 # Eevee Implementation Plan
 
-Updated: 2026-10-23. Immutable v0.1.26 completed the native-account configuration/direct-recovery correction after full source, public-package, downloaded runtime and installation proof. v0.1.25 completed form-independent coding/permissions and the concise README. Both user requests are complete; no active implementation step remains. Schema18/bridge9 and the 34 unfinished backlog tasks remain unchanged.
+Updated: 2026-10-23. Completed the authorized next three ordered tasks A08 → UX04A → S04 and archived their full specifications; 31 tasks remain. Source 0.1.27 is implemented but unreleased; immutable public v0.1.26 remains unchanged. No paid/live provider calls or new release publication were included. SQL Schema18/bridge9 remain; actual previous-writer refusal proved that serialized-format compatibility is a separate gate.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
+
+## Completed request — A08, UX04A and S04; source 0.1.27 unreleased
+
+1. Reuse shipped owners: connection readiness/actions and blocked recovery; store-global preferences; versioned Recipe plus safe portable create-only export. Keep app/command/key/worker integration under one owner.
+2. A08: implement provider-specific actionable diagnostics for missing executable, incompatible admission, actual auth-required response, cancelled login, eligibility and transport failures. Show redacted inspectable reasons and a deliberate next action without assuming install means authenticated or silently retrying/changing authority.
+3. UX04A: implement persistent compact/comfortable density through the existing preference writer, preserving provider/model/motion fields, startup hydration, latest intent, CJK draft/caret and permission/error scope at both sizes. Preserve default compatibility; prove published v0.1.26 refuses unsupported nondefault serialized preferences without modifying data.
+4. S04: author bounded workflows from user steps and real validation commands, edit name/scope/criteria, inspect honest provenance, export inert create-only TOML and reopen/apply in another project. Keep shared path/privacy validation, cancellation/collision safety and fresh per-effect consent; import no authority, secrets or foreign IDs.
+5. Integrate once, run locked Rust1.90 formatting/tests/strict Clippy and release build, then demonstrate actual EN/KO 120×36/60×18 connection failures, density/restart/old-writer refusal and recipe export/reopen/application/neutral nonapproval without paid traffic or original-data changes.
+6. Update binding/user docs, troubleshooting, changelog and checkpoint. Archive only tasks whose full gates pass, reconcile counts/dependencies, remove throwaway scaffolding and commit the completed implementation. Do not retag/replace prior releases or infer live-provider acceptance.
+
+Required implementation, source and runtime gates passed. Final frozen `target/next-three-b/ev` returned `ev 0.1.27`, SHA256 `00780fd04256b537575d69637c314293c89c9883394fec859a4a7c6d9d08f935`; Rust 1.90 formatting, 1,392 tests/two ignored, strict Clippy/release build, SDK 44 and Python 14/three skips passed. Final actual bilingual/both-size paths passed density/workflow round-trip and byte-identical v26 refusal/current resume, eight HTTP401/403 journeys, eight executable/policy journeys, ten auth lifecycle groups and all ten native protocol variants/176 groups. Candidate A also passed provider UX 20, bilingual file 126 and complete cooperation 24 groups; the final delta only corrected connection feedback precedence and was independently re-exercised. Task/spec/link integrity and exact changed scope are recorded in the checkpoint. No public release or authenticated-provider conformance was inferred.
+
+No active request remains. The next ordered backlog item is P04A, only when requested.
 
 ## Completed request — native account configuration blocker and direct recovery; v0.1.26 released
 

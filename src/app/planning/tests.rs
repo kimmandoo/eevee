@@ -3268,6 +3268,43 @@ fn response_layout_reflows_unicode_without_copying_or_splitting_graphemes() {
 }
 
 #[test]
+fn density_spacing_borrows_exact_output_and_preserves_paused_byte_anchor_when_tight() {
+    let mut state = active();
+    let original = "첫 界 e\u{301}\n둘째\nthird\nfourth\nfifth\nsixth";
+    streamed(&mut state, "first", original, false);
+    press(&mut state, KeyCode::Home, true);
+    assert_eq!(
+        state.response_rows(24, 4, false).collect::<Vec<_>>(),
+        ["첫 界 e\u{301}", "둘째", "third", "fourth"]
+    );
+    let source = state.items[0].text.as_ptr();
+    state.set_text_density(crate::store::TextDensity::Comfortable);
+    let spaced = state.response_rows(24, 4, false).collect::<Vec<_>>();
+    assert_eq!(spaced, ["첫 界 e\u{301}", "", "둘째", ""]);
+    assert_eq!(
+        spaced[0].as_ptr(),
+        source,
+        "display rows borrow canonical bytes"
+    );
+    assert!(state.scroll_response_lines(2));
+    assert_eq!(state.response_rows(24, 4, false).next(), Some("둘째"));
+    state.set_text_density(crate::store::TextDensity::Compact);
+    assert_eq!(
+        state.response_rows(24, 4, false).next(),
+        Some("둘째"),
+        "density changes keep the paused source byte, not its display row"
+    );
+    state.set_text_density(crate::store::TextDensity::Comfortable);
+    assert_eq!(
+        state.response_rows(24, 3, false).collect::<Vec<_>>(),
+        ["둘째", "third", "fourth"],
+        "tight viewports yield decorative spacing"
+    );
+    assert_eq!(state.items[0].text, original);
+    assert!(!state.following);
+}
+
+#[test]
 fn tool_observations_share_the_transcript_and_hidden_cache_stays_fresh() {
     let mut state = active();
     streamed(&mut state, "first", "first response", true);

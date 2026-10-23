@@ -1574,7 +1574,17 @@ impl Engine<'_> {
             .ok_or("ACP response lacks result/error")?;
         match call.kind {
             Call::Initialize => {
-                self.capabilities = negotiated(result)?;
+                self.capabilities = negotiated(result).inspect_err(|_| {
+                    let _ = emit(
+                        self.events,
+                        Event::ConnectionFailed {
+                            generation: self.run.generation,
+                            task_id: self.run.input.task.id,
+                            agent: self.run.input.agent,
+                            failure: super::diagnostics::Failure::Incompatible,
+                        },
+                    );
+                })?;
                 // agentInfo describes the agent build, not necessarily its CLI package
                 // (Devin has reported 0.0.0-dev). Protocol capabilities, not package
                 // equality, qualify this peer; executable identity remains bound.

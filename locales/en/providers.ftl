@@ -4,17 +4,6 @@ providers-agents-checking-installed-providers-esc-back =
 
 providers-agents-no-matching-route-backspace-edits-esc-clears = { "No matching route. Backspace edits; Esc clears." }
 
-providers-agents-up-down-select-enter-review-method-tab =
-    { "Up/Down Select | Enter Review method" }
-    { "Tab Providers | / choices | Esc Back" }
-
-providers-agents-up-down-select-enter-open-action-tab =
-    { "Up/Down Select | Enter Open action" }
-    { "Tab Providers | / choices | Esc Back" }
-
-providers-agents-up-down-scroll-tab-providers-choices-esc =
-    { "Up/Down Scroll | Tab Providers" }
-    { "/ choices | Esc Back" }
 
 providers-agents-runs-executable-with-version-argument-no-task = { "Runs executable with version argument; no task sent." }
 

@@ -192,7 +192,7 @@ fn emit(events: &Events, event: Event) -> Result<(), String> {
     let limit = match &event {
         Event::Item { .. } | Event::Status { .. } => QUEUE_LIMIT - QUEUE_RESERVE,
         Event::Finished { .. } => QUEUE_LIMIT,
-        Event::Journal { .. } => QUEUE_LIMIT - 1,
+        Event::Journal { .. } | Event::ConnectionFailed { .. } => QUEUE_LIMIT - 1,
         Event::LocalEffectsUnknown { .. } => QUEUE_LIMIT - 2,
         Event::PromptClosed { .. } => QUEUE_LIMIT - 3,
         _ => QUEUE_LIMIT - 4,
@@ -877,17 +877,40 @@ async fn wait_http<T>(
         }
     }
 }
+fn connection_failure(events: &Events, run: &Prepared, failure: super::diagnostics::Failure) {
+    let _ = emit(
+        events,
+        Event::ConnectionFailed {
+            generation: run.generation,
+            task_id: run.input.task.id,
+            agent: run.input.agent,
+            failure,
+        },
+    );
+}
+
 async fn wait_inference(
     future: impl Future<Output = Result<reqwest::Response, reqwest::Error>>,
     run: &Prepared,
     events: &Events,
     control: &Control<'_>,
 ) -> Result<reqwest::Response, String> {
-    let response = wait_http(future, control).await?;
+    let response = wait_http(future, control).await.inspect_err(|_| {
+        if !control.cancelled() {
+            connection_failure(events, run, super::diagnostics::Failure::Transport);
+        }
+    })?;
     // Headers prove transmission even when HTTP rejects the request. Transport
     // errors alone cannot prove submission and retain their unknown outcome.
     if let Some(event) = run.input.dispatched(run.generation) {
         emit(events, event)?;
+    }
+    if !response.status().is_success() {
+        connection_failure(
+            events,
+            run,
+            super::diagnostics::Failure::Http(response.status().as_u16()),
+        );
     }
     Ok(response)
 }
@@ -972,6 +995,8 @@ async fn dispatch_async(
             &connection,
             run.input.selection.model.as_deref(),
             control,
+            run,
+            events,
         )
         .await
         .and_then(|catalogue| {
@@ -1132,6 +1157,8 @@ async fn discover(
     connection: &Connection,
     explicit: Option<&str>,
     control: &Control<'_>,
+    run: &Prepared,
+    events: &Events,
 ) -> Result<ModelCatalogue, String> {
     discover_pages(connection, explicit, control, |cursor| async move {
         control.check()?;
@@ -1147,11 +1174,20 @@ async fn discover(
             };
             request = request.query(&[(key, cursor)]);
         }
-        let mut response = wait_http(request.send(), control).await?;
+        let mut response = wait_http(request.send(), control).await.inspect_err(|_| {
+            if !control.cancelled() {
+                connection_failure(events, run, super::diagnostics::Failure::Transport);
+            }
+        })?;
         if !response.status().is_success() {
+            connection_failure(
+                events,
+                run,
+                super::diagnostics::Failure::Http(response.status().as_u16()),
+            );
             return Err(http_status(response.status().as_u16()));
         }
-        let bytes = read_bounded(&mut response, PAGE_LIMIT, control).await?;
+        let bytes = read_bounded(&mut response, PAGE_LIMIT, control, run, events).await?;
         serde_json::from_slice(&bytes).map_err(|_| {
             "Provider models response is not valid JSON; no fallback catalogue accepted".into()
         })
@@ -1260,10 +1296,19 @@ async fn read_bounded(
     response: &mut reqwest::Response,
     limit: usize,
     control: &Control<'_>,
+    run: &Prepared,
+    events: &Events,
 ) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
     loop {
-        let Some(chunk) = wait_http(response.chunk(), control).await? else {
+        let Some(chunk) = wait_http(response.chunk(), control)
+            .await
+            .inspect_err(|_| {
+                if !control.cancelled() {
+                    connection_failure(events, run, super::diagnostics::Failure::Transport);
+                }
+            })?
+        else {
             return Ok(bytes);
         };
         if bytes.len() + chunk.len() > limit {
@@ -1322,6 +1367,7 @@ struct Stream {
     model_published: bool,
     complete: bool,
     failed: bool,
+    transport_failed: bool,
     chat_finished: bool,
     response_id: Option<String>,
     usage: Option<Counters>,
@@ -1341,6 +1387,7 @@ impl Stream {
             model_published: false,
             complete: false,
             failed: false,
+            transport_failed: false,
             chat_finished: false,
             response_id: None,
             usage: None,
@@ -1671,7 +1718,12 @@ impl Stream {
     ) -> Result<(), String> {
         let mut sse = Sse::default();
         loop {
-            let Some(chunk) = wait_http(response.chunk(), control).await? else {
+            let Some(chunk) = wait_http(response.chunk(), control)
+                .await
+                .inspect_err(|_| {
+                    self.transport_failed = !control.cancelled();
+                })?
+            else {
                 return if self.complete && sse.pending.is_empty() && sse.data.is_empty() {
                     Ok(())
                 } else {

@@ -299,6 +299,16 @@ impl App {
     }
 
     pub(super) fn request_navigation(&mut self, action: execution::Action) {
+        if self.recipe_export_busy() {
+            if matches!(action, execution::Action::Quit) {
+                self.finish_request_quit();
+            } else {
+                self.notice = crate::i18n::Language::ENGLISH
+                    .text(crate::i18n::Message::RecipeAuthoringBusy)
+                    .into();
+            }
+            return;
+        }
         if !matches!(action, execution::Action::Quit) && !self.records_can_switch() {
             self.notice =
                 "Wait for the local record batch to commit before switching forms or tasks.".into();
@@ -497,6 +507,7 @@ impl App {
             && !self.execution_any_pending()
             && !self.planning_any_busy()
             && !self.moves.persistence_pending()
+            && !self.recipe_export_busy()
         {
             if self.sources.store_failed || self.planning_any_journal_failed() {
                 self.quit_after_save = false;
