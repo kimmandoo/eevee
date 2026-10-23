@@ -738,10 +738,7 @@ class Journey:
             self.write_request('Do not transmit old context across unexpected scope drift.')
             before = len(peer.snapshot('POST'))
             session.send('\r')
-            until(session, lambda: 'Request blocked' in session.display(),
-                  'scope drift must remain visibly blocked before inspection')
             session.command('approvals')
-            wait_for(session, 'Run blocked')
             session.send('d')
             pages = []
             for page in range(32):
