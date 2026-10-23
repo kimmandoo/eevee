@@ -4,10 +4,10 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 
 ## Current state
 
-- **Released:** [v0.1.24](https://github.com/kimmandoo/eevee/releases/tag/v0.1.24) corrected ordinary file intent and automatic actionable permission popups after exact-source native qualification, immutable publication and complete public runtime/installation proof. The further form-dependent coding/context report remains active below; the four-task Pokémon milestone remains complete.
+- **Released:** [v0.1.25](https://github.com/kimmandoo/eevee/releases/tag/v0.1.25) completed form-independent project coding/context, automatic exact permission review and a concise README after source qualification, immutable publication and complete public runtime/install proof. The further native-account configuration blocker remains active below; the four-task Pokémon milestone remains complete.
 - **Compatibility:** Schema 18 and complete SDK bridge 9 remain unchanged. Persistent reduced motion extends strict preference JSON; v0.1.21 refused the new true setting without changing bytes. Back up the entire data directory before upgrading; an in-place downgrade is not backup restoration.
 - **Remaining:** **34 tasks**. The four-task Pokémon feature/accessibility milestone is implemented and archived; authenticated provider, full-product acceptance and general platform/context work remain separate.
-- **Active user request:** Remove evolution-form barriers to file creation, modification and current-project context, and automatically show required actionable permission popups; then release the fully verified correction. See the active implementation plan/checkpoint. This supersedes ordinary backlog task **A08 — Actionable connection diagnostics**. No paid/live model trial is authorized.
+- **Active user request:** Fix native account Implement blocked by unrelated provider configuration, make actual blockers readable and directly recoverable, and release a separate verified v0.1.26 without replacing v0.1.25. Preserve strict credential checks, drafts and no automatic resend. This supersedes ordinary backlog task **A08 — Actionable connection diagnostics**. No paid/live model trial is authorized.
 
 ## Completed Pokémon milestone
 

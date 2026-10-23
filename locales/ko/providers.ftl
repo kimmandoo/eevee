@@ -147,6 +147,11 @@ providers-planning-planning-terminal-too-small-need-60-columns =
 
 providers-planning-local-preview-no-provider-connection-authorized = { "로컬 미리보기 / 제공자 연결 미승인" }
 
+providers-planning-blocked-connection-needs-attention = 차단됨 / 연결 확인 필요
+providers-planning-blocker-reason = 차단 사유: { $reason }
+providers-planning-setup-keeps-request-no-automatic-retry = 설정 중 요청과 초안을 보존하며 자동 전송이나 재시도하지 않습니다.
+providers-planning-request-kept-not-sent = 요청 보존 / 전송하지 않음
+
 providers-planning-provider-request-explicit-response-required = { "제공자 요청 / 명시적 응답 필요" }
 
 providers-planning-cancelling-waiting-outcome-not-yet-known = { "취소 중 / 대기 중; 결과는 아직 불명" }
@@ -255,8 +260,8 @@ providers-planning-wheel-pgup-dn-alt-up-down-item = { "Wheel/PgUp/Dn 전체 | Al
 providers-planning-decision-reviews-a-complete-proposal-locally = { "/decision: 완성된 메시지/계획만, 파일 미리보기 제외" }
 
 providers-planning-run-blocked-n-cancel-esc-cancel-d =
-    { "실행 차단 / n 취소 / Esc 취소" }
-    { " d 상세: 사전 조건 / 연결 없음" }
+    { "c 연결 설정 / PgUp/Dn 사유 스크롤" }
+    { "n 취소 / Esc 나중에 / d 상세 · 전송 없음" }
 
 providers-planning-cancel-run-unavailable-until-summary-is-visible =
     { "[취소] / 전체 범위 검토 후 실행 가능" }
@@ -630,13 +635,11 @@ providers-planning-who-asks-this-provider-request-only = { $owner }{ "의 요청
 
 providers-planning-selected-permission = { "선택: " }{ $label }
 
-providers-planning-blocked-d-for-all-prerequisites = { "차단됨: " }{ $reason }{ " (d 모든 사전 조건)" }
 
 providers-planning-writes-selected-paths-inspect-exact-scope-d = { "생성/교체 " }{ $count }{ "개 · 상위 폴더/정확한 내용(d)." }
 
 providers-planning-send-payload-bytes-thread-one-turn = { $bytes }{ "바이트 페이로드 전송 · " }{ $thread }{ " 스레드 · 한 턴." }
 
-providers-planning-blocked-d-for-full-remedy = { "차단됨: " }{ $reason }{ " (d 전체 해결 방법)" }
 
 providers-planning-send-payload-bytes-fresh-http-request = { $bytes }{ "바이트 페이로드 전송 · 새 HTTP 요청." }
 

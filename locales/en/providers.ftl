@@ -147,6 +147,11 @@ providers-planning-planning-terminal-too-small-need-60-columns =
 
 providers-planning-local-preview-no-provider-connection-authorized = { "LOCAL PREVIEW / no provider connection authorized" }
 
+providers-planning-blocked-connection-needs-attention = BLOCKED / connection needs attention
+providers-planning-blocker-reason = Blocker: { $reason }
+providers-planning-setup-keeps-request-no-automatic-retry = Setup keeps your Request and draft; no automatic send or retry.
+providers-planning-request-kept-not-sent = REQUEST KEPT / not sent
+
 providers-planning-provider-request-explicit-response-required = { "PROVIDER REQUEST / explicit response required" }
 
 providers-planning-cancelling-waiting-outcome-not-yet-known = { "CANCELLING / waiting; outcome not yet known" }
@@ -255,8 +260,8 @@ providers-planning-wheel-pgup-dn-alt-up-down-item = { "Wheel/PgUp/Dn transcript 
 providers-planning-decision-reviews-a-complete-proposal-locally = { "/decision: complete messages/plans only, not file previews" }
 
 providers-planning-run-blocked-n-cancel-esc-cancel-d =
-    { "Run blocked / n Cancel / Esc Cancel" }
-    { " d Details: prerequisites / no connection" }
+    { "c Connection setup / PgUp/Dn Reason" }
+    { "n Cancel / Esc Later / d Details · no send" }
 
 providers-planning-cancel-run-unavailable-until-summary-is-visible =
     { "[Cancel] / Run needs the complete scope" }
@@ -630,13 +635,11 @@ providers-planning-who-asks-this-provider-request-only = { $owner }{ " asks · "
 
 providers-planning-selected-permission = { "Selected: " }{ $label }
 
-providers-planning-blocked-d-for-all-prerequisites = { "BLOCKED: " }{ $reason }{ " (d for all prerequisites)" }
 
 providers-planning-writes-selected-paths-inspect-exact-scope-d = { "Create/replace: " }{ $count }{ " paths; parents + exact content (d)." }
 
 providers-planning-send-payload-bytes-thread-one-turn = { "Send " }{ $bytes }{ " payload bytes · " }{ $thread }{ " thread · one turn." }
 
-providers-planning-blocked-d-for-full-remedy = { "BLOCKED: " }{ $reason }{ " (d for full remedy)" }
 
 providers-planning-send-payload-bytes-fresh-http-request = { "Send " }{ $bytes }{ " payload bytes · fresh HTTP request." }
 

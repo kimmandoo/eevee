@@ -2664,6 +2664,94 @@ mod tests {
     }
 
     #[test]
+    fn blocked_connection_recovery_keeps_frozen_request_future_draft_and_explicit_plan() {
+        use crate::providers::{Agent, Operation, Outcome, Preview, Request};
+        for (width, height, draft_text, cursor) in [
+            (60, 18, "", 0),
+            (120, 36, "", 0),
+            (60, 18, "Future 界 draft suffix", "Future ".len()),
+            (120, 36, "Future 界 draft suffix", "Future ".len()),
+        ] {
+            for agent in [Agent::ChatGPT, Agent::OpenAI] {
+                let mut app = App::new("/workspace".into(), width, height);
+                app.task_id = 7;
+                app.goal = "Saved recovery task".into();
+                app.agents.pending.take();
+                app.agents
+                    .event(crate::providers::agent::Event::Discovered(Vec::new()));
+                app.planning.preference_event(Ok(None));
+                app.planning.agent = agent;
+                app.planning.set_operation(Operation::Plan);
+                app.update(Event::Paste("Frozen 界 request\nexact spacing  ".into()));
+                let task = app.snapshot("/workspace");
+                app.planning.command("new", true, &task, &[], None);
+                assert!(matches!(
+                    app.planning.pending.take(),
+                    Some(Request::Preview(_))
+                ));
+                let frozen = app.planning.submitted_request.clone();
+                assert!(frozen.contains("Frozen 界 request\nexact spacing  "));
+                app.planning
+                    .event(crate::providers::Event::Preview(Preview {
+                        arrival: crate::providers::approval_arrival(),
+                        destination: None,
+                        requires_connection_review: false,
+                        generation: 11,
+                        task_id: 7,
+                        thread_id: None,
+                        trust: Vec::new(),
+                        payload: "{}".into(),
+                        blockers: vec![
+                            "Cannot read user provider config safely: actual remedy".into(),
+                        ],
+                    }));
+                app.input = draft_text.into();
+                app.cursor = cursor;
+                let draft = (app.input.clone(), app.cursor);
+                app.open_overlay(Overlay::Planning);
+                app.update(Event::Key(KeyEvent::new_with_kind(
+                    KeyCode::Char('c'),
+                    KeyModifiers::NONE,
+                    KeyEventKind::Repeat,
+                )));
+                assert_eq!(app.overlay, Some(Overlay::Planning));
+                assert!(app.planning.pending.is_none());
+                key(&mut app, KeyCode::Char('c'));
+                assert_eq!(app.overlay, Some(Overlay::Agents));
+                assert_eq!(app.agents.selected, agent.index());
+                if agent == Agent::ChatGPT {
+                    assert_eq!(app.agents.page, super::super::agents::Page::Account);
+                } else {
+                    assert!(app.agents.connection_editing());
+                }
+                assert_eq!((app.input.clone(), app.cursor), draft);
+                assert_eq!(app.planning.submitted_request, frozen);
+                assert_eq!(app.planning.operation, Operation::Plan);
+                assert!(matches!(
+                    app.planning.pending.take(),
+                    Some(Request::Cancel { generation: 11 })
+                ));
+                assert!(app.pending_request.is_none() && app.agents.pending.is_none());
+                app.planning.event(crate::providers::Event::Finished {
+                    generation: 11,
+                    task_id: 7,
+                    outcome: Outcome::Cancelled,
+                    message: "Local preview discarded".into(),
+                });
+                app.planning.invalidate_connection(agent);
+                app.settle_planning();
+                assert_eq!((app.input.clone(), app.cursor), draft);
+                assert_eq!(app.planning.submitted_request, frozen);
+                assert_eq!(app.planning.operation, Operation::Plan);
+                assert!(app.planning.pending.is_none() && app.pending_request.is_none());
+                assert!(!app.planning.send_after_prepare);
+                assert!(!app.planning.failed_request);
+                assert_eq!(app.planning.inspection.as_deref(), Some(frozen.as_ref()));
+            }
+        }
+    }
+
+    #[test]
     fn unavailable_repository_after_sources_does_not_trap_saved_connection_admission() {
         fn save_request(app: &mut App) {
             app.update(Event::Key(KeyEvent::new(
