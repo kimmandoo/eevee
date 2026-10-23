@@ -54,7 +54,9 @@ jobs:
   native:
     name: Build / ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    # Complete bilingual file/context/tool journeys exceeded one hour on macOS.
+    # Keep every acceptance step mandatory instead of qualifying partial packages.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:

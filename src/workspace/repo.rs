@@ -1458,10 +1458,12 @@ pub(crate) fn source_visible(
     #[cfg(windows)]
     let path: &str = &git_path;
     #[cfg(target_os = "macos")]
-    let composed = {
+    let composed_storage = {
         use unicode_normalization::UnicodeNormalization;
         path.nfc().collect::<String>()
     };
+    #[cfg(target_os = "macos")]
+    let composed = composed_storage.as_str();
     #[cfg(not(target_os = "macos"))]
     let composed = path;
     let git = Git::new(root, stopped, Instant::now() + COMMAND_TIMEOUT)?;
@@ -1473,7 +1475,7 @@ pub(crate) fn source_visible(
         "-z",
         "--",
         path,
-        &composed,
+        composed,
     ];
     // Ask only for this literal identity. Git may store NFC while the retained
     // native namespace exposes NFD; compare returned opened-handle spellings,
@@ -1512,10 +1514,12 @@ pub(crate) fn source_paths(
     #[cfg(windows)]
     let scope = wire_scope.as_str();
     #[cfg(target_os = "macos")]
-    let composed = {
+    let composed_storage = {
         use unicode_normalization::UnicodeNormalization;
         scope.nfc().collect::<String>()
     };
+    #[cfg(target_os = "macos")]
+    let composed = composed_storage.as_str();
     #[cfg(not(target_os = "macos"))]
     let composed = scope;
     let git = Git::new(root, stopped, Instant::now() + COMMAND_TIMEOUT)?;
@@ -1527,7 +1531,7 @@ pub(crate) fn source_paths(
         "-z",
         "--",
         scope,
-        &composed,
+        composed,
     ];
     let count = if composed == scope { 7 } else { 8 };
     let output = git.required(&arguments[..count], None, 512 * 1024)?;

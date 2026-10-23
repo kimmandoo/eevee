@@ -214,8 +214,9 @@ mod tests {
         Vec<RunRecord>,
         Vec<Observation>,
     ) {
+        let project = std::env::temp_dir().join("eevee-offline-ledger-fixture");
         let task = serde_json::from_value(serde_json::json!({
-            "project": "/offline/project", "goal": "Retain failures while changing strategy",
+            "project": project, "goal": "Retain failures while changing strategy",
             "form": 0, "revision": 9, "id": 7,
             "criteria": [{"text": "offline check passes", "met": false}],
             "next_action": "Fix the failed check with the new strategy",
@@ -234,7 +235,7 @@ mod tests {
         let captures = vec![Excerpt {
             id: 1,
             task_id: 7,
-            root: "/offline/project".into(),
+            root: project.to_str().unwrap().into(),
             path: "parser.rs".into(),
             start_line: 1,
             end_line: 1,
@@ -251,10 +252,10 @@ mod tests {
                 program: "local-check".into(),
                 args: vec!["--offline".into()],
             },
-            cwd: "/offline/project".into(),
+            cwd: project.clone(),
             cwd_identity: "fixture-root".into(),
             executable: runner::ExecutableIdentity {
-                path: "/offline/bin/local-check".into(),
+                path: project.join("local-check"),
                 sha256: "0".repeat(64),
                 bytes: 1,
                 modified_ns: 0,

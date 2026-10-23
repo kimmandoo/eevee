@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-24] Expanded native qualification exposed platform-specific fixtures and job exhaustion
+
+- **Context / Symptom:** Native run40022572931 passed both Linux targets but failed Check on two `needless_borrow` diagnostics, Windows on five unit cases, and both macOS jobs at the 60-minute limit while still progressing through mandatory bilingual context/tool journeys.
+- **Root Cause:** macOS normalization used an owned string while other platforms used a borrowed string, making the same argument borrow redundant only off macOS. A Windows test still treated every >64-KiB file as unreadable after observation was separated from mutation. Four ledger tests used `/offline/project`, which is not a volume-qualified Windows absolute root. The enlarged serial native acceptance workload exceeded the prior macOS job ceiling; no runtime assertion failure was observed in those timed-out rows.
+- **Solution:** Used a uniform borrowed normalized path while allocating only on macOS; checked the unchanged mutation-mode bound rather than the obsolete observational refusal; constructed ledger fixtures from the native temporary root. Raised the complete native job ceiling to120 minutes without removing, weakening or bypassing any acceptance step. CandidateH passed1,544 Rust tests/two ignored, formatting/strict Clippy/release and12 bilingual native/Codex/ACP source-observation journeys. Fresh exact-source native qualification remains required before publication.
+- **Prevention / Reference:** Keep platform-valid fixtures, distinguish observational policy from mutation authority, and size the CI envelope for the complete mandatory workload. Linux package success never authorizes a partial-platform release.
+
 ### [2026-10-24] Recovery driver confused explicit lead stop with all-owner confirmation
 
 - **Context / Symptom:** The locked-journal journey at39×10 expected `/cancel` to leave its owned process alive until a later confirmation; the process stopped immediately.
