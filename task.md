@@ -4,10 +4,10 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 
 ## Current state
 
-- **Implementation:** v0.1.22 completed PT11, MV08B, UX04B and PK03; exact-source native qualification/publication remains the active release gate. Public v0.1.21 stays immutable until the new release passes.
+- **Released:** [v0.1.22](https://github.com/kimmandoo/eevee/releases/tag/v0.1.22) completed PT11, MV08B, UX04B and PK03 with exact-source native qualification, immutable publication and downloaded feature/installation proof.
 - **Compatibility:** Schema 18 and complete SDK bridge 9 remain unchanged. Persistent reduced motion extends strict preference JSON; v0.1.21 refused the new true setting without changing bytes. Back up the entire data directory before upgrading; an in-place downgrade is not backup restoration.
 - **Remaining:** **34 tasks**. The four-task Pokémon feature/accessibility milestone is implemented and archived; authenticated provider, full-product acceptance and general platform/context work remain separate.
-- **Next implementation when requested:** **A08 — Actionable connection diagnostics**. This release request authorizes only the four completed tasks, not another backlog feature or paid/live model trial.
+- **Active user request:** Unified OpenAI-family connection routing and provider UI/UX correction; see the active implementation plan/checkpoint. This takes priority over the next ordinary backlog task **A08 — Actionable connection diagnostics**. No paid/live model trial is authorized.
 
 ## Completed Pokémon milestone
 
