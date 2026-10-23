@@ -28,6 +28,7 @@ import traceback
 
 from terminal_smoke import Session, confirm_exit, terminal_environment, WINDOWS
 from workbench_smoke import wait_for
+from connection_smoke_helpers import fill_text, focus_field, open_setup
 
 ESC = '\x1b'
 HOME = ESC + '[H'
@@ -416,8 +417,7 @@ class Journey:
         session = self.session
         before_posts = len(self.peer.snapshot('POST'))
         expected_metadata = len(self.peer.snapshot('GET')) + 1
-        session.command('connect ' + self.route)
-        wait_for(session, 'API key:')
+        open_setup(session, self.route, advanced=True)
         self.private_focus('API key')
         self.capture('setup-before-' + str(len(self.cases)))
         assert not session.screen.cursor.hidden, 'native private credential editor not focused'
@@ -425,28 +425,24 @@ class Journey:
             self.private_paste(secret)
             wait_for(session, '********')
         self.capture('setup-masked-' + str(len(self.cases)))
-        session.send('\t')
-        self.private_focus('Endpoint')
-        # Existing endpoint/model text uses ordinary private-form editing, not Request.
-        session.send('\x15')  # Private Ctrl+U clears only this field.
-        session.paste(base or self.peer.base)
-        session.send('\t\x15')
-        self.private_focus('Default model')
-        session.paste(MODEL)
-        session.send('\t')
+        # Actual field labels own navigation; primary and advanced forms may
+        # have different orders without changing this transport boundary.
+        fill_text(session, 'endpoint', base or self.peer.base)
+        fill_text(session, 'model', MODEL)
+        focus_field(session, 'protocol' if self.route == 'compatible' else 'storage')
         self.private_focus('Protocol' if self.route == 'compatible' else 'Storage')
         if self.route == 'compatible':
             if initial and self.protocol == 'responses':
                 session.send(' ')
-            session.send('\t')
+            focus_field(session, 'auth')
             self.private_focus('Authentication')
             if initial and self.keyless:
                 session.send(' ')
-            session.send('\t')
+            focus_field(session, 'storage')
             self.private_focus('Storage')
         if (self.persist if persist is None else persist):
             session.send(' ')
-        session.send('\t')
+        focus_field(session, 'save')
         self.private_focus('Save & choose model')
         wait_for(session, 'Save & choose model')
         self.capture('setup-explicit-save-and-choose-model-' + str(len(self.cases)))
@@ -563,14 +559,12 @@ class Journey:
         before_network = len(peer.snapshot())
         before_state = self.snapshot()
         self.workspace()
-        session.command('connect ' + other_route)
-        wait_for(session, 'API key:')
+        open_setup(session, other_route, advanced=True)
         self.private_paste(self.secrets[0])
-        session.send('\t\x15')
-        session.paste(peer.base)
-        session.send('\t\x15')
-        session.paste(MODEL)
-        session.send('\t ')  # Explicit private-file storage for this second route.
+        fill_text(session, 'endpoint', peer.base)
+        fill_text(session, 'model', MODEL)
+        focus_field(session, 'storage')
+        session.send(' ')  # Explicit private-file storage for this second route.
         self.capture('other-route-before-save-only')
         session.send('\x13')  # Ctrl+S applies locally, without route selection or metadata.
         until(session, other_file.is_file, 'other route private Save-only persistence')
@@ -583,9 +577,8 @@ class Journey:
 
         def review_forget(label):
             self.workspace()
-            session.command('connect ' + self.route)
-            wait_for(session, 'API key:')
-            session.send('\t' * (7 if self.route == 'compatible' else 5))
+            open_setup(session, self.route, advanced=True)
+            focus_field(session, 'forget')
             wait_for(session, 'Forget app connection')
             session.send('\r')
             wait_for(session, 'Forget app connection:')
@@ -643,17 +636,18 @@ class Journey:
         # Both private-file and session variants must actually lose the override;
         # filesystem absence alone cannot prove session removal. There is no API
         # environment source for this route, so a new ordinary send must block.
-        self.write_request('After Forget no old app credential may authorize this request.')
+        request = 'After Forget no old app credential may authorize this request.'
+        self.write_request(request)
         session.send('\r')
-        until(session, lambda: 'Request blocked' in session.display(),
-              'forgotten native source must refuse a new ordinary send')
-        session.command('approvals')
-        wait_for(session, 'Run blocked')
-        session.send('d')
+        wait_for(session, 'Connections')
         assert len(peer.snapshot()) == before_network, 'forgotten override/fallback transmitted a new request'
-        self.capture('forget-session-and-file-source-gone-ordinary-send-blocked')
-        session.command('cancel')
-        until(session, lambda: not self.snapshot()['claims'], 'explicit disposal of unsent missing-setup preview')
+        assert not self.snapshot()['claims'], 'missing setup created provider work ownership'
+        assert any(draft['field'] == 'Request' and draft['text'] == request
+                   for task in self.snapshot()['tasks']
+                   for state in task['partner_drafts'].values()
+                   for draft in state.get('drafts', [])), 'missing setup discarded the exact request'
+        self.capture('forget-session-and-file-source-gone-actionable-setup-no-send')
+        self.workspace()
         self.cases.append('forget-exact-selected-route-neutral-stale-private-and-session-removal-no-network')
 
     def privacy(self):
@@ -812,11 +806,7 @@ class Journey:
         session.command('quit')
         # Cancellation intentionally records unknown remote outcome; acknowledge
         # only that necessary exit review, not another inference approval.
-        until(session, lambda: not session.alive() or 'Exit with unknown outcome' in session.display()
-              or 'Confirm exit' in session.display(), 'bounded final exit review')
-        if session.alive() and 'Exit with unknown outcome' in session.display():
-            session.send('y')
-        confirm_exit(session)
+        confirm_exit(session, owned_work=True)
         assert session.wait_exit() == 0
         self.cases.append('bounded-clean-exit-terminal-modes-restored-no-provider-programs')
 

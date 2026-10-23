@@ -22,6 +22,10 @@ pub(super) struct Stored {
     protocol: String,
     secret: Option<String>,
     account_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    expires_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    residency: Option<String>,
     keyless: bool,
 }
 impl std::fmt::Debug for Stored {
@@ -140,6 +144,14 @@ pub(super) fn connection(provider: Agent, entry: Stored, now: u64) -> Result<Con
     if provider == Agent::ChatGPT && base_url != CODEX_BASE {
         return Err("ChatGPT subscription access tokens are scoped to the official Codex backend; choose a separate API route for custom endpoints.".into());
     }
+    if entry.expires_at.is_some_and(|at| now >= at) {
+        return Err("OpenAI account connection expired. Reconnect using browser/device sign-in; no renewal or alternate account was attempted.".into());
+    }
+    if provider != Agent::ChatGPT && (entry.expires_at.is_some() || entry.residency.is_some()) {
+        return Err(
+            "Subscription credential metadata belongs only to the OpenAI account route.".into(),
+        );
+    }
     validate_model(entry.model.as_deref())?;
     validate_model(entry.effort.as_deref())?;
     validate_model(entry.effort_model.as_deref())?;
@@ -168,14 +180,12 @@ pub(super) fn connection(provider: Agent, entry: Stored, now: u64) -> Result<Con
             residency: None,
         }
     };
-    let account_id = entry.account_id.or(claims.account_id);
+    let account_id = consistent_account(entry.account_id, claims.account_id)?;
+    let residency = consistent_account(entry.residency, claims.residency)?;
     if account_id
         .as_ref()
         .is_some_and(|value| !valid_secret(value))
-        || claims
-            .residency
-            .as_ref()
-            .is_some_and(|value| !valid_secret(value))
+        || residency.as_ref().is_some_and(|value| !valid_secret(value))
     {
         return Err(
             "Native account metadata is invalid; replace it in private connection setup.".into(),
@@ -192,7 +202,7 @@ pub(super) fn connection(provider: Agent, entry: Stored, now: u64) -> Result<Con
         provider,
         secret,
         account_id,
-        residency: claims.residency,
+        residency,
         description: format!(
             "{}: {:?}; explicit own native configuration; {}; configured only, not authenticated. Native Implement supports workspace filename proposals, optionally restricted by /paths, with Eevee-mediated create/replace after exact one-shot approval (64 KiB per file). Plan, Review and metadata do not write files. No shell, hooks, MCP or automatic edits. No automatic renewal, retry or account rotation.",
             provider.label(),
@@ -327,9 +337,9 @@ fn load_cli_with<F: Fn(&str) -> Option<String>>(
         project,
         now,
     };
-    let connection = resolve_with(Agent::ChatGPT, &source)?;
-    form.credential = connection.secret.ok_or_else(|| "Official CLI source has no readable access token. Supply a token or complete official CLI login; keychain-only storage is unsupported.".to_string())?;
-    form.account_id = connection.account_id.unwrap_or_default();
+    let selected = subscription_source(&source)?;
+    form.credential = selected.token;
+    form.account_id = selected.account_id.unwrap_or_default();
     form.base_url = CODEX_BASE.into();
     form.source_notice = None;
     Ok(())
@@ -401,12 +411,15 @@ fn entry_identity(entry: &Stored) -> String {
         Some(entry.protocol.as_str()),
         entry.secret.as_deref(),
         entry.account_id.as_deref(),
+        entry.residency.as_deref(),
     ] {
         digest.update([u8::from(part.is_some())]);
         let part = part.unwrap_or_default();
         digest.update((part.len() as u64).to_le_bytes());
         digest.update(part.as_bytes());
     }
+    digest.update([u8::from(entry.expires_at.is_some())]);
+    digest.update(entry.expires_at.unwrap_or_default().to_le_bytes());
     format!("{:x}", digest.finalize())
 }
 
@@ -530,6 +543,8 @@ fn stored_from_setup(
         .into(),
         secret,
         account_id,
+        expires_at: None,
+        residency: None,
         keyless: form.keyless,
     })
 }
@@ -581,26 +596,21 @@ pub(crate) fn apply_setup(provider: Agent, form: &Setup) -> Result<Applied, Stri
     } else {
         None
     };
-    let entry = stored_from_setup(provider, form, secret, account_id)?;
+    let mut entry = stored_from_setup(provider, form, secret, account_id)?;
+    if let Some(previous) = &previous
+        && provider == Agent::ChatGPT
+        && previous.secret == entry.secret
+    {
+        entry.expires_at = previous.expires_at;
+        entry.residency = previous.residency.clone();
+    }
     let next = connection(provider, entry.clone(), input.now)?;
     let changed = previous
         .and_then(|entry| connection(provider, entry, input.now).ok())
         .or(fallback)
         .is_none_or(|old| old.fingerprint() != next.fingerprint());
     let mut session = SESSION.lock().map_err(|_| ERROR.to_string())?;
-    let mut durable = true;
-    if form.persist {
-        let home = input.home.as_deref().ok_or_else(|| ERROR.to_string())?;
-        let store = storage::Directory::open(home, input.project.as_deref(), true)?;
-        let bytes = serde_json::to_vec(&entry).map_err(|_| ERROR.to_string())?;
-        if bytes.len() as u64 > FILE_LIMIT {
-            return Err("Private native configuration exceeds its storage bound.".into());
-        }
-        durable = store.write(name(provider), &bytes)?;
-        session.remove(&provider);
-    } else {
-        session.insert(provider, entry);
-    }
+    let durable = save_entry(provider, entry, form.persist, &input, &mut session)?;
     // Even identical settings change when explicitly moved between residency modes.
     Ok(Applied {
         changed: changed || form.persist == had_session,
@@ -609,9 +619,239 @@ pub(crate) fn apply_setup(provider: Agent, form: &Setup) -> Result<Applied, Stri
     })
 }
 
+fn save_entry<F: Fn(&str) -> Option<String>>(
+    provider: Agent,
+    entry: Stored,
+    persist: bool,
+    input: &Inputs<F>,
+    session: &mut HashMap<Agent, Stored>,
+) -> Result<bool, String> {
+    if persist {
+        let home = input.home.as_deref().ok_or_else(|| ERROR.to_string())?;
+        let store = storage::Directory::open(home, input.project.as_deref(), true)?;
+        let bytes = serde_json::to_vec(&entry).map_err(|_| ERROR.to_string())?;
+        if bytes.len() as u64 > FILE_LIMIT {
+            return Err("Private native configuration exceeds its storage bound.".into());
+        }
+        let durable = store.write(name(provider), &bytes)?;
+        session.remove(&provider);
+        Ok(durable)
+    } else {
+        session.insert(provider, entry);
+        Ok(true)
+    }
+}
+
+/// Called only after the UI correlates the successful completion with the exact
+/// approved method, generation and storage choice. Never imports old defaults or
+/// leaves an earlier account's session override ahead of the newly issued grant.
+pub(crate) fn apply_openai_login(
+    credential: crate::providers::auth::OpenAiCredential,
+    persist: bool,
+) -> Result<Applied, String> {
+    let mut session = SESSION.lock().map_err(|_| ERROR.to_string())?;
+    apply_openai_login_from(credential, persist, &inputs(), &mut session)
+}
+
+fn apply_openai_login_from<F: Fn(&str) -> Option<String>>(
+    credential: crate::providers::auth::OpenAiCredential,
+    persist: bool,
+    input: &Inputs<F>,
+    session: &mut HashMap<Agent, Stored>,
+) -> Result<Applied, String> {
+    let (token, account_id, residency, expires_at) = credential.into_parts();
+    let entry = Stored {
+        base_url: CODEX_BASE.into(),
+        model: None,
+        effort: None,
+        effort_model: None,
+        protocol: "codex".into(),
+        secret: Some(token),
+        account_id,
+        expires_at: Some(expires_at),
+        residency,
+        keyless: false,
+    };
+    connection(Agent::ChatGPT, entry.clone(), input.now)?;
+    let durable = save_entry(Agent::ChatGPT, entry, persist, input, session)?;
+    Ok(Applied {
+        changed: true,
+        durable,
+        effort_reset: false,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn native_login_replaces_old_overrides_in_the_selected_storage_without_touching_sources() {
+        let fixture = Fixture::new();
+        let provider_text = "{\"tokens\":{\"access_token\":\"provider-secret\"}}";
+        let provider_file = fixture.provider_file("auth.json", provider_text);
+        let directory = storage::Directory::open(&fixture.0, None, true).unwrap();
+        let old = stored(Agent::ChatGPT, "old-persisted-secret");
+        directory
+            .write(name(Agent::ChatGPT), &serde_json::to_vec(&old).unwrap())
+            .unwrap();
+        let mut session = HashMap::from([
+            (Agent::ChatGPT, stored(Agent::ChatGPT, "old-session-secret")),
+            (Agent::OpenAI, stored(Agent::OpenAI, "other-route-secret")),
+        ]);
+        let input = Inputs {
+            get: |_: &str| panic!("native login must not import environment or CLI configuration"),
+            home: Some(fixture.0.clone()),
+            config_home: None,
+            project: None,
+            now: 100,
+        };
+        let first = crate::providers::auth::test_openai_credential(
+            "new-session-secret",
+            "new-account",
+            1000,
+        );
+        assert!(
+            apply_openai_login_from(first, false, &input, &mut session)
+                .unwrap()
+                .changed
+        );
+        let active = &session[&Agent::ChatGPT];
+        assert_eq!(active.secret.as_deref(), Some("new-session-secret"));
+        assert_eq!(active.account_id.as_deref(), Some("new-account"));
+        assert!(active.model.is_none() && active.effort.is_none());
+        assert_eq!(active.expires_at, Some(1000));
+        assert_eq!(
+            connection(Agent::ChatGPT, active.clone(), 100)
+                .unwrap()
+                .base_url,
+            CODEX_BASE
+        );
+        let saved: Stored =
+            serde_json::from_reader(directory.read(name(Agent::ChatGPT)).unwrap().unwrap())
+                .unwrap();
+        assert_eq!(saved.secret.as_deref(), Some("old-persisted-secret"));
+        let second = crate::providers::auth::test_openai_credential(
+            "new-private-secret",
+            "other-account",
+            2000,
+        );
+        assert!(
+            apply_openai_login_from(second, true, &input, &mut session)
+                .unwrap()
+                .durable
+        );
+        assert!(!session.contains_key(&Agent::ChatGPT));
+        let saved: Stored =
+            serde_json::from_reader(directory.read(name(Agent::ChatGPT)).unwrap().unwrap())
+                .unwrap();
+        assert_eq!(saved.secret.as_deref(), Some("new-private-secret"));
+        assert_eq!(saved.account_id.as_deref(), Some("other-account"));
+        assert_eq!(saved.expires_at, Some(2000));
+        assert_eq!(
+            session[&Agent::OpenAI].secret.as_deref(),
+            Some("other-route-secret")
+        );
+        assert_eq!(fs::read_to_string(provider_file).unwrap(), provider_text);
+        let expired = crate::providers::auth::test_openai_credential(
+            "expired-secret",
+            "expired-account",
+            100,
+        );
+        assert!(
+            apply_openai_login_from(expired, true, &input, &mut session)
+                .err()
+                .unwrap()
+                .contains("expired")
+        );
+        let unchanged: Stored =
+            serde_json::from_reader(directory.read(name(Agent::ChatGPT)).unwrap().unwrap())
+                .unwrap();
+        assert_eq!(unchanged.secret, saved.secret);
+    }
+
+    #[test]
+    fn legacy_records_and_owned_account_consistency_remain_explicit() {
+        let old: Stored = serde_json::from_str(r#"{"base_url":"https://chatgpt.com/backend-api/codex","model":null,"protocol":"codex","secret":"opaque-token","account_id":"chosen","keyless":false}"#).unwrap();
+        assert!(old.expires_at.is_none() && old.residency.is_none());
+        assert!(connection(Agent::ChatGPT, old, 100).is_ok());
+        let token = format!(
+            "e30.{}.signature",
+            base64_simd::URL_SAFE_NO_PAD
+                .encode_to_string(br#"{"exp":1000,"chatgpt_account_id":"token-account"}"#)
+        );
+        let mut own = stored(Agent::ChatGPT, &token);
+        own.account_id = Some("different-account".into());
+        assert!(
+            connection(Agent::ChatGPT, own, 100)
+                .unwrap_err()
+                .contains("conflicts")
+        );
+        let mut opaque = stored(Agent::ChatGPT, "opaque-token");
+        opaque.expires_at = Some(101);
+        assert!(connection(Agent::ChatGPT, opaque.clone(), 100).is_ok());
+        assert!(
+            connection(Agent::ChatGPT, opaque, 101)
+                .unwrap_err()
+                .contains("expired")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn explicit_cli_import_ignores_malformed_model_config_and_never_imports_api_key_login() {
+        let fixture = Fixture::new();
+        let config = fixture.provider_file("config.toml", "not valid = [toml");
+        let auth = fixture.provider_file(
+            "auth.json",
+            r#"{"tokens":{"access_token":"explicit-cli-token","account_id":"cli-account"}}"#,
+        );
+        let provider_home = config.parent().unwrap().to_string_lossy().into_owned();
+        let make_input = || Inputs {
+            get: |name: &str| match name {
+                "CODEX_HOME" => Some(provider_home.clone()),
+                "CODEX_ACCESS_TOKEN" => Some("must-not-import-env".into()),
+                _ => None,
+            },
+            home: None,
+            config_home: None,
+            project: None,
+            now: 100,
+        };
+        let mut form = setup_from(Agent::ChatGPT, &make_input(), None, None).unwrap();
+        load_cli_with(&mut form, make_input()).unwrap();
+        assert_eq!(form.credential, "explicit-cli-token");
+        assert_eq!(form.account_id, "cli-account");
+        assert_eq!(form.base_url, CODEX_BASE);
+        assert!(form.model.is_empty() && form.effort.is_none());
+        assert_eq!(fs::read_to_string(&config).unwrap(), "not valid = [toml");
+        fs::write(
+            &auth,
+            r#"{"OPENAI_API_KEY":"sk-project-fixture","tokens":null}"#,
+        )
+        .unwrap();
+        assert!(load_cli_with(&mut form, make_input()).is_err());
+        assert_eq!(form.credential, "explicit-cli-token");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn custom_cli_provider_model_is_not_transplanted_into_subscription_endpoint() {
+        let fixture = Fixture::new();
+        let config = fixture.provider_file("config.toml", "model_provider='custom'\nmodel='private-server-model'\nmodel_reasoning_effort='high'\n");
+        let provider_home = config.parent().unwrap().to_string_lossy().into_owned();
+        let input = Inputs {
+            get: |name: &str| (name == "CODEX_HOME").then(|| provider_home.clone()),
+            home: None,
+            config_home: None,
+            project: None,
+            now: 100,
+        };
+        let form = setup_from(Agent::ChatGPT, &input, None, None).unwrap();
+        assert!(form.model.is_empty() && form.effort.is_none());
+        assert_eq!(form.base_url, CODEX_BASE);
+    }
     fn stored(provider: Agent, secret: &str) -> Stored {
         Stored {
             base_url: if provider == Agent::ChatGPT {
@@ -631,6 +871,8 @@ mod tests {
             .into(),
             secret: Some(secret.into()),
             account_id: None,
+            expires_at: None,
+            residency: None,
             keyless: false,
         }
     }

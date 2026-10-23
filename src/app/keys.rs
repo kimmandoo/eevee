@@ -90,6 +90,7 @@ impl App {
             {
                 self.agents.paste_connection(&text)
             }
+            Event::Paste(_) if self.overlay == Some(Overlay::Agents) => true,
             Event::Paste(text)
                 if self.command_popup.is_some()
                     && self.editing
@@ -503,6 +504,26 @@ impl App {
         }
     }
 
+    pub fn openai_connection_returned(
+        &mut self,
+        plan: &crate::providers::auth::Plan,
+        generation: Option<u64>,
+        credential: Option<crate::providers::auth::OpenAiCredential>,
+        outcome: crate::providers::auth::Outcome,
+    ) {
+        let owner = (self.task_id, self.lead.id, self.planning.agent);
+        let admitted = self.overlay == Some(Overlay::Agents) && self.authentication_ready();
+        self.agents
+            .finish_openai_login(plan, generation, credential, outcome, &owner, admitted);
+        self.connection_settings_changed();
+        if self.agents.use_for_task == Some(crate::providers::Agent::ChatGPT.index())
+            && self.agents.pick == Some("model")
+        {
+            self.pending_openai_selection = Some(owner);
+            self.settle_openai_selection();
+        }
+    }
+
     /// Successful local connection edits invalidate only their future route state.
     pub fn connection_settings_changed(&mut self) -> bool {
         let mut changed = false;
@@ -592,9 +613,10 @@ impl App {
     }
 
     pub fn settle_planning(&mut self) -> bool {
+        let openai_selection = self.settle_openai_selection();
         let source_action = self.settle_source_action();
         let provider_picker = self.settle_provider_picker();
-        if source_action || provider_picker {
+        if source_action || provider_picker || openai_selection {
             return true;
         }
         if let Some((task, partner)) = self.return_after_cancel {
@@ -761,6 +783,9 @@ impl App {
     }
 
     pub(super) fn key(&mut self, key: KeyEvent, now: std::time::Instant) -> bool {
+        if self.overlay == Some(Overlay::Agents) {
+            self.agents.connection_owner = Some((self.task_id, self.lead.id, self.planning.agent));
+        }
         if self.journal_discard_key(key) || self.cancellation_key(key) || self.cooperation_key(key)
         {
             return true;
@@ -781,8 +806,7 @@ impl App {
             let changed = self.agents.key(key, self.width >= 60 && self.height >= 18);
             let connection_changed = self.connection_settings_changed();
             if !self.agents.connection_editing()
-                && (key.code == KeyCode::Esc
-                    || key.code == KeyCode::Char('s') && key.modifiers == KeyModifiers::CONTROL
+                && (key.code == KeyCode::Char('s') && key.modifiers == KeyModifiers::CONTROL
                     || connection_changed
                         && self.agents.use_for_task.is_none()
                         && self.agents.pick.is_none())
@@ -1024,6 +1048,29 @@ impl App {
         true
     }
 
+    fn settle_openai_selection(&mut self) -> bool {
+        let Some(owner) = self.pending_openai_selection else {
+            return false;
+        };
+        if owner != (self.task_id, self.lead.id, self.planning.agent)
+            || self.overlay != Some(Overlay::Agents)
+            || self.agents.page != super::agents::Page::Account
+            || self.agents.use_for_task != Some(crate::providers::Agent::ChatGPT.index())
+            || self.agents.pick != Some("model")
+        {
+            self.pending_openai_selection = None;
+            self.agents.use_for_task = None;
+            self.agents.pick = None;
+            return true;
+        }
+        if self.width < 60 || self.height < 18 || !self.authentication_ready() {
+            return false;
+        }
+        self.pending_openai_selection = None;
+        self.use_selected_provider();
+        true
+    }
+
     /// Resume only the explicit task/partner/route selection that requested it.
     fn settle_provider_picker(&mut self) -> bool {
         let Some((task, partner, source, target, picker)) = self.pending_provider_picker else {
@@ -1057,6 +1104,10 @@ impl App {
 
     /// Drain paired provider/picker intent without dropping a mandatory switch review.
     pub(super) fn use_selected_provider(&mut self) {
+        if self.pending_openai_selection.is_some() {
+            self.settle_openai_selection();
+            return;
+        }
         let profile = self.agents.use_for_task.take();
         let target = profile.and_then(crate::providers::Agent::from_index);
         let picker = self.agents.pick.take();

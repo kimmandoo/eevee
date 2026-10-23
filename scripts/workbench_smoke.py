@@ -193,7 +193,7 @@ def main():
             data = root / "data 空 格"
             def launch(name, directory=data, cwd=project, size=(120,36), extra=(), environment=None):
                 session = Session([str(binary), "--data-dir", str(directory), "--images", "off", "--color", "mono", *extra],
-                                  cwd, terminal_environment("mono") if environment is None else environment, size, output / name)
+                                  cwd, first_use_environment if environment is None else environment, size, output / name)
                 sessions.append(session)
                 session.pump(0.5)
                 return session
@@ -208,7 +208,7 @@ def main():
                 export_counter += 1
                 destination = root / ("inspect-" + str(export_counter) + ".json")
                 command = [str(binary), "--data-dir", str(directory), "--export-data", str(destination)]
-                process = subprocess.run(command, capture_output=True, text=True, timeout=10)
+                process = subprocess.run(command, capture_output=True, text=True, timeout=10, env=first_use_environment)
                 assert process.returncode == 0, process.stderr
                 return json.loads(destination.read_text())
             def stored_when(directory, predicate):
@@ -226,7 +226,7 @@ def main():
             isolated_home.mkdir()
             first_use_environment = terminal_environment("mono")
             for key in list(first_use_environment):
-                if key.startswith(("OPENAI_", "CODEX_", "ANTHROPIC_", "CLAUDE_", "GEMINI_", "GOOGLE_", "AWS_", "OPENCODE_")):
+                if key.startswith(("EV_", "OPENAI_", "CODEX_", "ANTHROPIC_", "CLAUDE_", "GEMINI_", "GOOGLE_", "AWS_", "OPENCODE_", "DEVIN_", "WINDSURF_")) or key.lower().endswith("_proxy"):
                     first_use_environment.pop(key, None)
             first_use_environment.update(
                 PATH=str(empty_path), HOME=str(isolated_home), USERPROFILE=str(isolated_home),
@@ -269,10 +269,11 @@ def main():
                 fresh.paste(" retained shortcut draft")
                 fresh.command("connect")
                 wait_for(fresh, "Connections")
-                wait_for(fresh, "Not installed")
+                wait_for(fresh, "OpenAI")
                 fresh.capture("command-provider-list")
                 fresh.command("connect chatgpt")
-                assert not fresh.screen.cursor.hidden, "native setup did not open its private credential editor"
+                wait_for(fresh, "Browser login")
+                wait_for(fresh, "Device login")
                 assert "Review connection" not in fresh.display(), "opening setup requested authorization"
                 fresh.capture("direct-native-connection-setup")
                 fresh.send("\x1b")
@@ -576,17 +577,21 @@ def main():
                                        for key in row["headers"]), "keyless fixture received credentials"
                     payloads = fixture.snapshot("POST")
                     task = inspect_store(native_data)[0]
-                    for row, request in zip(payloads, (first_request, second_request, third_request)):
+                    from native_connection_smoke import decoded_payload
+                    history = []
+                    for index, (row, request) in enumerate(zip(
+                            payloads, (first_request, second_request, third_request), strict=True)):
                         body = row["body"]
-                        assert set(body) == {"model", "messages", "stream"}, body
+                        policy, messages = decoded_payload("chat_completions", body)
                         assert body["model"] == custom_model and body["stream"] is True
-                        assert len(body["messages"]) == 1 and body["messages"][0]["role"] == "user"
-                        context = json.loads(body["messages"][0]["content"])
-                        assert context["request"] == request
+                        assert messages == history + [("user", request)]
+                        context = json.loads(policy.rsplit("\n", 1)[1])
                         assert context["task"]["id"] == task["id"] and context["task"]["goal"] == first_request
                         assert context["proposed_edit_paths_only"] == [] and context["approved_memories"] == []
                         assert context["handoff"] is None
-                        assert unsent_request not in row["body"]["messages"][0]["content"]
+                        assert unsent_request not in json.dumps(body)
+                        if index < 2:
+                            history.extend((("user", request), ("assistant", fixture.responses[index])))
                     assert task["command"] == "" and task["goal"] == first_request
                     assert fixture.private_reasoning not in native.text + json.dumps(task)
                     with closing(sqlite3.connect((native_data / "workbench.sqlite3").as_uri() + "?mode=ro", uri=True)) as db:
@@ -594,9 +599,7 @@ def main():
                     assert not list(native_project.iterdir()), "native provider created project files"
                     assert not any(path.is_file() for path in native_home.rglob("*")), "native provider wrote credentials or config"
                     native.command("quit")
-                    wait_for(native, "Exit with unknown outcome")
-                    native.send("y")  # Explicitly acknowledge remote outcome remains unknown.
-                    confirm_exit(native)
+                    confirm_exit(native, owned_work=True)
                     assert native.wait_exit() == 0
                     native.close()
                     assert len(fixture.snapshot("POST")) == 3
@@ -681,7 +684,10 @@ def main():
                 failed.command("goal")
                 failed.paste("recoverable draft")
                 failed.send("\r")
-                quit_app(failed)
+                # An unreadable store cannot satisfy Save-and-quit. End only
+                # this owned fixture; the assertion is database preservation.
+                failed.capture("unreadable-store-retains-draft")
+                failed.close()
                 assert path.read_bytes() == before
                 passed(kind + "-database-untouched")
             legacy = root / "legacy"

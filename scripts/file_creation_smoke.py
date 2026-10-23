@@ -26,6 +26,7 @@ from native_connection_smoke import MATRIX, MODEL, Peer, decoded_payload, until
 from response_smoke import SurfaceJourney, SurfaceSession, SURFACE
 from terminal_smoke import confirm_exit
 from workbench_smoke import wait_for
+from connection_smoke_helpers import focus_field, open_setup
 
 ESC = '\x1b'
 UP, HOME, DELETE = ESC + '[A', ESC + '[H', ESC + '[3~'
@@ -237,15 +238,18 @@ def advertised_tools(protocol, body):
 
 
 class CreationJourney(SurfaceJourney):
+    # Shared label-based navigation covers primary/advanced native forms while
+    # this journey continues to assert actual tools, authority and file bytes.
     def setup_route(self):
         session = self.session
         fields = self.surface['fields']
         labels = list(fields) if self.route == 'compatible' else [fields[i] for i in (0, 1, 2, 5, 6)]
-        session.command('connect ' + self.route)
-        wait_for(session, labels[0] + ':')
+        open_setup(session, self.route, self.language, advanced=True)
         before = len(self.peer.snapshot('POST'))
         metadata = len(self.peer.snapshot('GET')) + 1
         for label in labels:
+            field_name = dict(zip(fields, ('key', 'endpoint', 'model', 'protocol', 'auth', 'storage', 'save')))[label]
+            focus_field(session, field_name, self.language)
             assert '> ' + label + ':' in session.display(), session.display()
             if label == fields[0] and not self.keyless:
                 self.private_paste(self.peer.secret)
@@ -262,7 +266,6 @@ class CreationJourney(SurfaceJourney):
             elif label == fields[6]:
                 session.send('\r')
                 break
-            session.send('\t')
         self.choose_saved_model(metadata)
         assert len(self.peer.snapshot('POST')) == before
 

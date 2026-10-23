@@ -1,5 +1,26 @@
 # Troubleshooting
 
+### [2026-10-23] Provider runtime drivers retained obsolete payload and exit assumptions
+
+- **Context / Symptom:** The connection journeys passed, but older auth/workbench drivers waited for removed status prose, asserted a single JSON user message without tools, and waited for the old `Exit with unknown outcome` popup.
+- **Root Cause:** Those assertions predated role-bearing canonical conversation, bounded coding tools and the all-owner quit review. They rejected valid current behavior rather than proving request ownership or terminal restoration.
+- **Solution:** Removed incidental status/body-shape assertions. Reused the canonical payload decoder while checking exact user/assistant history, task/source context, unsent-draft exclusion, request count and no local effects. Waited for restored method controls with unchanged exact argv/listener assertions. Added explicit opt-in to the shared quit helper for the existing all-owner review; ordinary callers cannot automatically approve that scope.
+- **Prevention / Reference:** An actual isolated cancellation/quit diagnosis showed the disclosed all-owner review and clean exit after Right/Enter (`target/provider-0123-quit-diagnosis`). The successful throwaway diagnostic was removed; full migrated journeys remain release gates.
+
+### [2026-10-23] OpenAI setup mixed authorities and hid compact storage consent
+
+- **Context / Symptom:** Actual v0.1.22 compact captures showed three OpenAI/Codex entries, missing CLI-first navigation, raw access-token entry before login, English status in Korean UI and a clipped plaintext warning. Review also found native cancellation clearing unrelated conversations and a small-terminal auth return dropping its route/model continuation.
+- **Root Cause:** Internal transports doubled as top-level product choices; login depended on CLI registration/import, readiness used English strings, and storage admission checked presence rather than complete rendered disclosure. The new native path initially inherited global CLI-auth invalidation and drained the picker before its size gate.
+- **Solution:** Grouped the existing routes behind explicit account/API/custom/advanced methods; added standalone browser/device authorization and source-bound credential replacement. Used typed localized readiness, primary/advanced forms, private paste ownership and cell-aware caret placement. Gated Save on both complete disclosures; scoped accepted native mutation and retained owner-bound continuation through resize and ordinary switch review.
+- **Prevention / Reference:** `scripts/provider_ux_smoke.py` passed actual English/Korean 120×36 and 60×18 family/login-review/API/custom/request journeys, exact saved draft/caret, neutral cancellation, zero implicit inference and real loopback Responses routing (`target/provider-0123-ux-a`). Live issuer/account acceptance and automatic token renewal are not claimed.
+
+### [2026-10-23] Accepted OAuth sockets inherited nonblocking mode and Windows split authorization URLs
+
+- **Context / Symptom:** Native browser/device exchange fixtures failed with macOS `WouldBlock` / code 35 before valid token or denial responses. Static review found Windows `cmd /c start` interpreting OAuth URL ampersands as command separators.
+- **Root Cause:** Accepted sockets inherited a listener's nonblocking mode; setting a timeout did not restore blocking reads. Command-shell URL launch did not preserve the complete query.
+- **Solution:** Restored bounded blocking callback/fixture reads, retained absolute deadlines and complete Content-Length framing, and covered fragmented requests. Replaced Windows shell launch with `ShellExecuteW` and a complete UTF-16 URL. Native callback/token/device fixtures and the integrated Rust suite passed; native Windows qualification remains a separate release gate.
+- **Prevention / Reference:** `src/providers/auth/openai/tests.rs`, shared browser opener in `auth.rs`; no real OAuth grant or provider-model request was used for these checks.
+
 ### [2026-10-23] Global motion preference writes crossed partner snapshots
 
 - **Context / Symptom:** Review found that rapid off/on/off choices across front/parked partners could leave an older pending snapshot last, a motion-only save could persist a startup provider override, and an unhydrated restored lead could mistake its static safety fallback for the user's saved choice. A first inheritance correction then blocked 26 existing cooperation cases.

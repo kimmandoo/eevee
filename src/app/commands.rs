@@ -1201,7 +1201,7 @@ impl App {
                     || agent.command().strip_prefix("provider-") == Some(argument)
             });
             let Some(agent) = agent else {
-                self.notice = "Choose an exact provider route: codex (CLI), chatgpt (native), claude, opencode, gemini, devin, openai, anthropic, google, or compatible. Nothing changed.".into();
+                self.notice = "Choose OpenAI family: /connect openai. Exact methods: chatgpt (account), provider-openai (API key), compatible (custom), codex (advanced CLI); or claude, opencode, gemini, devin, anthropic, google. Nothing changed.".into();
                 return true;
             };
             if !self.authentication_ready() {
@@ -1215,7 +1215,11 @@ impl App {
             }
             self.open_overlay(Overlay::Agents);
             self.agents.active = self.planning.agent.index();
-            self.agents.begin_connection(agent);
+            if argument == "openai" {
+                self.agents.begin_openai_family();
+            } else {
+                self.agents.begin_connection(agent);
+            }
             return true;
         }
         if matches!(name, "model" | "effort") && !argument.is_empty() {

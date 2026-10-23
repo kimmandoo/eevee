@@ -64,7 +64,7 @@ Install and `ev update` share truthful animated phases, respecting UTF-8 and `NO
 Use a terminal of at least **60 × 18** (120 × 36 recommended).
 
 1. Type in the bottom composer. **Enter** saves and sends the request; **Ctrl+S** saves locally only. No separate Goal setup or routine approval popup.
-2. `/provider` chooses an explicit route; **Codex native / scoped coding** and **Codex CLI** retain distinct connection and session policies. `/connect openai` opens masked API setup directly; **Save & choose model** selects that route and opens metadata selection, never sends the draft. `/model` follows **model → supported reasoning level → editor**; `/effort` opens the level directly.
+2. `/connect openai` opens one **OpenAI** family: account login, API key, custom/local endpoint, or advanced CLI. The chosen method selects its real transport; no account or billing fallback is guessed. **Save & choose model** selects the route and metadata, never sends the draft. `/model` follows **model → supported reasoning level → editor**; `/effort` opens the level directly.
 3. Approve actual effects when needed: commands, file changes, write-enabled sessions, project-supplied executables, external credential helpers and unmanaged agent connections. `/session-new` or `/session-resume` opens advanced exact-payload review.
 4. Read responses inline and type the next request. Nonsecret provider/model/effort choices survive restart. Explicitly saved private connections can be reused; native chat history, provider sessions and grants are not restored.
 5. `/command-edit` authors an explicit local command in Jolteon; `/execute` reviews it for one-shot execution. `/run` inspects evidence, without executing anything.
@@ -165,17 +165,19 @@ Attachment chips identify exact saved captures, with inspect/remove controls, wo
 
 ## Connect a provider or agent
 
-Native API services need no provider CLI, Node or SDK sidecar. `/connect <route>` accepts masked credentials, endpoint/default-model settings and explicit Compatible protocol/keyless choices. **Save & choose model** explicitly selects the route and may fetch metadata; **Ctrl+S** saves locally only. Neither submits the retained Request. Ordinary private typing/navigation remains local; saving a connection or confirming removal requires committed idle task state.
+Native API services need no provider CLI, Node or SDK sidecar. Open **`/connect openai`** and choose **Sign in with ChatGPT**, **Use an API key**, or **Custom / local endpoint**. Account login offers browser and callback-free device authorization directly, without installing Codex; CLI-agent integration remains under Advanced. API setup starts with masked key, storage and **Save & choose model**; endpoint/default-model overrides are under Advanced. Compatible setup retains explicit protocol/keyless choices. Saving and model selection never submit the retained Request; **Ctrl+S** saves locally without selection/network. Credential mutation requires committed idle task state.
 
 Session connections stay in memory. Selecting private persistence writes only that route's bounded file under `~/.eevee-connections/` (`%USERPROFILE%\.eevee-connections\` on Windows): owner-private **plaintext, not encryption or an OS keychain**. POSIX no-follow/identity checks, macOS ACL checks and protected Windows owner ACLs refuse unsafe existing files/directories. Source precedence is session → saved app profile → existing environment/provider configuration. **Forget app connection** neutrally reviews only that route's app file/session; it does not revoke a remote token or touch official provider stores, tasks, evidence or other routes. Existing environment/provider sources may become available afterward. Credentials never enter Request drafts, task storage, journals or logs.
 
 | Native service | Selection | Credential |
 | --- | --- | --- |
-| Codex native / ChatGPT | `/provider-chatgpt` | Masked access-token/account setup; explicit readable CLI-token import; existing `$CODEX_HOME/auth.json` or `CODEX_ACCESS_TOKEN` / `CODEX_ACCOUNT_ID` |
-| OpenAI Responses | `/provider-openai` | In-app API key, or `OPENAI_API_KEY`; optional `OPENAI_BASE_URL`, `OPENAI_MODEL` |
+| OpenAI account / ChatGPT plan | `/connect chatgpt`; `/provider-chatgpt` | Native browser/device login; Advanced explicit token/account or readable CLI-token import; existing `CODEX_ACCESS_TOKEN` / `CODEX_ACCOUNT_ID` |
+| OpenAI API / Responses | `/connect provider-openai`; `/provider-openai` | In-app API key, or `OPENAI_API_KEY`; optional `OPENAI_BASE_URL`, `OPENAI_MODEL` |
 | Anthropic Messages | `/provider-anthropic` | In-app API key, or `ANTHROPIC_API_KEY`; optional endpoint/model. No subscription OAuth reuse. |
 | Google Gemini | `/provider-google` | In-app API key, or `GEMINI_API_KEY` / `GOOGLE_API_KEY`; optional endpoint/model |
 | Compatible / local service | `/provider-compatible` | In-app endpoint/model/protocol and key or explicit keyless mode; environment configuration remains available |
+
+Account login uses the fixed subscription endpoint; API keys use metered API access. Custom endpoints and CLI agents remain separate authorities. Saved selections keep their exact route; errors never switch account, billing, protocol or model automatically. Native account access grants expire and require explicit reconnect; refresh tokens are not retained and automatic renewal is not claimed. Cancelling login preserves existing conversations and credentials. An accepted login replaces only the reviewed account connection, then opens model selection through any required session-switch review; resizing below the minimum defers that continuation instead of losing it.
 
 **Automatic evolution and code generation.** Describe the task in the ordinary Eevee composer. On explicit send, the same partner locally selects the appropriate form; no extra classifier/model request is made. Choosing a specialist manually fixes that form; `/eevee` restores automatic selection. Current form plus automatic/manual mode persist per partner. Typing, browsing and incoming events never evolve or start work. Automatic transitions preserve the selected provider/model and do not restore another form's pairing or opaque session. Explicit read-only choices remain non-writing; changes still need exact one-shot consent.
 
@@ -241,7 +243,7 @@ keyless = true
 protocol = "chat_completions" # or "responses"
 ```
 
-ChatGPT keeps its existing nonsecret `CODEX_HOME/config.toml` model/effort defaults; `CODEX_MODEL` and `CODEX_REASONING_EFFORT` override them. Selecting a different model does not carry the old model's configured effort into it. A missing/expired/keychain-only session is reported explicitly; the native connection never silently runs a login or upgrades Codex.
+Advanced CLI credential import is independent of unrelated model-configuration errors and does not transplant custom-server model defaults into the fixed subscription endpoint. Existing official configuration and explicit `CODEX_MODEL` / `CODEX_REASONING_EFFORT` remain scoped sources; selecting a different model never carries the old model's effort into it. Missing, expired or keychain-only imported credentials remain explicit prerequisites. Native account login does not modify provider-owned stores, silently refresh a grant or upgrade Codex.
 
 Existing external-agent connections remain available:
 
@@ -290,19 +292,19 @@ Sprites are nine original PokeAPI images that installers download and hash-verif
 
 | Machine | Package |
 | --- | --- |
-| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.22/ev-darwin-arm64.tar.gz) |
-| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.22/ev-darwin-x86_64.tar.gz) |
-| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.22/ev-linux-x86_64.tar.gz) |
-| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.22/ev-linux-arm64.tar.gz) |
-| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.22/ev-windows-x86_64.zip) |
+| macOS Apple Silicon | [ev-darwin-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.23/ev-darwin-arm64.tar.gz) |
+| macOS Intel | [ev-darwin-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.23/ev-darwin-x86_64.tar.gz) |
+| Linux x86_64 | [ev-linux-x86_64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.23/ev-linux-x86_64.tar.gz) |
+| Linux arm64 | [ev-linux-arm64.tar.gz](https://github.com/kimmandoo/eevee/releases/download/v0.1.23/ev-linux-arm64.tar.gz) |
+| Windows x86_64 | [ev-windows-x86_64.zip](https://github.com/kimmandoo/eevee/releases/download/v0.1.23/ev-windows-x86_64.zip) |
 
 Installers verify SHA-256, refuse to overwrite commands they don't own, and never edit your shell profile or persistent PATH — the last step on each platform is yours.
 
 ### macOS
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.22/install.sh
-sh ./install-ev.sh --version v0.1.22          # installs to ~/.local/bin/ev
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.23/install.sh
+sh ./install-ev.sh --version v0.1.23          # installs to ~/.local/bin/ev
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && exec zsh
 ```
 
@@ -311,19 +313,19 @@ Builds are not notarized. The script installs via `curl`, which sets no quaranti
 ### Linux and WSL
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.22/install.sh
-sh ./install-ev.sh --version v0.1.22          # installs to ~/.local/bin/ev
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.23/install.sh
+sh ./install-ev.sh --version v0.1.23          # installs to ~/.local/bin/ev
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && exec bash
 ```
 
-Inside WSL, use this Linux build, not the Windows one. For provider sign-in on WSL, prefer Codex **device authorization**.
+Inside WSL, use this Linux build, not the Windows one. For OpenAI account sign-in on WSL/SSH, prefer **Device login**; it needs no localhost callback or separate CLI.
 
 ### Windows
 
 Run in **PowerShell** (5.1 or 7, no admin). Windows blocks downloaded `.ps1` files by default, so run the installer as a script block instead of `.\install.ps1`:
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.22/install.ps1))) -Version v0.1.22
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.23/install.ps1))) -Version v0.1.23
 ```
 
 It installs `%LOCALAPPDATA%\ev\bin\ev.exe`. Use it right away, and keep it on PATH for new terminals:

@@ -17,7 +17,8 @@ mod posix;
 mod windows;
 
 pub(crate) use owned::{
-    ForgetPlan, Setup, apply_setup, forget_connection, load_cli_credential, prepare_forget, setup,
+    ForgetPlan, Setup, apply_openai_login, apply_setup, forget_connection, load_cli_credential,
+    prepare_forget, setup,
 };
 
 const CODEX_BASE: &str = "https://chatgpt.com/backend-api/codex";
@@ -441,7 +442,22 @@ fn codex_preferences<F: Fn(&str) -> Option<String>>(
                 }),
             }
         };
-        (nonsecret("model")?, nonsecret("model_reasoning_effort")?)
+        // CLI defaults belong to that CLI's selected provider/profile. Never
+        // transplant a custom provider's model into the fixed subscription API.
+        if value.get("profile").is_some()
+            || value
+                .get("model_provider")
+                .is_some_and(|provider| provider.as_str() != Some("openai"))
+            || value
+                .get("model_providers")
+                .and_then(|providers| providers.get("openai"))
+                .is_some()
+            || (input.get)("OPENAI_BASE_URL").is_some()
+        {
+            (None, None)
+        } else {
+            (nonsecret("model")?, nonsecret("model_reasoning_effort")?)
+        }
     } else {
         (None, None)
     };
@@ -614,11 +630,22 @@ struct Claims {
 }
 
 fn token_claims(token: &str, now: u64) -> Result<Claims, String> {
+    if token.starts_with("sk-") {
+        return Err("This is an API-key credential, not an OpenAI subscription access token. Choose the OpenAI API-key method with its separate API billing.".into());
+    }
     let mut segments = token.split('.');
-    let _ = segments.next();
+    let header = segments.next().unwrap_or_default();
     let payload = segments.next();
-    // Opaque credentials remain usable; decoded claims are hints, not verification.
-    let Some(payload) = payload.filter(|_| segments.next().is_some()) else {
+    let signature = segments.next();
+    // Only recognized JWTs supply metadata; explicit opaque tokens remain usable.
+    let recognized = base64_simd::URL_SAFE_NO_PAD
+        .decode_to_vec(header.as_bytes())
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .is_some_and(|value| value.is_object());
+    let Some(payload) =
+        payload.filter(|_| signature.is_some() && segments.next().is_none() && recognized)
+    else {
         return Ok(Claims {
             account_id: None,
             residency: None,
@@ -636,21 +663,119 @@ fn token_claims(token: &str, now: u64) -> Result<Claims, String> {
     if let Some(expiry) = value.get("exp") {
         let expiry = expiry.as_u64().ok_or_else(|| "ChatGPT access token has invalid expiry metadata; supply a current provider access token.".to_string())?;
         if expiry <= now {
-            return Err("ChatGPT access token expired. Renew through the provider or reviewed official Codex login, then replace/review the selected credential. Eevee never refreshes provider tokens.".into());
+            return Err("OpenAI account access token expired. Reconnect using reviewed browser/device sign-in, or explicitly replace the selected token/source. Eevee never silently renews or switches credentials.".into());
         }
     }
     let auth = value.get("https://api.openai.com/auth");
-    let claim = |name| {
-        auth.and_then(|a| a.get(name))
-            .or_else(|| value.get(name))
-            .and_then(serde_json::Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned)
+    let claim = |name| -> Result<Option<String>, String> {
+        let nested = auth.and_then(|a| a.get(name));
+        let top = value.get(name);
+        if nested.is_some() && top.is_some() && nested != top {
+            return Err(
+                "OpenAI token contains conflicting account metadata; review the selected source."
+                    .into(),
+            );
+        }
+        nested
+            .or(top)
+            .map(|value| {
+                value
+                    .as_str()
+                    .filter(|s| valid_secret(s))
+                    .map(str::to_owned)
+                    .ok_or_else(|| "OpenAI token contains invalid account metadata.".to_string())
+            })
+            .transpose()
     };
     Ok(Claims {
-        account_id: claim("chatgpt_account_id"),
-        residency: claim("chatgpt_data_residency").or_else(|| claim("chatgpt_compute_residency")),
+        account_id: claim("chatgpt_account_id")?,
+        residency: claim("chatgpt_data_residency")?.or(claim("chatgpt_compute_residency")?),
+    })
+}
+
+fn consistent_account(
+    explicit: Option<String>,
+    token: Option<String>,
+) -> Result<Option<String>, String> {
+    if explicit.is_some() && token.is_some() && explicit != token {
+        return Err("OpenAI account identity conflicts with the selected credential. Review the account/source; no identity was silently substituted.".into());
+    }
+    Ok(explicit.or(token))
+}
+
+struct SubscriptionSource {
+    token: String,
+    account_id: Option<String>,
+    residency: Option<String>,
+    description: String,
+}
+
+/// Credential import does not depend on unrelated CLI model/provider configuration.
+fn subscription_source<F: Fn(&str) -> Option<String>>(
+    input: &Inputs<F>,
+) -> Result<SubscriptionSource, String> {
+    let (token, file_account, description) = if let Some(token) = (input.get)("CODEX_ACCESS_TOKEN")
+    {
+        (
+            token,
+            None,
+            "explicit CODEX_ACCESS_TOKEN environment credential".to_string(),
+        )
+    } else {
+        let path = codex_auth_path(input).ok_or_else(|| guidance(Agent::ChatGPT))?;
+        let bytes = read_user_file(&path, true, input.project.as_deref())?;
+        let value: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|_| "Provider-owned auth.json is not valid JSON; choose native sign-in or replace the selected source.".to_string())?;
+        let tokens = value.get("tokens");
+        let token = tokens.and_then(|t| t.get("access_token")).and_then(serde_json::Value::as_str)
+            .ok_or_else(|| "Provider-owned auth.json has no subscription access token. Keychain-only or API-key-only login cannot be imported; choose native OpenAI account sign-in instead.".to_string())?;
+        let account = tokens
+            .and_then(|t| t.get("account_id"))
+            .filter(|value| !value.is_null())
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| "Provider account identity is invalid.".to_string())
+            })
+            .transpose()?;
+        (
+            token.to_owned(),
+            account,
+            format!(
+                "explicit read-only provider-owned credential file {}",
+                path.display()
+            ),
+        )
+    };
+    if !valid_secret(&token) {
+        return Err(
+            "OpenAI account access token is empty or unsuitable for an HTTP authorization header."
+                .into(),
+        );
+    }
+    let claims = token_claims(&token, input.now)?;
+    let account_id = consistent_account(
+        consistent_account((input.get)("CODEX_ACCOUNT_ID"), file_account)?,
+        claims.account_id,
+    )?;
+    if account_id
+        .as_ref()
+        .is_some_and(|value| !valid_secret(value))
+        || claims
+            .residency
+            .as_ref()
+            .is_some_and(|value| !valid_secret(value))
+    {
+        return Err(
+            "OpenAI account metadata is invalid; review the selected account/source.".into(),
+        );
+    }
+    Ok(SubscriptionSource {
+        token,
+        account_id,
+        residency: claims.residency,
+        description,
     })
 }
 
@@ -662,52 +787,10 @@ fn resolve_with<F: Fn(&str) -> Option<String>>(
     let mut account_id = None;
     let mut residency = None;
     let (secret, source) = if provider == Agent::ChatGPT {
-        let (token, file_account, source) = if let Some(token) = (input.get)("CODEX_ACCESS_TOKEN") {
-            (
-                token,
-                None,
-                "explicit CODEX_ACCESS_TOKEN environment credential".to_string(),
-            )
-        } else {
-            let path = codex_auth_path(input).ok_or_else(|| guidance(provider))?;
-            let bytes = read_user_file(&path, true, input.project.as_deref())?;
-            let value: serde_json::Value = serde_json::from_slice(&bytes)
-                .map_err(|_| "Provider-owned auth.json is not valid JSON; supply CODEX_ACCESS_TOKEN or renew provider login outside Eevee.".to_string())?;
-            let tokens = value.get("tokens");
-            let token = tokens.and_then(|t| t.get("access_token")).and_then(serde_json::Value::as_str)
-                .ok_or_else(|| "Provider-owned auth.json has no access token. Keychain-only or API-key-only login is not ChatGPT authentication; supply CODEX_ACCESS_TOKEN or renew the provider login outside Eevee.".to_string())?;
-            let account = tokens
-                .and_then(|t| t.get("account_id"))
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned);
-            (
-                token.to_owned(),
-                account,
-                format!(
-                    "explicit read-only provider-owned credential file {}",
-                    path.display()
-                ),
-            )
-        };
-        if !valid_secret(&token) {
-            return Err(
-                "ChatGPT access token is empty or unsuitable for an HTTP authorization header."
-                    .into(),
-            );
-        }
-        let claims = token_claims(&token, input.now)?;
-        account_id = (input.get)("CODEX_ACCOUNT_ID")
-            .or(file_account)
-            .or(claims.account_id);
-        residency = claims.residency;
-        if account_id
-            .as_ref()
-            .is_some_and(|value| !valid_secret(value))
-            || residency.as_ref().is_some_and(|value| !valid_secret(value))
-        {
-            return Err("ChatGPT account metadata is invalid; provide a current provider-owned access token and account identity.".into());
-        }
-        (Some(token), source)
+        let selected = subscription_source(input)?;
+        account_id = selected.account_id;
+        residency = selected.residency;
+        (Some(selected.token), selected.description)
     } else if settings.keyless {
         (
             None,
@@ -842,19 +925,41 @@ pub(crate) fn preferred_agent() -> Agent {
     preferred_with(env::var("EV_PROVIDER").ok().as_deref(), configured)
 }
 
+/// Preserve a deliberate family route. A fresh entry may suggest only one
+/// configured native route; ambiguity is resolved by the reviewed method UI.
+pub(crate) fn openai_family_route(current: Option<Agent>) -> Option<Agent> {
+    family_route_with(current, configured)
+}
+
+fn family_route_with(current: Option<Agent>, configured: impl Fn(Agent) -> bool) -> Option<Agent> {
+    if let Some(current) = current.filter(|agent| {
+        matches!(
+            agent,
+            Agent::ChatGPT | Agent::OpenAI | Agent::Compatible | Agent::Codex
+        )
+    }) {
+        return Some(current);
+    }
+    let mut candidates = [Agent::ChatGPT, Agent::OpenAI, Agent::Compatible]
+        .into_iter()
+        .filter(|agent| configured(*agent));
+    let first = candidates.next()?;
+    candidates.next().is_none().then_some(first)
+}
+
 /// Passive source availability is not authentication. No credential file is read.
 pub(crate) fn configured(provider: Agent) -> bool {
     let input = inputs();
     if owned::available(provider, &input) {
         return true;
     }
-    let Ok(settings) = settings(provider, &input) else {
-        return false;
-    };
     if provider == Agent::ChatGPT {
         return environment_exists("CODEX_ACCESS_TOKEN")
             || codex_auth_path(&input).is_some_and(|p| p.is_file());
     }
+    let Ok(settings) = settings(provider, &input) else {
+        return false;
+    };
     settings.keyless
         || settings.key_env.as_deref().is_some_and(environment_exists)
         || provider == Agent::Google
@@ -865,7 +970,7 @@ pub(crate) fn configured(provider: Agent) -> bool {
 pub(crate) fn guidance(provider: Agent) -> String {
     let guidance = match provider {
         Agent::ChatGPT => {
-            "Native ChatGPT uses a provider access token, not an OpenAI API key. Enter a current token here, use CODEX_ACCESS_TOKEN (+ optional CODEX_ACCOUNT_ID), or explicitly delegate browser/device login to the official Codex CLI and use its read-only CODEX_HOME/auth.json. No app-owned ChatGPT OAuth client is available; without Codex, supply an access token or choose OpenAI API with separate API billing. Keychain-only login is not readable. Tokens can expire; renew through the provider, then replace the token or log in again. Eevee does not refresh tokens or modify the provider store."
+            "Sign in directly with an OpenAI account using browser or callback-free device authorization; no CLI is required. This uses the fixed subscription endpoint, not separately billed API keys. Session-only is the default; private persistence is explicit. Access grants expire and require reconnect. Advanced: supply a subscription token, CODEX_ACCESS_TOKEN (+ optional matching CODEX_ACCOUNT_ID), or explicitly import a read-only CODEX_HOME/auth.json snapshot. Keychain-only/API-key-only CLI login cannot be imported. Provider stores are never modified."
         }
         Agent::OpenAI => {
             "Enter an OpenAI API key here, or use OPENAI_API_KEY; optional OPENAI_BASE_URL and OPENAI_MODEL. This is metered API access, not ChatGPT subscription authentication."
@@ -941,7 +1046,7 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
         configuration: configuration.clone(),
         os: env::consts::OS.into(),
         architecture: env::consts::ARCH.into(),
-        adapter: "Native direct HTTP; no subprocess, login or refresh".into(),
+        adapter: "Native direct HTTP; login is explicit, never an inference-time refresh or fallback".into(),
         action: "Enter saves and sends a prepared inference request; model inspection sends metadata only".into(),
         billing: "Provider account/API billing, eligibility and quota are unknown until an actual request; no billing lookup".into(),
         probe_allowed: false,
@@ -957,6 +1062,62 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn openai_family_preserves_explicit_routes_and_refuses_ambiguous_suggestions() {
+        for route in [
+            Agent::ChatGPT,
+            Agent::OpenAI,
+            Agent::Compatible,
+            Agent::Codex,
+        ] {
+            assert_eq!(family_route_with(Some(route), |_| true), Some(route));
+        }
+        assert_eq!(family_route_with(None, |_| false), None);
+        assert_eq!(
+            family_route_with(None, |route| route == Agent::OpenAI),
+            Some(Agent::OpenAI)
+        );
+        assert_eq!(
+            family_route_with(Some(Agent::Claude), |route| route == Agent::ChatGPT),
+            Some(Agent::ChatGPT)
+        );
+        assert_eq!(
+            family_route_with(None, |route| matches!(
+                route,
+                Agent::ChatGPT | Agent::OpenAI
+            )),
+            None
+        );
+        assert_eq!(family_route_with(None, |_| true), None);
+    }
+
+    #[test]
+    fn explicit_account_method_preserves_opaque_tokens_but_rejects_api_keys_and_conflicts() {
+        let opaque = resolve_with(
+            Agent::ChatGPT,
+            &input(&[
+                ("CODEX_ACCESS_TOKEN", "opaque.dotted.token"),
+                ("CODEX_ACCOUNT_ID", "chosen"),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(opaque.account_id.as_deref(), Some("chosen"));
+        assert!(
+            resolve_with(
+                Agent::ChatGPT,
+                &input(&[("CODEX_ACCESS_TOKEN", "sk-proj-private")])
+            )
+            .is_err()
+        );
+        let conflict = jwt(serde_json::json!({
+            "chatgpt_account_id":"one",
+            "https://api.openai.com/auth":{"chatgpt_account_id":"another"}
+        }));
+        assert!(
+            resolve_with(Agent::ChatGPT, &input(&[("CODEX_ACCESS_TOKEN", &conflict)])).is_err()
+        );
+    }
 
     fn input(values: &[(&str, &str)]) -> Inputs<impl Fn(&str) -> Option<String> + use<>> {
         let values: HashMap<String, String> = values
@@ -1307,12 +1468,12 @@ mod tests {
             &input(&[
                 ("CODEX_ACCESS_TOKEN", &token),
                 ("OPENAI_BASE_URL", "https://evil.test"),
-                ("CODEX_ACCOUNT_ID", "explicit-account"),
+                ("CODEX_ACCOUNT_ID", "account"),
             ]),
         )
         .unwrap();
         assert_eq!(connection.base_url, CODEX_BASE);
-        assert_eq!(connection.account_id.as_deref(), Some("explicit-account"));
+        assert_eq!(connection.account_id.as_deref(), Some("account"));
         assert_eq!(
             connection.models_url(),
             "https://chatgpt.com/backend-api/codex/models?client_version=0.162.1"
@@ -1330,10 +1491,7 @@ mod tests {
             .build()
             .unwrap();
         assert_eq!(header(&request, "originator"), Some("eevee"));
-        assert_eq!(
-            header(&request, "ChatGPT-Account-Id"),
-            Some("explicit-account")
-        );
+        assert_eq!(header(&request, "ChatGPT-Account-Id"), Some("account"));
         assert_eq!(
             header(&request, "x-openai-internal-codex-residency"),
             Some("eu")
@@ -1355,6 +1513,25 @@ mod tests {
                 .unwrap()
                 .contains("expired")
         );
+        let conflict = resolve_with(
+            Agent::ChatGPT,
+            &input(&[
+                ("CODEX_ACCESS_TOKEN", &token),
+                ("CODEX_ACCOUNT_ID", "different-account"),
+            ]),
+        )
+        .unwrap_err();
+        assert!(conflict.contains("conflicts"));
+        assert!(!conflict.contains("different-account"));
+        let opaque = resolve_with(
+            Agent::ChatGPT,
+            &input(&[
+                ("CODEX_ACCESS_TOKEN", "opaque-token"),
+                ("CODEX_ACCOUNT_ID", "explicit-account"),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(opaque.account_id.as_deref(), Some("explicit-account"));
     }
 
     #[cfg(unix)]

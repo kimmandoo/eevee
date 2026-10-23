@@ -36,7 +36,7 @@ providers-agents-back-check-version-y-n-d-tab = { "돌아가기 [버전 확인] 
 
 providers-agents-back-check-version-y-n-d-tab-2 = { "[돌아가기] 버전 확인 | y/n d Tab Enter" }
 
-providers-agents-codex-native-official-chatgpt-scoped-coding = { "Codex 네이티브 | 공식 ChatGPT | 범위 지정 코딩" }
+providers-agents-codex-native-official-chatgpt-scoped-coding = { "OpenAI 계정 | ChatGPT 요금제 | 고급 토큰" }
 
 providers-agents-blank-keeps-selected-source = { "(비우면 선택한 출처 유지)" }
 
@@ -58,8 +58,6 @@ providers-agents-select-route-metadata-only = { "경로 선택; 메타데이터�
 
 providers-agents-browser-login = { "브라우저 로그인" }
 
-providers-agents-own-token-stays-official-codex-cli = { "자체 토큰 유지; 공식 Codex CLI" }
-
 providers-agents-device-login = { "기기 로그인" }
 
 providers-agents-load-cli-token = { "CLI 토큰 불러오기" }
@@ -73,8 +71,46 @@ providers-agents-review-own-override-deletion-only = { "앱 자체 재정의 삭
 providers-agents-model-changed-save-resets-default-effort-choose = { "모델 변경됨: 저장하면 기본 추론 강도를 초기화합니다. 다시 선택하세요." }
 
 providers-agents-save-model-select-route-metadata-never-send =
-    { "저장+모델: 경로 선택과 메타데이터 조회만; 작업 전송 안 함." }
-    { "평문 저장; 암호화/키체인 아님. Ctrl+S 로컬 저장." }
+    { "저장+모델: 경로·메타데이터만; 작업 전송 안 함." }
+    { "평문 저장; 암호화/키체인 아님. Ctrl+S 로컬." }
+
+providers-family-account = ChatGPT로 로그인
+providers-family-api = API 키 사용
+providers-family-custom = 사용자 지정 / 로컬 연결
+providers-family-cli = 고급: CLI 에이전트
+providers-family-current = 현재 연결 사용
+providers-family-advanced = 고급 설정
+providers-family-navigation = Up/Down·Tab 선택 | Enter 열기 | Esc 뒤로
+providers-family-boundary = 계정: ChatGPT 요금제. API: API 과금. 대체 없음.
+providers-account-boundary = ChatGPT 요금제 / 공식 계정; CLI 불필요.
+providers-account-replace = 앱 계정 교체; 작업은 전송하지 않음.
+providers-account-session = 세션만; 종료 후 기존 저장 계정 유지.
+providers-account-private = 저장 계정 교체; 비공개 로컬 평문.
+providers-account-plaintext = 암호화 아님 / 키체인 아님.
+providers-account-continue = 로그인 후: ChatGPT 경로·모델 메타데이터만.
+providers-account-endpoint = 고정: https://chatgpt.com/backend-api/codex
+providers-status-checking = 확인 중
+providers-status-configured = 설정 있음 · 미확인
+providers-status-setup = 연결 설정 필요
+providers-status-missing = CLI 설치 필요
+providers-status-signed-in = 로그인 확인 · 사용 미확인
+providers-status-session = 세션 로그인 · 사용 미확인
+providers-status-signed-out = 로그인 필요
+providers-status-unknown = 상태 미확인
+providers-next-setup = 연결 방식을 선택하세요. 작업 전송 안 함.
+providers-next-model = 모델 선택; 사용 가능 여부는 아직 미확인.
+providers-next-install = CLI 설치 후 Enter로 새로 고침.
+providers-login-retry = 로그인 미완료. 선택한 방식을 다시 시도하세요.
+providers-login-stale = 로그인 연결 의도 만료; 설정 변경 없음.
+providers-login-saved = 로그인 저장됨; 모델 정보만 선택. 작업 전송 없음.
+providers-setup-cancelled = 설정 취소됨; 연결 설정 변경 없음.
+providers-family-methods = OpenAI 연결 방식 선택
+providers-account-expiry = 만료 시 재로그인; 자동 갱신 없음.
+providers-login-unknown = 로그인 상태 미확인; 상태 확인 또는 모델 선택.
+providers-preparing-review = 검토 준비 중; 로그인·작업 전송 없음.
+providers-review-cancelled = 검토 취소됨; 로그인·작업 전송 없음.
+providers-refreshing = 로컬 설정 새로 고침; 네트워크 요청 없음.
+providers-private-editing = 빈 키는 출처 유지. Ctrl+U 지우기; Ctrl+S 로컬 저장.
 
 providers-agents-tab-fields-enter-ctrl-s-local-pgup = { "Tab 필드 | Enter | Ctrl+S 로컬 저장 | PgUp/Dn | Esc" }
 
@@ -687,7 +723,7 @@ providers-setup-gemini = { "PATH에 최신 안정 Gemini를 설치/업데이트�
 
 providers-setup-devin = { "https://docs.devin.ai/cli/에서 최신 안정 Devin을 설치하세요. 기존 설치는 devin update로 업데이트합니다. 이후 설치된 제공자를 새로 고치세요. Eevee는 설치 프로그램을 자동 실행하지 않습니다." }
 
-providers-setup-chatgpt = { "네이티브 ChatGPT는 OpenAI API 키가 아닌 제공자 액세스 토큰을 사용합니다. 현재 토큰을 입력하거나 CODEX_ACCESS_TOKEN(+ 선택적 CODEX_ACCOUNT_ID)을 사용하세요. 또는 공식 Codex CLI에 브라우저/기기 로그인을 명시적으로 위임하고 읽기 전용 CODEX_HOME/auth.json을 사용하세요. 앱 자체 ChatGPT OAuth 클라이언트는 없습니다. Codex가 없으면 액세스 토큰을 제공하거나 별도 API 과금의 OpenAI API를 선택하세요. 키체인 전용 로그인은 읽을 수 없습니다. 토큰은 만료될 수 있습니다. 제공자에서 갱신한 뒤 교체하거나 다시 로그인하세요. Eevee는 토큰을 갱신하거나 제공자 저장소를 수정하지 않습니다. 네이티브 Implement는 작업공간의 새/기존 경로를 제안하고 정확한 일회성 승인 후에만 생성/교체합니다. /paths로 대상을 선택적으로 제한하며 []로 해제합니다. 최대 8개 파일, 파일당 64 KiB입니다. Plan/Review는 읽기 전용입니다. 설정은 기본적으로 세션 전용 저장을 제공하며 명시적으로 선택하면 비공개 로컬 평문으로 저장합니다(암호화나 OS 키체인 아님). 설정과 메타데이터 접근은 추론, 계정 접근, 과금을 입증하지 않습니다." }
+providers-setup-chatgpt = { "브라우저 또는 기기 로그인을 바로 선택하세요. CLI 설치는 필요 없습니다. 공식 ChatGPT 계정·요금제 경로이며 종량제 OpenAI API 과금과 별개입니다. 로그인 전에 계정 교체, 세션 전용 또는 비공개 로컬 평문 저장, 모델 메타데이터만 조회하는 후속 동작을 검토합니다. 저장 정보는 암호화나 키체인 보호가 아닙니다. 액세스 권한 만료 시 다시 로그인하세요. 자동 갱신이나 제공자 인증 저장소 수정은 하지 않습니다. 고급 설정에는 수동 액세스 토큰·계정 입력과 명시적 CLI 토큰 가져오기가 있습니다. 네이티브 Implement는 작업공간 경로를 제안하고 정확한 일회성 승인 후에만 생성·교체합니다. /paths로 대상을 제한할 수 있습니다. Plan/Review는 읽기 전용이며 설정·메타데이터 확인이 모델 사용 가능성을 보장하지 않습니다." }
 
 providers-setup-openai = { "OpenAI API 키를 입력하거나 OPENAI_API_KEY를 사용하세요. OPENAI_BASE_URL과 OPENAI_MODEL은 선택 사항입니다. 종량제 API 접근이며 ChatGPT 구독 인증이 아닙니다. 설정은 기본적으로 세션 전용 저장을 제공하며 명시적으로 선택하면 비공개 로컬 평문으로 저장합니다(암호화나 OS 키체인 아님). 설정과 메타데이터 접근은 추론, 계정 접근, 과금을 입증하지 않습니다." }
 
@@ -750,12 +786,6 @@ providers-action-use-for-task = { "이 작업에 사용" }
 providers-action-choose-model = { "모델 선택" }
 
 providers-action-choose-reasoning-effort = { "추론 강도 선택" }
-
-providers-action-change-codex-connection-method = { "Codex 연결 방식 변경" }
-
-providers-action-set-up-native-responses-scoped-coding = { "네이티브 응답 설정 (범위 지정 코딩)" }
-
-providers-action-set-up-cli-agent-tools-edits = { "CLI 에이전트 설정 (도구 / 편집)" }
 
 providers-action-setup = { "설정" }
 

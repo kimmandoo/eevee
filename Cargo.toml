@@ -1,6 +1,6 @@
 [package]
 name = "eevee"
-version = "0.1.22"
+version = "0.1.23"
 edition = "2024"
 rust-version = "1.90"
 description = "A local-first evolution workbench for LLM-assisted development"
@@ -45,7 +45,7 @@ libc = "=0.2.182"
 signal-hook = "=0.3.18"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_Threading"] }
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 # Runner tests hash the >100 MiB debug test executable; unoptimized SHA-256 made admission
 # exceed bounded deadlines on loaded macOS runners.

@@ -14,6 +14,9 @@ The user reported difficult provider setup and requested one integrated OpenAI-f
 4. Exercise real disposable PTY setup/model/request flows with deterministic protocol/auth fixtures, all relevant provider regressions and source checks. Document unresolved real-account limits without touching original credentials or making paid model calls.
 5. Record actual fixes/contracts/troubleshooting, commit a separate corrective version, qualify exact-source native packages and publish/verify the downloaded release. Do not retarget or replace v0.1.22 assets.
 
+Implementation and source gates are complete: one family, native browser/device login, scoped replacement, typed localized readiness, complete compact disclosures, private input and resize-safe continuation. Frozen B `target/provider-0123-b/ev` is v0.1.23, SHA256 `a1b2e7aadb469ea802778c51cdaa7d6c8d661ffb6ae895fff1569da611181f31`; pinned Rust passed 1,352 tests/two ignored, formatting, strict Clippy and release build. A passed all four bilingual provider UX journeys, 24 file journeys/126 groups and ten CLI auth lifecycle groups. B clears stale save feedback in missing-connection recovery. Final B provider/native/workbench journeys and exact-source native qualification are the active gates; publication must wait for both. Native loopback OAuth protocol proof is not live issuer/account acceptance.
+
+
 ## Completed request — four Pokémon-completion tasks; v0.1.22 released
 
 User authorized **PT11 → MV08B → UX04B → PK03**, followed by a qualified native release. All four implementation/runtime acceptance sets passed and are archived; no unrelated backlog feature or paid/live model call is authorized.

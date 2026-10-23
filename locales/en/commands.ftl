@@ -1,4 +1,4 @@
-cmd-provider = { "Provider connection selector; nothing sent" }
+cmd-provider = { "Provider families and connections; nothing sent" }
 
 cmd-new = { "Send ordinary Request as a fresh conversation" }
 
@@ -290,7 +290,7 @@ cmd-sylveon = { "Select Sylveon form" }
 
 cmd-provider-codex = { "Codex CLI method (tools / edits)" }
 
-cmd-provider-chatgpt = { "Codex native method (scoped coding / chat)" }
+cmd-provider-chatgpt = { "Choose OpenAI account route (ChatGPT plan)" }
 
 cmd-provider-claude = { "Choose Claude" }
 
@@ -382,7 +382,7 @@ cmd-version = { "Review installed provider version check" }
 
 cmd-diagnostics = { "Inspect provider diagnostics" }
 
-cmd-connection-method = { "Choose Codex native responses or CLI agent method" }
+cmd-connection-method = { "Choose OpenAI account, API key, custom, or advanced CLI" }
 
 cmd-provider-use = { "Use selected provider for task" }
 

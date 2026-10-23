@@ -1958,6 +1958,59 @@ fn provider_switch_review_cancellation_restores_the_invoking_editor_directly() {
 }
 
 #[test]
+fn native_login_selection_waits_for_size_preserves_switch_review_and_rejects_stale_owner() {
+    use crate::providers::Agent;
+    for stale in [false, true] {
+        let mut app = request_app();
+        app.goal = "Committed connection owner".into();
+        app.update(Event::Paste("retained login draft".into()));
+        app.cursor = 4;
+        modified_key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+        save_request(&mut app);
+        app.planning.reset(app.task_id);
+        app.planning.thread_id = Some("existing-source-session".into());
+        let source = app.planning.agent;
+        app.command("connect");
+        app.agents.page = agents::Page::Account;
+        app.agents.use_for_task = Some(Agent::ChatGPT.index());
+        app.agents.pick = Some("model");
+        app.pending_openai_selection = Some((app.task_id, app.lead.id, source));
+        app.update(Event::Resize(59, 17));
+        app.use_selected_provider();
+        app.settle_planning();
+        assert_eq!(app.planning.agent, source);
+        assert!(app.pending_openai_selection.is_some());
+        assert!(app.planning.pending.is_none() && app.planning.switch_to.is_none());
+        if stale {
+            app.task_id += 1;
+        }
+        app.update(Event::Resize(60, 18));
+        app.settle_planning();
+        assert!(app.pending_openai_selection.is_none());
+        assert_eq!(app.planning.agent, source);
+        assert_eq!(
+            app.planning.thread_id.as_deref(),
+            Some("existing-source-session")
+        );
+        if stale {
+            assert!(app.planning.switch_to.is_none() && app.planning.pending.is_none());
+            assert!(app.agents.use_for_task.is_none() && app.agents.pick.is_none());
+        } else {
+            assert_eq!(app.planning.switch_to, Some(Agent::ChatGPT));
+            assert!(app.pending_provider_picker.is_some());
+            key(&mut app, KeyCode::Enter); // Neutral switch cancellation never reopens.
+            app.settle_planning();
+            assert!(app.planning.switch_to.is_none() && app.pending_provider_picker.is_none());
+            assert!(app.planning.pending.is_none());
+            assert_eq!(
+                (app.input.as_str(), app.cursor),
+                ("retained login draft", 4)
+            );
+        }
+    }
+}
+
+#[test]
 fn direct_custom_model_review_remains_owned_until_explicit_cancellation() {
     let mut app = request_app();
     app.goal = "Committed session".into();
@@ -2104,6 +2157,40 @@ fn composer_enter_dispatches_the_committed_request_once_without_a_popup() {
 #[test]
 fn terminal_native_unknown_allows_explicit_followup_and_task_switch_but_cli_unknown_does_not() {
     use crate::providers::{Agent, Event as ProviderEvent, ItemKind, Outcome, Preview, Request};
+    // Isolate configured native credentials from the parallel test process.
+    if std::env::var_os("EV_TEST_NATIVE_OUTCOME").is_none() {
+        let home = std::env::temp_dir().join(format!(
+            "eevee-native-outcome-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&home).unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "app::tests::terminal_native_unknown_allows_explicit_followup_and_task_switch_but_cli_unknown_does_not",
+                "--nocapture",
+            ])
+            .env_clear()
+            .env("HOME", &home)
+            .env("USERPROFILE", &home)
+            .env("EV_TEST_NATIVE_OUTCOME", "1")
+            .env("EV_API_BASE_URL", "http://127.0.0.1:9/v1")
+            .env("EV_API_KEY", "synthetic-outcome-fixture-not-a-real-key")
+            .output();
+        std::fs::remove_dir_all(home).unwrap();
+        let output = output.unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     for agent in [Agent::Compatible, Agent::Codex] {
         let mut app = request_app();
         app.planning.agent = agent;
@@ -2118,10 +2205,15 @@ fn terminal_native_unknown_allows_explicit_followup_and_task_switch_but_cli_unkn
         save_request(&mut app);
         app.settle_planning();
         acknowledge_work(&mut app);
-        assert!(matches!(
-            app.planning.pending.take(),
-            Some(Request::Preview(_))
-        ));
+        assert!(
+            matches!(app.planning.pending.take(), Some(Request::Preview(_))),
+            "fixture {:?}: overlay={:?}, notice={}, planning={}, readiness={:?}",
+            agent,
+            app.overlay,
+            app.notice,
+            app.planning.notice,
+            app.agents.readiness(agent.index())
+        );
         app.provider_event(
             1,
             ProviderEvent::Preview(Preview {

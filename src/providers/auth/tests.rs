@@ -93,6 +93,15 @@ fn authentication_methods_cannot_cross_provider() {
     assert!(Plan::prepare(agent::DEVIN, Method::CodexBrowser, Path::new(".")).is_err());
     assert!(Plan::prepare(agent::ANT, Method::DevinBrowser, Path::new(".")).is_err());
     assert!(methods(1).iter().all(|method| method.is_claude()));
+    assert!(Plan::prepare(0, Method::OpenAiBrowser, Path::new(".")).is_err());
+    assert!(
+        Plan::prepare(
+            crate::providers::Agent::ChatGPT.index(),
+            Method::CodexBrowser,
+            Path::new(".")
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -224,4 +233,31 @@ fn session_credential_redacts_debug_and_reports_expiry() {
     assert!(!credential.expired());
     assert_eq!(credential.env, "WINDSURF_API_KEY");
     assert_eq!(credential.token(), "opaque-session-secret");
+}
+
+#[test]
+fn native_openai_methods_need_no_cli_and_disclose_exact_credential_effects() {
+    let profile = crate::providers::Agent::ChatGPT.index();
+    assert_eq!(
+        methods(profile),
+        &[Method::OpenAiBrowser, Method::OpenAiDevice]
+    );
+    assert_eq!(status_method(profile), None);
+    for method in methods(profile) {
+        let plan = Plan::prepare(profile, *method, Path::new(".")).unwrap();
+        assert!(method.is_web());
+        assert!(plan.trust.is_none() && plan.directory.is_none());
+        assert!(method.args().is_empty());
+        let disclosure = plan.lines.join("\n");
+        assert!(disclosure.contains("https://auth.openai.com"));
+        assert!(disclosure.contains("https://chatgpt.com/backend-api/codex"));
+        assert!(disclosure.contains("Session-only shadows"));
+        assert!(disclosure.contains("refresh tokens are not retained"));
+        assert!(!format!("{plan:?}").contains("app_EMoam"));
+    }
+    assert!(
+        Completion::bare(Outcome::Cancelled)
+            .openai_credential
+            .is_none()
+    );
 }

@@ -16,10 +16,9 @@ pub enum ConnectionField {
     Keyless,
     Storage,
     Save,
-    Browser,
-    Device,
     LoadCli,
     Forget,
+    Advanced,
 }
 
 pub(crate) struct ConnectionEditor {
@@ -28,11 +27,15 @@ pub(crate) struct ConnectionEditor {
     pub cursor: usize,
     /// Set only when the complete local effect/storage disclosure is on screen.
     pub visible: bool,
+    pub advanced: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
     Providers,
+    OpenAi,
+    Account,
+    Install,
     Actions,
     Methods,
     Diagnostics,
@@ -62,9 +65,37 @@ impl Action {
             Self::UseForTask => "Use for task",
             Self::Model => "Choose model",
             Self::Effort => "Choose reasoning effort",
-            Self::ConnectionMethod => "Change Codex connection method",
+            Self::ConnectionMethod => "Choose OpenAI connection method",
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Readiness {
+    Checking,
+    Configured,
+    Setup,
+    MissingCli,
+    SignedIn,
+    Session,
+    SignedOut,
+    Unknown,
+}
+
+#[derive(Clone)]
+struct OpenAiIntent {
+    method: crate::providers::auth::Method,
+    generation: u64,
+    persist: bool,
+    approved: bool,
+    owner: Option<(i64, i64, Agent)>,
+}
+
+pub fn openai_family(index: usize) -> bool {
+    matches!(
+        Agent::from_index(index),
+        Some(Agent::Codex | Agent::ChatGPT | Agent::OpenAI | Agent::Compatible)
+    )
 }
 
 pub struct State {
@@ -99,9 +130,15 @@ pub struct State {
     pub auth_details: bool,
     pub review_choice: usize,
     outcomes: Vec<Option<crate::providers::auth::Outcome>>,
+    pub auth_notice: Option<crate::providers::auth::Outcome>,
     /// Live website-OAuth credential expiry (unix seconds) for Devin launches;
     /// `u64::MAX` when the token has no JWT expiry, `None` when detached.
     pub session_credential_until: Option<u64>,
+    pub family_choice: usize,
+    pub login_persist: bool,
+    pub connection_owner: Option<(i64, i64, Agent)>,
+    openai_intent: Option<OpenAiIntent>,
+    deferred_family: bool,
 }
 
 impl Default for State {
@@ -142,7 +179,13 @@ impl State {
             auth_details: false,
             review_choice: 0,
             outcomes: Vec::new(),
+            auth_notice: None,
             session_credential_until: None,
+            family_choice: 0,
+            login_persist: false,
+            connection_owner: None,
+            openai_intent: None,
+            deferred_family: false,
         }
     }
 
@@ -158,47 +201,203 @@ impl State {
         self.page == Page::Providers && self.connection.is_none() && self.search.is_empty()
     }
 
-    /// Every route remains separately selectable, including native and CLI Codex.
+    /// Presentation grouping only; registry identities and selected routes stay exact.
     pub fn provider_indices(&self) -> impl Iterator<Item = usize> + Clone + use<> {
         let query = self.search.to_lowercase();
-        (0..self.profiles.len())
+        let family = if openai_family(self.selected) {
+            self.selected
+        } else if openai_family(self.active) {
+            self.active
+        } else {
+            Agent::ChatGPT.index()
+        };
+        std::iter::once(family)
+            .chain(0..self.profiles.len())
+            .filter(|index| *index < self.profiles.len())
+            .enumerate()
+            .filter(|(position, index)| *position == 0 || !openai_family(*index))
+            .map(|(_, index)| index)
             .filter(|index| {
-                Agent::from_index(*index).is_some_and(|agent| {
-                    query.is_empty()
-                        || agent.label().to_lowercase().contains(&query)
-                        || agent.command().contains(&query)
-                })
+                if openai_family(*index) {
+                    ["openai", "chatgpt", "codex", "compatible", "custom"]
+                        .iter()
+                        .any(|name| name.contains(&query))
+                } else {
+                    Agent::from_index(*index).is_some_and(|agent| {
+                        agent.label().to_lowercase().contains(&query)
+                            || agent.command().contains(&query)
+                    })
+                }
             })
             .collect::<Vec<_>>()
             .into_iter()
     }
 
-    pub fn action_label(&self, action: Action) -> &'static str {
-        if action == Action::ConnectionMethod {
-            if self.selected == Agent::Codex.index() {
-                "Set up native responses (scoped coding)"
+    pub fn begin_openai_family(&mut self) {
+        if self.connection_editing()
+            || self.preview
+            || self.auth_preview.is_some()
+            || self.auth_busy()
+        {
+            return;
+        }
+        if self.discovering {
+            self.deferred_family = true;
+            return;
+        }
+        if self.busy() {
+            return;
+        }
+        let current = Agent::from_index(self.active).filter(|agent| openai_family(agent.index()));
+        self.selected = crate::providers::direct::config::openai_family_route(current)
+            .unwrap_or(Agent::ChatGPT)
+            .index();
+        self.page = Page::OpenAi;
+        self.family_choice = 0;
+        self.search.clear();
+        self.notice.clear();
+    }
+
+    pub fn family_has_current(&self) -> bool {
+        self.ready_for_task()
+    }
+
+    fn back_to_connection_context(&mut self) {
+        self.page = if openai_family(self.selected) {
+            if self.selected == Agent::ChatGPT.index() {
+                Page::Account
             } else {
-                "Set up CLI agent (tools / edits)"
+                Page::OpenAi
             }
         } else {
-            action.label()
+            Page::Providers
+        };
+        self.family_choice = 0;
+    }
+
+    fn select_openai_method(&mut self) {
+        match self.family_choice {
+            0 => {
+                self.selected = Agent::ChatGPT.index();
+                self.page = Page::Account;
+                self.family_choice = 0;
+            }
+            1 => self.begin_connection(Agent::OpenAI),
+            2 => self.begin_connection(Agent::Compatible),
+            3 => self.begin_connection(Agent::Codex),
+            _ if self.family_has_current() => {
+                self.use_for_task = Some(self.selected);
+                self.pick = Some("model");
+            }
+            _ => {}
         }
     }
 
-    fn alternate_codex(&self) -> Option<usize> {
-        let alternate = match Agent::from_index(self.selected)? {
-            Agent::Codex => Agent::ChatGPT,
-            Agent::ChatGPT => Agent::Codex,
-            _ => return None,
+    fn select_account_method(&mut self) {
+        use crate::providers::auth::Method;
+        match self.family_choice {
+            0 | 1 => {
+                let method = if self.family_choice == 0 {
+                    Method::OpenAiBrowser
+                } else {
+                    Method::OpenAiDevice
+                };
+                self.prepare_auth_for(Agent::ChatGPT.index(), Some(method));
+            }
+            2 => self.login_persist = !self.login_persist,
+            3 => match crate::providers::direct::config::setup(Agent::ChatGPT) {
+                Ok(form) => {
+                    self.connection = Some(ConnectionEditor {
+                        form,
+                        field: 0,
+                        cursor: 0,
+                        visible: false,
+                        advanced: true,
+                    });
+                    self.notice.clear();
+                }
+                Err(reason) => self.notice = reason,
+            },
+            _ => {}
+        }
+    }
+
+    pub fn openai_auth_generation(&self) -> Option<u64> {
+        self.openai_intent
+            .as_ref()
+            .filter(|intent| intent.approved)
+            .map(|intent| intent.generation)
+    }
+
+    pub fn openai_login_persist(&self) -> bool {
+        self.openai_intent
+            .as_ref()
+            .map_or(self.login_persist, |intent| intent.persist)
+    }
+
+    /// Consume only the exact reviewed login; never infer a route from returned credentials.
+    pub fn finish_openai_login(
+        &mut self,
+        plan: &crate::providers::auth::Plan,
+        generation: Option<u64>,
+        credential: Option<crate::providers::auth::OpenAiCredential>,
+        outcome: crate::providers::auth::Outcome,
+        owner: &(i64, i64, Agent),
+        admitted: bool,
+    ) {
+        let Some(intent) = self.openai_intent.as_ref() else {
+            return;
         };
-        self.profiles
-            .get(alternate.index())
-            .map(|_| alternate.index())
+        if generation != Some(intent.generation)
+            || plan.profile != Agent::ChatGPT.index()
+            || plan.method != intent.method
+        {
+            return;
+        }
+        let intent = self.openai_intent.take().expect("correlated intent");
+        if !admitted || !intent.approved || intent.owner.as_ref() != Some(owner) {
+            self.page = Page::Account;
+            self.notice = "Login continuation expired; no connection settings changed.".into();
+            return;
+        }
+        self.page = Page::Account;
+        self.family_choice =
+            usize::from(intent.method == crate::providers::auth::Method::OpenAiDevice);
+        if outcome != crate::providers::auth::Outcome::Authenticated {
+            self.notice = "Login did not complete. Retry the selected method.".into();
+            return;
+        }
+        let Some(credential) = credential else {
+            self.notice = "Login returned no usable credential; retry this method.".into();
+            return;
+        };
+        match crate::providers::direct::config::apply_openai_login(credential, intent.persist) {
+            Ok(applied) => {
+                if applied.changed {
+                    self.connection_changes.push_back(Agent::ChatGPT);
+                }
+                if let Some(profile) = self.profiles.get_mut(Agent::ChatGPT.index()) {
+                    *profile = crate::providers::direct::config::profile(Agent::ChatGPT);
+                }
+                if applied.durable {
+                    self.use_for_task = Some(Agent::ChatGPT.index());
+                    self.pick = Some("model");
+                    self.notice = "Login saved; choose model metadata only. No task sent.".into();
+                } else {
+                    self.notice = "Settings changed but disk durability is unconfirmed; inspect setup before continuing.".into();
+                }
+            }
+            Err(reason) => self.notice = reason,
+        }
+    }
+
+    pub fn action_label(&self, action: Action) -> &'static str {
+        action.label()
     }
 
     pub fn actions(&self) -> Vec<Action> {
         let mut actions = vec![Action::Connect];
-        if self.alternate_codex().is_some() {
+        if openai_family(self.selected) {
             actions.push(Action::ConnectionMethod);
         }
         if crate::providers::auth::status_method(self.selected).is_some() {
@@ -219,12 +418,15 @@ impl State {
     fn ready_for_task(&self) -> bool {
         self.profiles.get(self.selected).is_some()
             && matches!(
-                self.connection_status(self.selected),
-                "Connected" | "Connected (session credential)" | "Configured (unchecked)"
+                self.readiness(self.selected),
+                Readiness::Configured | Readiness::SignedIn | Readiness::Session
             )
     }
 
     pub fn enter_hint(&self) -> &'static str {
+        if openai_family(self.selected) {
+            return "Setup";
+        }
         if !self.ready_for_task() {
             "Setup"
         } else {
@@ -355,13 +557,18 @@ impl State {
     pub fn connection_fields(&self) -> &'static [ConnectionField] {
         use ConnectionField::*;
         match Agent::from_index(self.selected) {
-            Some(Agent::ChatGPT) => &[
-                Credential, Model, Account, Storage, Save, Browser, Device, LoadCli, Forget,
-            ],
+            Some(Agent::ChatGPT) => &[Credential, Model, Account, Storage, Save, LoadCli, Forget],
             Some(Agent::Compatible) => &[
                 Credential, Endpoint, Model, Protocol, Keyless, Storage, Save, Forget,
             ],
-            _ => &[Credential, Endpoint, Model, Storage, Save, Forget],
+            _ if self
+                .connection
+                .as_ref()
+                .is_some_and(|editor| editor.advanced) =>
+            {
+                &[Credential, Storage, Save, Advanced, Endpoint, Model, Forget]
+            }
+            _ => &[Credential, Storage, Save, Advanced],
         }
     }
 
@@ -461,6 +668,7 @@ impl State {
         if key.code == KeyCode::Esc {
             self.forget_preview = None;
             self.connection = None;
+            self.back_to_connection_context();
             self.reviewed = false;
             self.affirmative = false;
             self.notice =
@@ -546,7 +754,7 @@ impl State {
         }
         if key.code == KeyCode::Esc {
             self.connection = None;
-            self.page = Page::Providers;
+            self.back_to_connection_context();
             self.notice = "Private setup cancelled; no connection settings changed.".into();
             return true;
         }
@@ -632,16 +840,10 @@ impl State {
                 editor.visible = false;
             }
             KeyCode::Enter if field == ConnectionField::Save => self.save_connection(true),
-            KeyCode::Enter
-                if matches!(field, ConnectionField::Browser | ConnectionField::Device) =>
-            {
-                let method = if field == ConnectionField::Browser {
-                    crate::providers::auth::Method::CodexBrowser
-                } else {
-                    crate::providers::auth::Method::CodexDevice
-                };
-                self.connection = None;
-                self.prepare_auth_for(Agent::Codex.index(), Some(method));
+            KeyCode::Enter if field == ConnectionField::Advanced => {
+                let editor = self.connection.as_mut().expect("private editor");
+                editor.advanced = !editor.advanced;
+                editor.visible = false;
             }
             KeyCode::Enter if field == ConnectionField::LoadCli => {
                 let editor = self.connection.as_mut().expect("private editor");
@@ -719,7 +921,7 @@ impl State {
         true
     }
 
-    pub fn connection_status(&self, index: usize) -> &'static str {
+    pub fn readiness(&self, index: usize) -> Readiness {
         if self.discovering
             || self.inflight.is_some_and(|(profile, _)| profile == index)
             || self
@@ -730,17 +932,17 @@ impl State {
                 .as_ref()
                 .is_some_and(|plan| plan.profile == index)
         {
-            return "Checking";
+            return Readiness::Checking;
         }
         if let Some(agent) = Agent::from_index(index).filter(|agent| agent.is_direct()) {
             return if crate::providers::direct::config::configured(agent) {
-                "Configured (unchecked)"
+                Readiness::Configured
             } else {
-                "Not configured"
+                Readiness::Setup
             };
         }
         if self.profiles.get(index).is_some() && !self.connectable(index) {
-            return "Not installed";
+            return Readiness::MissingCli;
         }
         match self.outcomes.get(index).copied().flatten() {
             _ if index == crate::providers::agent::DEVIN
@@ -751,11 +953,11 @@ impl State {
                         .unwrap_or(false)
                 }) =>
             {
-                "Connected (session credential)"
+                Readiness::Session
             }
-            Some(crate::providers::auth::Outcome::Authenticated) => "Connected",
-            Some(crate::providers::auth::Outcome::NotAuthenticated) => "Not connected",
-            _ => "Unknown",
+            Some(crate::providers::auth::Outcome::Authenticated) => Readiness::SignedIn,
+            Some(crate::providers::auth::Outcome::NotAuthenticated) => Readiness::SignedOut,
+            _ => Readiness::Unknown,
         }
     }
 
@@ -780,6 +982,21 @@ impl State {
     fn prepare_auth_for(&mut self, profile: usize, method: Option<crate::providers::auth::Method>) {
         if let Some(method) = method {
             self.generation += 1;
+            self.openai_intent = if matches!(
+                method,
+                crate::providers::auth::Method::OpenAiBrowser
+                    | crate::providers::auth::Method::OpenAiDevice
+            ) {
+                Some(OpenAiIntent {
+                    method,
+                    generation: self.generation,
+                    persist: self.login_persist,
+                    approved: false,
+                    owner: self.connection_owner,
+                })
+            } else {
+                None
+            };
             self.auth_preparing = Some((profile, self.generation));
             self.pending = Some(Request::PrepareAuth {
                 profile,
@@ -799,6 +1016,12 @@ impl State {
     fn activate(&mut self, action: Action) {
         match action {
             Action::Connect => {
+                if self.selected == Agent::ChatGPT.index() {
+                    self.page = Page::Account;
+                    self.family_choice = 0;
+                    self.notice.clear();
+                    return;
+                }
                 if let Some(agent) =
                     Agent::from_index(self.selected).filter(|agent| agent.is_direct())
                 {
@@ -809,6 +1032,7 @@ impl State {
                                 field: 0,
                                 cursor: 0,
                                 visible: false,
+                                advanced: false,
                             });
                             self.notice = self.connection.as_ref().and_then(|editor| editor.form.source_notice.clone()).unwrap_or_else(|| "Blank key keeps source. Ctrl+U clears a field; Ctrl+S saves locally without model metadata.".into());
                         }
@@ -817,7 +1041,7 @@ impl State {
                     return;
                 }
                 if !self.connectable(self.selected) {
-                    self.page = Page::Actions;
+                    self.page = Page::Install;
                     self.notice = self.setup_hint();
                 } else if crate::providers::auth::methods(self.selected).len() > 1 {
                     self.page = Page::Methods;
@@ -859,13 +1083,8 @@ impl State {
                         .into();
             }
             Action::ConnectionMethod => {
-                if let Some(alternate) = self.alternate_codex() {
-                    self.selected = alternate;
-                    self.method = crate::providers::auth::default_method(alternate);
-                    // Changing setup route does not select a task provider.
-                    self.activate(Action::Connect);
-                    self.action = self.default_action();
-                }
+                self.page = Page::OpenAi;
+                self.family_choice = 0;
             }
             Action::UseForTask => {
                 self.use_for_task = Some(self.selected);
@@ -877,13 +1096,8 @@ impl State {
     }
 
     pub fn auth_returned(&mut self, profile: usize, outcome: crate::providers::auth::Outcome) {
+        self.auth_notice = Some(outcome);
         self.notice = outcome.label().into();
-        if profile == Agent::Codex.index() && self.selected == Agent::ChatGPT.index() {
-            self.notice = format!(
-                "{} Any own token override stays until Load CLI token then Save; keychain-only auth is unreadable.",
-                outcome.label()
-            );
-        }
         if let Some(current) = self.outcomes.get_mut(profile) {
             *current = Some(outcome);
         }
@@ -916,9 +1130,15 @@ impl State {
                 self.selected = self.selected.min(self.profiles.len().saturating_sub(1));
                 self.method = crate::providers::auth::default_method(self.selected);
                 self.discovering = false;
+                if self.page == Page::Install && self.connectable(self.selected) {
+                    self.page = Page::Methods;
+                }
                 self.notice =
                     "Enter chooses a ready provider; Right opens Actions and setup.".into();
-                if let Some(agent) = self.deferred_connection.take() {
+                if self.deferred_family {
+                    self.deferred_family = false;
+                    self.begin_openai_family();
+                } else if let Some(agent) = self.deferred_connection.take() {
                     self.begin_connection(agent);
                 }
             }
@@ -940,7 +1160,25 @@ impl State {
             } if self.auth_preparing == Some((profile, generation)) => {
                 self.auth_preparing = None;
                 match result {
-                    Ok(plan) => {
+                    Ok(mut plan) => {
+                        if self.openai_intent.as_ref().is_some_and(|intent| {
+                            intent.generation != generation
+                                || intent.method != plan.method
+                                || profile != Agent::ChatGPT.index()
+                        }) {
+                            self.openai_intent = None;
+                            self.notice =
+                                "Connection review no longer matches its requested method.".into();
+                            return;
+                        }
+                        if let Some(intent) = &self.openai_intent {
+                            plan.lines.push(if intent.persist {
+                                "Replace the saved ChatGPT app account with this login in private local plaintext, not encrypted or keychain."
+                            } else {
+                                "Use this login for this session only; shadow the saved ChatGPT app account until exit without changing its file."
+                            }.into());
+                            plan.lines.push("After success, select only ChatGPT and open model metadata selection through task/partner switch review. Never send or replay the Request. Reconnect on credential expiry.".into());
+                        }
                         self.auth_preview = Some(*plan);
                         self.affirmative = false;
                         self.reviewed = false;
@@ -963,6 +1201,9 @@ impl State {
         self.auth_preview = None;
         self.pending_auth = None;
         self.auth_preparing = None;
+        self.openai_intent = None;
+        self.deferred_family = false;
+        self.deferred_connection = None;
         if matches!(self.pending, Some(Request::PrepareAuth { .. })) {
             self.pending = None;
         }
@@ -1062,9 +1303,9 @@ impl State {
                 "connection-method",
                 self.action_label(Action::ConnectionMethod),
                 blocked.or(missing).or_else(|| {
-                    self.alternate_codex()
-                        .is_none()
-                        .then_some("Select Codex to choose native responses or the CLI agent.")
+                    (!openai_family(self.selected)).then_some(
+                        "Select OpenAI to choose account, API key, custom, or advanced CLI.",
+                    )
                 }),
             ),
             choice(
@@ -1083,6 +1324,9 @@ impl State {
     }
 
     pub fn command(&mut self, name: &str, large_enough: bool) -> bool {
+        if self.auth_notice.take().is_some() {
+            self.notice.clear();
+        }
         if !large_enough {
             self.affirmative = false;
             self.reviewed = false;
@@ -1113,7 +1357,7 @@ impl State {
                 }
             }
             "status" => self.activate(Action::Status),
-            "connection-method" if self.alternate_codex().is_some() => {
+            "connection-method" if openai_family(self.selected) => {
                 self.activate(Action::ConnectionMethod)
             }
             "version" => self.activate(Action::Version),
@@ -1128,6 +1372,9 @@ impl State {
     }
 
     pub fn key(&mut self, mut key: KeyEvent, large_enough: bool) -> bool {
+        if self.auth_notice.take().is_some() {
+            self.notice.clear();
+        }
         if self.connection_editing() {
             return self.connection_key(key, large_enough);
         }
@@ -1157,7 +1404,15 @@ impl State {
             } else if self.preview {
                 self.cancel_preview();
             } else {
-                self.page = Page::Providers;
+                self.page = match self.page {
+                    Page::Account => Page::OpenAi,
+                    Page::Methods | Page::Install | Page::Actions
+                        if openai_family(self.selected) =>
+                    {
+                        Page::OpenAi
+                    }
+                    _ => Page::Providers,
+                };
                 self.search.clear();
             }
             self.scroll = 0;
@@ -1203,6 +1458,12 @@ impl State {
                         }
                     } else if self.reviewed && !self.busy() {
                         if self.auth_preview.is_some() {
+                            if let Some(intent) = self.openai_intent.as_mut() {
+                                intent.approved = self.auth_preview.as_ref().is_some_and(|plan| {
+                                    plan.profile == Agent::ChatGPT.index()
+                                        && plan.method == intent.method
+                                });
+                            }
                             self.pending_auth = self.auth_preview.take();
                             self.affirmative = false;
                             self.reviewed = false;
@@ -1255,6 +1516,12 @@ impl State {
                 Page::Providers if !self.provider_indices().any(|index| index == self.selected) => {
                 }
                 Page::Providers => {
+                    if openai_family(self.selected) {
+                        self.page = Page::OpenAi;
+                        self.family_choice = 0;
+                        self.notice.clear();
+                        return true;
+                    }
                     if self.ready_for_task() {
                         self.activate(if self.selected == self.active {
                             Action::Model
@@ -1272,14 +1539,35 @@ impl State {
                         .copied(),
                 ),
                 Page::Diagnostics => self.page = Page::Actions,
+                Page::OpenAi => self.select_openai_method(),
+                Page::Account => self.select_account_method(),
+                Page::Install => self.activate(Action::Refresh),
             },
-            KeyCode::Right => {
+            KeyCode::Right if !matches!(self.page, Page::OpenAi | Page::Account) => {
                 self.page = Page::Actions;
+                self.action = self.default_action();
                 self.scroll = 0;
+            }
+            KeyCode::Tab | KeyCode::BackTab
+                if matches!(self.page, Page::OpenAi | Page::Account) =>
+            {
+                let count = if self.page == Page::Account {
+                    4
+                } else {
+                    4 + usize::from(self.family_has_current())
+                };
+                self.family_choice = (self.family_choice
+                    + if key.code == KeyCode::BackTab {
+                        count - 1
+                    } else {
+                        1
+                    })
+                    % count;
             }
             KeyCode::Tab | KeyCode::BackTab | KeyCode::Left => {
                 self.page = match self.page {
                     Page::Providers => Page::Actions,
+                    Page::Account => Page::OpenAi,
                     _ => Page::Providers,
                 };
                 self.scroll = 0;
@@ -1303,6 +1591,11 @@ impl State {
             KeyCode::Up | KeyCode::Down if self.page != Page::Diagnostics => {
                 let (selected, count) = match self.page {
                     Page::Providers => unreachable!("provider navigation handled above"),
+                    Page::OpenAi => {
+                        let count = 4 + usize::from(self.family_has_current());
+                        (&mut self.family_choice, count)
+                    }
+                    Page::Account => (&mut self.family_choice, 4),
                     Page::Methods => (
                         &mut self.method,
                         crate::providers::auth::methods(self.selected).len(),
@@ -1412,19 +1705,19 @@ mod tests {
     }
 
     #[test]
-    fn connected_enter_uses_existing_outputs_without_auth() {
+    fn family_enter_preserves_saved_cli_and_requires_explicit_current_choice() {
         let mut state = discovered();
         state.outcomes[0] = Some(crate::providers::auth::Outcome::Authenticated);
-        state.active = 1;
+        state.active = Agent::Codex.index();
         press(&mut state, KeyCode::Enter);
-        assert_eq!(state.use_for_task.take(), Some(0));
-        assert_eq!(state.page, Page::Providers);
-        assert!(state.pending.is_none());
-        assert!(state.pending_auth.is_none());
-        state.active = 0;
+        assert_eq!(state.page, Page::OpenAi);
+        assert_eq!(state.selected, Agent::Codex.index());
+        assert!(state.use_for_task.is_none() && state.pick.is_none());
+        state.family_choice = 4;
         press(&mut state, KeyCode::Enter);
-        assert_eq!(state.pick.take(), Some("model"));
-        assert!(state.pending.is_none());
+        assert_eq!(state.use_for_task, Some(Agent::Codex.index()));
+        assert_eq!(state.pick, Some("model"));
+        assert!(state.pending.is_none() && state.pending_auth.is_none());
     }
 
     #[test]
@@ -1499,26 +1792,26 @@ mod tests {
     }
 
     #[test]
-    fn provider_enter_opens_method_choice_without_optional_action_page() {
+    fn family_login_choice_is_native_and_does_not_select_a_task_route() {
         let mut state = discovered();
-        press(&mut state, KeyCode::Down);
-        assert_eq!(state.selected, 1);
-        press(&mut state, KeyCode::Up);
         press(&mut state, KeyCode::Enter);
-        assert_eq!(state.page, Page::Methods);
-        assert!(state.pending.is_none());
+        assert_eq!(state.page, Page::OpenAi);
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.page, Page::Account);
+        assert_eq!(state.selected, Agent::ChatGPT.index());
+        assert!(state.pending.is_none() && state.use_for_task.is_none());
         press(&mut state, KeyCode::Down);
-        let expected = crate::providers::auth::methods(0)[state.method];
         press(&mut state, KeyCode::Enter);
         assert!(
-            matches!(state.pending, Some(Request::PrepareAuth { profile: 0, method, .. }) if method == expected)
+            matches!(state.pending, Some(Request::PrepareAuth { profile, method: crate::providers::auth::Method::OpenAiDevice, .. }) if profile == Agent::ChatGPT.index())
         );
         assert!(state.pending_auth.is_none());
         press(&mut state, KeyCode::Esc);
-        assert!(!state.auth_busy());
+        assert_eq!(state.page, Page::Account);
+        press(&mut state, KeyCode::Esc);
+        assert_eq!(state.page, Page::OpenAi);
         press(&mut state, KeyCode::Esc);
         assert!(state.at_root());
-        assert!(state.use_for_task.is_none());
     }
 
     #[test]
@@ -1596,7 +1889,7 @@ mod tests {
         press(&mut state, KeyCode::Enter);
         assert!(state.pending.is_none());
         assert!(state.auth_preview.is_none());
-        assert_eq!(state.connection_status(0), "Not installed");
+        assert_eq!(state.readiness(0), Readiness::MissingCli);
     }
 
     #[test]
@@ -1793,18 +2086,19 @@ mod tests {
     #[test]
     fn native_exit_does_not_claim_connected_and_status_checks_are_explicit() {
         let mut state = discovered();
-        assert_eq!(state.connection_status(0), "Unknown");
+        assert_eq!(state.readiness(0), Readiness::Unknown);
         state.auth_returned(0, crate::providers::auth::Outcome::Authenticated);
-        assert_eq!(state.connection_status(0), "Connected");
+        assert_eq!(state.readiness(0), Readiness::SignedIn);
         state.auth_returned(0, crate::providers::auth::Outcome::Unknown);
-        assert_eq!(state.connection_status(0), "Unknown");
+        assert_eq!(state.readiness(0), Readiness::Unknown);
         state.auth_returned(0, crate::providers::auth::Outcome::NotAuthenticated);
-        assert_eq!(state.connection_status(0), "Not connected");
+        assert_eq!(state.readiness(0), Readiness::SignedOut);
+        press(&mut state, KeyCode::Esc);
         press(&mut state, KeyCode::Esc);
         assert!(state.at_root());
         assert!(state.pending.is_none());
         state.command("status", true);
-        assert_eq!(state.connection_status(0), "Checking");
+        assert_eq!(state.readiness(0), Readiness::Checking);
         assert!(matches!(
             state.pending,
             Some(Request::PrepareAuth {
@@ -1875,12 +2169,21 @@ mod tests {
     }
 
     #[test]
-    fn all_ten_routes_are_distinct_and_search_never_switches_the_task() {
+    fn one_family_groups_ten_unchanged_route_identities_without_switching() {
         let mut state = discovered();
         state.profiles = Agent::ALL.iter().map(|_| profile()).collect();
+        assert_eq!(Agent::ALL.len(), 10);
+        for (index, agent) in Agent::ALL.iter().enumerate() {
+            assert_eq!(agent.index(), index);
+            assert_eq!(Agent::from_index(index), Some(*agent));
+        }
+        assert_eq!(state.provider_indices().count(), 7);
         assert_eq!(
-            state.provider_indices().collect::<Vec<_>>(),
-            (0..Agent::ALL.len()).collect::<Vec<_>>()
+            state
+                .provider_indices()
+                .filter(|index| openai_family(*index))
+                .count(),
+            1
         );
         state.active = Agent::ChatGPT.index();
         state.focus_active();
@@ -1890,9 +2193,9 @@ mod tests {
         }
         assert_eq!(
             state.provider_indices().collect::<Vec<_>>(),
-            vec![Agent::OpenAI.index()]
+            vec![Agent::ChatGPT.index()]
         );
-        assert_eq!(state.selected, Agent::OpenAI.index());
+        assert_eq!(state.selected, Agent::ChatGPT.index());
         assert_eq!(state.active, Agent::ChatGPT.index());
         assert!(state.pending.is_none() && state.use_for_task.is_none());
         press(&mut state, KeyCode::Esc);
@@ -1907,10 +2210,7 @@ mod tests {
         state.active = Agent::Codex.index();
         state.begin_connection(Agent::Codex);
         assert_eq!(state.selected, Agent::Codex.index());
-        assert_eq!(
-            state.connection_status(Agent::Codex.index()),
-            "Not installed"
-        );
+        assert_eq!(state.readiness(Agent::Codex.index()), Readiness::MissingCli);
         assert!(state.use_for_task.is_none() && state.pending.is_none());
         assert_eq!(state.active, Agent::Codex.index());
     }
@@ -1935,6 +2235,7 @@ mod tests {
             field: 0,
             cursor: 0,
             visible: false,
+            advanced: false,
         });
         state
     }
@@ -1995,21 +2296,27 @@ mod tests {
     }
 
     #[test]
-    fn native_browser_choice_only_prepares_reviewed_official_cli_login() {
-        let mut state = private_editor(Agent::ChatGPT);
-        state.connection.as_mut().unwrap().field = 5;
-        press(&mut state, KeyCode::Enter);
+    fn native_browser_requires_review_without_installed_cli() {
+        let mut state = discovered();
+        state.profiles = Agent::ALL
+            .iter()
+            .map(|_| Profile {
+                executable: None,
+                ..profile()
+            })
+            .collect();
+        state.begin_connection(Agent::ChatGPT);
+        assert_eq!(state.page, Page::Account);
         assert!(!state.connection_editing());
+        press(&mut state, KeyCode::Enter);
         assert_eq!(state.selected, Agent::ChatGPT.index());
         assert!(state.use_for_task.is_none() && state.pending_auth.is_none());
-        assert!(matches!(
-            state.pending,
-            Some(Request::PrepareAuth {
-                profile: 0,
-                method: crate::providers::auth::Method::CodexBrowser,
-                ..
-            })
-        ));
+        assert!(matches!(state.pending, Some(Request::PrepareAuth {
+            profile, method: crate::providers::auth::Method::OpenAiBrowser, ..
+        }) if profile == Agent::ChatGPT.index()));
+        let intent = state.openai_intent.as_ref().unwrap();
+        assert!(!intent.persist && !intent.approved);
+        assert_eq!(state.openai_auth_generation(), None);
     }
 
     #[test]
@@ -2150,5 +2457,232 @@ mod tests {
         assert!(state.connection_editing());
         assert!(state.use_for_task.is_none() && state.pick.is_none());
         assert!(state.take_connection_change().is_none());
+    }
+
+    #[test]
+    fn every_connection_page_owns_paste_without_changing_request_or_caret() {
+        use crate::app::{App, Overlay};
+        use crossterm::event::Event as InputEvent;
+        let mut app = App::new("/unused".into(), 60, 18);
+        app.overlay = Some(Overlay::Agents);
+        app.editing = true;
+        app.input = "retained 한글 request".into();
+        app.cursor = 4;
+        app.agents = discovered();
+        for page in [
+            Page::Providers,
+            Page::OpenAi,
+            Page::Account,
+            Page::Methods,
+            Page::Actions,
+            Page::Install,
+            Page::Diagnostics,
+        ] {
+            app.agents.page = page;
+            app.update(InputEvent::Paste("secret-must-not-reach-request".into()));
+            assert_eq!((&*app.input, app.cursor), ("retained 한글 request", 4));
+            assert!(app.agents.search.is_empty());
+            assert!(app.agents.pending.is_none() && app.agents.use_for_task.is_none());
+        }
+    }
+
+    #[test]
+    fn private_back_returns_to_family_before_root_without_touching_request() {
+        use crate::app::{App, Overlay};
+        use crossterm::event::Event as InputEvent;
+        let mut app = App::new("/unused".into(), 60, 18);
+        app.overlay = Some(Overlay::Agents);
+        app.input = "retained request".into();
+        app.cursor = 4;
+        app.agents = private_editor(Agent::Compatible);
+        let back = InputEvent::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        app.update(back.clone());
+        assert_eq!(app.overlay, Some(Overlay::Agents));
+        assert_eq!(app.agents.page, Page::OpenAi);
+        app.update(back);
+        assert_eq!(app.agents.page, Page::Providers);
+        assert_eq!((&*app.input, app.cursor), ("retained request", 4));
+    }
+
+    fn approved_native_login(persist: bool) -> (State, crate::providers::auth::Plan, u64) {
+        let mut state = discovered();
+        state.profiles = Agent::ALL.iter().map(|_| profile()).collect();
+        state.connection_owner = Some((11, 22, Agent::Codex));
+        state.begin_connection(Agent::ChatGPT);
+        state.login_persist = persist;
+        press(&mut state, KeyCode::Down);
+        press(&mut state, KeyCode::Enter);
+        let Some(Request::PrepareAuth {
+            profile,
+            generation,
+            method,
+        }) = state.pending.take()
+        else {
+            panic!("native preparation request");
+        };
+        let plan =
+            crate::providers::auth::Plan::prepare(profile, method, &std::env::temp_dir()).unwrap();
+        state.event(Event::AuthPrepared {
+            profile,
+            generation,
+            result: Ok(Box::new(plan)),
+        });
+        assert_eq!(state.openai_auth_generation(), None);
+        state.reviewed = true;
+        press(&mut state, KeyCode::Tab);
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.openai_auth_generation(), Some(generation));
+        let plan = state.pending_auth.take().unwrap();
+        (state, plan, generation)
+    }
+
+    #[test]
+    fn native_completion_is_bound_to_generation_owner_method_and_storage() {
+        let (mut state, plan, generation) = approved_native_login(true);
+        state.login_persist = false;
+        assert!(
+            state.openai_login_persist(),
+            "reviewed storage cannot be re-derived"
+        );
+        let owner = (11, 22, Agent::Codex);
+        let credential = || {
+            Some(crate::providers::auth::test_openai_credential(
+                "private-native-sentinel",
+                "account",
+                u64::MAX,
+            ))
+        };
+        state.finish_openai_login(
+            &plan,
+            Some(generation - 1),
+            credential(),
+            crate::providers::auth::Outcome::Authenticated,
+            &owner,
+            true,
+        );
+        assert_eq!(state.openai_auth_generation(), Some(generation));
+        let wrong_method = crate::providers::auth::Plan::prepare(
+            Agent::ChatGPT.index(),
+            crate::providers::auth::Method::OpenAiBrowser,
+            &std::env::temp_dir(),
+        )
+        .unwrap();
+        state.finish_openai_login(
+            &wrong_method,
+            Some(generation),
+            credential(),
+            crate::providers::auth::Outcome::Authenticated,
+            &owner,
+            true,
+        );
+        assert_eq!(state.openai_auth_generation(), Some(generation));
+        let other_owner = (33, 22, Agent::Codex);
+        state.finish_openai_login(
+            &plan,
+            Some(generation),
+            credential(),
+            crate::providers::auth::Outcome::Authenticated,
+            &other_owner,
+            true,
+        );
+        assert_eq!(state.openai_auth_generation(), None);
+        assert!(state.take_connection_change().is_none());
+        assert!(state.use_for_task.is_none() && state.pick.is_none());
+        assert!(!state.notice.contains("private-native-sentinel"));
+    }
+
+    #[test]
+    fn native_cancel_failure_and_resize_never_substitute_or_replay() {
+        let owner = (11, 22, Agent::Codex);
+        let (mut state, plan, generation) = approved_native_login(false);
+        state.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), false);
+        assert_eq!(
+            state.openai_auth_generation(),
+            Some(generation),
+            "post-auth terminal resize does not erase an already reviewed intent"
+        );
+        state.finish_openai_login(
+            &plan,
+            Some(generation),
+            None,
+            crate::providers::auth::Outcome::Failed,
+            &owner,
+            true,
+        );
+        assert_eq!(state.page, Page::Account);
+        assert_eq!(state.family_choice, 1);
+        assert_eq!(state.active, Agent::Codex.index());
+        assert!(state.use_for_task.is_none() && state.pick.is_none());
+        assert!(state.take_connection_change().is_none());
+        let (mut cancelled, plan, generation) = approved_native_login(false);
+        cancelled.cancel_preview();
+        cancelled.finish_openai_login(
+            &plan,
+            Some(generation),
+            None,
+            crate::providers::auth::Outcome::Authenticated,
+            &owner,
+            true,
+        );
+        assert!(cancelled.take_connection_change().is_none());
+        assert!(cancelled.use_for_task.is_none() && cancelled.pick.is_none());
+    }
+
+    #[test]
+    fn cancelled_deferred_family_does_not_reopen_after_discovery() {
+        let mut state = State::new();
+        state.pending.take();
+        state.begin_openai_family();
+        assert!(state.deferred_family);
+        state.cancel_preview();
+        state.event(Event::Discovered(
+            Agent::ALL.iter().map(|_| profile()).collect(),
+        ));
+        assert_eq!(state.page, Page::Providers);
+        assert!(!state.connection_editing());
+        assert!(state.use_for_task.is_none() && state.pending_auth.is_none());
+    }
+
+    #[test]
+    fn family_api_and_custom_choices_preserve_distinct_explicit_routes() {
+        let mut state = discovered();
+        state.profiles = Agent::ALL.iter().map(|_| profile()).collect();
+        state.page = Page::OpenAi;
+        state.family_choice = 0;
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.page, Page::Account);
+        assert_eq!(state.selected, Agent::ChatGPT.index());
+        press(&mut state, KeyCode::Esc);
+        assert_eq!(state.page, Page::OpenAi);
+        assert!(state.use_for_task.is_none() && state.pending.is_none());
+        // The field contract keeps advanced API overrides reachable, while
+        // custom protocol/keyless decisions remain primary and explicit.
+        let mut api = private_editor(Agent::OpenAI);
+        assert_eq!(
+            api.connection_fields(),
+            &[
+                ConnectionField::Credential,
+                ConnectionField::Storage,
+                ConnectionField::Save,
+                ConnectionField::Advanced,
+            ]
+        );
+        api.connection.as_mut().unwrap().field = 3;
+        press(&mut api, KeyCode::Enter);
+        assert!(api.connection_fields().contains(&ConnectionField::Endpoint));
+        assert!(api.connection_fields().contains(&ConnectionField::Model));
+        let custom = private_editor(Agent::Compatible);
+        assert!(
+            custom
+                .connection_fields()
+                .contains(&ConnectionField::Protocol)
+        );
+        assert!(
+            custom
+                .connection_fields()
+                .contains(&ConnectionField::Keyless)
+        );
+        assert_eq!(api.active, Agent::Codex.index());
+        assert!(api.use_for_task.is_none() && api.pending.is_none());
     }
 }

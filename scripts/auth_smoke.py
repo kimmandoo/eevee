@@ -188,7 +188,7 @@ def fixture_size(binary, output, size, ascii_mode):
             assert argv() == [], 'discovery/review ran a provider without consent'
             preview('device authorization')
             authorize()
-            wait_for(session, 'Authentication/status operation failed')
+            wait_for(session, 'Enter Review method')
             assert argv() == [['--version'], ['login', '--device-auth']], 'unapproved device fallback'
             results['cases'].append('remote default uses exact device argv; failure cannot launch browser or model')
             session.send('\x1b[A')  # Explicit Browser selection despite remote default.
@@ -202,7 +202,7 @@ def fixture_size(binary, output, size, ascii_mode):
                 os.kill(value['pid'], 0)
                 assert argv()[-1] == ['login'], 'login returned before its callback'
             request(value, '/complete')
-            wait_for(session, 'Provider reports not logged in')
+            wait_for(session, 'Enter Review method')
             closed(value)
             assert argv() == [['--version'], ['login', '--device-auth'],
                               ['--version'], ['login'], ['login', 'status']]
@@ -214,7 +214,7 @@ def fixture_size(binary, output, size, ascii_mode):
             session.capture('foreground-listener-before-cancel')
             request(value, '/waiting')
             session.send('\x03')
-            wait_for(session, 'Authentication cancelled')
+            wait_for(session, 'Enter Review method')
             closed(value)
             assert argv() == [['--version'], ['login', '--device-auth'],
                               ['--version'], ['login'], ['login', 'status'],

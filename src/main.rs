@@ -159,20 +159,34 @@ fn run(config: Config) -> io::Result<()> {
                 app.images_cancel = false;
             }
             if let Some(plan) = app.agents.pending_auth.take() {
+                let openai_generation = app.agents.openai_auth_generation();
+                let native_openai = matches!(
+                    plan.method,
+                    auth::Method::OpenAiBrowser | auth::Method::OpenAiDevice
+                );
                 if app.overlay != Some(app::Overlay::Agents)
                     || !app.authentication_ready()
                     || app.width < 60
                     || app.height < 18
                 {
-                    app.agents
-                        .auth_returned(plan.profile, auth::Outcome::Refused);
+                    if native_openai {
+                        app.openai_connection_returned(
+                            &plan,
+                            openai_generation,
+                            None,
+                            auth::Outcome::Refused,
+                        );
+                    } else {
+                        app.agents
+                            .auth_returned(plan.profile, auth::Outcome::Refused);
+                    }
                     dirty = true;
                 } else {
                     input.discard_pending()?;
                     let completion = modes.suspend(|| auth::run(&plan, &project))?;
-                    // Native auth can change terminal dimensions/modes and provider
-                    // credentials even on cancellation. Never reuse prior Run consent.
-                    if !plan.method.is_status() {
+                    // CLI login can mutate provider-owned stores even on cancellation.
+                    // Native OpenAI changes only its accepted, scoped credential result.
+                    if !plan.method.is_status() && !native_openai {
                         app.authentication_returned();
                     }
                     // A website-OAuth result arrives with its own session
@@ -201,7 +215,16 @@ fn run(config: Config) -> io::Result<()> {
                     }
                     let size = terminal.size()?;
                     app.update(event::Event::Resize(size.width, size.height));
-                    app.connection_returned(plan.profile, completion.outcome);
+                    if native_openai {
+                        app.openai_connection_returned(
+                            &plan,
+                            openai_generation,
+                            completion.openai_credential,
+                            completion.outcome,
+                        );
+                    } else {
+                        app.connection_returned(plan.profile, completion.outcome);
+                    }
                     dirty = true;
                 }
             }
