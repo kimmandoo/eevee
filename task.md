@@ -4,10 +4,10 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 
 ## Current state
 
-- **Released:** [v0.1.25](https://github.com/kimmandoo/eevee/releases/tag/v0.1.25) completed form-independent project coding/context, automatic exact permission review and a concise README after source qualification, immutable publication and complete public runtime/install proof. The further native-account configuration blocker remains active below; the four-task Pokémon milestone remains complete.
+- **Released:** [v0.1.26](https://github.com/kimmandoo/eevee/releases/tag/v0.1.26) corrected native-account configuration admission and direct blocked-request recovery after exact-source qualification, immutable publication and full downloaded runtime/install proof. It includes v0.1.25's form-independent coding/context, automatic permission reviews and concise README. The four-task Pokémon milestone remains complete.
 - **Compatibility:** Schema 18 and complete SDK bridge 9 remain unchanged. Persistent reduced motion extends strict preference JSON; v0.1.21 refused the new true setting without changing bytes. Back up the entire data directory before upgrading; an in-place downgrade is not backup restoration.
 - **Remaining:** **34 tasks**. The four-task Pokémon feature/accessibility milestone is implemented and archived; authenticated provider, full-product acceptance and general platform/context work remain separate.
-- **Active user request:** Fix native account Implement blocked by unrelated provider configuration, make actual blockers readable and directly recoverable, and release a separate verified v0.1.26 without replacing v0.1.25. Preserve strict credential checks, drafts and no automatic resend. This supersedes ordinary backlog task **A08 — Actionable connection diagnostics**. No paid/live model trial is authorized.
+- **Active user request:** None. Account configuration/recovery, form-independent coding/permissions and README improvements completed with v0.1.26 release proof. The next ordinary backlog task remains **A08 — Actionable connection diagnostics**; do not begin it without a new request. No paid/live model trial is authorized.
 
 ## Completed Pokémon milestone
 
