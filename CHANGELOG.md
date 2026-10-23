@@ -2,6 +2,9 @@
 
 ## 2026-10-23
 
+- docs(release): published v0.1.22 from exact source `4b253b5` after complete same-attempt Check/all-five-native qualification and immutable promotion; verified eight public digests, seven manifest entries, source installers and all native package identities.
+- test(release): verified downloaded bilingual compact/wide formations, every portable TM form/kind through two projects/restarts, motion/key/paste and actual previous-writer refusal/resume; passed all 24 installation groups including 34 installed-native scenarios and matched the reinstalled executable to the public package.
+
 - feat(party): added reviewed create-only formation recipes and atomic explicit local role mapping while preserving nonempty drafts/carets, busy ownership and manual/automatic form policy.
 - feat(moves): added bounded portable TOML TM export/import for every supported form and step kind, with explicit local teaching, collision/replacement review and fresh ordinary use-time approval.
 - feat(preferences)!: persisted global reduced motion across partners/restarts and added explicit installer/update opt-out with launch-only CLI precedence; retained Schema 18 but required a full backup because older writers refused the extended preference JSON.

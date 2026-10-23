@@ -1,10 +1,20 @@
 # Eevee Implementation Plan
 
-Updated: 2026-10-23. The four-task Pokémon milestone is implemented for v0.1.22; exact-source native/public release qualification remains active. Schema 18 and complete SDK bridge 9 are unchanged, but the new reduced-motion preference has strict older-reader compatibility requirements. [task.md](../task.md) indexes 34 unfinished tasks; completed specifications are separate. Historical counts and credential blockers below do not override today's readiness.
+Updated: 2026-10-23. Public v0.1.22 completed the four-task Pokémon milestone and passed exact-source native qualification, immutable publication and public installation/runtime proof. Schema 18 and complete SDK bridge 9 remain unchanged, but reduced-motion JSON requires full-backup/older-reader guidance. The user now prioritizes unified OpenAI connections/provider UX. [task.md](../task.md) retains 34 unfinished backlog tasks; historical counts and blockers below do not override the active request.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Active request — four Pokémon-completion tasks, then release
+## Active request — unified OpenAI connections and provider UX
+
+The user reported difficult provider setup and requested one integrated OpenAI-family entry with automatic appropriate routing, not ChatGPT presented as a separate provider family, plus improved connection UI/UX. This takes priority over beginning A08 as an isolated backlog task.
+
+1. Preserve immutable v0.1.22 and finish its already-running downloaded runtime/install checks. Investigate current setup state, auth/config precedence, model discovery and compact controls before editing the new behavior.
+2. Reuse existing native/CLI transport, masked connection storage and request owners. Present OpenAI as one family; choose the actual route deterministically from the user's explicit login/API-key/custom-endpoint method and supported configuration. Preserve internal durable IDs and connection/account/endpoint boundaries. Never guess model entitlement, silently switch billing/account, or use error-triggered cross-route fallback.
+3. Remove avoidable provider/action/method detours, expose the next safe connection action and truthful ready/error state, localize English/Korean compact/wide controls, and preserve literal credential input, draft/caret, neutral consent and metadata-only selection.
+4. Exercise real disposable PTY setup/model/request flows with deterministic protocol/auth fixtures, all relevant provider regressions and source checks. Document unresolved real-account limits without touching original credentials or making paid model calls.
+5. Record actual fixes/contracts/troubleshooting, commit a separate corrective version, qualify exact-source native packages and publish/verify the downloaded release. Do not retarget or replace v0.1.22 assets.
+
+## Completed request — four Pokémon-completion tasks; v0.1.22 released
 
 User authorized **PT11 → MV08B → UX04B → PK03**, followed by a qualified native release. All four implementation/runtime acceptance sets passed and are archived; no unrelated backlog feature or paid/live model call is authorized.
 
@@ -18,7 +28,7 @@ Actual bilingual compact/wide runtime passed formations, all portable TM kinds/f
 - PT11 uses bounded schema-2 local formation recipes with portable role/form/request definitions, explicit mapping and one existing-writer transaction for partner forms/modes/drafts. Existing nonempty drafts win; missing slots stay unmapped; stale/duplicate/busy mappings refuse atomically. Existing schema-1 task recipe semantics remain unchanged.
 - MV08B owns the reviewed portable-export slice, shared with create-only handoff publication. Imported definitions have explicit local provenance, no portable database IDs or prior execution/teacher authority; use remains freshly reviewed.
 - UX04B extends existing preferences and installer/updater gates, with explicit CLI precedence, restart and global parked-owner merging. PK03 reuses the existing receipt and input ownership; only accepted deliberate picker changes run one 240 ms timer.
-- Final pinned source passed 1,327 tests/two ignored, formatting, strict Clippy and release build; local runtime and installer details are recorded in the checkpoint. Commit the coherent integrated four-task source, require same-source Check/all-five-native qualification, publish immutable v0.1.22 packages, and verify every public asset plus downloaded installation/changed runtime before marking the request complete.
+- Source/tag `4b253b56d1f989c9fe0c88c9a2892f845f863c11` passed same-attempt Check/all-five-native `39901958637`; publication `39902925225` promoted its immutable packages. All public assets, downloaded bilingual/both-size formation/TM/motion/older-writer journeys and 24 installation groups/34 installed-native scenarios passed. Final pinned source passed 1,327 tests/two ignored, formatting, strict Clippy and release build. Full evidence and next user request are in the checkpoint.
 
 ## Completed request — shallow everyday navigation; v0.1.21 released
 
