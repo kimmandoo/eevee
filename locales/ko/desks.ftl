@@ -292,7 +292,7 @@ desks-sources-enter-review-attach-s-search-r-range = Enter 검토/첨부 · s �
     Tab 첨부 목록 · PgUp/Dn 상세 · Esc 초안
 
 desks-sources-enter-attach-locally-return-r-range-tab = Enter 로컬 첨부 후 돌아가기 · r 범위
-    Tab 첨부 목록 · PgUp/Dn 검토 · Esc 취소
+    Tab 파일 · PgUp/Dn 검토 · Esc 취소
 
 desks-sources-del-remove-review-tab-files-more-pgup = Del 제거 (검토) · Tab 파일 · / 더 보기
     PgUp/Dn 상세 · Esc 초안

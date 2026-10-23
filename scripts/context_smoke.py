@@ -171,10 +171,7 @@ def main():
                 session.close()
 
             def files(session):
-                if session.context_mode in ("payload", "preview"):
-                    session.send("\t")
-                    session.context_mode = "basket"
-                if session.context_mode == "basket":
+                if session.context_mode in ("payload", "preview", "basket"):
                     session.send("\t")
                     session.context_mode = "files"
                 assert session.context_mode == "files"

@@ -4,6 +4,16 @@ Date: 2026-10-13
 Status: 25 of 31 tasks passed their scoped gates, including P02 and U01/L01/G01/S01/S02/S03. Schema-6 specialist, memory and recipe journeys passed all five native installed-runtime rows at `d198fa5`; all eleven build/smoke/policy jobs passed. Local real independent Codex review and measured release workloads also passed. Full A04/A06/A07 and therefore Q01/Q02/P03 remain pending on permitted Claude/Gemini authentication and their required conformance rows. The separately authorized 0.1.0 core release promotes the exact qualified packages.
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
 
+## Active request — shallow everyday navigation, then release
+
+- Audit real compact/wide journeys before changing navigation; preserve all meaningful file/command/provider policy reviews.
+- Put everyday actions first in the existing searchable registry, collapse duplicate alias rows while retaining exact commands, and make attachment/connection/cancellation/evidence queries discoverable.
+- Return from source preview/payload directly to Files without an Attachments detour; preserve explicit attachment inspection, filter/selection, draft and capture consent.
+- Return to the already-active task without scheduling a task switch or reload; preserve full guards for another task.
+- Accept an unchanged model/effort pair without a redundant reasoning sheet; keep changed-model reasoning and existing-session review atomic. Focus the retained custom model rather than metadata refresh when it is absent from the catalogue.
+- Verify actual bilingual compact/wide terminal journeys and affected regressions, update contracts/version, commit and qualify all five native packages, then publish and verify the downloaded release without touching original installation/auth/private data.
+- After release, audit the remaining backlog against implemented behavior, prioritize completing Pokémon/partner features and their genuine prerequisites, correct stale requirements and separate completed work from active tasks.
+
 ## Completed request — current-folder coding and provider UX parity, v0.1.20 released
 
 - Complete the already implemented PK06 actual-runtime gate without dropping its source/hide/purge requirements.

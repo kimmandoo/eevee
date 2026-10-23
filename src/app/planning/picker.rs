@@ -118,6 +118,7 @@ impl State {
     /// Opens a local picker on the exact current value, without granting a connection.
     pub(super) fn open_picker(&mut self, picker: Picker) {
         self.picker = Some(picker);
+        self.invalidate_review();
         self.picker_query = super::Answer::default();
         self.custom_model = None;
         self.pending_model = None;
@@ -127,7 +128,7 @@ impl State {
         self.scroll = 0;
         self.picker_selected = match self.picker_current() {
             Some(index) => index,
-            None if picker == Picker::Model => self.picker_len() - 1,
+            None if picker == Picker::Model => self.picker_len() - 2,
             None => 0,
         };
     }
@@ -253,6 +254,10 @@ impl State {
 
     /// Model and reasoning are one local transaction; browsing never writes preferences.
     pub(super) fn choose_model(&mut self, selection: ModelSelection) {
+        if selection == self.selection {
+            self.choose_selection(selection);
+            return;
+        }
         self.model_picker_return = if self.picker == Some(Picker::Model) {
             Some(if self.picker_selected == 0 {
                 ModelPickerFocus::Default

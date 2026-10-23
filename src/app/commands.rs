@@ -86,6 +86,12 @@ impl Popup {
             if exact {
                 return choice.command.eq_ignore_ascii_case(query);
             }
+            let canonical = canonical_command(choice.command);
+            if canonical != choice.command
+                && self.choices.iter().any(|entry| entry.command == canonical)
+            {
+                return false;
+            }
             // Match original identities and borrowed descriptions from every embedded locale.
             // Keep catalogue order stable without allocating search copies.
             query.split_whitespace().all(|term| {
@@ -96,6 +102,11 @@ impl Popup {
                 };
                 matches(choice.command)
                     || matches(choice.label.as_str())
+                    || search_terms(choice.command)
+                        .is_some_and(|key| crate::i18n::translations(key).any(matches))
+                    || FORM_COMMANDS
+                        .iter()
+                        .any(|(name, alias)| *name == choice.command && matches(alias))
                     || crate::command_help::key(choice.command)
                         .is_some_and(|key| crate::i18n::translations(key).any(matches))
             })
@@ -121,6 +132,27 @@ fn form_command_index(name: &str) -> Option<usize> {
     FORM_COMMANDS
         .iter()
         .position(|(form, alias)| name == *form || name == *alias)
+}
+
+fn canonical_command(command: &str) -> &str {
+    if command == "connect" {
+        return "provider";
+    }
+    FORM_COMMANDS
+        .iter()
+        .find_map(|(name, alias)| (*alias == command).then_some(*name))
+        .unwrap_or(command)
+}
+
+fn search_terms(command: &str) -> Option<crate::i18n::Message> {
+    use crate::i18n::Message;
+    Some(match command {
+        "provider" => Message::CmdSearchProvider,
+        "files" => Message::CmdSearchFiles,
+        "cancel-all" => Message::CmdSearchCancellation,
+        "history" => Message::CmdSearchEvidence,
+        _ => return None,
+    })
 }
 
 // A direct action reuses the owning workspace's handler and permission gates.
@@ -492,6 +524,16 @@ impl App {
         });
         for (name, label) in [
             ("provider", "Provider connection selector; nothing sent"),
+            ("model", "Choose model / optional exact ID"),
+            ("files", "Attach files / inspect source context"),
+            ("tasks", "Saved tasks"),
+            (
+                "response",
+                "Read continuous response / inspect pending request",
+            ),
+            ("approvals", "Focus oldest pending approval or question"),
+            ("cancel-all", "Review cancellation of all owned work"),
+            ("help", "Navigation help"),
             ("connect", "Provider connections; nothing sent"),
             ("new", "Send ordinary Request as a fresh conversation"),
             (
@@ -510,14 +552,8 @@ impl App {
                 "chat-new",
                 "Reset local native conversation; keep draft and journal",
             ),
-            (
-                "response",
-                "Inspect current provider request / response drawer",
-            ),
-            ("task-new", "Create local task"),
             ("reset", "Fresh local task; keep old task and drafts"),
             ("init", "Draft project guide request; review before sending"),
-            ("model", "Choose model / optional exact ID"),
             ("effort", "Reasoning level / optional value"),
             ("role", "Choose Plan / Implement / Review role"),
             ("forms", "Choose evolution"),
@@ -527,8 +563,6 @@ impl App {
                 "Dismiss this task's current suggestion; no work",
             ),
             ("carry-over", "Reopen the last form carry-over; no work"),
-            ("files", "Attach files / inspect source context"),
-            ("tasks", "Saved tasks"),
             ("party", "Party roster"),
             (
                 "move",
@@ -555,8 +589,6 @@ impl App {
             ),
             ("party-board", "Working partners and owned requests"),
             ("release-partner", "Review releasing an idle partner"),
-            ("approvals", "Focus oldest pending approval or question"),
-            ("cancel-all", "Review cancellation of all owned work"),
             ("run", "Inspect local execution evidence; never execute"),
             ("rerun", "Rerun with Jolteon (new approval)"),
             ("history", "Provider history / journal evidence"),
@@ -580,9 +612,9 @@ impl App {
             ("memory", "Approved memories"),
             ("refresh", "Refresh repository inspection"),
             ("storage-retry", "Retry failed storage"),
-            ("help", "Navigation help"),
             ("verbose", "Toggle brief / full explanations"),
             ("quit", "Leave Eevee"),
+            ("task-new", "Create local task"),
         ] {
             if !choices.iter().any(|choice| choice.command == name) {
                 choices.push(Choice::new(name, label));
@@ -1357,7 +1389,14 @@ impl App {
             let selecting = *selection && self.overlay != Some(*overlay);
             self.open_overlay(*overlay);
             if selecting {
-                self.notice = "Choose the exact item on this surface, then invoke the action again. Nothing applied or sent.".into();
+                if *overlay == Overlay::Sources && matches!(*local, "inspect" | "attach" | "range")
+                {
+                    // The localized source footer already offers Enter/r;
+                    // these actions do not need a second command invocation.
+                    self.notice.clear();
+                } else {
+                    self.notice = "Choose the exact item on this surface, then invoke the action again. Nothing applied or sent.".into();
+                }
                 return true;
             }
             return match overlay {

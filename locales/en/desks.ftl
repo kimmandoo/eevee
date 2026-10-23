@@ -292,7 +292,7 @@ desks-sources-enter-review-attach-s-search-r-range = Enter Review/attach · s Se
     Tab Attachments · PgUp/Dn Details · Esc Draft
 
 desks-sources-enter-attach-locally-return-r-range-tab = Enter Attach locally & return · r Range
-    Tab Attachments · PgUp/Dn Review · Esc Cancel
+    Tab Files · PgUp/Dn Review · Esc Cancel
 
 desks-sources-del-remove-review-tab-files-more-pgup = Del Remove (review) · Tab Files · / More
     PgUp/Dn Details · Esc Draft

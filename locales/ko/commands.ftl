@@ -10,7 +10,7 @@ cmd-session-resume = { "고급: 소유한 세션에 보낼 정확한 페이로�
 
 cmd-chat-new = { "로컬 네이티브 대화 초기화; 초안과 저널 유지" }
 
-cmd-response = { "현재 제공자 요청과 응답 보기" }
+cmd-response = { "연속 응답으로 돌아가기 / 대기 중인 요청 확인" }
 
 cmd-task-new = { "로컬 작업 만들기" }
 
@@ -387,3 +387,8 @@ cmd-connection-method = { "Codex 네이티브 응답 또는 CLI 에이전트 방
 cmd-provider-use = { "선택한 제공자를 작업에 사용" }
 
 cmd-details = { "연결 검토의 전체 상세 표시 전환" }
+
+cmd-search-provider = 프로바이더 연결 설정
+cmd-search-files = 첨부 파일 맥락
+cmd-search-cancellation = 중지 취소
+cmd-search-evidence = 근거 증거 기록

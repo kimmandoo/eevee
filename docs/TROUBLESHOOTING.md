@@ -1,5 +1,19 @@
 # Troubleshooting
 
+### [2026-10-23] Navigation smoke confused list position and wrapped source details
+
+- **Context / Symptom:** The first driver selected task row zero and reported a same-task return failure, although the visible star belonged to row two. Compact capture text and wrapped payload text also fell outside literal whole-screen string selectors.
+- **Root Cause:** The driver assumed task ordering and viewport placement rather than identifying the actual active task and bounded review surface. A wide action list legitimately showed advanced entries below the newly prioritized everyday actions.
+- **Solution:** Selected the real starred task identity and separately selected another task to prove its guard, paged source review to its actual bytes, used the payload header and localized mode-specific controls, and asserted action ordering rather than a fixed number of visible rows.
+- **Verification:** Both-size predecessor journeys reproduced all four detours; the same final driver passed all four English/Korean candidate journeys with exact draft/caret, live claim, attachment and HTTP-count checks. No product guard was weakened for the driver.
+
+### [2026-10-23] Local stable toolchain differed from pinned release qualification
+
+- **Context / Symptom:** Local tests passed, but default stable Rust 1.97 Clippy rejected existing `is_some()`/`expect()` patterns in planning and handoff with `clippy::unnecessary_unwrap`.
+- **Root Cause:** Local default `stable` differed from the repository's Rust 1.90.0 native qualification workflow. The warnings were in unchanged code, not the navigation change.
+- **Solution:** Used the already installed `+1.90.0` toolchain for locked tests, formatting, strict all-target/all-feature Clippy and release build. All passed; no lint suppression or unrelated source rewrite was added.
+- **Prevention / Reference:** Match `.github/workflows/native.yml`: `cargo +1.90.0 test --locked --all-targets --all-features` and `cargo +1.90.0 clippy --locked --all-targets --all-features -- -D warnings`.
+
 ### [2026-10-23] Successful workflow retained an incomplete native job record
 
 - **Context / Symptom:** Corrected-source run `39835415051` concluded `completed/success`, and every Linux ARM64 step—including upload and `Complete job`—reported success. Its job `120022311546` nevertheless remained `in_progress` with null conclusion/completion time. The strict release qualifier refused `Unqualified native job: Build / linux-arm64`.

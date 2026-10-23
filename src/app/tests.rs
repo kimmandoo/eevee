@@ -172,7 +172,7 @@ fn root_criteria_edit_opens_the_editor_without_the_list() {
 }
 
 #[test]
-fn command_search_keeps_exact_commands_first_and_blank_query_lists_all() {
+fn command_search_keeps_exact_commands_first() {
     let mut app = app();
     app.open_commands();
     let popup = app.command_popup.as_mut().unwrap();
@@ -184,8 +184,78 @@ fn command_search_keeps_exact_commands_first_and_blank_query_lists_all() {
             .collect::<Vec<_>>(),
         vec!["role-review"]
     );
-    popup.query = " \t ".into();
-    assert_eq!(popup.candidates().count(), popup.choices.len());
+}
+
+#[test]
+fn command_alias_search_uses_one_action_and_preserves_exact_aliases() {
+    let mut app = app();
+    app.open_editor(store::EditorField::Request);
+    app.update(Event::Paste("before 한글 suffix".into()));
+    app.cursor = 7;
+    for (query, expected) in [
+        ("conn", "provider"),
+        ("attachment", "files"),
+        ("첨부", "files"),
+        ("stop", "cancel-all"),
+        ("evidence", "history"),
+        ("wat", "vaporeon"),
+        ("/CONNECT", "connect"),
+        ("/water", "water"),
+    ] {
+        app.open_commands();
+        let popup = app.command_popup.as_mut().unwrap();
+        popup.query = query.into();
+        assert!(popup.candidates().any(|choice| choice.command == expected));
+        if query == "conn" {
+            assert!(!popup.candidates().any(|choice| choice.command == "connect"));
+        }
+        key(&mut app, KeyCode::Esc);
+        assert!(app.editing && app.overlay.is_none());
+        assert_eq!((&*app.input, app.cursor), ("before 한글 suffix", 7));
+        assert!(app.planning.pending.is_none() && app.execution.active.is_none());
+    }
+}
+
+#[test]
+fn resuming_current_task_preserves_live_owner_and_draft_without_switching() {
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = App::new("/workspace".into(), width, height);
+        let mut current = store::Snapshot::empty("/workspace".into());
+        current.id = 7;
+        current.goal = "Current task".into();
+        let mut other = current.clone();
+        other.id = 8;
+        other.goal = "Other task".into();
+        app.store_event(store::Event::Loaded(store::Project {
+            tasks: vec![current, other],
+            partners: vec![store::Partner::default()],
+            active_id: Some(7),
+            usage_bytes: 0,
+        }));
+        app.open_editor(store::EditorField::Request);
+        app.update(Event::Paste("before 한글 suffix".into()));
+        app.cursor = 7;
+        let snapshot = app.snapshot("/workspace");
+        app.planning.command("new", true, &snapshot, &[], None);
+        app.planning.thread_id = Some("owned-session".into());
+        let lead = app.lead.id;
+        app.command("tasks");
+        let selected = app.visible_tasks().position(|task| task.id == 7).unwrap();
+        app.task_selection = selected;
+        key(&mut app, KeyCode::Enter);
+        assert!(app.overlay.is_none() && app.editing && app.switch_task.is_none());
+        assert_eq!((&*app.input, app.cursor), ("before 한글 suffix", 7));
+        assert_eq!((app.task_id, app.lead.id), (7, lead));
+        assert!(app.planning.busy());
+        assert_eq!(app.planning.thread_id.as_deref(), Some("owned-session"));
+        app.command("tasks");
+        let selected = app.visible_tasks().position(|task| task.id == 8).unwrap();
+        app.task_selection = selected;
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.overlay, Some(Overlay::Tasks));
+        assert!(app.switch_task.is_none() && app.planning.busy());
+        assert_eq!(app.task_id, 7);
+    }
 }
 
 #[test]
