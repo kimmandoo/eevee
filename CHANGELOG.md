@@ -7,6 +7,7 @@
 - fix(providers): made setup actionable and bilingual, simplified primary API fields, isolated private paste/carets and kept complete plaintext/not-keychain disclosures visible at minimum size.
 - fix(auth): preserved unrelated conversations on native cancellation, deferred post-login route/model selection across small terminals, restored blocking accepted sockets and opened complete Windows authorization URLs without a command shell.
 - fix(config): replaced stale selected account overrides after approved login, separated credential import from malformed model configuration and excluded custom-server defaults from subscription routing.
+- test(providers): passed bilingual compact/wide connection UX, ten native protocol variants/176 groups, 24 generated-file journeys/126 groups and all 35 workbench cases; retained exact request/history, source deletion, draft/caret, no-send and explicit quit boundaries.
 
 - docs(release): published v0.1.22 from exact source `4b253b5` after complete same-attempt Check/all-five-native qualification and immutable promotion; verified eight public digests, seven manifest entries, source installers and all native package identities.
 - test(release): verified downloaded bilingual compact/wide formations, every portable TM form/kind through two projects/restarts, motion/key/paste and actual previous-writer refusal/resume; passed all 24 installation groups including 34 installed-native scenarios and matched the reinstalled executable to the public package.
