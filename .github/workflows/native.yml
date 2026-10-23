@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Platform-independent checks run once. PTY journeys, the lifecycle upgrade
-  # fixture and provider smoke stay local/opt-in scripts under scripts/.
+  # Platform-independent checks run once. Every native row also exercises
+  # terminal file discovery, creation and editing with credential-free peers.
   check:
     name: Check
     runs-on: ubuntu-22.04
@@ -117,6 +117,20 @@ jobs:
           subprocess.run([str(part) for part in command], check=True, timeout=120)
           binary = dest / ("ev.exe" if os.name == "nt" else "ev")
           subprocess.run([str(binary), "--version"], check=True, timeout=30)
+      - name: Install terminal smoke dependencies
+        run: python -m pip install pyte==0.8.2 wcwidth==0.2.13
+      - name: Exercise real file workflows in both languages
+        run: |
+          python scripts/file_creation_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output target/platform-files-en --language en
+          python scripts/file_creation_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output target/platform-files-ko --language ko
+      - name: Retain platform file workflow evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: file-workflows-${{ matrix.package }}
+          path: target/platform-files-*
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload native installation package
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:

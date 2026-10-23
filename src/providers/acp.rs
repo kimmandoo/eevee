@@ -420,6 +420,7 @@ fn payload(
         "task":{"id":input.task.id,"revision":input.task.revision,"goal":input.task.goal,"acceptance_criteria":input.task.criteria,"next_action":crate::workspace::handoff::without_local_provenance(&input.task.next_action)},
         "project_context": super::project_context(files.ok_or("ACP project scope missing")?, input.agent),
         "request":input.instruction(),
+        "prior_plan": input.prior_plan_payload(),
         "approved_memories":input.task.approved_memories,
         "selected_sources":serde_json::from_str::<Value>(&sources.text).map_err(|_| "Invalid selected source JSON")?,
         "accepted_handoff":input.handoff

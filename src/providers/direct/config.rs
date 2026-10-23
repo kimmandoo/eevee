@@ -528,6 +528,28 @@ fn validate_base(value: &str) -> Result<String, String> {
     Ok(value.trim_end_matches('/').to_string())
 }
 
+fn user_file_io_error(credential: bool, error: &std::io::Error) -> String {
+    let source = if credential {
+        "Selected provider-owned auth.json"
+    } else {
+        "Selected user provider config"
+    };
+    let reason = match error.kind() {
+        std::io::ErrorKind::NotFound => "was not found",
+        std::io::ErrorKind::PermissionDenied => "was denied access by the operating system",
+        _ => "could not be opened or read",
+    };
+    if credential {
+        format!(
+            "{source} {reason}. Use /connect chatgpt for browser/device sign-in, or review CODEX_HOME and explicitly load the CLI credential again. No provider file or permissions were changed."
+        )
+    } else {
+        format!(
+            "{source} {reason}. Review the selected configuration path and its OS permissions; no file or permissions were changed."
+        )
+    }
+}
+
 fn read_user_file(
     path: &Path,
     credential: bool,
@@ -535,7 +557,7 @@ fn read_user_file(
 ) -> Result<Vec<u8>, String> {
     let error = || {
         if credential {
-            "Cannot read provider-owned auth.json safely: require a private regular file/ACL without links, or use CODEX_ACCESS_TOKEN (+ optional CODEX_ACCOUNT_ID). Keychain-only login is unreadable; existing provider permissions are never repaired.".to_string()
+            "Selected provider-owned auth.json failed file identity/permission safety checks: require a private regular file/ACL outside the project without links. Use /connect chatgpt for browser/device sign-in, or review the selected CLI source before explicitly importing it again. Provider files and permissions are never repaired.".to_string()
         } else {
             "Cannot read user provider config safely: require an absolute, non-project, user-owned regular file with safe ACLs and no write grants. Existing provider permissions are never repaired.".to_string()
         }
@@ -543,18 +565,21 @@ fn read_user_file(
     if !path.is_absolute() {
         return Err(error());
     }
-    let canonical = path.canonicalize().map_err(|_| error())?;
+    let canonical = path
+        .canonicalize()
+        .map_err(|reason| user_file_io_error(credential, &reason))?;
     if project.is_some_and(|root| canonical.starts_with(root)) {
         return Err(error());
     }
-    let metadata = fs::symlink_metadata(path).map_err(|_| error())?;
+    let metadata =
+        fs::symlink_metadata(path).map_err(|reason| user_file_io_error(credential, &reason))?;
     if !metadata.is_file() || metadata.len() > FILE_LIMIT {
         return Err(error());
     }
     let mut file: File = {
         #[cfg(windows)]
         {
-            windows::open_user_file(path, &canonical, credential).map_err(|_| error())?
+            windows::open_user_file(path, &canonical, credential)?
         }
         #[cfg(unix)]
         {
@@ -573,7 +598,7 @@ fn read_user_file(
     file.by_ref()
         .take(FILE_LIMIT + 1)
         .read_to_end(&mut bytes)
-        .map_err(|_| error())?;
+        .map_err(|reason| user_file_io_error(credential, &reason))?;
     if bytes.len() as u64 > FILE_LIMIT {
         return Err(error());
     }
@@ -677,12 +702,21 @@ struct SubscriptionSource {
     description: String,
 }
 
+enum SubscriptionOrigin {
+    Environment,
+    CliImport,
+}
+
 /// Credential import does not depend on unrelated CLI model/provider configuration.
 fn subscription_source<F: Fn(&str) -> Option<String>>(
     input: &Inputs<F>,
+    origin: SubscriptionOrigin,
 ) -> Result<SubscriptionSource, String> {
-    let (token, file_account, description) = if let Some(token) = (input.get)("CODEX_ACCESS_TOKEN")
-    {
+    let environment = matches!(origin, SubscriptionOrigin::Environment);
+    let (token, file_account, description) = if environment {
+        let token = (input.get)("CODEX_ACCESS_TOKEN").ok_or_else(|| {
+            "OpenAI account connection needs setup. Use /connect chatgpt to sign in with browser/device authorization, or choose Advanced → Load CLI credential and Save to explicitly select an existing CLI login. No provider-owned auth.json was read and no request was sent.".to_string()
+        })?;
         (
             token,
             None,
@@ -691,8 +725,11 @@ fn subscription_source<F: Fn(&str) -> Option<String>>(
     } else {
         let path = codex_auth_path(input).ok_or_else(|| guidance(Agent::ChatGPT))?;
         let bytes = read_user_file(&path, true, input.project.as_deref())?;
-        let value: serde_json::Value = serde_json::from_slice(&bytes)
-            .map_err(|_| "Provider-owned auth.json is not valid JSON; choose native sign-in or replace the selected source.".to_string())?;
+        // Windows tools can prepend a UTF-8 BOM. Tolerate that encoding marker
+        // only on explicit provider import; never rewrite the provider's bytes.
+        let json = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
+        let value: serde_json::Value = serde_json::from_slice(json)
+            .map_err(|_| "Provider-owned auth.json is not valid JSON (UTF-8 required; UTF-16 is not supported). Use /connect chatgpt for native browser/device sign-in or replace the selected CLI source.".to_string())?;
         let tokens = value.get("tokens");
         let token = tokens.and_then(|t| t.get("access_token")).and_then(serde_json::Value::as_str)
             .ok_or_else(|| "Provider-owned auth.json has no subscription access token. Keychain-only or API-key-only login cannot be imported; choose native OpenAI account sign-in instead.".to_string())?;
@@ -723,7 +760,12 @@ fn subscription_source<F: Fn(&str) -> Option<String>>(
     }
     let claims = token_claims(&token, input.now)?;
     let account_id = consistent_account(
-        consistent_account((input.get)("CODEX_ACCOUNT_ID"), file_account)?,
+        consistent_account(
+            environment
+                .then(|| (input.get)("CODEX_ACCOUNT_ID"))
+                .flatten(),
+            file_account,
+        )?,
         claims.account_id,
     )?;
     if account_id
@@ -754,7 +796,7 @@ fn resolve_with<F: Fn(&str) -> Option<String>>(
     let mut account_id = None;
     let mut residency = None;
     let (secret, source) = if provider == Agent::ChatGPT {
-        let selected = subscription_source(input)?;
+        let selected = subscription_source(input, SubscriptionOrigin::Environment)?;
         account_id = selected.account_id;
         residency = selected.residency;
         (Some(selected.token), selected.description)
@@ -921,8 +963,7 @@ pub(crate) fn configured(provider: Agent) -> bool {
         return true;
     }
     if provider == Agent::ChatGPT {
-        return environment_exists("CODEX_ACCESS_TOKEN")
-            || codex_auth_path(&input).is_some_and(|p| p.is_file());
+        return environment_exists("CODEX_ACCESS_TOKEN");
     }
     let Ok(settings) = settings(provider, &input) else {
         return false;
@@ -990,13 +1031,7 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
         if environment_exists("CODEX_ACCESS_TOKEN") {
             "Explicit credential source: CODEX_ACCESS_TOKEN; optional CODEX_ACCOUNT_ID. No credential file is read during passive discovery; credential bytes are read only when an approved metadata/request launch resolves the connection.".into()
         } else {
-            format!(
-                "Explicit credential source: provider-owned {} (read-only, only when an approved metadata/request launch resolves the connection). Keychain access, refresh and credential writes are not performed.",
-                codex_auth_path(&input).map_or_else(
-                    || "CODEX_HOME/auth.json (home unavailable)".into(),
-                    |path| path.display().to_string()
-                )
-            )
+            "No native account source selected. Use /connect chatgpt for browser/device sign-in, or Advanced → Load CLI credential and Save to explicitly import an existing CLI login. Provider-owned auth.json is not read by default; keychain access and refresh are not performed.".into()
         }
     } else {
         "Credential source: own session/private local configuration when explicitly applied; otherwise the selected API-key environment variable. Configured is not authenticated. Passive discovery does not read credential files.".into()
@@ -1029,6 +1064,37 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn credential_io_errors_distinguish_missing_and_access_denied() {
+        let missing = user_file_io_error(true, &std::io::ErrorKind::NotFound.into());
+        let denied = user_file_io_error(true, &std::io::ErrorKind::PermissionDenied.into());
+        assert!(missing.contains("not found"));
+        assert!(!missing.contains("denied access"));
+        assert!(denied.contains("denied access by the operating system"));
+        for error in [missing, denied] {
+            assert!(error.contains("/connect chatgpt"));
+            assert!(error.contains("No provider file or permissions were changed"));
+        }
+    }
+
+    #[test]
+    fn native_account_setup_never_discovers_or_reads_cli_auth_implicitly() {
+        let selected = Inputs {
+            get: |key: &str| {
+                assert_ne!(key, "CODEX_HOME", "default route must not inspect CLI auth");
+                None
+            },
+            home: None,
+            config_home: None,
+            project: None,
+            now: 100,
+        };
+        let error = resolve_with(Agent::ChatGPT, &selected).unwrap_err();
+        assert!(error.contains("/connect chatgpt"));
+        assert!(error.contains("Load CLI credential and Save"));
+        assert!(error.contains("No provider-owned auth.json was read"));
+    }
 
     #[test]
     fn openai_family_preserves_explicit_routes_and_refuses_ambiguous_suggestions() {
@@ -1588,12 +1654,18 @@ mod tests {
         let text =
             "{\"tokens\":{\"access_token\":\"opaque-token\",\"account_id\":\"file-account\"}}";
         let path = temp.file("auth.json", text, 0o600);
-        let connection = resolve_with(
+        let unselected = resolve_with(
             Agent::ChatGPT,
             &super::tests::input(&[("CODEX_HOME", temp.0.to_str().unwrap())]),
         )
+        .unwrap_err();
+        assert!(unselected.contains("Load CLI credential and Save"));
+        let source = subscription_source(
+            &super::tests::input(&[("CODEX_HOME", temp.0.to_str().unwrap())]),
+            SubscriptionOrigin::CliImport,
+        )
         .unwrap();
-        assert_eq!(connection.account_id.as_deref(), Some("file-account"));
+        assert_eq!(source.account_id.as_deref(), Some("file-account"));
         assert_eq!(fs::read_to_string(path).unwrap(), text);
         let environment = super::tests::input(&[
             ("CODEX_HOME", "/nonexistent/never-read"),

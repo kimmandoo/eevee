@@ -84,6 +84,7 @@ impl Fixture {
         };
         result.unwrap();
         let input = Input {
+            prior_plan: None,
             task,
             work: Some(claim),
             local_only: false,

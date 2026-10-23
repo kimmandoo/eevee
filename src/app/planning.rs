@@ -140,6 +140,8 @@ pub struct State {
     pub file_consent: FileConsent,
     pub submitted_request: Arc<str>,
     submitted_instruction: Option<Arc<str>>,
+    prior_plan: Option<Arc<NativeConversation>>,
+    pub(super) plan_completed: bool,
     pub(super) failed_request: bool,
     /// An explicitly abandoned blocked generation; keep its local Request
     /// inspector without treating cancellation as a failed-send draft restore.
@@ -269,6 +271,8 @@ impl State {
             file_consent: FileConsent::default(),
             submitted_request: Arc::default(),
             submitted_instruction: None,
+            prior_plan: None,
+            plan_completed: false,
             failed_request: false,
             connection_recovery: None,
             following: true, new_output: false, response_cache: response::Layout::default(),
@@ -453,6 +457,8 @@ impl State {
         self.invalidate_review();
         self.native_candidate = None;
         self.native_histories.clear();
+        self.prior_plan = None;
+        self.plan_completed = false;
         self.sessions.clear();
         if self.inspect_models && self.transport_pending() {
             self.catalogue_errors.insert(
@@ -505,6 +511,7 @@ impl State {
         self.observed_model = None;
         self.items.clear();
         self.submitted_request = Arc::default();
+        self.prior_plan = None;
         self.selected = 0;
         self.omitted = 0;
         self.inspection = None;
@@ -586,6 +593,73 @@ impl State {
         self.operation_explicit.then_some(self.operation)
     }
 
+    pub(in crate::app) fn has_completed_plan(&self) -> bool {
+        let Some(owner) = &self.front else {
+            return false;
+        };
+        if !self.plan_completed
+            || self.operation != Operation::Plan
+            || self.authentication_invalidated
+            || self.connection_invalidated
+            || self.submitted_request.is_empty()
+            || self.omitted != 0
+        {
+            return false;
+        }
+        let mut count = 0;
+        let mut bytes = self.submitted_request.len();
+        for item in self.plan_items() {
+            if !item.complete
+                || item
+                    .owner
+                    .as_ref()
+                    .is_none_or(|item_owner| item_owner.partner != owner.partner)
+            {
+                return false;
+            }
+            count += 1;
+            bytes += item.text.len();
+            if count >= 64 || bytes > 64 * 1024 {
+                return false;
+            }
+        }
+        count != 0
+    }
+
+    fn plan_items(&self) -> impl Iterator<Item = &Item> {
+        self.items.iter().filter(|item| {
+            Arc::ptr_eq(&item.request, &self.submitted_request)
+                && matches!(item.kind, ItemKind::Message | ItemKind::Plan)
+        })
+    }
+
+    fn completed_plan(&self) -> Option<Arc<NativeConversation>> {
+        use crate::providers::{ConversationMessage, ConversationOwner, ConversationRole};
+        if !self.has_completed_plan() {
+            return None;
+        }
+        let owner = self.front.as_ref()?;
+        let messages = std::iter::once(ConversationMessage {
+            role: ConversationRole::User,
+            text: self.submitted_request.clone(),
+        })
+        .chain(self.plan_items().map(|item| ConversationMessage {
+            role: ConversationRole::Assistant,
+            text: item.text.as_str().into(),
+        }))
+        .collect::<Vec<_>>();
+        Some(Arc::new(NativeConversation {
+            owner: ConversationOwner {
+                task_id: self.task,
+                partner: owner.partner,
+                agent: self.agent,
+                operation: Operation::Plan,
+                connection_scope: String::new(),
+            },
+            messages: messages.into(),
+        }))
+    }
+
     /// Policy changes retire opaque authority; appearance changes do not.
     /// Keep the visible transcript and never restore an old role session.
     pub(in crate::app) fn prepare_automatic_operation(&mut self, operation: Operation) -> bool {
@@ -596,6 +670,12 @@ impl State {
         if self.operation == operation {
             return false;
         }
+        self.prior_plan = if operation == Operation::Implement {
+            self.completed_plan()
+        } else {
+            None
+        };
+        self.plan_completed = false;
         self.close_request();
         self.generation = None;
         self.review_start();
@@ -616,6 +696,8 @@ impl State {
         }
         // Implement returns to ordinary request capabilities, not a sticky grant.
         self.operation_explicit = operation != Operation::Implement;
+        self.prior_plan = None;
+        self.plan_completed = false;
         if self.operation == operation {
             return;
         }
@@ -1061,6 +1143,9 @@ impl State {
                         .items
                         .iter()
                         .any(|item| Arc::ptr_eq(&item.request, &self.submitted_request));
+                self.plan_completed = self.operation == Operation::Plan
+                    && matches!(outcome, Outcome::Completed)
+                    && !self.unknown_effects();
                 self.active = false;
                 self.awaiting_preview = false;
                 self.cancelling = false;
@@ -1507,7 +1592,11 @@ impl State {
                     self.start_automatic_catalogue(task, excerpts, report);
                 }
             }
-            "chat-new" => self.reset_native_chat(),
+            "chat-new" => {
+                self.prior_plan = None;
+                self.plan_completed = false;
+                self.reset_native_chat();
+            }
             "new" => self.prepare(false, false, false, task, excerpts, report),
             "resume" => self.prepare(true, false, false, task, excerpts, report),
             "sessions" => self.prepare(false, true, false, task, excerpts, report),

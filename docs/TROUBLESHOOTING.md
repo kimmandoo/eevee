@@ -1,5 +1,19 @@
 # Troubleshooting
 
+### [2026-10-24] Short implementation requests remained read-only and implicit CLI auth blocked native setup
+
+- **Context / Symptom:** User reported WSL implementation refusal and PowerShell file-creation failure citing `auth.json`. Previous deterministic release checks did not cover these request/credential paths.
+- **Root Cause:** Short `구현해줘` / `Implement it` lacked an object noun and retained automatic Plan. Plan→Implement discarded public plan context with opaque history; Codex vendor Plan workflow could reinforce the refusal. Native account resolution also imported CLI credentials implicitly. Windows provider-file checks rejected trusted elevated ownership, and explicit JSON parsing rejected UTF-8 BOM. The user's exact ACL/token failure remains unobserved; these code defects are not proof of a particular private credential's state.
+- **Solution:** Added explicit implementation intent and completed-plan-bound proceed, bounded public plan carryover and operation-scoped host-tool instructions. Removed implicit CLI import while retaining explicit Load CLI recovery; separated IO/privacy errors, admitted safe trusted-owner Windows provider files and stripped only a UTF-8 BOM for explicit import. Preserved OS denial, source boundaries, explicit readonly and exact write consent.
+- **Prevention / Reference:** Integrated source passed 1,441 Rust tests (two ignored), formatting, strict Clippy and release build. Authentication fixture journeys passed at both terminal sizes without model calls or implicit resend. Bilingual real file workflows and five-target native gates are required separately; no live-account or WSL-host success is inferred from fixtures.
+
+### [2026-10-24] Isolated Windows metadata diagnostic failed before HTTP connection
+
+- **Context / Symptom:** Native run39973998985 failed the real HTTP401/403 diagnostic test on Windows with `fixture connection deadline`; joining the failed fixture before checking child output hid the child's diagnostic.
+- **Root Cause:** The subprocess cleared its entire environment, including Windows runtime-discovery variables. Unlike existing repository subprocess isolation, it did not restore the OS environment needed by the child.
+- **Solution:** Preserved only `SystemRoot`, `WINDIR`, `TEMP` and `TMP` alongside the isolated home and explicit loopback configuration; retained credential/proxy/provider isolation. Reported child failure before fixture-thread failure.
+- **Prevention / Reference:** Focused local HTTP401/403 test and formatting passed. Exact-commit native run39976379482 passed Check and all five platform test/build/offline-install jobs, including Windows, on `801b921`.
+
 ### [2026-10-24] Full workbench smoke retained superseded initialization and recovery assumptions
 
 - **Context / Symptom:** The complete workbench driver waited for `/init` to switch to Espeon, then later expected a send immediately after failed model metadata retrieval. At 60×18 it also expected HTTP status details to be visible without scrolling.

@@ -30,7 +30,7 @@ use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken}
 // unsupported: object-specific and conditional grants cannot be treated as simple SIDs.
 const ALLOW_ACE: u8 = 0;
 const DENY_ACE: u8 = 1;
-const ERROR: &str = "Cannot read user provider file safely: require a regular, user-owned file with a trusted Windows ACL and unchanged resolved path.";
+const ERROR: &str = "Selected provider file failed Windows identity/ACL safety checks: require a regular file with a trusted owner, private credential access and an unchanged resolved path. For account access use /connect chatgpt for browser/device sign-in or explicitly load a safe CLI source. No provider file or permissions were changed.";
 
 struct SecurityDescriptor(PSECURITY_DESCRIPTOR);
 
@@ -117,6 +117,14 @@ fn final_path(handle: HANDLE) -> Result<PathBuf, String> {
 }
 
 fn trusted_acl(handle: HANDLE, credential: bool) -> Result<(), String> {
+    trusted_acl_with_owner(handle, credential, false)
+}
+
+fn trusted_acl_with_owner(
+    handle: HANDLE,
+    credential: bool,
+    provider_owned: bool,
+) -> Result<(), String> {
     let user = TokenUser::current()?;
     let mut owner = null_mut();
     let mut acl = null_mut();
@@ -138,13 +146,25 @@ fn trusted_acl(handle: HANDLE, credential: bool) -> Result<(), String> {
         || owner.is_null()
         || acl.is_null()
         || unsafe { IsValidSid(owner) } == 0
-        || unsafe { EqualSid(owner, user.sid()) } == 0
+        || !trusted_owner(owner, user.sid(), provider_owned)
         || unsafe { IsValidAcl(acl) } == 0
     {
         return Err(ERROR.into());
     }
     // A NULL DACL grants everyone access; an empty (non-NULL) ACL does not.
     check_acl(acl, user.sid(), credential)
+}
+
+fn trusted_owner(owner: PSID, user: PSID, provider_owned: bool) -> bool {
+    // Elevated provider logins may create an Administrators-owned file. Those
+    // principals already have trusted ACL grants; accepting their ownership does
+    // not admit another user's SID or any additional read/write grants.
+    unsafe {
+        EqualSid(owner, user) != 0
+            || provider_owned
+                && (IsWellKnownSid(owner, WinLocalSystemSid) != 0
+                    || IsWellKnownSid(owner, WinBuiltinAdministratorsSid) != 0)
+    }
 }
 
 fn check_acl(acl: *const ACL, owner: PSID, credential: bool) -> Result<(), String> {
@@ -225,7 +245,7 @@ pub(super) fn open_user_file(
         .share_mode(FILE_SHARE_READ)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
         .open(path)
-        .map_err(|_| ERROR.to_string())?;
+        .map_err(|reason| super::user_file_io_error(credential, &reason))?;
     let handle = file.as_raw_handle();
     let mut info = BY_HANDLE_FILE_INFORMATION::default();
     if unsafe { GetFileType(handle) } != FILE_TYPE_DISK
@@ -237,7 +257,7 @@ pub(super) fn open_user_file(
     {
         return Err(ERROR.into());
     }
-    trusted_acl(handle, credential)?;
+    trusted_acl_with_owner(handle, credential, true)?;
     Ok(file)
 }
 
@@ -616,6 +636,97 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn provider_owners_and_inherited_system_acl_keep_private_storage_strict() {
+        use windows_sys::Win32::Security::INHERITED_ACE;
+        let user = TokenUser::current().unwrap();
+        assert!(trusted_owner(user.sid(), user.sid(), false));
+        for kind in [WinLocalSystemSid, WinBuiltinAdministratorsSid, WinWorldSid] {
+            let mut sid = [0u32; (SECURITY_MAX_SID_SIZE as usize).div_ceil(4)];
+            let mut length = size_of_val(&sid) as u32;
+            assert_ne!(
+                unsafe {
+                    CreateWellKnownSid(kind, null_mut(), sid.as_mut_ptr().cast(), &mut length)
+                },
+                0
+            );
+            let trusted = kind != WinWorldSid;
+            assert_eq!(
+                trusted_owner(sid.as_mut_ptr().cast(), user.sid(), true),
+                trusted
+            );
+            assert_eq!(
+                trusted_owner(sid.as_mut_ptr().cast(), user.sid(), false),
+                unsafe { EqualSid(sid.as_mut_ptr().cast(), user.sid()) != 0 }
+            );
+            let mut storage = [0u32; 256];
+            let acl = storage.as_mut_ptr().cast::<ACL>();
+            assert_ne!(
+                unsafe { InitializeAcl(acl, size_of_val(&storage) as u32, ACL_REVISION) },
+                0
+            );
+            assert_ne!(
+                unsafe {
+                    AddAccessAllowedAceEx(
+                        acl,
+                        ACL_REVISION,
+                        INHERITED_ACE,
+                        FILE_ALL_ACCESS,
+                        sid.as_mut_ptr().cast(),
+                    )
+                },
+                0
+            );
+            assert_eq!(check_acl(acl, user.sid(), true).is_ok(), trusted);
+        }
+    }
+
+    #[test]
+    fn explicit_windows_cli_import_reads_private_tokens_without_changing_provider_file() {
+        use super::super::{Inputs, SubscriptionOrigin, subscription_source};
+        let temp = Temp::new();
+        let path = temp.file("auth.json", None);
+        let bytes = br#"{"auth_mode":"chatgpt","tokens":{"access_token":"windows-private-token","account_id":"windows-account"}}"#;
+        fs::write(&path, bytes).unwrap();
+        let input = Inputs {
+            get: |key: &str| (key == "CODEX_HOME").then(|| temp.0.to_string_lossy().into_owned()),
+            home: None,
+            config_home: None,
+            project: None,
+            now: 100,
+        };
+        for prefix in [b"".as_slice(), b"\xef\xbb\xbf".as_slice()] {
+            let encoded = [prefix, bytes.as_slice()].concat();
+            fs::write(&path, &encoded).unwrap();
+            let selected = subscription_source(&input, SubscriptionOrigin::CliImport).unwrap();
+            assert_eq!(selected.token, "windows-private-token");
+            assert_eq!(selected.account_id.as_deref(), Some("windows-account"));
+            assert_eq!(fs::read(&path).unwrap(), encoded);
+        }
+        assert!(subscription_source(&input, SubscriptionOrigin::Environment).is_err());
+        fs::write(&path, b"{malformed").unwrap();
+        assert!(
+            subscription_source(&input, SubscriptionOrigin::CliImport)
+                .err()
+                .unwrap()
+                .contains("not valid JSON")
+        );
+        fs::write(&path, b"\xff\xfe{\0}\0").unwrap();
+        assert!(
+            subscription_source(&input, SubscriptionOrigin::CliImport)
+                .err()
+                .unwrap()
+                .contains("UTF-16 is not supported")
+        );
+        fs::remove_file(&path).unwrap();
+        assert!(
+            subscription_source(&input, SubscriptionOrigin::CliImport)
+                .err()
+                .unwrap()
+                .contains("not found")
+        );
     }
 
     #[test]

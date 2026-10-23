@@ -14,6 +14,8 @@ impl State {
         if self.agent != agent {
             return;
         }
+        self.prior_plan = None;
+        self.plan_completed = false;
         self.native_candidate = None;
         self.picker = None;
         self.custom_model = None;

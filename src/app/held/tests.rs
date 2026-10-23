@@ -151,6 +151,7 @@ fn input(app: &App) -> providers::Input {
     task.form = app.form();
     task.approved_memories = app.memory.selected_snapshot().unwrap();
     providers::Input {
+        prior_plan: None,
         task,
         work: None,
         local_only: false,
