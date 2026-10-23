@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-24] Full workbench smoke retained superseded initialization and recovery assumptions
+
+- **Context / Symptom:** The complete workbench driver waited for `/init` to switch to Espeon, then later expected a send immediately after failed model metadata retrieval. At 60×18 it also expected HTTP status details to be visible without scrolling.
+- **Root Cause:** The old driver encoded the removed forced appearance and pre-diagnostics recovery path. Current behavior preserves appearance and retained drafts, exposes a scoped diagnostic and requires deliberate recovery without automatic replay.
+- **Solution:** Removed the incidental appearance assertion. Drove the actual connection diagnostic, scrolled to HTTP503, explicitly opened its existing setup action, returned without saving or network, asserted the exact retained request and unchanged GET/POST counts, then deliberately sent.
+- **Prevention / Reference:** All 35 complete real workbench groups passed at both sizes using unchanged candidate D (`target/project-workbench-d-complete`), including no-dispatch initialization, metadata failure/recovery, cancellation, storage failures, migration, quotas and task lifecycle.
+
 ### [2026-10-23] Local context comparison lost its request and required a dispatch lease
 
 - **Context / Symptom:** Actual `/context-compare` navigation cleared pending comparison preparation; after preserving navigation state, native preview failed with `Native file tools require their operation-bound durable lease`.
