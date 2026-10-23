@@ -1973,7 +1973,8 @@ fn real_metadata_http_auth_refusal_publishes_content_free_diagnostic_without_dis
             status,
             "Bearer private-auth-sentinel authcode=private-code-sentinel".into(),
         );
-        let output = std::process::Command::new(std::env::current_exe().unwrap())
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
             .args(["--exact", "providers::direct::tests::real_metadata_http_auth_refusal_publishes_content_free_diagnostic_without_dispatch", "--nocapture"])
             .env_clear()
             .env("HOME", &home)
@@ -1981,17 +1982,24 @@ fn real_metadata_http_auth_refusal_publishes_content_free_diagnostic_without_dis
             .env(CHILD, status.to_string())
             .env("EV_API_BASE_URL", url)
             .env("EV_API_KEYLESS", "1")
-            .env("EV_API_PROTOCOL", "responses")
-            .output();
+            .env("EV_API_PROTOCOL", "responses");
+        // Keep Windows runtime discovery without inheriting provider settings,
+        // credentials, proxies or the user's home.
+        for key in ["SystemRoot", "WINDIR", "TEMP", "TMP"] {
+            if let Some(value) = std::env::var_os(key) {
+                command.env(key, value);
+            }
+        }
+        let output = command.output();
         let served = server.join();
         std::fs::remove_dir_all(&home).unwrap();
-        served.unwrap();
         let output = output.unwrap();
         assert!(
             output.status.success(),
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
+        served.unwrap();
     }
 }
 

@@ -2,6 +2,7 @@
 
 ## 2026-10-24
 
+- test(providers): preserved operating-system runtime variables in the isolated metadata diagnostic subprocess and reported child failures before fixture-thread failures.
 - test(workbench): removed the obsolete forced-Espeon initialization expectation and exercised explicit HTTP 503 diagnostic recovery with scrollable compact details; all 35 real workbench groups passed without changing the qualified executable.
 
 ## 2026-10-23
