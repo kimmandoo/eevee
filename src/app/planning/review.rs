@@ -264,6 +264,7 @@ impl State {
             None
         };
         if !inspect_models && !inspect_sessions {
+            self.plan_completed = false;
             self.submitted_request = if self.agent.is_direct() {
                 crate::providers::native_request_text(task)
             } else {
@@ -282,6 +283,21 @@ impl State {
             task.clone()
         };
         self.pending = Some(Request::Preview(Box::new(Input {
+            prior_plan: if !inspect_models
+                && !inspect_sessions
+                && self.operation == Operation::Implement
+            {
+                self.prior_plan
+                    .as_ref()
+                    .filter(|plan| {
+                        plan.owner.task_id == task.id
+                            && plan.owner.partner == task.lead_partner
+                            && plan.owner.agent == self.agent
+                    })
+                    .cloned()
+            } else {
+                None
+            },
             task: request_task,
             work: None,
             local_only: false,

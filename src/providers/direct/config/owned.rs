@@ -320,24 +320,7 @@ fn load_cli_with<F: Fn(&str) -> Option<String>>(
     form: &mut Setup,
     input: Inputs<F>,
 ) -> Result<(), String> {
-    let Inputs {
-        get,
-        home,
-        config_home,
-        project,
-        now,
-    } = input;
-    let source = Inputs {
-        get: |name: &str| match name {
-            "CODEX_ACCESS_TOKEN" | "CODEX_ACCOUNT_ID" => None,
-            _ => get(name),
-        },
-        home,
-        config_home,
-        project,
-        now,
-    };
-    let selected = subscription_source(&source)?;
+    let selected = subscription_source(&input, SubscriptionOrigin::CliImport)?;
     form.credential = selected.token;
     form.account_id = selected.account_id.unwrap_or_default();
     form.base_url = CODEX_BASE.into();
@@ -812,6 +795,7 @@ mod tests {
             get: |name: &str| match name {
                 "CODEX_HOME" => Some(provider_home.clone()),
                 "CODEX_ACCESS_TOKEN" => Some("must-not-import-env".into()),
+                "CODEX_ACCOUNT_ID" => Some("must-not-import-env-account".into()),
                 _ => None,
             },
             home: None,
@@ -833,6 +817,24 @@ mod tests {
         .unwrap();
         assert!(load_cli_with(&mut form, make_input()).is_err());
         assert_eq!(form.credential, "explicit-cli-token");
+        for (bytes, expected) in [
+            ("{malformed-private-fixture".to_string(), "not valid JSON"),
+            (
+                format!(
+                    r#"{{"tokens":{{"access_token":"e30.{}.signature"}}}}"#,
+                    base64_simd::URL_SAFE_NO_PAD.encode_to_string(br#"{"exp":99}"#)
+                ),
+                "expired",
+            ),
+        ] {
+            fs::write(&auth, &bytes).unwrap();
+            let error = load_cli_with(&mut form, make_input()).unwrap_err();
+            assert!(error.contains(expected));
+            assert!(!error.contains("malformed-private-fixture"));
+            assert_eq!(form.credential, "explicit-cli-token");
+            assert_eq!(form.account_id, "cli-account");
+            assert_eq!(fs::read_to_string(&auth).unwrap(), bytes);
+        }
     }
 
     #[cfg(unix)]

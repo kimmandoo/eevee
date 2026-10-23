@@ -185,6 +185,7 @@ const RULES: &[Rule] = &[
             "edit",
             "modify",
             "replace",
+            "overwrite",
             "repair",
             "fix",
             "add",
@@ -201,6 +202,7 @@ const RULES: &[Rule] = &[
             "고치",
             "바꿔",
             "바꾸",
+            "덮어",
             "추가",
         ],
         objects: &[
@@ -214,6 +216,9 @@ const RULES: &[Rule] = &[
             "error",
             "failure",
             "endpoint",
+            "project",
+            "app",
+            "application",
             "코드",
             "파일",
             "기능",
@@ -224,6 +229,9 @@ const RULES: &[Rule] = &[
             "오류",
             "에러",
             "엔드포인트",
+            "프로젝트",
+            "앱",
+            "애플리케이션",
         ],
     },
     Rule {
@@ -502,12 +510,59 @@ const NEGATIVE: &[&str] = &[
     "아니",
 ];
 
+// Elliptical implementation requests still name the requested capability.
+// Generic "continue" remains ambiguous; a plan-bound "proceed" is handled below.
+fn implementation_followup(literal: &str) -> bool {
+    let text = literal.trim().trim_end_matches(['.', '!', '?']).trim();
+    matches!(
+        text,
+        "implement"
+            | "implement it"
+            | "implement this"
+            | "implement the plan"
+            | "please implement"
+            | "please implement it"
+            | "구현해줘"
+            | "구현해 줘"
+            | "구현해주세요"
+            | "구현해 주세요"
+            | "구현해"
+            | "구현하자"
+            | "이대로 구현해줘"
+            | "계획대로 구현해줘"
+    )
+}
+
+fn proceed_with_plan(text: &str) -> bool {
+    let literal = instruction(text);
+    matches!(
+        literal.trim().trim_end_matches(['.', '!', '?']).trim(),
+        "proceed"
+            | "please proceed"
+            | "go ahead"
+            | "proceed with the plan"
+            | "진행해줘"
+            | "진행해 줘"
+            | "진행해주세요"
+            | "진행해 주세요"
+            | "진행하자"
+            | "계획대로 진행해줘"
+    )
+}
+
 pub fn classify(text: &str) -> Option<Selection> {
     if text.len() > super::MAX_GOAL_BYTES {
         return None;
     }
     let literal = instruction(text);
     let readonly = any(&literal, READONLY);
+    if !readonly && implementation_followup(&literal) {
+        return Some(Selection {
+            form: 3,
+            operation: Operation::Implement,
+            reason: Message::CoreEvolutionImplementation,
+        });
+    }
     let clauses = || {
         literal
             .split(". ")
@@ -637,7 +692,18 @@ impl App {
 
     /// Called only after ordinary Submit's owner/safety guards, before save.
     pub(super) fn evolve_request(&mut self) -> bool {
-        let Some(mut choice) = classify(&self.input) else {
+        let Some(mut choice) = classify(&self.input).or_else(|| {
+            (self.planning.operation == Operation::Plan
+                && proceed_with_plan(&self.input)
+                && classify(&self.planning.submitted_request)
+                    .is_some_and(|prior| prior.reason == Message::CoreEvolutionPlanning)
+                && self.planning.has_completed_plan())
+            .then_some(Selection {
+                form: 3,
+                operation: Operation::Implement,
+                reason: Message::CoreEvolutionImplementation,
+            })
+        }) else {
             return false;
         };
         if !self.lead.auto_form {
@@ -687,6 +753,116 @@ mod tests {
         app.planning.reset(7);
         app.planning.preference_event(Ok(None));
         app
+    }
+    fn planned_app() -> App {
+        let mut app = app();
+        app.planning.agent = Agent::Compatible;
+        app.input = "새 프로젝트 구현 계획 세워줘".into();
+        app.submit_request();
+        app.pending_request = None;
+        app.planning.submitted_request = app.input.as_str().into();
+        app.planning.front = Some(app.attribution());
+        app.planning.items.push(super::super::planning::Item {
+            thread_id: "planning-thread".into(),
+            turn_id: "planning-turn".into(),
+            item_id: "public-plan".into(),
+            kind: providers::ItemKind::Message,
+            text: "Create planned/한글/saved.txt containing the chosen result.".into(),
+            complete: true,
+            request: app.planning.submitted_request.clone(),
+            owner: Some(app.attribution()),
+        });
+        app.planning.thread_id = Some("planning-thread".into());
+        app.planning.plan_completed = true;
+        app
+    }
+
+    #[test]
+    fn ordinary_implementation_followups_carry_public_plan_without_old_authority() {
+        for followup in [
+            "구현해줘",
+            "구현해 주세요.",
+            "Implement it.",
+            "진행해줘",
+            "Go ahead.",
+        ] {
+            let mut app = planned_app();
+            app.input = followup.into();
+            app.submit_request();
+            assert_eq!(app.planning.operation, Operation::Implement, "{followup}");
+            assert!(app.planning.thread_id.is_none());
+            assert_eq!(app.planning.items.len(), 1);
+            let snapshot = app.snapshot("/workspace");
+            app.planning.command("new", true, &snapshot, &[], None);
+            let Some(Request::Preview(input)) = app.planning.pending.take() else {
+                panic!("missing implementation preview for {followup}");
+            };
+            assert_eq!(input.instruction(), followup);
+            assert!(input.resume.is_none() && input.conversation.is_none());
+            assert!(input.work.is_none());
+            let context = input.prior_plan_payload().unwrap();
+            assert!(context.to_string().contains("planned/한글/saved.txt"));
+            assert!(!context.to_string().contains("planning-thread"));
+            assert_eq!(context["messages"][0]["role"], "user");
+            assert_eq!(context["messages"][1]["role"], "assistant");
+            assert!(input.validate_selection().is_ok());
+        }
+    }
+
+    #[test]
+    fn proceeding_requires_a_complete_current_plan_not_analysis_or_source_instructions() {
+        for prior in [
+            "Analyze the error.",
+            "Read src/main.rs.",
+            "Plan the project, read only.",
+        ] {
+            let mut app = planned_app();
+            app.planning.submitted_request = prior.into();
+            app.planning.items[0].request = app.planning.submitted_request.clone();
+            app.input = "진행해줘".into();
+            app.submit_request();
+            assert_eq!(app.planning.operation, Operation::Plan, "{prior}");
+        }
+        for invalid in 0..5 {
+            let mut app = planned_app();
+            match invalid {
+                0 => app.planning.items[0].complete = false,
+                1 => app.planning.plan_completed = false,
+                2 => app.planning.items[0].owner = None,
+                3 => app.planning.items[0].text = "x".repeat(64 * 1024),
+                _ => app.planning.items[0].request = "unrelated request".into(),
+            }
+            app.input = "진행해줘".into();
+            app.submit_request();
+            assert_eq!(app.planning.operation, Operation::Plan);
+        }
+        for operation in [Operation::Plan, Operation::Review] {
+            let mut app = planned_app();
+            app.planning.set_operation(operation);
+            app.input = "구현해줘".into();
+            app.submit_request();
+            assert_eq!(app.planning.operation, operation);
+        }
+        for text in [
+            "\"구현해줘\"",
+            "> 구현해줘",
+            "구현하지 마",
+            "Explain how to implement it.",
+        ] {
+            assert!(classify(text).is_none(), "{text}");
+        }
+        for text in [
+            "프로젝트 만들어줘",
+            "앱을 만들어줘",
+            "Overwrite saved.txt",
+            "saved.txt를 덮어써줘",
+        ] {
+            assert_eq!(
+                classify(text).unwrap().operation,
+                Operation::Implement,
+                "{text}"
+            );
+        }
     }
 
     #[test]
@@ -1126,6 +1302,8 @@ mod tests {
             for (text, operation) in [
                 ("Read the current project source files.", Operation::Plan),
                 ("Create `hello.py`.", Operation::Implement),
+                ("구현해줘", Operation::Implement),
+                ("Implement it.", Operation::Implement),
                 ("Edit `src/main.rs`.", Operation::Implement),
                 (
                     "Write project documentation to README.md.",

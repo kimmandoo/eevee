@@ -534,6 +534,34 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
             assert denied_wire, 'denial was not returned to the same provider call'
             result['cases'].append('neutral denial creates no directories/files and continues with an actual correlated denial result')
 
+            # Ordinary planning must not strand a later short implementation
+            # request in read-only mode or discard the plan it refers to.
+            planned_path = 'planned/한글/saved.txt'
+            planned_content = 'implemented from the retained plan\r\n'
+            plan_request = ('새 프로젝트 구현 계획 세워줘' if language == 'ko'
+                            else 'Plan the implementation of a new project.')
+            plan_answer = f'Create {planned_path} with exact content: {planned_content}'
+            gate.ready.clear()
+            gate.release.clear()
+            before = journey.begin(plan_request, [
+                response_plan(peer, text=plan_answer, gate=gate, number=20)], writing=False)
+            until(journey.session, gate.ready.is_set, 'ordinary plan response')
+            assert not (journey.project / planned_path).parent.exists()
+            gate.release.set()
+            journey.settled('Create planned/', before + 1)
+            implementation = '구현해줘' if language == 'ko' else 'Implement it.'
+            before = journey.begin(implementation, [
+                response_plan(peer, calls=[{'id': 'implement-retained-plan',
+                    'path': planned_path, 'content': planned_content}], number=21),
+                response_plan(peer, text='Planned file saved.', number=22)])
+            sent = json.dumps(peer.snapshot('POST')[before]['body'], ensure_ascii=False)
+            assert planned_path in sent, 'short implementation lost the actual preceding plan'
+            assert not (journey.project / planned_path).exists()
+            journey.permission(planned_path, allow=True)
+            journey.settled('Planned file saved.', before + 2)
+            assert (journey.project / planned_path).read_bytes() == planned_content.encode()
+            result['cases'].append('ordinary plan then short implementation retains plan, acquires writer tools, reviews and saves actual nested bytes')
+
             if advanced:
                 collision = 'collision.txt'
                 before = journey.begin('Propose a file whose path will change before approval.', [response_plan(peer, calls=[

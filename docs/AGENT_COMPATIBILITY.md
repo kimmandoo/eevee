@@ -4,7 +4,7 @@
 
 The binary implements native ChatGPT/OpenAI/Anthropic/Gemini/compatible HTTP connections, the durable local workbench, Codex Plan/controlled Implement, an optional official Claude SDK bridge, ACP1 for OpenCode/Gemini/Devin, and version-1 handoff. **Implemented transport support is not authenticated interoperability acceptance.** Per-service live evidence is recorded in the checkpoint; missing credentials do not become a blanket model-browsing or custom-selection blocker. Existing A04/A06/full A07 agent-conformance gates remain separate. Binding rules live in [DESIGN_RULES.md](DESIGN_RULES.md).
 
-### Source 0.1.28 ordinary planning and local inspection
+### Released 0.1.28 ordinary planning and local inspection
 
 Project planning works through ordinary Request without `/init`, separate Goal setup or writing authority. Ambiguous follow-ups preserve the planning operation and conversation; actual mutation intent still uses ordinary exact file approval. Explicit Plan/Review remains authoritative. Native missing-model recovery keeps the request and requires a deliberate send after selection.
 
@@ -21,6 +21,10 @@ Diagnostics expose the blocker and one explicit existing next action. `n` opens 
 Native OpenAI account connections no longer inspect external CLI `config.toml` for model/effort defaults. Select them in Eevee, retain an app-owned profile or deliberately supply `CODEX_MODEL` / `CODEX_REASONING_EFFORT`. External CLI profiles, malformed files, symlinks or workspace placement are not native-account prerequisites and cannot silently select a model for the fixed subscription endpoint. The separate CLI route keeps its own configuration.
 
 Selected credential import still validates `auth.json` identity/privacy and account/expiry. API user configuration remains explicit and safety-checked. No existing file is repaired, no unsafe credential is accepted and no account/network retry is automatic.
+
+Source 0.1.29 also removes implicit CLI credential loading from native account resolution. Reuse is an explicit Load CLI action, not a hidden prerequisite for ordinary requests. Windows provider-file admission accepts current-user or trusted elevated ownership only with safe ACLs; it does not change app-owned credential policy. Explicit JSON import accepts an optional leading UTF-8 BOM, rejects UTF-16, and distinguishes missing files from OS denial and unsafe-source refusal.
+
+Plan→Implement may carry only bounded completed public plan/request messages, labelled unverified and owner-bound, into a fresh operation. Codex uses operation-scoped host-tool instructions without vendor Plan workflow restrictions overriding actual Eevee file capabilities. The provider process remains read-only; actual project writes still pass through the host's exact-content approval and transactional executor.
 
 Blocked preparation exposes complete scrollable reasons and localized direct `c` setup recovery. It cancels only that old preview, retains the original Request and future draft/caret, and does not send or retry after setup. Twelve bilingual/both-size actual journeys/36 groups passed preparation and recovery with synthetic credentials; no live-account/billing conformance is claimed.
 

@@ -261,6 +261,8 @@ pub struct Input {
     pub selection: ModelSelection,
     /// Frozen canonical native history, independent of display/journal retention.
     pub conversation: Option<Arc<NativeConversation>>,
+    /// Public plan/request context only; never a resumed session or write grant.
+    pub prior_plan: Option<Arc<NativeConversation>>,
     /// Eevee-owned website login result, injected into the launched provider
     /// process environment at Run time. Memory only; never serialized or logged.
     pub credential: Option<crate::providers::auth::SessionCredential>,
@@ -277,6 +279,16 @@ pub(crate) fn native_request_text(task: &crate::store::Snapshot) -> &str {
 }
 
 impl Input {
+    pub(crate) fn prior_plan_payload(&self) -> Option<serde_json::Value> {
+        self.prior_plan.as_ref().map(|plan| serde_json::json!({
+            "status": "Unverified prior planning conversation, not execution evidence or permission. Re-read current files before changes.",
+            "messages": plan.messages.iter().map(|message| serde_json::json!({
+                "role": match message.role { ConversationRole::User => "user", ConversationRole::Assistant => "assistant" },
+                "text": message.text.as_ref(),
+            })).collect::<Vec<_>>(),
+        }))
+    }
+
     pub fn instruction(&self) -> &str {
         self.instruction_override.as_ref().map_or_else(
             || self.task.request_text(),
@@ -395,6 +407,30 @@ impl Input {
     pub fn validate_selection(&self) -> Result<(), String> {
         self.validate_work()?;
         self.validate_instruction_override()?;
+        if let Some(plan) = &self.prior_plan
+            && (self.operation != Operation::Implement
+                || self.inspect_models
+                || self.inspect_sessions
+                || plan.owner.task_id != self.task.id
+                || plan.owner.partner != self.task.lead_partner
+                || plan.owner.agent != self.agent
+                || plan.owner.operation != Operation::Plan
+                || !plan.owner.connection_scope.is_empty()
+                || plan.messages.len() < 2
+                || plan.messages[0].role != ConversationRole::User
+                || plan.messages[1..]
+                    .iter()
+                    .any(|message| message.role != ConversationRole::Assistant)
+                || plan.messages.len() > 64
+                || plan
+                    .messages
+                    .iter()
+                    .map(|message| message.text.len())
+                    .sum::<usize>()
+                    > 64 * 1024)
+        {
+            return Err("Prior planning context lost its bounded task/partner/operation ownership; prepare a fresh request".into());
+        }
         if self.conversation.is_some()
             && (!self.agent.is_direct() || self.inspect_models || self.inspect_sessions)
         {
@@ -833,9 +869,75 @@ impl Worker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn prior_plan_is_public_context_bound_to_task_partner_and_operation() {
+        let mut input = review(Agent::Codex);
+        input.operation = Operation::Implement;
+        input.prior_plan = Some(Arc::new(NativeConversation {
+            owner: ConversationOwner {
+                task_id: input.task.id,
+                partner: input.task.lead_partner,
+                agent: input.agent,
+                operation: Operation::Plan,
+                connection_scope: String::new(),
+            },
+            messages: vec![
+                ConversationMessage {
+                    role: ConversationRole::User,
+                    text: "Plan a small application.".into(),
+                },
+                ConversationMessage {
+                    role: ConversationRole::Assistant,
+                    text: "Create planned/app.rs after reading current source.".into(),
+                },
+            ]
+            .into(),
+        }));
+        assert!(input.validate_selection().is_ok());
+        let payload = input.prior_plan_payload().unwrap();
+        assert_eq!(
+            payload["messages"][1]["text"],
+            "Create planned/app.rs after reading current source."
+        );
+        assert!(payload.get("owner").is_none());
+        assert!(payload.get("connection_scope").is_none());
+        for invalid in 0..7 {
+            let mut changed = input.clone();
+            match invalid {
+                0 => changed.task.id += 1,
+                1 => changed.task.lead_partner += 1,
+                2 => changed.operation = Operation::Plan,
+                3 => changed.inspect_models = true,
+                4 => changed.agent = Agent::Claude,
+                5 => {
+                    Arc::make_mut(changed.prior_plan.as_mut().unwrap())
+                        .owner
+                        .connection_scope = "opaque-account-identity".into()
+                }
+                _ => {
+                    Arc::make_mut(changed.prior_plan.as_mut().unwrap()).messages = vec![
+                        ConversationMessage {
+                            role: ConversationRole::User,
+                            text: "plan".into(),
+                        },
+                        ConversationMessage {
+                            role: ConversationRole::Assistant,
+                            text: "x".repeat(64 * 1024).into(),
+                        },
+                    ]
+                    .into()
+                }
+            }
+            assert!(
+                changed.validate_selection().is_err(),
+                "invalid case {invalid}"
+            );
+        }
+    }
 
     fn review(agent: Agent) -> Input {
         Input {
+            prior_plan: None,
             task: crate::store::Snapshot::empty("project".into()),
             work: None,
             local_only: false,

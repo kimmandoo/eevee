@@ -1,6 +1,37 @@
 use super::*;
 
 #[test]
+fn ordinary_operations_use_host_tools_without_vendor_planning_workflow() {
+    for operation in [Operation::Plan, Operation::Review, Operation::Implement] {
+        let mode = collaboration_mode("configured-model", Some("high"), operation);
+        assert_eq!(mode["mode"], "default");
+        assert_eq!(mode["settings"]["model"], "configured-model");
+        assert_eq!(mode["settings"]["reasoning_effort"], "high");
+        assert_eq!(
+            mode["settings"]["developer_instructions"],
+            file_tool_instructions(operation)
+        );
+        let tools = definitions(super::super::writing_required(operation));
+        assert!(tools.iter().any(|tool| tool["name"] == "eevee_read_file"));
+        assert!(tools.iter().any(|tool| tool["name"] == "eevee_list_files"));
+        assert_eq!(
+            tools.iter().any(|tool| tool["name"] == "eevee_write_file"),
+            operation == Operation::Implement
+        );
+        assert_eq!(
+            tools.iter().any(|tool| tool["name"] == "eevee_edit_file"),
+            operation == Operation::Implement
+        );
+        if operation == Operation::Implement {
+            assert!(file_tool_instructions(operation).contains("client-executed dynamic tools"));
+            assert!(file_tool_instructions(operation).contains("fresh allow-once approval"));
+        } else {
+            assert!(file_tool_instructions(operation).contains("no mutation tools"));
+        }
+    }
+}
+
+#[test]
 fn complete_codex_proposals_have_guarded_display_only_snapshots() {
     let mut input = crate::providers::tests::claimed(Agent::Codex, Operation::Implement, true);
     let params = json!({"tool":"eevee_write_file","arguments":{
@@ -575,6 +606,7 @@ fn model_modalities_follow_installed_protocol_default_without_accepting_malforme
 #[test]
 fn model_inspection_has_no_task_prompt_or_source_or_edit_lookup() {
     let mut input = Input {
+        prior_plan: None,
         task: crate::store::Snapshot::empty("unopened-project".into()),
         work: None,
         local_only: false,
@@ -1286,6 +1318,7 @@ fn outbound_task_facts_do_not_leak_generated_provider_session_provenance() {
     };
     let handoff = crate::workspace::handoff::from_task(&saved, &[], &[]).unwrap();
     let input = Input {
+        prior_plan: None,
         task: saved,
         work: None,
         local_only: false,

@@ -1,8 +1,16 @@
 # Eevee Implementation Plan
 
-Updated: 2026-10-23. Active user priority: repair project setup and ordinary planning, simplify agent execution/permission UX using the local reference read-only, polish evolution receipts, and publish a new verified release. P04A/P04B/T01B passed their actual bilingual/both-size gates and are archived. Public v0.1.26 stays immutable; no paid/live model calls or original installation/private-data mutation is authorized.
+Updated: 2026-10-24. Active user priority: fix WSL implementation refusal and PowerShell auth.json/file-creation rejection; compare reference folder/read/create/edit/save behavior read-only and repair real workflow/UX. Published v0.1.28 remains immutable and its fixture proof does not refute the user's observed failures. No paid/live model calls or original installation/private-data mutation is authorized.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
+
+## Active request — Windows authentication and WSL file workflow
+
+1. Trace native credential selection, explicit CLI import and Windows provider-file ACL checks; distinguish configuration/authentication from filesystem authority. Recover through an actionable existing connection flow without losing the request.
+2. Trace ordinary planning followed by short Korean implementation requests. Preserve public plan context while changing actual operation/tool availability; do not carry opaque provider permissions or override explicit read-only intent.
+3. Compare the reference's actual directory/file read, create, replace and save flow without copying its implementation. Reuse the reviewed executor and fix demonstrated backend defects rather than hiding errors.
+4. Exercise English/Korean real terminal file workflows on Linux and Windows, including nested creation, exact saved bytes, read/edit/overwrite, denied writes and unrelated dirty-file preservation. Keep real WSL/live-auth limitations explicit; deterministic peers are not live model semantics.
+5. Update contracts, troubleshooting, changelog and checkpoint; commit verified fixes. Do not claim completion from v0.1.28 publication.
 
 ## Active request — natural project and agent workflow
 

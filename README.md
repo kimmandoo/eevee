@@ -100,7 +100,7 @@ ev --help
 </details>
 
 <details>
-<summary>Source preview · 0.1.28 · not yet released</summary>
+<summary>Released in 0.1.28</summary>
 
 | Improvement | Use |
 | --- | --- |
@@ -113,7 +113,7 @@ ev --help
 
 Recipe preview defaults to staying; **Enter/Esc** cancels without creating a file. Existing destinations are never overwritten. `/recipe-path`, `/load-recipe` and `/preview-recipe` reopen and stage a plan in another project; imported criteria remain unchecked and effects still require fresh review. Authoring drafts survive navigation in the current process, not restart.
 
-These commands describe source 0.1.28, which includes the unreleased 0.1.27 improvements. Public downloads below remain v0.1.26.
+These commands shipped in v0.1.28, including the previously unreleased 0.1.27 improvements.
 
 </details>
 
@@ -124,6 +124,10 @@ These commands describe source 0.1.28, which includes the unreleased 0.1.27 impr
 File-based project setup supports up to 32 distinct reviewed files per request, each up to 64 KiB. Native HTTP tool loops allow 128 calls across 129 rounds, bounded to 1 MiB per request body and 64 MiB cumulatively. Earlier completed writes remain if a later operation fails; cancellation is not rollback. Dependency installation and shell-based scaffolding require the separate command-review flow.
 
 Missing native model configuration opens the local model picker and keeps your request. Selecting a model does not send it: press Enter deliberately afterward. A file permission's Enter opens the proposed content; return to its decision controls to allow once or deny after inspecting the complete scope. Merely typing into an arriving popup grants nothing.
+
+Source 0.1.29 fixes short plan-to-implementation requests: after planning, `Implement it` / `구현해줘` selects reviewed implementation and carries the completed public plan forward. Plan-bound `진행해줘` also works; a generic continuation after analysis does not grant writes. Explicit Plan/Review still wins. Host file tools can create nested folders and save edits even when the provider's own shell is read-only; each changed file still needs exact approval.
+
+Native account connections use Eevee's selected login/profile rather than silently reading CLI `auth.json`. To reuse CLI credentials, explicitly choose **Load CLI** in connection setup. Missing files, OS access denial and unsafe credential permissions are separate errors. Private Windows credentials owned by the current user or a trusted elevated owner are accepted only with a safe ACL; UTF-8 BOM is supported, UTF-16 is not. No credential file or permissions are silently repaired.
 
 | Feature | What it does |
 | --- | --- |
@@ -178,14 +182,14 @@ Current storage is **Schema 18**; the Claude sidecar requires complete **bridge 
 
 ## Installation
 
-| Platform | v0.1.26 package |
+| Platform | v0.1.28 package |
 | --- | --- |
-| macOS · Apple Silicon | [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.26/ev-darwin-arm64.tar.gz) |
-| macOS · Intel | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.26/ev-darwin-x86_64.tar.gz) |
-| Linux / WSL | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.26/ev-linux-x86_64.tar.gz) · [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.26/ev-linux-arm64.tar.gz) |
-| Windows | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.26/ev-windows-x86_64.zip) |
+| macOS · Apple Silicon | [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.28/ev-darwin-arm64.tar.gz) |
+| macOS · Intel | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.28/ev-darwin-x86_64.tar.gz) |
+| Linux / WSL | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.28/ev-linux-x86_64.tar.gz) · [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.28/ev-linux-arm64.tar.gz) |
+| Windows | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.28/ev-windows-x86_64.zip) |
 
-[Checksums](https://github.com/kimmandoo/eevee/releases/download/v0.1.26/SHA256SUMS) · [Release notes](CHANGELOG.md)
+[Checksums](https://github.com/kimmandoo/eevee/releases/download/v0.1.28/SHA256SUMS) · [Release notes](CHANGELOG.md)
 
 ```sh
 ev update --check   # read-only release check
@@ -201,8 +205,8 @@ Installers verify SHA-256, refuse unowned command collisions and **do not change
 **macOS / Linux**
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.26/install.sh
-sh ./install-ev.sh --version v0.1.26
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.28/install.sh
+sh ./install-ev.sh --version v0.1.28
 ```
 
 Add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile (`~/.zshrc` or `~/.bashrc`) for future terminals. If macOS blocks a browser-downloaded archive, inspect its source/checksum before removing quarantine with `xattr -d com.apple.quarantine ~/.local/bin/ev`.
@@ -210,7 +214,7 @@ Add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile (`~/.zshrc` or 
 **Windows**
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.26/install.ps1))) -Version v0.1.26
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.28/install.ps1))) -Version v0.1.28
 [Environment]::SetEnvironmentVariable('Path', "$env:LOCALAPPDATA\ev\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')
 ```
 

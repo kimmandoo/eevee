@@ -2,6 +2,11 @@
 
 ## 2026-10-24
 
+- fix(planning): recognized short implementation requests after planning and carried bounded completed public plan context into fresh implementation without transferring opaque provider permissions.
+- fix(providers): stopped implicit CLI credential import, distinguished missing/access-denied/unsafe authentication sources and accepted private Windows provider credentials with trusted elevated ownership and optional UTF-8 BOM.
+- fix(tools): clarified host-executed project discovery, nested creation and saved edits independently of provider-shell read-only policy.
+- test(platform): added real bilingual terminal file workflow gates on every native target, including ordinary planning followed by implementation and actual saved file bytes.
+- docs(release): recorded immutable v0.1.28 publication from `801b921`, verified all public asset digests and archives, and passed downloaded installation24/terminal34/workbench35 plus bilingual planning, project creation and evolution journeys.
 - test(providers): preserved operating-system runtime variables in the isolated metadata diagnostic subprocess and reported child failures before fixture-thread failures.
 - test(workbench): removed the obsolete forced-Espeon initialization expectation and exercised explicit HTTP 503 diagnostic recovery with scrollable compact details; all 35 real workbench groups passed without changing the qualified executable.
 

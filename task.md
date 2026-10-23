@@ -4,11 +4,11 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 
 ## Current state
 
-- **Released:** [v0.1.26](https://github.com/kimmandoo/eevee/releases/tag/v0.1.26) corrected native-account configuration admission and direct blocked-request recovery after exact-source qualification, immutable publication and full downloaded runtime/install proof. It includes v0.1.25's form-independent coding/context, automatic permission reviews and concise README. The four-task Pokémon milestone remains complete.
-- **Implemented, unreleased:** Source 0.1.27 completed **A08 → UX04A → S04**: actionable connection diagnostics, persistent text density and reviewed portable workflow authoring. Full specifications moved to [COMPLETED.md](tasks/COMPLETED.md#everyday-platform-milestone--source-0127-unreleased).
+- **Released:** [v0.1.28](https://github.com/kimmandoo/eevee/releases/tag/v0.1.28) shipped ordinary planning without mandatory `/init` or writing authority, reviewed project creation, direct file-content inspection, preserved missing-model requests and polished nonmodal evolution receipts.
+- **Included milestones:** A08 → UX04A → S04 and P04A → P04B → T01B shipped: actionable connection diagnostics, persistent text density, reviewed portable workflows, reviewed updates/safe rollback and exact local context comparison. Specifications remain in [COMPLETED.md](tasks/COMPLETED.md).
 - **Compatibility:** Schema 18 and complete SDK bridge 9 remain unchanged, but strict preference JSON has expanded. Actual v0.1.21 refused true reduced motion; actual v0.1.26 refused Comfortable density without changing data bytes. Back up the entire data directory before upgrading; equal SQL schema numbers do not make an in-place downgrade safe.
 - **Remaining:** **28 tasks**. P04A/P04B/T01B passed actual lifecycle/context acceptance and joined the completed archive; authenticated provider, full-product acceptance and remaining context/tool work stay separate.
-- **Active user request:** Make ordinary project planning respond without unnecessary permissions or mandatory `/init`, polish the evolution popup, finish project/file-flow verification, then publish and verify a new release. Source 0.1.28 is under verification. No paid/live model trial or original installation/private-data mutation is authorized.
+- **Active user request:** Fix reported WSL implementation refusal and PowerShell auth.json/file-creation rejection. Compare reference folder/read/create/edit/save behavior read-only, repair actual workflow and UX, and verify platform paths. Published v0.1.28 remains immutable; its fixture proof does not establish the user's failing paths. No paid/live model trial or original installation/private-data mutation is authorized.
 
 ## Completed Pokémon milestone
 
@@ -28,7 +28,7 @@ A/B/C/D/E/G are entirely completed and archived; only F/H/R remain active.
 
 ### Next order
 
-1. Complete the active ordinary-planning/evolution UX request and runtime qualification before publication. P04A/P04B/T01B are completed foundations, not pending implementation gates.
+1. Finish the active WSL/PowerShell file-workflow repair before further backlog work. Earlier ordinary-planning/evolution UX and P04A/P04B/T01B shipped in v0.1.28, but the new reported failures remain active.
 2. Context track: T01C → T02A → T02B → T03A → T03B → T04. Completed T01A/T01B/C03A/C03B remain foundations, not pending gates.
 3. Tool track: TC01A → TC01B; independently TC03A → TC03B → TC04; then TC02 → TC05 → D01 → Q03. Respect each task's exact `Needs`; Q03's live trials require separate authorization.
 4. Reconcile local Q01 visual/state rows, Q02 current measured resource workloads and P03 supported-target install/upgrade evidence. They are not collectively blocked on provider credentials. Their outstanding authenticated rows remain explicitly incomplete.
