@@ -133,6 +133,7 @@ mod tests {
             panic!("Native preparation must freeze an input");
         };
         state.event(Event::Preview(Preview {
+            comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
             requires_connection_review: false,
@@ -578,6 +579,7 @@ mod tests {
         };
         state.send_after_prepare = true;
         state.event(Event::Preview(Preview {
+            comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
             requires_connection_review: false,

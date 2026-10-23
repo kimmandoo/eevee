@@ -284,6 +284,7 @@ impl State {
         self.pending = Some(Request::Preview(Box::new(Input {
             task: request_task,
             work: None,
+            local_only: false,
             instruction_override: None,
             excerpts: if inspect_models {
                 Vec::new()
@@ -630,6 +631,9 @@ impl State {
                     self.request.as_ref().map(|request| &request.kind),
                     Some(PromptKind::Permission { file: Some(_), .. })
                 ) {
+                    // Enter opens the actual proposed change, not a second
+                    // indistinguishable summary. Navigation selects a decision.
+                    self.review_details = key.code == KeyCode::Enter;
                     self.file_consent.choice = match key.code {
                         KeyCode::Right | KeyCode::Tab => Some(1),
                         KeyCode::Left | KeyCode::BackTab => Some(0),

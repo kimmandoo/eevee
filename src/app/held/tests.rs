@@ -153,6 +153,7 @@ fn input(app: &App) -> providers::Input {
     providers::Input {
         task,
         work: None,
+        local_only: false,
         instruction_override: None,
         excerpts: app.sources.basket.clone(),
         report: None,

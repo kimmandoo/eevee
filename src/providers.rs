@@ -242,6 +242,8 @@ pub struct Input {
     pub task: crate::store::Snapshot,
     /// Durable ownership of this immutable submitted request; never a tool permission.
     pub work: Option<crate::store::WorkClaim>,
+    /// Receipt-only preparation: no work claim and never eligible for Run.
+    pub local_only: bool,
     /// Approved exact-repeat replacement, frozen without changing the authored draft.
     pub instruction_override: Option<crate::workspace::records::InstructionReplacement>,
     pub excerpts: Vec<crate::workspace::context::Excerpt>,
@@ -368,6 +370,9 @@ impl Input {
     }
 
     fn validate_work(&self) -> Result<(), String> {
+        if self.local_only && self.work.is_some() {
+            return Err("Local context inspection cannot carry a work claim".into());
+        }
         let Some(claim) = &self.work else {
             return Ok(());
         };
@@ -485,6 +490,35 @@ pub enum Request {
         generation: u64,
     },
 }
+
+/// Opaque, process-local preparation identity; never serialized or displayed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ComparisonScope([u8; 32]);
+
+impl std::fmt::Debug for ComparisonScope {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ComparisonScope([REDACTED])")
+    }
+}
+
+impl ComparisonScope {
+    pub(crate) fn from_identity(identity: &impl Serialize) -> Option<Self> {
+        use sha2::{Digest, Sha256};
+        struct HashWriter(Sha256);
+        impl std::io::Write for HashWriter {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.update(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut writer = HashWriter(Sha256::new());
+        serde_json::to_writer(&mut writer, identity).ok()?;
+        Some(Self(writer.0.finalize().into()))
+    }
+}
 #[derive(Clone, Debug)]
 pub struct Preview {
     /// Assigned by the producing worker; retain when deferring or fronting approval.
@@ -497,6 +531,8 @@ pub struct Preview {
     /// Project-supplied executables and unmanaged tool/helper effects still need consent.
     pub requires_connection_review: bool,
     pub trust: Vec<String>,
+    /// Existing frozen connection/trust identity, not provider account validity.
+    pub comparison_scope: Option<ComparisonScope>,
     pub payload: String,
     pub blockers: Vec<String>,
 }
@@ -802,6 +838,7 @@ mod tests {
         Input {
             task: crate::store::Snapshot::empty("project".into()),
             work: None,
+            local_only: false,
             instruction_override: None,
             excerpts: Vec::new(),
             report: None,
@@ -1382,5 +1419,27 @@ mod tests {
             );
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
+    }
+}
+
+#[cfg(test)]
+mod comparison_scope_tests {
+    use super::ComparisonScope;
+
+    #[test]
+    fn preparation_scope_changes_with_identity_and_never_displays_private_identity() {
+        let first =
+            ComparisonScope::from_identity(&("route", "private fixture credential")).unwrap();
+        assert_eq!(
+            first,
+            ComparisonScope::from_identity(&("route", "private fixture credential")).unwrap()
+        );
+        assert_ne!(
+            first,
+            ComparisonScope::from_identity(&("route", "different private identity")).unwrap()
+        );
+        let debug = format!("{first:?}");
+        assert!(!debug.contains("credential") && !debug.contains("route"));
+        assert!(!debug.contains("private"));
     }
 }

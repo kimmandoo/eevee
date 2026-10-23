@@ -35,6 +35,7 @@ impl App {
     }
 
     pub(super) fn open_overlay(&mut self, overlay: Overlay) {
+        self.updates.leave();
         self.workflow.authoring.invalidate();
         if self.overlay == Some(Overlay::Moves) && overlay != Overlay::Moves {
             self.cancel_move_validation();
@@ -133,6 +134,7 @@ impl App {
     }
 
     pub(super) fn close_overlay(&mut self) {
+        self.updates.leave();
         self.workflow.authoring.invalidate();
         if self.overlay == Some(Overlay::Moves) {
             self.cancel_move_validation();

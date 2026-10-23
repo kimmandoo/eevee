@@ -1,3 +1,8 @@
+core-policy-readonly = 읽기 전용 /role
+core-policy-review = 독립 검토 /role
+core-capability-readonly = 읽기 전용
+core-capability-reviewed-coding = 코딩 · 변경 승인
+
 core-terminal-too-small =
     { "터미널이 너무 작습니다" }
     { "60열 x 18행 이상 필요" }
@@ -236,5 +241,5 @@ core-evolution-readonly = { "읽기 전용 지시" }
 core-evolution-fresh = { "새 맥락; 대화 표시 유지" }
 core-evolution-transition = { $mode } { $from } → { $to }: { $reason }{ $fresh }
 core-evolution-popup-title = { "진화했어요!" }
-core-evolution-popup-continue = { "입력하면 닫힘 · 파일 저장은 별도 승인" }
-core-evolution-popup-manual-reason = { "모습만 변경 · 프로젝트·대화·도구는 그대로" }
+core-evolution-popup-continue = { "계속 입력하세요" }
+core-evolution-popup-manual-reason = { "프로젝트·대화·도구는 그대로" }

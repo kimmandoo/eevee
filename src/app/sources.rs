@@ -12,6 +12,7 @@ pub enum Mode {
     Basket,
     Preview,
     Payload,
+    Comparison,
 }
 #[derive(Clone, Copy)]
 pub enum EditKind {
@@ -34,6 +35,7 @@ pub enum Action {
     Changed,
     Close,
     RefreshRepository,
+    Compare,
     Quit,
     Scroll(KeyCode),
 }
@@ -94,6 +96,11 @@ pub struct State {
     pub chip_focus: Option<i64>,
     pub observations: Vec<context::Observation>,
     pub wire: Option<context::WireReceipt>,
+    pub comparison: context::SelectionComparison,
+    pub comparison_refresh: bool,
+    pub(crate) comparison_basis: Option<[u8; 32]>,
+    pub(crate) comparison_resume: Option<String>,
+    pub(crate) comparison_scope: Option<crate::providers::ComparisonScope>,
     rankings: Rankings,
 }
 
@@ -226,15 +233,33 @@ impl State {
         }
     }
 
-    /// Call only with the worker-produced immutable request preview.
-    pub fn set_wire_request(&mut self, payload: &str) -> Result<(), String> {
+    /// Call only with the worker-produced immutable request preview and its
+    /// frozen input selection, never with a serializer assembled by this UI.
+    pub fn set_wire_request_for(
+        &mut self,
+        turn: context::ComparisonTurn,
+        payload: &str,
+        prepared_selection: [u8; 32],
+    ) -> Result<(), String> {
+        if prepared_selection != context::selection_identity(&self.basket) {
+            self.clear_wire_request();
+            return Err("Prepared selection changed before its receipt arrived".into());
+        }
         self.wire = None;
-        self.wire = Some(context::wire_receipt(payload)?);
+        self.wire = Some(self.comparison.record(turn, payload, &self.basket)?);
+        if self.mode == Mode::Basket {
+            self.basket_detail();
+        }
         Ok(())
     }
 
     pub fn clear_wire_request(&mut self) {
         self.wire = None;
+        self.comparison.clear();
+        self.comparison_basis = None;
+        self.comparison_refresh = false;
+        self.comparison_resume = None;
+        self.comparison_scope = None;
     }
 
     pub fn focus_chip(&mut self, reverse: bool) -> bool {
@@ -415,7 +440,7 @@ impl State {
         let failures = std::mem::take(&mut self.rankings.failures);
         self.set_rank_facts(changed, failures);
         self.observations.clear();
-        self.wire = None;
+        self.clear_wire_request();
         if self.await_refresh {
             self.await_refresh = false;
             if report.is_some() {
@@ -439,7 +464,9 @@ impl State {
                 self.files = files;
                 self.rebuild_rankings();
                 self.file_selection = self.file_selection.min(self.files.len().saturating_sub(1));
-                self.show_files();
+                if self.mode != Mode::Comparison {
+                    self.show_files();
+                }
             }
             Ok(context::Response::Inspected(mut excerpt)) => {
                 excerpt.origin_run = self.pending_origin_run.take();
@@ -451,6 +478,11 @@ impl State {
                     "Review local capture / Enter attaches / nothing sent to provider".into();
             }
             Ok(context::Response::Checked(observations)) => {
+                if observations.iter().any(|observation| {
+                    !matches!(observation.freshness, context::Freshness::Current)
+                }) {
+                    self.clear_wire_request();
+                }
                 self.observations = observations;
                 self.status =
                     "Explicit source-worker check complete; sources may change afterwards.".into();
@@ -488,6 +520,22 @@ impl State {
         self.store_busy = false;
         match result {
             Ok(rows) => {
+                if self.store_mutation
+                    && matches!(
+                        self.last_mutation,
+                        Some(Mutation::Pin | Mutation::Remove(_))
+                    )
+                {
+                    self.comparison.selection_changed(&self.basket, &rows);
+                    self.comparison_refresh = self.comparison.previous.is_some();
+                    if self.comparison_refresh
+                        && matches!(self.last_mutation, Some(Mutation::Remove(_)))
+                    {
+                        self.mode = Mode::Comparison;
+                    }
+                } else if self.basket != rows {
+                    self.clear_wire_request();
+                }
                 self.basket = rows;
                 self.wire = None;
                 self.observations.clear();
@@ -537,6 +585,7 @@ impl State {
             Err(error) => {
                 self.error = safe_error(error);
                 self.pending_payload = None;
+                self.clear_wire_request();
                 self.payload = None;
                 self.status = "Context storage/validation failed /journal-retry retries failed mutation; no automatic retry".into();
                 self.store_failed |= self.store_mutation;
@@ -724,6 +773,11 @@ impl State {
             choice("refresh", "Refresh repository source evidence", blocked),
             choice("basket", "Switch between files and pinned basket", blocked),
             choice(
+                "context-compare",
+                "Compare exact prepared selections for the same turn",
+                blocked,
+            ),
+            choice(
                 "range",
                 "Inspect an exact source line range",
                 blocked.or_else(|| {
@@ -855,6 +909,7 @@ impl State {
             return Action::Changed;
         }
         match name {
+            "context-compare" => return Action::Compare,
             "search" => {
                 self.editor = Some(Editor {
                     kind: EditKind::Search,
@@ -1031,12 +1086,13 @@ impl State {
                 return self.command("attach", task_id, report);
             }
             KeyCode::Tab | KeyCode::BackTab
-                if matches!(self.mode, Mode::Preview | Mode::Payload) =>
+                if matches!(self.mode, Mode::Preview | Mode::Payload | Mode::Comparison) =>
             {
                 self.show_files();
             }
             KeyCode::Tab | KeyCode::BackTab => return self.command("basket", task_id, report),
             KeyCode::Char('s') => return self.command("search", task_id, report),
+            KeyCode::Char('c') => return self.command("context-compare", task_id, report),
             KeyCode::Char('r') if self.mode != Mode::Basket => {
                 return self.command("range", task_id, report);
             }

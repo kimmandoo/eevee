@@ -37,6 +37,7 @@ impl App {
                 self.confirmation_reviewed = false;
                 self.formations.invalidate();
                 self.workflow.authoring.invalidate();
+                self.updates.invalidate();
                 self.formations.apply_pending = false;
                 self.height = height;
                 self.agents.affirmative = false;
@@ -85,6 +86,7 @@ impl App {
                 false
             }
             Event::Paste(_) if self.reset_after_save || self.confirmation.is_some() => false,
+            Event::Paste(_) if self.overlay == Some(Overlay::Updates) => false,
             Event::Paste(text) if self.nickname_editor.is_some() => self.nickname_paste(&text),
             Event::Paste(text)
                 if self.overlay == Some(Overlay::Agents) && self.agents.connection_editing() =>
@@ -154,9 +156,8 @@ impl App {
             }
             _ => false,
         };
-        if self.input.len() != input_state.0 {
-            self.sources.clear_wire_request();
-        }
+        // Receipt invalidation belongs to text mutations, not this buffer's
+        // length: retaining/restoring an unchanged draft also changes it.
         if changed
             && !resized
             && (!command_action || !self.planning.busy())
@@ -632,6 +633,9 @@ impl App {
     }
 
     pub fn settle_planning(&mut self) -> bool {
+        if self.settle_context_comparison() {
+            return true;
+        }
         let openai_selection = self.settle_openai_selection();
         let source_action = self.settle_source_action();
         let provider_picker = self.settle_provider_picker();
@@ -675,6 +679,13 @@ impl App {
                 );
             } else {
                 self.notice = format!("{} Your draft is retained.", self.planning.notice);
+            }
+            if self.planning.picker == Some(planning::Picker::Model)
+                && self.overlay.is_none()
+                && self.composer_is_request()
+            {
+                self.retain_action_editor();
+                self.open_overlay(Overlay::Planning);
             }
             return true;
         }
@@ -933,6 +944,7 @@ impl App {
             return true;
         }
         match self.overlay {
+            Some(Overlay::Updates) => return self.lifecycle_key(key),
             Some(Overlay::Formations) => return self.formation_key(key),
             Some(Overlay::Held) => return self.held_key(key),
             Some(Overlay::Moves) => return self.move_key(key),
@@ -1252,6 +1264,7 @@ impl App {
                     return false;
                 }
                 self.input.replace_range(start..self.cursor, "");
+                self.sources.clear_wire_request();
                 self.cursor = start;
                 self.normalize_cursor();
                 self.preferred_column = None;
@@ -1263,6 +1276,7 @@ impl App {
                     return false;
                 }
                 self.input.replace_range(self.cursor..end, "");
+                self.sources.clear_wire_request();
                 self.normalize_cursor();
                 self.preferred_column = None;
                 true
@@ -1436,6 +1450,7 @@ impl App {
                         ConfirmationKind::DiscardDraft => {
                             self.drafts.retain(|draft| draft.field != self.editor_field);
                             self.input.clear();
+                            self.sources.clear_wire_request();
                             self.finish_edit();
                             self.changed_task();
                         }

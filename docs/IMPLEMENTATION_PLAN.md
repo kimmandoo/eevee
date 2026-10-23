@@ -1,8 +1,30 @@
 # Eevee Implementation Plan
 
-Updated: 2026-10-23. Completed the authorized next three ordered tasks A08 → UX04A → S04 and archived their full specifications; 31 tasks remain. Source 0.1.27 is implemented but unreleased; immutable public v0.1.26 remains unchanged. No paid/live provider calls or new release publication were included. SQL Schema18/bridge9 remain; actual previous-writer refusal proved that serialized-format compatibility is a separate gate.
+Updated: 2026-10-23. Active user priority: repair project setup and ordinary planning, simplify agent execution/permission UX using the local reference read-only, polish evolution receipts, and publish a new verified release. P04A/P04B/T01B passed their actual bilingual/both-size gates and are archived. Public v0.1.26 stays immutable; no paid/live model calls or original installation/private-data mutation is authorized.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
+
+## Active request — natural project and agent workflow
+
+1. Trace published startup and `/init` through ordinary submission, actual tool execution and approval. Compare reference startup, guide initialization, tool continuation and popup ownership without copying code/prompts or branding.
+2. Remove the internally imposed sticky Plan policy from `/init`; prepare useful guide creation/update while retaining explicit user policy, form and path restrictions. Verify init followed by ordinary file creation, not just draft preparation.
+3. Make bounded native multi-round project scaffolding coherent and missing-model recovery actionable. Preserve exact individual file approval, truthful partial results, safe parent creation, worker ownership and no automatic resend.
+4. Simplify file-review interaction: direct content inspection, visible decision controls, typing-safe automatic arrival, exact draft/caret preservation and neutral dismissal. Keep current project scope and work/wait/failure states clear.
+5. Prioritize the user's additional report: ordinary project planning must reach an answer without `/init`, manual Goal/role setup or unnecessary writing authority. Preserve planning continuity on ambiguous follow-ups while recognizing actual mutation requests. Make the evolution popup visually polished, compact and nonmodal, retaining exact typing/caret, reduced-motion/ASCII and permission priority. Exercise these actual EN/KO 120×36 and 60×18 paths before release.
+6. Exercise real terminal workflows for nested project creation, denial/deferral, explicit readonly, model recovery and pending lifecycle/context features. Run complete source gates and relevant regressions after integrating the prioritized UX fixes.
+7. Update contracts, troubleshooting, changelog, task archive and checkpoint. Commit, qualify the exact source on supported targets, publish a new immutable version, then verify downloaded package/install/runtime. Distinguish fixture evidence from live-provider semantic acceptance.
+
+
+## Completed request — P04A, P04B and T01B; source 0.1.28
+
+1. Reuse checksum-owned installation discovery, embedded installer publication/recovery, existing committed task/worker lifecycle and exact frozen payload section receipts. Map actual owners before shared integration.
+2. P04A: add a shallow bilingual TUI update entry with exact current/target/source, cache/data disclosures, neutral full-scope approval and stale-owner revalidation. Cancel changes no install files; failures keep the last usable installation. Drop terminal/workers before relaunching the updated installation with exact project/data/arguments and saved task/draft.
+3. P04B: retain one checksum-verified prior package only after reviewed update. Admit rollback only through bound executable plus build-derived strict durable-format identity and read-only current data validation; equal SQL schema or guessed version ranges are insufficient. Unknown/incompatible cases refuse without rewriting data.
+4. T01B: compare two actual immutable full provider payload receipts for the same logical turn across committed selection-only changes. Reuse local Preview without Run/network, invalidate on request/owner/route/nonselection changes, preserve exact per-section bytes/labelled estimates and keep provider usage/billing separate.
+5. Run locked Rust1.90 formatting/tests/strict Clippy/release build after integration, then actual disposable EN/KO 120×36/60×18 update/cancel/checksum/compatible rollback/refusal/resume and context chip-removal comparison scenarios. Do not mutate the original installation or provider data.
+6. Record resolved implementation/environment issues, update contracts/README/changelog/checkpoint, archive only fully accepted tasks and reconcile counts/links. Remove one-session scaffolding and commit; no new public release.
+
+Completed scoped acceptance: source passed 1,435 Rust tests/two ignored, formatting, strict Clippy and release build. Lifecycle passed four journeys/24 groups with actual cross-version update, compatible offline rollback and v0.1.21/v0.1.26 byte-identical refusal/current resume. Context comparison passed four journeys/20 groups with exact section/envelope reconciliation, committed overlapping-capture removal, no dispatch/work ownership, preserved source/draft/caret and equal-length request invalidation. Evidence: `target/lifecycle-028-acceptance-r3`, `target/context-028-final-{en,ko}`. Publication is governed by the superseding active user request above.
 
 ## Completed request — A08, UX04A and S04; source 0.1.27 unreleased
 

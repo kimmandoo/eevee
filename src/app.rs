@@ -20,6 +20,7 @@ pub mod records;
 pub mod relays;
 pub mod sources;
 pub mod suggestions;
+pub mod updates;
 pub mod workflows;
 
 mod autosave;
@@ -78,6 +79,7 @@ pub enum Overlay {
     Records,
     Held,
     Formations,
+    Updates,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -265,6 +267,7 @@ pub struct App {
     pub handoff: handoff::State,
     pub workflows: crate::workspace::workflows::State,
     pub workflow: workflows::State,
+    pub updates: updates::State,
     pub memory: memory::State,
     pub moves: moves::State,
     pub records: records::State,
@@ -309,6 +312,7 @@ impl App {
             party_request: None,
             party_inflight: false,
             formations: formations::State::default(),
+            updates: updates::State::default(),
             nickname_editor: None,
             nickname_pending: None,
             selected: 0,

@@ -239,8 +239,7 @@ def advertised_tools(protocol, body):
 
 def file_review_pending(session):
     view = session.display()
-    return (any(label in view for label in ('Enter to review (not approve)', 'Enter 검토 (승인 아님)'))
-            and any(button in view for button in ('[ Allow once ]', '[ 한 번 허용 ]')))
+    return any(button in view for button in ('[ Allow once ]', '[ 한 번 허용 ]'))
 
 
 class CreationJourney(SurfaceJourney):
@@ -350,8 +349,16 @@ class CreationJourney(SurfaceJourney):
             assert not file_review_pending(self.session), 'deferred identity reopened itself'
             assert len(self.peer.snapshot('POST')) == before, 'Escape answered a deferred file proposal'
             self.capture('deferred-without-answer-or-reopen')
-        # Enter engages an automatic proposal, or deliberately reopens a deferred one.
-        self.session.send('\r')
+        # Inspect the actual change directly; navigation then chooses the
+        # one-shot decision without an extra engagement-only summary.
+        if reviews == 0:
+            self.session.send('\r')
+            self.capture('direct-content-inspection')
+            assert len(self.peer.snapshot('POST')) == before
+            assert (target.read_bytes() if target.is_file() else None) == original
+            self.session.send('d')
+        elif reviews == 1:
+            self.session.send('\r')  # Reopen the deferred owner.
         wanted = normalized(path)
         until(self.session, lambda: wanted in self.session.display()
               and any(word in self.session.display() for word in ('Allow once', '한 번', '1회')),
@@ -365,7 +372,8 @@ class CreationJourney(SurfaceJourney):
             assert (target.read_bytes() if target.is_file() else None) == original, 'neutral inspection changed the file'
             self.capture('enter-inspects-without-answer')
             self.session.send('d')  # Leave optional technical inspection; exact summary must render again.
-        self.session.send('a' if allow else 'n')
+        self.session.send(ESC + ('[C' if allow else '[D'))
+        self.session.send('\r')
 
     def settled(self, answer, post_count):
         def complete():
@@ -632,16 +640,19 @@ def codex_case(binary, output, size, language):
             journey.until(lambda: file_review_pending(journey.session),
                           'controlled file review did not open automatically')
             journey.session.send('\r')
-            journey.until(lambda: normalized(FIRST) in journey.session.display()
-                          and any(value in journey.session.display() for value in ('Allow once', '한 번', '1회')),
-                          'controlled exact new-file permission')
+            journey.until(lambda: normalized(FIRST) in journey.session.display(),
+                          'controlled exact new-file content inspection')
             assert not (journey.project / FIRST).parent.exists(), 'permission preparation created target parents'
             journey.session.capture(marker.lower() + '-exact-scope')
             if not allow:
                 journey.session.send('\r\r')
                 assert not journey.peers('answer', marker), 'neutral inspection denied the controlled write'
                 assert not (journey.project / FIRST).parent.exists()
-                journey.session.send('d')
+            for _ in range(48):
+                journey.session.send(ESC + '[6~')
+            journey.session.send('d')
+            journey.until(lambda: file_review_pending(journey.session),
+                          'controlled file decision controls')
             journey.session.send('a' if allow else 'n')
             journey.until(lambda: bool(journey.peers('answer', marker)), 'controlled tool result did not reach exact peer')
             answer = journey.peers('answer', marker)[-1]['result']
@@ -676,9 +687,13 @@ def codex_case(binary, output, size, language):
         journey.until(lambda: file_review_pending(journey.session),
                       'controlled edit review did not open automatically')
         journey.session.send('\r')
-        journey.until(lambda: normalized(FIRST) in journey.session.display()
-                      and any(value in journey.session.display() for value in ('Allow once', '한 번', '1회')),
-                      'controlled exact edit permission')
+        journey.until(lambda: normalized(FIRST) in journey.session.display(),
+                      'controlled exact edit content inspection')
+        for _ in range(48):
+            journey.session.send(ESC + '[6~')
+        journey.session.send('d')
+        journey.until(lambda: file_review_pending(journey.session),
+                      'controlled edit decision controls')
         journey.session.send('a')
         journey.until(lambda: len(journey.peers('answer', marker)) == 3, 'controlled edit did not return its result')
         assert journey.peers('answer', marker)[-1]['result']['success'] is True

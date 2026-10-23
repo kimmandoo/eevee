@@ -249,6 +249,12 @@ fn worker(
                         }
                     }
                     let preview = Preview {
+                        comparison_scope: trust.comparison_scope(
+                            input
+                                .credential
+                                .as_ref()
+                                .map(|credential| credential.token()),
+                        ),
                         arrival: super::approval_arrival(),
                         destination: None,
                         requires_connection_review: true,
@@ -259,7 +265,7 @@ fn worker(
                         payload: payload.clone(),
                         blockers: blockers.clone(),
                     };
-                    if blockers.is_empty() {
+                    if blockers.is_empty() && !input.local_only {
                         reviewed = Some(Reviewed {
                             generation,
                             input,

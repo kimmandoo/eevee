@@ -119,16 +119,30 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let details = row(
         content,
         2 + list_rows,
-        content
-            .height
-            .saturating_sub(4 + list_rows + u16::from(state.mode == Mode::Preview)),
+        content.height.saturating_sub(5 + list_rows),
     );
-    let lines: Vec<_> = state
-        .error
-        .lines()
-        .map(|line| Line::styled(line, paint.accent))
-        .chain(state.detail.lines().map(Line::from))
-        .collect();
+    let comparison = (state.mode == Mode::Comparison).then(|| comparison_lines(state, paint));
+    let errors = || {
+        state
+            .error
+            .lines()
+            .map(|line| Line::styled(line, paint.accent))
+    };
+    let lines: Vec<_> = if let Some(detail) = &comparison {
+        let mut lines = Vec::with_capacity(detail.len());
+        if state.comparison.current.is_none() {
+            lines.extend(errors());
+        }
+        lines.extend(detail.iter().map(|line| Line::from(line.as_str())));
+        if state.comparison.current.is_some() {
+            lines.extend(errors());
+        }
+        lines
+    } else {
+        errors()
+            .chain(state.detail.lines().map(Line::from))
+            .collect()
+    };
     let preview_reviewed = state.mode == Mode::Preview
         && state.editor.is_none()
         && state.confirmation.is_none()
@@ -171,6 +185,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 Mode::Payload => {
                     paint.hint(crate::i18n::Message::DesksSourcesMoreTabFilesPgupDnDetailsEsc)
                 }
+                Mode::Comparison => paint.hint(crate::i18n::Message::ContextComparisonHint),
             }
         },
         paint.muted,
@@ -182,8 +197,131 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             paint.hint(crate::i18n::Message::HeldSourceHint),
             paint.muted,
         );
+    } else if app.sources.mode != Mode::Comparison {
+        text(
+            frame,
+            row(content, content.height.saturating_sub(3), 1),
+            paint.hint(crate::i18n::Message::ContextComparisonSourceHint),
+            paint.muted,
+        );
     }
     app.sources.preview_reviewed = preview_reviewed;
+}
+
+fn comparison_lines(state: &crate::app::sources::State, paint: &Paint) -> Vec<String> {
+    use crate::i18n::{Message, Template};
+    let comparison = &state.comparison;
+    let mut lines = vec![paint.hint(Message::ContextComparisonTitle).into()];
+    if let Some(turn) = &comparison.turn {
+        lines.push(paint.format(
+            Template::ContextComparisonScope,
+            &[
+                ("task", &turn.task_id.to_string()),
+                ("partner", &turn.partner.to_string()),
+                ("provider", turn.agent.label()),
+                ("operation", &format!("{:?}", turn.operation)),
+                ("turn", &turn.request.to_string()),
+            ],
+        ));
+    }
+    if let Some(delta) = comparison.delta() {
+        lines.push(
+            paint.format(
+                Template::ContextComparisonCounts,
+                &[
+                    (
+                        "previous",
+                        &comparison
+                            .previous
+                            .as_ref()
+                            .expect("delta baseline")
+                            .captures
+                            .to_string(),
+                    ),
+                    (
+                        "current",
+                        &comparison
+                            .current
+                            .as_ref()
+                            .expect("delta current")
+                            .captures
+                            .to_string(),
+                    ),
+                ],
+            ),
+        );
+        let counts = |template, change: crate::workspace::receipt::CountChange| {
+            paint.format(
+                template,
+                &[
+                    ("previous", &change.previous.to_string()),
+                    ("current", &change.current.to_string()),
+                    ("delta", &format!("{:+}", change.delta())),
+                ],
+            )
+        };
+        // The full-payload result is first, including at minimum terminal size.
+        lines.push(counts(Template::ContextComparisonTotal, delta.bytes));
+        lines.push(counts(Template::ContextComparisonEstimate, delta.tokens));
+        for section in delta.sections {
+            let label = match section.name {
+                "Instructions" => Message::ContextComparisonInstructions,
+                "Task facts" => Message::ContextComparisonFacts,
+                "Attachments" => Message::ContextComparisonAttachments,
+                "Handoff" => Message::ContextComparisonHandoff,
+                "Approved memories" => Message::ContextComparisonMemories,
+                _ => Message::ContextComparisonOther,
+            };
+            lines.push(paint.format(
+                Template::ContextComparisonSection,
+                &[
+                    ("section", paint.hint(label)),
+                    ("previous", &section.bytes.previous.to_string()),
+                    ("current", &section.bytes.current.to_string()),
+                    ("delta", &format!("{:+}", section.bytes.delta())),
+                ],
+            ));
+            lines.push(counts(Template::ContextComparisonEstimate, section.tokens));
+        }
+        lines.push(counts(
+            Template::ContextComparisonEnvelope,
+            delta.envelope_bytes,
+        ));
+        lines.push(paint.format(
+            Template::ContextComparisonDedup,
+            &[
+                ("previous", &delta.deduplicated.previous.to_string()),
+                ("current", &delta.deduplicated.current.to_string()),
+            ],
+        ));
+    } else {
+        let status = if state.comparison_refresh {
+            Message::ContextComparisonWaiting
+        } else if comparison.previous.is_some() {
+            Message::ContextComparisonBeforeOnly
+        } else if comparison.current.is_some() && state.comparison_scope.is_none() {
+            Message::ContextComparisonUnavailable
+        } else if comparison.current.is_some() {
+            Message::ContextComparisonBaseline
+        } else {
+            Message::ContextComparisonEmpty
+        };
+        lines.push(paint.hint(status).into());
+        if let Some(current) = &comparison.current {
+            lines.push(paint.format(
+                Template::ContextComparisonTotal,
+                &[
+                    ("previous", &current.receipt.bytes.to_string()),
+                    ("current", &current.receipt.bytes.to_string()),
+                    ("delta", "0"),
+                ],
+            ));
+        }
+    }
+    lines.push(paint.hint(Message::ContextComparisonLocal).into());
+    lines.push(paint.hint(Message::ContextComparisonEstimator).into());
+    lines.push(paint.hint(Message::ContextComparisonBoundary).into());
+    lines
 }
 
 fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {

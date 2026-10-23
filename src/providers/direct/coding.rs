@@ -101,18 +101,8 @@ async fn inference_rounds(
             serde_json::to_string(&body)
                 .map_err(|_| (Outcome::Failed, "Cannot encode native continuation".into()))?
         };
-        body_bytes = body_bytes.checked_add(wire.len()).ok_or_else(|| {
-            (
-                Outcome::Failed,
-                "Native aggregate request size overflow".into(),
-            )
-        })?;
-        if body_bytes > BODY_LIMIT {
-            return Err((
-                Outcome::Failed,
-                "Native aggregate HTTP bodies exceed 1 MiB; no further continuation sent".into(),
-            ));
-        }
+        body_bytes = charge_request_bytes(body_bytes, wire.len())
+            .map_err(|error| (Outcome::Failed, error))?;
         // HTTP deadlines start anew only when a new bounded round is dispatched.
         // Approval waiting never consumes this deadline.
         let round_control = Control {
@@ -225,8 +215,22 @@ async fn inference_rounds(
         stream
             .publish_text(events, run, true)
             .map_err(|error| (Outcome::Failed, error))?;
-        if round == ROUND_LIMIT || call_count + calls.len() > TOOL_CALL_LIMIT {
-            return Err((Outcome::Failed, "Native round/function-call limit reached; terminal call set not executed and no continuation sent".into()));
+        if round == ROUND_LIMIT {
+            return Err((
+                Outcome::Failed,
+                format!(
+                    "Native HTTP round limit of {ROUND_LIMIT} reached; terminal call set not executed and no continuation sent. Earlier completed file effects remain; no rollback."
+                ),
+            ));
+        }
+        if call_count + calls.len() > TOOL_CALL_LIMIT {
+            return Err((
+                Outcome::Failed,
+                format!(
+                    "Native function-call limit of {TOOL_CALL_LIMIT} exceeded ({call_count} already admitted, {} requested); entire call set not executed and no continuation sent. Earlier completed file effects remain; no rollback.",
+                    calls.len()
+                ),
+            ));
         }
         for call in &calls {
             if call.id.as_ref().is_some_and(|id| seen_calls.contains(id)) {
@@ -347,6 +351,23 @@ async fn inference_rounds(
         }
     }
     Err((Outcome::Failed, "Native HTTP round limit reached".into()))
+}
+
+fn charge_request_bytes(total: usize, next: usize) -> Result<usize, String> {
+    if next > BODY_LIMIT {
+        return Err(format!(
+            "Native HTTP body exceeds {} bytes; no further continuation sent. Earlier completed file effects remain; no rollback.",
+            BODY_LIMIT
+        ));
+    }
+    let charged = total
+        .checked_add(next)
+        .filter(|charged| *charged <= REQUEST_BYTES_LIMIT)
+        .ok_or_else(|| format!(
+            "Native aggregate HTTP bodies exceed {} bytes; no further continuation sent. Earlier completed file effects remain; no rollback.",
+            REQUEST_BYTES_LIMIT
+        ))?;
+    Ok(charged)
 }
 
 fn prepare_batch(

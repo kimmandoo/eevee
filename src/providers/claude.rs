@@ -1263,6 +1263,7 @@ fn worker(
                 generation = generation.saturating_add(1);
                 preview_owner = Some((generation, input.task.id));
                 let mut preview = Preview {
+                    comparison_scope: None,
                     arrival: super::approval_arrival(),
                     destination: None,
                     requires_connection_review: true,
@@ -1295,6 +1296,15 @@ fn worker(
                 }
                 let observed = trust(project, data_dir);
                 if let Ok(t) = &observed {
+                    preview.comparison_scope = super::ComparisonScope::from_identity(&(
+                        &t.launch.spec,
+                        &t.launch.cwd_identity,
+                        &t.launch.executable,
+                        &t.stamp.digest,
+                        &t.project_id,
+                        &t.account,
+                        &t.state_dir,
+                    ));
                     preview.requires_connection_review =
                         t.launch.executable.path.starts_with(project)
                             || t.entry.starts_with(project)
@@ -1343,6 +1353,7 @@ fn worker(
                     Err(error) => preview.blockers.push(safe(&error)),
                 }
                 if preview.blockers.is_empty()
+                    && !input.local_only
                     && let Ok(trust) = observed
                 {
                     prepared = Some(Prepared {

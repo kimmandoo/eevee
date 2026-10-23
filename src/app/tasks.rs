@@ -535,6 +535,7 @@ impl App {
         match action {
             sources::Action::Close => self.close_overlay(),
             sources::Action::Quit => self.request_quit(),
+            sources::Action::Compare => return self.open_context_comparison(),
             sources::Action::RefreshRepository => {
                 self.repo_refresh = true;
                 self.repo_loading = true;

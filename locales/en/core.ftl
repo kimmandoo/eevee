@@ -1,3 +1,8 @@
+core-policy-readonly = Read-only /role
+core-policy-review = Review /role
+core-capability-readonly = read only
+core-capability-reviewed-coding = code · approve changes
+
 core-terminal-too-small =
     { "Terminal too small" }
     { "Need 60 columns x 18 rows" }
@@ -236,5 +241,5 @@ core-evolution-readonly = { "read-only instruction" }
 core-evolution-fresh = { "fresh context; transcript kept" }
 core-evolution-transition = { $mode } { $from } → { $to }: { $reason }{ $fresh }
 core-evolution-popup-title = { "Evolution!" }
-core-evolution-popup-continue = { "Keep typing to continue · no automatic approval" }
-core-evolution-popup-manual-reason = { "New form · same project, conversation and tools" }
+core-evolution-popup-continue = { "Keep typing" }
+core-evolution-popup-manual-reason = { "Same project, conversation and tools" }

@@ -43,10 +43,10 @@ impl App {
         }
         let project = self.cwd.as_str();
         let request = format!(
-            "Prepare a project-initialization proposal for the current project at {project:?}.\n\n\
-             Inspect the repository before making claims: identify its structure, languages, existing project guidance (including any AGENTS.md), coding conventions, and documented build, test, lint and formatting commands. Cite the files supporting your findings; label unknowns and do not invent commands or results. Do not run build/test commands just to prepare this guide.\n\n\
-             Propose a concise AGENTS.md project guide with repository-specific navigation, conventions, and verified-from-documentation commands. If AGENTS.md already exists, preserve it and propose a reviewed change rather than replacing it. Show the proposed content or diff and any open questions.\n\n\
-             This is a Plan/read-only proposal request, not permission to initialize or modify files. Do not create, overwrite or change AGENTS.md or other files. File creation or changes require a later, separate explicit approval. Do not claim initialization is complete."
+            "Inspect the current project at {project:?} and create or update its AGENTS.md project guide.\n\n\
+             Read the existing files and any project guidance first. Identify the actual structure, languages, coding conventions and documented build, test, lint and formatting commands. Use only supported facts; label unknowns. For an empty folder, ask what the user wants to build rather than inventing a project or commands.\n\n\
+             Write a concise, repository-specific guide using the available file tools. If AGENTS.md exists, preserve useful guidance and propose a focused update. File changes must go through the normal exact-content approval; this request does not grant permission to write. Honor the selected operation policy and explain any blocked action.\n\n\
+             Report what was actually saved, or explain what remains blocked. Do not claim initialization is complete until the file operation succeeds."
         );
         if request.len() > MAX_GOAL_BYTES {
             self.notice = "Initialization request exceeds the draft limit for this project path. Write a shorter initialization request manually; existing draft and role kept.".into();
@@ -56,21 +56,12 @@ impl App {
         if self.editing {
             self.retain_editor();
         }
-        // Use the persisted form/role transition so opening the later review
-        // cannot restore an old Implement role or selected write scope.
-        self.request_navigation(execution::Action::SelectForm(4));
-        if self.execution.confirmation.is_some() {
-            return;
-        }
-        self.planning
-            .set_operation(crate::providers::Operation::Plan);
-        self.planning.edit_paths.clear();
         self.request_home(false);
         self.input.clear();
         self.cursor = 0;
         self.insert_input(&request);
         self.changed_task();
-        self.notice = "/init prepared an editable request; selected Espeon / Plan and cleared write paths. Enter sends when ready. No files changed or request sent.".into();
+        self.notice = "/init prepared a project guide request. Enter starts; file changes require approval. Your form and selected permissions are unchanged.".into();
     }
 
     pub(super) fn insert_input(&mut self, text: &str) -> bool {

@@ -98,6 +98,7 @@ fn project_identity(directory: &std::path::Path) -> io::Result<(std::path::PathB
 fn run(config: Config) -> io::Result<()> {
     let (project, cwd) = project_identity(&std::env::current_dir()?)?;
     let mut artwork = artwork::Artwork::load(&config);
+    let mut restart = None;
     terminal::run(native::cleanup, |terminal, modes| {
         let store =
             store::Worker::start(config.data_dir.clone(), cwd.clone(), config.storage_policy)?;
@@ -149,6 +150,55 @@ fn run(config: Config) -> io::Result<()> {
         let mut mailbox_pending = false;
         let mut local_store_first = false;
         loop {
+            if outstanding_store == 0
+                && outstanding_repo == 0
+                && outstanding_sources == 0
+                && outstanding_agents == 0
+                && pending_save.is_none()
+            {
+                if let Some(operation) = app.take_lifecycle_check() {
+                    input.discard_pending()?;
+                    let result = modes.suspend(|| match operation {
+                        distribution::Operation::Update => distribution::prepare_update(true),
+                        distribution::Operation::Rollback => {
+                            distribution::prepare_rollback(&config.data_dir)
+                        }
+                    })?;
+                    app.lifecycle_prepared(result);
+                    input = input::Input::new()?;
+                    input.discard_pending()?;
+                    graphics = native::NativeGraphics::new(&config);
+                    clear_needed = true;
+                    if graphics_queries {
+                        input.query_graphics(&mut io::stdout().lock())?;
+                    }
+                    let size = terminal.size()?;
+                    app.update(event::Event::Resize(size.width, size.height));
+                    dirty = true;
+                }
+                if let Some(review) = app.take_lifecycle_apply() {
+                    let executable = review.executable_path();
+                    input.discard_pending()?;
+                    let result = modes.suspend(|| distribution::apply_review(&review, true))?;
+                    match result {
+                        Ok(()) => {
+                            restart = Some(executable);
+                            return Ok(());
+                        }
+                        Err(error) => app.lifecycle_failed(error),
+                    }
+                    input = input::Input::new()?;
+                    input.discard_pending()?;
+                    graphics = native::NativeGraphics::new(&config);
+                    clear_needed = true;
+                    if graphics_queries {
+                        input.query_graphics(&mut io::stdout().lock())?;
+                    }
+                    let size = terminal.size()?;
+                    app.update(event::Event::Resize(size.width, size.height));
+                    dirty = true;
+                }
+            }
             if let Some(request) = app.images_pending
                 && artwork_worker.try_request(request)
             {
@@ -581,7 +631,33 @@ fn run(config: Config) -> io::Result<()> {
                 dirty = true;
             }
         }
-    })
+    })?;
+    if let Some(executable) = restart {
+        restart_installation(&executable)?;
+    }
+    Ok(())
+}
+
+/// Restart only after terminal restoration and all owned actors have been dropped.
+fn restart_installation(executable: &std::path::Path) -> io::Result<()> {
+    let mut command = std::process::Command::new(executable);
+    command.args(std::env::args_os().skip(1));
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        Err(command.exec())
+    }
+    #[cfg(windows)]
+    {
+        command.spawn()?;
+        Ok(())
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        Err(io::Error::other(
+            "Native lifecycle restart is unsupported on this platform",
+        ))
+    }
 }
 
 #[cfg(all(test, unix))]

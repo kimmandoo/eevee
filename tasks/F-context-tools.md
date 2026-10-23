@@ -2,14 +2,7 @@
 
 Local deterministic optimizer only: no optimizer-initiated network, hosted summarization, embeddings, telemetry or tokenizer downloads. Keep exact Eevee-sent bytes, labelled estimates, provider-reported usage and billing distinct; unknown stays unknown, never zero. Tool discovery, paging and caching apply only to documented adapter capabilities and Eevee-owned execution. T05 was dropped on 2026-10-14.
 
-Attachment chips, exact previews and provider-usage reconciliation (C03A/C03B/T01A) are complete; specifications and scoped proof are in [COMPLETED.md](COMPLETED.md). This track follows the Pokémon-completion milestone.
-
-### T01B — Before/after selection comparison
-
-- [ ] Compare two context selections for the same turn.
-- **Priority:** 2. **Needs:** —. **Builds on:** T01A, C03B.
-- **Change:** Extend existing exact section receipts with a current-versus-previous context-selection comparison for the same turn; provider usage reconciliation is separate.
-- **Accept:** Removing a chip shows the exact byte and estimate drop per section.
+Attachment chips, exact previews, provider-usage reconciliation and same-turn context comparison (C03A/C03B/T01A/T01B) are complete; specifications and scoped proof are in [COMPLETED.md](COMPLETED.md). Receipt persistence remains T01C.
 
 ### T01C — Durable receipt identity
 

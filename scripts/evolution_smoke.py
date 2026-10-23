@@ -155,8 +155,8 @@ def run(binary, output, root, size, ascii_mode, language):
             files.until(journey.session, lambda: any(title in journey.session.display() for title in titles),
                         'actual manual evolution popup did not appear')
             assert 'Eevee' in journey.session.display() and 'Flareon' in journey.session.display()
-            assert any(disclosure in journey.session.display() for disclosure in
-                       ('no automatic approval', '파일 저장은 별도 승인')), 'compact popup clipped its no-approval/continue disclosure'
+            assert any(hint in journey.session.display() for hint in
+                       ('Keep typing', '계속 입력하세요')), 'compact receipt clipped its nonmodal typing hint'
             journey.capture('manual-evolution-popup')
             journey.session.paste('!')
             assert not any(title in journey.session.display() for title in titles), 'dismissed popup replayed'

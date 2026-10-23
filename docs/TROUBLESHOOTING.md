@@ -1,5 +1,26 @@
 # Troubleshooting
 
+### [2026-10-23] Local context comparison lost its request and required a dispatch lease
+
+- **Context / Symptom:** Actual `/context-compare` navigation cleared pending comparison preparation; after preserving navigation state, native preview failed with `Native file tools require their operation-bound durable lease`.
+- **Root Cause:** Editor buffer-length changes during navigation were mistaken for user mutations. Provider preparation also shared a dispatch-only lease guard even though exact local receipts intentionally acquire no durable work.
+- **Solution:** Invalidated comparison at actual text mutation boundaries, including equal-length edits, rather than navigation. Added explicit local-only immutable preparation across adapters; it retains no Run-capable state and native dispatch independently rejects it before network/file activity. Ordinary dispatch still requires its operation-bound lease.
+- **Prevention / Reference:** Key-driven asynchronous catalogue and mutation regressions plus native exact-body/attempted-dispatch tests passed. Four EN/KO 120×36/60×18 terminal journeys reconciled all section/envelope bytes after overlapping capture removal, with no inference, claims, journals or executions and retained draft/caret/source bytes (`target/context-028-final-{en,ko}`).
+
+### [2026-10-23] Ordinary project planning escalated to writing on follow-up
+
+- **Context / Symptom:** The user reported permission barriers and missing responses when asking to plan a project, and questioned whether initialization was required.
+- **Root Cause:** Planning classification omitted project/app nouns. Ordinary submission also unconditionally promoted unclassified follow-ups to Implement, changing operation ownership and retiring the planning conversation. `/init` was unrelated to ordinary planning admission.
+- **Solution:** Recognized English/Korean project-planning intent and removed ordinary submission's unconditional coding fallback. Ambiguous follow-ups retain the current operation/history, while explicit mutation intent still selects Implement subject to user policy. The separately reviewed advanced-session fallback remains advanced-only.
+- **Prevention / Reference:** Behavioral regressions cover direct planning, selected-path omission from readonly input, ambiguous follow-up continuity and subsequent genuine file-change intent. Actual native and controlled-Codex terminal proof is required before publication; fixtures do not establish live model semantics.
+
+### [2026-10-23] Project initialization disabled later file creation
+
+- **Context / Symptom:** The published `/init` path staged a proposal-only request, prohibited file creation and left later ordinary requests read-only.
+- **Root Cause:** Initialization called the explicit Plan policy setter, selected a planning appearance and cleared selected paths. Ordinary capability selection correctly respected that explicit restriction, so the internal initialization action became a persistent user-policy override.
+- **Solution:** Initialization now stages useful guide creation/update through the ordinary request path without changing explicit policy, appearance or paths. Expanded bounded multi-file continuation without weakening exact per-file approval, and made missing-model recovery open the local picker without resend.
+- **Prevention / Reference:** Actual English/Korean 120×36 and 60×18 journeys created an approved guide followed by twelve nested modules across thirteen protocol rounds, checked exact disk contents, and preserved deliberate read-only policy. Four separate missing-model journeys retained exact requests, performed no recovery network calls and sent once only after explicit model selection and Enter. Evidence: `target/project-flow-{en,ko}-c`, `target/model-recovery-{en,ko}-a`.
+
 ### [2026-10-23] Complete runtime matrices exceeded the runner deadline
 
 - **Context / Symptom:** The 600-second cooperation invocation ended after 22 successful groups before completing both sizes. The serial native-protocol invocation likewise ended before its full ten variants finished. Neither interrupted run was a completed pass.

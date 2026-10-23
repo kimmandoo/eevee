@@ -22,6 +22,7 @@ use crate::{
     workspace::repo,
 };
 
+mod context_comparison;
 mod conversation;
 mod cooperation;
 pub(crate) mod journal;
@@ -243,6 +244,8 @@ pub struct State {
     pub work_error: Option<String>,
     local_record_hold: bool,
     pub(super) committed_input: Option<Box<store::Snapshot>>,
+    pub(in crate::app) context_preview: Option<context_comparison::Prepared>,
+    context_inspection_only: bool,
     pub(super) held_input: Option<Box<crate::providers::Input>>,
     pub(super) claim_cancelled: bool,
     queued_prompts: VecDeque<Prompt>,
@@ -307,6 +310,8 @@ impl State {
             slots: BTreeMap::new(),
             work: None, work_pending: None, work_inflight: false, work_error: None,
             committed_input: None, held_input: None, claim_cancelled: false,
+            context_preview: None,
+            context_inspection_only: false,
             work_acquired: false,
             local_record_hold: false,
             queued_prompts: VecDeque::new(),
@@ -568,16 +573,16 @@ impl State {
         }
     }
 
-    /// Ordinary coding offers reviewed tools, not a grant to mutate files.
-    /// Explicit policy wins; a partner's appearance never removes tools.
-    pub fn prepare_ordinary_operation(&mut self) {
+    /// Explicit advanced session commands offer reviewed coding tools.
+    /// Ordinary sends instead preserve intent/history on ambiguous follow-ups.
+    pub fn prepare_session_operation(&mut self) {
         if self.operation_explicit || self.busy() {
             return;
         }
         self.prepare_automatic_operation(Operation::Implement);
     }
 
-    pub(in crate::app) fn explicit_operation(&self) -> Option<Operation> {
+    pub(crate) fn explicit_operation(&self) -> Option<Operation> {
         self.operation_explicit.then_some(self.operation)
     }
 
@@ -706,10 +711,18 @@ impl State {
     }
 
     pub fn accepts_preview(&self, preview: &crate::providers::Preview) -> bool {
-        self.awaiting_preview && preview.task_id == self.task
+        self.awaiting_preview
+            && preview.task_id == self.task
+            && self
+                .context_preview
+                .as_ref()
+                .is_none_or(|input| preview.arrival > input.not_before_arrival)
     }
 
     pub fn event(&mut self, event: Event) {
+        if self.consume_context_preview(&event) {
+            return;
+        }
         match event {
             Event::Dispatched {
                 generation,
@@ -775,6 +788,9 @@ impl State {
             }
             Event::Preview(preview) if self.accepts_preview(&preview) => {
                 self.awaiting_preview = false;
+                if self.recover_missing_model(&preview) {
+                    return;
+                }
                 self.generation = Some(preview.generation);
                 for slot in self.slots.values_mut() {
                     slot.generation = Some(preview.generation);

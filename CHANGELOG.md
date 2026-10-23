@@ -2,6 +2,18 @@
 
 ## 2026-10-23
 
+- fix(init): prepared actual reviewed project-guide creation without installing a persistent read-only policy or changing selected paths and appearance.
+- fix(providers): opened the local model picker for missing native model configuration while retaining exact requests and requiring a deliberate new send.
+- feat(providers): supported 32 distinct reviewed files and bounded multi-round scaffolding with 128 tool calls, 129 HTTP rounds and 64 MiB cumulative request bodies while preserving 64 KiB files and 1 MiB individual bodies.
+- fix(ux): opened actual file content directly from permission arrival and displayed operation-based capability status independently of companion appearance.
+- fix(planning): recognized ordinary project/app planning and retained the nonwriting conversation on ambiguous follow-ups without requiring initialization or separate goal setup.
+- feat(evolution): polished the localized nonmodal transition receipt with destination emphasis, compact edge placement and preserved input and permission priority.
+- feat(lifecycle): added reviewed TUI updates and compatible offline retained-package rollback with full-scope consent, exact installation ownership, saved-task restart and read-only strict-format validation.
+- test(lifecycle): passed four bilingual compact/wide runtime journeys and 24 acceptance groups, including checksum preservation, compatible cross-version rollback and byte-identical actual v0.1.21/v0.1.26 refusal followed by current-reader resume.
+- feat(context): compared exact immutable same-turn full-request receipts after committed selection changes without dispatch, retained drafts and invalidated nonselection changes.
+- fix(context): separated local-only receipt preparation from dispatch leases and refused Run capability for local previews across all adapters.
+- test(workbench): passed 1,435 Rust tests/two ignored, strict source checks, direct native/controlled planning, bilingual project creation, exact local context comparison, reviewed lifecycle and final popup/motion journeys; kept live model conformance unclaimed.
+- docs(tasks): archived P04A, P04B and T01B after actual acceptance and reconciled 28 remaining tasks.
 - feat(providers): added provider-scoped actionable diagnostics for executable/version, authentication, access, policy, quota and transport failures without retaining private response/login output or replaying requests.
 - feat(preferences)!: persisted compact/comfortable text density through the existing global preference writer while preserving CJK editing, consent facts and independent provider/motion choices; retained Schema 18 but required a complete backup because v0.1.26 refused Comfortable's strict JSON extension.
 - feat(workflows): added reviewed schema-1 workflow authoring from user steps and actual retained passing commands through the existing store worker and create-only publisher, with inert cross-project plans and fresh effect approvals.
@@ -74,6 +86,18 @@
 - docs(release): published v0.1.19 from source `63f1007` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.28
+
+- fix(planning): recognized ordinary English/Korean project-planning requests and retained planning history on ambiguous follow-ups without requiring `/init`, a separate goal or writing authority.
+- fix(init): prepared reviewed project-guide creation without imposing a persistent read-only policy; preserved explicitly selected roles, paths and companion appearance.
+- fix(ux): opened proposed file content directly from permission arrival, retained typing-safe one-shot approval and exposed actual coding/read-only status.
+- feat(evolution): restyled the localized nonmodal transition receipt with elemental emphasis, compact edge placement and retained typing, portrait and reduced-motion behavior.
+- feat(providers): supported 32 individually reviewed files across bounded multi-round scaffolding and retained requests through explicit missing-model recovery.
+- feat(lifecycle): added full-scope reviewed updates, saved-task restart and compatible offline retained-package rollback; unknown or incompatible durable formats refused without rewriting data.
+- feat(context): compared exact same-turn context receipts after attachment removal using undispatchable local-only preparation and explicit byte/estimate boundaries.
+- feat(workbench): included unreleased connection diagnostics, persistent reading density and reviewed portable workflow authoring.
+- docs(compatibility): retained Schema 18 and SDK bridge 9, required complete pre-upgrade data backups and kept authenticated-provider acceptance separate from deterministic runtime evidence.
 
 ## 0.1.27 — unreleased
 

@@ -86,6 +86,7 @@ impl Fixture {
         let input = Input {
             task,
             work: Some(claim),
+            local_only: false,
             instruction_override: None,
             excerpts: Vec::new(),
             report: None,
@@ -916,7 +917,7 @@ fn replayed_provider_call_cannot_authorize_another_write_in_later_round() {
 }
 
 #[test]
-fn eight_round_limit_refuses_the_terminal_call_set_without_executing_it() {
+fn round_limit_refuses_the_terminal_call_set_without_executing_it() {
     let fixture = Fixture::new(&["selected.txt"]);
     let responses = (1..=ROUND_LIMIT)
         .map(|round| {
@@ -933,19 +934,21 @@ fn eight_round_limit_refuses_the_terminal_call_set_without_executing_it() {
         .collect();
     let (url, server) = peer(responses);
     let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
-    let ((outcome, _), events) = run_with_answers(&fixture, &mut run, &connection, true);
+    let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, true);
     assert_eq!(outcome, Outcome::Failed);
+    assert!(message.contains(&format!("round limit of {ROUND_LIMIT}")));
+    assert!(message.contains("Earlier completed file effects remain"));
     assert_eq!(server.join().unwrap().len(), ROUND_LIMIT);
     assert_eq!(
         std::fs::read_to_string(fixture.workspace.project.join("selected.txt")).unwrap(),
-        "round-7"
+        format!("round-{}", ROUND_LIMIT - 1)
     );
     assert_eq!(
         events
             .iter()
             .filter(|e| matches!(e, Event::Prompt { .. }))
             .count(),
-        7
+        ROUND_LIMIT - 1
     );
     assert_eq!(
         events
@@ -962,61 +965,180 @@ fn eight_round_limit_refuses_the_terminal_call_set_without_executing_it() {
 }
 
 #[test]
-fn sixteen_call_limit_is_aggregate_across_rounds_not_per_response() {
-    let names = (0..8)
-        .map(|index| format!("files/{index}.txt"))
-        .collect::<Vec<_>>();
-    let fixture = Fixture::new(&names.iter().map(String::as_str).collect::<Vec<_>>());
-    let first = (0..8)
-        .map(|index| {
-            (
-                format!("first-{index}"),
-                names[index].clone(),
-                "initial".to_string(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let second = (0..8)
-        .map(|index| {
-            (
-                format!("second-{index}"),
-                names[index].clone(),
-                "replacement".to_string(),
-            )
-        })
-        .collect::<Vec<_>>();
-    fn refs(calls: &[(String, String, String)]) -> Vec<(&str, &str, &str)> {
-        calls
+fn call_limit_is_aggregate_and_refuses_whole_over_budget_batch() {
+    let fixture = Fixture::new(&[]);
+    let mut responses = vec![wire(
+        Protocol::Responses,
+        &[("first", "selected.txt", "known write")],
+        "",
+    )];
+    // Read/list calls consume the same logical-request budget as mutations.
+    for batch in 0..TOOL_CALL_LIMIT / 16 {
+        let count = if batch == 0 { 14 } else { 16 };
+        let calls = (0..count)
+            .map(|index| {
+                (
+                    format!("list-{batch}-{index}"),
+                    "eevee_list_files",
+                    json!({"query":"","offset":0}),
+                )
+            })
+            .collect::<Vec<_>>();
+        let refs = calls
             .iter()
-            .map(|(id, path, content)| (id.as_str(), path.as_str(), content.as_str()))
-            .collect()
+            .map(|(id, name, arguments)| (id.as_str(), *name, arguments.clone()))
+            .collect::<Vec<_>>();
+        responses.push(wire_tools(Protocol::Responses, &refs, ""));
     }
-    let (url, server) = peer(vec![
-        wire(Protocol::Responses, &refs(&first), ""),
-        wire(Protocol::Responses, &refs(&second), ""),
-        wire(
-            Protocol::Responses,
-            &[("seventeenth", &names[0], "must not apply")],
-            "",
-        ),
-    ]);
+    // One slot remains: neither member of this two-call batch may execute.
+    responses.push(wire(
+        Protocol::Responses,
+        &[
+            ("replace", "selected.txt", "must not apply"),
+            ("create", "extra/file.txt", "must not appear"),
+        ],
+        "",
+    ));
+    let expected_rounds = responses.len();
+    let (url, server) = peer(responses);
     let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
-    let ((outcome, _), events) = run_with_answers(&fixture, &mut run, &connection, true);
+    let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, true);
     assert_eq!(outcome, Outcome::Failed);
-    assert_eq!(server.join().unwrap().len(), 3);
-    for name in names {
-        assert_eq!(
-            std::fs::read_to_string(fixture.workspace.project.join(name)).unwrap(),
-            "replacement"
-        );
-    }
+    assert!(message.contains(&format!("function-call limit of {TOOL_CALL_LIMIT}")));
+    assert!(message.contains(&format!(
+        "{} already admitted, 2 requested",
+        TOOL_CALL_LIMIT - 1
+    )));
+    assert!(message.contains("Earlier completed file effects remain"));
+    assert_eq!(server.join().unwrap().len(), expected_rounds);
+    assert_eq!(
+        std::fs::read_to_string(fixture.workspace.project.join("selected.txt")).unwrap(),
+        "known write"
+    );
+    assert!(!fixture.workspace.project.join("extra").exists());
     assert_eq!(
         events
             .iter()
             .filter(|e| matches!(e, Event::Prompt { .. }))
             .count(),
-        TOOL_CALL_LIMIT
+        1
     );
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::NativeCompleted { .. }))
+    );
+}
+
+#[test]
+fn nested_scaffold_continues_through_discovery_twelve_writes_reads_and_final_response() {
+    let fixture = Fixture::new(&[]);
+    let content = "scaffold content\n".repeat(256);
+    let mut responses = vec![wire_tools(
+        Protocol::Responses,
+        &[(
+            "discover",
+            "eevee_list_files",
+            json!({"query":"","offset":0}),
+        )],
+        "",
+    )];
+    for index in 0..12 {
+        let path = format!("scaffold/module-{}/file-{index}.txt", index / 3);
+        responses.push(wire(
+            Protocol::Responses,
+            &[(&format!("write-{index}"), &path, &content)],
+            "",
+        ));
+        responses.push(wire_tools(
+            Protocol::Responses,
+            &[(
+                &format!("read-{index}"),
+                "eevee_read_file",
+                json!({"path":path,"start_line":1,"end_line":0}),
+            )],
+            "",
+        ));
+    }
+    responses.push(wire(
+        Protocol::Responses,
+        &[],
+        "All twelve file results received",
+    ));
+    let (url, server) = peer(responses);
+    let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
+    let frozen = run.payload.clone();
+    let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, true);
+    assert_eq!(outcome, Outcome::Completed, "{message}");
+    let requests = server.join().unwrap();
+    assert_eq!(requests.len(), 26);
+    assert!(
+        requests
+            .iter()
+            .map(|body| body.to_string().len())
+            .sum::<usize>()
+            > BODY_LIMIT
+    );
+    assert_eq!(run.payload, frozen);
+    for index in 0..12 {
+        let path = format!("scaffold/module-{}/file-{index}.txt", index / 3);
+        assert_eq!(
+            std::fs::read_to_string(fixture.workspace.project.join(path)).unwrap(),
+            content
+        );
+    }
+    let results = requests.last().unwrap()["input"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["type"] == "function_call_output")
+        .map(|item| serde_json::from_str::<Value>(item["output"].as_str().unwrap()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(results.len(), 25);
+    assert!(results.iter().all(|result| result["status"] == "success"));
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, Event::Prompt { .. }))
+            .count(),
+        12
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, Event::Journal { .. }))
+            .count(),
+        12
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, Event::Dispatched { .. }))
+            .count(),
+        1
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::NativeCompleted { .. }))
+    );
+}
+
+#[test]
+fn request_byte_budgets_accept_exact_bounds_and_refuse_before_dispatch() {
+    assert_eq!(charge_request_bytes(0, BODY_LIMIT).unwrap(), BODY_LIMIT);
+    assert_eq!(
+        charge_request_bytes(REQUEST_BYTES_LIMIT - BODY_LIMIT, BODY_LIMIT).unwrap(),
+        REQUEST_BYTES_LIMIT
+    );
+    let oversized = charge_request_bytes(0, BODY_LIMIT + 1).unwrap_err();
+    assert!(oversized.contains(&format!("HTTP body exceeds {BODY_LIMIT} bytes")));
+    let aggregate = charge_request_bytes(REQUEST_BYTES_LIMIT, 1).unwrap_err();
+    assert!(aggregate.contains(&format!(
+        "aggregate HTTP bodies exceed {REQUEST_BYTES_LIMIT} bytes"
+    )));
+    assert!(aggregate.contains("Earlier completed file effects remain"));
+    assert!(charge_request_bytes(usize::MAX, 1).is_err());
 }
 
 #[test]
@@ -1082,6 +1204,60 @@ fn readonly_roles_advertise_only_source_tools_and_metadata_remains_tool_free() {
         let mut wrong_lease = fixture.input.clone();
         wrong_lease.work.as_mut().unwrap().writing = true;
         assert!(capture_writes(&fixture.workspace, &wrong_lease).is_err());
+    }
+}
+
+#[test]
+fn local_receipt_keeps_exact_native_body_but_cannot_dispatch() {
+    for operation in [Operation::Plan, Operation::Implement, Operation::Review] {
+        let fixture = Fixture::for_operation(&[], operation);
+        let source = fixture.workspace.project.join("retained.txt");
+        std::fs::write(&source, "unchanged local source\n").unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
+        let ordinary = run.payload.clone();
+        run.input.work = None;
+        run.input.local_only = true;
+        run.writes = capture_writes(&fixture.workspace, &run.input).unwrap();
+        run.payload = payload(
+            &fixture.workspace,
+            &run.input,
+            &connection,
+            run.writes.as_ref(),
+        )
+        .unwrap();
+        assert_eq!(run.payload, ordinary);
+        assert!(run.writes.is_some());
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        let stopped = AtomicBool::new(false);
+        let cancelled = AtomicU64::new(0);
+        let control = Control {
+            stopped: &stopped,
+            cancelled: &cancelled,
+            generation: run.generation,
+            deadline: Instant::now() + Duration::from_secs(5),
+        };
+        let (_sender, incoming) = mpsc::sync_channel(1);
+        let (outcome, message) =
+            dispatch(&fixture.workspace, &mut run, &events, &control, &incoming);
+        assert!(matches!(outcome, Outcome::Failed));
+        assert!(message.contains("Local context inspection cannot dispatch"));
+        assert!(events.lock().is_empty());
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        assert_eq!(
+            std::fs::read_to_string(&source).unwrap(),
+            "unchanged local source\n"
+        );
+        run.input.local_only = false;
+        assert!(capture_writes(&fixture.workspace, &run.input).is_err());
+        run.input.local_only = true;
+        run.input.work.clone_from(&fixture.input.work);
+        assert!(capture_writes(&fixture.workspace, &run.input).is_err());
     }
 }
 
@@ -1485,13 +1661,17 @@ fn truncated_success_labels_never_execute_complete_sibling_calls() {
 }
 
 #[test]
-fn aggregate_http_body_budget_refuses_continuation_without_truncating_frozen_history() {
-    let fixture = Fixture::new(&["selected.txt"]);
-    let (url, server) = peer(vec![wire(
-        Protocol::Responses,
-        &[("call", "selected.txt", "known write")],
-        "",
-    )]);
+fn per_http_body_budget_refuses_continuation_without_truncating_frozen_history() {
+    let fixture = Fixture::new(&[]);
+    let content = "z".repeat(crate::providers::writes::MAX_BYTES);
+    let calls = (0..8)
+        .map(|index| (format!("call-{index}"), format!("selected-{index}.txt")))
+        .collect::<Vec<_>>();
+    let refs = calls
+        .iter()
+        .map(|(id, path)| (id.as_str(), path.as_str(), content.as_str()))
+        .collect::<Vec<_>>();
+    let (url, server) = peer(vec![wire(Protocol::Responses, &refs, "")]);
     let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
     let owner = run.input.conversation.as_ref().unwrap().owner.clone();
     let messages = vec![
@@ -1526,14 +1706,16 @@ fn aggregate_http_body_budget_refuses_continuation_without_truncating_frozen_his
     let frozen = run.payload.clone();
     let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, true);
     assert_eq!(outcome, Outcome::Failed);
-    assert!(message.contains("aggregate HTTP bodies"));
+    assert!(message.contains(&format!("continuation body exceeds {BODY_LIMIT} bytes")));
     assert_eq!(server.join().unwrap().len(), 1);
     assert_eq!(run.payload, frozen);
     assert_eq!(run.input.conversation.as_ref().unwrap().messages.len(), 4);
-    assert_eq!(
-        std::fs::read_to_string(fixture.workspace.project.join("selected.txt")).unwrap(),
-        "known write"
-    );
+    for (_, path) in calls {
+        assert_eq!(
+            std::fs::read_to_string(fixture.workspace.project.join(path)).unwrap(),
+            content
+        );
+    }
     assert_eq!(
         events
             .iter()

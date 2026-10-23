@@ -577,6 +577,7 @@ fn model_inspection_has_no_task_prompt_or_source_or_edit_lookup() {
     let mut input = Input {
         task: crate::store::Snapshot::empty("unopened-project".into()),
         work: None,
+        local_only: false,
         instruction_override: None,
         excerpts: Vec::new(),
         report: None,
@@ -1287,6 +1288,7 @@ fn outbound_task_facts_do_not_leak_generated_provider_session_provenance() {
     let input = Input {
         task: saved,
         work: None,
+        local_only: false,
         instruction_override: None,
         excerpts: Vec::new(),
         report: None,

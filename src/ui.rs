@@ -12,6 +12,7 @@ mod moves;
 mod planning;
 mod records;
 mod sources;
+mod updates;
 mod workflows;
 
 use std::{borrow::Cow, cell::Cell};
@@ -469,15 +470,21 @@ fn evolution_popup_area(area: Rect, app: &App) -> Option<Rect> {
         return None;
     }
     let layout = shell(area, app.linear, app.effective_focus());
-    let top = layout.header.bottom();
-    let available = layout.composer.y.saturating_sub(top);
-    let width = 76.min(area.width.saturating_sub(2));
-    let height = 9.min(available);
+    // At roomy sizes, use the quiet space below the companion rather than
+    // clearing any response text or withholding the native portrait.
+    if let Some(rail) = layout.rail {
+        let top = rail.bottom().saturating_add(1);
+        if layout.composer.y.saturating_sub(top) >= 7 {
+            return Some(Rect::new(rail.x, top, rail.width, 7));
+        }
+    }
+    // Compact/linear layouts keep the newest response rows and the entire
+    // composer visible. This receipt is anchored, never a centered modal.
     Some(Rect::new(
-        area.x + (area.width - width) / 2,
-        top + (available - height) / 2,
-        width,
-        height,
+        layout.workspace.x,
+        layout.workspace.y,
+        layout.workspace.width,
+        6.min(layout.workspace.height),
     ))
 }
 
@@ -676,6 +683,7 @@ pub fn render(
             Overlay::Records => records::render(frame, area, app, config, &paint),
             Overlay::Held => held::render(frame, area, app, config, &paint),
             Overlay::Formations => formations::render(frame, area, app, config, &paint),
+            Overlay::Updates => updates::render(frame, area, app, config, &paint),
             Overlay::Party => party(frame, area, app, config, &paint),
             Overlay::PartyBoard => cooperation::board(frame, area, app, config, &paint),
             Overlay::Images => images(frame, area, app, config, &paint, artwork, graphics_status),
@@ -846,8 +854,14 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
     } else {
         app.execution.activity_label()
     };
+    let policy = match app.planning.explicit_operation() {
+        Some(crate::providers::Operation::Plan) => paint.hint(Message::CorePolicyReadonly),
+        Some(crate::providers::Operation::Review) => paint.hint(Message::CorePolicyReview),
+        _ => "",
+    };
     let status = format!(
-        "{}  /  {} {activity}",
+        "{policy}{}{}  /  {} {activity}",
+        if policy.is_empty() { "" } else { " · " },
         app.storage_label(),
         if !waiting && app.planning.activity_label().is_some() {
             activity_marker(app.activity_frame, config, app.motion_enabled())
@@ -864,7 +878,21 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
     );
     // Capability chip (EV03A): lowest header priority, so it appears only in
     // space the activity/storage text leaves free and never clips it.
-    let chip = format!("[{}] ", crate::domain::CAPABILITIES[app.form().min(8)]);
+    let operation = if app.planning.busy() {
+        app.planning.operation
+    } else {
+        app.planning
+            .explicit_operation()
+            .unwrap_or(crate::providers::Operation::Implement)
+    };
+    let chip = format!(
+        "[{}] ",
+        paint.hint(match operation {
+            crate::providers::Operation::Plan | crate::providers::Operation::Review =>
+                Message::CoreCapabilityReadonly,
+            crate::providers::Operation::Implement => Message::CoreCapabilityReviewedCoding,
+        })
+    );
     let (chip_width, used) = (
         Span::raw(chip.as_str()).width() as u16,
         Span::raw(status.as_str()).width() as u16,
@@ -1931,6 +1959,7 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
                 | Overlay::Workflows
                 | Overlay::Memory
                 | Overlay::Held
+                | Overlay::Updates
                 | Overlay::PartyBoard,
             ) => paint.hint(Message::CoreOverlayControl),
             Some(_) => paint.hint(Message::CoreOverlayScrollControl),

@@ -10,6 +10,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::workspace::repo::{self, FileState};
 
+mod comparison;
+pub(crate) use comparison::selection as selection_identity;
+pub use comparison::{ComparisonTurn, SelectionComparison};
+
 pub const MAX_SOURCE_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_EXCERPT_BYTES: usize = 64 * 1024;
 pub const MAX_EXCERPTS: usize = 16;

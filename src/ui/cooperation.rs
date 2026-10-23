@@ -3,7 +3,7 @@ use ratatui::{
     Frame,
     layout::Rect,
     text::{Line, Span},
-    widgets::{Clear, Paragraph, Wrap},
+    widgets::{BorderType, Clear, Paragraph, Wrap},
 };
 
 use super::{
@@ -135,60 +135,49 @@ pub(super) fn evolution_popup(
         " {} ",
         paint.hint(crate::i18n::Message::CoreEvolutionPopupTitle)
     );
-    let block = panel(&title, config, paint, true);
+    let mode = paint.hint(if app.lead().auto_form {
+        crate::i18n::Message::CoreEvolutionAuto
+    } else {
+        crate::i18n::Message::CoreEvolutionManual
+    });
+    let mut block = panel(&title, config, paint, true)
+        .title_top(Line::styled(format!(" {mode} "), paint.muted).right_aligned())
+        .title_bottom(
+            Line::styled(
+                format!(
+                    " {} ",
+                    paint.hint(crate::i18n::Message::CoreEvolutionPopupContinue)
+                ),
+                paint.muted,
+            )
+            .centered(),
+        );
+    if !config.ascii {
+        block = block.border_type(BorderType::Rounded);
+    }
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let identity = format!(
-        "{} · {}",
-        app.lead_label(),
-        paint.hint(if app.lead().auto_form {
-            crate::i18n::Message::CoreEvolutionAuto
-        } else {
-            crate::i18n::Message::CoreEvolutionManual
-        })
-    );
-    text(
-        frame,
-        row(content, 0, 1),
-        &clipped(&identity, content.width as usize),
-        paint.muted,
-    );
+    // Only the connector moves; form names keep their cells throughout the
+    // bounded picker animation. The existing portrait keeps its own renderer.
     let arrow = match app.evolution_frame() {
-        Some(0) => ">    ",
-        Some(1) => " >   ",
-        Some(_) => "  >  ",
-        None if config.ascii => "->",
-        None => "→",
+        Some(0) => " >  ",
+        Some(1) => " >> ",
+        Some(_) => "  > ",
+        None if config.ascii => " -> ",
+        None => " →  ",
     };
     let hero = Line::from(vec![
         Span::styled(crate::domain::FORMS[transition.from].name, paint.muted),
-        Span::styled(format!("  {arrow}  "), paint.muted),
-        Span::styled(crate::domain::FORMS[transition.to].name, paint.accent),
+        Span::styled(arrow, paint.accent),
+        Span::styled(crate::domain::FORMS[transition.to].name, paint.selected),
     ])
     .centered();
-    frame.render_widget(Paragraph::new(hero), row(content, 2, 1));
-    text(
-        frame,
-        row(content, 4, 1),
-        &clipped(paint.hint(transition.reason), content.width as usize),
-        paint.surface,
-    );
-    if transition.fresh {
-        text(
-            frame,
-            row(content, 5, 1),
-            paint.hint(crate::i18n::Message::CoreEvolutionFresh),
-            paint.muted,
-        );
-    }
-    text(
-        frame,
-        row(content, 6, 1),
-        &clipped(
-            paint.hint(crate::i18n::Message::CoreEvolutionPopupContinue),
-            content.width as usize,
-        ),
-        paint.muted,
+    frame.render_widget(Paragraph::new(hero), row(content, 0, 1));
+    frame.render_widget(
+        Paragraph::new(paint.hint(transition.reason))
+            .style(paint.muted)
+            .wrap(Wrap { trim: true }),
+        row(content, 2, content.height.saturating_sub(2)),
     );
     app.evolution.popup_shown = true;
 }

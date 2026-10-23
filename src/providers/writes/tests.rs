@@ -817,23 +817,23 @@ fn workspace_batch_admission_is_transactional_for_paths_and_baseline_failures() 
 }
 
 #[test]
-fn exact_restrictions_and_workspace_eight_target_limit_do_not_expand() {
+fn exact_restrictions_and_workspace_target_limit_do_not_expand() {
     let project = Project::new();
     let mut exact = project.capture(&["only.txt"]);
     exact.admit_paths(&["only.txt".into()]).unwrap();
     assert!(exact.admit_paths(&["unselected.txt".into()]).is_err());
     assert_eq!(exact.targets.len(), 1);
     let mut workspace = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
-    let paths = (0..8)
+    let paths = (0..MAX_FILES)
         .map(|index| PathBuf::from(format!("file-{index}.txt")))
         .collect::<Vec<_>>();
     workspace.admit_paths(&paths).unwrap();
     workspace.admit_paths(&paths).unwrap();
-    assert!(workspace.admit_paths(&["ninth.txt".into()]).is_err());
-    assert_eq!(workspace.targets.len(), 8);
+    assert!(workspace.admit_paths(&["excess.txt".into()]).is_err());
+    assert_eq!(workspace.targets.len(), MAX_FILES);
     assert!(
         workspace
-            .propose("ninth.txt".into(), String::new())
+            .propose("excess.txt".into(), String::new())
             .is_err()
     );
     assert_eq!(std::fs::read_dir(&project.root).unwrap().count(), 0);
@@ -1068,7 +1068,7 @@ fn plain_project_discovery_read_generate_and_reviewed_edit_preserve_dirty_crlf()
 }
 
 #[test]
-fn source_reads_are_separate_from_selected_write_authority_and_eight_target_quota() {
+fn source_reads_are_separate_from_selected_write_authority_and_target_quota() {
     let project = Project::new();
     for index in 0..12 {
         std::fs::write(
@@ -1094,6 +1094,49 @@ fn source_reads_are_separate_from_selected_write_authority_and_eight_target_quot
     selected.observe_tool(&read_tool("source-0.txt")).unwrap();
     assert_eq!(selected.targets.len(), 1);
     assert!(selected.admit_paths(&["source-0.txt".into()]).is_err());
+}
+
+#[test]
+fn thirty_two_nested_targets_are_admitted_but_excess_batch_has_no_effects() {
+    let project = Project::new();
+    let paths = (0..MAX_FILES)
+        .map(|index| PathBuf::from(format!("scaffold/module-{}/file-{index}.txt", index / 4)))
+        .collect::<Vec<_>>();
+    let mut set = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    // Fill all but one slot through successive captures and actual applications.
+    for path in &paths[..MAX_FILES - 1] {
+        set.admit_paths(std::slice::from_ref(path)).unwrap();
+        let proposal = set.propose(path.clone(), "completed\n".into()).unwrap();
+        set.apply(&proposal).unwrap();
+    }
+    let excess = PathBuf::from("extra/file.txt");
+    let error = set
+        .admit_paths(&[paths[MAX_FILES - 1].clone(), excess.clone()])
+        .unwrap_err();
+    assert!(error.contains(&format!("at most {MAX_FILES} distinct file targets")));
+    assert!(semantic_proposal_refusal(&error));
+    assert_eq!(set.targets.len(), MAX_FILES - 1);
+    assert!(!project.root.join(&paths[MAX_FILES - 1]).exists());
+    assert!(!project.root.join("extra").exists());
+    // Refusal neither consumes the remaining slot nor rolls back prior effects.
+    set.admit_paths(&paths[MAX_FILES - 1..]).unwrap();
+    let proposal = set
+        .propose(paths[MAX_FILES - 1].clone(), "completed\n".into())
+        .unwrap();
+    set.apply(&proposal).unwrap();
+    assert_eq!(set.targets.len(), MAX_FILES);
+    assert!(set.admit_paths(std::slice::from_ref(&excess)).is_err());
+    for path in &paths {
+        assert_eq!(
+            std::fs::read_to_string(project.root.join(path)).unwrap(),
+            "completed\n"
+        );
+    }
+    // Explicit /paths scopes use the same inclusive bound.
+    assert!(WriteSet::capture(&project.root, &project.data, &paths, &[]).is_ok());
+    let mut oversized = paths;
+    oversized.push(excess);
+    assert!(WriteSet::capture(&project.root, &project.data, &oversized, &[]).is_err());
 }
 
 #[test]

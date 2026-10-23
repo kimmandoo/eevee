@@ -538,6 +538,15 @@ impl App {
             ("cancel-all", "Review cancellation of all owned work"),
             ("help", "Navigation help"),
             ("connect", "Provider connections; nothing sent"),
+            ("update", "Review an application update; no replacement yet"),
+            (
+                "rollback",
+                "Review a retained package and proven data compatibility",
+            ),
+            (
+                "context-compare",
+                "Compare exact context selection bytes for this turn",
+            ),
             ("new", "Send ordinary Request as a fresh conversation"),
             (
                 "resume",
@@ -1103,6 +1112,7 @@ impl App {
     }
 
     pub(super) fn open_commands(&mut self) {
+        self.updates.leave();
         self.workflow.authoring.invalidate();
         self.command_popup = Some(Popup {
             query: String::new(),
@@ -1534,6 +1544,13 @@ impl App {
         }
         // Stable globals must precede workspace-local spellings.
         match name {
+            "update" => {
+                return self.lifecycle_command(crate::platform::distribution::Operation::Update);
+            }
+            "rollback" => {
+                return self.lifecycle_command(crate::platform::distribution::Operation::Rollback);
+            }
+            "context-compare" => return self.open_context_comparison(),
             "provider" | "connect" => {
                 self.open_overlay(Overlay::Agents);
                 self.agents.active = self.planning.agent.index();
@@ -1553,7 +1570,7 @@ impl App {
                 return self.planning_command("provider-journal");
             }
             "session-new" | "session-resume" => {
-                self.planning.prepare_ordinary_operation();
+                self.planning.prepare_session_operation();
                 self.open_overlay(Overlay::Planning);
                 return self.planning_command(if name == "session-new" {
                     "new"
@@ -2738,6 +2755,7 @@ mod tests {
                 assert!(frozen.contains("Frozen 界 request\nexact spacing  "));
                 app.planning
                     .event(crate::providers::Event::Preview(Preview {
+                        comparison_scope: None,
                         arrival: crate::providers::approval_arrival(),
                         destination: None,
                         requires_connection_review: false,

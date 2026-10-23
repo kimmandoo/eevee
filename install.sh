@@ -47,8 +47,18 @@ version_set=0
 uninstall=0
 resolve_release=0
 no_animation=0
+expected_owner=
+expected_archive=
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        --expected-archive)
+            [ "$#" -ge 2 ] && [ -n "$2" ] || fail '--expected-archive requires a SHA-256'
+            [ -z "$expected_archive" ] || fail 'provide --expected-archive only once'
+            expected_archive=$2; shift 2 ;;
+        --expected-owner)
+            [ "$#" -ge 2 ] && [ -n "$2" ] || fail '--expected-owner requires a SHA-256'
+            [ -z "$expected_owner" ] || fail 'provide --expected-owner only once'
+            expected_owner=$2; shift 2 ;;
         --no-animation)
             no_animation=1; shift ;;
         --archive)
@@ -90,6 +100,10 @@ valid_tag() {
         END { exit (invalid || NR != 1) }'
 }
 [ -z "$selected_tag" ] || valid_tag "$selected_tag" || fail 'release tag must be vX.Y.Z with canonical nonnegative integers'
+if [ -n "$expected_owner" ]; then
+    [ "${#expected_owner}" -eq 64 ] || fail 'invalid reviewed ownership identity'
+    case "$expected_owner" in *[!0-9a-f]*) fail 'invalid reviewed ownership identity' ;; esac
+fi
 
 for prerequisite in uname tar mktemp awk mkdir cp chmod mv rm rmdir wc dd cat sleep; do
     command -v "$prerequisite" >/dev/null 2>&1 || fail "missing prerequisite: $prerequisite"
@@ -372,9 +386,14 @@ check_ownership() {
         [ "$license_hash" = "$2" ] && [ "$notices_hash" = "$3" ] || fail 'existing metadata no longer matches its ownership marker; refusing replacement'
         current_hash=$(hash_file "$binary") || fail 'cannot hash existing executable'
         [ "$current_hash" = "$owner_hash" ] || fail 'existing executable no longer matches its ownership marker; refusing replacement'
+        if [ -n "$expected_owner" ]; then
+            reviewed_hash=$(hash_file "$metadata/.native-install") || fail 'cannot revalidate reviewed ownership'
+            [ "$reviewed_hash" = "$expected_owner" ] || fail 'installation changed after review; no replacement performed'
+        fi
         owned=1
     else
         [ ! -e "$metadata" ] || fail "orphaned metadata exists at $metadata; refusing to overwrite it"
+        [ -z "$expected_owner" ] || fail 'reviewed installation disappeared; no replacement performed'
         owned=0
     fi
 }
@@ -475,6 +494,9 @@ expected=$(awk -v wanted="$asset" '
 ' "$temp_dir/SHA256SUMS") || fail "malformed SHA256SUMS or missing unique checksum for $asset"
 actual=$(hash_file "$temp_dir/$asset") || fail 'cannot compute archive SHA-256'
 [ "$actual" = "$expected" ] || fail "SHA-256 mismatch for $asset; nothing was installed"
+if [ -n "$expected_archive" ]; then
+    [ "$actual" = "$expected_archive" ] || fail 'retained archive changed after review; nothing was installed'
+fi
 
 # Inspect before extraction. Bound listing output as well as compressed inputs.
 (ulimit -f 1024 && tar -tzf "$temp_dir/$asset" > "$temp_dir/entries") || fail 'cannot safely list archive'

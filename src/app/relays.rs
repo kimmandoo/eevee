@@ -187,7 +187,7 @@ impl App {
         }
         if request.paths.is_empty() || request.paths.len() > crate::providers::writes::MAX_FILES {
             return Err(
-                "Controlled-write scope requires 1–8 files; limit hit, nothing trimmed.".into(),
+                "Controlled-write scope requires 1–32 files; limit hit, nothing trimmed.".into(),
             );
         }
         let mut ranges = Vec::new();

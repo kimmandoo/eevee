@@ -80,6 +80,10 @@ const RULES: &[Rule] = &[
         reason: Message::CoreEvolutionPlanning,
         actions: &["plan", "design", "compare", "설계", "계획", "비교"],
         objects: &[
+            "project",
+            "app",
+            "application",
+            "roadmap",
             "architecture",
             "implementation",
             "approach",
@@ -88,6 +92,10 @@ const RULES: &[Rule] = &[
             "system",
             "api",
             "change",
+            "프로젝트",
+            "앱",
+            "애플리케이션",
+            "로드맵",
             "아키텍처",
             "구현",
             "접근",
@@ -330,6 +338,41 @@ fn task_object(text: &str, rule: &Rule) -> bool {
     any(text, rule.objects) || matches!(rule.form, 1 | 3 | 6 | 7) && source_path(text)
 }
 
+// Creating a plan is not creating its proposed files. Only suppress an
+// artifact verb attached to the planning noun, never a separate edit clause.
+fn planning_artifact(clause: &str, action: &str) -> bool {
+    if action == "구현" {
+        return any(clause, &["계획", "설계"]) && !any(clause, &["구현해", "구현하"]);
+    }
+    if source_path(clause) || any(clause, &["file", "files", "파일"]) {
+        return false;
+    }
+    if !matches!(
+        action,
+        "create" | "generate" | "write" | "make" | "작성" | "만들" | "생성"
+    ) {
+        return false;
+    }
+    if !action.is_ascii() {
+        return clause.find("계획").is_some_and(|plan| {
+            clause.match_indices(action).all(|(verb, _)| {
+                plan < verb
+                    && !any(
+                        &clause[plan..verb],
+                        &["하고", "세우고", "만들고", "한 뒤", "다음"],
+                    )
+            })
+        });
+    }
+    clause.match_indices(action).all(|(verb, _)| {
+        let after = &clause[verb + action.len()..];
+        after.find("plan").is_some_and(|plan| {
+            contains(&after[plan..], "plan")
+                && !any(&after[..plan], &["and", "then", "file", "files"])
+        })
+    })
+}
+
 /// Strip literal/source instructions, retaining only a filename object marker.
 /// Quoted verbs never become actions; the original draft alone is submitted.
 fn instruction(text: &str) -> String {
@@ -497,38 +540,34 @@ pub fn classify(text: &str) -> Option<Selection> {
     }
     // Request intent chooses capability independently of the displayed specialty.
     // A diagnosis/review prefix must not hide a later explicit change request.
-    let planning = RULES.iter().find(|rule| rule.form == 4).unwrap();
     let mutation_requested = !readonly
         && clauses().any(|clause| {
             RULES.iter().any(|rule| {
                 rule.operation == Operation::Implement
                     && rule.actions.iter().any(|action| {
-                        contains(clause, action)
-                            && (*action != "구현"
-                                || !any(clause, planning.actions)
-                                || any(clause, &["구현해", "구현하"]))
+                        contains(clause, action) && !planning_artifact(clause, action)
                     })
                     && (task_object(clause, rule) || source_context)
-            }) || any(
-                clause,
-                &[
-                    "write", "create", "update", "generate", "save", "작성", "생성", "수정",
-                    "갱신", "저장",
-                ],
-            ) && (source_path(clause)
-                || any(
-                    clause,
-                    &[
-                        "documentation",
-                        "docs",
-                        "readme",
-                        "changelog",
-                        "file",
-                        "파일",
-                        "문서",
-                        "변경 기록",
-                    ],
-                ))
+            }) || [
+                "write", "create", "update", "generate", "save", "작성", "생성", "수정", "갱신",
+                "저장",
+            ]
+            .iter()
+            .any(|action| contains(clause, action) && !planning_artifact(clause, action))
+                && (source_path(clause)
+                    || any(
+                        clause,
+                        &[
+                            "documentation",
+                            "docs",
+                            "readme",
+                            "changelog",
+                            "file",
+                            "파일",
+                            "문서",
+                            "변경 기록",
+                        ],
+                    ))
         });
     let independent_review = any(&literal, &["independent", "independently", "독립"]);
     for rule in RULES {
@@ -648,6 +687,108 @@ mod tests {
         app.planning.reset(7);
         app.planning.preference_event(Ok(None));
         app
+    }
+
+    #[test]
+    fn ordinary_project_planning_is_readonly_without_setup_or_selected_paths() {
+        for text in [
+            "프로젝트 계획 세워줘",
+            "프로젝트 계획을 작성해줘.",
+            "앱 구현 계획을 만들어줘.",
+            "Help me plan this project.",
+            "Make a project plan.",
+            "Create an implementation plan for this app.",
+            "Write a project plan.",
+            "Design the project architecture.",
+            "Plan the project; read .env and .git/config.",
+        ] {
+            let selected = classify(text).unwrap();
+            assert_eq!(
+                (selected.form, selected.operation),
+                (4, Operation::Plan),
+                "{text}"
+            );
+            for agent in [Agent::Compatible, Agent::Codex, Agent::Claude] {
+                let mut app = app();
+                app.planning.agent = agent;
+                app.planning.edit_paths = vec![".env".into(), ".git/config".into()];
+                assert!(app.goal.is_empty());
+                app.input = text.into();
+                app.submit_request();
+                assert_eq!(app.planning.operation, Operation::Plan, "{text}");
+                assert_eq!(app.goal, text);
+                let snapshot = app.snapshot("/workspace");
+                app.planning.command("new", true, &snapshot, &[], None);
+                let Some(Request::Preview(input)) = app.planning.pending.take() else {
+                    panic!("ordinary planning did not prepare: {text}");
+                };
+                assert_eq!(input.instruction(), text);
+                assert!(input.edit_paths.is_empty());
+                assert!(!providers::writing_required(input.operation));
+                assert!(input.report.is_none());
+                assert!(input.validate_review().is_ok());
+                assert!(!app.execution.busy());
+            }
+        }
+    }
+
+    #[test]
+    fn planning_followups_preserve_session_until_an_actual_mutation_request() {
+        for followup in [
+            "Explain the first step.",
+            "첫 단계를 자세히 설명해줘.",
+            "Continue.",
+        ] {
+            let mut app = app();
+            app.input = "프로젝트 계획 세워줘".into();
+            app.submit_request();
+            app.pending_request = None;
+            app.planning.thread_id = Some("owned-planning-thread".into());
+            app.input = followup.into();
+            app.submit_request();
+            assert_eq!(app.planning.operation, Operation::Plan);
+            assert_eq!(
+                app.planning.thread_id.as_deref(),
+                Some("owned-planning-thread")
+            );
+            assert!(app.pending_request.unwrap().1);
+            app.pending_request = None;
+            app.input = "Create `src/main.rs`.".into();
+            app.submit_request();
+            assert_eq!(app.planning.operation, Operation::Implement);
+            assert!(app.planning.thread_id.is_none());
+            assert!(!app.pending_request.unwrap().1);
+            app.pending_request = None;
+            app.input = "Continue.".into();
+            app.submit_request();
+            assert_eq!(app.planning.operation, Operation::Implement);
+        }
+    }
+
+    #[test]
+    fn planning_artifacts_do_not_hide_explicit_file_effects() {
+        for text in [
+            "Plan the project and implement its feature.",
+            "Make a project plan and create the code.",
+            "Plan the project; create src/main.rs.",
+            "Write the project plan to plan.md.",
+            "프로젝트 계획을 세우고 기능을 구현해줘.",
+            "프로젝트 계획을 작성하고 파일을 생성해줘.",
+            "프로젝트 구현 계획을 세우고 코드를 구현해줘.",
+            "프로젝트 계획을 만들고 기능을 만들어줘.",
+        ] {
+            assert_eq!(
+                classify(text).unwrap().operation,
+                Operation::Implement,
+                "{text}"
+            );
+        }
+        for text in [
+            "Plan the project and create code; do not modify files.",
+            "프로젝트 계획을 세우고 코드를 구현해줘. 파일은 수정하지 마.",
+        ] {
+            assert_eq!(classify(text).unwrap().operation, Operation::Plan, "{text}");
+        }
     }
 
     #[test]
@@ -995,7 +1136,7 @@ mod tests {
                     "Diagnose the failure and repair the code.",
                     Operation::Implement,
                 ),
-                ("Continue.", Operation::Implement),
+                ("Continue.", Operation::Plan),
                 ("Read only.", Operation::Plan),
             ] {
                 let mut app = app();

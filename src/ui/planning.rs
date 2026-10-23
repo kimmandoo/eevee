@@ -1000,7 +1000,16 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
     {
         paint.hint(Message::ProvidersPlanningRunBlockedNCancelEscCancelD)
     } else if state.auto_permission_review {
-        paint.hint(Message::ProvidersPlanningPermissionAutoReviewActions)
+        paint.hint(
+            if matches!(
+                state.request.as_ref().map(|request| &request.kind),
+                Some(PromptKind::Permission { file: Some(_), .. })
+            ) {
+                Message::ProvidersPlanningFileAutoReviewActions
+            } else {
+                Message::ProvidersPlanningPermissionAutoReviewActions
+            },
+        )
     } else if file_details {
         paint.hint(Message::ProvidersPlanningFileDetailsActions)
     } else if state.review_details {
@@ -2047,6 +2056,7 @@ mod tests {
             Some(Request::Preview(_))
         ));
         app.planning.event(Event::Preview(Preview {
+            comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
             requires_connection_review: false,
@@ -3219,6 +3229,7 @@ mod tests {
         app.planning.command("new", true, &task, &[], None);
         app.planning.pending.take();
         app.planning.event(Event::Preview(Preview {
+            comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
             requires_connection_review: false,
@@ -3574,6 +3585,7 @@ mod tests {
                 writing: false,
             });
             app.planning.event(Event::Preview(Preview {
+                comparison_scope: None,
                 arrival: crate::providers::approval_arrival(),
                 destination: None,
                 requires_connection_review: true,
