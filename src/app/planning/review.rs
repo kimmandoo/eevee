@@ -65,6 +65,7 @@ impl State {
     }
 
     pub(super) fn review_start(&mut self) {
+        self.connection_recovery = None;
         self.review_details = false;
         self.auto_permission_review = false;
         self.scroll = 0;
@@ -937,6 +938,28 @@ impl State {
             && (key.kind != KeyEventKind::Press || !key.modifiers.is_empty())
         {
             return false;
+        }
+        if self
+            .preview
+            .as_ref()
+            .is_some_and(|preview| !preview.blockers.is_empty())
+        {
+            if key.code == KeyCode::Char('n')
+                && key.kind == KeyEventKind::Press
+                && key.modifiers.is_empty()
+            {
+                return self.cancel();
+            }
+            if matches!(
+                key.code,
+                KeyCode::Char('a' | 'y')
+                    | KeyCode::Tab
+                    | KeyCode::BackTab
+                    | KeyCode::Left
+                    | KeyCode::Right
+            ) {
+                return false;
+            }
         }
         if let Some(PromptKind::Permission {
             file: Some(_),

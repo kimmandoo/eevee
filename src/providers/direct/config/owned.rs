@@ -1057,29 +1057,30 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn provider_file_effort_survives_own_connection_save_without_provider_file_edits() {
+    fn explicit_account_defaults_survive_save_without_reading_cli_preferences() {
         let fixture = Fixture::new();
-        let text = "model='file-model'\nmodel_reasoning_effort='low'\n";
+        let text = "model='unrelated-cli-model'\nmodel_reasoning_effort='high'\n";
         let config = fixture.provider_file("config.toml", text);
         let provider_home = config.parent().unwrap().to_string_lossy().into_owned();
         let input = Inputs {
-            get: |name: &str| (name == "CODEX_HOME").then(|| provider_home.clone()),
+            get: |name: &str| match name {
+                "CODEX_HOME" => Some(provider_home.clone()),
+                "CODEX_MODEL" => Some("selected-account-model".into()),
+                "CODEX_REASONING_EFFORT" => Some("low".into()),
+                _ => None,
+            },
             home: None,
             config_home: None,
             project: None,
             now: 100,
         };
         let form = setup_from(Agent::ChatGPT, &input, None, None).unwrap();
-        assert_eq!(form.effort_model.as_deref(), Some("file-model"));
+        assert_eq!(form.effort_model.as_deref(), Some("selected-account-model"));
         let entry =
             stored_from_setup(Agent::ChatGPT, &form, Some("fake-token".into()), None).unwrap();
-        assert_eq!(
-            connection(Agent::ChatGPT, entry, 100)
-                .unwrap()
-                .effort
-                .as_deref(),
-            Some("low")
-        );
+        let saved = connection(Agent::ChatGPT, entry, 100).unwrap();
+        assert_eq!(saved.model.as_deref(), Some("selected-account-model"));
+        assert_eq!(saved.effort.as_deref(), Some("low"));
         assert_eq!(fs::read_to_string(config).unwrap(), text);
     }
 

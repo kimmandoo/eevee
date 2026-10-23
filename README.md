@@ -64,6 +64,7 @@ Terminal: **60 × 18 minimum**, **120 × 36 recommended**. Add `--language ko` f
 | Attach source | `@` → choose a file → preview → **Enter**; **r** selects a range |
 | Read earlier output | Mouse wheel or **PgUp/PgDn**; **Alt+End** follows the latest output |
 | Resume a deferred permission | **Alt+A** or `/approvals`; **Esc** defers without answering |
+| Fix a blocked connection | **PgUp/PgDn** reads the reason; **c** opens setup without sending or retrying |
 | Choose a form / request policy | `/forms` · `/role` |
 | Manage companions / saved tasks | `/party` · `/lead` · `/tasks` |
 | Author / run / inspect a local command | `/command-edit` · `/execute` · `/run` |
@@ -129,6 +130,7 @@ Open **`/connect openai`** for the unified OpenAI family: account login, API key
 - Native/Codex tools support discovery, reads and exact Create/Replace or hash-bound edits. SDK and ACP support differs: external agent tools are **not an Eevee sandbox**.
 - Native conversation history is process-local. Cosmetic evolution preserves same-policy history; an actual policy change starts fresh context while retaining the visible transcript.
 - Account grants can expire and require explicit reconnect. No automatic renewal or credential fallback is promised.
+- Native account requests use Eevee's selected defaults or explicit environment settings, never unrelated external CLI model files.
 
 **Credential storage:** session-only by default. Explicit private persistence uses owner-private **plaintext**, not encryption or an OS keychain, under `~/.eevee-connections/`. Forgetting an app connection does not revoke remote credentials or modify official provider stores.
 
@@ -152,14 +154,14 @@ Current storage is **Schema 18**; the Claude sidecar requires complete **bridge 
 
 ## Installation
 
-| Platform | v0.1.25 package |
+| Platform | v0.1.26 package |
 | --- | --- |
-| macOS · Apple Silicon | [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.25/ev-darwin-arm64.tar.gz) |
-| macOS · Intel | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.25/ev-darwin-x86_64.tar.gz) |
-| Linux / WSL | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.25/ev-linux-x86_64.tar.gz) · [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.25/ev-linux-arm64.tar.gz) |
-| Windows | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.25/ev-windows-x86_64.zip) |
+| macOS · Apple Silicon | [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.26/ev-darwin-arm64.tar.gz) |
+| macOS · Intel | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.26/ev-darwin-x86_64.tar.gz) |
+| Linux / WSL | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.26/ev-linux-x86_64.tar.gz) · [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.26/ev-linux-arm64.tar.gz) |
+| Windows | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.26/ev-windows-x86_64.zip) |
 
-[Checksums](https://github.com/kimmandoo/eevee/releases/download/v0.1.25/SHA256SUMS) · [Release notes](CHANGELOG.md)
+[Checksums](https://github.com/kimmandoo/eevee/releases/download/v0.1.26/SHA256SUMS) · [Release notes](CHANGELOG.md)
 
 ```sh
 ev update --check   # read-only release check
@@ -175,8 +177,8 @@ Installers verify SHA-256, refuse unowned command collisions and **do not change
 **macOS / Linux**
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.25/install.sh
-sh ./install-ev.sh --version v0.1.25
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.26/install.sh
+sh ./install-ev.sh --version v0.1.26
 ```
 
 Add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile (`~/.zshrc` or `~/.bashrc`) for future terminals. If macOS blocks a browser-downloaded archive, inspect its source/checksum before removing quarantine with `xattr -d com.apple.quarantine ~/.local/bin/ev`.
@@ -184,7 +186,7 @@ Add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile (`~/.zshrc` or 
 **Windows**
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.25/install.ps1))) -Version v0.1.25
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.26/install.ps1))) -Version v0.1.26
 [Environment]::SetEnvironmentVariable('Path', "$env:LOCALAPPDATA\ev\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')
 ```
 

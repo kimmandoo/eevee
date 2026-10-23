@@ -1,5 +1,26 @@
 # Troubleshooting
 
+### [2026-10-23] Native account requests depended on unrelated external CLI configuration
+
+- **Context / Symptom:** Account Implement stopped before dispatch with `Send 0 payload bytes`, an unavailable destination and `Cannot read user provider config safely: require an absolute, non-project, user-owned regular file...`. Reproduced the exact public v0.1.25 preview using an isolated synthetic account environment and symlinked CLI `config.toml`, without approving network dispatch.
+- **Root Cause:** Native account settings eagerly admitted and parsed the external CLI's model-preference file before resolving the selected account credential, even when model/token defaults were explicitly supplied. A rejected unrelated file therefore prevented native request construction.
+- **Solution:** Removed external CLI model-file inheritance from native account resolution/setup. App-owned settings and deliberate environment defaults remain authoritative; selected credential files still require strict privacy, identity and expiry checks. No provider files or permissions were repaired.
+- **Prevention / Reference:** Regression coverage rejects accidental CLI model inheritance, proves native resolution with malformed/writable/symlink/project CLI configuration and retains invalid environment/auth rejection. External CLI configuration belongs only to the separately chosen CLI route.
+
+### [2026-10-23] Public-package verifier assumed LF-only native checksum manifests
+
+- **Context / Symptom:** v0.1.25 publication succeeded, but the additional public-package proof stopped at a raw-text equality assertion for the Windows qualified artifact's `SHA256SUMS`.
+- **Root Cause:** The Windows manifest contained the correct single archive digest/name with `\r\n`; the throwaway verifier assumed `\n`. Public digests and exact qualified archive byte comparisons had already matched.
+- **Solution:** Parsed the manifest into exactly one digest/name line, accepting native line endings while retaining every archive, installer and GitHub artifact digest comparison. Reused downloaded files without overwriting them and continued verification; no tag, public asset or product code changed.
+- **Prevention / Reference:** Compare checksum records semantically, but compare the packages they identify byte-for-byte. Do not normalize archives or compare dependency notices across different target builds.
+
+### [2026-10-23] Native qualification exceeded cache egress allowance
+
+- **Context / Symptom:** Native run `39930283345` reported `Failed to restore: Egress is over the account limit.` during the Check job.
+- **Root Cause:** The remote cache service refused restoration because the account's cache egress allowance was exhausted; this was not a compiler or test failure.
+- **Solution:** The workflow continued through its ordinary uncached path. Check and all five native build/test/package/offline-install jobs passed without changing qualification rules or account settings.
+- **Prevention / Reference:** Treat cache availability as optional. Require complete successful source qualification rather than accepting an incomplete run or weakening gates.
+
 ### [2026-10-23] Controlled-runtime smoke skipped complete prepared scope
 
 - **Context / Symptom:** The ordinary native file matrix passed, but both controlled Codex sizes stopped at `Run needs the complete scope`. A reopened cooperation review retained its scrolled position, so the harness could not see the immutable Request near the top.

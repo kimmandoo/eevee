@@ -140,6 +140,9 @@ pub struct State {
     pub submitted_request: Arc<str>,
     submitted_instruction: Option<Arc<str>>,
     pub(super) failed_request: bool,
+    /// An explicitly abandoned blocked generation; keep its local Request
+    /// inspector without treating cancellation as a failed-send draft restore.
+    pub connection_recovery: Option<u64>,
     pub affirmative: bool,
     pub question: usize,
     pub option: usize,
@@ -264,6 +267,7 @@ impl State {
             submitted_request: Arc::default(),
             submitted_instruction: None,
             failed_request: false,
+            connection_recovery: None,
             following: true, new_output: false, response_cache: response::Layout::default(),
             activity: "Connecting",
             response_scroll: 0, response_max: 0,
@@ -1032,7 +1036,8 @@ impl State {
                 self.finish_native(
                     matches!(outcome, Outcome::Completed) && !self.unknown_effects(),
                 );
-                self.failed_request = self.active
+                self.failed_request = self.connection_recovery != Some(generation)
+                    && self.active
                     && !self.inspect_models
                     && !self.inspect_sessions
                     && !matches!(outcome, Outcome::Completed)

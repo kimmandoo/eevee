@@ -141,7 +141,24 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             ],
         )
     });
-    let editing = if let Some(PromptKind::Permission {
+    let editing = if app
+        .planning
+        .preview
+        .as_ref()
+        .is_some_and(|preview| !preview.blockers.is_empty())
+    {
+        Some(
+            paint
+                .hint(Message::ProvidersPlanningBlockedConnectionNeedsAttention)
+                .into(),
+        )
+    } else if app.planning.connection_recovery.is_some() {
+        Some(
+            paint
+                .hint(Message::ProvidersPlanningRequestKeptNotSent)
+                .into(),
+        )
+    } else if let Some(PromptKind::Permission {
         file: Some(file), ..
     }) = app.planning.request.as_ref().map(|request| &request.kind)
     {
@@ -261,7 +278,15 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         response(frame, content, state, paint);
         return;
     }
-    let header = if state.preview.is_some() {
+    let header = if state
+        .preview
+        .as_ref()
+        .is_some_and(|preview| !preview.blockers.is_empty())
+    {
+        paint.hint(Message::ProvidersPlanningBlockedConnectionNeedsAttention)
+    } else if state.connection_recovery.is_some() && state.inspection.is_some() {
+        paint.hint(Message::ProvidersPlanningRequestKeptNotSent)
+    } else if state.preview.is_some() {
         paint.hint(Message::ProvidersPlanningLocalPreviewNoProviderConnectionAuthorized)
     } else if state.request.is_some() {
         paint.hint(Message::ProvidersPlanningProviderRequestExplicitResponseRequired)
@@ -286,7 +311,15 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             state.reviewed = render_file_summary(frame, body, state, paint);
         } else {
             let mut summary = review_summary(state, paint);
-            if state.preview.is_some() && !state.inspect_models && !state.inspect_sessions {
+            let blocked = state
+                .preview
+                .as_ref()
+                .is_some_and(|preview| !preview.blockers.is_empty());
+            if !blocked
+                && state.preview.is_some()
+                && !state.inspect_models
+                && !state.inspect_sessions
+            {
                 let request = state.immutable_task().map_or(
                     paint.hint(Message::ProvidersPlanningImmutableRequestUnavailableInspectExactPayloadDetails),
                     |task| task.request_text(),
@@ -298,7 +331,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             {
                 summary.extend(preview.trust.iter().cloned());
             }
-            if state.required_permission_review() {
+            if blocked || state.required_permission_review() {
                 let paragraph = Paragraph::new(summary.join("\n"))
                     .style(paint.surface)
                     .wrap(Wrap { trim: false });
@@ -326,6 +359,16 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let _ = writeln!(value, "{}\n", super::selection_text(state));
     let mut review = false;
     if let Some(preview) = &state.preview {
+        for blocker in &preview.blockers {
+            let _ = writeln!(
+                value,
+                "{}",
+                paint.format(
+                    Template::ProvidersPlanningBlockerReason,
+                    &[("reason", blocker)]
+                )
+            );
+        }
         let selection = state.reviewed_selection();
         let _ = writeln!(
             value,
@@ -368,9 +411,6 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         value.push('\n');
         for line in &state.receipt {
             let _ = writeln!(value, "{line}");
-        }
-        for blocker in &preview.blockers {
-            let _ = writeln!(value, "\nBLOCKER: {blocker}");
         }
         value.push_str("\nEXACT OUTGOING PAYLOAD BEGIN\n");
         value.push_str(&preview.payload);
@@ -713,6 +753,32 @@ fn write_scope_summary(state: &State, paint: &Paint) -> String {
 
 fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
     if let Some(preview) = &state.preview {
+        if !preview.blockers.is_empty() {
+            let mut lines = vec![format!(
+                "{} · {:?} · {}",
+                state.agent.label(),
+                state.operation,
+                state.reviewed_selection().summary()
+            )];
+            lines.extend(preview.blockers.iter().map(|reason| {
+                paint.format(
+                    Template::ProvidersPlanningBlockerReason,
+                    &[("reason", reason)],
+                )
+            }));
+            lines.push(
+                paint
+                    .hint(Message::ProvidersPlanningSetupKeepsRequestNoAutomaticRetry)
+                    .into(),
+            );
+            if !state.inspect_models && !state.inspect_sessions {
+                let request = state
+                    .immutable_task()
+                    .map_or(state.submitted_request.as_ref(), |task| task.request_text());
+                lines.push(format!("Request: {request}"));
+            }
+            return lines;
+        }
         if state.agent.is_direct() {
             return vec![
                 format!(
@@ -758,16 +824,9 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
                 paint
                     .hint(Message::ProvidersPlanningNoRetriesLocalCancelCannotProveRemote)
                     .into(),
-                if preview.blockers.is_empty() {
-                    paint
-                        .hint(Message::ProvidersPlanningDDetailsExactPayloadEndpointAndCredentials)
-                        .into()
-                } else {
-                    paint.format(
-                        Template::ProvidersPlanningBlockedDForFullRemedy,
-                        &[("reason", &(preview.blockers[0]))],
-                    )
-                },
+                paint
+                    .hint(Message::ProvidersPlanningDDetailsExactPayloadEndpointAndCredentials)
+                    .into(),
             ];
         }
         return vec![
@@ -827,16 +886,9 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
             paint
                 .hint(Message::ProvidersPlanningTrustExecutableConfigNoAutomaticFutureApproval)
                 .into(),
-            if preview.blockers.is_empty() {
-                paint
-                    .hint(Message::ProvidersPlanningDDetailsExactPayloadExecutableScopeAnd)
-                    .into()
-            } else {
-                paint.format(
-                    Template::ProvidersPlanningBlockedDForAllPrerequisites,
-                    &[("reason", &(preview.blockers[0]))],
-                )
-            },
+            paint
+                .hint(Message::ProvidersPlanningDDetailsExactPayloadExecutableScopeAnd)
+                .into(),
         ];
     }
     let Some(request) = &state.request else {
@@ -941,7 +993,13 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
             state.request.as_ref().map(|request| &request.kind),
             Some(PromptKind::Permission { file: Some(_), .. })
         );
-    let controls = if state.auto_permission_review {
+    let controls = if state
+        .preview
+        .as_ref()
+        .is_some_and(|preview| !preview.blockers.is_empty())
+    {
+        paint.hint(Message::ProvidersPlanningRunBlockedNCancelEscCancelD)
+    } else if state.auto_permission_review {
         paint.hint(Message::ProvidersPlanningPermissionAutoReviewActions)
     } else if file_details {
         paint.hint(Message::ProvidersPlanningFileDetailsActions)
@@ -2562,6 +2620,51 @@ mod tests {
             draw(&mut app);
             assert!(app.planning.scroll_max > 0);
             assert!(!app.planning.reviewed);
+        }
+    }
+
+    #[test]
+    fn blocked_preview_reason_scrolls_without_arming_run_in_both_languages() {
+        for tag in ["en", "ko"] {
+            let language = crate::i18n::Language::parse(tag).unwrap();
+            for (width, height) in [(60, 18), (120, 36)] {
+                let (mut app, task) = preview(width, height);
+                app.planning.agent = crate::providers::Agent::ChatGPT;
+                let prepared = app.planning.preview.as_mut().unwrap();
+                prepared.blockers = vec![
+                    format!(
+                        "Cannot read user provider config safely: {}REMEDY_END",
+                        "actual reason ".repeat(60)
+                    ),
+                    "SECOND_BLOCKER_END".into(),
+                ];
+                let shown = screen(&draw_language(&mut app, language));
+                let setup = language.text(Message::ProvidersPlanningRunBlockedNCancelEscCancelD);
+                assert!(shown.contains(setup.lines().next().unwrap()), "{shown}");
+                assert!(shown.contains("Cannot read user provider"), "{shown}");
+                assert!(!shown.contains("preparing changes"), "{shown}");
+                assert!(app.planning.scroll_max > 0, "{shown}");
+                let mut inspected = shown;
+                while app.planning.scroll < app.planning.scroll_max {
+                    key(&mut app, &task, KeyCode::PageDown);
+                    inspected.push_str(&screen(&draw_language(&mut app, language)));
+                }
+                assert!(inspected.contains("REMEDY_END"), "{inspected}");
+                assert!(inspected.contains("SECOND_BLOCKER_END"), "{inspected}");
+                for code in [KeyCode::Char('y'), KeyCode::Tab, KeyCode::Char('a')] {
+                    key(&mut app, &task, code);
+                    assert!(app.planning.pending.is_none() && !app.planning.affirmative);
+                }
+                key(&mut app, &task, KeyCode::Char('d'));
+                let details = screen(&draw_language(&mut app, language));
+                assert!(details.contains("Cannot read user provider"), "{details}");
+                assert!(details.contains(setup.lines().next().unwrap()), "{details}");
+                key(&mut app, &task, KeyCode::Char('n'));
+                assert!(matches!(
+                    app.planning.pending.take(),
+                    Some(Request::Cancel { generation: 11 })
+                ));
+            }
         }
     }
 

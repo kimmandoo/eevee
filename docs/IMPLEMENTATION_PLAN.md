@@ -1,10 +1,18 @@
 # Eevee Implementation Plan
 
-Updated: 2026-10-23. Public v0.1.24 completed the first file-intent/permission correction with exact-source qualification, immutable publication and downloaded runtime/install proof. The subsequent form-independent project-coding request is active below; do not start another backlog task. Schema 18 and complete SDK bridge 9 remain unchanged. [task.md](../task.md) retains 34 unfinished backlog tasks.
+Updated: 2026-10-23. Immutable v0.1.25 published the form-independent coding/permission correction and concise README; downloaded verification is recorded in the checkpoint. The newly reported native-account configuration blocker takes priority below and requires separate v0.1.26. Schema 18 and complete SDK bridge 9 remain unchanged. [task.md](../task.md) retains 34 unfinished backlog tasks.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Active request — form-independent project coding and permission UX
+## Active request — native account configuration blocker and direct recovery
+
+1. Reproduce the reported zero-byte blocked account Implement preview with the downloaded public executable and isolated credentials/files; do not rerun the user's real request or authorize paid traffic.
+2. Remove unrelated external CLI model-file admission from native account resolution/setup. App choices/profiles and explicit environment defaults remain authoritative; selected authentication and API config retain strict filesystem/privacy checks.
+3. Give genuinely blocked prepared requests an accurate blocked state, complete readable reason at minimum size and a deliberate direct setup action. Cancel-and-settle the old preview, preserve submitted/future drafts and never automatically resend after setup.
+4. Verify actual account preparation and bilingual compact/wide recovery, no credential/file repair or inference, existing provider/file/ownership regressions and locked source checks.
+5. Record failures/resolutions and exact source evidence; qualify/publish immutable v0.1.26, verify public assets plus downloaded runtime/installation, then complete both requests without replacing v0.1.25.
+
+## Completed request — form-independent project coding and permission UX; v0.1.25 released
 
 1. Trace how automatic/manual forms select operations, advertise read/list/create/edit tools and receive current-project context across implemented providers. Treat the reported blocked coding/context flow as a production failure; use the supplied reference for tool/context/awaited-permission UX without copying provenance into product artifacts.
 2. Reproduce the form-dependent restriction using public v0.1.24. Separate cosmetic/specialist form choice from explicit operation safety. A selected form must not silently prevent ordinary project discovery, file creation or modification.
@@ -12,7 +20,7 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 4. Present required owner-bound permission reviews automatically at the relevant safe surface, with clear English/Korean controls, retained drafts, complete compact scope and no approval-menu detour. Verify all manual forms and automatic evolution through actual discovery, create/edit, denial and approved bytes.
 5. Update binding contracts, affected tests/drivers, troubleshooting and handoff; commit and qualify a new corrective release. Verify immutable public packages and downloaded runtime/installation. No paid/live account calls or original installation/private-data changes.
 
-Steps 1–4 passed. Final B passed Rust 1.90.0 formatting, 1,364 tests/two ignored, strict Clippy and release build; SDK policy/IPC passed 44 cases and Python release contracts fourteen/three skips. A passed all 72 nine-form bilingual/both-size journeys/576 groups, 24 ACP automatic-permission journeys/72 groups, bilingual evolution and provider UX/20. B passed actual fixed-form coding and compact Korean prepared/generic/file consent with the final title. Step 5 remains active: exact-source qualification, immutable publication, remaining regressions and downloaded runtime/install proof.
+Steps 1–5 passed. Source `721048914058a6869c1e6d6fb89f1dc9dbb8aa3c` passed Rust1.90 formatting, 1,364 tests/two ignored, strict Clippy/release build, SDK44 and Python14/three skips. Strict native run `39933713629` attempt1 qualified Check/all five packages; publication `39935079767` created immutable release `421681413`. All eight public digests, seven manifest entries, both source installers and five exact qualified archives passed. Downloaded runtime passed all-form576, ACP72, ordinary-file126, native176, providerUX20, cooperation24 and bilingual evolution; installation24 included34 native scenarios and byte-identical reinstalled/public executables. The README passed actual desktop/light and mobile/dark rendering, navigation and expansion checks. The further account-configuration blocker is active above.
 
 ## Completed request — actionable file create/edit permission popup; v0.1.24 released
 

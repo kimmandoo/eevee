@@ -2,11 +2,17 @@
 
 ## 2026-10-23
 
+- fix(providers): decoupled native OpenAI account model defaults from external CLI configuration so unrelated unsafe or malformed files no longer blocked request preparation.
+- fix(ux): exposed complete scrollable blockers and direct localized connection setup while retaining frozen requests, future drafts and explicit cancellation without automatic resend.
+- test(providers): verified twelve bilingual compact/wide account-preparation and direct-recovery journeys/36 groups without dispatching inference, altering provider files or bypassing unsafe selected credentials.
+
 - fix(forms): separated project coding capability from automatic/manual evolution, preserved explicit readonly policy across form/formation changes and retained same-policy conversation through cosmetic transitions.
 - fix(context): supplied a bounded frozen current-folder filename observation across native, Codex, SDK and ACP requests without attaching source bodies or granting writes.
 - fix(permissions): automatically presented required file, generic tool and prepared external-policy reviews with neutral arrival, localized controls and explicit one-shot consent.
 - test(forms): passed all 72 nine-form bilingual/both-size coding journeys/576 groups and 24 ACP prepared/generic/file-permission journeys/72 groups with actual request context, denial and approved filesystem effects.
 - docs(readme): replaced long onboarding prose with a compact project overview, daily-control and feature tables, visible safety guidance and optional advanced setup sections.
+- docs(release): published immutable v0.1.25 from exact qualified source `7210489` and verified eight public digests, seven manifest entries, both source installers and all five native archive identities.
+- test(release): passed downloaded nine-form576, ACP72, file126, native176, providerUX20, cooperation24 and bilingual evolution checks, plus installation24/34 installed-native scenarios and reinstalled/public byte identity.
 
 - docs(release): published v0.1.24 from exact source `19a217e` after unchanged Check/all-five-native qualification and immutable promotion; verified all eight public digests, seven manifest entries, source installers and exact qualified native archives.
 - test(release): verified downloaded v0.1.24 permission/48, file workflows/126, native protocols/176, provider UX/20 and bilingual automatic evolution; passed all 24 installation groups/34 installed-native scenarios and matched reinstalled/public executable bytes.
@@ -59,6 +65,12 @@
 - docs(release): published v0.1.19 from source `63f1007` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.26
+
+- fix(providers): resolved native OpenAI account connections from app-owned settings and explicit environment defaults without admitting unrelated external CLI model files.
+- fix(ux): distinguished blocked preparation from active work and added direct connection recovery with complete reasons and retained request/draft ownership.
+- docs(compatibility): retained strict selected credential/configuration checks, Schema 18, SDK bridge 9 and complete-data backup guidance without repairing existing provider files.
 
 ## 0.1.25
 

@@ -252,6 +252,45 @@ impl App {
             self.request_quit();
             return true;
         }
+        if key.kind == KeyEventKind::Press
+            && key.modifiers.is_empty()
+            && key.code == KeyCode::Char('c')
+            && self.width >= 60
+            && self.height >= 18
+            && !self.planning.quit_review
+            && !self.planning.journal_mode
+            && self.planning.picker.is_none()
+            && self.planning.selection_change.is_none()
+            && self.planning.paths_editor.is_none()
+            && self.planning.custom_model.is_none()
+            && self.planning.switch_to.is_none()
+            && self.planning.preview.as_ref().is_some_and(|preview| {
+                !preview.blockers.is_empty() && preview.task_id == self.task_id
+            })
+            && self
+                .planning
+                .owner()
+                .is_none_or(|owner| owner.partner == self.lead.id)
+        {
+            // Recovery is navigation, not renewed send intent. Discard the
+            // blocked preparation through its owned cancellation path; setup
+            // mutations/login still wait for the ordinary saved-and-idle gate.
+            let agent = self.planning.agent;
+            let generation = self.planning.preview.as_ref().unwrap().generation;
+            self.pending_request = None;
+            if self.planning.cancel() {
+                self.planning.connection_recovery = Some(generation);
+                self.planning.failed_request = false;
+                self.planning.inspection = Some(self.planning.submitted_request.to_string());
+                self.planning.scroll = 0;
+                self.planning.scroll_max = 0;
+                self.open_overlay(Overlay::Agents);
+                self.agents.active = agent.index();
+                self.agents.begin_connection(agent);
+                self.refresh_approvals();
+            }
+            return true;
+        }
         if key.code == KeyCode::Esc
             && (self.planning.request.is_some() || self.planning.preview.is_some())
         {

@@ -425,44 +425,11 @@ fn private_header(value: &str) -> reqwest::header::HeaderValue {
 fn codex_preferences<F: Fn(&str) -> Option<String>>(
     input: &Inputs<F>,
 ) -> Result<(Option<String>, Option<String>), String> {
-    let path = codex_auth_path(input).map(|p| p.with_file_name("config.toml"));
-    let preferences = if let Some(path) = path.filter(|p| p.exists()) {
-        let bytes = read_user_file(&path, false, input.project.as_deref())?;
-        let text = std::str::from_utf8(&bytes)
-            .map_err(|_| "Provider config.toml must be UTF-8 TOML.".to_string())?;
-        let value: toml::Value = toml::from_str(text).map_err(|_| {
-            "Provider config.toml is invalid TOML; no raw provider configuration is displayed."
-                .to_string()
-        })?;
-        let nonsecret = |name: &str| -> Result<Option<String>, String> {
-            match value.get(name) {
-                None => Ok(None),
-                Some(value) => value.as_str().map(|s| Some(s.to_owned())).ok_or_else(|| {
-                    "Provider model and reasoning-effort preferences must be strings.".into()
-                }),
-            }
-        };
-        // CLI defaults belong to that CLI's selected provider/profile. Never
-        // transplant a custom provider's model into the fixed subscription API.
-        if value.get("profile").is_some()
-            || value
-                .get("model_provider")
-                .is_some_and(|provider| provider.as_str() != Some("openai"))
-            || value
-                .get("model_providers")
-                .and_then(|providers| providers.get("openai"))
-                .is_some()
-            || (input.get)("OPENAI_BASE_URL").is_some()
-        {
-            (None, None)
-        } else {
-            (nonsecret("model")?, nonsecret("model_reasoning_effort")?)
-        }
-    } else {
-        (None, None)
-    };
-    let model = (input.get)("CODEX_MODEL").or(preferences.0);
-    let effort = (input.get)("CODEX_REASONING_EFFORT").or(preferences.1);
+    // Native account routing is independent of the external CLI's files,
+    // profiles and filesystem permissions. Only deliberate environment defaults
+    // supplement Eevee's own selected model/effort; auth import remains separate.
+    let model = (input.get)("CODEX_MODEL");
+    let effort = (input.get)("CODEX_REASONING_EFFORT");
     for value in [&model, &effort].into_iter().flatten() {
         if value.is_empty() || value.len() > 256 || crate::workspace::privacy::redact(value) != *value || value.chars().any(|c| c.is_control() || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')) {
             return Err("Provider model and reasoning-effort preferences must be bounded nonempty strings without control characters.".into());
@@ -1650,25 +1617,49 @@ mod tests {
     }
     #[cfg(unix)]
     #[test]
-    fn codex_model_and_effort_are_passive_nonsecret_preferences() {
+    fn account_connection_does_not_admit_or_inherit_external_cli_configuration() {
+        use std::os::unix::fs::symlink;
+
         let temp = Temp::new();
-        temp.file("config.toml", "model='custom-native-model'\nmodel_reasoning_effort='high'\n[unrelated]\nignored='not exported'\n", 0o600);
-        let mut input = input(&[("CODEX_HOME", temp.0.to_str().unwrap())]);
-        let settings = settings(Agent::ChatGPT, &input).unwrap();
-        assert_eq!(settings.model.as_deref(), Some("custom-native-model"));
-        assert_eq!(settings.effort.as_deref(), Some("high"));
-        input.project = Some(temp.0.clone());
-        assert!(super::settings(Agent::ChatGPT, &input).is_err());
-        let overrides = super::tests::input(&[
+        let external = temp.file("external.toml", "invalid = [provider-configuration", 0o666);
+        let link = temp.0.join("config.toml");
+        symlink(&external, &link).unwrap();
+        let mut selected = input(&[
             ("CODEX_HOME", temp.0.to_str().unwrap()),
             ("CODEX_MODEL", "explicit-model"),
             ("CODEX_REASONING_EFFORT", "low"),
             ("CODEX_ACCESS_TOKEN", "opaque-token"),
         ]);
-        let connection = resolve_with(Agent::ChatGPT, &overrides).unwrap();
+        selected.project = Some(temp.0.clone());
+        let connection = resolve_with(Agent::ChatGPT, &selected).unwrap();
+        assert_eq!(connection.base_url, CODEX_BASE);
         assert_eq!(connection.model.as_deref(), Some("explicit-model"));
         assert_eq!(connection.effort.as_deref(), Some("low"));
-        assert!(!connection.description.contains("not exported"));
+        assert_eq!(connection.secret.as_deref(), Some("opaque-token"));
+        assert!(fs::symlink_metadata(&link).unwrap().is_symlink());
+        assert_eq!(
+            fs::read_to_string(&external).unwrap(),
+            "invalid = [provider-configuration"
+        );
+
+        fs::remove_file(&link).unwrap();
+        temp.file(
+            "config.toml",
+            "model='unrelated-cli-model'\nmodel_reasoning_effort='high'\n",
+            0o600,
+        );
+        let selected = input(&[
+            ("CODEX_HOME", temp.0.to_str().unwrap()),
+            ("CODEX_ACCESS_TOKEN", "opaque-token"),
+        ]);
+        let connection = resolve_with(Agent::ChatGPT, &selected).unwrap();
+        assert!(connection.model.is_none() && connection.effort.is_none());
+
+        let invalid = input(&[
+            ("CODEX_ACCESS_TOKEN", "opaque-token"),
+            ("CODEX_MODEL", "bad\nmodel"),
+        ]);
+        assert!(resolve_with(Agent::ChatGPT, &invalid).is_err());
     }
 
     #[test]
