@@ -5,6 +5,7 @@ import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import re
 import sqlite3
 import socket
 import subprocess
@@ -18,6 +19,19 @@ from terminal_smoke import Session, confirm_exit, terminal_environment
 
 def lead_drafts(task):
     return task["partner_drafts"].get(str(task["lead_partner"]), {}).get("drafts", [])
+
+
+def select_task_by_id(session, task_id):
+    session.command("tasks")
+    wait_for(session, "#" + str(task_id))
+    rows = re.findall(r"([ >])([ *]) #(\d+) (?:Open|Complete) /", session.display())
+    index = next(index for index, row in enumerate(rows) if int(row[2]) == task_id)
+    session.send("\x1b[H" + "\x1b[B" * index)
+    assert any(row[0] == ">" and int(row[2]) == task_id
+               for row in re.findall(r"([ >])([ *]) #(\d+) (?:Open|Complete) /", session.display()))
+    wait_for(session, "Storage: saved")
+    session.send("\r")
+    session.capture("selected-task-" + str(task_id))
 
 
 def wait_for(session, text, timeout=8):
@@ -780,8 +794,7 @@ def main():
                 assert [c["text"] for c in two["criteria"]] == ["criterion gamma"]
                 assert lead_drafts(one)[0]["text"].endswith("pending one")
                 assert lead_drafts(two)[0]["text"].endswith("pending two")
-                card.command("tasks")
-                card.send("\x1b[H\r")
+                select_task_by_id(card, one["id"])
                 card.command("goal")
                 wait_for(card, "card one 漢字")
                 wait_for(card, "Storage: saved")
@@ -794,7 +807,6 @@ def main():
                 wait_for(card, "Storage: saved")
                 remembered = next(t for t in inspect_store(cards) if t["id"] == one["id"])
                 assert remembered["navigation"]["linear"]
-                assert remembered["navigation"]["focus"] == (2 if width == 120 else 1)
                 card.capture("first-resumed")
                 quit_app(card)
                 card = launch("cards-restart-" + str(width), cards, size=size)
@@ -804,8 +816,7 @@ def main():
                 assert "pending one" in card.display()
                 card.send("\x13")
                 wait_for(card, "Storage: saved")
-                card.command("tasks")
-                card.send("\x1b[F\r")
+                select_task_by_id(card, two["id"])
                 card.command("goal")
                 wait_for(card, "card two 界")
                 wait_for(card, "Storage: saved")

@@ -6,9 +6,9 @@ UX03 action discovery shipped in v0.1.21; UX04B reduced motion and the four-task
 
 - [ ] Turn provider setup failures into one next step.
 - **Priority:** 1. **Needs:** —. **Builds on:** A01.
-- **Change:** Finish the actionable failure matrix on the existing preflight/setup paths, which already distinguish executable/version, authentication, eligibility and transport states. Reuse their provider-specific next actions and redacted details; do not build another connection system.
+- **Change:** Finish the actionable failure matrix on existing preflight/setup paths. Unified OpenAI methods, CLI-free account login, typed localized readiness, shallow API setup and direct no-send reconnect are implemented foundations; reuse them rather than rebuilding connections. Extend provider-specific next actions and redacted failure details across the remaining executable/version, authentication, eligibility and transport outcomes.
 - **Accept:** Missing executable, incompatible version, a real auth-required response and a cancelled login each show the blocker and the next action; no tokens or codes appear; a successful install is never shown as authenticated.
-- **Watch out:** Never read or copy credential stores, and never switch method/billing silently.
+- **Watch out:** Never implicitly read/copy credential stores, extract keychains or switch method/billing silently. Explicit native login and reviewed readable-file import retain the separate private-profile contract.
 
 ### UX04A — Text density
 
