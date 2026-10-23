@@ -2,6 +2,11 @@
 
 ## 2026-10-23
 
+- docs(tasks): prioritized formations, portable TMs, persistent reduced motion and the remaining picker transition before general context/provider/refactor work; corrected export, authentication, schema and already-implemented foundation requirements.
+- docs(tasks): separated 67 completed detailed specifications and the original foundation index into `tasks/COMPLETED.md`, archived UX03 and retained 38 unfinished tasks with checked dependency/link integrity.
+- docs(release): published v0.1.21 from exact source `96f4479` after complete Check/all-five-native qualification and immutable promotion; verified all eight public asset digests, seven manifest entries, native identities and source installers without changing Schema 18 or complete SDK bridge 9.
+- test(release): verified downloaded bilingual compact/wide navigation and tooltips, ten source-context cases, Korean generated-file/continuous-scroll journeys, ten native protocol variants/176 groups and 23 installation lifecycle groups including 34 installed-native scenarios; confirmed the reinstalled binary matched the public package.
+
 - fix(ux): prioritized everyday searchable actions, collapsed duplicate alias rows and added locale-owned attachment, connection, cancellation and evidence keywords without a second dispatcher.
 - fix(navigation): returned source previews and payloads directly to Files, corrected their status/hints and removed redundant command-reinvocation guidance.
 - fix(tasks): returned to the already-active task without reloading or applying cross-task work guards, while preserving guards for another task.

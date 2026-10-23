@@ -1,18 +1,30 @@
 # Eevee Implementation Plan
 
-Date: 2026-10-13
-Status: 25 of 31 tasks passed their scoped gates, including P02 and U01/L01/G01/S01/S02/S03. Schema-6 specialist, memory and recipe journeys passed all five native installed-runtime rows at `d198fa5`; all eleven build/smoke/policy jobs passed. Local real independent Codex review and measured release workloads also passed. Full A04/A06/A07 and therefore Q01/Q02/P03 remain pending on permitted Claude/Gemini authentication and their required conformance rows. The separately authorized 0.1.0 core release promotes the exact qualified packages.
-Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). The latter distinguishes documented interfaces, local CLI observations, and runtime conformance still to be performed.
+Updated: 2026-10-23. Public v0.1.21 is released with Schema 18 and complete SDK bridge 9. The current backlog has 38 unfinished tasks; [task.md](../task.md) is the sole execution-order index, and [completed specifications](../tasks/COMPLETED.md) are separate. Historical counts and credential blockers below describe their original checkpoints, not today's readiness.
 
-## Active request — shallow everyday navigation, then release
+Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-- Audit real compact/wide journeys before changing navigation; preserve all meaningful file/command/provider policy reviews.
-- Put everyday actions first in the existing searchable registry, collapse duplicate alias rows while retaining exact commands, and make attachment/connection/cancellation/evidence queries discoverable.
-- Return from source preview/payload directly to Files without an Attachments detour; preserve explicit attachment inspection, filter/selection, draft and capture consent.
-- Return to the already-active task without scheduling a task switch or reload; preserve full guards for another task.
-- Accept an unchanged model/effort pair without a redundant reasoning sheet; keep changed-model reasoning and existing-session review atomic. Focus the retained custom model rather than metadata refresh when it is absent from the catalogue.
-- Verify actual bilingual compact/wide terminal journeys and affected regressions, update contracts/version, commit and qualify all five native packages, then publish and verify the downloaded release without touching original installation/auth/private data.
-- After release, audit the remaining backlog against implemented behavior, prioritize completing Pokémon/partner features and their genuine prerequisites, correct stale requirements and separate completed work from active tasks.
+## Current execution order — Pokémon completion first
+
+No next implementation task is automatically active after this release/documentation request. When implementation is requested, start **PT11**, then **MV08B → UX04B → PK03**:
+
+1. PT11: save/reopen/apply a reviewed party formation through existing recipe and partner ownership, preserving busy guards and nonempty drafts.
+2. MV08B: portable inert TM definitions and explicit import, reusing create-only publication. Own the missing reviewed export slice here; full S04 workflow authoring is not a blocker.
+3. UX04B: persist reduced motion and complete explicit installer/update opt-out on existing frame gates.
+4. PK03: optional bounded picker transition on the released static receipt, after reduced motion; preserve static fallback, exact input forwarding and approval/live-code priority.
+
+Use each active specification's acceptance criteria and actual bilingual compact/wide runtime proof. General context/platform/provider tracks and just-in-time refactors follow this milestone. Only authenticated rows require external credentials; local Q01/Q02/P03 work is independently actionable.
+
+## Completed request — shallow everyday navigation; v0.1.21 released
+
+- Prioritized common and locale-owned semantic actions in the existing registry; retained exact commands, disabled reasons and scope-specific reviews.
+- Removed the source Preview/Payload→Attachments detour, current-task reload guard and unchanged-model reasoning detour without changing draft/live-owner authority.
+- Source `96f4479dadc17f13735797c035d2eea5c1a5f5a0` passed Check/all five native rows in `39891484406` attempt1. Publication `39892491651` promoted only the qualified immutable packages. All public asset digests, manifest entries, safe archive/native identities and source installers passed; actual downloaded-runtime evidence is in the checkpoint.
+- After publication, audited remaining requirements against source, promoted the four-task Pokémon milestone, archived 67 completed detailed specifications, corrected obsolete schema/provider/refactor claims and removed false blanket authentication/export dependencies. UX03 is complete; 38 tasks remain.
+
+## Historical implementation records
+
+The sections below retain prior scopes, decisions and evidence. Their future-tense steps, schema snapshots and completion counts are historical and must not override the current task index.
 
 ## Completed request — current-folder coding and provider UX parity, v0.1.20 released
 

@@ -2,49 +2,26 @@
 
 Local deterministic optimizer only: no optimizer-initiated network, hosted summarization, embeddings, telemetry or tokenizer downloads. Keep exact Eevee-sent bytes, labelled estimates, provider-reported usage and billing distinct; unknown stays unknown, never zero. Tool discovery, paging and caching apply only to documented adapter capabilities and Eevee-owned execution. T05 was dropped on 2026-10-14.
 
-### C03A — Attachment chips
-
-- [x] Show and remove `@` attachments as chips.
-- **Priority:** 1. **Needs:** —. **Builds on:** C02, A02.
-- **Change:** Compact removable file/range chips in the composer, keyboard-navigable, restored after a restart.
-- **Accept:** Attach a file and a range, remove one by keyboard, restart, and recover the rest. Long Unicode names keep remove/inspect visible.
-- **Watch out:** Excluded secrets and out-of-root links never become chips.
-
-### C03B — Chip preview, staleness and budget
-
-- [x] Inspect exactly what each chip sends.
-- **Priority:** 1. **Needs:** C03A. **Builds on:** C02.
-- **Change:** Per-chip content preview, stale/unavailable markers, exact bytes and a labelled token estimate; reuse dispatch revalidation.
-- **Accept:** A source change goes stale before send; a missing capture blocks assembly; displayed bytes equal the serialized request.
-- **Watch out:** Never imply control over provider-added reads/history.
-
-### T01A — Provider usage reconciliation
-
-- [x] Record provider-reported usage per turn without double counting.
-- **Priority:** 1. **Needs:** C03B. **Builds on:** A02, R02.
-- **Change:** Store input/output/cache/reasoning usage from supported events; delta, final and repeated events count once. Name the model and tokenizer.
-- **Accept:** Two real turns and a resume reconcile against provider events.
-- **Status:** Verified three explicitly authorized read-only Codex 0.147.0 turns, including two actual owned-session resumes, on macOS arm64 on 2026-10-21. Persisted response counters matched reported events and resumed session deltas without overlapping sums. Unreported model/tokenizer metadata remained unknown; billing stayed provider-owned. SDK revision-5 contract/policy evidence is separate from live SDK conformance.
-- **Watch out:** Unavailable prices produce no invented cost; opaque provider input is not attributed to selected files.
+Attachment chips, exact previews and provider-usage reconciliation (C03A/C03B/T01A) are complete; specifications and scoped proof are in [COMPLETED.md](COMPLETED.md). This track follows the Pokémon-completion milestone.
 
 ### T01B — Before/after selection comparison
 
 - [ ] Compare two context selections for the same turn.
-- **Priority:** 2. **Needs:** T01A. **Builds on:** —.
-- **Change:** Show the receipt delta between the current and a previous selection.
+- **Priority:** 2. **Needs:** —. **Builds on:** T01A, C03B.
+- **Change:** Extend existing exact section receipts with a current-versus-previous context-selection comparison for the same turn; provider usage reconciliation is separate.
 - **Accept:** Removing a chip shows the exact byte and estimate drop per section.
 
 ### T01C — Durable receipt identity
 
 - [ ] Keep receipts across restarts and respect purge.
-- **Priority:** 2. **Needs:** T01A. **Builds on:** E03.
-- **Change:** Persist receipts with their request identity.
+- **Priority:** 2. **Needs:** —. **Builds on:** T01A, E03.
+- **Change:** Persist outgoing section receipts with their request identity. Already-persisted provider usage is not this receipt or its source/purge contract.
 - **Accept:** A receipt survives a restart; purge removes its source bytes but keeps counts according to E03.
 
 ### T02A — Ranked context with reasons under a budget
 
 - [ ] Assemble a smaller packet with visible reasons and omissions.
-- **Priority:** 1. **Needs:** T01A. **Builds on:** C02.
+- **Priority:** 1. **Needs:** —. **Builds on:** T01A, C02.
 - **Change:** From goal, diff and pins, rank candidate excerpts (text-only, labelled), dedup overlaps, and show reasons and omissions under a user budget. Overflow requires a decision.
 - **Accept:** In a multi-file bug fixture, the defect, caller and check are included with fewer tokens than the full-file baseline (one named tokenizer). Editing a source after preview stops dispatch.
 - **Watch out:** Never drop mandatory instructions or pins silently.
@@ -74,7 +51,7 @@ Local deterministic optimizer only: no optimizer-initiated network, hosted summa
 ### T04 — Evidence-linked compaction
 
 - [ ] Continue long work with a compact local ledger.
-- **Priority:** 2. **Needs:** T01A. **Builds on:** C02, E02, R02.
+- **Priority:** 2. **Needs:** —. **Builds on:** T01A, C02, E02, R02.
 - **Change:** A deterministic packet of requirements, approved decisions, references, unresolved hypotheses and next action, with inferences kept separate from observations; preview before any request.
 - **Accept:** An offline resume with conflicting decisions, a failed check and a changed source keeps the latest decision and the failure; cancel changes nothing; processing cost and packet size are measured.
 - **Watch out:** No model summarization; an old approval is never a new grant.
@@ -83,7 +60,7 @@ Local deterministic optimizer only: no optimizer-initiated network, hosted summa
 
 - [ ] Search stored metadata of explicitly trusted tools.
 - **Priority:** 1. **Needs:** —. **Builds on:** A01, C02.
-- **Change:** A local catalog (populated by a separate reviewed setup action) with namespaced identity, trust origin and declared effects, and local ranking.
+- **Change:** A local catalog (populated by a separate reviewed setup action) with namespaced identity, trust origin and declared effects, and local ranking. SDK bridge 9's closed host-discovery tool is not an extensible trusted catalog; preserve actual adapter/MCP boundaries.
 - **Accept:** In a 100-tool fixture, the intended tool ranks first; collisions and malicious descriptions are handled without executing anything.
 - **Watch out:** Relevance is not authorization; a read-only hint is not a sandbox.
 
@@ -98,15 +75,15 @@ Local deterministic optimizer only: no optimizer-initiated network, hosted summa
 ### TC03A — Paged tool-result artifacts
 
 - [ ] Store tool output once and serve exact pages.
-- **Priority:** 1. **Needs:** TC01A. **Builds on:** E03, R02.
-- **Change:** Immutable artifact identities with an exit summary, total/captured/omitted sizes, a preview and range retrieval. Inherits isolation, redaction, quota and purge.
+- **Priority:** 1. **Needs:** —. **Builds on:** E03, R02.
+- **Change:** Extend existing owned-run retention/paging into immutable tool-artifact identities with an exit summary, total/captured/omitted sizes, preview and exact range retrieval. Inherit isolation, redaction, quota and purge. Artifact storage does not depend on catalog ranking.
 - **Accept:** For a 10 MiB log, errors outside the preview are retrieved by page; wrong-task, purged and stale handles are refused.
 
 ### TC03B — Search within artifacts
 
 - [ ] Find the relevant slice instead of paging blindly.
-- **Priority:** 1. **Needs:** TC03A, EV10A. **Builds on:** —.
-- **Change:** Exact search plus parsed failure locations (reusing EV10A).
+- **Priority:** 1. **Needs:** TC03A. **Builds on:** EV10A.
+- **Change:** Extend existing retained-run search and failure-location parsing to the same owned tool-artifact identity and visibility rules.
 - **Accept:** Search finds the errors with much less input than the full log; a quota-limited run reports discarded bytes; instruction-like output cannot approve calls.
 
 ### TC04 — Observation cache
@@ -136,8 +113,8 @@ Local deterministic optimizer only: no optimizer-initiated network, hosted summa
 ### D01 — Impact-directed verification plan
 
 - [ ] Recommend the checks most likely to catch a change's defects.
-- **Priority:** 2. **Needs:** T02B, TC02. **Builds on:** C01, R01.
-- **Change:** Use changed symbols, local dependencies, test mappings and prior failures (PK05A when available) to propose a minimal check set with reasons, through Jolteon's review.
+- **Priority:** 2. **Needs:** T02B, TC02. **Builds on:** C01, R01, PK05A.
+- **Change:** Use changed symbols, local dependencies, test mappings and existing Dex failure records to propose a minimal check set with reasons, through Jolteon's review.
 - **Accept:** The caller's test catches a changed callee; a shared-config change triggers a broader plan; targeted passes are labelled targeted.
 - **Watch out:** A recommendation is neither proof of completeness nor permission to run.
 
