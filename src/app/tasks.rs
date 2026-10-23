@@ -423,7 +423,6 @@ impl App {
                     self.lead.auto_form = auto_form;
                     self.evolution.transition = None;
                     self.set_form(index);
-                    self.planning.select_form_operation(index);
                     self.changed_task();
                 }
                 if index == 0 {

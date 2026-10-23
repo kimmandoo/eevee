@@ -17,6 +17,7 @@ import tempfile
 import traceback
 
 from native_connection_smoke import until
+from file_creation_smoke import file_review_pending
 from response_smoke import SurfaceSession, SURFACE, ALT_END
 from terminal_smoke import terminal_environment, confirm_exit
 from workbench_smoke import wait_for
@@ -53,7 +54,8 @@ def journey(binary, output, route, language, size, mode):
         environment.update(HOME=str(home), USERPROFILE=str(home), XDG_CONFIG_HOME=str(home / 'config'),
                            XDG_DATA_HOME=str(home / 'data'), XDG_CACHE_HOME=str(home / 'cache'),
                            PATH=str(runtime) + os.pathsep + environment.get('PATH', ''), EV_PROVIDER=route,
-                           EEVEE_ACP_FILE_TEST_CHILD='1', EEVEE_ACP_FILE_MODE=mode, EEVEE_ACP_FILE_LOG=str(log))
+                           EEVEE_ACP_FILE_TEST_CHILD='1', EEVEE_ACP_FILE_MODE=mode, EEVEE_ACP_FILE_LOG=str(log),
+                           EEVEE_ACP_GENERIC_PERMISSION='1')
         argv = [str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono']
         if size[0] == 60:
             argv.append('--ascii')
@@ -90,12 +92,17 @@ def journey(binary, output, route, language, size, mode):
                   for state in task['partner_drafts'].values() for draft in state.get('drafts', [])), 'request not durably saved')
             session.send('\r')
 
+            neutral = ('Enter to review (not approve)', 'Enter 검토 (승인 아님)')
+            until(session, lambda: any(label in session.display() for label in neutral),
+                  'required external-policy review did not open automatically', timeout=40)
+            session.send('y')
+            assert not any(row['packet'].get('method') == 'session/prompt' for row in packets()), 'neutral arrival approved from typing'
+            session.send('\r')
+
             def preview():
-                view = session.display()
-                if any(label in view for label in ('y Run', 'y 실행')):
+                if any(label in session.display() for label in ('y Run', 'y 실행')):
                     return True
-                if 'Alt+A' in view:
-                    session.send(ESC + 'a')
+                session.send('\x1b[6~')
                 return False
 
             until(session, preview, 'explicit external-policy request review missing', timeout=40)
@@ -103,8 +110,20 @@ def journey(binary, output, route, language, size, mode):
             assert (project / 'existing.txt').read_bytes() == ORIGINAL and not (project / 'nested').exists()
             session.capture('external-policy-review-before-dispatch')
             session.send('y')
-            automatic = ('File proposal ready', '파일 제안 준비됨')
-            until(session, lambda: any(label in session.display() for label in automatic), 'actual ACP file approval missing', timeout=40)
+            for decision in ('n', 'a'):
+                until(session, lambda: any(label in session.display() for label in neutral),
+                      'generic tool permission did not open automatically', timeout=40)
+                before = packets()
+                session.send('y')
+                assert packets() == before, 'typing approved a newly arriving generic permission'
+                session.capture('generic-neutral-' + decision)
+                session.send('\r')
+                for _ in range(12):
+                    session.send('\x1b[6~')
+                session.capture('generic-reviewed-' + decision)
+                session.send(decision)
+            result['cases'].append('prepared external policy and generic deny/allow opened automatically; arrival typing granted nothing')
+            until(session, lambda: file_review_pending(session), 'actual ACP file approval missing', timeout=40)
             state = snapshot()
             assert len(state['claims']) == 1 and state['claims'][0]['writing'], 'ACP bypassed normal durable writing lease'
             assert (project / 'existing.txt').read_bytes() == ORIGINAL and not (project / 'nested').exists(), 'callback wrote before exact consent'
@@ -117,14 +136,14 @@ def journey(binary, output, route, language, size, mode):
             # ACP supplies complete arguments, not synthetic generating edges.
             before_deferral = packets()
             session.send(ESC)
-            until(session, lambda: not any(label in session.display() for label in automatic)
+            until(session, lambda: not file_review_pending(session)
                   and not any(label in session.display() for label in ('a/y Allow once', 'a/y 한 번')),
                   'file proposal did not defer to the inline response')
             session.send(ALT_END)
             wanted = 'actual new file' if mode == 'happy' else 'must not report success'
             until(session, lambda: wanted in session.display()
                   and any(label in session.display() for label in ('[FILE]', '[파일]'))
-                  and not any(label in session.display() for label in automatic)
+                  and not file_review_pending(session)
                   and not any(label in session.display() for label in ('a/y Allow once', 'a/y 한 번')),
                   'received source body and typed identity absent from inline output')
             assert packets() == before_deferral, 'deferring/reading source answered the pending callback'
@@ -141,7 +160,7 @@ def journey(binary, output, route, language, size, mode):
             session.capture('exact-one-shot-file-consent')
             session.send('a' if mode == 'happy' else 'n')
             if mode == 'happy':
-                until(session, lambda: any(label in session.display() for label in automatic), 'existing-file edit review missing')
+                until(session, lambda: file_review_pending(session), 'existing-file edit review missing')
                 assert (project / 'nested/new.txt').read_bytes() == b'actual new file\n'
                 assert (project / 'existing.txt').read_bytes() == ORIGINAL, 'existing file edited before its separate consent'
                 session.send('\r')

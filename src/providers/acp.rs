@@ -171,8 +171,8 @@ fn worker(
                     let (index, launch) = profile(input.agent)?;
                     let trust =
                         crate::providers::agent::external_trust(index, &workspace.project, launch)?;
-                    let payload = payload(&workspace, &input)?;
                     let files = capture_files(&workspace, &input)?;
+                    let payload = payload(&workspace, &input, files.as_ref())?;
                     let mut lines = trust.lines.clone();
                     lines.extend([
                         "Private owned ACPv1 stdio process; initialize and session authentication happen only after Run consent.".into(),
@@ -343,7 +343,11 @@ fn worker(
     }
     busy.store(false, Ordering::Release);
 }
-fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
+fn payload(
+    workspace: &Workspace,
+    input: &Input,
+    files: Option<&super::writes::WriteSet>,
+) -> Result<String, String> {
     input.validate_selection()?;
     if std::path::Path::new(&input.task.project) != workspace.project.as_path()
         || !matches!(input.agent, Agent::OpenCode | Agent::Gemini | Agent::Devin)
@@ -408,6 +412,7 @@ fn payload(workspace: &Workspace, input: &Input) -> Result<String, String> {
         },
         "client_write_restrictions":input.edit_paths,
         "task":{"id":input.task.id,"revision":input.task.revision,"goal":input.task.goal,"acceptance_criteria":input.task.criteria,"next_action":crate::workspace::handoff::without_local_provenance(&input.task.next_action)},
+        "project_context": super::project_context(files.ok_or("ACP project scope missing")?, input.agent),
         "request":input.instruction(),
         "approved_memories":input.task.approved_memories,
         "selected_sources":serde_json::from_str::<Value>(&sources.text).map_err(|_| "Invalid selected source JSON")?,
@@ -427,7 +432,7 @@ fn revalidate(workspace: &Workspace, run: &Reviewed) -> Result<(), String> {
     if let Some(files) = &run.files {
         files.verify()?;
     }
-    if payload(workspace, &run.input)? != run.payload {
+    if payload(workspace, &run.input, run.files.as_ref())? != run.payload {
         return Err("Task/source/handoff changed after preview; no substituted prompt sent".into());
     }
     Ok(())

@@ -451,7 +451,7 @@ fn managed_review_is_refused_before_loading_or_dispatching_an_acp_session() {
             credential: None,
         };
         assert!(
-            payload(&workspace, &input)
+            payload(&workspace, &input, None)
                 .unwrap_err()
                 .contains("no-source-write")
         );
@@ -486,21 +486,22 @@ fn model_metadata_needs_no_saved_task_or_managed_role_and_retains_identity_check
             };
             input.task.goal = "private-goal-canary".into();
             input.task.archived = true;
-            let text = payload(&workspace, &input).unwrap();
+            let text = payload(&workspace, &input, None).unwrap();
             assert!(!text.contains("private-goal-canary"));
             assert!(!text.contains("never-read.txt"));
             let metadata: Value = serde_json::from_str(&text).unwrap();
+            assert!(metadata.get("project_context").is_none());
             assert_eq!(metadata["model_prompts_sent"], 0);
             assert_eq!(metadata["session/new"]["mcpServers"], json!([]));
             assert_eq!(metadata["retain_resume_grant"], false);
             input.resume = Some("unowned-session".into());
-            assert!(payload(&workspace, &input).is_err());
+            assert!(payload(&workspace, &input, None).is_err());
             input.resume = None;
             input.task.project = "different-project".into();
-            assert!(payload(&workspace, &input).is_err());
+            assert!(payload(&workspace, &input, None).is_err());
             input.task.project = "unopened-project".into();
             input.agent = Agent::Codex;
-            assert!(payload(&workspace, &input).is_err());
+            assert!(payload(&workspace, &input, None).is_err());
         }
     }
 }

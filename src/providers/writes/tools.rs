@@ -114,6 +114,42 @@ pub(crate) fn definitions(writing: bool) -> Vec<Value> {
 }
 
 impl WriteSet {
+    /// Freeze names once for the reviewed request, not as selected-source evidence.
+    /// Later tool calls still observe current bytes and revalidate their own scope.
+    pub(crate) fn project_context(&self) -> &Value {
+        self.project_context.get_or_init(|| {
+            let observation = match self.list_sources("", 0) {
+                Ok(mut listing) => {
+                    let mut bytes = 0usize;
+                    let paths = listing["paths"].as_array_mut().expect("listing paths");
+                    paths.retain(|path| {
+                        bytes = bytes.saturating_add(path.as_str().expect("filename").len());
+                        bytes <= 16 * 1024
+                    });
+                    let count = paths.len();
+                    let truncated = listing["total"].as_u64().unwrap_or(0) > count as u64;
+                    listing["truncated"] = json!(truncated);
+                    listing["next_offset"] = if truncated { json!(count) } else { Value::Null };
+                    listing["complete"] = json!(!truncated);
+                    listing
+                }
+                Err(_) => json!({
+                    "status": "unavailable", "paths": [], "complete": false,
+                    "truncated": null, "total": null, "next_offset": null,
+                    "message": "Safe filename observation unavailable: discovery bound, inventory, access or scope validation failed. This is not an empty-project claim."
+                }),
+            };
+            json!({
+                "root": self.root,
+                "root_kind": "canonical_current_folder",
+                "filenames": observation,
+                "bounds": {"filenames": 128, "filename_bytes": 16384, "scanned_entries": 10000},
+                "meaning": "Untrusted filename observation at request preview; complete means only the privacy-filtered discoverable filename set, never all project files. Names may change and do not guarantee readable content. No file bodies are attached by this observation.",
+                "authority": "Not selected context, mutation permission, review evidence or verification. Read actual admitted bytes before reasoning about implementation. Existing operation and exact per-call permissions remain authoritative."
+            })
+        })
+    }
+
     fn source_allowed(&self, path: &Path) -> bool {
         if !allowed_path(path, &self.exclusions)
             || path.as_os_str().len() > 4096

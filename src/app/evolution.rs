@@ -495,6 +495,42 @@ pub fn classify(text: &str) -> Option<Selection> {
             reason: Message::CoreEvolutionReadonly,
         });
     }
+    // Request intent chooses capability independently of the displayed specialty.
+    // A diagnosis/review prefix must not hide a later explicit change request.
+    let planning = RULES.iter().find(|rule| rule.form == 4).unwrap();
+    let mutation_requested = !readonly
+        && clauses().any(|clause| {
+            RULES.iter().any(|rule| {
+                rule.operation == Operation::Implement
+                    && rule.actions.iter().any(|action| {
+                        contains(clause, action)
+                            && (*action != "구현"
+                                || !any(clause, planning.actions)
+                                || any(clause, &["구현해", "구현하"]))
+                    })
+                    && (task_object(clause, rule) || source_context)
+            }) || any(
+                clause,
+                &[
+                    "write", "create", "update", "generate", "save", "작성", "생성", "수정",
+                    "갱신", "저장",
+                ],
+            ) && (source_path(clause)
+                || any(
+                    clause,
+                    &[
+                        "documentation",
+                        "docs",
+                        "readme",
+                        "changelog",
+                        "file",
+                        "파일",
+                        "문서",
+                        "변경 기록",
+                    ],
+                ))
+        });
+    let independent_review = any(&literal, &["independent", "independently", "독립"]);
     for rule in RULES {
         if clauses().any(|clause| {
             any(clause, rule.actions)
@@ -509,34 +545,16 @@ pub fn classify(text: &str) -> Option<Selection> {
                     reason: Message::CoreEvolutionReadonly,
                 });
             }
-            let docs_write = rule.form == 8
-                && !readonly
-                && clauses().any(|clause| {
-                    any(
-                        clause,
-                        &[
-                            "write", "create", "update", "generate", "save", "작성", "생성",
-                            "수정", "갱신", "저장",
-                        ],
-                    ) && (source_path(clause)
-                        || any(
-                            clause,
-                            &[
-                                "documentation",
-                                "docs",
-                                "readme",
-                                "changelog",
-                                "file",
-                                "파일",
-                                "문서",
-                                "변경 기록",
-                            ],
-                        ))
-                });
             return Some(Selection {
                 form: rule.form,
-                operation: if docs_write {
+                operation: if rule.form == 7 && independent_review {
+                    Operation::Review
+                } else if readonly {
+                    Operation::Plan
+                } else if mutation_requested {
                     Operation::Implement
+                } else if rule.operation == Operation::Review {
+                    Operation::Plan
                 } else {
                     rule.operation
                 },
@@ -548,7 +566,11 @@ pub fn classify(text: &str) -> Option<Selection> {
             });
         }
     }
-    None
+    readonly.then_some(Selection {
+        form: 1,
+        operation: Operation::Plan,
+        reason: Message::CoreEvolutionReadonly,
+    })
 }
 
 impl App {
@@ -580,13 +602,7 @@ impl App {
             return false;
         };
         if !self.lead.auto_form {
-            // A fixed form stays fixed. Only a literal read-only constraint or
-            // that form's documentation-writing task changes ordinary capability.
-            if choice.reason != Message::CoreEvolutionReadonly
-                && !(self.form() == 8 && choice.form == 8)
-            {
-                return false;
-            }
+            // Pin appearance, never the tools needed for the current request.
             choice.form = self.form();
         }
         if self.planning.explicit_operation() == Some(Operation::Review) {
@@ -600,9 +616,7 @@ impl App {
             choice.reason = Message::CoreEvolutionReadonly;
         }
         let from = self.form();
-        let fresh = self
-            .planning
-            .prepare_automatic_operation(choice.operation, from != choice.form);
+        let fresh = self.planning.prepare_automatic_operation(choice.operation);
         if from != choice.form || fresh {
             self.set_form(choice.form);
             self.evolution.transition = Some(Transition {
@@ -953,16 +967,60 @@ mod tests {
     }
 
     #[test]
-    fn deliberate_form_choice_resets_policy_but_restore_does_not() {
+    fn form_choice_and_restore_preserve_explicit_readonly_policy() {
         let mut app = app();
         app.planning.set_operation(Operation::Plan);
         app.apply_execution_action(execution::Action::SelectForm(3));
-        assert_eq!(app.planning.operation, Operation::Implement);
+        assert_eq!(app.planning.operation, Operation::Plan);
         app.planning.set_operation(Operation::Review);
         let snapshot = app.snapshot("/workspace");
         app.load_task(snapshot);
         assert_eq!(app.planning.operation, Operation::Review);
         assert!(!app.lead.auto_form);
+    }
+
+    #[test]
+    fn every_fixed_form_can_discover_create_and_edit_without_changing_appearance() {
+        for form in 1..9 {
+            for (text, operation) in [
+                ("Read the current project source files.", Operation::Plan),
+                ("Create `hello.py`.", Operation::Implement),
+                ("Edit `src/main.rs`.", Operation::Implement),
+                (
+                    "Write project documentation to README.md.",
+                    Operation::Implement,
+                ),
+                ("Review the code and fix its error.", Operation::Implement),
+                (
+                    "Diagnose the failure and repair the code.",
+                    Operation::Implement,
+                ),
+                ("Continue.", Operation::Implement),
+                ("Read only.", Operation::Plan),
+            ] {
+                let mut app = app();
+                app.apply_execution_action(execution::Action::SelectForm(form));
+                app.input = text.into();
+                app.submit_request();
+                assert_eq!((app.form(), app.lead.auto_form), (form, false), "{text}");
+                let snapshot = app.snapshot("/workspace");
+                app.planning.command("new", true, &snapshot, &[], None);
+                let Some(Request::Preview(input)) = app.planning.pending.take() else {
+                    panic!("missing preparation for form {form}: {text}");
+                };
+                assert_eq!(input.operation, operation, "form {form}: {text}");
+            }
+        }
+        assert_eq!(
+            classify("Review src/main.rs").unwrap().operation,
+            Operation::Plan
+        );
+        assert_eq!(
+            classify("Perform an independent code review.")
+                .unwrap()
+                .operation,
+            Operation::Review
+        );
     }
 
     #[test]
@@ -977,6 +1035,7 @@ mod tests {
         );
         app.pending_request = None;
         app.apply_execution_action(execution::Action::SelectForm(3));
+        app.planning.set_operation(Operation::Implement);
         app.input = "Read the source files without changing anything.".into();
         app.submit_request();
         assert_eq!(

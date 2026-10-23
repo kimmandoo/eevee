@@ -12,6 +12,31 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{path::PathBuf, sync::Arc};
 
+/// Observational context is separate from selected sources and write authority.
+#[derive(Serialize)]
+pub(crate) struct ProjectContext<'a> {
+    #[serde(flatten)]
+    observation: &'a Value,
+    guidance: &'static str,
+}
+
+pub(crate) fn project_context(scope: &writes::WriteSet, agent: Agent) -> ProjectContext<'_> {
+    ProjectContext {
+        observation: scope.project_context(),
+        guidance: match agent {
+            Agent::Claude => {
+                "Use mcp__eevee_source__discover for bounded safe host discovery and Read for admitted files. Native Glob/Grep subtree guards still apply; do not bypass a refusal. Filenames are not source contents."
+            }
+            Agent::OpenCode | Agent::Gemini | Agent::Devin => {
+                "Use client fs/read_text_file with an absolute path formed under this root to inspect listed files. ACP has no client filename-list callback; this bounded observation may be incomplete. Do not invent missing filenames or claim exhaustive discovery. Provider-owned tools remain external policy, not client confinement."
+            }
+            _ => {
+                "Use eevee_list_files with a literal query and offset for current safe filename discovery, and eevee_read_file for actual bounded source bytes. The initial names are not source contents or write targets."
+            }
+        },
+    }
+}
+
 /// Process-wide producer order, independent of worker drain or partner-map order.
 pub fn approval_arrival() -> u64 {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);

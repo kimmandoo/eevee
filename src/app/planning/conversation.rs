@@ -615,7 +615,40 @@ mod tests {
     }
 
     #[test]
-    fn automatic_role_transition_retires_history_not_display_or_route_selection() {
+    fn automatic_specialty_change_keeps_same_policy_conversation() {
+        let mut app = crate::app::App::new("/workspace".into(), 120, 36);
+        app.planning = native();
+        app.input = "Create a source code file.".into();
+        assert!(app.evolve_request());
+        assert_eq!(app.form(), 3);
+        let first = start(&mut app.planning, &task("Create a source code file."), 1);
+        app.planning.event(Event::NativeCompleted {
+            generation: 1,
+            task_id: 7,
+            conversation: conversation(&first, "Created with exact consent."),
+        });
+        finish(&mut app.planning, 1, Outcome::Completed);
+        app.input = "Refactor the source code.".into();
+        assert!(app.evolve_request());
+        assert_eq!(app.form(), 6);
+        let next = start(&mut app.planning, &task("Refactor the source code."), 2);
+        let history = next
+            .conversation
+            .expect("a cosmetic transition lost context");
+        assert_eq!(history.messages.len(), 2);
+        assert_eq!(
+            history.messages[0].text.as_ref(),
+            first.native_instruction()
+        );
+        assert_eq!(
+            history.messages[1].text.as_ref(),
+            "Created with exact consent."
+        );
+        assert_eq!(next.operation, Operation::Implement);
+    }
+
+    #[test]
+    fn operation_transition_retires_history_not_display_or_route_selection() {
         let mut state = native();
         let first = start(&mut state, &task("Read the code"), 1);
         state.event(Event::Item {
@@ -635,7 +668,7 @@ mod tests {
         });
         finish(&mut state, 1, Outcome::Completed);
         let selection = state.selection.clone();
-        assert!(state.prepare_automatic_operation(Operation::Implement, true));
+        assert!(state.prepare_automatic_operation(Operation::Implement));
         assert_eq!(state.items[0].text, "Retained displayed evidence");
         assert_eq!(state.selection, selection);
         assert_eq!(state.agent, Agent::Compatible);
@@ -643,7 +676,7 @@ mod tests {
         let implementation = start(&mut state, &task("Implement the code"), 2);
         assert!(implementation.conversation.is_none());
         finish(&mut state, 2, Outcome::Completed);
-        assert!(state.prepare_automatic_operation(Operation::Plan, true));
+        assert!(state.prepare_automatic_operation(Operation::Plan));
         let planning = start(&mut state, &task("Read another source file"), 3);
         assert!(
             planning.conversation.is_none(),
@@ -651,7 +684,7 @@ mod tests {
         );
         finish(&mut state, 3, Outcome::Completed);
         state.set_operation(Operation::Review);
-        assert!(state.prepare_automatic_operation(Operation::Implement, true));
+        assert!(!state.prepare_automatic_operation(Operation::Implement));
         assert_eq!(state.operation, Operation::Review);
         let review = start(&mut state, &task("Independent review"), 4);
         assert!(review.conversation.is_none() && review.resume.is_none());

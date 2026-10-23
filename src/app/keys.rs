@@ -172,7 +172,7 @@ impl App {
         {
             self.changed_implicitly(now);
         }
-        let presented = self.reconcile_file_review();
+        let presented = self.reconcile_permission_review();
         changed || presented || carry_over_hidden || evolution_hidden || motion_hidden
     }
 
@@ -414,7 +414,6 @@ impl App {
             .find(|task| task.id == self.task_id)
             .cloned()
             .unwrap_or_else(|| store::Snapshot::empty(self.cwd.clone()));
-        let operation = self.planning.operation;
         let changed = self.planning.command(
             name,
             self.width >= 60 && self.height >= 18,
@@ -426,16 +425,6 @@ impl App {
         self.refresh_approvals();
         if name == "decision" {
             self.workflow.pending_decision = self.planning.decision.clone();
-        }
-        if operation != self.planning.operation {
-            self.lead.auto_form = false;
-            self.evolution.transition = None;
-            self.set_form(match self.planning.operation {
-                crate::providers::Operation::Implement => 3,
-                crate::providers::Operation::Review => 7,
-                crate::providers::Operation::Plan => 4,
-            });
-            self.changed_task();
         }
         changed
     }
@@ -763,7 +752,7 @@ impl App {
             }
             return true;
         }
-        self.reconcile_file_review()
+        self.reconcile_permission_review()
     }
 
     pub(super) fn command_surface_editing(&self) -> bool {
@@ -861,7 +850,7 @@ impl App {
         if self.nickname_editor.is_some() {
             return self.nickname_key(key);
         }
-        if self.overlay == Some(Overlay::Planning) && self.planning.auto_file_review {
+        if self.overlay == Some(Overlay::Planning) && self.planning.auto_permission_review {
             return self.planning_key(key);
         }
         if key.kind == KeyEventKind::Press

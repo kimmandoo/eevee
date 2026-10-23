@@ -1012,13 +1012,11 @@ impl App {
         })
     }
 
-    /// The form that owns `name` when the active form may not start it (EV03B):
-    /// commands belong to Jolteon, source edits to Flareon (Leafeon also edits
-    /// its refactor scope). Descriptive routing only; grants are unchanged.
+    /// Local command authoring belongs to Jolteon. Project context and guarded
+    /// file coding are available in every form; form choice is not permission.
     fn role_owner(&self, name: &str) -> Option<usize> {
         match name {
             "command-edit" if self.form() != 2 => Some(2),
-            "paths" | "role-implement" if !matches!(self.form(), 0 | 3 | 6) => Some(3),
             _ => None,
         }
     }
@@ -1033,8 +1031,6 @@ impl App {
         {
             let action = match name {
                 "command-edit" => "command-edit",
-                "paths" => "paths",
-                "role-implement" => "role-implement",
                 _ => return,
             };
             let mut choices = vec![Choice::new(
@@ -1512,7 +1508,7 @@ impl App {
                 return self.planning_command("provider-journal");
             }
             "session-new" | "session-resume" => {
-                self.planning.prepare_ordinary_operation(self.form());
+                self.planning.prepare_ordinary_operation();
                 self.open_overlay(Overlay::Planning);
                 return self.planning_command(if name == "session-new" {
                     "new"
@@ -2119,6 +2115,7 @@ mod tests {
     #[test]
     fn role_chooser_and_selection_return_directly_to_unchanged_composer() {
         let mut app = App::new("/workspace".into(), 120, 36);
+        let identity = (app.form(), app.lead.auto_form);
         app.update(Event::Paste("before suffix".into()));
         app.cursor = 6;
         app.command("role");
@@ -2131,7 +2128,7 @@ mod tests {
         query(&mut app, "role-review");
         key(&mut app, KeyCode::Enter);
         assert_eq!(app.planning.operation, crate::providers::Operation::Review);
-        assert_eq!(app.form(), 7);
+        assert_eq!((app.form(), app.lead.auto_form), identity);
         assert!(app.overlay.is_none());
         assert!(app.command_popup.is_none());
         assert!(app.editing);
@@ -2278,81 +2275,75 @@ mod tests {
     #[test]
     fn owning_role_send_stages_only_reviewed_references_at_both_sizes() {
         for (width, height) in [(120, 36), (60, 18)] {
-            for (action, sender_form, target) in [
-                ("command-edit", 4, 2),
-                ("paths", 7, 3),
-                ("role-implement", 7, 3),
-            ] {
-                let mut app = role_relay_app(width, height, sender_form);
-                let before = (
+            let (action, sender_form, target) = ("command-edit", 4, 2);
+            let mut app = role_relay_app(width, height, sender_form);
+            let before = (
+                app.input.clone(),
+                app.cursor,
+                app.drafts.clone(),
+                app.goal.clone(),
+                app.form(),
+            );
+            let operation = app.planning.operation;
+            let paths = app.planning.edit_paths.clone();
+            choose_role_recipient(&mut app, action, target);
+            assert!(
+                app.workflow
+                    .relay
+                    .as_ref()
+                    .is_some_and(|relay| relay.confirm && !relay.reviewed)
+            );
+            assert!(recipient_request(&app, target).is_none());
+            app.relay_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+            assert!(
+                recipient_request(&app, target).is_none(),
+                "neutral Enter never stages"
+            );
+            app.relay_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            assert!(app.workflow.relay.is_none());
+            assert_eq!(
+                (
                     app.input.clone(),
                     app.cursor,
                     app.drafts.clone(),
                     app.goal.clone(),
-                    app.form(),
-                );
-                let operation = app.planning.operation;
-                let paths = app.planning.edit_paths.clone();
-                choose_role_recipient(&mut app, action, target);
-                assert!(
-                    app.workflow
-                        .relay
-                        .as_ref()
-                        .is_some_and(|relay| relay.confirm && !relay.reviewed)
-                );
-                assert!(recipient_request(&app, target).is_none());
-                app.relay_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-                assert!(
-                    recipient_request(&app, target).is_none(),
-                    "neutral Enter never stages"
-                );
-                app.relay_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-                assert!(app.workflow.relay.is_none());
-                assert_eq!(
-                    (
-                        app.input.clone(),
-                        app.cursor,
-                        app.drafts.clone(),
-                        app.goal.clone(),
-                        app.form()
-                    ),
-                    before
-                );
-                choose_role_recipient(&mut app, action, target);
-                app.workflow.relay.as_mut().unwrap().reviewed = true;
-                app.relay_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
-                let draft =
-                    recipient_request(&app, target).expect("references staged after review");
-                assert!(draft.text.contains(action) && draft.text.contains('7'));
-                assert_eq!(
-                    (
-                        app.input.clone(),
-                        app.cursor,
-                        app.drafts.clone(),
-                        app.goal.clone(),
-                        app.form()
-                    ),
-                    before
-                );
-                assert_eq!(app.lead().id, 1);
-                assert_eq!(app.planning.operation, operation);
-                assert_eq!(app.planning.edit_paths, paths);
-                assert!(app.planning.pending.is_none());
-                assert!(app.execution.prepared.is_none() && app.execution.active.is_none());
-                assert!(app.command.is_empty());
-                let relay = app
-                    .workflows
-                    .draft_relays
-                    .iter()
-                    .find(|relay| relay.partner == target)
-                    .unwrap();
-                assert!(relay.paths.is_empty());
-                // Fronting a reference-only recipient never replays role/scope selection.
-                app.request_lead(target);
-                assert_eq!(app.planning.operation, operation);
-                assert_eq!(app.planning.edit_paths, paths);
-                assert!(app.planning.pending.is_none() && app.execution.prepared.is_none());
-            }
+                    app.form()
+                ),
+                before
+            );
+            choose_role_recipient(&mut app, action, target);
+            app.workflow.relay.as_mut().unwrap().reviewed = true;
+            app.relay_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+            let draft = recipient_request(&app, target).expect("references staged after review");
+            assert!(draft.text.contains(action) && draft.text.contains('7'));
+            assert_eq!(
+                (
+                    app.input.clone(),
+                    app.cursor,
+                    app.drafts.clone(),
+                    app.goal.clone(),
+                    app.form()
+                ),
+                before
+            );
+            assert_eq!(app.lead().id, 1);
+            assert_eq!(app.planning.operation, operation);
+            assert_eq!(app.planning.edit_paths, paths);
+            assert!(app.planning.pending.is_none());
+            assert!(app.execution.prepared.is_none() && app.execution.active.is_none());
+            assert!(app.command.is_empty());
+            let relay = app
+                .workflows
+                .draft_relays
+                .iter()
+                .find(|relay| relay.partner == target)
+                .unwrap();
+            assert!(relay.paths.is_empty());
+            // Fronting a reference-only recipient never replays role/scope selection.
+            app.request_lead(target);
+            assert_eq!(app.planning.operation, operation);
+            assert_eq!(app.planning.edit_paths, paths);
+            assert!(app.planning.pending.is_none() && app.execution.prepared.is_none());
         }
     }
 
@@ -2388,9 +2379,9 @@ mod tests {
     #[test]
     fn owning_role_send_rechecks_nonempty_target_and_changed_task() {
         let mut app = role_relay_app(120, 36, 7);
-        choose_role_recipient(&mut app, "paths", 3);
+        choose_role_recipient(&mut app, "command-edit", 2);
         app.partner_drafts
-            .entry(3)
+            .entry(2)
             .or_default()
             .drafts
             .push(crate::store::Draft {
@@ -2402,16 +2393,16 @@ mod tests {
         app.relay_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
         assert!(app.workflow.notice.contains("nonempty"));
         assert_eq!(
-            recipient_request(&app, 3).unwrap().text,
+            recipient_request(&app, 2).unwrap().text,
             "keep recipient draft"
         );
         app.relay_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        app.partner_drafts.remove(&3);
-        choose_role_recipient(&mut app, "paths", 3);
+        app.partner_drafts.remove(&2);
+        choose_role_recipient(&mut app, "command-edit", 2);
         app.goal.push_str(" changed after review");
         app.workflow.relay.as_mut().unwrap().reviewed = true;
         app.relay_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
-        assert!(recipient_request(&app, 3).is_none());
+        assert!(recipient_request(&app, 2).is_none());
         assert!(app.workflow.notice.contains("changed"));
         assert!(app.execution.prepared.is_none() && app.planning.pending.is_none());
     }

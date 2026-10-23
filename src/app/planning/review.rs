@@ -66,7 +66,7 @@ impl State {
 
     pub(super) fn review_start(&mut self) {
         self.review_details = false;
-        self.auto_file_review = false;
+        self.auto_permission_review = false;
         self.scroll = 0;
         self.scroll_max = 0;
         self.response_cache.invalidate();
@@ -170,7 +170,7 @@ impl State {
 
     pub(super) fn close_request(&mut self) {
         self.send_after_prepare = false;
-        self.auto_file_review = false;
+        self.auto_permission_review = false;
         let was_open = self.request.take().is_some();
         self.answers.clear();
         self.editing = false;
@@ -183,7 +183,7 @@ impl State {
 
     pub fn request_quit(&mut self) {
         self.quit_review = true;
-        self.auto_file_review = false;
+        self.auto_permission_review = false;
         self.invalidate_review();
         self.editing = false;
     }
@@ -409,7 +409,12 @@ impl State {
         let Some(preview) = self.preview.as_ref() else {
             return false;
         };
-        if !preview.blockers.is_empty() || self.pending.is_some() {
+        if !preview.blockers.is_empty()
+            || self.pending.is_some()
+            || self.cancelling
+            || self.auto_permission_review
+            || preview.requires_connection_review && (!self.reviewed || !self.affirmative)
+        {
             return false;
         }
         let generation = preview.generation;
@@ -444,7 +449,7 @@ impl State {
     }
 
     pub fn paste(&mut self, text: &str) -> bool {
-        if self.auto_file_review {
+        if self.auto_permission_review {
             return false;
         }
         if self.custom_model.is_some() {
@@ -576,7 +581,7 @@ impl State {
     }
 
     fn send_answer(&mut self, answer: Value) {
-        if self.auto_file_review || self.pending.is_some() || self.cancelling {
+        if self.auto_permission_review || self.pending.is_some() || self.cancelling {
             return;
         }
         let (Some(generation), Some(request)) = (self.generation, self.request.as_ref()) else {
@@ -602,7 +607,7 @@ impl State {
         if key.kind == KeyEventKind::Release {
             return false;
         }
-        if self.auto_file_review {
+        if self.auto_permission_review {
             if large_enough
                 && key.kind == KeyEventKind::Press
                 && key.modifiers.is_empty()
@@ -614,20 +619,22 @@ impl State {
                         | KeyCode::Left
                         | KeyCode::Right
                 )
-                && matches!(
-                    self.request.as_ref().map(|request| &request.kind),
-                    Some(PromptKind::Permission { file: Some(_), .. })
-                )
+                && self.required_permission_review()
             {
-                self.auto_file_review = false;
+                self.auto_permission_review = false;
                 self.review_details = false;
                 self.scroll = 0;
                 self.invalidate_review();
-                self.file_consent.choice = match key.code {
-                    KeyCode::Right | KeyCode::Tab => Some(1),
-                    KeyCode::Left | KeyCode::BackTab => Some(0),
-                    _ => None,
-                };
+                if matches!(
+                    self.request.as_ref().map(|request| &request.kind),
+                    Some(PromptKind::Permission { file: Some(_), .. })
+                ) {
+                    self.file_consent.choice = match key.code {
+                        KeyCode::Right | KeyCode::Tab => Some(1),
+                        KeyCode::Left | KeyCode::BackTab => Some(0),
+                        _ => None,
+                    };
+                }
                 return true;
             }
             // Request typing cannot become an answer on asynchronous arrival.
@@ -917,6 +924,20 @@ impl State {
         if !large_enough {
             return false;
         }
+        if self.required_permission_review()
+            && matches!(
+                key.code,
+                KeyCode::Enter
+                    | KeyCode::Tab
+                    | KeyCode::BackTab
+                    | KeyCode::Left
+                    | KeyCode::Right
+                    | KeyCode::Char('a' | 'y' | 'n' | 'd')
+            )
+            && (key.kind != KeyEventKind::Press || !key.modifiers.is_empty())
+        {
+            return false;
+        }
         if let Some(PromptKind::Permission {
             file: Some(_),
             options,
@@ -993,6 +1014,27 @@ impl State {
             self.scroll = 0;
             self.invalidate_review();
             return true;
+        }
+        if self.required_permission_review() && key.code == KeyCode::Char('n') {
+            if self.preview.is_some() {
+                return self.cancel();
+            }
+            let answer = self
+                .request
+                .as_ref()
+                .and_then(|request| match &request.kind {
+                    PromptKind::Permission { options, .. } => {
+                        options.first().map(|option| option.answer.clone())
+                    }
+                    PromptKind::Approval { deny_decision, .. } => {
+                        Some(json!({"decision": deny_decision}))
+                    }
+                    PromptKind::Questions(_) => None,
+                });
+            if let Some(answer) = answer {
+                self.send_answer(answer);
+                return true;
+            }
         }
         // Single-key confirmation is explicit consent, never text input or a repeat.
         if key.kind == KeyEventKind::Press

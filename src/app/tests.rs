@@ -3228,12 +3228,9 @@ fn each_forms_primary_empty_action_opens_its_flow_and_executes_nothing() {
 }
 
 #[test]
-fn out_of_role_actions_name_the_owner_and_offer_a_working_switch() {
-    for (form, command, owner_index) in [
-        ("glaceon", "role-implement", 3),
-        ("glaceon", "paths", 3),
-        ("espeon", "command-edit", 2),
-    ] {
+fn out_of_role_command_authoring_offers_a_nonreplaying_switch() {
+    {
+        let (form, command, owner_index) = ("espeon", "command-edit", 2);
         let mut app = app();
         app.command(form);
         let before = app.form();
@@ -3274,7 +3271,7 @@ fn out_of_role_actions_name_the_owner_and_offer_a_working_switch() {
 }
 
 #[test]
-fn cancelling_an_owner_switch_keeps_the_draft_and_editing_scope() {
+fn cancelling_path_selection_keeps_the_draft_and_scope_in_every_form() {
     let mut app = app();
     app.command("glaceon");
     app.open_editor(store::EditorField::Request);
@@ -3295,9 +3292,18 @@ fn cancelling_an_owner_switch_keeps_the_draft_and_editing_scope() {
     assert!(app.planning.paths_editor.is_none());
     assert!(app.planning.pending.is_none() && !app.execution.busy());
 
-    // Both implementation forms may explicitly open scope selection.
-    for form in ["flareon", "leafeon"] {
+    for form in [
+        "eevee", "vaporeon", "jolteon", "flareon", "espeon", "umbreon", "leafeon", "glaceon",
+        "sylveon",
+    ] {
         app.command(form);
+        let selected = app.form();
+        app.command("role-implement");
+        assert_eq!(
+            app.planning.operation,
+            crate::providers::Operation::Implement
+        );
+        assert_eq!(app.form(), selected);
         app.command("paths");
         assert!(
             app.planning.paths_editor.is_some(),
@@ -3308,6 +3314,8 @@ fn cancelling_an_owner_switch_keeps_the_draft_and_editing_scope() {
             app.planning.edit_paths,
             vec![std::path::PathBuf::from("selected.rs")]
         );
+        assert_eq!(app.form(), selected);
+        assert!(app.planning.pending.is_none() && !app.execution.busy());
         key(&mut app, KeyCode::Esc);
     }
 }

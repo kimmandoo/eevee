@@ -1254,6 +1254,13 @@ fn normalized_privacy_aliases_never_enter_source_reads_or_discovery() {
         })
         .unwrap();
     assert_eq!(names["paths"], json!(["public.txt"]));
+    let context = set.project_context();
+    assert_eq!(context["root"], json!(project.root));
+    assert_eq!(context["filenames"]["paths"], json!(["public.txt"]));
+    assert_eq!(context["filenames"]["complete"], true);
+    assert!(!context.to_string().contains("visible bytes"));
+    assert!(!context.to_string().contains("private.txt"));
+    assert!(!context.to_string().contains("source.txt"));
 }
 
 #[test]
@@ -1295,6 +1302,122 @@ fn git_inventory_keeps_native_unicode_spelling_for_generated_sources() {
             .any(|name| name == path)
     );
     assert!(set.observe_tool(&read_tool("ignored.txt")).is_err());
+}
+
+#[test]
+fn project_observation_keeps_the_launch_subfolder_and_git_ignores() {
+    let project = Project::new();
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&project.root)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    let launch = project.root.join("current");
+    std::fs::create_dir(&launch).unwrap();
+    std::fs::write(project.root.join("outside.txt"), "outside current root").unwrap();
+    std::fs::write(project.root.join(".gitignore"), "ignored.txt\n").unwrap();
+    std::fs::write(launch.join("ignored.txt"), "ignored").unwrap();
+    std::fs::write(launch.join(".env"), "private").unwrap();
+    std::fs::write(launch.join("visible.rs"), "source-body-canary").unwrap();
+    let scope = WriteSet::capture_readonly(&launch, &project.data, &[]).unwrap();
+    let context = scope.project_context();
+    assert_eq!(context["root"], json!(launch));
+    assert_eq!(context["filenames"]["paths"], json!(["visible.rs"]));
+    assert_eq!(context["filenames"]["complete"], true);
+    assert!(!context.to_string().contains("source-body-canary"));
+    assert!(!scope.writing());
+    assert!(scope.targets.is_empty() && scope.observed.is_empty());
+}
+
+#[test]
+fn project_identity_refuses_credential_and_control_bearing_folder_names() {
+    let project = Project::new();
+    for name in ["password=private-root-canary", "unsafe\u{202e}root"] {
+        let root = project.root.join(name);
+        std::fs::create_dir(&root).unwrap();
+        assert!(WriteSet::capture_readonly(&root, &project.data, &[]).is_err());
+    }
+}
+
+#[test]
+fn project_observation_bounds_names_and_bytes_without_changing_frozen_preview() {
+    let project = Project::new();
+    for index in 0..140 {
+        std::fs::write(
+            project
+                .root
+                .join(format!("{index:03}-{}.rs", "a".repeat(180))),
+            "",
+        )
+        .unwrap();
+    }
+    let mut scope = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    assert_eq!(
+        scope
+            .observe_tool(&FileTool::List {
+                query: String::new(),
+                offset: 0
+            })
+            .unwrap()["paths"]
+            .as_array()
+            .unwrap()
+            .len(),
+        128
+    );
+    let frozen = scope.project_context().clone();
+    let filenames = &frozen["filenames"];
+    let names = filenames["paths"].as_array().unwrap();
+    assert!(!names.is_empty() && names.len() < 128);
+    assert!(
+        names
+            .iter()
+            .map(|name| name.as_str().unwrap().len())
+            .sum::<usize>()
+            <= 16 * 1024
+    );
+    assert_eq!(filenames["total"], 140);
+    assert_eq!(filenames["truncated"], true);
+    assert_eq!(filenames["complete"], false);
+    assert_eq!(filenames["next_offset"], names.len());
+    std::fs::write(project.root.join("later.rs"), "new bytes").unwrap();
+    assert_eq!(scope.project_context(), &frozen);
+    assert!(std::ptr::eq(
+        scope.project_context(),
+        scope.clone().project_context()
+    ));
+    assert_eq!(
+        scope
+            .observe_tool(&FileTool::List {
+                query: "later".into(),
+                offset: 0
+            })
+            .unwrap()["paths"],
+        json!(["later.rs"])
+    );
+    let next = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    assert_eq!(next.project_context()["filenames"]["total"], 141);
+}
+
+#[test]
+fn unavailable_project_observation_is_not_reported_as_empty_or_complete() {
+    let project = Project::new();
+    let mut nested = project.root.clone();
+    for _ in 0..66 {
+        nested.push("d");
+        std::fs::create_dir(&nested).unwrap();
+    }
+    std::fs::write(nested.join("hidden-by-bound.rs"), "not uploaded").unwrap();
+    let scope = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    let context = scope.project_context();
+    assert_eq!(context["filenames"]["status"], "unavailable");
+    assert_eq!(context["filenames"]["complete"], false);
+    assert!(context["filenames"]["truncated"].is_null());
+    assert!(context["filenames"]["total"].is_null());
+    assert_eq!(context["filenames"]["paths"], json!([]));
 }
 
 #[test]

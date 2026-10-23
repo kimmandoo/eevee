@@ -47,7 +47,7 @@ pub struct State {
     approvals: Vec<(u64, Pending)>,
     focused: Option<Pending>,
     /// Identities already presented or explicitly deferred, not another queue.
-    presented_files: Vec<Pending>,
+    presented_permissions: Vec<Pending>,
     queued_response: Option<Pending>,
     preference_owners: VecDeque<i64>,
     journal_owners: VecDeque<i64>,
@@ -511,7 +511,7 @@ impl App {
             self.refresh_approvals();
         }
         self.settle_cooperation();
-        changed |= self.reconcile_file_review();
+        changed |= self.reconcile_permission_review();
         (changed, more)
     }
 
@@ -653,7 +653,7 @@ impl App {
 
     pub fn refresh_approvals(&mut self) {
         self.collect_approvals();
-        self.reconcile_file_review();
+        self.reconcile_permission_review();
     }
 
     fn collect_approvals(&mut self) {
@@ -696,13 +696,13 @@ impl App {
             self.cooperation.focused = None;
         }
         self.cooperation
-            .presented_files
+            .presented_permissions
             .retain(|shown| pending.iter().any(|(_, request)| request == shown));
         self.cooperation.approvals = pending;
     }
 
     /// Reconcile after input and worker settlement, never before dispatching a key.
-    pub(super) fn reconcile_file_review(&mut self) -> bool {
+    pub(super) fn reconcile_permission_review(&mut self) -> bool {
         if !self.approval_shortcut_available()
             || self.width < 60
             || self.height < 18
@@ -717,12 +717,7 @@ impl App {
             || self.management.is_some()
             || self.planning.cancelling
             || self.planning.pending.is_some()
-            || !self.planning.request.as_ref().is_some_and(|request| {
-                matches!(
-                    request.kind,
-                    crate::providers::PromptKind::Permission { file: Some(_), .. }
-                )
-            })
+            || !self.planning.required_permission_review()
             || self
                 .planning
                 .owner()
@@ -744,7 +739,7 @@ impl App {
                     && *task == self.task_id
                     && self.planning.matches(*generation, *task)
                     && self.planning.focus_prompt(*generation, request)
-                    && !self.cooperation.presented_files.contains(pending) =>
+                    && !self.cooperation.presented_permissions.contains(pending) =>
                 {
                     Some(pending.clone())
                 }
@@ -759,8 +754,8 @@ impl App {
         if self.cooperation.focused.as_ref() != Some(&request) {
             return false;
         }
-        self.cooperation.presented_files.push(request);
-        self.planning.auto_file_review = true;
+        self.cooperation.presented_permissions.push(request);
+        self.planning.auto_permission_review = true;
         true
     }
 
@@ -769,12 +764,12 @@ impl App {
     }
 
     pub fn own_approval_pending(&self) -> bool {
-        self.planning.request.is_some()
+        self.planning.request.is_some() || self.planning.required_permission_review()
     }
 
     pub fn partner_approval_pending(&self, partner: i64) -> bool {
         self.planning_state(partner)
-            .is_some_and(|state| state.request.is_some())
+            .is_some_and(|state| state.request.is_some() || state.required_permission_review())
     }
 
     /// The home shortcut never takes input from a modal or a literal editor.
@@ -913,7 +908,6 @@ impl App {
                     request,
                 } if *partner == self.lead.id
                     && *task == self.task_id
-                    && request.is_some()
                     && self.planning.focus_prompt(*generation, request) =>
                 {
                     Some(pending.clone())
@@ -946,7 +940,7 @@ impl App {
                     false
                 } else {
                     self.open_overlay(Overlay::Planning);
-                    self.planning.auto_file_review = false;
+                    self.planning.auto_permission_review = false;
                     self.planning.invalidate_review();
                     true
                 }
@@ -976,21 +970,18 @@ impl App {
     }
 
     pub(super) fn clear_approval_focus(&mut self) {
-        self.planning.auto_file_review = false;
+        self.planning.auto_permission_review = false;
         self.cooperation.focused = None;
     }
 
     pub(super) fn defer_approval(&mut self) {
         if let Some(request) = self.cooperation.focused.take()
-            && matches!(
-                self.planning.request.as_ref().map(|request| &request.kind),
-                Some(crate::providers::PromptKind::Permission { file: Some(_), .. })
-            )
-            && !self.cooperation.presented_files.contains(&request)
+            && self.planning.required_permission_review()
+            && !self.cooperation.presented_permissions.contains(&request)
         {
-            self.cooperation.presented_files.push(request);
+            self.cooperation.presented_permissions.push(request);
         }
-        self.planning.auto_file_review = false;
+        self.planning.auto_permission_review = false;
         self.planning.invalidate_review();
         self.close_overlay();
         self.notice =
@@ -1378,6 +1369,10 @@ mod tests {
     }
 
     fn start(app: &mut App, partner: i64, arrival: u64) {
+        prepare_owned(app, partner, arrival, false);
+    }
+
+    fn prepare_owned(app: &mut App, partner: i64, arrival: u64, connection_review: bool) {
         let owner =
             store::Attribution::of(app.party.iter().find(|owner| owner.id == partner).unwrap());
         let mut task = app.tasks[0].clone();
@@ -1404,13 +1399,15 @@ mod tests {
             task_id: 7,
             thread_id: None,
             destination: None,
-            requires_connection_review: false,
+            requires_connection_review: connection_review,
             trust: Vec::new(),
             payload: format!("payload-{partner}"),
             blockers: Vec::new(),
         }));
-        assert!(state.dispatch_prepared());
-        state.pending.take();
+        if !connection_review {
+            assert!(state.dispatch_prepared());
+            state.pending.take();
+        }
         if partner == app.lead.id {
             app.planning = state;
         } else {
@@ -1419,6 +1416,37 @@ mod tests {
     }
 
     fn prompt(app: &mut App, partner: i64, arrival: u64) {
+        prompt_kind(
+            app,
+            partner,
+            arrival,
+            providers::PromptKind::Approval {
+                command: format!("command-{partner}"),
+                cwd: "/workspace".into(),
+                reason: "Exact owned request".into(),
+                allow_once: true,
+                deny_decision: "decline".into(),
+            },
+        );
+    }
+
+    fn question_prompt(app: &mut App, partner: i64, arrival: u64) {
+        prompt_kind(
+            app,
+            partner,
+            arrival,
+            providers::PromptKind::Questions(vec![providers::Question {
+                id: "scope".into(),
+                header: "Scope".into(),
+                question: "Which exact file?".into(),
+                options: Vec::new(),
+                other: true,
+                secret: false,
+            }]),
+        );
+    }
+
+    fn prompt_kind(app: &mut App, partner: i64, arrival: u64, kind: providers::PromptKind) {
         app.provider_event(
             partner,
             providers::Event::Prompt {
@@ -1430,13 +1458,7 @@ mod tests {
                     thread_id: "thread".into(),
                     turn_id: "turn".into(),
                     item_id: "tool".into(),
-                    kind: providers::PromptKind::Approval {
-                        command: format!("command-{partner}"),
-                        cwd: "/workspace".into(),
-                        reason: "Exact owned request".into(),
-                        allow_once: true,
-                        deny_decision: "decline".into(),
-                    },
+                    kind,
                 },
             },
         );
@@ -1494,6 +1516,119 @@ mod tests {
     }
 
     #[test]
+    fn automatic_generic_permission_requires_engagement_and_exact_owned_answer() {
+        for allow in [false, true] {
+            let mut app = app();
+            start(&mut app, 1, 1);
+            start(&mut app, 2, 2);
+            app.open_editor(store::EditorField::Request);
+            app.input = "Future 漢字 request".into();
+            app.cursor = 7;
+            let draft = (app.input.clone(), app.cursor);
+            let permission = || providers::PromptKind::Permission {
+                description: "One exact scoped call".into(),
+                file: None,
+                options: vec![
+                    providers::PermissionOption {
+                        label: "Deny".into(),
+                        description: "No effects".into(),
+                        answer: json!({"decision": "deny", "call": 42}),
+                    },
+                    providers::PermissionOption {
+                        label: "Allow once".into(),
+                        description: "Only call 42".into(),
+                        answer: json!({"decision": "once", "call": 42}),
+                    },
+                ],
+            };
+            prompt_kind(&mut app, 2, 10, permission());
+            assert!(app.overlay.is_none());
+            prompt_kind(&mut app, 1, 20, permission());
+            assert_eq!(app.overlay, Some(Overlay::Planning));
+            assert_eq!(app.lead.id, 1);
+            assert!(app.planning.auto_permission_review);
+            for code in [KeyCode::Char('a'), KeyCode::Char('y'), KeyCode::Char('n')] {
+                app.update(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+            }
+            app.update(Event::Paste("y\na\n".into()));
+            app.update(Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Enter,
+                KeyModifiers::NONE,
+                KeyEventKind::Repeat,
+            )));
+            assert!(app.planning.pending.is_none());
+            assert_eq!((app.input.clone(), app.cursor), draft);
+            app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+            app.refresh_approvals();
+            assert!(app.overlay.is_none());
+            assert!(app.focus_own_approval());
+            app.planning.reviewed = allow;
+            app.planning_key(KeyEvent::new(
+                KeyCode::Char(if allow { 'a' } else { 'n' }),
+                KeyModifiers::NONE,
+            ));
+            assert!(matches!(
+                app.planning.pending.take(),
+                Some(providers::Request::Answer { generation: 7, request_id, answer })
+                    if request_id == json!("same-provider-id")
+                        && answer == json!({"decision": if allow { "once" } else { "deny" }, "call": 42})
+            ));
+            assert!(app.cooperation.parked[&2].pending.is_none());
+            assert_eq!((app.input.clone(), app.cursor), draft);
+        }
+    }
+
+    #[test]
+    fn prepared_connection_review_presents_once_and_never_dispatches_before_decision() {
+        for allow in [false, true] {
+            let mut app = app();
+            app.open_editor(store::EditorField::Request);
+            app.input = "Retained future request".into();
+            app.cursor = 4;
+            let draft = (app.input.clone(), app.cursor);
+            prepare_owned(&mut app, 2, 1, true);
+            app.refresh_approvals();
+            assert!(app.overlay.is_none());
+            prepare_owned(&mut app, 1, 2, true);
+            app.refresh_approvals();
+            assert_eq!(app.overlay, Some(Overlay::Planning));
+            assert!(app.planning.auto_permission_review);
+            assert!(!app.planning.dispatch_prepared());
+            for code in [KeyCode::Char('y'), KeyCode::Char('n')] {
+                app.update(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+            }
+            app.update(Event::Paste("y\n".into()));
+            assert!(app.planning.preview.is_some() && app.planning.pending.is_none());
+            app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+            app.refresh_approvals();
+            assert!(app.overlay.is_none());
+            assert_eq!((app.input.clone(), app.cursor), draft);
+            assert!(app.focus_own_approval());
+            assert!(!app.planning.dispatch_prepared());
+            app.planning.reviewed = allow;
+            app.planning_key(KeyEvent::new(
+                KeyCode::Char(if allow { 'y' } else { 'n' }),
+                KeyModifiers::NONE,
+            ));
+            if allow {
+                assert!(matches!(
+                    app.planning.pending,
+                    Some(providers::Request::Run { generation: 7 })
+                ));
+            } else {
+                assert!(app.planning.preview.is_none());
+                assert!(!matches!(
+                    app.planning.pending,
+                    Some(providers::Request::Run { .. })
+                ));
+            }
+            assert!(app.cooperation.parked[&2].preview.is_some());
+            assert!(app.cooperation.parked[&2].pending.is_none());
+            assert_eq!((app.input.clone(), app.cursor), draft);
+        }
+    }
+
+    #[test]
     fn file_popup_reaches_every_safe_home_pane_and_restores_focus() {
         for pane in [Pane::Companion, Pane::Workspace, Pane::Inspector] {
             let mut app = app();
@@ -1503,7 +1638,7 @@ mod tests {
             let draft = (app.input.clone(), app.cursor);
             file_prompt(&mut app, 1, 2);
             assert_eq!(app.overlay, Some(Overlay::Planning));
-            assert!(app.planning.auto_file_review);
+            assert!(app.planning.auto_permission_review);
             assert!(app.planning.pending.is_none());
             app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
             assert!(app.overlay.is_none());
@@ -1523,7 +1658,7 @@ mod tests {
         let draft = (app.input.clone(), app.cursor);
         file_prompt(&mut app, 1, 2);
         assert_eq!(app.overlay, Some(Overlay::Planning));
-        assert!(app.planning.auto_file_review);
+        assert!(app.planning.auto_permission_review);
         assert_eq!((app.input.clone(), app.cursor), draft);
         for code in [
             KeyCode::Char('a'),
@@ -1549,11 +1684,11 @@ mod tests {
         }
         app.update(Event::Paste("a\ny\nn\n".into()));
         app.planning_command("answers-review");
-        assert!(app.planning.auto_file_review && !app.planning.review_details);
+        assert!(app.planning.auto_permission_review && !app.planning.review_details);
         assert!(app.planning.pending.is_none() && app.pending_request.is_none());
         assert_eq!((app.input.clone(), app.cursor), draft);
         app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
-        assert!(app.overlay.is_none() && !app.planning.auto_file_review);
+        assert!(app.overlay.is_none() && !app.planning.auto_permission_review);
         app.refresh_approvals();
         assert!(!app.settle_planning());
         assert!(app.overlay.is_none() && app.planning.request.is_some());
@@ -1564,7 +1699,7 @@ mod tests {
         )));
         assert_eq!(app.overlay, Some(Overlay::Planning));
         assert!(
-            !app.planning.auto_file_review,
+            !app.planning.auto_permission_review,
             "manual reopen is deliberate"
         );
         assert!(app.planning.pending.is_none());
@@ -1588,7 +1723,7 @@ mod tests {
             assert_eq!((app.input.as_str(), app.cursor), ("literal future 漢字", 8));
             app.open_editor(store::EditorField::Request);
             assert!(app.settle_planning());
-            assert!(app.planning.auto_file_review);
+            assert!(app.planning.auto_permission_review);
         }
         for overlay in [
             Overlay::Help,
@@ -1602,10 +1737,10 @@ mod tests {
             app.open_overlay(overlay);
             file_prompt(&mut app, 1, 2);
             assert_eq!(app.overlay, Some(overlay));
-            assert!(!app.planning.auto_file_review);
+            assert!(!app.planning.auto_permission_review);
             app.close_overlay();
             assert!(app.settle_planning());
-            assert!(app.planning.auto_file_review);
+            assert!(app.planning.auto_permission_review);
         }
         let mut app = app();
         start(&mut app, 1, 1);
@@ -1616,7 +1751,7 @@ mod tests {
         app.close_overlay();
         assert!(!app.settle_planning());
         assert!(app.planning.request.is_none() && app.planning.pending.is_none());
-        assert!(app.overlay.is_none() && !app.planning.auto_file_review);
+        assert!(app.overlay.is_none() && !app.planning.auto_permission_review);
     }
 
     #[test]
@@ -1641,7 +1776,7 @@ mod tests {
                 _ => app.width = 59,
             }
             file_prompt(&mut app, 1, 2);
-            assert!(app.overlay.is_none() && !app.planning.auto_file_review);
+            assert!(app.overlay.is_none() && !app.planning.auto_permission_review);
             app.transitioning = false;
             app.reset_after_save = false;
             app.quit_after_save = false;
@@ -1650,21 +1785,12 @@ mod tests {
             app.composer_menu = None;
             app.width = 120;
             assert!(app.settle_planning());
-            assert!(app.planning.auto_file_review && app.planning.pending.is_none());
+            assert!(app.planning.auto_permission_review && app.planning.pending.is_none());
         }
         let mut app = app();
         start(&mut app, 1, 1);
         app.open_editor(store::EditorField::Request);
-        prompt(&mut app, 1, 10);
-        app.planning.request.as_mut().unwrap().kind =
-            providers::PromptKind::Questions(vec![providers::Question {
-                id: "scope".into(),
-                header: "Scope".into(),
-                question: "Which file?".into(),
-                options: Vec::new(),
-                other: true,
-                secret: false,
-            }]);
+        question_prompt(&mut app, 1, 10);
         file_prompt(&mut app, 1, 20);
         assert!(
             app.overlay.is_none(),
@@ -1678,11 +1804,11 @@ mod tests {
             },
         );
         assert_eq!(app.overlay, Some(Overlay::Planning));
-        assert!(app.planning.auto_file_review && app.planning.pending.is_none());
+        assert!(app.planning.auto_permission_review && app.planning.pending.is_none());
     }
 
     #[test]
-    fn consecutive_owned_file_reviews_reconcile_without_opening_foreign_or_generic_work() {
+    fn consecutive_owned_reviews_reconcile_without_opening_foreign_work() {
         let mut app = app();
         start(&mut app, 1, 1);
         start(&mut app, 2, 2);
@@ -1710,12 +1836,12 @@ mod tests {
             },
         );
         assert!(
-            app.planning.auto_file_review,
+            app.planning.auto_permission_review,
             "stale closure cannot affect live review"
         );
         close_file_prompt(&mut app, 1, 20);
         assert_eq!(app.overlay, Some(Overlay::Planning));
-        assert!(app.planning.auto_file_review);
+        assert!(app.planning.auto_permission_review);
         assert_eq!(
             app.planning.request.as_ref().unwrap().request_id,
             json!("file-30")
@@ -1723,11 +1849,8 @@ mod tests {
         assert!(app.planning.pending.is_none());
         prompt(&mut app, 1, 40);
         close_file_prompt(&mut app, 1, 30);
-        assert!(
-            app.overlay.is_none(),
-            "generic approvals still require deliberate opening"
-        );
-        assert!(!app.planning.auto_file_review);
+        assert_eq!(app.overlay, Some(Overlay::Planning));
+        assert!(app.planning.auto_permission_review);
         assert!(app.planning.request.is_some() && app.planning.pending.is_none());
         assert_eq!(app.lead.id, 1);
     }
@@ -1744,7 +1867,7 @@ mod tests {
                 app.cursor = text.find('漢').unwrap_or(text.len());
                 let draft = (app.input.clone(), app.cursor);
                 prompt(&mut app, 1, 2);
-                assert!(app.overlay.is_none(), "arrival must not interrupt typing");
+                assert_eq!(app.overlay, Some(Overlay::Planning));
                 assert_eq!((app.input.clone(), app.cursor), draft);
 
                 app.update(Event::Key(KeyEvent::new(
@@ -1780,17 +1903,7 @@ mod tests {
         app.retain_editor();
         app.focus = Pane::Workspace;
         prompt(&mut app, 2, 10);
-        prompt(&mut app, 1, 20);
-        app.planning.request.as_mut().unwrap().kind =
-            providers::PromptKind::Questions(vec![providers::Question {
-                id: "scope".into(),
-                header: "Scope".into(),
-                question: "Which exact file?".into(),
-                options: Vec::new(),
-                other: true,
-                secret: false,
-            }]);
-        app.planning.answers = vec![planning::Answer::default()];
+        question_prompt(&mut app, 1, 20);
 
         app.update(Event::Key(KeyEvent::new(
             KeyCode::Enter,
@@ -1818,6 +1931,7 @@ mod tests {
         let mut app = app();
         start(&mut app, 1, 1);
         prompt(&mut app, 1, 2);
+        app.defer_approval();
         app.open_editor(store::EditorField::Request);
         for (modifiers, kind) in [
             (KeyModifiers::ALT, KeyEventKind::Repeat),
@@ -1860,11 +1974,11 @@ mod tests {
         ] {
             let mut app = app();
             start(&mut app, 1, 1);
-            prompt(&mut app, 1, 2);
             app.editing = true;
             app.editor_field = field;
             app.input = "literal draft".into();
             app.cursor = 4;
+            prompt(&mut app, 1, 2);
             app.update(shortcut.clone());
             assert!(app.overlay.is_none());
             assert_eq!((app.input.as_str(), app.cursor), ("literal draft", 4));
@@ -1873,16 +1987,16 @@ mod tests {
         for overlay in [Overlay::Help, Overlay::Sources, Overlay::Planning] {
             let mut app = app();
             start(&mut app, 1, 1);
-            prompt(&mut app, 1, 2);
             app.open_overlay(overlay);
+            prompt(&mut app, 1, 2);
             app.update(shortcut.clone());
             assert_eq!(app.overlay, Some(overlay));
             assert!(app.planning.pending.is_none());
         }
         let mut app = app();
         start(&mut app, 1, 1);
-        prompt(&mut app, 1, 2);
         app.open_commands();
+        prompt(&mut app, 1, 2);
         app.update(shortcut.clone());
         assert!(app.command_popup.is_some() && app.overlay.is_none());
         assert!(app.planning.pending.is_none());
@@ -1902,11 +2016,11 @@ mod tests {
             let mut app = app();
             start(&mut app, 1, 1);
             start(&mut app, 2, 2);
-            prompt(&mut app, 1, 10);
-            prompt(&mut app, 2, 20);
             app.open_editor(store::EditorField::Request);
             app.input = "future draft".into();
             app.cursor = 3;
+            prompt(&mut app, 1, 10);
+            prompt(&mut app, 2, 20);
             app.focus_approvals();
             app.planning.reviewed = true;
             app.planning_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
@@ -2010,7 +2124,7 @@ mod tests {
                     let draft = (app.input.clone(), app.cursor);
                     file_prompt(&mut app, 1, 2);
                     assert_eq!(app.overlay, Some(Overlay::Planning));
-                    assert!(app.planning.auto_file_review);
+                    assert!(app.planning.auto_permission_review);
                     let mut artwork = crate::ui::artwork::Artwork::load(&config);
                     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
                     let mut draw = |app: &mut App| {
@@ -2039,12 +2153,12 @@ mod tests {
                         app.update(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
                     }
                     app.update(Event::Paste("a\ny\nn\n".into()));
-                    assert!(app.planning.auto_file_review && app.planning.pending.is_none());
+                    assert!(app.planning.auto_permission_review && app.planning.pending.is_none());
                     app.update(Event::Key(KeyEvent::new(
                         KeyCode::Enter,
                         KeyModifiers::NONE,
                     )));
-                    assert!(!app.planning.auto_file_review && !app.planning.review_details);
+                    assert!(!app.planning.auto_permission_review && !app.planning.review_details);
                     assert!(!app.planning.reviewed && app.planning.pending.is_none());
                     app.update(Event::Key(KeyEvent::new(
                         KeyCode::Char('a'),
@@ -2087,11 +2201,9 @@ mod tests {
                     );
                     app.refresh_approvals();
                     let settled = draw(&mut app);
-                    assert!(
-                        !settled.contains(
-                            language.text(Message::ProvidersPlanningFileAutoReviewActions)
-                        )
-                    );
+                    assert!(!settled.contains(
+                        language.text(Message::ProvidersPlanningPermissionAutoReviewActions)
+                    ));
                     assert!(
                         !settled.contains(language.text(Message::CoreWaitingForUser)),
                         "{settled}"

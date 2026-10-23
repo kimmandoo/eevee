@@ -237,6 +237,12 @@ def advertised_tools(protocol, body):
     return {entry.get('function', entry)['name'] for entry in entries}
 
 
+def file_review_pending(session):
+    view = session.display()
+    return (any(label in view for label in ('Enter to review (not approve)', 'Enter 검토 (승인 아님)'))
+            and any(button in view for button in ('[ Allow once ]', '[ 한 번 허용 ]')))
+
+
 class CreationJourney(SurfaceJourney):
     # Shared label-based navigation covers primary/advanced native forms while
     # this journey continues to assert actual tools, authority and file bytes.
@@ -272,8 +278,13 @@ class CreationJourney(SurfaceJourney):
     def paths(self, paths):
         before = self.snapshot()
         posts = len(self.peer.snapshot('POST'))
-        self.session.command('paths')
-        wait_for(self.session, 'JSON')
+        def open_paths():
+            if 'JSON' in self.session.display():
+                return True
+            self.workspace()
+            self.session.command('paths')
+            return 'JSON' in self.session.display()
+        until(self.session, open_paths, 'settled path selector did not open', timeout=40)
         self.session.send(UP * 16 + HOME + DELETE * 4096)
         self.session.paste(json.dumps(paths, ensure_ascii=False))
         self.session.send('\r')
@@ -299,6 +310,8 @@ class CreationJourney(SurfaceJourney):
                 self.capture('request-scope-before-inference-' + str(before))
                 self.session.send('y')
                 approved = True
+            elif not approved and any(value in view for value in ('Enter to review (not approve)', 'Enter 검토 (승인 아님)')):
+                self.session.send('\r')
             elif 'Alt+A' in view:
                 self.session.send(ESC + 'a')
             return False
@@ -315,8 +328,7 @@ class CreationJourney(SurfaceJourney):
 
     def permission(self, path, *, allow, kind='Create'):
         # No workspace/approval command may manufacture the initial presentation.
-        automatic = ('File proposal ready', '파일 제안 준비됨')
-        until(self.session, lambda: any(label in self.session.display() for label in automatic),
+        until(self.session, lambda: file_review_pending(self.session),
               'owned file approval did not open automatically', timeout=40)
         reviews = getattr(self, '_file_reviews', 0)
         self._file_reviews = reviews + 1
@@ -328,14 +340,14 @@ class CreationJourney(SurfaceJourney):
             self.session.send('ayn')
             self.session.paste('a\ny')
             self.session.send('\x1b[121;5u\x1b[121;1:2u\x1b[13;1:2u')
-            assert any(label in self.session.display() for label in automatic), 'arriving typing engaged file consent'
+            assert file_review_pending(self.session), 'arriving typing engaged file consent'
             assert len(self.peer.snapshot('POST')) == before, 'arriving typing answered file consent'
             assert (target.read_bytes() if target.is_file() else None) == original, 'arriving typing changed file bytes'
             self.capture('typing-paste-repeat-cannot-engage-or-answer')
         if reviews == 1:
             self.session.send(ESC)
             self.session.pump(.3)
-            assert not any(label in self.session.display() for label in automatic), 'deferred identity reopened itself'
+            assert not file_review_pending(self.session), 'deferred identity reopened itself'
             assert len(self.peer.snapshot('POST')) == before, 'Escape answered a deferred file proposal'
             self.capture('deferred-without-answer-or-reopen')
         # Enter engages an automatic proposal, or deliberately reopens a deferred one.
@@ -518,8 +530,7 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
                 collision = 'collision.txt'
                 before = journey.begin('Propose a file whose path will change before approval.', [response_plan(peer, calls=[
                     {'id': 'collide-create', 'path': collision, 'content': 'must not overwrite\n'}], number=6)])
-                until(journey.session, lambda: any(label in journey.session.display()
-                      for label in ('File proposal ready', '파일 제안 준비됨')),
+                until(journey.session, lambda: file_review_pending(journey.session),
                       'collision proposal did not open automatically')
                 (journey.project / collision).write_bytes(b'external user bytes\n')
                 journey.permission(collision, allow=True)
@@ -593,6 +604,8 @@ class CodexCreationJourney(cooperation_smoke.Journey):
             if approve_preview and not approved and any(value in view for value in ('y Run', 'y 실행')):
                 self.session.send('y')
                 approved = True
+            elif approve_preview and not approved and any(value in view for value in ('Enter to review (not approve)', 'Enter 검토 (승인 아님)')):
+                self.session.send('\r')
             elif approve_preview and 'Alt+A' in view:
                 self.session.send(ESC + 'a')
             return False
@@ -615,8 +628,7 @@ def codex_case(binary, output, size, language):
             journey.request(1, marker)
             assert all(row['writing'] for row in journey.snapshot()[2]), 'controlled creation lost writer lease'
             journey.prompt(marker, 'edit')
-            journey.until(lambda: any(label in journey.session.display()
-                          for label in ('File proposal ready', '파일 제안 준비됨')),
+            journey.until(lambda: file_review_pending(journey.session),
                           'controlled file review did not open automatically')
             journey.session.send('\r')
             journey.until(lambda: normalized(FIRST) in journey.session.display()
@@ -660,8 +672,7 @@ def codex_case(binary, output, size, language):
         assert 'public fixture' in json.dumps(answers[1]), 'controlled read did not return real source bytes'
         assert hashlib.sha256(CONTENT.encode()).hexdigest() in json.dumps(answers[1]), 'controlled read omitted source digest'
         assert (journey.project / FIRST).read_bytes() == CONTENT.encode(), 'controlled observation changed source'
-        journey.until(lambda: any(label in journey.session.display()
-                      for label in ('File proposal ready', '파일 제안 준비됨')),
+        journey.until(lambda: file_review_pending(journey.session),
                       'controlled edit review did not open automatically')
         journey.session.send('\r')
         journey.until(lambda: normalized(FIRST) in journey.session.display()

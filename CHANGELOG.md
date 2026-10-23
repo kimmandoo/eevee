@@ -2,6 +2,11 @@
 
 ## 2026-10-23
 
+- fix(forms): separated project coding capability from automatic/manual evolution, preserved explicit readonly policy across form/formation changes and retained same-policy conversation through cosmetic transitions.
+- fix(context): supplied a bounded frozen current-folder filename observation across native, Codex, SDK and ACP requests without attaching source bodies or granting writes.
+- fix(permissions): automatically presented required file, generic tool and prepared external-policy reviews with neutral arrival, localized controls and explicit one-shot consent.
+- test(forms): passed all 72 nine-form bilingual/both-size coding journeys/576 groups and 24 ACP prepared/generic/file-permission journeys/72 groups with actual request context, denial and approved filesystem effects.
+
 - docs(release): published v0.1.24 from exact source `19a217e` after unchanged Check/all-five-native qualification and immutable promotion; verified all eight public digests, seven manifest entries, source installers and exact qualified native archives.
 - test(release): verified downloaded v0.1.24 permission/48, file workflows/126, native protocols/176, provider UX/20 and bilingual automatic evolution; passed all 24 installation groups/34 installed-native scenarios and matched reinstalled/public executable bytes.
 
@@ -53,6 +58,14 @@
 - docs(release): published v0.1.19 from source `63f1007` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.25
+
+- fix(forms): enabled guarded project discovery, creation and modification in every form without forced evolution or capability-specific navigation.
+- fix(context): included safe current-folder identity and bounded filenames in ordinary provider requests, preserving exclusions, frozen review and fresh next-request discovery.
+- fix(conversation): retained same-policy history through cosmetic evolution while preserving explicit readonly and independent-review boundaries.
+- fix(permissions): opened required owner-bound permissions automatically and kept typing, inspection, denial and exact approval distinct in English/Korean compact and wide layouts.
+- docs(compatibility): retained Schema 18, complete SDK bridge 9, full-directory backup guidance and immutable prior releases; distinguished deterministic runtime evidence from live-provider acceptance.
 
 ## 0.1.24
 

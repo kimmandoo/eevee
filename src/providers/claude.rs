@@ -877,6 +877,9 @@ struct SdkWriteScope {
     excluded_paths: Vec<PathBuf>,
     root_identity: Option<String>,
     files: Vec<SdkWriteFile>,
+    /// Host-only preview observation; never part of the sidecar write policy.
+    #[serde(skip)]
+    project_context: Option<Arc<Value>>,
 }
 impl SdkWriteScope {
     fn empty_selected() -> Self {
@@ -886,6 +889,7 @@ impl SdkWriteScope {
             excluded_paths: Vec::new(),
             root_identity: None,
             files: Vec::new(),
+            project_context: None,
         }
     }
 }
@@ -1147,12 +1151,14 @@ fn capture_write_scope(
             .collect(),
         root_identity: Some(root_identity),
         files,
+        project_context: None,
     })
 }
 fn payload(
     data_dir: &Path,
     input: &Input,
     exclusions: &[PathBuf],
+    frozen_context: Option<&Arc<Value>>,
 ) -> Result<(String, SdkWriteScope), String> {
     input.validate_selection()?;
     if input.inspect_models {
@@ -1163,8 +1169,34 @@ fn payload(
     }
     input.validate_review()?;
     input.validate_committed(data_dir)?;
+    let mut write_scope = capture_write_scope(data_dir, input, exclusions)?;
+    let project_context = if let Some(context) = frozen_context {
+        Arc::clone(context)
+    } else {
+        let scope = super::writes::WriteSet::capture_readonly(
+            Path::new(&input.task.project),
+            data_dir,
+            exclusions,
+        )?;
+        Arc::new(
+            serde_json::to_value(super::project_context(&scope, input.agent))
+                .map_err(|_| "Cannot encode SDK project context")?,
+        )
+    };
+    write_scope.project_context = Some(project_context);
+    let project_context = write_scope
+        .project_context
+        .as_deref()
+        .expect("captured project context");
     if let Some(text) = input.review_payload(data_dir, exclusions)? {
-        return Ok((text, capture_write_scope(data_dir, input, exclusions)?));
+        let mut review: Value =
+            serde_json::from_str(&text).map_err(|_| "Cannot decode SDK review context")?;
+        review["project_context"] = project_context.clone();
+        return Ok((
+            serde_json::to_string_pretty(&review)
+                .map_err(|_| "Cannot encode SDK review context")?,
+            write_scope,
+        ));
     }
     if let Some(document) = &input.handoff {
         crate::workspace::handoff::validate_dispatch(
@@ -1181,10 +1213,10 @@ fn payload(
         &input.excerpts,
         exclusions,
     )?;
-    let write_scope = capture_write_scope(data_dir, input, exclusions)?;
     let text = serde_json::to_string_pretty(&json!({
         "purpose": if input.operation == Operation::Plan { "Answer the request directly; inspect safe source when useful. Produce a plan only when requested. No implementation tools are exposed." } else { "Answer the request directly and inspect safe source when useful. When changes are requested, implement using exact per-operation approval of each file and missing parent. Empty selected paths permit safe project-relative file proposals; nonempty selected paths are an exact restriction. Preserve existing dirty working content. This is external SDK agent policy, not strict OS confinement. Do not commit/merge. Report unverified patch for human diff review." },
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
+        "project_context": project_context,
         "request": input.instruction(),
         "approved_memories": input.task.approved_memories,
         "selected_sources": serde_json::from_str::<Value>(&sources.text).map_err(|_| "Invalid source envelope")?, "write_mode": write_scope.mode, "edit_baselines": write_scope.files, "handoff": input.handoff,
@@ -1303,7 +1335,7 @@ fn worker(
                     if input.inspect_models { "MODEL INSPECTION ONLY: no prompt/history/model turn or journal; SDK initialization may contact provider/auth services, refresh credentials and create isolated SDK state. All tools are disabled; the SDK closes after bounded capabilities and terminal result." } else { "The selected model and effort belong to this immutable reviewed request." },
                 ));
                 let mut write_scope = SdkWriteScope::empty_selected();
-                match payload(data_dir, &input, exclusions) {
+                match payload(data_dir, &input, exclusions, None) {
                     Ok((text, scope)) => {
                         preview.payload = text;
                         write_scope = scope;
@@ -1845,7 +1877,12 @@ fn transport(
         }
         revalidate(project, data_dir, &run.trust)?;
         credential_route()?;
-        let (current_text, current_scope) = payload(data_dir, &run.input, exclusions)?;
+        let (current_text, current_scope) = payload(
+            data_dir,
+            &run.input,
+            exclusions,
+            run.write_scope.project_context.as_ref(),
+        )?;
         if current_text != run.text || current_scope != run.write_scope {
             return Err(
                 "Task/source/edit baseline/handoff changed; preview Claude again before dispatch"
@@ -1910,7 +1947,12 @@ fn transport(
             return Err("SDK inspect process-tree cleanup unknown; no model sent".into());
         }
         revalidate(project, data_dir, &run.trust)?;
-        let (current_text, current_scope) = payload(data_dir, &run.input, exclusions)?;
+        let (current_text, current_scope) = payload(
+            data_dir,
+            &run.input,
+            exclusions,
+            run.write_scope.project_context.as_ref(),
+        )?;
         if current_text != run.text || current_scope != run.write_scope {
             return Err("Context changed during SDK inspection; preview again".into());
         }

@@ -1004,6 +1004,92 @@ fn sdk_workspace_scope_freezes_root_and_all_privacy_boundaries_without_targets()
 }
 
 #[test]
+fn sdk_project_context_is_filename_only_frozen_and_separate_from_write_policy() {
+    let root = SdkTestDirectory::new();
+    let data = SdkTestDirectory::new();
+    fs::write(
+        root.path().join("visible.rs"),
+        "source body must not be uploaded",
+    )
+    .unwrap();
+    fs::write(root.path().join(".env"), "private").unwrap();
+    fs::write(root.path().join("omitted.rs"), "excluded").unwrap();
+    let store = crate::store::Worker::start(
+        data.path().into(),
+        root.path().to_str().unwrap().into(),
+        crate::store::Policy::default(),
+    )
+    .unwrap();
+    let next = || {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(event) = store.try_event() {
+                break event;
+            }
+            assert!(Instant::now() < deadline, "Store acknowledgement timed out");
+            thread::sleep(Duration::from_millis(2));
+        }
+    };
+    let crate::store::Event::Loaded(project) = next() else {
+        panic!("Expected loaded project")
+    };
+    let owner = crate::store::Attribution::of(&project.partners[0]);
+    let mut task = crate::store::Snapshot::empty(root.path().to_str().unwrap().into());
+    task.goal = "Inspect this project".into();
+    task.lead_partner = owner.partner;
+    task.form = owner.form;
+    task.revision = 1;
+    let mut save = Some(task);
+    assert!(store.try_save(&mut save));
+    let crate::store::Event::Saved(task) = next() else {
+        panic!("Expected saved task")
+    };
+    let mut input = crate::providers::tests::claimed(Agent::Claude, Operation::Plan, false);
+    input.work = None;
+    input.task = task;
+    let exclusions = [PathBuf::from("omitted.rs")];
+    let (text, scope) = payload(data.path(), &input, &exclusions, None).unwrap();
+    let envelope: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(envelope["project_context"]["root"], json!(root.path()));
+    assert_eq!(
+        envelope["project_context"]["filenames"]["paths"],
+        json!(["visible.rs"])
+    );
+    assert_eq!(envelope["selected_sources"], json!([]));
+    assert!(
+        envelope["project_context"]["guidance"]
+            .as_str()
+            .unwrap()
+            .contains("mcp__eevee_source__discover")
+    );
+    assert!(!text.contains("source body must not be uploaded"));
+    assert!(scope.files.is_empty());
+    assert_eq!(sdk_tool_policy(input.operation), "plan");
+    assert!(
+        serde_json::to_value(&scope)
+            .unwrap()
+            .get("project_context")
+            .is_none()
+    );
+    fs::write(root.path().join("later.rs"), "new source").unwrap();
+    let (revalidated, current) = payload(
+        data.path(),
+        &input,
+        &exclusions,
+        scope.project_context.as_ref(),
+    )
+    .unwrap();
+    assert_eq!(revalidated, text);
+    assert_eq!(current, scope);
+    let (fresh, _) = payload(data.path(), &input, &exclusions, None).unwrap();
+    assert!(fresh.contains("later.rs"));
+    input.inspect_models = true;
+    input.task.project = "unopened-project".into();
+    let (metadata, _) = payload(data.path(), &input, &exclusions, None).unwrap();
+    assert!(!metadata.contains("project_context") && !metadata.contains("visible.rs"));
+}
+
+#[test]
 fn sdk_large_literal_permission_preserves_crlf_and_near_file_limit_without_truncation() {
     for content in [
         "export const value = 1;\r\n".repeat(2048),

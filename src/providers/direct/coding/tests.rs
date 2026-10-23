@@ -1033,6 +1033,27 @@ fn readonly_roles_advertise_only_source_tools_and_metadata_remains_tool_free() {
         ] {
             let (run, _) = fixture.prepare(protocol, "http://127.0.0.1:1");
             let body: Value = serde_json::from_str(&run.payload).unwrap();
+            let policy = match protocol {
+                Protocol::Codex | Protocol::Responses => body["instructions"].as_str().unwrap(),
+                Protocol::ChatCompletions => body["messages"][0]["content"].as_str().unwrap(),
+                Protocol::Messages => body["system"].as_str().unwrap(),
+                Protocol::Gemini => body["systemInstruction"]["parts"][0]["text"]
+                    .as_str()
+                    .unwrap(),
+            };
+            let context: Value = serde_json::from_str(
+                policy
+                    .split("UNTRUSTED CURRENT TASK/SOURCE DATA (JSON):\n")
+                    .nth(1)
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                context["project_context"]["root"],
+                json!(fixture.workspace.project)
+            );
+            assert_eq!(context["project_context"]["filenames"]["status"], "success");
+            assert!(context["project_context"]["filenames"]["paths"].is_array());
             assert_readonly_declarations(&body, protocol);
             assert!(!run.writes.as_ref().unwrap().writing());
         }
@@ -1054,6 +1075,7 @@ fn readonly_roles_advertise_only_source_tools_and_metadata_remains_tool_free() {
         )
         .unwrap();
         assert!(body.get("tools").is_none());
+        assert!(!body.to_string().contains("project_context"));
         let mut unleased = fixture.input.clone();
         unleased.work = None;
         assert!(capture_writes(&fixture.workspace, &unleased).is_err());

@@ -220,13 +220,29 @@ fn peer_case(agent: Agent, mode: &str) {
     .unwrap();
     let (store, input) = owned_input(&workspace, agent, mode);
     let (index, launch) = profile(agent).unwrap();
+    let files = capture_files(&workspace, &input).unwrap();
     let run = Reviewed {
         generation: 1,
-        payload: payload(&workspace, &input).unwrap(),
-        files: capture_files(&workspace, &input).unwrap(),
+        payload: payload(&workspace, &input, files.as_ref()).unwrap(),
+        files,
         trust: crate::providers::agent::external_trust(index, &workspace.project, launch).unwrap(),
         input: Box::new(input),
     };
+    let envelope: Value = serde_json::from_str(&run.payload).unwrap();
+    assert_eq!(
+        envelope["project_context"]["root"],
+        json!(workspace.project)
+    );
+    assert_eq!(
+        envelope["project_context"]["filenames"]["paths"],
+        json!(["existing.txt"])
+    );
+    assert_eq!(envelope["selected_sources"], json!([]));
+    assert!(
+        !envelope["project_context"]
+            .to_string()
+            .contains("keep dirty bytes")
+    );
     let events: Events = Arc::new(Mutex::new(VecDeque::new()));
     let stop = AtomicBool::new(false);
     let cancelled = AtomicU64::new(0);
