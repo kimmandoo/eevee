@@ -2,6 +2,8 @@
 
 ## 2026-10-24
 
+- fix(recovery): read complete writer-lock bytes through the owning handle and used SQLite durability/close plus portable directory sync instead of a read-only Windows flush.
+- test(windows): exercised native pinned-ancestor sharing denial while retaining POSIX exchange/staleness, changed-leaf and destination-collision coverage.
 - feat(recovery): added complete offline format1 snapshots, read-only member verification and fresh-directory restore with private-data disclosure, unchanged source/backup bytes, current-reader admission and no replay.
 - feat(evolution): added local pre-send appearance/operation/policy inspection using Submit's resolver while preserving exact drafts and recomputing on send.
 - feat(tools): added reviewed exact regular-file deletion and same-project no-overwrite rename through the existing native/controlled Codex executor.

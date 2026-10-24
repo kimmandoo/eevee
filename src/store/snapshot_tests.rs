@@ -157,8 +157,19 @@ impl Drop for Fixture {
 }
 
 fn source_bytes(path: &Path) -> Vec<Member> {
+    source_bytes_owned(path, None)
+}
+
+fn source_bytes_owned(path: &Path, owned_lock: Option<&File>) -> Vec<Member> {
     let mut members = Vec::new();
-    inventory(&Directory::open(path).unwrap(), "", &mut members, None).unwrap();
+    inventory(
+        &Directory::open(path).unwrap(),
+        "",
+        &mut members,
+        None,
+        owned_lock,
+    )
+    .unwrap();
     members
 }
 
@@ -254,6 +265,44 @@ fn complete_snapshot_restore_preserves_task_draft_receipt_run_artifact_and_archi
 }
 
 #[test]
+fn snapshot_preserves_every_owned_writer_lock_byte_and_restores_a_usable_store() {
+    let fixture = Fixture::new();
+    let (task, _) = fixture.populated();
+    // Cover nonempty bytes across multiple copy buffers, not just the usual
+    // empty lock file. No locked region may be skipped, zeroed or rewritten.
+    let lock_bytes: Vec<u8> = (0u8..=255).cycle().take(128 * 1024 + 17).collect();
+    fs::write(fixture.source().join(LOCK), &lock_bytes).unwrap();
+    let before = source_bytes(&fixture.source());
+    let manifest = create(&fixture.source(), &fixture.backup()).unwrap();
+    assert_eq!(manifest.members, before);
+    assert_eq!(verify(&fixture.backup()).unwrap(), manifest);
+    let index = manifest
+        .members
+        .iter()
+        .position(|m| m.path == LOCK)
+        .unwrap();
+    assert_eq!(
+        fs::read(fixture.backup().join(payload(index))).unwrap(),
+        lock_bytes
+    );
+    assert_eq!(source_bytes(&fixture.source()), before);
+    let backup_before = source_bytes(&fixture.backup());
+    restore(&fixture.backup(), &fixture.restored()).unwrap();
+    assert_eq!(fs::read(fixture.restored().join(LOCK)).unwrap(), lock_bytes);
+    assert_eq!(source_bytes(&fixture.source()), before);
+    assert_eq!(source_bytes(&fixture.backup()), backup_before);
+    let restored = fixture.state_at(fixture.restored());
+    let retained = load_task(
+        restored.connection.as_ref().unwrap(),
+        &task.project,
+        task.id,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(retained, task);
+}
+
+#[test]
 fn backup_precedes_migration_and_newer_reader_refusal_never_touches_source_or_backup() {
     let fixture = Fixture::new();
     fixture.populated();
@@ -311,13 +360,19 @@ fn older_backup_keeps_original_schema_until_restored_reader_migrates_fresh_copy(
 fn live_owner_and_destination_collisions_are_create_only() {
     let fixture = Fixture::new();
     let state = fixture.state_at(fixture.source());
-    let before = source_bytes(&fixture.source());
+    // Observe live ownership through its actual handle: Windows mandatory locks
+    // intentionally reject reads from a second handle, including in this process.
+    let before = source_bytes_owned(&fixture.source(), state.lock.as_ref());
     assert!(
         create(&fixture.source(), &fixture.backup())
             .unwrap_err()
             .contains("Live owner")
     );
     assert!(!fixture.backup().exists());
+    assert_eq!(
+        source_bytes_owned(&fixture.source(), state.lock.as_ref()),
+        before
+    );
     drop(state);
     create(&fixture.source(), &fixture.backup()).unwrap();
     let backup = source_bytes(&fixture.backup());
@@ -431,7 +486,7 @@ fn incomplete_copies_are_never_backups_or_usable_app_data_and_failed_writes_are_
     let read_only = File::open(fixture.source().join(DATABASE)).unwrap();
     assert!(
         digest(
-            File::open(fixture.source().join(DATABASE)).unwrap(),
+            &File::open(fixture.source().join(DATABASE)).unwrap(),
             Some(read_only)
         )
         .is_err()
@@ -543,7 +598,7 @@ fn disk_full_and_mid_copy_source_changes_cannot_finish_integrity_copy() {
     let path = fixture.0.join("member");
     fs::write(&path, vec![b'x'; 128 * 1024]).unwrap();
     assert!(
-        digest_to(File::open(&path).unwrap(), Some(&mut DiskFull))
+        digest_to(&File::open(&path).unwrap(), Some(&mut DiskFull))
             .unwrap_err()
             .contains("disk-full")
     );
@@ -551,7 +606,7 @@ fn disk_full_and_mid_copy_source_changes_cannot_finish_integrity_copy() {
     let writable = OpenOptions::new().write(true).open(&path).unwrap();
     assert!(
         digest_to(
-            File::open(&path).unwrap(),
+            &File::open(&path).unwrap(),
             Some(&mut TruncateSource(writable))
         )
         .unwrap_err()

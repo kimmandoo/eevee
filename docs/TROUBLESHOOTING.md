@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-24] Windows mandatory locks prevented complete snapshot reads
+
+- **Context / Symptom:** Native run40081125036's Windows job120834732114 failed nine snapshot cases with `os error 33` and two ancestor-exchange fixtures with sharing violation32.
+- **Root Cause:** Snapshot inventory reopened the exclusively locked writer-lock file instead of reading through its actual owning handle; Windows byte-range locks are mandatory for separate handles, unlike POSIX advisory locking. The live-owner observation helper had the same assumption. The two mutation fixtures tried to rename directories deliberately pinned without delete sharing, so Windows correctly blocked their setup attack. A subsequent read-only database `sync_all` was also nonportable: Windows flushing requires writable access.
+- **Solution:** Inventory now reads every lock-file byte through the retained owner, rewinds borrowed reads for both passes and still revalidates the named native identity. A multi-buffer nonempty-lock regression preserves source/backup/restored bytes and consumes the restored store. Restore propagates SQLite close errors after `synchronous=FULL`, then uses the existing portable directory-sync convention instead of opening a read-only handle merely to flush. Mutation fixtures now prove actual Windows sharing denial and intact scope; POSIX still exchanges ancestors and proves stale-operation refusal. No lock bytes were omitted, ownership weakened or test skipped.
+- **Prevention / Reference:** Local pinned gates passed1,589 cases/two ignored, strict Clippy/build and the actual snapshot CLI/TUI journey. Fresh native Windows verification is recorded in the checkpoint; the failed run was cancelled as unpromotable rather than reusing its partial success.
+
 ### [2026-10-24] Mutation acceptance confused automatic arrival, selected consent and durable settlement
 
 - **Context / Symptom:** New controlled mutation journeys reported `file review did not reach its final visible detail page`, then encountered a null cancelled JSON-RPC result. Korean journeys also submitted an implementation-capable request after a fixture attempted to select Plan too early.

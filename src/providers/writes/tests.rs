@@ -2102,6 +2102,7 @@ fn delete_rename_and_multihunk_refuse_stale_source_or_ancestors() {
             let project = Project::new();
             std::fs::create_dir(project.root.join("src")).unwrap();
             std::fs::write(project.root.join("src/source.txt"), "original\r\n").unwrap();
+            std::fs::write(project.root.join("unrelated.txt"), "unrelated\r\n").unwrap();
             let mut scope = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
             let read = scope.observe_tool(&read_tool("src/source.txt")).unwrap();
             let arguments = match tool {
@@ -2115,20 +2116,50 @@ fn delete_rename_and_multihunk_refuse_stale_source_or_ancestors() {
             };
             let proposal = prepare_exact_tool(&mut scope, tool, arguments).unwrap();
             if ancestor {
-                std::fs::rename(project.root.join("src"), project.root.join("retained")).unwrap();
-                std::fs::create_dir(project.root.join("src")).unwrap();
+                #[cfg(unix)]
+                {
+                    std::fs::rename(project.root.join("src"), project.root.join("retained"))
+                        .unwrap();
+                    std::fs::create_dir(project.root.join("src")).unwrap();
+                }
+                #[cfg(windows)]
+                {
+                    let error =
+                        std::fs::rename(project.root.join("src"), project.root.join("retained"))
+                            .unwrap_err();
+                    assert_eq!(error.raw_os_error(), Some(32)); // ERROR_SHARING_VIOLATION
+                    scope.verify().unwrap();
+                    assert!(!project.root.join("retained").exists());
+                    assert_eq!(
+                        std::fs::read(project.root.join("src/source.txt")).unwrap(),
+                        b"original\r\n"
+                    );
+                    assert_eq!(
+                        std::fs::read(project.root.join("unrelated.txt")).unwrap(),
+                        b"unrelated\r\n"
+                    );
+                }
             }
-            std::fs::write(
-                project.root.join("src/source.txt"),
-                "concurrent user bytes\r\n",
-            )
-            .unwrap();
+            // A POSIX replacement with identical bytes must still fail identity
+            // validation. Windows denied that exchange; a changed leaf remains
+            // possible and must independently invalidate the reviewed operation.
+            let concurrent = if cfg!(unix) && ancestor {
+                "original\r\n"
+            } else {
+                "concurrent user bytes\r\n"
+            };
+            std::fs::write(project.root.join("src/source.txt"), concurrent).unwrap();
             assert!(!scope.apply(&proposal).unwrap_err().uncertain);
             assert_eq!(
                 std::fs::read(project.root.join("src/source.txt")).unwrap(),
-                b"concurrent user bytes\r\n"
+                concurrent.as_bytes()
             );
             assert!(!project.root.join("moved.txt").exists());
+            assert_eq!(
+                std::fs::read(project.root.join("unrelated.txt")).unwrap(),
+                b"unrelated\r\n"
+            );
+            #[cfg(unix)]
             if ancestor {
                 assert_eq!(
                     std::fs::read(project.root.join("retained/source.txt")).unwrap(),
@@ -2145,6 +2176,7 @@ fn rename_collision_and_destination_ancestor_change_never_overwrite_or_move() {
         let project = Project::new();
         std::fs::create_dir(project.root.join("dst")).unwrap();
         std::fs::write(project.root.join("source.txt"), "source\r\n").unwrap();
+        std::fs::write(project.root.join("dst/unrelated.txt"), "unrelated\r\n").unwrap();
         let mut scope = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
         let read = scope.observe_tool(&read_tool("source.txt")).unwrap();
         let proposal = prepare_exact_tool(
@@ -2156,18 +2188,57 @@ fn rename_collision_and_destination_ancestor_change_never_overwrite_or_move() {
         )
         .unwrap();
         if change_ancestor {
-            std::fs::rename(project.root.join("dst"), project.root.join("old-dst")).unwrap();
-            std::fs::create_dir(project.root.join("dst")).unwrap();
+            #[cfg(unix)]
+            {
+                std::fs::rename(project.root.join("dst"), project.root.join("old-dst")).unwrap();
+                std::fs::create_dir(project.root.join("dst")).unwrap();
+            }
+            #[cfg(windows)]
+            {
+                let error = std::fs::rename(project.root.join("dst"), project.root.join("old-dst"))
+                    .unwrap_err();
+                assert_eq!(error.raw_os_error(), Some(32)); // ERROR_SHARING_VIOLATION
+                scope.verify().unwrap();
+                assert!(!project.root.join("old-dst").exists());
+                assert!(!project.root.join("dst/target.txt").exists());
+                assert_eq!(
+                    std::fs::read(project.root.join("source.txt")).unwrap(),
+                    b"source\r\n"
+                );
+                assert_eq!(
+                    std::fs::read(project.root.join("dst/unrelated.txt")).unwrap(),
+                    b"unrelated\r\n"
+                );
+            }
         }
-        std::fs::write(project.root.join("dst/target.txt"), "occupied\r\n").unwrap();
+        // POSIX must reject the exchanged destination even without a collision.
+        // On Windows the exchange was blocked, so exercise the independent
+        // no-overwrite boundary in the still-reviewed destination directory.
+        let collision = !cfg!(unix) || !change_ancestor;
+        if collision {
+            std::fs::write(project.root.join("dst/target.txt"), "occupied\r\n").unwrap();
+        }
         assert!(!scope.apply(&proposal).unwrap_err().uncertain);
         assert_eq!(
             std::fs::read(project.root.join("source.txt")).unwrap(),
             b"source\r\n"
         );
+        if collision {
+            assert_eq!(
+                std::fs::read(project.root.join("dst/target.txt")).unwrap(),
+                b"occupied\r\n"
+            );
+        } else {
+            assert!(!project.root.join("dst/target.txt").exists());
+        }
+        let retained = if cfg!(unix) && change_ancestor {
+            "old-dst"
+        } else {
+            "dst"
+        };
         assert_eq!(
-            std::fs::read(project.root.join("dst/target.txt")).unwrap(),
-            b"occupied\r\n"
+            std::fs::read(project.root.join(retained).join("unrelated.txt")).unwrap(),
+            b"unrelated\r\n"
         );
     }
 }
