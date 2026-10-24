@@ -2,6 +2,7 @@
 
 ## 2026-10-24
 
+- docs(roadmap): added six evidence-linked external reference adaptations with explicit consent boundaries and non-goals, deduplicated existing work and reconciled the thirty-seven-task backlog.
 - chore(release): published v0.1.29 from exact-source Check/all-five-native qualification and verified all public assets, qualified package identities, installed lifecycle, genuine prior-version migration and actual runtime behavior.
 - fix(verification): included the pinned local dependency in disposable upgrade and terminal-probe packages, then completed installed terminal and uninstall/reinstall acceptance without replacing public release assets.
 - docs(roadmap): specified seven additional product capabilities and six Eevee-specific extensions after release, preserving the existing eighteen tasks and recording priorities, dependencies, bounded acceptance and non-goals.

@@ -1,6 +1,6 @@
 # Eevee Implementation Plan
 
-Updated: 2026-10-24. The selected ten context/tool tasks, provider/agent repairs, recent-change review and CI optimization shipped in v0.1.29. Exact source `d645b94` passed native run40069352365; release run40071156552 published its qualified assets. Public package, installed lifecycle, migration and runtime verification passed. Post-release planning added13 tasks, bringing the unfinished backlog to31; their implementation is not authorized by this documentation request.
+Updated: 2026-10-24. The selected ten context/tool tasks, provider/agent repairs, recent-change review and CI optimization shipped in v0.1.29. Exact source `d645b94` passed native run40069352365; release run40071156552 published its qualified assets. Public package, installed lifecycle, migration and runtime verification passed. Post-release planning added13 capabilities and the subsequent reference review added six scoped adaptations, bringing the unfinished backlog to37. This documentation request does not authorize their implementation.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
@@ -15,9 +15,10 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 
 ## Planned next work — documentation only
 
-1. Preserve existing18 unfinished tasks and shipped foundations; [task index](../task.md) now lists31.
+1. Preserve existing18 unfinished tasks and shipped foundations; [task index](../task.md) now lists37, including13 post-release capabilities and six reference-derived adaptations.
 2. [General capabilities](../tasks/I-product-capabilities.md): GP01 complete offline snapshot → GP02 fresh-directory restore; independent reviewed delete/rename, retained-task search, supported screenshot input and selected local Git commit. GP07 requires an explicit future amendment to the current read-only Git contract.
 3. [Eevee extensions](../tasks/J-eevee-workflows.md): prioritize EV19 pre-send evolution explanation; then semantic move/TM review, Dex recurrence, mapped formation readiness, deliberate held-reference renewal and contribution drill-down.
+   [Reference adaptations](../tasks/K-reference-capabilities.md): RX01 snapshot-bound multi-hunk edits and RX02 pre-write Rust syntax disclosure first; RX03 bounded structural search, independent RX04 parked drafts/RX05 external editing, then RX06 response landmarks. Pinned reference evidence and non-imported behavior are recorded per task; no dependency is implied merely by this priority order.
 4. On a subsequent implementation request, choose the agreed ready task. Existing F dependencies, separately authorized paid/live rows and independently actionable local H evidence remain intact; R extractions are just-in-time, not a cleanup prerequisite.
 5. Each task reuses current authority/storage owners and bounded coverage, proves consumer-visible behavior in the actual runtime and preserves neutral cancellation. No new execution, grants, scores, provider gates or portable private state follows from roadmap navigation.
 
