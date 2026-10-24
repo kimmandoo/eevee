@@ -55,7 +55,7 @@ ev
 
 Terminal: **60 × 18 minimum**, **120 × 36 recommended**. Add `--language ko` for Korean.
 
-> **Upgrading?** Cleanly exit all instances and back up the **entire data directory**, including database, journals and outputs, before `ev update`. Current source targets v0.1.31 and retains SQL Schema19. Durable readers are build-derived; equal SQL schema does not authorize an older release after strict workflow-plan records are saved. Restore the complete pre-upgrade backup rather than downgrading in place.
+> **Upgrading?** Cleanly exit all instances and back up the **entire data directory**, including database, journals and outputs, before `ev update`. Current source targets v0.1.31 and retains SQL Schema19. Equal SQL schema does not establish record-reader or lifecycle-rollback compatibility. The patch keeps0.1.30's plan format;0.1.29 refuses its unknown strict fields. Offline rollback additionally requires matching build-derived reader identity and data validation. Restore the complete pre-upgrade backup rather than bypassing rollback admission.
 
 ## Everyday use
 
@@ -237,7 +237,7 @@ Default data directories: `~/.local/share/eevee` on Linux, `~/Library/Applicatio
 
 **Keep application storage separate from project source.** A project root used as `--data-dir` intentionally excludes that whole subtree from source tools. Provider configuration, hooks, external tools and resumed sessions may have effects beyond Eevee's mediated boundaries.
 
-Current v0.1.31 source retains **SQL Schema19** and requires complete Claude **bridge revision10** source/policy/dependency files, replaced together. Strict optional workflow-plan records change reader identity despite unchanged SQL; older readers/rollback candidates must refuse incompatible records. Full-directory backup is required, not a task export or database-only copy.
+Current v0.1.31 source retains **SQL Schema19**,0.1.30's strict plan format and complete Claude **bridge revision10** source/policy/dependency files, replaced together. The genuine0.1.30 reader inspected patch plans without replay or lost task facts;0.1.29 refused unsupported fields without changing database bytes. This is record compatibility, not permission to bypass conservative build-derived lifecycle rollback checks. Full-directory backup remains required, not a task export or database-only copy.
 
 ## Installation
 

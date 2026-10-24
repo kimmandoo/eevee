@@ -2,7 +2,9 @@
 
 ## 2026-10-25
 
+- fix(acp): sampled one monotonic time for terminal expiry/cancellation and replaced platform-origin-dependent backdating with deterministic forward-clock boundary coverage, retaining the15-minute lifetime and30-second unsettled-cancellation grace.
 - fix(terminal): stopped invisible record-cache invalidation and unchanged record replies from repainting the idle home; reported actual pairing changes separately from restoration readiness and preserved visible habit, activity, held-item and inspector updates.
+- docs(storage): distinguished compatible0.1.30 plan reading from incompatible0.1.29 strict-field refusal and conservative build-derived lifecycle rollback admission.
 
 ## 2026-10-24
 
@@ -173,6 +175,7 @@
 ## 0.1.31
 
 - fix(terminal): eliminated two cursor-only idle frames after delayed genuine Git completion without weakening strict zero-output terminal acceptance; retained correlated record updates, visible evidence and model/pairing changes.
+- fix(acp): removed Windows Instant-underflow assumptions from terminal expiry verification and preserved fail-stop behavior at exact lifetime/grace boundaries without sleeps or longer timeouts.
 - docs(release): retained all Wave1–4 and reviewed native/Codex/SDK/ACP coding/build/run changes from v0.1.30 without replacing its published assets.
 
 ## 0.1.30

@@ -1,5 +1,19 @@
 # Troubleshooting
 
+### [2026-10-25] Windows deadline fixture underflowed the monotonic clock
+
+- **Context / Symptom:** Exact-source run40106372420 passed Check and four native rows, but Windows job120908793907 failed `terminal_deadline_requests_cancellation_without_unblocking_unsettled_effects` with `overflow when subtracting duration from instant` in the Rust standard library;1,584 other Windows tests passed. No0.1.31 tag or partial release was created.
+- **Root Cause:** The fixture assigned `Instant::now() - LIFETIME` (15minutes), assuming every platform clock could represent that past instant. Windows counters near their origin cannot. Backdating cancellation by30seconds had the same assumption.
+- **Solution:** Added private clock-injected polling/cancellation beneath unchanged production entry points; each poll samples one real monotonic time. The existing test advances from creation to just before/at lifetime and grace boundaries instead of subtracting from the platform origin. Lifetime/grace values, unknown-effect fail-stop, unsettled ownership and release refusal stayed intact. Final local gates passed1,640/two ignored, formatting, strict Clippy and release build; candidate `83019599dfd73cbfade013b5dd62179e49313a0ca2edd7fc3d13a641e2818212` passed real-Git zero-output and all six actual ACP modes. Fresh complete native qualification remains required; the failed run is unpromotable.
+- **Prevention / Reference:** Advance an injected monotonic clock for long deadlines. Do not sleep, lengthen timeouts, skip Windows, or add checked-subtraction fallbacks that stop exercising expiry. Failure log: `artifact://2498`; metadata: `target/idle-patch-native-ci-failed{,-jobs}.json`.
+
+### [2026-10-25] Incompatible-reader fixture used a compatible predecessor
+
+- **Context / Symptom:** Passing public0.1.30 to `tool_plan_upgrade_smoke.py` for the0.1.31 UI patch timed out on `missing state: Storage: save failed`: the prior app correctly displayed `Storage: saved`. A separate roundtrip's whole-row equality then failed only on `revision` and `updated_at`.
+- **Root Cause:** That fixture proves refusal by a reader lacking the newly strict plan field;0.1.30 already supports the unchanged patch format. Normal record admission is not the build-derived lifecycle rollback-identity check. Ordinary inspector navigation can save revision/time bookkeeping without losing task facts or replaying work.
+- **Solution:** Kept the product reader unchanged. Used genuine0.1.29 for the incompatible-field refusal proof (`idle-patch-upgrade-029`, three passing cases) and a genuine0.1.30↔patch roundtrip for compatible reading (`idle-patch-compatible-030-final`, three passing cases). Deleted the incidental byte-for-byte task-row expectation; asserted every task fact, partner/run data and zero attempts, retaining before/after states and metadata deltas. Original failed reports remain unchanged.
+- **Prevention / Reference:** Select the predecessor by the format boundary under test. Compatible app reading does not authorize bypassing the separate conservative offline rollback check or the full-backup requirement.
+
 ### [2026-10-25] Delayed record refresh repainted an unchanged idle terminal
 
 - **Context / Symptom:** Public0.1.30 installation acceptance recorded20 passing lifecycle groups and13 passing terminal scenarios, then mono-ASCII100×30 emitted96 bytes/two cursor-only frames during idle despite identical before/after cells. The failed installation report was retained, not rerun into a pass.
