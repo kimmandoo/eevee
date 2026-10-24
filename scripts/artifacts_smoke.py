@@ -106,7 +106,7 @@ def run_quota_capture(journey, binary, output, root, size, language, payload, lo
                            or '일회성 실행' in session.display()),
           'fresh quota-limited one-shot command review did not open')
     journey.capture('quota-fresh-command-review')
-    session.send(RIGHT + '\r')
+    session.send(RIGHT + '\r', settle=False)
     until(session, lambda: any('OwnedRun' in record['origin']
                               and record['handle']['id'] not in before_runs
                               for record, _ in read_rows(journey.data)),
@@ -295,7 +295,7 @@ def run_case(binary, output, root, size, language):
             until(session, lambda: ('Review one-shot execution permission' in session.display()
                                    or '일회성 실행' in session.display()), 'owned execution review did not open')
             # The fixed neutral selector changes only by explicit Right+Enter.
-            session.send(RIGHT + '\r')
+            session.send(RIGHT + '\r', settle=False)
             until(session, lambda: any('OwnedRun' in record['origin'] for record, _ in read_rows(journey.data)),
                   'real10MiB run artifact not committed', timeout=90)
             run, name = next((record, name) for record, name in reversed(read_rows(journey.data)) if 'OwnedRun' in record['origin'])
