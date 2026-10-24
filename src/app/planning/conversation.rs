@@ -887,6 +887,67 @@ mod tests {
     }
 
     #[test]
+    fn goal_only_codex_completion_does_not_poison_nonempty_followup_history() {
+        let mut state = State::new();
+        state.reset(7);
+        state.set_operation(Operation::Implement);
+        // /session-new reviews saved task facts even without a Request draft.
+        state.prepare_fresh_chat(true);
+        let first = start(&mut state, &task(""), 1);
+        state.dispatch_chat_intent();
+        assert!(!first.task.goal.is_empty());
+        assert!(first.instruction().is_empty());
+        first.validate_selection().unwrap();
+        let answer = "Public plan based on the saved goal; no changes made.";
+        state.event(Event::Item {
+            generation: 1,
+            task_id: 7,
+            thread_id: String::new(),
+            turn_id: "goal-only".into(),
+            item_id: "goal-only-plan".into(),
+            kind: ItemKind::Plan,
+            text: answer.into(),
+            complete: true,
+        });
+        // Match the adapter: only emit canonical history when a pair exists.
+        if let Some(conversation) = first.completed_public_context([answer.into()]) {
+            state.event(Event::NativeCompleted {
+                generation: 1,
+                task_id: 7,
+                conversation,
+            });
+        }
+        finish(&mut state, 1, Outcome::Completed);
+        assert_eq!(state.items[0].text, answer);
+
+        let followup = start(&mut state, &task("Implement the saved goal"), 2);
+        followup.validate_selection().unwrap();
+        assert!(followup.public_context.is_none());
+        assert!(followup.resume.is_none());
+        let completed = followup
+            .completed_public_context(["Implemented the requested change.".into()])
+            .unwrap();
+        state.event(Event::NativeCompleted {
+            generation: 2,
+            task_id: 7,
+            conversation: completed.clone(),
+        });
+        finish(&mut state, 2, Outcome::Completed);
+
+        let next = start(&mut state, &task("Also handle the edge case"), 3);
+        next.validate_selection().unwrap();
+        assert!(Arc::ptr_eq(
+            next.public_context.as_ref().unwrap(),
+            &completed
+        ));
+        assert_eq!(completed.messages.len(), 2);
+        assert_eq!(
+            completed.messages[0].text.as_ref(),
+            "Implement the saved goal"
+        );
+    }
+
+    #[test]
     fn controlled_context_rolls_whole_pairs_and_marks_unicode_answer_truncation() {
         let mut state = State::new();
         state.reset(7);

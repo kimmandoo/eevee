@@ -42,6 +42,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, state: &mut State, config: &
     if !state.open {
         return;
     }
+    state.validate_purge_review();
     frame.render_widget(Clear, area);
     let paint = Paint::new(config, &FORMS[2], 2);
     if area.width < 60 || area.height < 18 {
@@ -88,7 +89,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, state: &mut State, config: &
         if reviewing {
             lines.push(paint.hint(Message::ArtifactsPurgeReview).into());
         }
-        if let Some(record) = state.selected_record() {
+        let record = if state.purge_review.is_some() {
+            state.purge_record()
+        } else {
+            state.selected_record()
+        };
+        if let Some(record) = record {
             let full_identity = reviewing || state.view == View::Details;
             if full_identity {
                 lines.push(paint.format(
@@ -252,7 +258,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, state: &mut State, config: &
     } else {
         format!(
             "{}\n{}\n{}",
-            paint.hint(Message::ArtifactsControls),
+            paint.hint(match state.view {
+                View::List => Message::ArtifactsControlsList,
+                View::Details => Message::ArtifactsControlsDetails,
+                View::Search | View::Locations => Message::ArtifactsControlsResults,
+                View::Page => Message::ArtifactsControls,
+            }),
             paint.hint(Message::ArtifactsControlsMore),
             paint.hint(if content.width < 80 {
                 Message::ArtifactsBriefPolicy
@@ -396,5 +407,39 @@ mod tests {
         state.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(!state.busy());
         assert!(state.purge_review.is_none());
+    }
+    #[test]
+    fn purge_review_renders_frozen_handle_not_the_current_list_selection() {
+        for language in [
+            crate::i18n::Language::ENGLISH,
+            crate::i18n::Language::parse("ko").unwrap(),
+        ] {
+            for (width, height) in [(60, 18), (120, 36)] {
+                let mut state = state();
+                state.records[0].handle.id = "reviewed-A".into();
+                state.records[0].handle.revision = "revision-A".into();
+                state.records[0].request_id = "request-A".into();
+                let mut other = state.records[0].clone();
+                other.handle.id = "selected-B".into();
+                other.handle.revision = "revision-B".into();
+                other.request_id = "request-B".into();
+                state.purge_review = Some(state.records[0].handle.clone());
+                state.records.insert(0, other);
+                state.selected = 0;
+                let config = config(language);
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                let screen = draw(&mut terminal, &mut state, &config);
+                assert!(screen.contains("reviewed-A"), "{screen}");
+                assert!(!screen.contains("selected-B"), "{screen}");
+                assert!(!screen.contains("request-B"), "{screen}");
+
+                state.records[1].unavailable = true;
+                draw(&mut terminal, &mut state, &config);
+                assert!(state.purge_review.is_none());
+                assert!(!state.review_visible);
+                state.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+                assert!(!state.busy());
+            }
+        }
     }
 }

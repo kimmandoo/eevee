@@ -329,6 +329,8 @@ impl Input {
 
     /// Canonical completed public output, independent of rendered Items, tools,
     /// sessions and grants. Retain only whole recent request/answer pairs.
+    /// Goal-only advanced sessions have no submitted Request to pair with output;
+    /// keep their public answer in the transcript, not as an invented user turn.
     pub(crate) fn completed_public_context(
         &self,
         answers: impl IntoIterator<Item = String>,
@@ -337,6 +339,7 @@ impl Input {
             || self.operation != Operation::Implement
             || self.inspect_models
             || self.inspect_sessions
+            || self.instruction().is_empty()
         {
             return None;
         }

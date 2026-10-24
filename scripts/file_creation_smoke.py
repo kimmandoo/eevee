@@ -676,6 +676,22 @@ def codex_case(binary, output, size, language):
         journey.workspace()
         assert not (journey.project / FIRST).parent.exists()
         before_original = journey.source.read_bytes()
+        # Advanced session creation admits saved goals without a Request draft.
+        # Its public answer must not manufacture an empty user-history turn that
+        # blocks the next ordinary implementation submission.
+        assert not journey.draft(1) or not journey.draft(1)['text']
+        journey.session.command('session-new')
+        journey.until(lambda: bool(journey.peers('started', 'COOP_UNKNOWN')),
+                      'goal-only advanced session did not start', approve_preview=True)
+        goal_payload = json.loads(journey.peers('started', 'COOP_UNKNOWN')[-1]['text'])
+        assert goal_payload['request'] == ''
+        journey.finish('COOP_UNKNOWN')
+        journey.until(lambda: not journey.claims(), 'goal-only session did not settle')
+        journey.workspace()
+        journey.until(lambda: 'Completed COOP_UNKNOWN' in journey.session.display(),
+                      'goal-only public answer was not retained visibly')
+        journey.session.capture('goal-only-session-public-answer')
+        result['cases'].append('goal-only advanced implementation retained its public answer without an empty history pair')
         public_history = []
         for marker, allow in (('COOP_CREATE_DENY', False), ('COOP_CREATE_ALLOW', True)):
             journey.request(1, marker)

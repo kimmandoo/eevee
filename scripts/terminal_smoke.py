@@ -262,6 +262,13 @@ def console_child(argv):
                     pending.replace(screen_response)
                     last_screen_request = request
         status = child.wait()
+    except BaseException as error:
+        # Preserve wrapper failures independently of a closing ConPTY pipe;
+        # otherwise the next input only reports ERROR_NO_DATA and hides cause.
+        save_json(os.environ["EEVEE_CONSOLE_EVIDENCE"], {
+            "wrapper_error": type(error).__name__, "error": str(error),
+        })
+        raise
     finally:
         if child.poll() is None:
             child.kill()
