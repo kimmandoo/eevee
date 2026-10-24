@@ -465,4 +465,58 @@ mod tests {
         );
         assert_eq!(active.load(Ordering::SeqCst), 0);
     }
+
+    #[test]
+    fn wide_cell_transitions_replace_every_native_console_half_without_idle_output() {
+        use ratatui::buffer::{Buffer, CellWidth};
+        use ratatui::layout::Rect;
+        use ratatui::style::Style;
+
+        // ReadConsoleOutputW showed that writing a narrow cell replaces only
+        // that cell, leaving the old wide glyph's trailing CHAR_INFO intact.
+        // Model that observed surface instead of assuming automatic erasure.
+        let samples = [
+            "",
+            "한글",
+            " 한글",
+            "한 글",
+            "a한b",
+            "한a글",
+            "ab",
+            "a b",
+            "fixture-selected",
+        ];
+        for before in samples {
+            for after in samples {
+                let mut previous = Buffer::empty(Rect::new(0, 0, 24, 1));
+                let mut next = previous.clone();
+                previous.set_string(0, 0, before, Style::default());
+                next.set_string(0, 0, after, Style::default());
+                let surface = |buffer: &Buffer| {
+                    let mut cells = vec![(" ".to_owned(), false); 24];
+                    let mut x = 0;
+                    while x < cells.len() {
+                        let cell = &buffer.content[x];
+                        let width = usize::from(cell.cell_width()).max(1);
+                        cells[x] = (cell.symbol().to_owned(), false);
+                        for tail in 1..width {
+                            cells[x + tail] = (cell.symbol().to_owned(), true);
+                        }
+                        x += width;
+                    }
+                    cells
+                };
+                let mut actual = surface(&previous);
+                for (x, _, cell) in previous.diff_iter(&next) {
+                    let x = usize::from(x);
+                    actual[x] = (cell.symbol().to_owned(), false);
+                    for tail in 1..usize::from(cell.cell_width()).max(1) {
+                        actual[x + tail] = (cell.symbol().to_owned(), true);
+                    }
+                }
+                assert_eq!(actual, surface(&next), "{before:?} -> {after:?}");
+                assert!(next.diff_iter(&next).next().is_none());
+            }
+        }
+    }
 }

@@ -2,6 +2,9 @@
 
 ## 2026-10-24
 
+- fix(artifacts): bound page/search/location cursors and late responses to their exact inspected handle and view, preserved selection across new captures and rendered purge consent from its frozen identity.
+- fix(providers): kept goal-only Codex answers visible without adding empty user-history turns that blocked ordinary implementation follow-ups.
+- fix(terminal): invalidated uncovered neutral wide-character cells and shifted old glyph footprints without full-frame repainting, with the pinned Ratatui core patch and upstream license retained locally.
 - feat(context): implemented T01C restart-safe dispatched-request receipts with source-only purge and preserved exact local counts.
 - feat(context): implemented T02A/T02B reviewed budgeted ranking, syntax-aware ranges and honest text fallback with source-change dispatch refusal.
 - feat(context): implemented T03A/T03B capture-identity citations across entry points and offline revision/token/assembly caches with source/configuration invalidation.
@@ -133,6 +136,9 @@
 - fix(sources): added scoped discovery and large-source observation while retaining exact-content mutation limits and fresh one-shot consent.
 - fix(storage): prevented same-process SQLite admission/writer contention, reserved receipt capacity before transport and added exact rollback-proven unsaved-receipt recovery without resending.
 - fix(verification): corrected asynchronous ConPTY capture and bounded literal input clearing without masking active work or widening final settling.
+- fix(artifacts): preserved exact purge-review identity during concurrent captures and isolated pagination and cancelled inspection responses by immutable owner and view.
+- fix(providers): allowed ordinary implementation follow-ups after goal-only Codex sessions without inventing empty user-history turns.
+- fix(terminal): repaired uncovered neutral and shifted wide-cell invalidation without full-frame redraws.
 - feat(storage)!: migrated Schema18 to Schema19 on the existing single writer; required a complete data-directory backup and refused incompatible older writers rather than supporting an in-place downgrade.
 - docs(compatibility): retained complete SDK bridge9 and separated deterministic local/loopback evidence from paid authenticated-provider conformance.
 

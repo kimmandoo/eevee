@@ -1,5 +1,26 @@
 # Troubleshooting
 
+### [2026-10-24] Goal-only Codex sessions poisoned the next ordinary implementation request
+
+- **Context / Symptom:** With a saved goal and empty Request, `/session-new` completed successfully but the next ordinary implementation request showed `Public implementation context lost its bounded task/partner/provider ownership`. CandidateH reproduced the refusal at both terminal sizes (`target/recent-review-before-goal-only`).
+- **Root Cause:** The completed-public-context producer stored an empty user turn beside the answer, while the next-request validator correctly required nonempty bounded public request/answer pairs.
+- **Solution:** Omitted only the invalid goal-only history pair; retained its visible public answer and kept strict validation, without inventing an instruction from the goal. Added a completion-to-follow-up regression and exercised actual controlled Codex goal-only completion followed by ordinary deny/allow/read/edit/model-change flows. CandidateI passed eight bilingual native/controlled conversation journeys44 groups (`target/recent-review-i-conversation`).
+- **Prevention / Reference:** Producers must satisfy the same ownership/content contract as their consumers. Goal-only advanced sessions are not equivalent to an explicitly submitted Request.
+
+### [2026-10-24] Artifact navigation and deletion review lost immutable selection ownership
+
+- **Context / Symptom:** Recent-change review found that paging a 10-MiB artifact, returning to the list, selecting a smaller artifact and pressing `n` reused the first artifact's byte offset. The unchanged candidateH reproduced `Artifact range requires an existing byte offset and 1–65536 bytes` at both sizes (`target/recent-review-before-artifacts`). A concurrent new capture could also change the row rendered by a pending purge review while confirmation retained the former handle.
+- **Root Cause:** Pagination/history and UI response presentation were task-scoped but not handle/view/intent-scoped. New rows selected index zero, while purge rendering consulted that mutable selection instead of its frozen handle.
+- **Solution:** Bound cursors to handle/view, correlated presentation to the latest explicit inspection, revoked late UI presentation on Escape/reopen, preserved selection by handle and rendered/validated purge against its own immutable identity. Added reducer and bilingual compact/wide rendering regressions. CandidateH also reproduced actual concurrent-capture purge-scope drift at both sizes (`target/recent-review-before-purge-race`). CandidateJ passed all four actual artifact journeys24 groups, including concurrent capture during a frozen purge review, cross-handle, Details, same-task reopen, Locations isolation and truthful view-specific control hints (`target/recent-review-j-artifacts`).
+- **Prevention / Reference:** Durable capture acknowledgments and provider retrieval replies remain independent of cancelled UI intent. Keep displayed destructive scope identical to the dispatched operation even while new records arrive.
+
+### [2026-10-24] Neutral wide glyphs left orphan cells in the native Windows console
+
+- **Context / Symptom:** Compact Korean model/receipt/conversation screens retained old glyph halves and corrupted ASCII identifiers. Replaying retained ConPTY bytes in both pyte and independent xterm6 reproduced the corruption. Run40054403499's paired `ReadConsoleOutputW` evidence contained50 orphan trailing `CHAR_INFO` cells before VT serialization (`target/native-cjk-paired-proof.json`).
+- **Root Cause:** Ratatui core0.1.2 refreshed uncovered trailing cells only when the former wide glyph had a visible blank-cell style. Windows retained neutral glyph trailing halves too. A shifted new wide glyph could also cover another old glyph's lead while leaving its far half untouched.
+- **Solution:** Vendored the exact pinned core with its MIT license/provenance and patched only the diff iterator: refresh uncovered old footprints, follow shifted overlaps, bound them to their row and never overwrite a new wide glyph's own trailing columns. The iterator remains allocation-free; unchanged frames emit no updates. A native-cell behavior regression covered81 narrow/wide/shifted transitions; integrated1,554 tests/two ignored, strict Clippy and release build passed. Fresh Windows runtime qualification remains mandatory before claiming the native rendering repair passed.
+- **Prevention / Reference:** Compare actual native cells with serialized terminal bytes before blaming a capture parser. Do not hide stale cells by filtering output, weakening visible identifier assertions or clearing every frame.
+
 ### [2026-10-24] Text-mode fixture creation changed exact tool-read bytes on Windows
 
 - **Context / Symptom:** Run40040530847 passed Check and all four macOS/Linux native jobs. Windows passed bilingual files, English receipts and both English context sizes, then catalog acceptance reported `tool did not execute the actual owned source read`.
