@@ -1,6 +1,6 @@
 # Completed work
 
-Updated on 2026-10-24 through accepted Wave1–4 source additions. Publication is qualified separately in the checkpoint; local acceptance is not live-provider conformance. This is historical completion evidence, not an execution queue. Active work and priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
+Updated on2026-10-25 through accepted Wave1–4 source additions, included in published0.1.30. Final public idle-patch acceptance is separately active in the checkpoint; local acceptance is not live-provider conformance. This is historical completion evidence, not an execution queue. Active work and priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
 
 The specifications below retain their original acceptance notes and wording. Old schema numbers, limits, priorities, proposed ordering and release statements are historical; they do not override the current contract. Scoped completion does not establish authenticated conformance for every provider. T05 was dropped, not completed.
 
@@ -62,11 +62,13 @@ Evidence: `target/wave34-structural-{en,ko}-d`, `wave34-tool-plans-c`, `wave34-i
 - **Accept:** Fail, pass with support, then fail again; change a source and purge a referenced run. The old pass never becomes current verification. Neutral relay preserves sender and recipient drafts and applies existing recipient guards.
 - **Watch out:** Derived view only: no duplicate logs, new resolution authority, model-inferred causality, fuzzy cross-project clustering or automatic fix. D01 still owns impact-directed check selection.
 
-## Waves 1–2 — accepted source additions (unpublished)
+## Waves 1–2 — accepted source additions, included in v0.1.30
 
 GP01, GP02, EV19, GP03, GP04, RX01 and RX02 passed implementation and actual runtime acceptance on 2026-10-24. Pinned Rust1.90.0 gates passed1,588 tests/two ignored, formatting, strict Clippy and release build. Actual snapshot/restore preserved task/draft/run/receipt/artifact identities and retained bytes without replay; corrupt/interrupted copies refused. Four final English/Korean compact/wide evolution journeys proved quoted-source, ambiguous, mixed-intent, restrictive-policy and manual-appearance previews against actual dispatch. Eight native/controlled Codex mutation journeys proved exact delete/rename/multi-hunk effects, denial/cancellation, source/ancestor/destination races and advisory Rust parsing. Evidence: `target/wave12-source-verification.json`, `target/wave12-mutation-verification.json`, `target/wave12-snapshot-final`, `target/wave12-evolution-{en,ko}-final`. These are local macOS/loopback observations, not a new public release, live model conformance or Windows runtime qualification.
 
 Subsequent Windows integration exposed mandatory-lock reads and POSIX-only fixture assumptions; those were repaired without skipping coverage. Final candidateC passed1,589 local tests/two ignored and actual snapshot recovery. Exact source `966613e` passed [Check/all-five-native run40082305882](https://github.com/kimmandoo/eevee/actions/runs/40082305882), including real Windows backend regression execution and native build/offline-install/runtime. No release was published for these source additions.
+
+These accepted additions were subsequently included in published v0.1.30 from `1fa1a68`; its exact native/public-runtime proof and follow-up idle-patch acceptance are recorded in the checkpoint.
 
 ### GP01 — Complete offline data snapshot
 

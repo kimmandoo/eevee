@@ -4,7 +4,7 @@
 
 The binary implements native ChatGPT/OpenAI/Anthropic/Gemini/compatible HTTP connections, the durable local workbench, Codex Plan/controlled Implement, an optional official Claude SDK bridge, ACP1 for OpenCode/Gemini/Devin, and version-1 handoff. **Implemented transport support is not authenticated interoperability acceptance.** Per-service live evidence is recorded in the checkpoint; missing credentials do not become a blanket model-browsing or custom-selection blocker. Existing A04/A06/full A07 agent-conformance gates remain separate. Binding rules live in [DESIGN_RULES.md](DESIGN_RULES.md).
 
-### Current source v0.1.30 — Waves1–4 and reviewed execution
+### Current source v0.1.31 — Waves1–4 and reviewed execution
 
 These source contracts are not live-provider, paid-account or physical-WSL proof; publication and public-package evidence are recorded separately in the checkpoint. Source targets Rust1.90.0, unchanged SQL19 and complete SDK bridge10. Replace bridge source/policy/dependencies together. Strict workflow-plan fields and actual-form command facts change reader compatibility despite equal SQL: stop all instances and back up the entire data directory before upgrade. Incompatible older readers/rollback must refuse; restore the full backup, never downgrade in place.
 

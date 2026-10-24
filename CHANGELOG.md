@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-25
+
+- fix(terminal): stopped invisible record-cache invalidation and unchanged record replies from repainting the idle home; reported actual pairing changes separately from restoration readiness and preserved visible habit, activity, held-item and inspector updates.
+
 ## 2026-10-24
 
 - fix(release): included all six bilingual build-time feature catalogs omitted from the first committed candidate and required new exact-source native qualification instead of promoting its failed build.
@@ -165,6 +169,11 @@
 - docs(release): published v0.1.19 from source `63f1007` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.31
+
+- fix(terminal): eliminated two cursor-only idle frames after delayed genuine Git completion without weakening strict zero-output terminal acceptance; retained correlated record updates, visible evidence and model/pairing changes.
+- docs(release): retained all Wave1–4 and reviewed native/Codex/SDK/ACP coding/build/run changes from v0.1.30 without replacing its published assets.
 
 ## 0.1.30
 

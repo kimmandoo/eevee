@@ -1,6 +1,6 @@
 # Implementation waves
 
-Updated2026-10-24. Waves1–4 passed implementation and actual acceptance for all13 assigned tasks; their original specifications are archived. The current request additionally repaired reference-backed coding/build/run and authorized v0.1.30 publication after exact-source native qualification. Waves5–8 remain planning only. Exact specifications remain in the linked [task index](../task.md); wave order is delivery priority, not an invented technical dependency.
+Updated2026-10-25. Waves1–4 passed all13 assigned tasks and shipped in0.1.30 with reference-backed coding/build/run repair. A post-publication idle-redraw failure keeps final release acceptance active through the v0.1.31 patch. Waves5–8 remain planning only. Exact specifications remain in the linked [task index](../task.md); wave order is delivery priority, not an invented technical dependency.
 
 | Wave | Outcome | Assigned tasks | Exit proof |
 |---|---|---|---|
@@ -21,7 +21,7 @@ Updated2026-10-24. Waves1–4 passed implementation and actual acceptance for al
 - A04/A06 and live Q03/resource rows require separately permitted credentials and explicit live/paid authorization. Their blockers never block unrelated local waves or become synthetic passing evidence.
 - Wave 6 may split retained-work navigation from draft/editor changes; shared store/composer edits integrate sequentially. Wave 7's two capabilities are separate changes. GP07 requires an intentional design-contract amendment before implementation.
 - Every feature retains its exact task acceptance, neutral cancellation, immutable evidence and existing executor/store/approval authority. Each completed coherent task needs focused behavior tests, actual runtime proof, documentation and a conventional commit. A wave is complete only when all assigned task acceptance passes; partial evidence remains explicitly partial.
-- Reuse bounded native profiles instead of multiplying every new case across every platform. Release qualification remains exact-source Check/all five native jobs plus public package verification when publication is requested. This request authorizes Waves3–4 and v0.1.30 publication, not new paid/live calls or automatic Waves5–8 implementation.
+- Reuse bounded native profiles instead of multiplying every new case across every platform. Release qualification remains exact-source Check/all five native jobs plus public package verification when publication is requested. This request authorizes Waves3–4 and their verified release/follow-up repair, not new paid/live calls or automatic Waves5–8 implementation.
 
 ## Just-in-time structure tasks
 

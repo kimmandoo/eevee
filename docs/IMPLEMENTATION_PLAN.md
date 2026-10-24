@@ -1,6 +1,6 @@
 # Eevee Implementation Plan
 
-Updated2026-10-24. v0.1.29 remains the verified public release while v0.1.30 qualification is active. All13 authorized Wave1–4 tasks passed implementation and actual acceptance and were archived;24 unfinished tasks remain in [wave plan](WAVES.md). Reference-backed agent create/edit/build/run repair also passed. Waves5–8 remain planning only; no paid/live calls were made.
+Updated2026-10-25. v0.1.30 published all13 authorized Wave1–4 tasks and reference-backed agent create/edit/build/run repair after exact-source Check/all-five-native qualification. Public coding/wave runtime checks passed; final installed-terminal idle acceptance exposed an unchanged-surface redraw. v0.1.31 is the active follow-up patch;24 unfinished tasks remain in [wave plan](WAVES.md). Waves5–8 remain planning only; no paid/live calls were made.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
@@ -12,7 +12,7 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 - Actual wave proof: four structural/cache journeys; ten dependency/recovery groups including crash/lost-response no replay; four real Cargo caller-test/shared-config journeys; four Dex fail/pass/fail, source/purge/relay/restart journeys. Active read-plan preparation also passed reviewed cancellation/quit and restart without replay.
 - Root repairs included SDK ephemeral launch counters, cargo/rustup argv0, exact owned denial, producer-form evidence, definite undispatched refusal, structural envelopes and typing-safe idle learning. Source identity, unknown-effect fail-stop and per-effect consent stayed intact. No conditional R task was completed merely for adding modules.
 - Source gates passed Rust1.90.0 formatting,1,640 tests/two ignored, strict Clippy and release build; SDK45 and Python22/four skips passed. Final candidateD changed only the recorded-count disclosure after candidateC's complete plan/agent proof and passed strict Clippy/build plus actual read-plan/recovery surfaces. Checkpoint contains exact hashes and reports.
-- Release: use Rust1.90.0 formatting, focused behavior tests, the complete existing suite, strict Clippy and release build. Commit/push exact release source; require Check and all five native jobs before tagging the next version. Verify published assets/checksums, actual public package installation, prior-version upgrade and runtime before final documentation commit.
+- Release follow-up:0.1.30 source `1fa1a68` passed native40100267084 and publication40102304619; all eight public assets matched qualified bytes. Keep its failed installed-idle report unchanged. Prove v0.1.31 with strict zero-output delayed-Git/terminal acceptance, fresh exact-source Check/all five native jobs, immutable artifact promotion and genuine public installation/upgrade/runtime before the final documentation commit.
 - Limits: no live/paid model calls or physical WSL claims; no trading strategy changes. Preserve user-owned `.DS_Store` and all previous release assets. Waves5–8 remain unauthorized.
 
 

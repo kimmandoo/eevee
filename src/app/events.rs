@@ -197,7 +197,8 @@ impl App {
         }
     }
 
-    pub fn store_event(&mut self, event: store::Event) {
+    pub fn store_event(&mut self, event: store::Event) -> bool {
+        let mut changed = true;
         match &event {
             store::Event::Journal {
                 task_id,
@@ -243,7 +244,7 @@ impl App {
                 if matches!(&request.operation, store::records::Operation::Usage { .. }) {
                     self.cooperation_usage_event(*request, result);
                 } else {
-                    self.records_event(*request, result);
+                    changed = self.records_event(*request, result);
                 }
             }
             store::Event::Moves {
@@ -633,5 +634,6 @@ impl App {
         self.settle_cooperation();
         self.settle_exit();
         self.settle_reset();
+        changed
     }
 }
