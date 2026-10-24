@@ -8,7 +8,7 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 - **Included milestones:** A08 → UX04A → S04 and P04A → P04B → T01B shipped: actionable connection diagnostics, persistent text density, reviewed portable workflows, reviewed updates/safe rollback and exact local context comparison. Specifications remain in [COMPLETED.md](tasks/COMPLETED.md).
 - **Compatibility:** v0.1.29 migrates Schema18 to Schema19; SDK bridge9 remains unchanged. Actual public v0.1.28 refused the migrated store with every data byte unchanged, and v0.1.29 resumed it. Exit all instances and back up the entire data directory before upgrading; restore the complete backup rather than downgrading in place.
 - **Remaining:** **30 tasks**. All seven Wave1–2 contracts passed implementation and actual acceptance and moved intact to the completed archive.
-- **Current request completed:** [Waves1–2](docs/WAVES.md): GP01, GP02, EV19, GP03, GP04, RX01 and RX02. These are accepted source additions, not a new public release. Later waves remain planned; no paid/live calls were made.
+- **Active integration:** All seven [Wave1–2](docs/WAVES.md) tasks passed local implementation/acceptance and were archived. Exact-source native CI then exposed Windows snapshot mandatory-lock handling and two pinned-ancestor fixture assumptions; repair and fresh CI are active before final completion. These are unpublished source additions; later waves remain planned and no paid/live calls were made.
 
 ## Completed Pokémon milestone
 

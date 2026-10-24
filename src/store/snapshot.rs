@@ -2,7 +2,7 @@
 use super::*;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Read;
+use std::io::{Read, Seek};
 
 const MANIFEST: &str = "snapshot-manifest.json";
 pub(super) const INCOMPLETE: &str = ".ev-snapshot-incomplete";
@@ -229,7 +229,7 @@ fn fresh(path: &Path, forbidden: &Path) -> Result<Directory, String> {
     Ok(directory)
 }
 
-fn digest(source: File, mut destination: Option<File>) -> Result<(u64, String), String> {
+fn digest(source: &File, mut destination: Option<File>) -> Result<(u64, String), String> {
     let result = digest_to(source, destination.as_mut())?;
     if let Some(output) = destination {
         output
@@ -240,11 +240,12 @@ fn digest(source: File, mut destination: Option<File>) -> Result<(u64, String), 
 }
 
 fn digest_to<W: Write>(
-    mut source: File,
+    mut source: &File,
     mut destination: Option<&mut W>,
 ) -> Result<(u64, String), String> {
+    source.rewind().map_err(|e| e.to_string())?;
     let initial = source.metadata().map_err(|e| e.to_string())?;
-    let identity = file_identity(&source)?;
+    let identity = file_identity(source)?;
     let mut hash = Sha256::new();
     let mut buffer = [0u8; 64 * 1024];
     let mut total = 0u64;
@@ -270,7 +271,7 @@ fn digest_to<W: Write>(
     if total != initial.len()
         || final_metadata.len() != initial.len()
         || final_metadata.modified().ok() != initial.modified().ok()
-        || file_identity(&source)? != identity
+        || file_identity(source)? != identity
     {
         return Err("Snapshot member changed while copying".into());
     }
@@ -286,6 +287,7 @@ fn inventory(
     prefix: &str,
     members: &mut Vec<Member>,
     copy: Option<&Directory>,
+    owned_lock: Option<&File>,
 ) -> Result<(), String> {
     if prefix.split('/').count() > 64 {
         return Err("Snapshot directory nesting exceeds 64".into());
@@ -314,14 +316,29 @@ fn inventory(
                 sha256: String::new(),
                 identity: String::new(),
             });
-            inventory(&child, &path, members, copy)?;
+            inventory(&child, &path, members, copy, None)?;
         } else {
             ensure_regular_metadata(&metadata)?;
             let output = copy
                 .map(|copy| copy.anchor.create_member(&payload(members.len())))
                 .transpose()?;
-            let source = directory.read(&name)?;
-            let identity = file_identity(&source)?;
+            let opened = directory.read(&name)?;
+            let identity = file_identity(&opened)?;
+            // Windows byte-range ownership locks also prohibit reads through a
+            // separately opened handle. Read every lock-file byte through the
+            // actual owner, without releasing its lock or modifying the source.
+            let source = if prefix.is_empty() && name == LOCK {
+                if let Some(lock) = owned_lock {
+                    if file_identity(lock)? != identity {
+                        return Err("Source writer lock identity changed".into());
+                    }
+                    lock
+                } else {
+                    &opened
+                }
+            } else {
+                &opened
+            };
             let (bytes, sha256) = digest(source, output)?;
             members.push(Member {
                 path,
@@ -358,12 +375,12 @@ pub fn create(source: &Path, destination: &Path) -> Result<Manifest, String> {
     let lock = owner(&source)?;
     let destination = fresh(destination, &source.path)?;
     let mut members = Vec::new();
-    inventory(&source, "", &mut members, Some(&destination))?;
+    inventory(&source, "", &mut members, Some(&destination), Some(&lock.0))?;
     if !members.iter().any(|m| m.path == DATABASE && !m.directory) {
         return Err("Source contains no owned database; incomplete copy retained".into());
     }
     let mut checked = Vec::new();
-    inventory(&source, "", &mut checked, None)?;
+    inventory(&source, "", &mut checked, None, Some(&lock.0))?;
     if checked != members || file_identity(&source.read(LOCK)?)? != file_identity(&lock.0)? {
         return Err("Source changed; copy remains incomplete".into());
     }
@@ -482,7 +499,7 @@ fn verified(directory: &Directory) -> Result<Manifest, String> {
             }
             let name = payload(index);
             expected.insert(name.clone());
-            let (bytes, sha256) = digest(directory.read(&name)?, None)?;
+            let (bytes, sha256) = digest(&directory.read(&name)?, None)?;
             if bytes != member.bytes || sha256 != member.sha256 {
                 return Err(format!(
                     "Snapshot member integrity mismatch: {:?}",
@@ -498,7 +515,7 @@ fn verified(directory: &Directory) -> Result<Manifest, String> {
         return Err("Snapshot contains missing or unexpected members".into());
     }
     if directory.names()?.into_iter().collect::<BTreeSet<_>>() != expected
-        || digest(directory.read(MANIFEST)?, None)? != manifest_digest
+        || digest(&directory.read(MANIFEST)?, None)? != manifest_digest
     {
         return Err("Snapshot changed during verification".into());
     }
@@ -586,8 +603,10 @@ fn restore_database(root: &Directory, manifest: &Manifest) -> Result<(), String>
     transaction.commit().map_err(|e| e.to_string())?;
     reconcile_runs(&mut connection, &root.path)?; // Unknown stays unknown; releases all stale active claims.
     inspect(&connection)?;
-    drop(connection);
-    root.read(DATABASE)?.sync_all().map_err(|e| e.to_string())?;
+    // FULL commits above use SQLite's writable VFS handles to durably sync the
+    // database/journal, as in normal store recovery. A read-only Windows handle
+    // cannot FlushFileBuffers; do not reopen one for a redundant sync.
+    connection.close().map_err(|(_, e)| e.to_string())?;
     root.anchor.sync()
 }
 
@@ -601,7 +620,7 @@ pub fn restore(source: &Path, destination: &Path) -> Result<Manifest, String> {
             parent.create_child(&name)?;
         } else {
             let (bytes, sha256) = digest(
-                source.read(&payload(index))?,
+                &source.read(&payload(index))?,
                 Some(parent.anchor.create_member(&name)?),
             )?;
             if bytes != member.bytes || sha256 != member.sha256 {
