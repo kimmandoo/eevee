@@ -1,5 +1,14 @@
 # Work Checkpoint
 
+## 2026-10-24 — Reference-derived backlog request completed
+
+- **Request:** Add worthwhile tasks from the provided reference; documentation only. Read-only comparison used `../oh-my-pi` revision `f979f4639777858de28e6ecb99d577443abe0b7b`, its actual tool/session/editor documentation and implementations, Eevee's current contracts/source and all active/completed task scopes.
+- **Added:** `tasks/K-reference-capabilities.md` defines RX01 multi-hunk edits, RX02 pre-write Rust syntax disclosure, RX03 bounded Rust structural search, RX04 parked unsent drafts, RX05 reviewed external Request editing and RX06 named retained-response landmarks. Each includes a pinned reference link, current gap, priority, dependency foundations, concrete acceptance and behavior explicitly not imported.
+- **Boundaries:** Reused existing approvals/writer/executor; no autonomous queue draining, short normalized digest replacement, fuzzy edits, post-write auto-repair, live AST rewrite or conversation replay. Full LSP lifecycle is not implied. No reference code/prompts were copied; future reuse requires component-specific license review.
+- **Changed files:** Added K; updated task index, implementation plan, changelog and checkpoint. Corrected DESIGN_RULES' stale release-status sentence without changing implemented behavior. Existing31 tasks remain, for37 open (F5/H6/I7/J6/K6/R7).
+- **Verification:** Documentation smoke checked unique IDs/counts, acyclic unfinished dependencies, completed foundation references, relative links and pinned reference file/line targets; report `target/reference-roadmap-validation.json`. No application code or strategy changed; no full test/build/backtest run was needed.
+- **Exact next action:** This request is complete; select an agreed ready task only on a subsequent implementation request. GP01→GP02 and EV19 remain recommended options; RX01/RX02 are the first reference-track choices. Published releases remain unchanged. User `.DS_Store` was untouched; no credentials/live model calls were used.
+
 ## 2026-10-24 — v0.1.29 released; CI reduction and post-release roadmap completed
 
 - **Scope completed:** Implemented and archived all ten selected tasks; repaired evidenced provider/agent and recent-ten-hour regressions; reduced duplicated CI coverage; published and verified v0.1.29; then documented13 additional capabilities. No new roadmap implementation was started.
