@@ -32,6 +32,7 @@
 - fix(platform): corrected platform-native ledger fixtures and Linux-only path borrows, preserved Windows mutation limits independently of observation, and expanded the native qualification deadline without dropping acceptance steps.
 - fix(verification): isolated native acceptance evidence from compiler-cache restoration and matched canonical project directories by filesystem identity without weakening owned-activity or trusted-catalog checks.
 - fix(verification): made exact-source catalog fixtures byte-stable across native platforms and collected all independent tool failures while preserving a failing release gate.
+- test(windows): paired active native console cells and wide-glyph attributes with VT captures to diagnose compact Korean redraw corruption without replacing visible assertions.
 - docs(tasks): archived all ten accepted specifications and reconciled18 remaining tasks while keeping exact-source native qualification and publication separate.
 - docs(release): recorded immutable v0.1.28 publication from `801b921`, verified all public asset digests and archives, and passed downloaded installation24/terminal34/workbench35 plus bilingual planning, project creation and evolution journeys.
 - test(providers): preserved operating-system runtime variables in the isolated metadata diagnostic subprocess and reported child failures before fixture-thread failures.

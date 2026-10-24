@@ -178,6 +178,56 @@ def primary_screen_marker(write=False):
         kernel.CloseHandle(handle)
 
 
+def native_screen_cells():
+    """Observe the active console before ConPTY serializes its changed cells."""
+    from ctypes import wintypes
+    class Coordinate(ctypes.Structure):
+        _fields_ = [("x", wintypes.SHORT), ("y", wintypes.SHORT)]
+    class Rectangle(ctypes.Structure):
+        _fields_ = [(name, wintypes.SHORT) for name in ("left", "top", "right", "bottom")]
+    class Information(ctypes.Structure):
+        _fields_ = [("size", Coordinate), ("cursor", Coordinate),
+                    ("attributes", wintypes.WORD), ("window", Rectangle),
+                    ("maximum", Coordinate)]
+    class NativeCell(ctypes.Structure):
+        _fields_ = [("character", wintypes.WORD), ("attributes", wintypes.WORD)]
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                  wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.GetConsoleScreenBufferInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(Information)]
+    kernel.GetConsoleScreenBufferInfo.restype = wintypes.BOOL
+    kernel.GetConsoleCP.restype = wintypes.UINT
+    kernel.GetConsoleOutputCP.restype = wintypes.UINT
+    kernel.ReadConsoleOutputW.argtypes = [wintypes.HANDLE, ctypes.POINTER(NativeCell),
+                                        Coordinate, Coordinate, ctypes.POINTER(Rectangle)]
+    kernel.ReadConsoleOutputW.restype = wintypes.BOOL
+    handle = kernel.CreateFileW("CONOUT$", 0x80000000, 3, None, 3, 0, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        info = Information()
+        if not kernel.GetConsoleScreenBufferInfo(handle, ctypes.byref(info)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        window = info.window
+        columns, rows = window.right - window.left + 1, window.bottom - window.top + 1
+        if columns <= 0 or rows <= 0 or columns * rows > 262144:
+            raise ValueError("native evidence window exceeds its bounded cell count")
+        cells = (NativeCell * (columns * rows))()
+        if not kernel.ReadConsoleOutputW(handle, cells, Coordinate(columns, rows),
+                                         Coordinate(0, 0), ctypes.byref(window)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return {"size": [columns, rows], "cursor": [info.cursor.x, info.cursor.y],
+                "window": [window.left, window.top, window.right, window.bottom],
+                "modes": console_modes(),
+                "code_pages": [kernel.GetConsoleCP(), kernel.GetConsoleOutputCP()],
+                "cells": [[[cells[y * columns + x].character, cells[y * columns + x].attributes]
+                           for x in range(columns)] for y in range(rows)]}
+    finally:
+        kernel.CloseHandle(handle)
+
+
 def console_child(argv):
     """Observe the child's *same native console*, not the CI runner's handles."""
     # The parent assigns this wrapper to its kill-on-close Job before releasing
@@ -188,6 +238,9 @@ def console_child(argv):
     primary_before = primary_screen_marker(write=True)
     primary_hidden = False
     observed = set()
+    evidence_directory = Path(os.environ["EEVEE_CONSOLE_EVIDENCE"]).parent
+    screen_request = evidence_directory / "native-screen-request"
+    last_screen_request = ""
     child = subprocess.Popen(argv)
     try:
         while child.poll() is None:
@@ -195,6 +248,19 @@ def console_child(argv):
             if primary_screen_marker() != primary_before:
                 primary_hidden = True
             time.sleep(0.01)
+            if screen_request.is_file():
+                request = screen_request.read_text(encoding="utf-8").strip()
+                if request and request != last_screen_request:
+                    try:
+                        snapshot = native_screen_cells()
+                    except (OSError, ValueError) as error:
+                        snapshot = {"error": str(error)}
+                    snapshot["request"] = request
+                    screen_response = evidence_directory / ("native-screen-" + request + ".json")
+                    pending = screen_response.with_suffix(".pending")
+                    save_json(pending, snapshot)
+                    pending.replace(screen_response)
+                    last_screen_request = request
         status = child.wait()
     finally:
         if child.poll() is None:
@@ -483,6 +549,23 @@ class Session:
 
     def capture(self, name):
         (self.directory / (name + ".txt")).write_text(self.display() + "\n", encoding="utf-8")
+        if WINDOWS and self.alive():
+            request = str(time.monotonic_ns())
+            (self.directory / "native-screen-request").write_text(request, encoding="utf-8")
+            response = self.directory / ("native-screen-" + request + ".json")
+            deadline = time.monotonic() + 3
+            while self.alive() and time.monotonic() < deadline:
+                if response.is_file():
+                    snapshot = json.loads(response.read_text(encoding="utf-8"))
+                    if snapshot.get("request") == request:
+                        save_json(self.directory / (name + "-native-cells.json"), snapshot)
+                        break
+                self.pump(0.01)
+            else:
+                save_json(self.directory / (name + "-native-cells.json"), {
+                    "request": request,
+                    "error": "Native cells unavailable before console exit or capture deadline",
+                })
 
     def idle(self):
         # Storage acknowledgment is not completion of asynchronous startup
