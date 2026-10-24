@@ -4,6 +4,16 @@ Updated: 2026-10-24. v0.1.29 remains the verified public release. All seven auth
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
+## Active implementation and release — Waves 3–4
+
+- Authorized: RX03 bounded Rust structural search, TC04 observation caching, TC02 reviewed dependency plans, TC05 failed-step recovery, D01 impact-directed checks and PK07 Dex recurrence. Complete these six contracts and publish the next release, including the previously unpublished Waves1–2.
+- Ownership: reuse the reviewed file executor for structural observations/cache; the existing command runner and single store writer for typed plans/recovery; existing Dex references for recurrence. D01 stages recommendations through Jolteon's exact review, never grants execution.
+- Sequence: implement independent RX03/TC04, TC02 and PK07 lanes; integrate TC05 and D01 against TC02's staging/settlement contract. Preserve cancelled/unknown mutations, per-node approval, immutable evidence and current durable-reader admission. Conditional RF08 is triggered only if existing execution/repository ownership obstructs these changes.
+- Acceptance: bounded structural queries and stale paging; cache invalidation/cost versus avoided execution; overlapping independent reads and serialized reviewed effects; blocked descendants/cancellation; durable resume without confirmed-write replay and unknown-outcome reconciliation; caller-test and shared-config check selection; fail/pass/fail recurrence with changed/purged support. Exercise actual local binary paths and English/Korean compact/wide changed surfaces without expanding the default CI cross-product.
+- Release: use Rust1.90.0 formatting, focused behavior tests, the complete existing suite, strict Clippy and release build. Commit/push exact release source; require Check and all five native jobs before tagging the next version. Verify published assets/checksums, actual public package installation, prior-version upgrade and runtime before final documentation commit.
+- Limits: no live/paid model calls or physical WSL claims; no trading strategy changes. Preserve user-owned `.DS_Store` and all previous release assets. Waves5–8 remain unauthorized.
+
+
 ## Completed release — Ten context/tool tasks and provider flow repair
 
 - Completed T01C, T02A, T02B, T03A, T03B, T04, TC01A, TC01B, TC03A and TC03B using the existing writer, executor, consent and provider boundaries. Their full specifications remain archived.

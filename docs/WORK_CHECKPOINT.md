@@ -1,5 +1,12 @@
 # Work Checkpoint
 
+## 2026-10-24 — Waves 3–4 implementation and release active
+
+- **Request:** Implement the next two waves completely and release. Scope is RX03, TC04, TC02, TC05, D01 and PK07; publication also includes the accepted unpublished Waves1–2.
+- **Starting state:** `main...origin/main`, latest `de01fd6`; only user-owned untracked `.DS_Store`. Read current task index, wave plan, active specifications, implementation plan and binding design contracts before changes.
+- **Plan:** Independent structural-search/cache, typed-plan/recovery and Dex lanes; integrate impact-directed checks against the reviewed plan staging API. Reuse existing executors, approvals and store writer. Full source/runtime acceptance precedes exact-source five-target CI, publication and public install/upgrade verification.
+- **Exact next action:** Implement the six scoped contracts. No claim of completion or release yet. LSP references again exited with code0; reported tool failure and using scoped source/compiler fallback.
+
 ## 2026-10-24 — Waves 1–2 and exact-source native integration completed
 
 - **Scope completed:** GP01 complete offline snapshot, GP02 verified fresh-directory restore, EV19 pre-send evolution explanation, GP03 reviewed deletion, GP04 reviewed no-overwrite rename, RX01 original-snapshot multi-hunk edits and RX02 pre-write Rust syntax disclosure. All seven specifications moved intact to the completed archive. Source additions are unpublished; public v0.1.29/tag/assets remain unchanged.
