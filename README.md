@@ -241,16 +241,16 @@ Current v0.1.31 source retains **SQL Schema19**,0.1.30's strict plan format and 
 
 ## Installation
 
-Version-pinned v0.1.30 packages and installers are listed below. Publication, exact-source native qualification and public-byte/install evidence are recorded separately in the [checkpoint](docs/WORK_CHECKPOINT.md); source builds are not themselves public-package or live-provider conformance proof.
+Version-pinned [v0.1.31](https://github.com/kimmandoo/eevee/releases/tag/v0.1.31) packages and installers are listed below. Exact-source Check/all-five-native qualification and all public asset/checksum identities passed; final public installation/runtime evidence is recorded in the [checkpoint](docs/WORK_CHECKPOINT.md). Source builds and controlled peers are not live-provider conformance proof.
 
-| Platform | v0.1.30 package |
+| Platform | v0.1.31 package |
 | --- | --- |
-| macOS · Apple Silicon | [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.30/ev-darwin-arm64.tar.gz) |
-| macOS · Intel | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.30/ev-darwin-x86_64.tar.gz) |
-| Linux / WSL | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.30/ev-linux-x86_64.tar.gz) · [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.30/ev-linux-arm64.tar.gz) |
-| Windows | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.30/ev-windows-x86_64.zip) |
+| macOS · Apple Silicon | [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.31/ev-darwin-arm64.tar.gz) |
+| macOS · Intel | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.31/ev-darwin-x86_64.tar.gz) |
+| Linux / WSL | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.31/ev-linux-x86_64.tar.gz) · [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.31/ev-linux-arm64.tar.gz) |
+| Windows | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.31/ev-windows-x86_64.zip) |
 
-[Checksums](https://github.com/kimmandoo/eevee/releases/download/v0.1.30/SHA256SUMS) · [Release notes](CHANGELOG.md)
+[Checksums](https://github.com/kimmandoo/eevee/releases/download/v0.1.31/SHA256SUMS) · [Release notes](CHANGELOG.md)
 
 ```sh
 ev update --check   # read-only release check
@@ -266,8 +266,8 @@ Installers verify SHA-256, refuse unowned command collisions and **do not change
 **macOS / Linux**
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.30/install.sh
-sh ./install-ev.sh --version v0.1.30
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.31/install.sh
+sh ./install-ev.sh --version v0.1.31
 ```
 
 Add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile (`~/.zshrc` or `~/.bashrc`) for future terminals. If macOS blocks a browser-downloaded archive, inspect its source/checksum before removing quarantine with `xattr -d com.apple.quarantine ~/.local/bin/ev`.
@@ -275,7 +275,7 @@ Add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile (`~/.zshrc` or 
 **Windows**
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.30/install.ps1))) -Version v0.1.30
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.31/install.ps1))) -Version v0.1.31
 [Environment]::SetEnvironmentVariable('Path', "$env:LOCALAPPDATA\ev\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')
 ```
 
