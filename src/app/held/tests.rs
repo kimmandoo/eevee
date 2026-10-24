@@ -622,3 +622,300 @@ fn dismissing_during_held_save_survives_its_commit_acknowledgment() {
     assert_eq!(app.held.target, Some(memory_target()));
     assert!(app.memory.selected_ids.is_empty());
 }
+
+fn replacement(app: &mut App) -> memory::Record {
+    let mut new = note(memory::Scope::Project);
+    new.revision += 1;
+    new.proposal.content = "Renewed approved body, never implicitly selected.".into();
+    app.memory.records = vec![new.clone()];
+    app.overlay = Some(Overlay::Memory);
+    app.held_command("held-set-memory");
+    // Simulate the matching persistence acknowledgement for staging navigation.
+    app.saved_revision = app.revision;
+    app.storage = StorageState::Saved;
+    app.save_requested = false;
+    new
+}
+
+#[test]
+fn renewal_cancel_preserves_stale_configuration_basket_literal_draft_and_frozen_packet() {
+    let mut app = app();
+    app.memory.records = vec![note(memory::Scope::Project)];
+    app.memory.selected_ids = vec![31];
+    saved(&mut app, memory_target());
+    let frozen = input(&app);
+    app.freeze_held_receipt(&frozen);
+    let basket = capture(&mut app);
+    app.sources.basket = vec![basket.clone()];
+    app.input = "Literal 한글 draft with caret".into();
+    app.cursor = 8;
+    let new = replacement(&mut app);
+    let review = app.held.renewal.as_ref().unwrap();
+    assert_eq!(review.intent.expected, memory_target());
+    assert_eq!(
+        review.intent.proposed,
+        Target::Memory {
+            id: new.id,
+            revision: new.revision
+        }
+    );
+    assert!(review.old_content.is_none());
+    assert!(app.records.pending.is_none());
+    app.held_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(app.held.renewal.is_none());
+    assert_eq!(app.held.target, Some(memory_target()));
+    assert_eq!(app.sources.basket, vec![basket]);
+    assert_eq!(
+        (app.input.as_str(), app.cursor),
+        ("Literal 한글 draft with caret", 8)
+    );
+    assert_eq!(
+        frozen.task.approved_memories,
+        vec![note(memory::Scope::Project)]
+    );
+    assert_eq!(
+        app.held.receipt.as_ref().unwrap().target,
+        Some(memory_target())
+    );
+}
+
+#[test]
+fn renewal_requires_complete_review_and_revalidates_owner_configuration_and_policy() {
+    for race in 0..4 {
+        let mut app = app();
+        saved(&mut app, memory_target());
+        let new = replacement(&mut app);
+        assert_eq!(app.held_status(), Status::Unavailable);
+        app.held_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        assert!(app.records.pending.is_none());
+        app.held.renewal.as_ref().unwrap().reviewed.set(true);
+        match race {
+            0 => app.lead.id += 1,
+            1 => {
+                app.records.snapshot.held_items[0].target = Target::Memory {
+                    id: 999,
+                    revision: 1,
+                }
+            }
+            2 => app.held.exclusions.push("changed-policy".into()),
+            _ => app.memory.records.clear(),
+        }
+        app.held_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        assert!(app.records.pending.is_none());
+        assert!(app.records.queued.is_empty());
+        assert!(app.memory.selected_ids.is_empty());
+        assert_ne!(
+            app.held.target,
+            Some(Target::Memory {
+                id: new.id,
+                revision: new.revision
+            })
+        );
+    }
+}
+
+#[test]
+fn reviewed_memory_renewal_queues_exact_cas_without_selecting_or_rewriting_frozen_input() {
+    let mut app = app();
+    app.memory.records = vec![note(memory::Scope::Project)];
+    app.memory.selected_ids = vec![31];
+    saved(&mut app, memory_target());
+    let frozen = input(&app);
+    app.memory.selected_ids.clear();
+    let new = replacement(&mut app);
+    app.held.renewal.as_ref().unwrap().reviewed.set(true);
+    app.held_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+    let request = app
+        .records
+        .pending
+        .as_ref()
+        .or(app.records.queued.front())
+        .unwrap();
+    assert!(matches!(&request.operation, Operation::RenewHeld { review }
+        if review.expected == memory_target()
+            && review.proposed == Target::Memory { id: new.id, revision: new.revision }));
+    assert!(app.memory.selected_ids.is_empty());
+    assert_eq!(
+        frozen.task.approved_memories,
+        vec![note(memory::Scope::Project)]
+    );
+}
+
+fn current_cache(app: &mut App) {
+    app.drive_records();
+    app.records.pending = None;
+    app.records.queued.clear();
+    app.records.loaded = true;
+    app.held_memory_result(&Ok(app.memory.records.clone()));
+}
+
+#[test]
+fn readiness_distinguishes_missing_loading_stale_and_available_cached_facts() {
+    let mut app = app();
+    assert_eq!(
+        app.held_reference_readiness(app.lead.id, app.form()),
+        Readiness::Unknown
+    );
+    current_cache(&mut app);
+    assert_eq!(
+        app.held_reference_readiness(app.lead.id, app.form()),
+        Readiness::NotConfigured
+    );
+    saved(&mut app, memory_target());
+    app.memory_loading = true;
+    assert_eq!(
+        app.held_reference_readiness(app.lead.id, app.form()),
+        Readiness::Unknown
+    );
+    app.memory_loading = false;
+    assert_eq!(
+        app.held_reference_readiness(app.lead.id, app.form()),
+        Readiness::Unavailable
+    );
+    app.memory.records = vec![note(memory::Scope::Project)];
+    app.held_memory_result(&Ok(app.memory.records.clone()));
+    assert_eq!(
+        app.held_reference_readiness(app.lead.id, app.form()),
+        Readiness::Available
+    );
+    app.held_memory_result(&Err("local read failed".into()));
+    assert_eq!(
+        app.held_reference_readiness(app.lead.id, app.form()),
+        Readiness::Unknown
+    );
+    app.task_id += 1;
+    assert_eq!(
+        app.held_reference_readiness(app.lead.id, app.form()),
+        Readiness::Unknown
+    );
+}
+
+#[test]
+fn scoped_inspection_preserves_lead_form_mapping_drafts_and_returns_to_formation() {
+    let mut app = app();
+    current_cache(&mut app);
+    app.memory.records = vec![note(memory::Scope::Project)];
+    saved(&mut app, memory_target());
+    let owner = app.lead.clone();
+    let mut mapped = owner.clone();
+    mapped.id += 1;
+    mapped.form = 7;
+    app.party.push(mapped.clone());
+    app.records.snapshot.held_items.push(Item {
+        partner: mapped.id,
+        form: mapped.form,
+        target: memory_target(),
+    });
+    app.input = "Exact draft 한글".into();
+    app.cursor = 3;
+    app.overlay = Some(Overlay::Formations);
+    app.formations.mapping = vec![Some(mapped.id)];
+    let mapping = app.formations.mapping.clone();
+    assert!(app.inspect_held_reference(mapped.id, mapped.form));
+    assert!(app.held_inspection_active());
+    assert_eq!(
+        app.held.inspection.as_ref().unwrap().owner.partner,
+        mapped.id
+    );
+    assert_eq!(
+        app.held.inspection.as_ref().unwrap().owner.form,
+        mapped.form
+    );
+    app.held_inspection_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    assert!(app.memory.selected_ids.is_empty());
+    assert!(app.records.pending.is_none());
+    assert_eq!(app.lead, owner);
+    app.held_inspection_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(app.overlay, Some(Overlay::Formations));
+    assert_eq!(app.formations.mapping, mapping);
+    assert_eq!((app.input.as_str(), app.cursor), ("Exact draft 한글", 3));
+}
+
+#[test]
+fn file_readiness_needs_a_current_stable_cached_observation_not_just_a_saved_path() {
+    let mut app = app();
+    current_cache(&mut app);
+    saved(
+        &mut app,
+        Target::File {
+            path: "sample.rs".into(),
+        },
+    );
+    assert_eq!(
+        app.held_reference_readiness(app.lead.id, app.form()),
+        Readiness::Unknown
+    );
+    capture(&mut app);
+    assert_eq!(
+        app.held_reference_readiness(app.lead.id, app.form()),
+        Readiness::Available
+    );
+    let report = std::sync::Arc::make_mut(app.repository.as_mut().unwrap());
+    std::sync::Arc::make_mut(&mut report.current).stable = false;
+    assert_eq!(
+        app.held_reference_readiness(app.lead.id, app.form()),
+        Readiness::Unknown
+    );
+    app.held.exclusions.push("sample.rs".into());
+    assert_eq!(
+        app.held_reference_readiness(app.lead.id, app.form()),
+        Readiness::Unavailable
+    );
+}
+
+#[test]
+fn actual_command_popup_freezes_renewal_after_navigation_and_matching_save_can_confirm() {
+    use crossterm::event::Event;
+    let mut app = app();
+    app.goal = "Saved held renewal fixture".into();
+    saved(&mut app, memory_target());
+    let mut next = note(memory::Scope::Project);
+    next.revision += 1;
+    next.proposal.content = "New approved exact revision".into();
+    app.memory.records = vec![next.clone()];
+    app.overlay = Some(Overlay::Memory);
+    app.update(Event::Key(KeyEvent::new(
+        KeyCode::Char('k'),
+        KeyModifiers::CONTROL,
+    )));
+    for character in "held-set-memory".chars() {
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Char(character),
+            KeyModifiers::NONE,
+        )));
+    }
+    assert!(app.command_popup.is_some());
+    app.update(Event::Key(KeyEvent::new(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+    )));
+    assert_eq!(app.overlay, Some(Overlay::Held));
+    let frozen_revision = app.held.renewal.as_ref().unwrap().intent.task_revision;
+    assert_eq!(frozen_revision, app.revision);
+    assert!(app.save_requested);
+    let snapshot = app.snapshot(PROJECT);
+    app.save_submitted();
+    app.store_event(store::Event::Saved(snapshot));
+    assert_eq!(app.saved_revision, frozen_revision);
+    assert_eq!(
+        app.held.renewal.as_ref().unwrap().intent.task_revision,
+        frozen_revision
+    );
+    app.held.renewal.as_ref().unwrap().reviewed.set(true);
+    app.update(Event::Key(KeyEvent::new(
+        KeyCode::Char('y'),
+        KeyModifiers::NONE,
+    )));
+    let request = app
+        .records
+        .pending
+        .as_ref()
+        .or(app.records.queued.front())
+        .unwrap();
+    assert!(matches!(&request.operation, Operation::RenewHeld { review }
+    if review.task_revision == frozen_revision && review.proposed == (Target::Memory {
+        id: next.id, revision: next.revision,
+    })));
+    assert!(app.memory.selected_ids.is_empty());
+    assert!(app.sources.basket.is_empty());
+}

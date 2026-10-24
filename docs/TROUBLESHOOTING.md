@@ -1,5 +1,47 @@
 # Troubleshooting
 
+### [2026-10-25] Scoped move inspection swallowed advertised arrow scrolling
+
+- **Context / Symptom:** Complete wide PT12 journeys passed, but60×18 inspection initially showed only upper partner metadata; the mapped Glaceon move name remained below the fold. The footer advertised Up/Down scrolling while scoped input ignored those keys.
+- **Root Cause:** Ordinary Records arrows select another partner. The scoped inspector correctly prevented that retargeting but only forwarded paging keys, leaving its advertised arrows without a safe scroll implementation.
+- **Solution:** Added bounded line scrolling directly inside the frozen mapped-owner branch; ordinary owner-selection keys are never forwarded. Preserved PgUp/Dn/Home/End, invalidated any affirmative review flag on navigation and retained exact Escape return. Extended the existing read-only regression with arrow/end-boundary navigation and unchanged selected owner; RED observed scroll0 instead of3 (`bg_1237`). The actual compact driver now navigates to retained content rather than assuming every field fits its first viewport.
+- **Prevention / Reference:** Verify the advertised navigation on the actual compact surface. Read-only means no selection/ownership mutation, not an inert or unreachable inspector. Final source/runtime proof is in the checkpoint.
+
+### [2026-10-25] Settled native outcome uncertainty blocked local formation staging
+
+- **Context / Symptom:** Full PT12 EN/KO writer journeys observed real socket EOF, finished peer workers, saved storage, empty active-work/tool-journal rows and retained exact dispatch attribution, but a fresh formation review still said staging was blocked by owned work. Both failed final staging in `wave5-formation-{en,ko}-wide-j`.
+- **Root Cause:** Formation staging and mapped-owner badges used broad `outcome_unknown()` status as a work-ownership predicate. Existing native behavior intentionally retains unknown remote completion while permitting explicit follow-up/task navigation after local settlement; CLI and uncertain tool effects remain different, frozen ownership.
+- **Solution:** Reused `State::owns_work()` alongside actual busy/preference settlement instead of clearing status or forcing a restart. Existing local execution, CLI/tool-effect, failed-journal and pending-receipt ownership remained guarded. Extended the existing correlated native-versus-CLI regression through canonical formation load/preview; it first failed `Busy != Eligible` (`artifact://2576`). Final GREEN/source and actual runtime evidence are recorded in the checkpoint.
+- **Prevention / Reference:** Unknown provider completion/billing is not successful completion, but neither is it an owned local writer. Admission must follow frozen transport/effect ownership, never the currently selected provider or a display-status word.
+
+### [2026-10-25] Tool-free native cancellation was mistaken for a missing tool journal
+
+- **Context / Symptom:** PT12's real keyless Implement writer acquired the exact task/partner/request with `writing=1` and correctly refused formation Apply, but its cancellation fixture timed out after40seconds. The UI already reported local reader settlement with partial/unverified output and unknown provider outcome.
+- **Root Cause:** The fixture incorrectly required a nonempty `provider_journal`. Native journal rows represent actual tool effects, not every transport dispatch; this peer intentionally emitted text only. The existing native smoke already required unchanged journals for such turns.
+- **Solution:** Diagnostic `target/wave5-writer-cancel-diagnostic-a/diagnostic.json` observed real socket EOF, finished peer workers, no errors, `active_work=[]`, saved storage and an empty tool journal both at the first+0.002s sample and+40.009s. The exact dispatch receipt remained. Corrected the fixture to preserve its pre-submission tool journal and still require physical local EOF, durable ownership settlement, exact dispatch attribution and honest partial/unknown outcome. Saved post-cancel facts even on failure. No native product code, timeout or safety guard changed.
+- **Prevention / Reference:** Dispatch evidence, model completion and tool-effect journals are different facts. Never synthesize a tool row, infer remote cancellation from local EOF or use a nonempty-journal assertion as proof of successful work.
+
+### [2026-10-25] PTY prerequisites crossed browsing, role and deferred-review boundaries
+
+- **Context / Symptom:** New Wave5 fixtures pasted a Request while browsing, attempted Jolteon's command editor from Eevee, assumed a retained prepared command survived denial, and waited for translated captions that the existing Sources surface did not use. Neutral Stay was also incorrectly treated as Deny. Product frames correctly retained the draft, exposed role/setup choices or deferred approval rather than executing.
+- **Root Cause:** Standalone fixture actions bypassed the existing input ownership and actual workflow prerequisites. A changed task and a busy owner can coexist; asserting one specific blocking sentence incorrectly constrained precedence instead of testing refusal.
+- **Solution:** Reused explicit Request focus, correct local role, complete paged move review and fresh exact command preparation. Used actual `/deny` only for denial, not neutral Stay. Captured post-admission baselines, checked exact leases/unchanged roster and drafts rather than a particular refusal phrase, returned through the existing workspace before another source choice, and steered Sources using actual loaded inventory/filtered target and the shared capture convention. Kept control-bearing local review separate from the safe frozen provider packet; native control-byte refusal remained intact.
+- **Prevention / Reference:** Preserve failed reports, inspect the actual frame and follow established smoke helpers before changing product code. English/Korean title assumptions and incidental editor metadata must not replace consumer-visible bytes, ownership, effects and restart checks.
+
+### [2026-10-25] Held renewal needed post-navigation revision binding and transactional replacement
+
+- **Context / Symptom:** Wave5 source review found that normal Memory/Sources-to-Held navigation incremented task revision after renewal intent had frozen it; the actual command route would reject its own approval. A stale empty cached slot also used ordinary `SetHeld`, whose upsert could overwrite a different durable reference without old/new review. Retained/proposed source controls were rendered raw.
+- **Root Cause:** Direct command-handler coverage omitted outer `App::update` navigation bookkeeping; replacement CAS protected only the explicit renewal operation, not the initial-assignment alternate path. The new surface had not reused Sources' escaped-content presentation.
+- **Solution:** Recorded the staging event's navigation change before freezing intent, retained later-revision invalidation and waited for matching persistence without queuing approval. Made ordinary nonempty assignment create-only or identical-target idempotent; exact replacement uses expected-old-target CAS in the existing transaction. Escaped displayed CR/LF/ESC/directional controls without changing reviewed bytes or digests. Actual command-popup/update, occupied-slot writer and control-content regressions passed in the1,675-test source gate; real PTY acceptance remains a separate checkpoint gate.
+- **Prevention / Reference:** Exercise consent through the real outer reducer and durable writer, not only direct helper calls. Never rebase stale approval, invent an old file body, auto-select the renewed target or alter a frozen request.
+
+### [2026-10-25] Whole-snapshot inspector assertions included incidental editor chrome
+
+- **Context / Symptom:** Two new formation warning-navigation tests failed whole-`Snapshot` equality despite preserved task facts. Complete output analysis showed the only difference in both failures was `navigation.editing: true → false` on entering an observational overlay (`artifact://2537`).
+- **Root Cause:** A read-only inspector legitimately leaves the normal Request editor; a whole-row equality assertion incorrectly treated that presentation transition as task mutation.
+- **Solution:** Deleted whole-snapshot assertions rather than changing or re-pinning editor behavior. Kept exact retained partner drafts/carets, lead, mapped selection, source/memory selection, no queued work and explicit return-to-formation checks. All1,675 tests then passed. The scoped Escape path explicitly restores its formation owner even when overlay history had already contained Agents/Records.
+- **Prevention / Reference:** Assert consumer-visible state and ownership, not all serialized navigation metadata. Warning navigation is not formation application, route selection or permission.
+
 ### [2026-10-25] Cargo clean left a nonempty generated evidence tree
 
 - **Context / Symptom:** After all public release jobs finished, requested cleanup of67G `target` returned `Directory not empty (os error66)`. A subsequent filesystem read/measurement showed882M of older generated evidence trees remained.

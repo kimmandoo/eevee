@@ -50,6 +50,7 @@ pub fn key(command: &str) -> Option<Message> {
         "held-accept" => Message::CmdHeldAccept,
         "held-dismiss" => Message::CmdHeldDismiss,
         "held-clear" => Message::CmdHeldClear,
+        "held-renew" => Message::CmdHeldRenew,
         "provider" | "connect" => Message::CmdProvider,
         "new" => Message::CmdNew,
         "resume" => Message::CmdResume,

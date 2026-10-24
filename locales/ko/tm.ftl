@@ -25,3 +25,27 @@ tm-export-saved = 새 TM 파일로 내보냈습니다. 승인이나 증거는 �
 cmd-move-import = 휴대용 TM 파일 가져오기 · 로컬 학습 검토
 cmd-move-export = 새 TM 파일로 기술 내보내기 검토
 tm-free-slot = 빈 슬롯 { $slot }/4 · 명시적 로컬 학습
+tm-semantic-old = 기존 정의 / 기술 #{ $id }, 리비전 { $revision }
+tm-semantic-new = 제안 / 정확한 로컬 정의
+tm-semantic-changed = 동작 정의가 바뀝니다. 과거 사용 기록은 원래 기술에 남고, 가르친 사본은 독립적으로 유지됩니다.
+tm-semantic-equal = 동작 정의가 같습니다 (argv 순서, 정규화된 핀 집합 기준). 새 실행 증거는 아닙니다.
+tm-semantic-name-only = 이름만 수정합니다. 단계·범위·출처·과거 사용 기록은 그대로 유지됩니다.
+tm-semantic-boundary = 이 로컬 목록만 변경합니다. 실행·요청·핀 선택·권한 부여 없음. 취소하면 목록과 원래 초안·커서가 유지됩니다.
+tm-semantic-scope = 로컬 수신자: { $partner } / 파트너 #{ $id } / { $form }
+    범위: { $scope } / 로컬 이름: { $name }
+tm-semantic-argument = argv[{ $index }] (0부터): { $old } -> { $new }
+tm-semantic-cwd = cwd: { $old } -> { $new }
+tm-semantic-kind = 동작 종류: { $old } -> { $new }
+tm-semantic-pins = 핀 선택자가 바뀝니다. 아래에서 기존·제안 경로와 범위를 모두 확인하세요.
+tm-semantic-instruction = 사용자 지침이 바뀝니다. 아래에서 기존·제안 지침을 모두 확인하세요.
+tm-semantic-goal = 목표가 바뀝니다. 아래에서 기존·제안 목표를 모두 확인하세요.
+tm-semantic-criterion = 기준[{ $index }] (0부터): { $old } -> { $new }
+tm-semantic-absent = <없음>
+tm-semantic-stale = 검토가 오래되었거나 사용할 수 없습니다. 취소 후 새로 검토하세요. 변경 없음.
+tm-semantic-expose = 로컬 변경 확인: PgDn으로 기존·제안 상세를 모두 확인하세요.
+    Enter 유지 · Esc 취소. 숨겨진 범위는 승인할 수 없습니다.
+tm-semantic-slot = 로컬 슬롯 { $slot }/4 교체 / 기술 #{ $id } 리비전 { $revision }
+tm-semantic-teacher = 로컬 교습 원본: 기술 #{ $id }, 리비전 { $revision }. 원본은 그대로 유지되며 새 사본은 독립적입니다.
+tm-semantic-fresh = 새 로컬 정의입니다. 기존 기술은 변경되지 않으며 과거 실행 증거를 이어받지 않습니다.
+tm-semantic-literals = 따옴표 안은 셸 문법이 아닌 리터럴입니다. ""는 빈 값, <없음>은 항목 없음이며 이스케이프는 정확한 공백을 보존합니다.
+tm-semantic-reminder = 원래 기술 #{ $id }, 리비전 { $revision }을 동일한 단계와 기존 사용 기록 그대로 다시 배웁니다.

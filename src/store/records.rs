@@ -34,6 +34,9 @@ pub enum Operation {
         target: Option<crate::workspace::held::Target>,
         file_proof: Option<crate::workspace::held::FileProof>,
     },
+    RenewHeld {
+        review: crate::workspace::held::Renewal,
+    },
     SetFlavor {
         enabled: bool,
     },
@@ -429,6 +432,12 @@ impl State {
                     target.as_ref(),
                     file_proof.as_ref(),
                 )?;
+            }
+            Operation::RenewHeld { review } => {
+                let task = task
+                    .as_ref()
+                    .ok_or("Held renewal requires a saved active task")?;
+                super::held::renew(&tx, &self.data_dir, task, review)?;
             }
             Operation::ObserveInstruction {
                 request_id,

@@ -437,6 +437,109 @@ pub fn fingerprint(steps: &Steps) -> Result<String, String> {
     .map_err(|_| "Cannot fingerprint move steps".to_string())?;
     Ok(format!("{:x}", hash.finalize()))
 }
+/// Uses the same canonical semantics as learning detection: argv is ordered and
+/// literal (including empty arguments), while pin selectors are unordered sets.
+pub fn same_semantics(old: &Steps, new: &Steps) -> bool {
+    match (old, new) {
+        (Steps::Pins { pins: before }, Steps::Pins { pins: after }) => {
+            before == after || canonical_pins(before) == canonical_pins(after)
+        }
+        (
+            Steps::Request {
+                instruction: before,
+                pins: old_pins,
+            },
+            Steps::Request {
+                instruction: after,
+                pins: new_pins,
+            },
+        ) => {
+            before == after
+                && (old_pins == new_pins || canonical_pins(old_pins) == canonical_pins(new_pins))
+        }
+        _ => old == new,
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChangedField {
+    Kind,
+    Arg(usize),
+    Cwd,
+    Pins,
+    Instruction,
+    Goal,
+    Criterion(usize),
+}
+
+/// Bounded review metadata prepared when the definition changes, not on draw.
+/// No command parsing: compare the already validated typed literals.
+pub fn changed_fields(old: &Steps, new: &Steps) -> Vec<ChangedField> {
+    use ChangedField::*;
+    if same_semantics(old, new) {
+        return Vec::new();
+    }
+    let mut fields = Vec::new();
+    match (old, new) {
+        (
+            Steps::Run {
+                argv: before,
+                cwd: old_cwd,
+            },
+            Steps::Run {
+                argv: after,
+                cwd: new_cwd,
+            },
+        ) => {
+            for index in 0..before.len().max(after.len()) {
+                if before.get(index) != after.get(index) {
+                    fields.push(Arg(index));
+                }
+            }
+            if old_cwd != new_cwd {
+                fields.push(Cwd);
+            }
+        }
+        (Steps::Pins { .. }, Steps::Pins { .. }) => fields.push(Pins),
+        (
+            Steps::Request {
+                instruction: before,
+                pins: old_pins,
+            },
+            Steps::Request {
+                instruction: after,
+                pins: new_pins,
+            },
+        ) => {
+            if before != after {
+                fields.push(Instruction);
+            }
+            if canonical_pins(old_pins) != canonical_pins(new_pins) {
+                fields.push(Pins);
+            }
+        }
+        (
+            Steps::Task {
+                goal: before,
+                criteria: old_criteria,
+            },
+            Steps::Task {
+                goal: after,
+                criteria: new_criteria,
+            },
+        ) => {
+            if before != after {
+                fields.push(Goal);
+            }
+            for index in 0..old_criteria.len().max(new_criteria.len()) {
+                if old_criteria.get(index) != new_criteria.get(index) {
+                    fields.push(Criterion(index));
+                }
+            }
+        }
+        _ => fields.push(Kind),
+    }
+    fields
+}
 
 pub fn suggested_name(form: usize, steps: &Steps, used: &[String]) -> String {
     let names = match form {
@@ -1616,5 +1719,60 @@ mod tests {
         assert!(validate_proposal(&proposal).is_err());
         proposal.provenance.sources = vec!["run-1".into(); MAX_SOURCES + 1];
         assert!(validate_proposal(&proposal).is_err());
+    }
+    #[test]
+    fn semantic_review_distinguishes_one_argument_empty_absent_order_and_cwd() {
+        let old = run(&["cargo", "test", "--lib"], ".");
+        let changed = run(&["cargo", "test", ""], ".");
+        assert_eq!(changed_fields(&old, &changed), vec![ChangedField::Arg(2)]);
+        assert!(!same_semantics(&old, &changed));
+        assert_eq!(
+            changed_fields(&changed, &run(&["cargo", "test"], ".")),
+            vec![ChangedField::Arg(2)]
+        );
+        assert_eq!(
+            changed_fields(&old, &run(&["cargo", "--lib", "test"], ".")),
+            vec![ChangedField::Arg(1), ChangedField::Arg(2)]
+        );
+        assert_eq!(
+            changed_fields(&old, &run(&["cargo", "test", "--lib"], "subdir")),
+            vec![ChangedField::Cwd]
+        );
+    }
+
+    #[test]
+    fn semantic_review_uses_pin_sets_and_exact_instruction_goal_and_criteria() {
+        let a = pin("src/a.rs", 1, 3);
+        let b = pin("src/b.rs", 4, 8);
+        let before = Steps::Request {
+            instruction: "Keep these exact words".into(),
+            pins: vec![a.clone(), b.clone()],
+        };
+        let reordered = Steps::Request {
+            instruction: "Keep these exact words".into(),
+            pins: vec![b, a.clone()],
+        };
+        assert!(same_semantics(&before, &reordered));
+        assert!(changed_fields(&before, &reordered).is_empty());
+        let after = Steps::Request {
+            instruction: "Keep these exact words ".into(),
+            pins: vec![a],
+        };
+        assert_eq!(
+            changed_fields(&before, &after),
+            vec![ChangedField::Instruction, ChangedField::Pins]
+        );
+        let before = Steps::Task {
+            goal: "Goal".into(),
+            criteria: vec!["A".into(), "B".into()],
+        };
+        let after = Steps::Task {
+            goal: "New goal".into(),
+            criteria: vec!["A".into(), "C".into()],
+        };
+        assert_eq!(
+            changed_fields(&before, &after),
+            vec![ChangedField::Goal, ChangedField::Criterion(1)]
+        );
     }
 }

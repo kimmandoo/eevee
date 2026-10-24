@@ -1,5 +1,9 @@
 //! Local preference chrome. Rendering never selects context or changes the receipt.
-use ratatui::{Frame, layout::Rect, widgets::Clear};
+use ratatui::{
+    Frame,
+    layout::Rect,
+    widgets::{Clear, Paragraph, Wrap},
+};
 
 use super::{Paint, panel, row, text};
 use crate::{
@@ -107,8 +111,15 @@ pub(super) fn strip(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) -> 
 
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
     frame.render_widget(Clear, area);
+    if let Some(review) = &app.held.renewal {
+        review.reviewed.set(false);
+    }
     if area.width < 60 || area.height < 18 {
         text(frame, area, paint.hint(Message::HeldTooSmall), paint.accent);
+        return;
+    }
+    if app.held.renewal.is_some() || app.held.inspection.is_some() {
+        render_reference_review(frame, area, app, config, paint);
         return;
     }
     let area = super::centered(area, 110, area.height.min(24));
@@ -192,5 +203,323 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
             paint.hint(*action),
             paint.accent,
         );
+    }
+}
+
+fn render_reference_review(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    config: &Config,
+    paint: &Paint,
+) {
+    let area = super::centered(area, 110, area.height);
+    let block = panel(paint.hint(Message::HeldRenewalPanel), config, paint, true);
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    let body = row(content, 0, content.height.saturating_sub(2));
+    let footer = row(content, content.height.saturating_sub(2), 2);
+    let (detail, scroll) = if let Some(review) = &app.held.renewal {
+        let detail = review.details.get_or_init(|| {
+            let scope = paint.format(Template::HeldScope, &[
+                ("task", &review.task.to_string()), ("owner", &review.intent.owner.name),
+                ("form", FORMS[review.intent.owner.form].name),
+            ]);
+            let old = target_label(Some(&review.intent.expected), paint);
+            let new = target_label(Some(&review.intent.proposed), paint);
+            // Match Sources' exact escaped-byte presentation, never interpreting controls.
+            let old_content = review.old_content.as_deref().map(|text| format!("{text:?}"))
+                .unwrap_or_else(|| paint.hint(Message::HeldRenewalOldUnavailable).into());
+            let old_disclosure = if matches!(review.intent.expected, Target::File { .. }) {
+                paint.hint(Message::HeldRenewalFileDisclosure)
+            } else { "" };
+            let file_identity = review.intent.file_proof.as_ref().map(|proof| {
+                paint.format(Template::HeldRenewalFileIdentity, &[
+                    ("root", &proof.excerpt.root),
+                    ("start", &proof.excerpt.start_line.to_string()),
+                    ("end", &proof.excerpt.end_line.to_string()),
+                    ("digest", &format!("{:02x?}", proof.excerpt.source_sha256)),
+                ])
+            }).unwrap_or_default();
+            format!("{scope}\n{}\n{}\n{old}\n{old_disclosure}\n{old_content}\n{}\n{}\n{new}\n{file_identity}\n{:?}\n{}\n{}",
+                super::display_identity(&app.cwd),
+                paint.hint(Message::HeldRenewalOld),
+                paint.hint(Message::HeldRenewalContentEscaped),
+                paint.hint(Message::HeldRenewalNew),
+                review.intent.file_proof.as_ref().map(|proof| proof.excerpt.text.as_str())
+                    .unwrap_or(&review.new_content),
+                paint.hint(Message::HeldRenewalPolicy),
+                paint.hint(Message::HeldRenewalFrozen))
+        });
+        let geometry = (area.width, area.height);
+        let max = if review.geometry.replace(geometry) != geometry {
+            review.reviewed.set(false);
+            let max = Paragraph::new(detail.as_str())
+                .wrap(Wrap { trim: false })
+                .line_count(body.width.max(1))
+                .saturating_sub(body.height as usize)
+                .min(u16::MAX as usize) as u16;
+            review.scroll_max.set(max);
+            max
+        } else {
+            review.scroll_max.get()
+        };
+        let scroll = review.scroll.min(max);
+        review.reviewed.set(
+            scroll == max
+                && body.height >= 4
+                && app.overlay == Some(crate::app::Overlay::Held)
+                && app.command_popup.is_none()
+                && app.confirmation.is_none(),
+        );
+        text(
+            frame,
+            footer,
+            paint.hint(if !app.held_renewal_can_confirm() {
+                Message::HeldRenewalWaiting
+            } else if review.reviewed.get() {
+                Message::HeldRenewalConfirm
+            } else {
+                Message::HeldRenewalScroll
+            }),
+            paint.accent,
+        );
+        (detail, scroll)
+    } else {
+        let scope = app.held.inspection.as_ref().unwrap();
+        let detail = scope.details.get_or_init(|| {
+            let identity = paint.format(
+                Template::HeldScope,
+                &[
+                    ("task", &app.task_id.to_string()),
+                    ("owner", &scope.owner.name),
+                    ("form", FORMS[scope.owner.form].name),
+                ],
+            );
+            let readiness = match scope.readiness {
+                crate::app::held::Readiness::NotConfigured => Message::HeldInspectionNotConfigured,
+                crate::app::held::Readiness::Available => Message::HeldInspectionAvailable,
+                crate::app::held::Readiness::Unavailable => Message::HeldInspectionUnavailable,
+                crate::app::held::Readiness::Unknown => Message::HeldInspectionUnknown,
+            };
+            format!(
+                "{identity}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                super::display_identity(&app.cwd),
+                paint.hint(Message::HeldInspectionPolicy),
+                target_label(scope.target.as_ref(), paint),
+                paint.hint(readiness),
+                paint.hint(Message::HeldRenewalContentEscaped),
+                scope
+                    .content
+                    .as_deref()
+                    .map(|text| format!("{text:?}"))
+                    .unwrap_or_else(|| paint.hint(Message::HeldRenewalOldUnavailable).into()),
+                paint.hint(Message::HeldRenewalFrozen)
+            )
+        });
+        let max = Paragraph::new(detail.as_str())
+            .wrap(Wrap { trim: false })
+            .line_count(body.width.max(1))
+            .saturating_sub(body.height as usize)
+            .min(u16::MAX as usize) as u16;
+        text(
+            frame,
+            footer,
+            paint.hint(Message::HeldInspectionReturn),
+            paint.accent,
+        );
+        (detail, scope.scroll.min(max))
+    };
+    frame.render_widget(
+        Paragraph::new(detail.as_str())
+            .wrap(Wrap { trim: false })
+            .style(paint.surface)
+            .scroll((scroll, 0)),
+        body,
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        app::{Overlay, held::Review},
+        workspace::held::Renewal,
+    };
+    use std::cell::{Cell, OnceCell};
+
+    pub(super) fn draw(app: &App, width: u16, height: u16) {
+        let config = Config {
+            ascii: true,
+            language: crate::i18n::Language::ENGLISH,
+            no_animation: true,
+            animation_override: Some(false),
+            theme: crate::config::Theme::Dark,
+            color: crate::config::ColorMode::Mono,
+            images: crate::config::ImageMode::Off,
+            assets_dir: Default::default(),
+            layout: crate::config::LayoutMode::Linear,
+            layout_explicit: true,
+            data_dir: Default::default(),
+            storage_policy: Default::default(),
+            context_exclusions: vec![],
+            capture_capacity: 1024,
+        };
+        let paint = Paint::new(&config, &FORMS[0], 0);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| render(frame, frame.area(), app, &config, &paint))
+            .unwrap();
+    }
+
+    #[test]
+    fn full_reference_scope_must_be_seen_and_hidden_or_undersize_review_cannot_approve() {
+        for (width, height) in [(60, 18), (120, 36)] {
+            let mut app = App::new("project".into(), width, height);
+            app.overlay = Some(Overlay::Held);
+            let new_content = "Literal bounded retained content 한글 界e\u{301}\n".repeat(80);
+            let old_path = format!("retained/{}/old.rs", "한글/".repeat(12));
+            app.held.renewal = Some(Review {
+                task: 7,
+                intent: Renewal {
+                    expected: Target::File {
+                        path: old_path.clone(),
+                    },
+                    proposed: Target::Memory {
+                        id: 21,
+                        revision: 8,
+                    },
+                    owner: app.attribution(),
+                    task_revision: 4,
+                    exclusions: vec![],
+                    file_proof: None,
+                },
+                old_content: None,
+                new_content: new_content.clone(),
+                scroll: 0,
+                scroll_max: Cell::new(0),
+                reviewed: Cell::new(false),
+                geometry: Cell::new((0, 0)),
+                details: OnceCell::new(),
+            });
+            draw(&app, width, height);
+            let review = app.held.renewal.as_mut().unwrap();
+            assert!(!review.reviewed.get());
+            assert!(review.scroll_max.get() > 0);
+            assert!(review.details.get().unwrap().contains(&old_path));
+            assert!(
+                review
+                    .details
+                    .get()
+                    .unwrap()
+                    .contains(&format!("{new_content:?}"))
+            );
+            review.scroll = review.scroll_max.get();
+            draw(&app, width, height);
+            assert!(app.held.renewal.as_ref().unwrap().reviewed.get());
+            app.overlay = None;
+            draw(&app, width, height);
+            assert!(!app.held.renewal.as_ref().unwrap().reviewed.get());
+            app.overlay = Some(Overlay::Held);
+            draw(&app, 40, 10);
+            assert!(!app.held.renewal.as_ref().unwrap().reviewed.get());
+        }
+    }
+}
+
+#[cfg(test)]
+mod control_content_tests {
+    use super::*;
+    use crate::app::{
+        Overlay,
+        held::{Inspection, Readiness, Review},
+    };
+    use crate::workspace::{
+        context::Excerpt,
+        held::{FileProof, Renewal},
+    };
+    use std::cell::{Cell, OnceCell};
+
+    #[test]
+    fn renewal_and_scoped_inspection_escape_controls_without_changing_retained_bytes() {
+        let raw = "literal CRLF\r\nESC:\u{1b}[31m bidi:\u{202e} 한글";
+        let mut app = App::new("/fixture".into(), 60, 18);
+        app.overlay = Some(Overlay::Held);
+        let proof = FileProof::new(
+            Excerpt {
+                origin_run: None,
+                id: 0,
+                task_id: 7,
+                root: "/fixture".into(),
+                path: "new.rs".into(),
+                start_line: 1,
+                end_line: 2,
+                source_sha256: [19; 32],
+                text: raw.into(),
+                available: true,
+            },
+            vec![],
+        );
+        app.held.renewal = Some(Review {
+            task: 7,
+            intent: Renewal {
+                expected: Target::File {
+                    path: "old.rs".into(),
+                },
+                proposed: Target::File {
+                    path: "new.rs".into(),
+                },
+                owner: app.attribution(),
+                task_revision: 4,
+                exclusions: vec![],
+                file_proof: Some(proof.clone()),
+            },
+            old_content: Some(raw.into()),
+            new_content: String::new(),
+            scroll: 0,
+            scroll_max: Cell::new(0),
+            reviewed: Cell::new(false),
+            geometry: Cell::new((0, 0)),
+            details: OnceCell::new(),
+        });
+        super::tests::draw(&app, 60, 18);
+        let review = app.held.renewal.as_ref().unwrap();
+        let details = review.details.get().unwrap();
+        assert_eq!(details.matches(&format!("{raw:?}")).count(), 2);
+        assert!(
+            !details
+                .chars()
+                .any(|ch| matches!(ch, '\r' | '\u{1b}' | '\u{202e}'))
+        );
+        assert_eq!(review.intent.file_proof.as_ref(), Some(&proof));
+        assert_eq!(review.old_content.as_deref(), Some(raw));
+        app.held.renewal = None;
+        app.held.inspection = Some(Inspection {
+            owner: crate::store::Attribution {
+                form: app.form(),
+                ..crate::store::Attribution::of(app.lead())
+            },
+            target: Some(Target::File {
+                path: "old.rs".into(),
+            }),
+            content: Some(raw.into()),
+            return_to: Some(Overlay::Formations),
+            scroll: 0,
+            details: OnceCell::new(),
+            readiness: Readiness::Unavailable,
+        });
+        super::tests::draw(&app, 60, 18);
+        let scope = app.held.inspection.as_ref().unwrap();
+        let details = scope.details.get().unwrap();
+        assert!(details.contains(&format!("{raw:?}")));
+        assert!(
+            !details
+                .chars()
+                .any(|ch| matches!(ch, '\r' | '\u{1b}' | '\u{202e}'))
+        );
+        assert_eq!(scope.content.as_deref(), Some(raw));
+        assert!(app.memory.selected_ids.is_empty());
+        assert!(app.sources.basket.is_empty());
     }
 }

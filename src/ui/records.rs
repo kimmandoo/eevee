@@ -34,7 +34,52 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     frame.render_widget(block, area);
     let count = app.record_selection_count();
     app.records.selected = app.records.selected.min(count.saturating_sub(1));
-    let heading = if app.records.mode == Mode::Ribbons {
+    let scoped = app.formation_inspector_active();
+    let heading = if let Some(crate::app::formations::Inspector::Moves { partner, form }) =
+        app.formations.inspector
+        && scoped
+    {
+        let name = app
+            .formations
+            .roster
+            .iter()
+            .find(|p| p.id == partner)
+            .map_or_else(|| format!("#{partner}"), App::partner_label);
+        let owner_heading = paint.format(
+            Template::FormationInspectorOwner,
+            &[("partner", &name), ("form", FORMS[form].name)],
+        );
+        if let Some(index) = app
+            .records
+            .snapshot
+            .summaries
+            .iter()
+            .position(|summary| summary.partner.id == partner)
+            .filter(|_| {
+                app.formation_readiness(app.formations.selected)
+                    .moves
+                    .is_some()
+            })
+        {
+            app.records.selected = index;
+        } else {
+            text(frame, row(content, 0, 1), &owner_heading, paint.accent);
+            text(
+                frame,
+                row(content, 1, 2),
+                paint.hint(Message::FormationMovesUnknown),
+                paint.accent,
+            );
+            text(
+                frame,
+                row(content, content.height.saturating_sub(2), 2),
+                paint.hint(Message::FormationReadonly),
+                paint.accent,
+            );
+            return;
+        }
+        owner_heading
+    } else if app.records.mode == Mode::Ribbons {
         paint.hint(Message::RibbonsHistory).to_owned()
     } else {
         paint.format_values(
@@ -134,7 +179,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             app.records.affirmative = false;
         }
     }
-    let footer = if matches!(app.records.mode, Mode::Resolve | Mode::Discard) {
+    let footer = if scoped {
+        paint.hint(Message::FormationReadonly).to_owned()
+    } else if matches!(app.records.mode, Mode::Resolve | Mode::Discard) {
         paint.format(
             Template::RecordsReviewControls,
             &[
@@ -730,7 +777,7 @@ fn operation_name(operation: &store::records::Operation, paint: &Paint) -> &'sta
     paint.hint(match operation {
         Operation::ObserveInstruction { .. } => Message::RecordsOpInstruction,
         Operation::SetPairing { .. } => Message::RecordsOpPairing,
-        Operation::SetHeld { .. } => Message::HeldPanel,
+        Operation::SetHeld { .. } | Operation::RenewHeld { .. } => Message::HeldPanel,
         Operation::SetRibbonHidden { .. } => Message::RibbonsVisibility,
         Operation::SetFlavor { .. } => Message::RecordsOpFlavor,
         Operation::DismissInstruction { .. } => Message::RecordsOpDismiss,
@@ -775,6 +822,15 @@ fn operation_scope(request: &store::records::Request, paint: &Paint) -> String {
         }
         Operation::SetPairing { partner, form, .. } | Operation::SetHeld { partner, form, .. } => {
             let _ = write!(identity, " · #{partner} / {}", FORMS[(*form).min(8)].name);
+        }
+        Operation::RenewHeld { review } => {
+            let _ = write!(
+                identity,
+                " · #{} / {} · r{}",
+                review.owner.partner,
+                FORMS[review.owner.form.min(8)].name,
+                review.task_revision,
+            );
         }
         Operation::DismissInstruction { key } => {
             let _ = write!(identity, " · {key}");
@@ -854,6 +910,13 @@ fn operation_detail(operation: &store::records::Operation, paint: &Paint) -> Str
         Operation::SetHeld { target, .. } => paint.format(
             Template::HeldTarget,
             &[("target", &super::held::target_label(target.as_ref(), paint))],
+        ),
+        Operation::RenewHeld { review } => format!(
+            "{}\n{}\n{}\n{}",
+            paint.hint(Message::HeldRenewalOld),
+            super::held::target_label(Some(&review.expected), paint),
+            paint.hint(Message::HeldRenewalNew),
+            super::held::target_label(Some(&review.proposed), paint),
         ),
         Operation::SetFlavor { enabled } => paint
             .hint(if *enabled {

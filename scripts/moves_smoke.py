@@ -302,6 +302,14 @@ class Journey:
                 break
         self.session.send(HOME)
         return "\n".join(observed)
+    def review_local(self):
+        for index in range(256):
+            self.capture("exact-local-review-%03d" % index)
+            if "[Stay]" in self.session.display():
+                return
+            self.session.send(PAGE)
+        raise AssertionError("complete local move review never became confirmable")
+
 
     def begin_teach(self, name=None, personal=False):
         self.session.command("teach-move")
@@ -327,6 +335,7 @@ class Journey:
         wait_for(self.session, "Confirm local change")
         self.capture("local-neutral-review")
         assert self.state().get("moves", []) == before, "preview changed stored moves"
+        self.review_local()
         self.session.send("y")
         self.until(lambda: self.state().get("moves", []) != before, "explicit local move save")
         self.move_ready()
@@ -568,6 +577,7 @@ class Journey:
             suggestions.append(self.begin_teach())
             self.session.send("\r")
             wait_for(self.session, "Confirm local change")
+            self.review_local()
             self.session.send("y")
             self.until(lambda: len(self.moves()) == before + 1, "default local name saved")
             self.move_ready()
@@ -580,6 +590,7 @@ class Journey:
         self.replace_editor("x" * 64, "雷光の手順")
         self.session.send("\r")
         wait_for(self.session, "Confirm local change")
+        self.review_local()
         self.session.send("y")
         self.until(lambda: self.moves()[0]["proposal"]["name"] == "雷光の手順", "CJK rename save")
         self.move_ready()
@@ -616,6 +627,7 @@ class Journey:
         wait_for(self.session, "Forgets Personal")
         self.capture("replacement-exact-personal-scope")
         assert self.moves() == before
+        self.review_local()
         self.session.send("y")
         self.until(lambda: any(r["id"] == old["id"] for r in self.moves(forgotten=True)), "exact replaced move forgotten")
         self.move_ready()
@@ -629,6 +641,7 @@ class Journey:
         wait_for(self.session, "Give up learning")
         self.session.send(DOWN + "\r")
         wait_for(self.session, "Relearn identical steps")
+        self.review_local()
         self.session.send("y")
         self.until(lambda: any(r["id"] == old["id"] for r in self.moves()), "identical relearn save")
         restored = next(r for r in self.moves() if r["id"] == old["id"])
@@ -697,6 +710,7 @@ class Journey:
         self.move_ready()
         self.session.send("\r")
         wait_for(self.session, "Confirm local change")
+        self.review_local()
         self.session.send("y")
         self.until(lambda: len(self.moves(partner=2)) == 1, "Mizu copy acknowledgement")
         copied = self.moves(partner=2)[0]
@@ -728,6 +742,7 @@ class Journey:
             self.replace_editor("x" * 64, "Target slot " + str(number))
             self.session.send("\r")
             wait_for(self.session, "Confirm local change")
+            self.review_local()
             self.session.send("y")
             self.until(lambda: len(self.moves(partner=2)) == number + 2, "target slot filled")
             self.move_ready()
@@ -754,6 +769,7 @@ class Journey:
         wait_for(self.session, "Give up learning")
         self.session.send(DOWN + "\r")
         wait_for(self.session, "Confirm local change")
+        self.review_local()
         self.session.send("y")
         self.until(lambda: any(r["proposal"]["name"] == "Target fifth" for r in self.moves(partner=2)), "full target replacement acknowledged")
         assert self.moves(partner=1) == bolt and len(self.moves(partner=2)) == 4

@@ -157,6 +157,9 @@ fn mutation(request: &Request) -> bool {
     !matches!(request.operation, Operation::Load { .. })
 }
 impl State {
+    pub(super) fn current_for(&self, task: i64, project: &str) -> bool {
+        self.loaded && !self.load_failed && self.task == task && self.project == project
+    }
     pub fn invalidate_review(&mut self) {
         self.reviewed = false;
         self.affirmative = false;
@@ -587,7 +590,10 @@ impl App {
     }
     pub fn drive_records(&mut self) -> bool {
         let mut changed = false;
-        let visible = matches!(self.overlay, Some(Overlay::Records | Overlay::Forms));
+        let visible = matches!(
+            self.overlay,
+            Some(Overlay::Records | Overlay::Forms | Overlay::Formations)
+        ) || self.formation_inspector_active();
         let current_changed = {
             let unknown = InputSnapshot::default();
             let current = if self.repo_loading || self.repo_refresh || !self.repo_error.is_empty() {
@@ -690,14 +696,19 @@ impl App {
         let mut changed = !matches!(request.operation, Operation::Load { .. })
             || matches!(
                 self.overlay,
-                Some(Overlay::Records | Overlay::Forms | Overlay::Held | Overlay::Sources)
-            );
+                Some(
+                    Overlay::Records
+                        | Overlay::Forms
+                        | Overlay::Held
+                        | Overlay::Sources
+                        | Overlay::Formations
+                )
+            )
+            || self.formation_inspector_active();
         match result {
             Err(error) => {
                 self.records.notice = error.clone();
-                if matches!(&request.operation, Operation::SetHeld { partner, form, .. }
-                    if request.task_id == self.task_id && *partner == self.lead().id && *form == self.form())
-                {
+                if self.held_request_owned(&request) {
                     self.held.notice = None;
                 }
                 if mutation(&request) {
@@ -746,10 +757,7 @@ impl App {
                                 signature.paths.iter().map(std::path::PathBuf::from)
                             }));
                         self.records.snapshot = *snapshot;
-                        if let Operation::SetHeld { partner, form, .. } = &request.operation
-                            && *partner == self.lead().id
-                            && *form == self.form()
-                        {
+                        if self.held_request_owned(&request) {
                             self.held.notice = Some(super::held::Notice::Saved);
                         }
                         self.records.loaded = true;

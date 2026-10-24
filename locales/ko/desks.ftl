@@ -69,8 +69,6 @@ desks-moves-four-slots-are-occupied-across-project-and = 프로젝트 및 개인
 desks-moves-up-down-choose-enter-review-exact-replacement = Up/Down 선택 / Enter 정확한 교체 검토
     Esc 포기 / 명시적 확인 전까지 변경 없음
 
-desks-moves-resize-to-see-the-local-change-summary = 로컬 변경 요약을 보려면 크기를 늘리세요
-    Enter 유지 / Esc 취소 (변경 없음)
 
 desks-moves-stay-confirm-local-change-enter-confirm-left = 유지 / [로컬 변경 확인] / Enter 확인
     Left/Right 선택 / PgUp/PgDn 상세 / Esc 취소
@@ -409,9 +407,6 @@ desks-moves-change-summary = { $action } / { $scope } / { $owner }.
 desks-moves-replacement-summary = { "" }
     { $scope } 기술 #{ $id }을 잊고 리마인더에 보관합니다.
 
-desks-moves-replacement-details = { "" }
-    정확한 교체 대상: 기술 #{ $id }, 리비전 { $revision }
-    { $proposal }
 
 desks-memory-discard-preview = 이 편집 가능한 초안을 유지하거나 폐기할까요?
     { "" }

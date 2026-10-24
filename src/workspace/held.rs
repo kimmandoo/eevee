@@ -33,3 +33,14 @@ impl FileProof {
         }
     }
 }
+
+/// Process-local, exact renewal intent. It carries no permission or durable payload.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Renewal {
+    pub expected: Target,
+    pub proposed: Target,
+    pub owner: crate::store::Attribution,
+    pub task_revision: u64,
+    pub exclusions: Vec<PathBuf>,
+    pub file_proof: Option<FileProof>,
+}

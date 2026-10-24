@@ -120,6 +120,27 @@ pub(super) fn set(
     target: Option<&Target>,
     proof: Option<&FileProof>,
 ) -> Result<(), String> {
+    set_checked(
+        connection,
+        data_dir,
+        task,
+        (partner, form),
+        target,
+        proof,
+        None,
+    )
+}
+
+fn set_checked(
+    connection: &Connection,
+    data_dir: &Path,
+    task: &Snapshot,
+    owner: (i64, usize),
+    target: Option<&Target>,
+    proof: Option<&FileProof>,
+    expected: Option<&Target>,
+) -> Result<(), String> {
+    let (partner, form) = owner;
     let project = &task.project;
     if task.id <= 0
         || task.archived
@@ -148,6 +169,27 @@ pub(super) fn set(
     no_active(connection, Some(task.id))?;
     if let Some(target) = target {
         target_identity(target)?;
+        let current: Option<Target> = connection
+            .query_row(
+                "SELECT target FROM held_items WHERE project=?1 AND partner=?2 AND form=?3",
+                params![project, partner, form as i64],
+                |row| json_column(row, 0, MAX_TARGET_BYTES),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        if let Some(current) = &current {
+            target_identity(current)?;
+        }
+        match expected {
+            Some(old) if current.as_ref() != Some(old) => {
+                return Err("Held configuration changed; renewal was not applied".into());
+            }
+            None if current.as_ref().is_some_and(|current| current != target) => return Err(
+                "Held slot is occupied by a different reference; exact renewal review is required"
+                    .into(),
+            ),
+            _ => {}
+        }
         match target {
             Target::File { path } => file_proof(
                 data_dir,
@@ -176,18 +218,29 @@ pub(super) fn set(
         if count >= MAX_PROJECT_ITEMS as i64 {
             return Err("Held preference capacity reached; nothing was evicted".into());
         }
-        connection
-            .execute(
-                "INSERT INTO held_items(project,partner,form,target) VALUES(?1,?2,?3,?4)
-             ON CONFLICT(project,partner,form) DO UPDATE SET target=excluded.target",
-                params![
-                    project,
-                    partner,
-                    form as i64,
-                    bounded_json(target, MAX_TARGET_BYTES)?
-                ],
-            )
-            .map_err(|error| format!("Cannot save held preference: {error}"))?;
+        let changed = if let Some(expected) = expected {
+            connection.execute(
+                "UPDATE held_items SET target=?4 WHERE project=?1 AND partner=?2 AND form=?3 AND target=?5",
+                params![project, partner, form as i64, bounded_json(target, MAX_TARGET_BYTES)?,
+                    bounded_json(expected, MAX_TARGET_BYTES)?],
+            ).map_err(|error| format!("Cannot renew held preference: {error}"))?
+        } else {
+            connection
+                .execute(
+                    "INSERT INTO held_items(project,partner,form,target) VALUES(?1,?2,?3,?4)
+                 ON CONFLICT(project,partner,form) DO NOTHING",
+                    params![
+                        project,
+                        partner,
+                        form as i64,
+                        bounded_json(target, MAX_TARGET_BYTES)?
+                    ],
+                )
+                .map_err(|error| format!("Cannot save held preference: {error}"))?
+        };
+        if expected.is_some() && changed != 1 {
+            return Err("Held configuration changed; renewal was not applied".into());
+        }
     } else {
         if proof.is_some() {
             return Err("Clearing a held preference cannot contain source proof".into());
@@ -200,6 +253,38 @@ pub(super) fn set(
             .map_err(|error| error.to_string())?;
     }
     Ok(())
+}
+
+pub(super) fn renew(
+    connection: &Connection,
+    data_dir: &Path,
+    task: &Snapshot,
+    review: &crate::workspace::held::Renewal,
+) -> Result<(), String> {
+    let owner = partners(connection)?
+        .into_iter()
+        .find(|partner| partner.id == review.owner.partner)
+        .ok_or("Held renewal owner is no longer present")?;
+    if Attribution::of(&owner) != review.owner
+        || task.lead_partner != review.owner.partner
+        || task.form != review.owner.form
+        || task.revision != review.task_revision
+        || review
+            .file_proof
+            .as_ref()
+            .is_some_and(|proof| proof.exclusions != review.exclusions)
+    {
+        return Err("Held renewal owner, task revision or policy changed; review again".into());
+    }
+    set_checked(
+        connection,
+        data_dir,
+        task,
+        (review.owner.partner, review.owner.form),
+        Some(&review.proposed),
+        review.file_proof.as_ref(),
+        Some(&review.expected),
+    )
 }
 
 pub(super) fn items(connection: &Connection, project: &str) -> Result<Vec<Item>, String> {
@@ -226,7 +311,7 @@ pub(super) fn items(connection: &Connection, project: &str) -> Result<Vec<Item>,
     Ok(items)
 }
 
-/// Remove references on any memory edit/delete rather than silently adopting its new bytes.
+/// Revocation deletes the reference; editing deliberately retains its stale identity.
 pub(super) fn purge_memory(connection: &Connection, id: i64) -> Result<(), String> {
     connection
         .execute(
@@ -241,8 +326,7 @@ pub(super) fn purge_missing_memories(connection: &Connection) -> Result<(), Stri
     connection
         .execute(
             "DELETE FROM held_items WHERE json_type(target,'$.memory') IS NOT NULL
-        AND NOT EXISTS(SELECT 1 FROM memories m WHERE m.id=json_extract(target,'$.memory.id')
-        AND m.revision=json_extract(target,'$.memory.revision'))",
+        AND NOT EXISTS(SELECT 1 FROM memories m WHERE m.id=json_extract(target,'$.memory.id'))",
             [],
         )
         .map_err(|error| error.to_string())?;
@@ -298,13 +382,24 @@ pub(super) fn inspect(connection: &Connection) -> Result<(), String> {
         }
         target_identity(&item.target)?;
         if let Target::Memory { id, revision } = item.target {
-            let record = connection.query_row(
-                "SELECT id,revision,project,task_id,proposal FROM memories WHERE id=?1 AND revision=?2",
-                params![id, revision as i64], memory_row,
-            ).optional().map_err(|error| error.to_string())?
-                .ok_or("Held preference references an unavailable memory revision")?;
+            let record = connection
+                .query_row(
+                    "SELECT id,revision,project,task_id,proposal FROM memories WHERE id=?1",
+                    [id],
+                    memory_row,
+                )
+                .optional()
+                .map_err(|error| error.to_string())?
+                .ok_or("Held preference references a revoked or missing memory")?;
+            // A stale revision is valid configuration, not currently available context.
             validate_memory(&record)?;
-            if record.proposal.scope != crate::workspace::memory::Scope::Personal
+            if record.revision < revision {
+                return Err(
+                    "Held preference references an uncommitted future memory revision".into(),
+                );
+            }
+            if record.revision == revision
+                && record.proposal.scope != crate::workspace::memory::Scope::Personal
                 && record.project != project
             {
                 return Err("Held preference cannot broaden memory project scope".into());

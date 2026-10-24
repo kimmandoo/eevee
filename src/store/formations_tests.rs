@@ -239,6 +239,176 @@ fn unmapped_roles_remain_empty_and_portable_export_never_overwrites() {
     assert!(!task.partner_drafts.contains_key(&3));
 }
 
+#[test]
+fn previewed_three_party_apply_revalidates_a_late_real_writer_claim_and_then_stages_only_after_release()
+ {
+    let fixture = Fixture::new();
+    let mut state = fixture.open();
+    let task = setup(&mut state);
+    let reviewed = request(&state, &task, vec![Some(1), Some(2), Some(3)]);
+    let original = load(state.connection.as_ref().unwrap(), &state.project).unwrap();
+    // The preview has already been constructed. Another partner now obtains
+    // actual durable ownership through the same work admission as Submit.
+    let claim = WorkClaim {
+        task_id: task.id,
+        request_id: "late-formation-writer".into(),
+        owner: Attribution::of(&original.partners[2]),
+        writing: true,
+    };
+    state
+        .work_request(&WorkRequest::Acquire {
+            claim: claim.clone(),
+            task: Box::new(task.clone()),
+        })
+        .unwrap();
+    let before_refusal = load(state.connection.as_ref().unwrap(), &state.project).unwrap();
+    assert!(state.formation(reviewed.clone()).is_err());
+    let refused = load(state.connection.as_ref().unwrap(), &state.project).unwrap();
+    assert_eq!(refused, before_refusal);
+    assert_eq!(refused.tasks, original.tasks);
+    assert_eq!(refused.partners, original.partners);
+    let db = state.connection.as_ref().unwrap();
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM form_routes", [], |row| row
+            .get::<_, usize>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM executions", [], |row| row
+            .get::<_, usize>(0))
+            .unwrap(),
+        0
+    );
+    state.work_request(&WorkRequest::Release(claim)).unwrap();
+    let Response::Applied {
+        task: staged,
+        roster,
+    } = state.formation(reviewed).unwrap()
+    else {
+        panic!("expected independently revalidated staging after release");
+    };
+    assert_eq!(staged.lead_partner, task.lead_partner);
+    assert_eq!(
+        staged.partner_drafts[&1].drafts,
+        task.partner_drafts[&1].drafts
+    );
+    assert_eq!(staged.partner_drafts[&2].drafts[0].text, "Review a check");
+    assert_eq!(staged.partner_drafts[&3].drafts[0].text, "Assess evidence");
+    assert_eq!(
+        roster
+            .iter()
+            .map(|partner| partner.form)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 7]
+    );
+    let db = state.connection.as_ref().unwrap();
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM active_work", [], |row| row
+            .get::<_, usize>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM executions", [], |row| row
+            .get::<_, usize>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM provider_journal", [], |row| row
+            .get::<_, usize>(0))
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn mapped_draft_or_roster_races_invalidate_the_complete_review_without_partial_writes() {
+    for roster_race in [false, true] {
+        let fixture = Fixture::new();
+        let mut state = fixture.open();
+        let task = setup(&mut state);
+        let reviewed = request(&state, &task, vec![Some(1), Some(2), Some(3)]);
+        if roster_race {
+            state.nickname_partner(3, Some("NewName".into())).unwrap();
+        } else {
+            let mut newer = task.clone();
+            newer.revision += 1;
+            newer.partner_drafts.insert(
+                3,
+                PartnerDrafts {
+                    drafts: vec![Draft {
+                        field: EditorField::Request,
+                        text: "Newer 界 exact draft".into(),
+                        cursor: 6,
+                    }],
+                    ..PartnerDrafts::default()
+                },
+            );
+            state.save(newer).unwrap();
+        }
+        let before = load(state.connection.as_ref().unwrap(), &state.project).unwrap();
+        assert!(state.formation(reviewed).is_err());
+        assert_eq!(
+            load(state.connection.as_ref().unwrap(), &state.project).unwrap(),
+            before
+        );
+        assert_eq!(
+            state
+                .connection
+                .as_ref()
+                .unwrap()
+                .query_row("SELECT count(*) FROM form_routes", [], |row| row
+                    .get::<_, usize>(0))
+                .unwrap(),
+            0
+        );
+    }
+}
+
+#[test]
+fn portable_formation_tables_remain_semantic_only_after_local_party_staging() {
+    let fixture = Fixture::new();
+    let mut state = fixture.open();
+    let task = setup(&mut state);
+    state
+        .formation(request(&state, &task, vec![Some(1), Some(2), Some(3)]))
+        .unwrap();
+    let definition = recipe();
+    let path = fixture.0.join("portable-only.toml");
+    state
+        .formation(Request::Export {
+            path: path.clone(),
+            recipe: definition.clone(),
+        })
+        .unwrap();
+    let text = fs::read_to_string(path).unwrap();
+    assert_eq!(toml::from_str::<Recipe>(&text).unwrap(), definition);
+    let value: toml::Value = toml::from_str(&text).unwrap();
+    let table = value.as_table().unwrap();
+    let allowed = [
+        "schema_version",
+        "name",
+        "scope",
+        "context",
+        "steps",
+        "validation_commands",
+        "completion_criteria",
+        "roles",
+    ];
+    assert!(table.keys().all(|key| allowed.contains(&key.as_str())));
+    for slot in table["roles"].as_array().unwrap() {
+        let slot = slot.as_table().unwrap();
+        assert_eq!(slot.len(), 3);
+        assert!(
+            slot.keys()
+                .all(|key| ["role", "form", "request"].contains(&key.as_str()))
+        );
+    }
+    assert!(toml::from_str::<Recipe>(&format!("readiness = 'configured'\n{text}")).is_err());
+}
+
 fn workflow_run(store: &mut State, task: &Snapshot) -> crate::workspace::runner::RunRecord {
     use crate::workspace::runner::*;
     let now = timestamp().unwrap() as u64;
@@ -430,4 +600,32 @@ fn workflow_publication_requires_exact_committed_owner_revision_and_retained_out
             .is_err()
     );
     assert!(!fixture.0.join("busy.toml").exists());
+}
+
+#[test]
+fn apply_rejects_same_revision_draft_or_project_mismatch_instead_of_trusting_the_caller_snapshot() {
+    for project_mismatch in [false, true] {
+        let fixture = Fixture::new();
+        let mut state = fixture.open();
+        let task = setup(&mut state);
+        let mut reviewed = request(&state, &task, vec![Some(1), Some(2), Some(3)]);
+        let Request::Apply { expected, .. } = &mut reviewed else {
+            unreachable!()
+        };
+        if project_mismatch {
+            expected.project = fixture
+                .0
+                .join("another-project")
+                .to_string_lossy()
+                .into_owned();
+        } else {
+            expected.partner_drafts.get_mut(&1).unwrap().drafts[0].cursor = 4;
+        }
+        let before = load(state.connection.as_ref().unwrap(), &state.project).unwrap();
+        assert!(state.formation(reviewed).is_err());
+        assert_eq!(
+            load(state.connection.as_ref().unwrap(), &state.project).unwrap(),
+            before
+        );
+    }
 }

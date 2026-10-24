@@ -946,6 +946,42 @@ impl State {
         true
     }
 
+    /// Passive consumers must not re-read even app-owned configuration on the
+    /// UI thread. Discovery/settings events already replace these profiles.
+    /// Configuration and a prior auth observation never establish conformance.
+    pub fn cached_readiness(&self, index: usize) -> Readiness {
+        if self.failure(index) == Some(crate::providers::diagnostics::Failure::VersionCheck) {
+            // A failed observation is not a negotiated incompatibility or a
+            // definite unavailable route. Keep the diagnostic inspectable.
+            return Readiness::Unknown;
+        }
+        if !Agent::from_index(index).is_some_and(Agent::is_direct) {
+            return self.readiness(index);
+        }
+        if self.discovering
+            || self.inflight.is_some_and(|(profile, _)| profile == index)
+            || self
+                .auth_preparing
+                .is_some_and(|(profile, _)| profile == index)
+            || self
+                .pending_auth
+                .as_ref()
+                .is_some_and(|plan| plan.profile == index)
+        {
+            return Readiness::Checking;
+        }
+        if self.failure(index).is_some()
+            && self.failure_attention.get(index).copied().unwrap_or(false)
+        {
+            return Readiness::Blocked;
+        }
+        match self.profiles.get(index) {
+            None => Readiness::Unknown,
+            Some(profile) if profile.blockers.is_empty() => Readiness::Configured,
+            Some(_) => Readiness::Setup,
+        }
+    }
+
     pub fn readiness(&self, index: usize) -> Readiness {
         if self.discovering
             || self.inflight.is_some_and(|(profile, _)| profile == index)
@@ -1868,6 +1904,27 @@ mod tests {
 
     fn press(state: &mut State, code: KeyCode) {
         state.key(KeyEvent::new(code, KeyModifiers::NONE), true);
+    }
+
+    #[test]
+    fn passive_readiness_uses_cached_profile_not_host_configuration_or_prior_auth_as_conformance() {
+        let mut state = State::new();
+        state.pending = None;
+        state.event(Event::Discovered(vec![profile(); Agent::ALL.len()]));
+        let index = Agent::Compatible.index();
+        state.profiles[index].blockers.clear();
+        assert_eq!(state.cached_readiness(index), Readiness::Configured);
+        state.outcomes[index] = Some(crate::providers::auth::Outcome::Authenticated);
+        assert_eq!(state.cached_readiness(index), Readiness::Configured);
+        state.profiles[index]
+            .blockers
+            .push("Cached configuration unavailable".into());
+        assert_eq!(state.cached_readiness(index), Readiness::Setup);
+        state.profiles.truncate(index);
+        assert_eq!(state.cached_readiness(index), Readiness::Unknown);
+        assert!(
+            state.pending.is_none() && state.pending_auth.is_none() && state.use_for_task.is_none()
+        );
     }
 
     #[test]
@@ -2922,6 +2979,41 @@ mod tests {
         });
         assert_eq!(state.failure(0), Some(Failure::Http(401)));
         assert_eq!(state.readiness(0), Readiness::Blocked);
+    }
+
+    #[test]
+    fn a_failed_version_probe_retains_diagnostics_but_leaves_passive_qualification_unknown() {
+        use crate::providers::diagnostics::Failure;
+        let mut state = discovered();
+        state.inflight = Some((Agent::Codex.index(), 17));
+        let mut result = profile();
+        result.version = "Probe failed: the bounded process could not report a version".into();
+        state.event(Event::Probed {
+            profile: Agent::Codex.index(),
+            generation: 17,
+            result: Box::new(result),
+        });
+        assert_eq!(
+            state.failure(Agent::Codex.index()),
+            Some(Failure::VersionCheck)
+        );
+        assert_eq!(
+            state.cached_readiness(Agent::Codex.index()),
+            Readiness::Unknown
+        );
+        assert!(state.show_failure(Agent::Codex));
+        assert_eq!(
+            state.failure(Agent::Codex.index()),
+            Some(Failure::VersionCheck)
+        );
+        state.connection_failed(Agent::Codex, Failure::Incompatible);
+        assert_eq!(
+            state.cached_readiness(Agent::Codex.index()),
+            Readiness::Blocked
+        );
+        assert!(
+            state.pending.is_none() && state.pending_auth.is_none() && state.use_for_task.is_none()
+        );
     }
 
     #[test]

@@ -55,7 +55,7 @@ ev
 
 Terminal: **60 × 18 minimum**, **120 × 36 recommended**. Add `--language ko` for Korean.
 
-> **Upgrading?** Cleanly exit all instances and back up the **entire data directory**, including database, journals and outputs, before `ev update`. Current source targets v0.1.31 and retains SQL Schema19. Equal SQL schema does not establish record-reader or lifecycle-rollback compatibility. The patch keeps0.1.30's plan format;0.1.29 refuses its unknown strict fields. Offline rollback additionally requires matching build-derived reader identity and data validation. Restore the complete pre-upgrade backup rather than bypassing rollback admission.
+> **Upgrading?** Cleanly exit all instances and back up the **entire data directory**, including database, journals and outputs, before `ev update`. Latest public release is v0.1.31; checked-out v0.1.32 is unreleased Wave5 development. Equal SQL schema does not establish record-reader or lifecycle-rollback compatibility. Offline rollback requires matching build-derived reader identity and data validation; never bypass admission based only on the version or schema number.
 
 ## Everyday use
 
@@ -161,7 +161,7 @@ Filename discovery accepts a project-relative directory scope before scanning. S
 
 Sprites use Kitty/Sixel when supported and fall back to text. Installers fetch verified artwork separately; source builds can use `ev --download-artwork`.
 
-## Current source — v0.1.31 Waves 1–4
+## Implemented baseline — v0.1.31 Waves 1–4
 
 `/evolution-preview` explains the current Request's predicted appearance, actual operation, automatic/manual mode and explicit policy. Inspection preserves the exact draft/caret and sends nothing; ordinary Send recomputes the decision. Appearance is never a write grant.
 
@@ -198,6 +198,15 @@ Every command needs its own exact one-shot approval. The runner inherits the pro
 - **TC02 / TC05 plans:** `/tool-plan` stages a typed 1–32-node DAG. At most three independent Read/List nodes overlap; commands serialize with reads and each other. `/plan-start`, `/plan-resume`, `/plan-cancel`, `/plan-reconcile`, `/plan-serial` and `/plan-history` expose review, recovery and inspection. In the drawer, `e` edits inert JSON, `s`/`r` open neutral reviews, `y` schedules only after complete scope, and each command still needs `/approvals`. `b` separately reviews a read-only serial comparison; `h` and `[`/`]` inspect history. Eight bounded historical plans are retained without eviction; full capacity refuses staging. Restart schedules nothing; resume never repeats confirmed commands, even failed ones, and unknown effects block recovery.
 - **D01 impact checks:** `/impact-checks` proposes conservative offline syntax-name reverse-impact checks. Unmapped/shared paths require broader workspace Cargo checks; ignored tests require explicit `--ignored`. `/stage-impact-plan` stages only an inert typed plan, not execution or permission.
 - **PK07 history:** fail/pass/fail, source-transition and supported-diagnosis links derive from retained records. A previous resolution is a historical lead, never current verification; missing/stale spool identity remains unavailable. Reviewed evidence-only Umbreon relay transfers references, not execution authority or approvals.
+
+## Unreleased Wave5 configuration — source 0.1.32
+
+- **MV09 moves and TMs:** local teaching/import/replacement review shows exact old/new definitions, indexed ordered argv including empty arguments, cwd, pin-set semantics, instructions and criteria. Name-only edits are distinct. Same-name replacement preserves forgotten originals and their usage IDs; taught copies stay independent. Every ordinary use still needs fresh execution/context consent.
+- **PK08 held renewal:** `/held-renew` opens the existing replacement chooser. Use `/held-set-file` from reviewed Sources or `/held-set-memory` on the highlighted approved revision, then deliberately confirm complete old/new review. Unavailable old bodies stay unavailable; source controls are displayed escaped. Renewal changes only one saved reference, never the current basket, selection, frozen request or provider permissions.
+- **PT12 formations:** mapping shows separate staging eligibility and cached route/move/held/draft/writer observations. `m`/`h`/`r` open scoped read-only existing inspectors; Escape returns to the mapping without changing lead or drafts. Unknown qualification is not definite unavailability, and inspection performs no discovery/network.
+
+TM schema1, formation schema2, SQL19 and SDK bridge10 remain. Local Wave5 drivers are opt-in; they do not add another default native CI cross-product. Public installers below remain pinned to0.1.31.
+
 
 ## Providers
 
@@ -237,7 +246,7 @@ Default data directories: `~/.local/share/eevee` on Linux, `~/Library/Applicatio
 
 **Keep application storage separate from project source.** A project root used as `--data-dir` intentionally excludes that whole subtree from source tools. Provider configuration, hooks, external tools and resumed sessions may have effects beyond Eevee's mediated boundaries.
 
-Current v0.1.31 source retains **SQL Schema19**,0.1.30's strict plan format and complete Claude **bridge revision10** source/policy/dependency files, replaced together. The genuine0.1.30 reader inspected patch plans without replay or lost task facts;0.1.29 refused unsupported fields without changing database bytes. This is record compatibility, not permission to bypass conservative build-derived lifecycle rollback checks. Full-directory backup remains required, not a task export or database-only copy.
+Unreleased0.1.32 source retains **SQL Schema19**, the strict plan format and complete Claude **bridge revision10** source/policy/dependency files, replaced together. New valid historical same-name moves and stale approved-memory references change record admission despite unchanged serialized shapes: the genuine0.1.31 reader refused both tested fixtures without changing database bytes, and the current reader resumed without automatic replay. Equal SQL schema does not promise older-reader compatibility or bypass conservative build-derived lifecycle rollback checks. Keep a **full-directory pre-upgrade backup**, not a task export or database-only copy.
 
 ## Installation
 
@@ -295,7 +304,7 @@ Offline installs skip artwork. Run `ev --download-artwork` when online. Installe
 
 ## Development
 
-Source v0.1.31 targets **Rust1.90.0**. Optional complete bridge10 Claude sidecar: **Node24+**. These instructions build the checked-out source independently of package installation.
+Unreleased source v0.1.32 targets **Rust1.90.0**. Latest public packages remain v0.1.31. Optional complete bridge10 Claude sidecar: **Node24+**. These instructions build the checked-out source independently of package installation.
 
 ```sh
 git clone https://github.com/kimmandoo/eevee.git
