@@ -8,7 +8,7 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 - **Included milestones:** A08 → UX04A → S04 and P04A → P04B → T01B shipped: actionable connection diagnostics, persistent text density, reviewed portable workflows, reviewed updates/safe rollback and exact local context comparison. Specifications remain in [COMPLETED.md](tasks/COMPLETED.md).
 - **Compatibility:** v0.1.29 migrates Schema18 to Schema19; SDK bridge9 remains unchanged. Actual public v0.1.28 refused the migrated store with every data byte unchanged, and v0.1.29 resumed it. Exit all instances and back up the entire data directory before upgrading; restore the complete backup rather than downgrading in place.
 - **Remaining:** **37 tasks**: the existing18, thirteen post-release capabilities (general7, Eevee-specific6), and six reference-derived adaptations. All ten selected implementation tasks remain completed in the archive.
-- **Current request completed:** Added scoped tasks from the read-only external reference, deduplicated against shipped and planned work. Reference behavior is adapted to Eevee's approval/ownership contracts, not copied wholesale. These roadmap entries are not shipped or authorized for implementation by this documentation request.
+- **Active request:** Implement [Waves 1–2](docs/WAVES.md): GP01, GP02, EV19, GP03, GP04, RX01 and RX02. Later waves remain planned; no paid/live calls or new release is authorized by this implementation request.
 
 ## Completed Pokémon milestone
 
@@ -31,13 +31,10 @@ A/B/C/D/E/G are entirely completed and archived; F/H/I/J/K/R contain unfinished 
 
 ### Next order
 
-1. Release and public verification are complete. Keep published v0.1.28/v0.1.29 assets unchanged; do not restart archived implementation or infer new-feature authorization.
-2. On a subsequent implementation request, prioritize GP01 → GP02 for recoverability; EV19 is independent and ready for concept-specific UX work. Other I/J tasks follow their stated priority and exact dependencies.
-   Reference track: RX01/RX02 improve exact editing first; RX03 adds bounded structural search. RX04/RX05 are independent composer improvements; RX06 is lower-priority navigation. None requires starting all other tracks.
-3. TC04 → TC02 → TC05 → D01 → Q03 remain available as the existing context/tool track. Respect exact dependencies and Q03's separate paid-live authorization.
-4. Reconcile local Q01 visual/state rows, Q02 current measured resource workloads and P03 supported-target install/upgrade evidence. They are not collectively blocked on provider credentials. Their outstanding authenticated rows remain explicitly incomplete.
-5. Run A04/A06 when permitted Claude credentials and eligible Gemini authentication are available; then finish full A07 and the dependent composed-provider Q01 rows. Implemented transports and deterministic fixtures are not live acceptance.
-6. Perform RF01/RF02/RF04/RF06/RF07/RF08/RF09 immediately before a feature genuinely needs the same extraction, not as a prerequisite cleanup wave.
+1. Implement Wave1: GP01→GP02 complete offline backup/restore, plus independent EV19 pre-send evolution explanation.
+2. Implement Wave2: GP03/GP04 reviewed delete/rename and RX01/RX02 exact multi-hunk edits/pre-write syntax disclosure through one shared file-operation owner.
+3. [Wave plan](docs/WAVES.md) assigns every remaining task exactly once across seven implementation waves, final acceptance and conditional just-in-time structure work. Waves3–8 remain planning only.
+4. Local Q01/Q02/P03 evidence remains independently actionable; authenticated rows and Q03 live trials require separate permission. Existing published release assets stay unchanged.
 
 ## Execution rules
 

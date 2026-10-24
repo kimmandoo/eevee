@@ -1,6 +1,6 @@
 # Eevee Implementation Plan
 
-Updated: 2026-10-24. The selected ten context/tool tasks, provider/agent repairs, recent-change review and CI optimization shipped in v0.1.29. Exact source `d645b94` passed native run40069352365; release run40071156552 published its qualified assets. Public package, installed lifecycle, migration and runtime verification passed. Post-release planning added13 capabilities and the subsequent reference review added six scoped adaptations, bringing the unfinished backlog to37. This documentation request does not authorize their implementation.
+Updated: 2026-10-24. v0.1.29 remains the verified public release. The user authorized implementing Waves1–2: GP01, GP02, EV19, GP03, GP04, RX01 and RX02. The37-task backlog is fully assigned in [wave plan](WAVES.md); later waves remain planning only. No paid/live calls or publication is included in this implementation authorization.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
@@ -13,14 +13,13 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 - Installation evidence is explicitly composed: the original run passed20 cases before a missing local dependency stopped its temporary terminal probe; the fixed probe passed34 scenarios, followed by three uninstall/reinstall cases. Reports retain the original failure. Only fixture/docs changes followed the release tag; no published package was replaced.
 - See [checkpoint](WORK_CHECKPOINT.md) for exact hashes, run links, reports and measured CI durations. GitHub reports `immutable:false`; versioned assets were left unchanged, not claimed server-protected. Live-account/physical WSL gaps remain explicit.
 
-## Planned next work — documentation only
+## Active implementation — Waves 1–2
 
-1. Preserve existing18 unfinished tasks and shipped foundations; [task index](../task.md) now lists37, including13 post-release capabilities and six reference-derived adaptations.
-2. [General capabilities](../tasks/I-product-capabilities.md): GP01 complete offline snapshot → GP02 fresh-directory restore; independent reviewed delete/rename, retained-task search, supported screenshot input and selected local Git commit. GP07 requires an explicit future amendment to the current read-only Git contract.
-3. [Eevee extensions](../tasks/J-eevee-workflows.md): prioritize EV19 pre-send evolution explanation; then semantic move/TM review, Dex recurrence, mapped formation readiness, deliberate held-reference renewal and contribution drill-down.
-   [Reference adaptations](../tasks/K-reference-capabilities.md): RX01 snapshot-bound multi-hunk edits and RX02 pre-write Rust syntax disclosure first; RX03 bounded structural search, independent RX04 parked drafts/RX05 external editing, then RX06 response landmarks. Pinned reference evidence and non-imported behavior are recorded per task; no dependency is implied merely by this priority order.
-4. On a subsequent implementation request, choose the agreed ready task. Existing F dependencies, separately authorized paid/live rows and independently actionable local H evidence remain intact; R extractions are just-in-time, not a cleanup prerequisite.
-5. Each task reuses current authority/storage owners and bounded coverage, proves consumer-visible behavior in the actual runtime and preserves neutral cancellation. No new execution, grants, scores, provider gates or portable private state follows from roadmap navigation.
+1. Wave1: implement complete offline snapshot and verified fresh-directory restore (GP01→GP02), preserving source bytes, ownership, integrity and no-replay recovery. Implement independent EV19 using the same intent/policy resolution as actual Submit.
+2. Wave2: one integration owner extends existing reviewed file operations for exact delete/rename, original-snapshot multi-hunk edits and pre-write Rust syntax disclosure (GP03, GP04, RX01, RX02). Parent integrates existing review surfaces/locales; no second executor or consent authority.
+3. Consolidate source gates after independent edits settle; run targeted consumer-visible regressions and real disposable CLI/TUI/provider journeys for all seven exact contracts. No live model calls. Update schema/compatibility/backup guidance if persistence changes.
+4. Archive only fully accepted tasks; update contracts, changelog, checkpoint and wave status, then commit. A source feature is not a published release.
+5. [Waves3–8](WAVES.md) retain existing task contracts, authorization gates and just-in-time structure assignments. Do not start later features automatically.
 
 
 ## Integrated repair — Windows authentication and WSL file workflow (shipped; physical WSL/live-auth acceptance unclaimed)

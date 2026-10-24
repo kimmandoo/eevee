@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-24 — Wave planning and authorized Waves 1–2 implementation (active)
+
+- **Latest instruction:** User requested wave grouping, then authorized implementation through Wave2. Exact scope: GP01, GP02, EV19, GP03, GP04, RX01, RX02. No later-wave implementation, paid/live provider trial or new publication is authorized.
+- **Plan:** `docs/WAVES.md` assigns all37 tasks across seven feature waves, seven final-acceptance tasks and seven just-in-time structure tasks. GP01 precedes GP02; shared file operations have one integration owner. Local acceptance rows do not wait for authenticated-provider permission.
+- **Current step:** Offline snapshot/restore and reviewed file operations are being implemented independently; parent owns EV19 and review/UI/localization integration. Existing Schema19/store admission, immutable source identities, neutral consent and no-replay boundaries remain binding.
+- **Starting source:** `51a28aa`, public v0.1.29 unchanged; working tree contained only user `.DS_Store`. LSP reference request exited unexpectedly with code0; issue reported, scoped source/compiler fallback in use.
+- **Exact next action:** Finish all seven contracts, integrate and run consolidated pinned source gates plus actual disposable acceptance journeys, archive only passing tasks, update current contracts/checkpoint/changelog and commit. Later waves stay pending. No implementation task is complete from scheduling alone.
+
 ## 2026-10-24 — Reference-derived backlog request completed
 
 - **Request:** Add worthwhile tasks from the provided reference; documentation only. Read-only comparison used an external reference, its actual tool/session/editor documentation and implementations, Eevee's current contracts/source and all active/completed task scopes.

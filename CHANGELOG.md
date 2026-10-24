@@ -2,6 +2,7 @@
 
 ## 2026-10-24
 
+- docs(plan): assigned all thirty-seven tasks to dependency-aware delivery waves and recorded authorization to implement the seven Wave1–2 contracts without starting later waves.
 - docs(roadmap): added six evidence-linked external reference adaptations with explicit consent boundaries and non-goals, deduplicated existing work and reconciled the thirty-seven-task backlog.
 - chore(release): published v0.1.29 from exact-source Check/all-five-native qualification and verified all public assets, qualified package identities, installed lifecycle, genuine prior-version migration and actual runtime behavior.
 - fix(verification): included the pinned local dependency in disposable upgrade and terminal-probe packages, then completed installed terminal and uninstall/reinstall acceptance without replacing public release assets.
