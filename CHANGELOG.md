@@ -2,6 +2,7 @@
 
 ## 2026-10-24
 
+- chore(verification): passed exact-source Check and all five native CI jobs for the Wave1–2 additions after repairing Windows lock handling, without publishing or replacing release assets.
 - fix(recovery): read complete writer-lock bytes through the owning handle and used SQLite durability/close plus portable directory sync instead of a read-only Windows flush.
 - test(windows): exercised native pinned-ancestor sharing denial while retaining POSIX exchange/staleness, changed-leaf and destination-collision coverage.
 - feat(recovery): added complete offline format1 snapshots, read-only member verification and fresh-directory restore with private-data disclosure, unchanged source/backup bytes, current-reader admission and no replay.
