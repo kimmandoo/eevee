@@ -1,10 +1,20 @@
 # Eevee Implementation Plan
 
-Updated2026-10-25. v0.1.30 published all13 authorized Wave1–4 tasks and reference-backed agent create/edit/build/run repair after exact-source Check/all-five-native qualification. Public coding/wave runtime checks passed; final installed-terminal idle acceptance exposed an unchanged-surface redraw. v0.1.31 is the active follow-up patch;24 unfinished tasks remain in [wave plan](WAVES.md). Waves5–8 remain planning only; no paid/live calls were made.
+Updated2026-10-25. v0.1.31 source `1b83cc4` passed exact-source Check/all-five-native qualification, publication and complete public byte/install/runtime acceptance. The active request is now target cleanup followed by complete Wave5 MV09/PK08/PT12 implementation. All13 Wave1–4 tasks remain archived;24 tasks remain until Wave5 passes. Waves6–8 remain planning only; no paid/live calls were made.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Completed implementation / active release — Waves 3–4
+## Authorized next implementation — Wave5 after release verification and target cleanup
+
+1. Finish the actual0.1.31 public acceptance, preserve truthful success/failure evidence and commit the release handoff.
+2. Archive required release evidence outside the repository target directory, verify the cleanup scope and clean `target` as requested.
+3. MV09: extend existing move/TM replacement and teaching review with exact ordered semantic changes, old-record/revision binding, neutral cancellation, stale refusal, immutable historical attribution and ordinary explicit use.
+4. PK08: review old/new retained identities/content where available, renew exactly one held reference through the existing store, revalidate exclusion/revocation/owner races and never auto-select or rewrite a frozen request.
+5. PT12: extend formation mapping with separate stage eligibility/submission readiness, cached route/move/held/draft/ownership facts, navigation without changing lead, atomic apply revalidation and unchanged portable format.
+6. Integrate through existing store/executor/approval owners; use focused behavior regressions and actual bilingual compact/wide changed-surface journeys, not a new blanket CI cross-product. Update original specifications/archive, contracts, changelog and checkpoint, then commit completed Wave5. No later-wave implementation or automatic post-Wave5 publication is implied.
+
+
+## Completed release — Waves 3–4 and coding/build/run repair
 
 - Completed: RX03 bounded Rust structural search, TC04 honest observation reuse, TC02 typed dependency plans, TC05 durable failed-step recovery, D01 impact-directed checks and PK07 derived Dex recurrence. Complete specifications moved intact to the archive; publication includes previously unpublished Waves1–2.
 - Priority repair completed: ordinary build/run/test intent selects Implement without overriding explicit readonly/Plan/Review. Native/Codex host commands, SDK bridge10 host MCP and ACP Implement terminals use the existing exact-approved runner; SDK-native Bash/Agent remain disabled.
@@ -12,8 +22,8 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 - Actual wave proof: four structural/cache journeys; ten dependency/recovery groups including crash/lost-response no replay; four real Cargo caller-test/shared-config journeys; four Dex fail/pass/fail, source/purge/relay/restart journeys. Active read-plan preparation also passed reviewed cancellation/quit and restart without replay.
 - Root repairs included SDK ephemeral launch counters, cargo/rustup argv0, exact owned denial, producer-form evidence, definite undispatched refusal, structural envelopes and typing-safe idle learning. Source identity, unknown-effect fail-stop and per-effect consent stayed intact. No conditional R task was completed merely for adding modules.
 - Source gates passed Rust1.90.0 formatting,1,640 tests/two ignored, strict Clippy and release build; SDK45 and Python22/four skips passed. Final candidateD changed only the recorded-count disclosure after candidateC's complete plan/agent proof and passed strict Clippy/build plus actual read-plan/recovery surfaces. Checkpoint contains exact hashes and reports.
-- Release follow-up:0.1.30 source `1fa1a68` passed native40100267084 and publication40102304619; all eight public assets matched qualified bytes. Keep its failed installed-idle report unchanged. Prove v0.1.31 with strict zero-output delayed-Git/terminal acceptance, fresh exact-source Check/all five native jobs, immutable artifact promotion and genuine public installation/upgrade/runtime before the final documentation commit.
-- Limits: no live/paid model calls or physical WSL claims; no trading strategy changes. Preserve user-owned `.DS_Store` and all previous release assets. Waves5–8 remain unauthorized.
+- Release completed:0.1.31 source `1b83cc4` passed native40108914042 and publication40110904023; eight public assets matched qualified bytes. Public host `7a1e18db…` passed24 installation groups,34 terminal scenarios/56 zero-output idle windows and all11 coding/recovery/wave reports. Earlier0.1.30 idle and5e30275 Windows-fixture failures remain retained, not waived or rewritten.
+- Limits: no live/paid model calls or physical WSL claims; no trading strategy changes. Preserve user `.DS_Store` and previous release assets. Wave5 is newly authorized after requested cleanup; Waves6–8 remain unauthorized.
 
 
 ## Completed release — Ten context/tool tasks and provider flow repair

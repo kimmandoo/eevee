@@ -1,6 +1,6 @@
 # Completed work
 
-Updated on2026-10-25 through accepted Wave1–4 source additions, included in published0.1.30. Final public idle-patch acceptance is separately active in the checkpoint; local acceptance is not live-provider conformance. This is historical completion evidence, not an execution queue. Active work and priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
+Updated on2026-10-25 through accepted Wave1–4 source additions, fully released and publicly verified in0.1.31 after0.1.30. Wave5 is newly authorized but not completed. Local controlled-peer proof is not live-provider conformance. This is historical completion evidence, not an execution queue. Active work and priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
 
 The specifications below retain their original acceptance notes and wording. Old schema numbers, limits, priorities, proposed ordering and release statements are historical; they do not override the current contract. Scoped completion does not establish authenticated conformance for every provider. T05 was dropped, not completed.
 

@@ -2,6 +2,9 @@
 
 ## 2026-10-25
 
+- docs(release): published v0.1.31 from `1b83cc4` after same-attempt Check/all-five-native qualification and exact immutable-artifact promotion without replacing0.1.30 assets.
+- docs(verification): verified all eight public assets, seven checksums, five qualified archive identities,24 installation groups,34 installed terminal scenarios/56 zero-output idle windows and11 actual coding/recovery/wave reports.
+- docs(plan): authorized target cleanup after the completed release and complete Wave5 semantic move/TM review, deliberate held-reference renewal and formation-readiness implementation without automatic later publication or paid/live calls.
 - fix(acp): sampled one monotonic time for terminal expiry/cancellation and replaced platform-origin-dependent backdating with deterministic forward-clock boundary coverage, retaining the15-minute lifetime and30-second unsettled-cancellation grace.
 - fix(terminal): stopped invisible record-cache invalidation and unchanged record replies from repainting the idle home; reported actual pairing changes separately from restoration readiness and preserved visible habit, activity, held-item and inspector updates.
 - docs(storage): distinguished compatible0.1.30 plan reading from incompatible0.1.29 strict-field refusal and conservative build-derived lifecycle rollback admission.
