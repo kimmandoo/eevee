@@ -94,9 +94,9 @@ impl App {
 
     pub fn agent_event(&mut self, event: crate::providers::agent::Event) -> bool {
         self.agents.event(event);
-        // Discovery/probe results belong to the connections drawer. In
-        // particular, delayed startup discovery must not repaint an idle home.
-        self.overlay == Some(Overlay::Agents)
+        // Only views exposing cached availability react to passive discovery.
+        // Delayed startup results must not repaint an unchanged idle home.
+        matches!(self.overlay, Some(Overlay::Agents | Overlay::Formations))
     }
 
     pub fn repo_event(&mut self, event: repo::Event) {
@@ -289,6 +289,7 @@ impl App {
                     let saving = self.memory.saving;
                     let loaded = result.is_ok();
                     self.memory_loading = false;
+                    self.held_memory_result(&result);
                     self.memory.finish(result);
                     self.records_memory_committed();
                     if loaded {

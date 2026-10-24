@@ -12,6 +12,42 @@ pub enum Mode {
     Export,
     Mapping,
 }
+
+/// Cached, local observations only. None of these values is dispatch authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Staging {
+    Eligible,
+    Unmapped,
+    Duplicate,
+    Changed,
+    Busy,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Route {
+    Missing,
+    Unknown,
+    Configured,
+    Observed,
+    Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Readiness {
+    pub staging: Staging,
+    pub moves: Option<usize>,
+    pub held: super::held::Readiness,
+    pub route: Route,
+    pub draft_nonempty: bool,
+    pub owner_busy: bool,
+    pub writer: Option<i64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Inspector {
+    Moves { partner: i64, form: usize },
+    Route { partner: i64, form: usize },
+}
 #[derive(Default)]
 pub struct State {
     pub mode: Mode,
@@ -31,6 +67,8 @@ pub struct State {
     revision: u64,
     owner: (i64, i64),
     pub roster: Vec<store::Partner>,
+    pub inspector: Option<Inspector>,
+    pub inspector_scroll: u16,
 }
 impl State {
     pub fn editing(&self) -> bool {
@@ -41,6 +79,265 @@ impl State {
     }
 }
 impl App {
+    fn formation_target(&self, index: usize) -> Option<(i64, usize)> {
+        let partner = self.formations.mapping.get(index).copied().flatten()?;
+        let slot = self.formations.recipe.as_ref()?.roles.get(index)?;
+        let form = FORMS.iter().position(|form| form.name == slot.form)?;
+        Some((partner, form))
+    }
+
+    pub fn formation_pairing(
+        &self,
+        partner: i64,
+        form: usize,
+    ) -> Option<&crate::workspace::records::Pairing> {
+        if !self.records.current_for(self.task_id, &self.cwd) {
+            return None;
+        }
+        self.records
+            .snapshot
+            .pairings
+            .iter()
+            .find(|pairing| pairing.partner == partner && pairing.form == form)
+    }
+
+    fn formation_owned_busy(&self, partner: i64) -> bool {
+        self.planning_state(partner)
+            .is_some_and(|state| state.busy() || state.owns_work())
+            || if partner == self.lead.id {
+                self.execution.busy() || self.execution.outcome_unknown()
+            } else {
+                self.cooperation
+                    .executions
+                    .get(&partner)
+                    .is_some_and(|state| state.busy() || state.outcome_unknown())
+            }
+    }
+
+    fn formation_busy(&self) -> bool {
+        // A terminal native outcome can remain unknown without owning work.
+        // Frozen ownership still blocks CLI uncertainty and unsettled effects.
+        std::iter::once(&self.planning)
+            .chain(self.cooperation.parked.values())
+            .any(|state| state.busy() || state.owns_work() || state.preferences_pending())
+            || self.execution_any_pending()
+            || self.pending_request.is_some()
+            || self.pending_command.is_some()
+    }
+
+    fn formation_roster_current(&self) -> bool {
+        self.party.len() == self.formations.roster.len()
+            && self
+                .party
+                .iter()
+                .zip(&self.formations.roster)
+                .all(|(actual, expected)| {
+                    if actual.id == self.lead.id {
+                        expected == &self.lead
+                    } else {
+                        actual == expected
+                    }
+                })
+    }
+
+    /// Bounded borrowed metadata from the committed record snapshot and runtime
+    /// owner caches. Never read configuration, files, credentials or the network.
+    pub fn formation_readiness(&self, index: usize) -> Readiness {
+        let target = self.formation_target(index);
+        let partner = target.map(|(partner, _)| partner);
+        let staging = if self.formations.owner != (self.task_id, self.lead.id)
+            || self.revision != self.formations.revision
+            || self.complete
+            || self.archived
+            || !self.formation_roster_current()
+            || partner.is_some_and(|id| !self.formations.roster.iter().any(|p| p.id == id))
+        {
+            Staging::Changed
+        } else if partner.is_none() {
+            Staging::Unmapped
+        } else if self
+            .formations
+            .mapping
+            .iter()
+            .filter(|id| **id == partner)
+            .count()
+            > 1
+        {
+            Staging::Duplicate
+        } else if self.formation_busy() {
+            Staging::Busy
+        } else {
+            Staging::Eligible
+        };
+        let current_records = self.records.current_for(self.task_id, &self.cwd);
+        let moves = target.and_then(|(partner, form)| {
+            current_records
+                .then(|| {
+                    self.records
+                        .snapshot
+                        .summaries
+                        .iter()
+                        .find(|summary| summary.partner.id == partner)
+                        .map(|summary| summary.moves[form])
+                })
+                .flatten()
+        });
+        let held = target.map_or(super::held::Readiness::NotConfigured, |(partner, form)| {
+            self.held_reference_readiness(partner, form)
+        });
+        let route = if !current_records {
+            Route::Unknown
+        } else if let Some(pairing) =
+            target.and_then(|(partner, form)| self.formation_pairing(partner, form))
+        {
+            match self.agents.cached_readiness(pairing.agent.index()) {
+                super::agents::Readiness::Configured => Route::Configured,
+                super::agents::Readiness::SignedIn | super::agents::Readiness::Session => {
+                    Route::Observed
+                }
+                super::agents::Readiness::Setup
+                | super::agents::Readiness::MissingCli
+                | super::agents::Readiness::Blocked
+                | super::agents::Readiness::SignedOut => Route::Unavailable,
+                super::agents::Readiness::Checking | super::agents::Readiness::Unknown => {
+                    Route::Unknown
+                }
+            }
+        } else {
+            Route::Missing
+        };
+        let draft_nonempty = partner.is_some_and(|partner| {
+            let drafts = if partner == self.lead.id {
+                Some(&self.drafts)
+            } else {
+                self.partner_drafts.get(&partner).map(|draft| &draft.drafts)
+            };
+            drafts.is_some_and(|drafts| {
+                drafts.iter().any(|draft| {
+                    draft.field == store::EditorField::Request && !draft.text.is_empty()
+                })
+            }) || (partner == self.lead.id
+                && self.editing
+                && self.editor_field == store::EditorField::Request
+                && !self.input.is_empty())
+        });
+        let writer = std::iter::once(&self.planning)
+            .chain(self.cooperation.parked.values())
+            .filter(|state| state.work_acquired)
+            .filter_map(|state| state.work.as_ref())
+            .find(|claim| claim.task_id == self.task_id && claim.writing)
+            .map(|claim| claim.owner.partner);
+        Readiness {
+            staging,
+            moves,
+            held,
+            route,
+            draft_nonempty,
+            owner_busy: partner.is_some_and(|partner| self.formation_owned_busy(partner)),
+            writer,
+        }
+    }
+
+    fn formation_inspect(&mut self, kind: char) {
+        let Some((partner, form)) = self.formation_target(self.formations.selected) else {
+            return;
+        };
+        self.formations.apply_pending = false;
+        self.formations.invalidate();
+        self.formations.inspector_scroll = 0;
+        match kind {
+            'h' => {
+                self.inspect_held_reference(partner, form);
+            }
+            'm' => {
+                let Some(index) = self
+                    .records
+                    .snapshot
+                    .summaries
+                    .iter()
+                    .position(|summary| summary.partner.id == partner)
+                else {
+                    return;
+                };
+                self.formations.inspector = Some(Inspector::Moves { partner, form });
+                // Reuse the existing factual move/name summary, not the mutable
+                // move desk (whose Use/Teach actions belong to another scope).
+                self.open_records(super::records::Mode::Summary);
+                self.records.selected = index;
+                self.records.scroll = 0;
+            }
+            'r' => {
+                self.formations.inspector = Some(Inspector::Route { partner, form });
+                self.open_overlay(Overlay::Agents);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn formation_inspector_active(&self) -> bool {
+        matches!(
+            (self.formations.inspector, self.overlay),
+            (Some(Inspector::Moves { .. }), Some(Overlay::Records))
+                | (Some(Inspector::Route { .. }), Some(Overlay::Agents))
+        )
+    }
+
+    /// Called before command/global key routing so an inspector cannot select a
+    /// route, teach/use a move, dispatch or change the owner behind the review.
+    pub fn formation_inspector_key(&mut self, key: KeyEvent) -> bool {
+        if !self.formation_inspector_active() {
+            return false;
+        }
+        if key.kind != KeyEventKind::Press {
+            return true;
+        }
+        if key.code == KeyCode::Esc && key.modifiers.is_empty() {
+            self.formations.inspector = None;
+            // Opening an inspector already in history can unwind and remove
+            // the mapping frame. Return to its explicit owner, not an assumed
+            // immediately preceding overlay.
+            self.open_overlay(Overlay::Formations);
+        } else if matches!(self.formations.inspector, Some(Inspector::Moves { .. }))
+            && key.modifiers.is_empty()
+        {
+            match key.code {
+                KeyCode::Up | KeyCode::Down => {
+                    // Ordinary record arrows retarget the owner; this visit
+                    // instead scrolls within its frozen mapped owner.
+                    self.records.scroll = if key.code == KeyCode::Down {
+                        self.records
+                            .scroll
+                            .saturating_add(1)
+                            .min(self.records.scroll_max)
+                    } else {
+                        self.records.scroll.saturating_sub(1)
+                    };
+                    self.records.affirmative = false;
+                }
+                KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End => {
+                    self.record_key(key);
+                }
+                _ => {}
+            }
+        } else if matches!(self.formations.inspector, Some(Inspector::Route { .. }))
+            && key.modifiers.is_empty()
+        {
+            match key.code {
+                KeyCode::PageDown => {
+                    self.formations.inspector_scroll =
+                        self.formations.inspector_scroll.saturating_add(4)
+                }
+                KeyCode::PageUp => {
+                    self.formations.inspector_scroll =
+                        self.formations.inspector_scroll.saturating_sub(4)
+                }
+                KeyCode::Home => self.formations.inspector_scroll = 0,
+                KeyCode::End => self.formations.inspector_scroll = u16::MAX,
+                _ => {}
+            }
+        }
+        true
+    }
     pub fn formation_notice(&self) -> Option<Message> {
         [Message::FormationSaved, Message::FormationApplied]
             .into_iter()
@@ -247,6 +544,11 @@ impl App {
             }
             KeyCode::PageDown => self.formations.scroll = self.formations.scroll.saturating_add(4),
             KeyCode::PageUp => self.formations.scroll = self.formations.scroll.saturating_sub(4),
+            KeyCode::Char(kind @ ('m' | 'h' | 'r'))
+                if self.formations.mode == Mode::Mapping && !self.formations.inspect =>
+            {
+                self.formation_inspect(kind);
+            }
             KeyCode::Up => self.formations.selected = self.formations.selected.saturating_sub(1),
             KeyCode::Down => {
                 self.formations.selected = (self.formations.selected + 1)
@@ -307,12 +609,7 @@ impl App {
                 self.formations.invalidate();
                 return;
             }
-            if self.planning_any_busy()
-                || self.execution_any_pending()
-                || self.planning_any_unknown()
-                || self.pending_request.is_some()
-                || self.pending_command.is_some()
-            {
+            if self.formation_busy() {
                 self.formations.notice = Some(Message::FormationBusy);
                 self.formations.apply_pending = false;
                 return;

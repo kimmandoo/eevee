@@ -33,6 +33,7 @@ pub enum Mode {
 #[derive(Clone, Debug)]
 pub enum Learning {
     Teach(Proposal),
+    Copy(Proposal, (i64, u64)),
     Import(Proposal),
     Relearn(Record),
     Rename(Record),
@@ -41,10 +42,38 @@ pub enum Learning {
 impl Learning {
     pub fn proposal(&self) -> &Proposal {
         match self {
-            Self::Teach(p) | Self::Import(p) => p,
+            Self::Teach(p) | Self::Import(p) | Self::Copy(p, _) => p,
             Self::Relearn(r) | Self::Rename(r) => &r.proposal,
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ReviewAction {
+    Teach,
+    Copy((i64, u64)),
+    Import { original_name: String },
+    Rename((i64, u64)),
+    Relearn((i64, u64)),
+}
+
+/// Frozen local review, never execution authority. Revision checks run again in the writer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Review {
+    pub proposal: Proposal,
+    pub old: Option<Record>,
+    pub same_semantics: Option<bool>,
+    pub name_only: bool,
+    pub changes: Vec<moves::ChangedField>,
+    action: ReviewAction,
+    replacement: Option<(i64, u64)>,
+    owner: (i64, i64, usize),
+}
+pub struct ReviewText {
+    pub language: crate::i18n::Language,
+    pub recipient: String,
+    pub summary: String,
+    pub details: String,
 }
 
 #[derive(Default)]
@@ -76,8 +105,12 @@ pub struct State {
     /// Tab moves between the independent name editor and scope control.
     pub scope_focus: bool,
     pub insertion_rejected: bool,
+    pub review_text: Option<ReviewText>,
     pub reviewed: bool,
     pub affirmative: bool,
+    pub review: Option<Review>,
+    /// Contiguous wrapped rows exposed for this exact review; jumping past hidden rows grants nothing.
+    pub exposed_rows: usize,
     pub scroll: u16,
     pub scroll_max: u16,
     pub scroll_page: u16,
@@ -118,6 +151,9 @@ impl State {
     pub fn invalidate_review(&mut self) {
         self.reviewed = false;
         self.affirmative = false;
+        self.review_text = None;
+        self.exposed_rows = 0;
+        self.scroll = 0;
     }
     pub fn persistence_pending(&self) -> bool {
         self.pending.is_some()
@@ -272,6 +308,13 @@ impl State {
         self.scroll_max = 0;
         self.selected = 0;
         self.invalidate_review();
+        self.review = None;
+        if mode == Mode::Review {
+            match self.prepare_review() {
+                Ok(review) => self.review = Some(review),
+                Err(error) => self.notice = error,
+            }
+        }
     }
     fn begin_learning(&mut self, learning: Learning) {
         self.name = learning.proposal().name.clone();
@@ -293,11 +336,24 @@ impl State {
             _ => None,
         };
         let key = crate::store::moves::name_key(&self.name);
+        let same_name_replacement = self.replacement.is_some_and(|(id, revision)| {
+            self.records.iter().any(|r| {
+                r.id == id
+                    && r.revision == revision
+                    && !r.forgotten
+                    && crate::store::moves::name_key(&r.proposal.name) == key
+            })
+        });
+        let preserving_active_label = matches!(&self.learning, Some(Learning::Rename(r))
+            if !r.forgotten && crate::store::moves::name_key(&r.proposal.name) == key);
         if self.records.iter().any(|r| {
             Some(r.id) != except
                 && r.proposal.partner == self.partner
                 && r.proposal.form == self.form
                 && crate::store::moves::name_key(&r.proposal.name) == key
+                && !(same_name_replacement
+                    && (r.forgotten || self.replacement.is_some_and(|(id, _)| id == r.id)))
+                && !(preserving_active_label && r.forgotten)
         }) {
             return Err(
                 "This partner already has that name in this form. Choose a distinct name.".into(),
@@ -344,7 +400,7 @@ impl State {
                 KeyCode::Left | KeyCode::Right | KeyCode::Char(' ')
             ) && matches!(
                 self.learning,
-                Some(Learning::Teach(_) | Learning::Import(_))
+                Some(Learning::Teach(_) | Learning::Import(_) | Learning::Copy(..))
             ) {
                 self.scope = match self.scope {
                     Scope::Project => Scope::Personal,
@@ -402,16 +458,29 @@ impl State {
         }
     }
     fn finish_name(&mut self) -> Result<(), String> {
+        // A same-name import/teaching is an explicit replacement, even with a
+        // free slot. The following neutral review exposes both exact definitions.
+        if matches!(
+            self.learning,
+            Some(Learning::Teach(_) | Learning::Import(_) | Learning::Copy(..))
+        ) {
+            let key = crate::store::moves::name_key(&self.name);
+            let replacement = self
+                .active()
+                .find(|r| crate::store::moves::name_key(&r.proposal.name) == key)
+                .map(|r| (r.id, r.revision));
+            self.replacement = replacement;
+        }
         self.validate_name()?;
         let rename = matches!(self.learning, Some(Learning::Rename(_)));
-        if !rename && self.active().count() >= 4 {
+        if !rename && self.replacement.is_none() && self.active().count() >= 4 {
             self.enter(Mode::Replace);
         } else {
             self.enter(Mode::Review);
         }
         Ok(())
     }
-    fn commit_learning(&mut self) -> Result<(), String> {
+    fn learning_operation(&self) -> Result<Operation, String> {
         self.validate_name()?;
         let learning = self
             .learning
@@ -437,17 +506,142 @@ impl State {
                     replace: self.replacement,
                 }
             }
-            Learning::Teach(source) => {
+            Learning::Teach(source) | Learning::Copy(source, _) => {
                 let mut proposal = source.clone();
                 proposal.name.clone_from(&self.name);
                 proposal.scope = self.scope;
                 moves::validate_proposal(&proposal)?;
-                Operation::Teach {
-                    proposal,
-                    replace: self.replacement,
+                if let Learning::Copy(_, source) = learning {
+                    Operation::Copy {
+                        proposal,
+                        source: *source,
+                        replace: self.replacement,
+                    }
+                } else {
+                    Operation::Teach {
+                        proposal,
+                        replace: self.replacement,
+                    }
                 }
             }
         };
+        Ok(operation)
+    }
+    pub(crate) fn prepare_review(&self) -> Result<Review, String> {
+        self.validate_name()?;
+        let learning = self
+            .learning
+            .as_ref()
+            .ok_or("No move selected for learning.")?;
+        let action = match learning {
+            Learning::Teach(_) => ReviewAction::Teach,
+            Learning::Copy(_, source) => ReviewAction::Copy(*source),
+            Learning::Import(_) => ReviewAction::Import {
+                original_name: self
+                    .portable
+                    .as_ref()
+                    .ok_or("No reviewed TM definition")?
+                    .name
+                    .clone(),
+            },
+            Learning::Rename(r) => ReviewAction::Rename((r.id, r.revision)),
+            Learning::Relearn(r) => ReviewAction::Relearn((r.id, r.revision)),
+        };
+        let mut proposal = if matches!(learning, Learning::Import(_)) {
+            self.portable
+                .as_ref()
+                .ok_or("No reviewed TM definition")?
+                .proposal(self.task_id, self.partner, self.scope)?
+        } else {
+            learning.proposal().clone()
+        };
+        proposal.name.clone_from(&self.name);
+        proposal.scope = self.scope;
+        moves::validate_proposal(&proposal)?;
+        let old = if let Some((id, revision)) = self.replacement {
+            Some(
+                self.records
+                    .iter()
+                    .find(|r| r.id == id && r.revision == revision && !r.forgotten)
+                    .ok_or("Replacement changed; open a fresh review.")?
+                    .clone(),
+            )
+        } else if let Learning::Rename(record) | Learning::Relearn(record) = learning {
+            Some(record.clone())
+        } else {
+            None
+        };
+        let changes = old
+            .as_ref()
+            .map(|old| moves::changed_fields(&old.proposal.steps, &proposal.steps))
+            .unwrap_or_default();
+        let same_semantics = old.as_ref().map(|_| changes.is_empty());
+        let name_only = old.as_ref().is_some_and(|old| {
+            same_semantics == Some(true)
+                && old.proposal.partner == proposal.partner
+                && old.proposal.form == proposal.form
+                && old.proposal.scope == proposal.scope
+                && old.proposal.provenance == proposal.provenance
+                && old.proposal.name != proposal.name
+                && matches!(learning, Learning::Rename(_))
+        });
+        Ok(Review {
+            proposal,
+            old,
+            same_semantics,
+            name_only,
+            changes,
+            action,
+            replacement: self.replacement,
+            owner: (self.task_id, self.partner, self.form),
+        })
+    }
+    pub fn review_current(&self) -> bool {
+        self.review.as_ref().is_some_and(|review| {
+            review.owner == (self.task_id, self.partner, self.form)
+                && review.replacement == self.replacement
+                && self.learning.as_ref().is_some_and(|learning| {
+                    let source = learning.proposal();
+                    review.proposal.name == self.name
+                        && review.proposal.scope == self.scope
+                        && review.proposal.partner == self.partner
+                        && review.proposal.form == self.form
+                        && review.proposal.steps == source.steps
+                        && review.proposal.provenance == source.provenance
+                        && match (&review.action, learning) {
+                            (ReviewAction::Import { original_name }, Learning::Import(_)) => {
+                                self.portable.as_ref().is_some_and(|definition| {
+                                    definition.schema_version == 1
+                                        && definition.name == *original_name
+                                        && definition.form
+                                            == crate::domain::FORMS[review.proposal.form].name
+                                        && definition.steps == review.proposal.steps
+                                })
+                            }
+                            (ReviewAction::Copy(source), Learning::Copy(_, current)) => {
+                                current == source
+                            }
+                            (ReviewAction::Teach, Learning::Teach(_)) => true,
+                            (ReviewAction::Rename(source), Learning::Rename(r))
+                            | (ReviewAction::Relearn(source), Learning::Relearn(r)) => {
+                                *source == (r.id, r.revision)
+                                    && self.records.iter().any(|current| current == r)
+                            }
+                            _ => false,
+                        }
+                })
+                && review
+                    .old
+                    .as_ref()
+                    .is_none_or(|old| self.records.iter().any(|r| r == old))
+        })
+    }
+    fn commit_learning(&mut self) -> Result<(), String> {
+        if !self.review_current() {
+            self.invalidate_review();
+            return Err("Move or proposed definition changed; open a fresh review.".into());
+        }
+        let operation = self.learning_operation()?;
         self.request(operation);
         self.invalidate_review();
         self.notice =
@@ -989,13 +1183,21 @@ impl App {
                     // Relearn preserves the stored steps, name and scope exactly.
                     self.moves.name = record.proposal.name.clone();
                     self.moves.scope = record.proposal.scope;
+                    let key = crate::store::moves::name_key(&record.proposal.name);
+                    let replacement = self
+                        .moves
+                        .active()
+                        .find(|r| crate::store::moves::name_key(&r.proposal.name) == key)
+                        .map(|r| (r.id, r.revision));
+                    self.moves.replacement = replacement;
                     self.moves.learning = Some(Learning::Relearn(record));
-                    self.moves.replacement = None;
-                    self.moves.enter(if self.moves.active().count() >= 4 {
-                        Mode::Replace
-                    } else {
-                        Mode::Review
-                    });
+                    self.moves.enter(
+                        if self.moves.replacement.is_none() && self.moves.active().count() >= 4 {
+                            Mode::Replace
+                        } else {
+                            Mode::Review
+                        },
+                    );
                 } else {
                     let offset = selected.saturating_sub(forgotten_count);
                     let candidate = self.moves.postponed().nth(offset).cloned();
@@ -1036,7 +1238,7 @@ impl App {
                 let Some(record) = self.moves.selected_record().cloned() else {
                     return;
                 };
-                let mut proposal = record.proposal;
+                let mut proposal = record.proposal.clone();
                 proposal.partner = target.id;
                 proposal.provenance.taught_by = Some(self.lead.id);
                 proposal.provenance.teacher_name =
@@ -1045,7 +1247,7 @@ impl App {
                     self.moves.notice = error;
                     return;
                 }
-                self.moves.learning = Some(Learning::Teach(proposal));
+                self.moves.learning = Some(Learning::Copy(proposal, (record.id, record.revision)));
                 self.moves.partner = target.id;
                 self.moves.loaded = false;
                 self.moves.enter(Mode::LoadingTarget);
@@ -1075,6 +1277,7 @@ impl App {
         let mutation = matches!(
             request.operation,
             Operation::Teach { .. }
+                | Operation::Copy { .. }
                 | Operation::ImportPortable { .. }
                 | Operation::Rename { .. }
                 | Operation::Forget { .. }
@@ -1134,7 +1337,8 @@ impl App {
                                 .iter()
                                 .map(|r| r.proposal.name.clone())
                                 .collect::<Vec<_>>();
-                            if let Learning::Teach(proposal) = &mut learning
+                            if let Learning::Teach(proposal) | Learning::Copy(proposal, _) =
+                                &mut learning
                                 && self.moves.records.iter().any(|r| {
                                     crate::store::moves::name_key(&r.proposal.name)
                                         == crate::store::moves::name_key(&proposal.name)
@@ -1332,6 +1536,7 @@ mod tests {
         assert_eq!(state.selected, 0);
         assert!(state.pending.is_none());
         state.replacement = Some((3, 1));
+        state.enter(Mode::Review);
         state.commit_learning().unwrap();
         assert!(matches!(
             state.pending.unwrap().operation,
@@ -1353,11 +1558,15 @@ mod tests {
         assert!(!state.paste("\n") || state.insertion_rejected);
     }
     #[test]
-    fn duplicate_unicode_name_refused_before_any_request() {
+    fn same_unicode_name_requires_neutral_exact_replacement_review() {
         let mut state = state();
         state.records.push(record(1, "Straße"));
         state.begin_learning(Learning::Teach(proposal("STRASSE")));
-        assert!(state.finish_name().is_err());
+        state.finish_name().unwrap();
+        assert_eq!(state.mode, Mode::Review);
+        assert_eq!(state.replacement, Some((1, 1)));
+        assert!(state.review_current());
+        assert!(!state.reviewed && !state.affirmative);
         assert!(state.pending.is_none());
     }
     #[test]
@@ -1402,7 +1611,9 @@ mod tests {
         let mut original = record(1, "Surf");
         original.forgotten = true;
         state.name = original.proposal.name.clone();
+        state.records.push(original.clone());
         state.learning = Some(Learning::Relearn(original));
+        state.enter(Mode::Review);
         state.commit_learning().unwrap();
         assert!(matches!(
             state.pending.unwrap().operation,
@@ -1544,10 +1755,15 @@ mod tests {
         assert!(!app.moves.affirmative);
         app.moves.reviewed = true;
         app.move_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
-        let Operation::Teach { proposal, replace } = &app.moves.pending.as_ref().unwrap().operation
+        let Operation::Copy {
+            proposal,
+            replace,
+            source,
+        } = &app.moves.pending.as_ref().unwrap().operation
         else {
             panic!("expected reviewed copy");
         };
+        assert_eq!(*source, (original.id, original.revision));
         assert_eq!(proposal.partner, 2);
         assert_eq!(proposal.steps, original.proposal.steps);
         assert_eq!(proposal.provenance.taught_by, Some(1));
@@ -1864,6 +2080,7 @@ mod tests {
         assert_eq!(state.selected, 0);
         assert!(state.pending.is_none());
         state.replacement = Some((2, 1));
+        state.enter(Mode::Review);
         state.commit_learning().unwrap();
         assert_eq!(
             state.pending.unwrap().operation,
@@ -1911,5 +2128,121 @@ mod tests {
         assert!(app.moves.pending.is_none());
         assert!(app.execution.active.is_none());
         assert!(app.planning.pending.is_none());
+    }
+    #[test]
+    fn semantic_review_refuses_changed_proposal_or_old_revision_without_a_write() {
+        for change_old in [false, true] {
+            let mut state = state();
+            state.records.push(record(7, "Surf"));
+            state.begin_learning(Learning::Teach(proposal("Surf")));
+            state.finish_name().unwrap();
+            assert!(state.review_current());
+            if change_old {
+                state.records[0].revision += 1;
+                state.records[0].proposal.name = "Concurrent rename".into();
+            } else {
+                state.name = "Changed after review".into();
+            }
+            assert!(!state.review_current());
+            assert!(state.commit_learning().is_err());
+            assert!(state.pending.is_none());
+            assert!(!state.affirmative && !state.reviewed);
+        }
+    }
+
+    #[test]
+    fn rename_is_name_only_but_same_semantics_replacement_is_not() {
+        let mut state = state();
+        let old = record(7, "Surf");
+        state.records.push(old.clone());
+        state.begin_learning(Learning::Rename(old));
+        state.name = "New label".into();
+        state.finish_name().unwrap();
+        assert!(state.review.as_ref().unwrap().name_only);
+        assert_eq!(state.review.as_ref().unwrap().same_semantics, Some(true));
+        state.begin_learning(Learning::Teach(proposal("Surf")));
+        state.finish_name().unwrap();
+        assert!(
+            !state.review.as_ref().unwrap().name_only,
+            "a new local record with independent history is not merely a label edit"
+        );
+    }
+
+    #[test]
+    fn forgotten_duplicate_without_an_active_same_name_target_still_refuses() {
+        let mut state = state();
+        let mut old = record(7, "Surf");
+        old.forgotten = true;
+        state.records.push(old);
+        state.begin_learning(Learning::Teach(proposal("Surf")));
+        assert!(state.finish_name().is_err());
+        assert!(state.pending.is_none());
+    }
+
+    #[test]
+    fn cancelling_same_name_import_restores_exact_draft_caret_and_inventory() {
+        let mut app = app();
+        app.editor_field = crate::store::EditorField::Request;
+        app.editing = true;
+        app.input = "Keep 水の exact draft".into();
+        app.cursor = "Keep 水".len();
+        app.open_moves();
+        app.moves.records = vec![record(7, "Surf")];
+        if app.moves.inflight.is_some() {
+            let records = app.moves.records.clone();
+            app.move_store_event(
+                1,
+                1,
+                1,
+                Ok(Response {
+                    records,
+                    ..Response::default()
+                }),
+            );
+        }
+        let before = app.moves.records.clone();
+        let definition = moves::portable::Definition::from_proposal(&proposal("Surf")).unwrap();
+        app.moves.portable = Some(definition.clone());
+        app.moves.begin_learning(Learning::Import(
+            definition.proposal(1, 1, Scope::Project).unwrap(),
+        ));
+        app.moves.finish_name().unwrap();
+        app.moves.reviewed = true;
+        app.move_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.moves.records, before);
+        assert!(app.moves.pending.is_none());
+        app.move_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.overlay.is_none());
+        assert_eq!(app.input, "Keep 水の exact draft");
+        assert_eq!(app.cursor, "Keep 水".len());
+        assert!(app.editing);
+    }
+
+    #[test]
+    fn same_name_reminder_reviews_exact_active_replacement_and_original_source() {
+        let mut app = app();
+        app.overlay = Some(Overlay::Moves);
+        app.moves = state();
+        let mut original = record(7, "Surf");
+        original.forgotten = true;
+        let current = record(8, "Surf");
+        app.moves.records = vec![original.clone(), current.clone()];
+        app.moves.enter(Mode::Reminder);
+        app.move_activate();
+        assert_eq!(app.moves.mode, Mode::Review);
+        assert_eq!(app.moves.replacement, Some((current.id, current.revision)));
+        assert_eq!(
+            app.moves.review.as_ref().unwrap().old.as_ref(),
+            Some(&current)
+        );
+        assert!(app.moves.review_current());
+        assert!(!app.moves.affirmative && !app.moves.reviewed);
+        app.moves.records[0].revision += 1;
+        assert!(
+            !app.moves.review_current(),
+            "a changed original reminder also revokes review"
+        );
+        assert!(app.moves.commit_learning().is_err());
+        assert!(app.moves.pending.is_none());
     }
 }

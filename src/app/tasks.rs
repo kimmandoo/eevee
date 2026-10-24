@@ -111,6 +111,7 @@ impl App {
     }
 
     pub(super) fn load_task(&mut self, snapshot: store::Snapshot) {
+        self.invalidate_held_review();
         self.records.restoring = true;
         let task_changed = self.task_id != snapshot.id;
         self.task_id = snapshot.id;

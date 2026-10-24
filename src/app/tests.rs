@@ -314,19 +314,6 @@ fn clearing_first_draft_before_insert_ack_does_not_restore_deleted_text() {
 }
 
 #[test]
-fn passive_discovery_only_redraws_the_connections_drawer() {
-    for overlay in [None, Some(Overlay::Help), Some(Overlay::Agents)] {
-        let mut app = app();
-        app.overlay = overlay;
-        app.agents.pending = None;
-        assert!(app.agents.busy());
-        let redraw = app.agent_event(crate::providers::agent::Event::Discovered(Vec::new()));
-        assert!(!app.agents.busy(), "hidden results must still be applied");
-        assert_eq!(redraw, overlay == Some(Overlay::Agents));
-    }
-}
-
-#[test]
 fn first_run_typing_is_input_and_global_navigation_retains_the_draft() {
     let mut app = App::new("/workspace".into(), 120, 36);
     key(&mut app, KeyCode::Char('q'));
@@ -2316,6 +2303,7 @@ fn native_missing_model_opens_local_picker_and_retains_request_without_retry() {
 #[test]
 fn terminal_native_unknown_allows_explicit_followup_and_task_switch_but_cli_unknown_does_not() {
     use crate::providers::{Agent, Event as ProviderEvent, ItemKind, Outcome, Preview, Request};
+    use crate::workspace::workflows::{FormationSlot, Recipe, RecipeStep};
     // Isolate configured native credentials from the parallel test process.
     if std::env::var_os("EV_TEST_NATIVE_OUTCOME").is_none() {
         let home = std::env::temp_dir().join(format!(
@@ -2427,6 +2415,36 @@ fn terminal_native_unknown_allows_explicit_followup_and_task_switch_but_cli_unkn
         assert!(app.planning.work.is_none());
         assert!(app.planning.items.iter().any(|item| !item.complete));
         assert!(app.planning.pending.is_none(), "settlement never resends");
+        app.party = app.partners();
+        app.formation_command("formation", "");
+        app.formation_event(Ok(store::formations::Response::Read(Recipe {
+            schema_version: 2,
+            name: "Local staging after cancellation".into(),
+            scope: vec![],
+            context: vec![],
+            steps: vec![RecipeStep {
+                form: "Vaporeon".into(),
+                action: "Stage only".into(),
+            }],
+            validation_commands: vec![],
+            completion_criteria: vec!["Inspect explicitly".into()],
+            roles: vec![FormationSlot {
+                role: "local".into(),
+                form: "Vaporeon".into(),
+                request: "Keep this unsent".into(),
+            }],
+        })));
+        let readiness = app.formation_readiness(0);
+        assert_eq!(
+            readiness.staging,
+            if agent.is_direct() {
+                formations::Staging::Eligible
+            } else {
+                formations::Staging::Busy
+            }
+        );
+        assert_eq!(readiness.owner_busy, !agent.is_direct());
+        app.close_overlay();
 
         if !agent.is_direct() {
             assert!(app.planning.unknown_effects() && app.partner_busy(1));

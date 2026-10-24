@@ -1,17 +1,17 @@
 # Eevee Implementation Plan
 
-Updated2026-10-25. v0.1.31 source `1b83cc4` passed exact-source native/public release acceptance. Requested67G target cleanup completed after verified external evidence archival. The active work is complete Wave5 MV09/PK08/PT12 implementation through existing owners. All13 Wave1–4 tasks remain archived;24 tasks remain until Wave5 passes. Waves6–8 remain planning only; no paid/live calls were made.
+Updated2026-10-25. v0.1.31 source `1b83cc4` passed exact-source native/public release acceptance. Requested67G target cleanup followed verified external evidence archival. Wave5 MV09/PK08/PT12 passed implementation and four actual locale/size journeys each as unreleased0.1.32 source. All16 wave assignments are archived and21 tasks remain. Waves6–8 remain planning only; no paid/live calls were made.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Authorized next implementation — Wave5 after release verification and target cleanup
+## Completed implementation — Wave5 source 0.1.32, unreleased
 
 1. Completed: actual0.1.31 public acceptance and committed release handoff (`396696f`).
 2. Completed: verified external release/failure evidence archival, runnable public binary preservation and requested target cleanup; detailed archive identity and resolved Cargo ENOTEMPTY issue are in the checkpoint.
-3. MV09: extend existing move/TM replacement and teaching review with exact ordered semantic changes, old-record/revision binding, neutral cancellation, stale refusal, immutable historical attribution and ordinary explicit use.
-4. PK08: review old/new retained identities/content where available, renew exactly one held reference through the existing store, revalidate exclusion/revocation/owner races and never auto-select or rewrite a frozen request.
-5. PT12: extend formation mapping with separate stage eligibility/submission readiness, cached route/move/held/draft/ownership facts, navigation without changing lead, atomic apply revalidation and unchanged portable format.
-6. Integrate through existing store/executor/approval owners; use focused behavior regressions and actual bilingual compact/wide changed-surface journeys, not a new blanket CI cross-product. Update original specifications/archive, contracts, changelog and checkpoint, then commit completed Wave5. No later-wave implementation or automatic post-Wave5 publication is implied.
+3. Completed MV09: exact semantic review, source-bound copying, neutral same-name replacement/relearning and original history passed actual EN/KO120×36/60×18 ordinary-process/cancel/stale/restart/fresh-consent journeys.
+4. Completed PK08: exact one-reference CAS renewal, escaped retained-content disclosure, source/policy/owner/revocation refusal, unchanged basket/frozen HTTP bytes and restart passed all four corresponding journeys.
+5. Completed PT12: cached mapping warnings/scoped inspectors, actual command and acquired `writing=1` refusal, physical EOF/local settlement with unknown remote outcome, exact atomic staging/export and bounded compact navigation passed four full journeys. Three supported compact six-partner/maximum-wide-name boundaries passed. Fixed native-uncertainty overblocking and scoped arrow swallowing through existing ownership/navigation semantics.
+6. Rust1.90.0 rustfmt,1,675 tests/two ignored, strict Clippy and release build passed; no new default CI cross-product was added. Original specifications were archived intact. Final evidence validation/preservation, cleanup and a conventional session commit complete the handoff; no later wave or automatic0.1.32 publication is implied.
 
 
 ## Completed release — Waves 3–4 and coding/build/run repair

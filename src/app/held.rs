@@ -1,5 +1,8 @@
 //! Project/partner/form configuration is local advice, never packet membership.
-use std::path::{Path, PathBuf};
+use std::{
+    cell::{Cell, OnceCell},
+    path::{Path, PathBuf},
+};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
@@ -9,11 +12,41 @@ use crate::{
     store::{self, records::Operation},
     workspace::{
         context,
-        held::{FileProof, Target},
+        held::{FileProof, Renewal, Target},
         memory,
     },
 };
 
+/// Cached local observation only; never submission or dispatch authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Readiness {
+    NotConfigured,
+    Available,
+    Unavailable,
+    Unknown,
+}
+
+pub struct Review {
+    pub intent: Renewal,
+    pub task: i64,
+    pub old_content: Option<String>,
+    pub new_content: String,
+    pub scroll: u16,
+    pub scroll_max: Cell<u16>,
+    pub reviewed: Cell<bool>,
+    pub geometry: Cell<(u16, u16)>,
+    pub details: OnceCell<String>,
+}
+
+pub struct Inspection {
+    pub owner: store::Attribution,
+    pub target: Option<Target>,
+    pub content: Option<String>,
+    pub return_to: Option<Overlay>,
+    pub scroll: u16,
+    pub details: OnceCell<String>,
+    pub readiness: Readiness,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
     Empty,
@@ -56,8 +89,11 @@ pub struct State {
     /// The source worker and admission boundary receive this same startup policy.
     pub exclusions: Vec<PathBuf>,
     visit: Option<(i64, i64, usize)>,
+    pub renewal: Option<Review>,
+    pub inspection: Option<Inspection>,
     proposed: bool,
     accepted_memory: Option<(i64, i64, u64)>,
+    memory_observation: Option<(i64, String, bool)>,
 }
 
 pub const COMMANDS: &[(&str, &str)] = &[
@@ -75,6 +111,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("held-accept", "Explicitly review and accept held context"),
     ("held-dismiss", "Dismiss held proposal for this visit"),
     ("held-clear", "Clear saved held preference only"),
+    (
+        "held-renew",
+        "Choose a replacement, then explicitly review renewal",
+    ),
 ];
 
 fn contains(target: &Target, input: &Input) -> bool {
@@ -140,10 +180,17 @@ impl App {
         changed
     }
 
-    fn held_operation_matches(&self, request: &store::records::Request) -> bool {
+    pub(super) fn held_request_owned(&self, request: &store::records::Request) -> bool {
         request.task_id == self.task_id
-            && matches!(&request.operation,
-            Operation::SetHeld { partner, form, .. } if *partner == self.lead().id && *form == self.form())
+            && match &request.operation {
+                Operation::SetHeld { partner, form, .. } => {
+                    *partner == self.lead().id && *form == self.form()
+                }
+                Operation::RenewHeld { review } => {
+                    review.owner.partner == self.lead().id && review.owner.form == self.form()
+                }
+                _ => false,
+            }
     }
 
     pub fn held_status(&self) -> Status {
@@ -151,7 +198,7 @@ impl App {
             .records
             .failed
             .as_ref()
-            .is_some_and(|request| self.held_operation_matches(request))
+            .is_some_and(|request| self.held_request_owned(request))
         {
             return Status::Failed;
         }
@@ -161,7 +208,7 @@ impl App {
             .iter()
             .chain(self.records.inflight.iter())
             .chain(self.records.queued.iter())
-            .any(|request| self.held_operation_matches(request))
+            .any(|request| self.held_request_owned(request))
         {
             return Status::Saving;
         }
@@ -239,6 +286,234 @@ impl App {
         }
     }
 
+    pub fn held_memory_result(&mut self, result: &Result<Vec<memory::Record>, String>) {
+        let valid = result.as_ref().is_ok_and(|records| {
+            records.len() <= memory::MAX_RECORDS
+                && records
+                    .iter()
+                    .all(|record| memory::validate_record(record).is_ok())
+        });
+        self.held.memory_observation = Some((self.task_id, self.cwd.clone(), valid));
+    }
+
+    pub fn held_reference_readiness(&self, partner: i64, form: usize) -> Readiness {
+        if !self.records.current_for(self.task_id, &self.cwd) {
+            return Readiness::Unknown;
+        }
+        let Some(item) = self
+            .records
+            .snapshot
+            .held_items
+            .iter()
+            .find(|item| item.partner == partner && item.form == form)
+        else {
+            return Readiness::NotConfigured;
+        };
+        match &item.target {
+            Target::Memory { .. }
+                if self.memory_loading
+                    || self.memory.task_id != self.task_id
+                    || self.memory.project != self.cwd
+                    || !self.held.memory_observation.as_ref().is_some_and(
+                        |(task, project, valid)| {
+                            *task == self.task_id && project == &self.cwd && *valid
+                        },
+                    ) =>
+            {
+                Readiness::Unknown
+            }
+            Target::File { path } if context::excluded(Path::new(path), &self.held.exclusions) => {
+                Readiness::Unavailable
+            }
+            Target::File { .. }
+                if self.repo_loading
+                    || self.repo_refresh
+                    || !self.repo_error.is_empty()
+                    || self.repository.as_ref().is_none_or(|report| {
+                        !report.current.complete || !report.current.stable
+                    }) =>
+            {
+                Readiness::Unknown
+            }
+            target if self.held_available(target) => Readiness::Available,
+            _ => Readiness::Unavailable,
+        }
+    }
+
+    fn held_retained_content(&self, target: &Target) -> Option<String> {
+        match target {
+            Target::Memory { id, revision } => self
+                .memory
+                .records
+                .iter()
+                .find(|record| {
+                    record.id == *id
+                        && record.revision == *revision
+                        && memory::visible(record, &self.cwd, self.task_id)
+                        && memory::validate_record(record).is_ok()
+                })
+                .map(|record| record.proposal.content.clone()),
+            // A retained capture is inspectable, not claimed as saved-file bytes.
+            Target::File { path } => self
+                .sources
+                .basket
+                .iter()
+                .find(|capture| {
+                    capture.available
+                        && capture.task_id == self.task_id
+                        && capture.root == self.cwd
+                        && &capture.path == path
+                })
+                .map(|capture| capture.text.clone()),
+        }
+    }
+
+    pub fn held_inspection_active(&self) -> bool {
+        self.overlay == Some(Overlay::Held) && self.held.inspection.is_some()
+    }
+
+    pub fn held_inspection_key(&mut self, key: KeyEvent) -> bool {
+        if !self.held_inspection_active() {
+            return false;
+        }
+        self.held_key(key);
+        true
+    }
+
+    pub fn inspect_held_reference(&mut self, partner: i64, form: usize) -> bool {
+        if form >= 9 {
+            return false;
+        }
+        let Some(member) = std::iter::once(&self.lead)
+            .chain(self.party.iter())
+            .find(|member| member.id == partner)
+        else {
+            return false;
+        };
+        let owner = store::Attribution {
+            form,
+            ..store::Attribution::of(member)
+        };
+        let target = self
+            .records
+            .current_for(self.task_id, &self.cwd)
+            .then(|| {
+                self.records
+                    .snapshot
+                    .held_items
+                    .iter()
+                    .find(|item| item.partner == partner && item.form == form)
+                    .map(|item| item.target.clone())
+            })
+            .flatten();
+        let content = target
+            .as_ref()
+            .and_then(|target| self.held_retained_content(target));
+        let return_to = self.overlay;
+        let readiness = self.held_reference_readiness(partner, form);
+        self.open_overlay(Overlay::Held);
+        self.held.renewal = None;
+        self.held.inspection = Some(Inspection {
+            owner,
+            target,
+            content,
+            return_to,
+            scroll: 0,
+            details: OnceCell::new(),
+            readiness,
+        });
+        true
+    }
+
+    pub fn invalidate_held_review(&mut self) {
+        self.held.renewal = None;
+        self.held.inspection = None;
+    }
+
+    fn review_held_renewal(&mut self, proposed: Target, file_proof: Option<FileProof>) {
+        let Some(expected) = self.held.target.clone() else {
+            self.held_queue(Some(proposed), file_proof);
+            return;
+        };
+        if expected == proposed {
+            self.held_queue(Some(proposed), file_proof);
+            return;
+        }
+        let old_content = self.held_retained_content(&expected);
+        let new_content = match &file_proof {
+            Some(_) => String::new(),
+            None => self.held_retained_content(&proposed).unwrap_or_default(),
+        };
+        let navigation = self.navigation();
+        self.open_overlay(Overlay::Held);
+        if navigation != self.navigation() {
+            // Own this staging event's persisted navigation before freezing the
+            // intent. update_at must not count it a second time after dispatch.
+            self.changed_task();
+        }
+        let review = Review {
+            task: self.task_id,
+            intent: Renewal {
+                expected,
+                proposed,
+                owner: self.attribution(),
+                task_revision: self.revision,
+                exclusions: self.held.exclusions.clone(),
+                file_proof,
+            },
+            old_content,
+            new_content,
+            scroll: 0,
+            scroll_max: Cell::new(0),
+            reviewed: Cell::new(false),
+            geometry: Cell::new((0, 0)),
+            details: OnceCell::new(),
+        };
+        // The frozen revision includes only the staging transition above.
+        self.held.inspection = None;
+        self.held.renewal = Some(review);
+    }
+
+    /// Local configuration UI readiness, never submission/dispatch authority.
+    pub fn held_renewal_can_confirm(&self) -> bool {
+        !self.held_blocked()
+    }
+
+    fn confirm_held_renewal(&mut self) {
+        let Some(review) = self.held.renewal.as_ref() else {
+            return;
+        };
+        let current = self.records.snapshot.held_items.iter().find(|item| {
+            item.partner == review.intent.owner.partner && item.form == review.intent.owner.form
+        });
+        if !review.reviewed.get() || self.width < 60 || self.height < 18 {
+            return;
+        }
+        if review.task != self.task_id
+            || review.intent.owner != self.attribution()
+            || review.intent.task_revision != self.revision
+            || review.intent.exclusions != self.held.exclusions
+            || current.map(|item| &item.target) != Some(&review.intent.expected)
+            || !self.held_available(&review.intent.proposed)
+        {
+            self.held.renewal = None;
+            self.held.notice = Some(Notice::Unavailable);
+            return;
+        }
+        if self.held_blocked() {
+            self.held.notice = Some(Notice::Busy);
+            return;
+        }
+        let intent = self.held.renewal.take().unwrap().intent;
+        let queued =
+            self.queue_record_operation(self.task_id, Operation::RenewHeld { review: intent });
+        self.held.notice = Some(if queued {
+            Notice::Waiting
+        } else {
+            Notice::QueueFull
+        });
+    }
+
     fn held_blocked(&self) -> bool {
         self.task_id <= 0
             || self.archived
@@ -294,6 +569,12 @@ impl App {
             return false;
         }
         self.reconcile_held();
+        if self.held.inspection.is_some() && command != "held" {
+            return true;
+        }
+        if command != "held" {
+            self.held.renewal = None;
+        }
         if command == "held" {
             if self.editing {
                 self.retain_action_editor();
@@ -318,6 +599,15 @@ impl App {
             return true;
         }
         match command {
+            "held-renew" => {
+                if matches!(self.held.target, Some(Target::Memory { .. })) {
+                    self.held.notice = Some(Notice::ChooseMemory);
+                    self.open_overlay(Overlay::Memory);
+                } else {
+                    self.held.notice = Some(Notice::ChooseFile);
+                    self.open_overlay(Overlay::Sources);
+                }
+            }
             "held-file" => {
                 if self.editing {
                     self.retain_action_editor();
@@ -353,7 +643,7 @@ impl App {
                         path: preview.path.clone(),
                     };
                     let proof = FileProof::new(preview.clone(), self.held.exclusions.clone());
-                    self.held_queue(Some(target), Some(proof));
+                    self.review_held_renewal(target, Some(proof));
                 } else {
                     self.held.notice = Some(Notice::ReviewFile);
                     self.open_overlay(Overlay::Held);
@@ -366,11 +656,11 @@ impl App {
                         && memory::visible(row, &self.cwd, self.task_id)
                 });
                 if let Some(record) = record {
-                    self.held_queue(
-                        Some(Target::Memory {
+                    self.review_held_renewal(
+                        Target::Memory {
                             id: record.id,
                             revision: record.revision,
-                        }),
+                        },
                         None,
                     );
                 } else {
@@ -453,6 +743,67 @@ impl App {
         }
         if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c') {
             self.request_quit();
+            return true;
+        }
+        if (self.held.inspection.is_some() || self.held.renewal.is_some())
+            && !key.modifiers.is_empty()
+        {
+            return true;
+        }
+        if self.held.inspection.is_some() {
+            match key.code {
+                KeyCode::Esc => {
+                    let return_to = self
+                        .held
+                        .inspection
+                        .take()
+                        .and_then(|scope| scope.return_to);
+                    if let Some(overlay) = return_to {
+                        self.open_overlay(overlay);
+                    } else {
+                        self.close_overlay();
+                    }
+                }
+                KeyCode::Down | KeyCode::PageDown => {
+                    let scope = self.held.inspection.as_mut().unwrap();
+                    scope.scroll =
+                        scope
+                            .scroll
+                            .saturating_add(if key.code == KeyCode::Down { 1 } else { 8 });
+                }
+                KeyCode::Up | KeyCode::PageUp => {
+                    let scope = self.held.inspection.as_mut().unwrap();
+                    scope.scroll =
+                        scope
+                            .scroll
+                            .saturating_sub(if key.code == KeyCode::Up { 1 } else { 8 });
+                }
+                _ => {}
+            }
+            return true;
+        }
+        if self.held.renewal.is_some() {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Enter => {
+                    self.held.renewal = None;
+                }
+                KeyCode::Char('y') => self.confirm_held_renewal(),
+                KeyCode::Down | KeyCode::PageDown => {
+                    let review = self.held.renewal.as_mut().unwrap();
+                    review.scroll = review
+                        .scroll
+                        .saturating_add(if key.code == KeyCode::Down { 1 } else { 8 })
+                        .min(review.scroll_max.get());
+                }
+                KeyCode::Up | KeyCode::PageUp => {
+                    let review = self.held.renewal.as_mut().unwrap();
+                    review.scroll =
+                        review
+                            .scroll
+                            .saturating_sub(if key.code == KeyCode::Up { 1 } else { 8 });
+                }
+                _ => {}
+            }
             return true;
         }
         if key.modifiers.is_empty() {

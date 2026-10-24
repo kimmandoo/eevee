@@ -2,6 +2,14 @@
 
 ## 2026-10-25
 
+- feat(moves): added MV09 exact semantic old/new review, source-bound party copying and explicit same-name replacement/relearning while preserving immutable usage attribution and independent taught copies.
+- feat(held): added PK08 deliberate exact-reference renewal with post-navigation revision binding, transactional old-target CAS, control-safe retained-content disclosure and no automatic pinning or frozen-request changes.
+- feat(party): added PT12 mapped-party move/held/route/draft/writer readiness with separate staging eligibility, truthful cached submission advice and scoped read-only inspection without discovery or portable local metadata.
+- docs(storage): documented genuine0.1.31 refusal of the tested new same-name-history/stale-memory states despite unchanged SQL19 and portable shapes, preserving full-directory backup and conservative rollback requirements.
+- fix(party): stopped settled terminal native outcome uncertainty from impersonating owned work in formation staging and mapped-owner readiness, while retaining frozen CLI/tool-effect/journal and local-execution safety gates.
+- fix(party): made mapped move-inspector arrows scroll within the frozen owner instead of swallowing advertised navigation, retaining bounded paging and preventing partner retargeting.
+- test(eevee): verified12 new Wave5 journeys, four legacy TM journeys, three six-partner boundaries and1,675 Rust tests with strict Clippy/release build, without expanding the default CI matrix.
+- chore(build): preserved complete Wave5 success/failure evidence and the runnable final binary outside target, then removed4.1G of regenerated verification output and confirmed the preserved executable still ran.
 - chore(build): archived verified v0.1.31 release/failure evidence and the genuine public binary outside target, then removed67G of accumulated generated output before authorized Wave5 work.
 - docs(release): published v0.1.31 from `1b83cc4` after same-attempt Check/all-five-native qualification and exact immutable-artifact promotion without replacing0.1.30 assets.
 - docs(verification): verified all eight public assets, seven checksums, five qualified archive identities,24 installation groups,34 installed terminal scenarios/56 zero-output idle windows and11 actual coding/recovery/wave reports.
@@ -175,6 +183,15 @@
 - docs(release): published v0.1.19 from source `63f1007` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.32
+
+- feat(moves): added MV09 complete semantic replacement/TM review and source-revision-bound teaching without rewriting original usage or synchronizing independent copies.
+- feat(party): added PT12 cached mapped-party readiness and navigation through existing scoped inspectors without changing lead, dispatching or weakening atomic formation application.
+- feat(held): added PK08 neutral old/new held-reference renewal with exact transactional revalidation, truthful unavailable old bodies and unchanged context selection/frozen requests.
+- docs(storage): retained SQL19, TM1, formation2 and SDK bridge10 while documenting data-dependent older-reader refusal and mandatory full-directory backup; source0.1.32 remained unpublished.
+- fix(party): reused authoritative frozen work ownership after native cancellation instead of treating unknown remote completion as an unreleased local writer; retained honest partial output and actual uncertain-effect blocks.
+- fix(party): restored bounded arrow scrolling in compact mapped move inspection without selecting another partner or granting mutation.
 
 ## 0.1.31
 

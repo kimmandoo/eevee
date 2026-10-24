@@ -265,6 +265,12 @@ def run(binary, output, root, size, ascii_mode, language):
             files.until(journey.session, lambda: len(journey.memories()) == 1, 'explicit memory approval did not commit')
             assert journey.outgoing_memories() == [], 'memory approval or held preference selected outgoing memory'
             journey.session.command('held-set-memory')
+            # Replacing an existing slot now requires PK08's complete neutral review.
+            journey.session.send('\x1b[6~' * 64)
+            files.until(journey.session, lambda: any(value in journey.session.display()
+                        for value in ('y renew exactly', 'y 정확히 갱신')),
+                        'replacement did not expose deliberate held renewal consent')
+            journey.session.send('y')
             files.until(journey.session, lambda: journey.slot() is not None
                         and json.loads(journey.slot()['target']) == {
                             'memory': {'id': journey.memories()[0]['id'], 'revision': journey.memories()[0]['revision']}},

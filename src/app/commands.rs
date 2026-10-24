@@ -1207,8 +1207,13 @@ impl App {
     }
 
     pub(super) fn open_commands(&mut self) {
+        if self.formation_inspector_active() || self.held_inspection_active() {
+            return;
+        }
         self.updates.leave();
         self.workflow.authoring.invalidate();
+        self.moves.invalidate_review();
+        self.invalidate_held_review();
         self.command_popup = Some(Popup {
             query: String::new(),
             selected: None,
@@ -1401,6 +1406,14 @@ impl App {
     }
 
     pub fn command(&mut self, name: &str) -> bool {
+        if (self.formation_inspector_active() || self.held_inspection_active())
+            && !matches!(name, "cancel" | "cancel-all" | "quit")
+        {
+            self.notice = crate::i18n::Language::ENGLISH
+                .text(crate::i18n::Message::FormationReadonly)
+                .into();
+            return true;
+        }
         if let Some(reason) = self.command_disabled_reason(name) {
             self.notice = reason;
             self.offer_owner(name);

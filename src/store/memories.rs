@@ -77,7 +77,7 @@ impl State {
                         "UPDATE memories SET revision=?1,project=?2,task_id=?3,scope=?4,proposal=?5 WHERE id=?6 AND revision=?7",
                         params![revision as i64, self.project, task_id, scope, json, previous.id, previous.revision as i64],
                     ).map_err(|error| format!("Cannot edit memory: {error}"))?;
-                    super::held::purge_memory(&transaction, previous.id)?;
+                    // Keep the exact old held identity unavailable until deliberate renewal.
                 } else {
                     let count: i64 = transaction
                         .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))

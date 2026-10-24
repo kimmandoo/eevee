@@ -524,6 +524,7 @@ impl App {
     pub(super) fn set_form(&mut self, form: usize) {
         self.evolution.motion = None;
         if self.lead.form != form {
+            self.invalidate_held_review();
             self.evolution.transition = Some(evolution::Transition {
                 from: self.lead.form,
                 to: form,

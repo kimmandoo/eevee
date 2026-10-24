@@ -1,8 +1,38 @@
 # Completed work
 
-Updated on2026-10-25 through accepted Wave1–4 source additions, fully released and publicly verified in0.1.31 after0.1.30. Wave5 is newly authorized but not completed. Local controlled-peer proof is not live-provider conformance. This is historical completion evidence, not an execution queue. Active work and priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
+Updated on2026-10-25 through all16 accepted Wave1–5 assignments. Waves1–4 were released/publicly verified in0.1.31; Wave5 is accepted unreleased0.1.32 source, not a new publication. Local controlled-peer proof is not live-provider conformance. This is historical completion evidence, not an execution queue. Active work and priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
 
 The specifications below retain their original acceptance notes and wording. Old schema numbers, limits, priorities, proposed ordering and release statements are historical; they do not override the current contract. Scoped completion does not establish authenticated conformance for every provider. T05 was dropped, not completed.
+
+## Wave5 — accepted source 0.1.32, unreleased
+
+All three Wave5 contracts passed four actual English/Korean120×36/60×18 journeys each. MV09 exercised real argv/cwd processes, immutable history, independent teaching and fresh consent. PK08 exercised six groups per journey including controls, source/policy/owner/revocation races and immutable frozen HTTP bytes. PT12 exercised seven groups per journey including scoped navigation, real command ownership, actual keyless Implement `writing=1`, refusal, physical EOF/local lease settlement, retained unknown remote outcome, atomic staging and semantic-only export. Three compact six-partner/maximum-wide-name boundaries passed. Rust1.90.0 passed1,675 tests/two ignored, rustfmt, strict Clippy and release build; existing regressions caught native-uncertainty overblocking and swallowed scoped arrows before repair. No0.1.32 publication or live-provider acceptance is implied.
+
+Evidence: `target/wave5-moves-en-b`, `wave5-moves-ko-c`, `wave5-held-en-{wide,compact}-c`, `wave5-held-ko-{wide,compact}-d`, `wave5-tm-regression-a` and the three six-partner boundaries used candidateA `96af972dee88e94f11317fce4fa21e89ee4ccc9f24fc131f10a41e07fab6dd21`. Final PT12 `wave5-pt12-{en,ko}-c` used candidateC `4c7821a634e199aee619cc68a8f1e89f8c40be7addada79aa0f77907bd433859`; only formation ownership/navigation and existing regressions changed between these proofs. Genuine public0.1.31 refused both tested new row-state fixtures without database mutation; current startup retained identity/history with no replay. Earlier failed reports remain retained; durable evidence locations are in the checkpoint. Original specifications below retain their wording except completion markers.
+
+### MV09 — Semantic move and TM replacement review
+
+- [x] Understand the exact old/new definition before replacing or teaching a move.
+- **Priority:** 2. **Needs:** —. **Builds on:** MV01A, MV01B, MV01C, MV04, MV05, MV07, MV08A, MV08B.
+- **Change:** Extend existing replacement/teach/import review with ordered argv including empty arguments, cwd, pins, instructions and criteria. Distinguish a name-only edit. Bind old record/revision and proposed definition; concurrent rename/replacement invalidates review.
+- **Accept:** Review one changed argument and a same-name imported TM, then exercise cancel, restart, stale review and one ordinary explicit use. Cancellation preserves inventory and draft. Historical usage remains attributed to the original record; taught copies do not silently synchronize.
+- **Watch out:** Reuse new-record/forgotten-old semantics where applicable; never rewrite history. Portable TMs contain semantics only, not local IDs, grants, teacher identity or historical evidence. No parallel executor.
+
+### PK08 — Deliberate held-reference renewal
+
+- [x] Review and explicitly renew a changed approved-memory reference or a user-selected replacement file.
+- **Priority:** 2. **Needs:** —. **Builds on:** PK04, S02, C02, C03A.
+- **Change:** Show old/new identity and available retained content through existing source review. If old content is unavailable, say so rather than inventing a diff. Reuse the one-reference-per-project/partner/form store; renewal changes configuration, not active pin/selection.
+- **Accept:** A changed memory revision makes the old held reference unavailable until renewal. Exercise moved-file replacement, cancel, exclusion/revocation/owner races and restart. Cancel preserves old configuration and current basket; renewal never alters an already frozen request or silently selects content.
+- **Watch out:** No duplicated payload, automatic latest revision, rename tracking, source search or multiple equipment slots. Existing containment and no-link rules remain authoritative.
+
+### PT12 — Formation mapped-party readiness preview
+
+- [x] See whether mapped partners can stage a formation and whether their routes are ready to submit.
+- **Priority:** 2. **Needs:** —. **Builds on:** PT11, PT05B, PT07A, PT08A, EV17, PK04, MV02A.
+- **Change:** Extend mapping review with local move availability, held-reference availability, cached remembered-route readiness, nonempty drafts and busy writer ownership. Separate staging eligibility from submission readiness; unknown is not unavailable.
+- **Accept:** A three-partner fixture covers a missing route, unavailable held reference, nonempty draft and a busy-owner race. Warning navigation opens the existing inspector without changing the lead or applying the formation. Apply revalidates roster/draft/ownership atomically; export contains no new local readiness metadata.
+- **Watch out:** Inspection performs no discovery/network. No loadout copying, partner creation, automatic teaching or chained dispatch; TC02/TC05 retain execution planning/recovery scope. No new formation-format IDs, credentials, sessions or grants.
 
 ## Waves 3–4 — accepted v0.1.30 source
 

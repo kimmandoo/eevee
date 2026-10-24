@@ -69,8 +69,6 @@ desks-moves-four-slots-are-occupied-across-project-and = Four slots are occupied
 desks-moves-up-down-choose-enter-review-exact-replacement = Up/Down Choose / Enter Review exact replacement
     Esc Give up / nothing changes until explicit confirmation
 
-desks-moves-resize-to-see-the-local-change-summary = Resize to see the local change summary
-    Enter Stay / Esc Cancel (no change)
 
 desks-moves-stay-confirm-local-change-enter-confirm-left = Stay / [Confirm local change] / Enter Confirm
     Left/Right Choose / PgUp/PgDn Details / Esc Cancel
@@ -409,9 +407,6 @@ desks-moves-change-summary = { $action } / { $scope } / { $owner }.
 desks-moves-replacement-summary = { "" }
     Forgets { $scope } move #{ $id } into Reminder.
 
-desks-moves-replacement-details = { "" }
-    EXACT REPLACEMENT: move #{ $id }, revision { $revision }
-    { $proposal }
 
 desks-memory-discard-preview = Keep this editable draft or discard it?
     { "" }

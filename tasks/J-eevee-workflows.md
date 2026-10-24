@@ -1,32 +1,8 @@
 # J — Eevee-specific workflow extensions
 
-EV19 completed in Wave1 and PK07 in Wave4; their specifications and scoped proof are in [COMPLETED.md](COMPLETED.md). The four remaining extensions below are planned only and extend shipped forms, moves/TMs, Dex, formations, held references and summaries rather than rebuilding them. See [active order](../task.md) and [design rules](../docs/DESIGN_RULES.md).
+EV19, PK07 and all Wave5 MV09/PK08/PT12 contracts completed; their intact specifications and scoped proof are in [COMPLETED.md](COMPLETED.md). PK09 below remains planned for a new Wave6 request. These extensions reuse shipped forms, moves/TMs, Dex, formations, held references and summaries rather than rebuilding them. See [active order](../task.md) and [design rules](../docs/DESIGN_RULES.md).
 
 Keep the concept useful to coding: no XP, levels, streaks, random unlocks, productivity scores or provider gates. Flavor stays out of provider packets and portable handoffs. Navigation never dispatches, executes, grants or changes a frozen request. Reuse existing storage and inspectors; preserve exact drafts/carets, single-writer ownership and truthful unknown outcomes. Use focused behavior regressions plus actual English/Korean compact/wide journeys where the changed surface warrants them, not a new blanket platform cross-product. Existing rights review is not legal clearance; new assets/names require their own review.
-
-### MV09 — Semantic move and TM replacement review
-
-- [ ] Understand the exact old/new definition before replacing or teaching a move.
-- **Priority:** 2. **Needs:** —. **Builds on:** MV01A, MV01B, MV01C, MV04, MV05, MV07, MV08A, MV08B.
-- **Change:** Extend existing replacement/teach/import review with ordered argv including empty arguments, cwd, pins, instructions and criteria. Distinguish a name-only edit. Bind old record/revision and proposed definition; concurrent rename/replacement invalidates review.
-- **Accept:** Review one changed argument and a same-name imported TM, then exercise cancel, restart, stale review and one ordinary explicit use. Cancellation preserves inventory and draft. Historical usage remains attributed to the original record; taught copies do not silently synchronize.
-- **Watch out:** Reuse new-record/forgotten-old semantics where applicable; never rewrite history. Portable TMs contain semantics only, not local IDs, grants, teacher identity or historical evidence. No parallel executor.
-
-### PT12 — Formation mapped-party readiness preview
-
-- [ ] See whether mapped partners can stage a formation and whether their routes are ready to submit.
-- **Priority:** 2. **Needs:** —. **Builds on:** PT11, PT05B, PT07A, PT08A, EV17, PK04, MV02A.
-- **Change:** Extend mapping review with local move availability, held-reference availability, cached remembered-route readiness, nonempty drafts and busy writer ownership. Separate staging eligibility from submission readiness; unknown is not unavailable.
-- **Accept:** A three-partner fixture covers a missing route, unavailable held reference, nonempty draft and a busy-owner race. Warning navigation opens the existing inspector without changing the lead or applying the formation. Apply revalidates roster/draft/ownership atomically; export contains no new local readiness metadata.
-- **Watch out:** Inspection performs no discovery/network. No loadout copying, partner creation, automatic teaching or chained dispatch; TC02/TC05 retain execution planning/recovery scope. No new formation-format IDs, credentials, sessions or grants.
-
-### PK08 — Deliberate held-reference renewal
-
-- [ ] Review and explicitly renew a changed approved-memory reference or a user-selected replacement file.
-- **Priority:** 2. **Needs:** —. **Builds on:** PK04, S02, C02, C03A.
-- **Change:** Show old/new identity and available retained content through existing source review. If old content is unavailable, say so rather than inventing a diff. Reuse the one-reference-per-project/partner/form store; renewal changes configuration, not active pin/selection.
-- **Accept:** A changed memory revision makes the old held reference unavailable until renewal. Exercise moved-file replacement, cancel, exclusion/revocation/owner races and restart. Cancel preserves old configuration and current basket; renewal never alters an already frozen request or silently selects content.
-- **Watch out:** No duplicated payload, automatic latest revision, rename tracking, source search or multiple equipment slots. Existing containment and no-link rules remain authoritative.
 
 ### PK09 — Partner contribution drill-down
 

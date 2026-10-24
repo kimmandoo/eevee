@@ -48,6 +48,9 @@ impl App {
         self.updates.leave();
         self.tool_plans.invalidate();
         self.workflow.authoring.invalidate();
+        if overlay != Overlay::Held {
+            self.invalidate_held_review();
+        }
         if overlay == Overlay::Sources
             && let Some(task) = self
                 .tasks
@@ -59,6 +62,7 @@ impl App {
             self.sources.set_optimizer_runs(&self.execution.history);
         }
         if self.overlay == Some(Overlay::Moves) && overlay != Overlay::Moves {
+            self.moves.invalidate_review();
             self.cancel_move_validation();
         }
         if overlay != Overlay::Sources {
@@ -163,7 +167,11 @@ impl App {
         self.updates.leave();
         self.tool_plans.invalidate();
         self.workflow.authoring.invalidate();
+        if self.overlay == Some(Overlay::Held) {
+            self.invalidate_held_review();
+        }
         if self.overlay == Some(Overlay::Moves) {
+            self.moves.invalidate_review();
             self.cancel_move_validation();
         }
         if self.overlay == Some(Overlay::Sources) {

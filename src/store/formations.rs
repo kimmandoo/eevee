@@ -108,6 +108,7 @@ impl State {
                 let mut task = load_task(&tx, &self.project, expected.id)?
                     .ok_or("Formation task is no longer available")?;
                 if task.revision != expected.revision
+                    || task.project != expected.project
                     || task.lead_partner != expected.lead_partner
                     || task.partner_drafts != expected.partner_drafts
                     || task.complete

@@ -82,6 +82,11 @@ impl App {
                 true
             }
             Event::Paste(_)
+                if self.formation_inspector_active() || self.held_inspection_active() =>
+            {
+                false
+            }
+            Event::Paste(_)
                 if self.cooperation.cancel_review.is_some()
                     || self.cooperation.journal_discard.is_some()
                     || self.cooperation_ui.release.is_some() =>
@@ -849,14 +854,18 @@ impl App {
     }
 
     pub(super) fn key(&mut self, key: KeyEvent, now: std::time::Instant) -> bool {
-        if self.overlay == Some(Overlay::Agents) {
+        let scoped_inspector = self.formation_inspector_active() || self.held_inspection_active();
+        if self.overlay == Some(Overlay::Agents) && !scoped_inspector {
             self.agents.connection_owner = Some((self.task_id, self.lead.id, self.planning.agent));
         }
         if self.journal_discard_key(key) || self.cancellation_key(key) || self.cooperation_key(key)
         {
             return true;
         }
-        if self.overlay == Some(Overlay::Agents) && self.agents.connection_editing() {
+        if self.overlay == Some(Overlay::Agents)
+            && !scoped_inspector
+            && self.agents.connection_editing()
+        {
             if key.code == KeyCode::Char('c')
                 && key.modifiers == KeyModifiers::CONTROL
                 && key.kind == KeyEventKind::Press
@@ -919,6 +928,9 @@ impl App {
             && key.kind == KeyEventKind::Press
         {
             self.request_quit();
+            return true;
+        }
+        if self.formation_inspector_key(key) || self.held_inspection_key(key) {
             return true;
         }
         if self.command_popup.is_some() {

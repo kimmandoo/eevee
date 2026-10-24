@@ -66,6 +66,11 @@ pub enum Operation {
         proposal: Proposal,
         replace: Option<(i64, u64)>,
     },
+    Copy {
+        proposal: Proposal,
+        source: (i64, u64),
+        replace: Option<(i64, u64)>,
+    },
     Rename {
         id: i64,
         revision: u64,
@@ -339,7 +344,7 @@ impl State {
                 }
                 proposal.name.clone_from(name);
                 domain::validate_for_root(Path::new(&self.project), &proposal)?;
-                unique_all(&transaction, &proposal, None)?;
+                unique_learning(&transaction, &visible, &proposal, *replace, None)?;
                 capacity(&transaction, "moves", MAX_RECORDS)?;
                 make_slot(&transaction, &visible, *replace, None)?;
                 transaction.execute("INSERT INTO moves(revision,project,partner,form,scope,proposal,forgotten,created) VALUES(1,?1,?2,?3,?4,?5,0,?6)", params![self.project,proposal.partner,proposal.form as i64,self::scope(*scope),bounded_json(&proposal,MAX_JSON)?,timestamp()?]).map_err(sql)?;
@@ -364,15 +369,18 @@ impl State {
                 }
                 domain::validate_for_root(Path::new(&self.project), &record.proposal)?;
             }
-            Operation::Teach { proposal, replace } => {
+            Operation::Teach { proposal, replace }
+            | Operation::Copy {
+                proposal, replace, ..
+            } => {
                 if proposal.partner != request.partner || proposal.form != request.form {
                     return Err("Move target differs from the selected partner and form".into());
                 }
                 domain::validate_for_root(Path::new(&self.project), proposal)?;
-                validate_provenance(&transaction, &self.project, &request, proposal)?;
+                validate_provenance(&transaction, &self.project, &request, proposal, &roster)?;
                 // Names belong to partner/form, not a scope; personal records must
                 // also remain unambiguous when another project becomes visible.
-                unique_all(&transaction, proposal, None)?;
+                unique_learning(&transaction, &visible, proposal, *replace, None)?;
                 capacity(&transaction, "moves", MAX_RECORDS)?;
                 make_slot(&transaction, &visible, *replace, None)?;
                 transaction.execute("INSERT INTO moves(revision,project,partner,form,scope,proposal,forgotten,created) VALUES(1,?1,?2,?3,?4,?5,0,?6)",params![self.project,proposal.partner,proposal.form as i64,scope(proposal.scope),bounded_json(proposal,MAX_JSON)?,timestamp()?]).map_err(sql)?;
@@ -414,6 +422,13 @@ impl State {
                 if !record.forgotten {
                     return Err("Move is already active".into());
                 }
+                unique_learning(
+                    &transaction,
+                    &visible,
+                    &record.proposal,
+                    *replace,
+                    Some(*id),
+                )?;
                 domain::validate_for_root(Path::new(&self.project), &record.proposal)?;
                 make_slot(&transaction, &visible, *replace, Some(*id))?;
                 revise(&transaction, record, &record.proposal, false)?;
@@ -494,33 +509,99 @@ fn unique_all(
         .map_err(sql)?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(sql)?;
+    let key = name_key(&proposal.name);
+    if all
+        .iter()
+        .any(|r| Some(r.id) == except && !r.forgotten && name_key(&r.proposal.name) == key)
+    {
+        // Cosmetic spelling/case changes retain an already owned active label;
+        // they do not claim a forgotten record's name for a new action.
+        return if all
+            .iter()
+            .any(|r| Some(r.id) != except && !r.forgotten && name_key(&r.proposal.name) == key)
+        {
+            Err("Move name is already used by another active move".into())
+        } else {
+            Ok(())
+        };
+    }
     unique(&all, &proposal.name, except)
 }
+/// Only an explicit same-name active replacement can retain duplicate historical
+/// labels. Originals keep their immutable IDs, steps, provenance and usage links.
+fn unique_learning(
+    connection: &Connection,
+    visible: &[Record],
+    proposal: &Proposal,
+    replace: Option<(i64, u64)>,
+    relearn: Option<i64>,
+) -> Result<(), String> {
+    let Some((id, revision)) = replace else {
+        return unique_all(connection, proposal, relearn);
+    };
+    let old = selected(visible, id, revision)?;
+    if old.forgotten {
+        return Err("Replacement must be an exact active move".into());
+    }
+    let key = name_key(&proposal.name);
+    if name_key(&old.proposal.name) != key {
+        return unique_all(connection, proposal, relearn);
+    }
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT {RECORD_COLUMNS} FROM moves WHERE partner=?1 AND form=?2"
+        ))
+        .map_err(sql)?;
+    let all = statement
+        .query_map(params![proposal.partner, proposal.form as i64], record_row)
+        .map_err(sql)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(sql)?;
+    if all
+        .iter()
+        .any(|r| r.id != id && !r.forgotten && name_key(&r.proposal.name) == key)
+    {
+        return Err("Another active move already has that name".into());
+    }
+    Ok(())
+}
+
 fn validate_provenance(
     connection: &Connection,
     project: &str,
     request: &Request,
     proposal: &Proposal,
+    roster: &[Partner],
 ) -> Result<(), String> {
+    if matches!(request.operation, Operation::Copy { .. })
+        && proposal.provenance.taught_by.is_none()
+    {
+        return Err("Teaching source owner is missing".into());
+    }
     if let Some(teacher) = proposal.provenance.taught_by {
         if teacher == proposal.partner {
             return Err("A copied move must identify a different teaching partner".into());
         }
-        let source = records(connection, project, teacher, proposal.form)?
-            .into_iter()
-            .find(|record| {
-                !record.forgotten
-                    && record.proposal.steps == proposal.steps
-                    && record.proposal.provenance.task_id == proposal.provenance.task_id
-                    && record.proposal.provenance.sources == proposal.provenance.sources
-            })
-            .ok_or("Copied move does not match a visible teaching partner's approved move")?;
-        let member = partners(connection)?
-            .into_iter()
-            .find(|member| member.id == source.proposal.partner)
+        let Operation::Copy { source, .. } = &request.operation else {
+            return Err(
+                "Party teaching requires the exact reviewed source record and revision".into(),
+            );
+        };
+        let sources = records(connection, project, teacher, proposal.form)?;
+        let source = selected(&sources, source.0, source.1)?;
+        if source.forgotten
+            || source.proposal.steps != proposal.steps
+            || source.proposal.provenance.task_id != proposal.provenance.task_id
+            || source.proposal.provenance.sources != proposal.provenance.sources
+        {
+            return Err("Teaching source changed; review the exact copy again".into());
+        }
+        let member = roster
+            .iter()
+            .find(|member| member.id == teacher)
             .ok_or("Teaching partner is no longer present")?;
         if proposal.provenance.teacher_name.as_deref()
-            != Some(Attribution::of(&member).name.as_str())
+            != Some(Attribution::of(member).name.as_str())
         {
             return Err("Teaching partner name changed; preview the copy again".into());
         }
@@ -1398,11 +1479,13 @@ pub(super) fn inspect(connection: &Connection) -> Result<(), String> {
         }
         if rows.iter().any(|(other, _, _, _)| {
             other.id != record.id
+                && !record.forgotten
+                && !other.forgotten
                 && other.proposal.partner == *partner
                 && other.proposal.form == *form
                 && name_key(&other.proposal.name) == name_key(&record.proposal.name)
         }) {
-            return Err("Duplicate stored move name".into());
+            return Err("Duplicate active stored move name".into());
         }
     }
     enforce_slots(connection)?;

@@ -3,7 +3,7 @@ use super::{Paint, centered, clipped, editor_rows, panel, row, selection_details
 use crate::{
     app::{
         App,
-        moves::{Learning, Mode, State, kind, usage_outcome},
+        moves::{Learning, Mode, ReviewText, State, kind, usage_outcome},
     },
     config::Config,
     domain::FORMS,
@@ -491,7 +491,32 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             );
         }
         Mode::Review | Mode::Forget => {
-            let (summary, details) = review_details(&app.moves, &partner, paint);
+            if app.moves.review_text.as_ref().is_some_and(|cached| {
+                cached.language != config.language || cached.recipient != partner
+            }) {
+                app.moves.invalidate_review();
+            }
+            let review_text = app
+                .moves
+                .review_text
+                .take()
+                .filter(|cached| {
+                    app.moves.mode == Mode::Review
+                        && app.moves.review_current()
+                        && cached.language == config.language
+                        && cached.recipient == partner
+                })
+                .unwrap_or_else(|| {
+                    let (summary, details) = review_details(&app.moves, &partner, paint);
+                    ReviewText {
+                        language: config.language,
+                        recipient: partner,
+                        summary,
+                        details,
+                    }
+                });
+            let summary = &review_text.summary;
+            let details = &review_text.details;
             // Effect and owner stay visible while long exact steps are scrolled.
             let summary = summary
                 .lines()
@@ -500,14 +525,21 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 .join("\n");
             text(frame, row(body, 0, 3), &summary, paint.accent);
             let detail_area = row(body, 3, body.height.saturating_sub(3));
-            render_details(frame, detail_area, &details, &mut app.moves, paint);
-            app.moves.reviewed = body.height >= 4;
+            render_details(frame, detail_area, details, &mut app.moves, paint);
+            app.moves.reviewed = body.height >= 4
+                && (app.moves.mode != Mode::Review
+                    || (app.moves.review_current()
+                        && app.moves.exposed_rows
+                            >= app.moves.scroll_max as usize + detail_area.height as usize));
             if !app.moves.reviewed {
                 app.moves.affirmative = false;
             }
+            if app.moves.mode == Mode::Review && app.moves.review_current() {
+                app.moves.review_text = Some(review_text);
+            }
             let controls = if !app.moves.reviewed {
                 paint
-                    .hint(crate::i18n::Message::DesksMovesResizeToSeeTheLocalChangeSummary)
+                    .hint(crate::i18n::Message::TmSemanticExpose)
                     .to_owned()
             } else if app.moves.affirmative {
                 paint
@@ -598,6 +630,14 @@ fn render_details(frame: &mut Frame, area: Rect, details: &str, state: &mut Stat
     );
     state.scroll_max = max;
     state.scroll = state.scroll.min(max);
+    if state.mode == Mode::Review
+        && state.review_current()
+        && state.scroll as usize <= state.exposed_rows
+    {
+        state.exposed_rows = state
+            .exposed_rows
+            .max(state.scroll as usize + area.height as usize);
+    }
 }
 fn render_name(frame: &mut Frame, body: Rect, footer: Rect, state: &State, paint: &Paint) {
     let learning = state.learning.as_ref();
@@ -663,7 +703,10 @@ fn render_name(frame: &mut Frame, body: Rect, footer: Rect, state: &State, paint
                 ("scope", (state.scope.label())),
                 (
                     "change",
-                    (if matches!(learning, Some(Learning::Teach(_) | Learning::Import(_))) {
+                    (if matches!(
+                        learning,
+                        Some(Learning::Teach(_) | Learning::Import(_) | Learning::Copy(..))
+                    ) {
                         paint.hint(crate::i18n::Message::DesksMovesLeftRightChangesScope)
                     } else {
                         paint.hint(crate::i18n::Message::DesksMovesUnchanged)
@@ -694,7 +737,7 @@ pub(super) fn proposal_details(proposal: &Proposal, paint: &Paint) -> String {
         Steps::Run { argv, cwd } => {
             text.push_str(&paint.format(
                 crate::i18n::Template::DesksMovesRunDetails,
-                &[("argv", &format!("{:?}", argv)), ("cwd", (cwd))],
+                &[("argv", &format!("{argv:?}")), ("cwd", &format!("{cwd:?}"))],
             ));
         }
         Steps::Pins { pins } => {
@@ -712,7 +755,7 @@ pub(super) fn proposal_details(proposal: &Proposal, paint: &Paint) -> String {
             text.push_str(paint.hint(
                 crate::i18n::Message::DesksMovesUserAuthoredInstructionOnlyNotProviderOutput,
             ));
-            text.push_str(instruction);
+            text.push_str(&format!("{instruction:?}"));
             text.push_str(paint.hint(crate::i18n::Message::DesksMovesContextSelectors));
             for pin in pins {
                 text.push_str(&format!(
@@ -726,9 +769,9 @@ pub(super) fn proposal_details(proposal: &Proposal, paint: &Paint) -> String {
             );
         }
         Steps::Task { goal, criteria } => {
-            text.push_str(&format!("Goal:\n{goal}\nCriteria:\n"));
+            text.push_str(&format!("Goal:\n{goal:?}\nCriteria:\n"));
             for criterion in criteria {
-                text.push_str(&format!("- {criterion}\n"));
+                text.push_str(&format!("- {criterion:?}\n"));
             }
         }
     }
@@ -852,11 +895,23 @@ fn review_details(state: &State, partner: &str, paint: &Paint) -> (String, Strin
             String::new(),
         );
     };
-    let mut proposal = learning.proposal().clone();
-    proposal.name.clone_from(&state.name);
-    proposal.scope = state.scope;
+    let Some(review) = &state.review else {
+        return (
+            paint.hint(crate::i18n::Message::TmSemanticStale).into(),
+            String::new(),
+        );
+    };
+    if !state.review_current() {
+        return (
+            paint.hint(crate::i18n::Message::TmSemanticStale).into(),
+            String::new(),
+        );
+    }
+    let proposal = &review.proposal;
     let action = match learning {
-        Learning::Teach(_) => paint.hint(crate::i18n::Message::DesksMovesTeach),
+        Learning::Teach(_) | Learning::Copy(..) => {
+            paint.hint(crate::i18n::Message::DesksMovesTeach)
+        }
         Learning::Import(_) => paint.hint(crate::i18n::Message::TmImportAction),
         Learning::Relearn(_) => paint.hint(crate::i18n::Message::DesksMovesRelearnIdenticalSteps),
         Learning::Rename(_) => paint.hint(crate::i18n::Message::DesksMovesRenameLabel),
@@ -869,7 +924,63 @@ fn review_details(state: &State, partner: &str, paint: &Paint) -> (String, Strin
             ("owner", &(clipped(partner, 16))),
         ],
     );
-    let mut details = proposal_details(&proposal, paint);
+    let mut details = paint.format(
+        crate::i18n::Template::TmSemanticScope,
+        &[
+            ("partner", partner),
+            ("id", &proposal.partner.to_string()),
+            ("form", FORMS[proposal.form].name),
+            ("scope", proposal.scope.label()),
+            ("name", &proposal.name),
+        ],
+    );
+    details.push('\n');
+    details.push_str(paint.hint(crate::i18n::Message::TmSemanticLiterals));
+    details.push('\n');
+    details.push_str(paint.hint(if review.name_only {
+        crate::i18n::Message::TmSemanticNameOnly
+    } else if review.same_semantics == Some(true) {
+        crate::i18n::Message::TmSemanticEqual
+    } else if review.same_semantics.is_none() {
+        crate::i18n::Message::TmSemanticFresh
+    } else {
+        crate::i18n::Message::TmSemanticChanged
+    }));
+    details.push('\n');
+    if let Learning::Copy(_, (id, revision)) = learning {
+        details.push_str(&paint.format(
+            crate::i18n::Template::TmSemanticTeacher,
+            &[("id", &id.to_string()), ("revision", &revision.to_string())],
+        ));
+        details.push('\n');
+    }
+    if let Learning::Relearn(source) = learning {
+        details.push_str(&paint.format(
+            crate::i18n::Template::TmSemanticReminder,
+            &[
+                ("id", &source.id.to_string()),
+                ("revision", &source.revision.to_string()),
+            ],
+        ));
+        details.push('\n');
+    }
+    if let Some(old) = &review.old {
+        details.push_str(&semantic_changes(old, proposal, &review.changes, paint));
+        details.push_str(&paint.format(
+            crate::i18n::Template::TmSemanticOld,
+            &[
+                ("id", &old.id.to_string()),
+                ("revision", &old.revision.to_string()),
+            ],
+        ));
+        details.push('\n');
+        details.push_str(&proposal_details(&old.proposal, paint));
+    }
+    details.push_str(paint.hint(crate::i18n::Message::TmSemanticNew));
+    details.push('\n');
+    details.push_str(&proposal_details(proposal, paint));
+    details.push('\n');
+    details.push_str(paint.hint(crate::i18n::Message::TmSemanticBoundary));
     if matches!(learning, Learning::Import(_)) {
         details.insert_str(
             0,
@@ -893,25 +1004,103 @@ fn review_details(state: &State, partner: &str, paint: &Paint) -> (String, Strin
         details.push_str(paint.hint(crate::i18n::Message::TmImportBoundary));
     }
     if let Some((id, revision)) = state.replacement
-        && let Some(record) = state.records.iter().find(|r| r.id == id)
+        && let Some(record) = review.old.as_ref()
     {
         summary.push_str(&paint.format(
             crate::i18n::Template::DesksMovesReplacementSummary,
             &[
-                ("scope", (record.proposal.scope.label())),
-                ("id", &(record.id).to_string()),
+                ("scope", record.proposal.scope.label()),
+                ("id", &id.to_string()),
             ],
         ));
+        let slot = state.active().position(|r| r.id == id).map_or(0, |i| i + 1);
+        details.push('\n');
         details.push_str(&paint.format(
-            crate::i18n::Template::DesksMovesReplacementDetails,
+            crate::i18n::Template::TmSemanticSlot,
             &[
-                ("id", &(id).to_string()),
-                ("revision", &(revision).to_string()),
-                ("proposal", &(proposal_details(&record.proposal, paint))),
+                ("slot", &slot.to_string()),
+                ("id", &id.to_string()),
+                ("revision", &revision.to_string()),
             ],
+        ));
+    } else if !matches!(learning, Learning::Rename(_)) {
+        details.push('\n');
+        details.push_str(&paint.format(
+            crate::i18n::Template::TmFreeSlot,
+            &[("slot", &(state.active().count() + 1).to_string())],
         ));
     }
     (summary, details)
+}
+fn semantic_changes(
+    old: &Record,
+    proposed: &Proposal,
+    fields: &[crate::workspace::moves::ChangedField],
+    paint: &Paint,
+) -> String {
+    use crate::{
+        i18n::{Message, Template},
+        workspace::moves::ChangedField,
+    };
+    let mut details = String::new();
+    let literal = |value: Option<&String>| {
+        value.map_or_else(
+            || paint.hint(Message::TmSemanticAbsent).to_owned(),
+            |value| format!("{value:?}"),
+        )
+    };
+    for field in fields {
+        let line = match (field, &old.proposal.steps, &proposed.steps) {
+            (
+                ChangedField::Arg(index),
+                Steps::Run { argv: before, .. },
+                Steps::Run { argv: after, .. },
+            ) => paint.format(
+                Template::TmSemanticArgument,
+                &[
+                    ("index", &index.to_string()),
+                    ("old", &literal(before.get(*index))),
+                    ("new", &literal(after.get(*index))),
+                ],
+            ),
+            (ChangedField::Cwd, Steps::Run { cwd: before, .. }, Steps::Run { cwd: after, .. }) => {
+                paint.format(
+                    Template::TmSemanticCwd,
+                    &[
+                        ("old", &format!("{before:?}")),
+                        ("new", &format!("{after:?}")),
+                    ],
+                )
+            }
+            (
+                ChangedField::Criterion(index),
+                Steps::Task {
+                    criteria: before, ..
+                },
+                Steps::Task {
+                    criteria: after, ..
+                },
+            ) => paint.format(
+                Template::TmSemanticCriterion,
+                &[
+                    ("index", &index.to_string()),
+                    ("old", &literal(before.get(*index))),
+                    ("new", &literal(after.get(*index))),
+                ],
+            ),
+            (ChangedField::Kind, before, after) => paint.format(
+                Template::TmSemanticKind,
+                &[("old", kind(before)), ("new", kind(after))],
+            ),
+            (ChangedField::Pins, ..) => paint.hint(Message::TmSemanticPins).into(),
+            (ChangedField::Instruction, ..) => paint.hint(Message::TmSemanticInstruction).into(),
+            (ChangedField::Goal, ..) => paint.hint(Message::TmSemanticGoal).into(),
+            _ => continue,
+        };
+        details.push_str(&line);
+        details.push('\n');
+    }
+    details
 }
 
 #[cfg(test)]
@@ -992,17 +1181,63 @@ mod tests {
         let paint = &Paint::new(&config(), &FORMS[1], 1);
         let record = record();
         let mut state = State::default();
+        state.partner = 1;
+        state.form = 1;
         state.mode = Mode::Review;
         state.learning = Some(Learning::Teach(record.proposal.clone()));
         state.name = "Surf".into();
         state.scope = Scope::Personal;
         state.replacement = Some((1, 2));
         state.records.push(record);
+        state.review = Some(state.prepare_review().unwrap());
         let (summary, details) = review_details(&state, "Bolt", paint);
         assert!(summary.contains("Bolt"));
         assert!(summary.contains("Forgets Project move #1"));
         assert!(details.contains("move #1, revision 2"));
     }
+    #[test]
+    fn same_name_tm_review_exposes_single_empty_argument_and_exact_local_slot() {
+        let paint = &Paint::new(&config(), &FORMS[2], 1);
+        let mut old = record();
+        old.proposal.form = 2;
+        old.proposal.steps = Steps::Run {
+            argv: vec!["cargo".into(), "test".into(), "before".into()],
+            cwd: ".".into(),
+        };
+        let mut definition =
+            crate::workspace::moves::portable::Definition::from_proposal(&old.proposal).unwrap();
+        if let Steps::Run { argv, .. } = &mut definition.steps {
+            argv[2].clear();
+        }
+        let mut state = State::default();
+        state.mode = Mode::Review;
+        state.task_id = 3;
+        state.partner = 1;
+        state.form = 2;
+        state.name = old.proposal.name.clone();
+        state.scope = Scope::Personal;
+        state.replacement = Some((old.id, old.revision));
+        state.records.push(old.clone());
+        state.learning = Some(Learning::Import(
+            definition.proposal(3, 1, Scope::Personal).unwrap(),
+        ));
+        state.portable = Some(definition);
+        state.review = Some(state.prepare_review().unwrap());
+        let (_, details) = review_details(&state, "Exact local recipient", paint);
+        assert!(details.contains("argv[2] (zero-based): \"before\" -> \"\""));
+        assert!(details.contains("OLD / move #1, revision 2"));
+        assert!(details.contains("PROPOSED"));
+        assert!(details.contains("Exact local recipient / partner #1 / Jolteon"));
+        assert!(details.contains("Scope: Personal"));
+        assert!(details.contains("slot 1 of 4 / move #1 revision 2"));
+        assert!(!state.review.as_ref().unwrap().name_only);
+        assert_eq!(
+            state.records,
+            vec![old],
+            "inspection cannot change the original inventory"
+        );
+    }
+
     fn config() -> Config {
         Config {
             ascii: true,
@@ -1067,7 +1302,7 @@ mod tests {
         }
     }
     #[test]
-    fn rendered_concise_review_is_neutral_without_forcing_scroll_to_end() {
+    fn rendered_review_requires_contiguous_full_scope_exposure_before_consent() {
         let mut app = App::new("project".into(), 60, 18);
         let record = record();
         app.moves.partner = 1;
@@ -1075,13 +1310,27 @@ mod tests {
         app.moves.mode = Mode::Review;
         app.moves.name = record.proposal.name.clone();
         app.moves.learning = Some(Learning::Teach(record.proposal));
+        app.moves.review = Some(app.moves.prepare_review().unwrap());
         let buffer = draw(&mut app, 60, 18);
-        assert!(app.moves.reviewed);
+        assert!(!app.moves.reviewed);
         assert!(!app.moves.affirmative);
         assert!(app.moves.scroll_max > 0);
-        assert!(buffer.contains("[Stay]"));
-        assert!(buffer.contains("No execution"));
-        assert!(buffer.contains("Project"));
+        assert!(buffer.contains("PgDn"));
+        // End skips unseen content and must not arm consent.
+        app.moves.scroll = app.moves.scroll_max;
+        draw(&mut app, 60, 18);
+        assert!(!app.moves.reviewed);
+        app.moves.scroll = 0;
+        draw(&mut app, 60, 18);
+        while !app.moves.reviewed {
+            app.moves.scroll = app
+                .moves
+                .scroll
+                .saturating_add(app.moves.scroll_page)
+                .min(app.moves.scroll_max);
+            draw(&mut app, 60, 18);
+        }
+        assert!(!app.moves.affirmative);
     }
     #[test]
     fn too_small_render_revokes_approval_without_losing_name() {

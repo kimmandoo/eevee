@@ -86,21 +86,34 @@ fn teach(store: &mut State, task: &Snapshot, proposal: Proposal) -> Record {
     let name = proposal.name.clone();
     let partner = proposal.partner;
     let form = proposal.form;
-    call(
-        store,
-        task,
-        partner,
-        form,
+    let operation = if let Some(teacher) = proposal.provenance.taught_by {
+        let source = records(
+            store.connection.as_ref().unwrap(),
+            &store.project,
+            teacher,
+            form,
+        )
+        .unwrap()
+        .into_iter()
+        .find(|r| !r.forgotten && r.proposal.steps == proposal.steps)
+        .unwrap();
+        Operation::Copy {
+            proposal,
+            source: (source.id, source.revision),
+            replace: None,
+        }
+    } else {
         Operation::Teach {
             proposal,
             replace: None,
-        },
-    )
-    .unwrap()
-    .records
-    .into_iter()
-    .find(|record| record.proposal.name == name)
-    .unwrap()
+        }
+    };
+    call(store, task, partner, form, operation)
+        .unwrap()
+        .records
+        .into_iter()
+        .find(|record| record.proposal.name == name)
+        .unwrap()
 }
 fn run_record(
     task: &Snapshot,
@@ -2391,4 +2404,337 @@ fn every_tm_form_imports_across_projects_without_evidence_or_capture() {
         .unwrap();
     assert_eq!(snapshot.goal, task.goal);
     assert_eq!(snapshot.criteria, task.criteria);
+}
+
+#[test]
+fn same_name_tm_replacements_preserve_history_copies_and_restart_identities() {
+    let fixture = Fixture::new();
+    let mut store = fixture.open();
+    let task = fixture.task(&mut store, 2);
+    store.add_partner().unwrap();
+    let original = teach(
+        &mut store,
+        &task,
+        proposal(&task, 1, "Exact", Scope::Project),
+    );
+    let mut copy = original.proposal.clone();
+    copy.partner = 2;
+    copy.provenance.taught_by = Some(1);
+    copy.provenance.teacher_name = Some(owner(&store, 1).name);
+    let independent = teach(&mut store, &task, copy);
+    let run = run_record(
+        &task,
+        owner(&store, 1),
+        "old-exact",
+        vec!["test".into(), "Exact".into()],
+        RunState::Succeeded,
+    );
+    commit_run(&mut store, &run);
+    let mut usage = use_for(&task, &original, "old-exact-use", Outcome::Succeeded);
+    usage.run_id = Some(run.prepared.run_id.clone());
+    let used = call(&mut store, &task, 1, 2, Operation::Use { usage })
+        .unwrap()
+        .usages;
+
+    let mut definition = domain::portable::Definition::from_proposal(&original.proposal).unwrap();
+    if let Steps::Run { argv, .. } = &mut definition.steps {
+        argv[2] = String::new();
+    }
+    let import = |definition: domain::portable::Definition, replace| Operation::ImportPortable {
+        definition,
+        name: "Exact".into(),
+        scope: Scope::Project,
+        replace,
+    };
+    assert!(
+        call(&mut store, &task, 1, 2, import(definition.clone(), None)).is_err(),
+        "an ordinary duplicate is not an implicit replacement"
+    );
+    let replaced = call(
+        &mut store,
+        &task,
+        1,
+        2,
+        import(definition.clone(), Some((original.id, original.revision))),
+    )
+    .unwrap();
+    let first = replaced
+        .records
+        .iter()
+        .find(|r| !r.forgotten)
+        .unwrap()
+        .clone();
+    assert_ne!(first.id, original.id);
+    assert_eq!(first.proposal.steps, definition.steps);
+    let retained = replaced
+        .records
+        .iter()
+        .find(|r| r.id == original.id)
+        .unwrap();
+    assert!(retained.forgotten);
+    assert_eq!(retained.proposal, original.proposal);
+    assert_eq!(replaced.usages, used);
+    assert!(replaced.usages.iter().all(|u| u.move_id == original.id));
+    let unchanged = call(&mut store, &task, 2, 2, Operation::Load).unwrap();
+    assert_eq!(unchanged.records, vec![independent.clone()]);
+    assert_eq!(independent.proposal.steps, original.proposal.steps);
+
+    // Repeated same-name replacement keeps every original under its immutable ID.
+    if let Steps::Run { argv, .. } = &mut definition.steps {
+        argv[2] = "next".into();
+    }
+    let second = call(
+        &mut store,
+        &task,
+        1,
+        2,
+        import(definition.clone(), Some((first.id, first.revision))),
+    )
+    .unwrap();
+    let latest = second
+        .records
+        .iter()
+        .find(|r| !r.forgotten)
+        .unwrap()
+        .clone();
+    assert_eq!(second.records.len(), 3);
+    assert_eq!(second.records.iter().filter(|r| r.forgotten).count(), 2);
+    assert_eq!(second.usages, used);
+    assert!(
+        call(
+            &mut store,
+            &task,
+            1,
+            2,
+            import(definition.clone(), Some((first.id, first.revision)))
+        )
+        .is_err()
+    );
+    assert_eq!(
+        call(&mut store, &task, 1, 2, Operation::Load)
+            .unwrap()
+            .records,
+        second.records
+    );
+
+    // A reminder cannot become a second active move under the replacement's label.
+    assert!(
+        call(
+            &mut store,
+            &task,
+            1,
+            2,
+            Operation::Relearn {
+                id: original.id,
+                revision: retained.revision,
+                replace: None,
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        call(
+            &mut store,
+            &task,
+            1,
+            2,
+            Operation::Relearn {
+                id: original.id,
+                revision: retained.revision,
+                replace: Some((latest.id, latest.revision + 1)),
+            }
+        )
+        .is_err(),
+        "both original and replacement revisions are required"
+    );
+    drop(store);
+    let mut reopened = fixture.open();
+    let restored = call(&mut reopened, &task, 1, 2, Operation::Load).unwrap();
+    assert_eq!(restored.records, second.records);
+    assert_eq!(restored.usages, used);
+    assert_eq!(
+        call(&mut reopened, &task, 2, 2, Operation::Load)
+            .unwrap()
+            .records,
+        vec![independent]
+    );
+    let relearned = call(
+        &mut reopened,
+        &task,
+        1,
+        2,
+        Operation::Relearn {
+            id: original.id,
+            revision: retained.revision,
+            replace: Some((latest.id, latest.revision)),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        relearned
+            .records
+            .iter()
+            .filter(|r| !r.forgotten)
+            .map(|r| r.id)
+            .collect::<Vec<_>>(),
+        vec![original.id]
+    );
+    assert_eq!(
+        relearned
+            .records
+            .iter()
+            .find(|r| r.id == original.id)
+            .unwrap()
+            .proposal,
+        original.proposal
+    );
+    assert!(
+        relearned
+            .records
+            .iter()
+            .find(|r| r.id == latest.id)
+            .unwrap()
+            .forgotten
+    );
+    assert_eq!(relearned.usages, used);
+}
+
+#[test]
+fn concurrent_rename_and_replacement_refuse_the_frozen_old_revision_atomically() {
+    let fixture = Fixture::new();
+    let mut store = fixture.open();
+    let task = fixture.task(&mut store, 2);
+    let old = teach(&mut store, &task, proposal(&task, 1, "Old", Scope::Project));
+    let mut definition = domain::portable::Definition::from_proposal(&old.proposal).unwrap();
+    if let Steps::Run { argv, .. } = &mut definition.steps {
+        argv.push(String::new());
+    }
+    let frozen = Operation::ImportPortable {
+        definition: definition.clone(),
+        name: "New".into(),
+        scope: Scope::Personal,
+        replace: Some((old.id, old.revision)),
+    };
+    let renamed = call(
+        &mut store,
+        &task,
+        1,
+        2,
+        Operation::Rename {
+            id: old.id,
+            revision: old.revision,
+            name: "Renamed".into(),
+        },
+    )
+    .unwrap();
+    assert!(call(&mut store, &task, 1, 2, frozen).is_err());
+    assert_eq!(
+        call(&mut store, &task, 1, 2, Operation::Load)
+            .unwrap()
+            .records,
+        renamed.records
+    );
+    let current = &renamed.records[0];
+    let frozen = Operation::Teach {
+        proposal: proposal(&task, 1, "After", Scope::Project),
+        replace: Some((current.id, current.revision)),
+    };
+    let replaced = call(
+        &mut store,
+        &task,
+        1,
+        2,
+        Operation::ImportPortable {
+            definition,
+            name: "Intervening".into(),
+            scope: Scope::Project,
+            replace: Some((current.id, current.revision)),
+        },
+    )
+    .unwrap();
+    assert!(call(&mut store, &task, 1, 2, frozen).is_err());
+    assert!(
+        call(
+            &mut store,
+            &task,
+            1,
+            2,
+            Operation::Rename {
+                id: current.id,
+                revision: current.revision,
+                name: "Stale rename".into(),
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(
+        call(&mut store, &task, 1, 2, Operation::Load)
+            .unwrap()
+            .records,
+        replaced.records
+    );
+}
+
+#[test]
+fn party_copy_binds_exact_teacher_record_and_revision_before_commit() {
+    let fixture = Fixture::new();
+    let mut store = fixture.open();
+    let task = fixture.task(&mut store, 2);
+    store.add_partner().unwrap();
+    let source = teach(
+        &mut store,
+        &task,
+        proposal(&task, 1, "Teacher", Scope::Project),
+    );
+    let target = teach(
+        &mut store,
+        &task,
+        proposal(&task, 2, "Recipient", Scope::Project),
+    );
+    let usage = use_for(&task, &target, "recipient-denial", Outcome::Denied);
+    let recipient = call(&mut store, &task, 2, 2, Operation::Use { usage }).unwrap();
+    let mut proposal = source.proposal.clone();
+    proposal.partner = 2;
+    proposal.provenance.taught_by = Some(1);
+    proposal.provenance.teacher_name = Some(owner(&store, 1).name);
+    let frozen = Operation::Copy {
+        proposal: proposal.clone(),
+        source: (source.id, source.revision),
+        replace: Some((target.id, target.revision)),
+    };
+    let teacher = call(
+        &mut store,
+        &task,
+        1,
+        2,
+        Operation::Rename {
+            id: source.id,
+            revision: source.revision,
+            name: "Teacher renamed".into(),
+        },
+    )
+    .unwrap();
+    assert!(call(&mut store, &task, 2, 2, frozen).is_err());
+    assert_eq!(
+        call(&mut store, &task, 2, 2, Operation::Load).unwrap(),
+        recipient
+    );
+    assert_eq!(
+        call(&mut store, &task, 1, 2, Operation::Load).unwrap(),
+        teacher
+    );
+    assert!(
+        call(
+            &mut store,
+            &task,
+            2,
+            2,
+            Operation::Teach {
+                proposal,
+                replace: None
+            }
+        )
+        .is_err(),
+        "a copy cannot bypass exact-source review via ordinary teaching"
+    );
 }

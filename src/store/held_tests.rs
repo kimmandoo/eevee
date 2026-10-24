@@ -174,7 +174,12 @@ fn choices_replace_one_exact_slot_and_survive_restart_without_selecting_context(
     call(&mut state, task.id, 1, 0, Some(memory(&first)), None).unwrap();
     call(&mut state, task.id, 1, 1, Some(memory(&first)), None).unwrap();
     call(&mut state, task.id, second, 0, Some(memory(&first)), None).unwrap();
-    let result = call(&mut state, task.id, 1, 0, Some(memory(&replacement)), None).unwrap();
+    let review = renewal(&state, &task, memory(&first), memory(&replacement), None);
+    let super::super::records::Response::Snapshot(result) =
+        renew_call(&mut state, task.id, review).unwrap()
+    else {
+        panic!("renewal must return the committed snapshot");
+    };
     assert_eq!(result.held_items.len(), 3);
     assert_eq!(result.held_items[0].target, memory(&replacement));
     let saved = load_task(
@@ -519,21 +524,23 @@ fn quota_failure_rolls_back_replacement_and_retains_all_other_records() {
     call(&mut state, task.id, 1, 0, Some(memory(&first)), None).unwrap();
     let old = stored(&state);
     let others = retained(state.connection.as_ref().unwrap());
+    let review = renewal(&state, &task, memory(&first), memory(&next), None);
     state.policy.quota_bytes = 0;
     assert!(
-        call(&mut state, task.id, 1, 0, Some(memory(&next)), None)
+        renew_call(&mut state, task.id, review.clone())
             .unwrap_err()
             .contains("quota")
     );
     assert_eq!(stored(&state), old);
     assert_eq!(retained(state.connection.as_ref().unwrap()), others);
     state.policy = Policy::default();
-    call(&mut state, task.id, 1, 0, Some(memory(&next)), None).unwrap();
+    renew_call(&mut state, task.id, review).unwrap();
     assert_eq!(stored(&state)[0].target, memory(&next));
 }
 
 #[test]
-fn memory_edits_deletes_partner_release_and_task_project_purges_clean_exact_references() {
+fn memory_edits_retain_stale_identity_while_revocation_owner_and_task_purges_clean_exact_references()
+ {
     let fixture = Fixture::new();
     let mut state = fixture.open(&fixture.project);
     let first_task = fixture.task(&mut state);
@@ -604,7 +611,7 @@ fn memory_edits_deletes_partner_release_and_task_project_purges_clean_exact_refe
         .into_iter()
         .find(|record| record.id == shared.id)
         .unwrap();
-    assert!(stored(&state).is_empty());
+    assert_eq!(stored(&state)[0].target, memory(&shared));
     assert!(
         call(
             &mut state,
@@ -616,15 +623,6 @@ fn memory_edits_deletes_partner_release_and_task_project_purges_clean_exact_refe
         )
         .is_err()
     );
-    call(
-        &mut state,
-        second_task.id,
-        1,
-        1,
-        Some(memory(&edited)),
-        None,
-    )
-    .unwrap();
     state
         .memory_request(MemoryRequest {
             task_id: second_task.id,
@@ -839,15 +837,8 @@ fn all_live_owner_form_slots_are_bounded_and_full_capacity_still_allows_replacem
         }
     }
     assert_eq!(stored(&state).len(), MAX_PROJECT_ITEMS);
-    call(
-        &mut state,
-        task.id,
-        roster[0].id,
-        0,
-        Some(memory(&next)),
-        None,
-    )
-    .unwrap();
+    let review = renewal(&state, &task, memory(&first), memory(&next), None);
+    renew_call(&mut state, task.id, review).unwrap();
     assert_eq!(stored(&state).len(), MAX_PROJECT_ITEMS);
     assert_eq!(stored(&state)[0].target, memory(&next));
     assert!(
@@ -938,4 +929,244 @@ fn personal_memory_invalidation_cleans_all_projects_without_touching_other_slots
             target: memory(&project)
         }]
     );
+}
+
+fn renewal(
+    state: &State,
+    task: &Snapshot,
+    old: Target,
+    new: Target,
+    proof: Option<FileProof>,
+) -> crate::workspace::held::Renewal {
+    let owner = partners(state.connection.as_ref().unwrap())
+        .unwrap()
+        .into_iter()
+        .find(|partner| partner.id == task.lead_partner)
+        .unwrap();
+    crate::workspace::held::Renewal {
+        expected: old,
+        proposed: new,
+        owner: Attribution::of(&owner),
+        task_revision: task.revision,
+        exclusions: proof
+            .as_ref()
+            .map(|proof| proof.exclusions.clone())
+            .unwrap_or_default(),
+        file_proof: proof,
+    }
+}
+
+fn renew_call(
+    state: &mut State,
+    task: i64,
+    review: crate::workspace::held::Renewal,
+) -> Result<super::super::records::Response, String> {
+    state.records(&super::super::records::Request {
+        task_id: task,
+        operation: super::super::records::Operation::RenewHeld { review },
+    })
+}
+
+#[test]
+fn edited_memory_keeps_old_identity_across_restart_until_exact_explicit_renewal() {
+    let fixture = Fixture::new();
+    let mut state = fixture.open(&fixture.project);
+    let task = fixture.task(&mut state);
+    let old = approve(
+        &mut state,
+        task.id,
+        Scope::Project,
+        "Original approved bytes",
+    );
+    call(&mut state, task.id, 1, 0, Some(memory(&old)), None).unwrap();
+    let mut proposal = old.proposal.clone();
+    proposal.content = "New explicitly approved bytes".into();
+    let new = state
+        .memory_request(MemoryRequest {
+            task_id: task.id,
+            mutation: Some(Mutation::Edit {
+                id: old.id,
+                expected_revision: old.revision,
+                proposal,
+            }),
+        })
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert_eq!(stored(&state)[0].target, memory(&old));
+    assert!(
+        !memories(
+            state.connection.as_ref().unwrap(),
+            &fixture.project,
+            task.id
+        )
+        .unwrap()
+        .iter()
+        .any(|record| record.id == old.id && record.revision == old.revision)
+    );
+    inspect(state.connection.as_ref().unwrap()).unwrap();
+    drop(state);
+    let mut state = fixture.open(&fixture.project);
+    assert_eq!(stored(&state)[0].target, memory(&old));
+    let review = renewal(&state, &task, memory(&old), memory(&new), None);
+    renew_call(&mut state, task.id, review).unwrap();
+    assert_eq!(stored(&state)[0].target, memory(&new));
+    let durable = load_task(
+        state.connection.as_ref().unwrap(),
+        &fixture.project,
+        task.id,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(durable.approved_memories.is_empty());
+    drop(state);
+    assert_eq!(
+        stored(&fixture.open(&fixture.project))[0].target,
+        memory(&new)
+    );
+}
+
+#[test]
+fn renewal_refuses_configuration_owner_task_revision_and_revocation_races_atomically() {
+    let fixture = Fixture::new();
+    let mut state = fixture.open(&fixture.project);
+    let task = fixture.task(&mut state);
+    let old = approve(&mut state, task.id, Scope::Project, "Old note");
+    let new = approve(&mut state, task.id, Scope::Project, "New note");
+    call(&mut state, task.id, 1, 0, Some(memory(&old)), None).unwrap();
+    let review = renewal(&state, &task, memory(&old), memory(&new), None);
+    let mut wrong_owner = review.clone();
+    wrong_owner.owner.partner += 100;
+    assert!(renew_call(&mut state, task.id, wrong_owner).is_err());
+    let mut wrong_revision = review.clone();
+    wrong_revision.task_revision += 1;
+    assert!(renew_call(&mut state, task.id, wrong_revision).is_err());
+    state
+        .nickname_partner(1, Some("ChangedOwner".into()))
+        .unwrap();
+    assert!(renew_call(&mut state, task.id, review.clone()).is_err());
+    assert_eq!(stored(&state)[0].target, memory(&old));
+    state.nickname_partner(1, None).unwrap();
+    let change = renewal(&state, &task, memory(&old), memory(&new), None);
+    renew_call(&mut state, task.id, change).unwrap();
+    assert!(renew_call(&mut state, task.id, review.clone()).is_err());
+    assert_eq!(stored(&state)[0].target, memory(&new));
+    let restore = renewal(&state, &task, memory(&new), memory(&old), None);
+    renew_call(&mut state, task.id, restore).unwrap();
+    state
+        .memory_request(MemoryRequest {
+            task_id: task.id,
+            mutation: Some(Mutation::Delete {
+                id: new.id,
+                expected_revision: new.revision,
+            }),
+        })
+        .unwrap();
+    assert!(renew_call(&mut state, task.id, review).is_err());
+    assert_eq!(stored(&state)[0].target, memory(&old));
+}
+
+#[test]
+fn selected_moved_file_requires_current_proof_and_refuses_link_content_and_exclusion_races() {
+    let fixture = Fixture::new();
+    let mut state = fixture.open(&fixture.project);
+    let task = fixture.task(&mut state);
+    let old = Target::File {
+        path: "source.rs".into(),
+    };
+    call(
+        &mut state,
+        task.id,
+        1,
+        0,
+        Some(old.clone()),
+        Some(fixture.proof(task.id, "source.rs", vec![])),
+    )
+    .unwrap();
+    fs::rename(
+        Path::new(&fixture.project).join("source.rs"),
+        Path::new(&fixture.project).join("moved.rs"),
+    )
+    .unwrap();
+    let new = Target::File {
+        path: "moved.rs".into(),
+    };
+    let proof = fixture.proof(task.id, "moved.rs", vec![]);
+    let review = renewal(&state, &task, old.clone(), new.clone(), Some(proof));
+    fs::write(Path::new(&fixture.project).join(".gitignore"), "moved.rs\n").unwrap();
+    assert!(renew_call(&mut state, task.id, review.clone()).is_err());
+    assert_eq!(stored(&state)[0].target, old);
+    fs::remove_file(Path::new(&fixture.project).join(".gitignore")).unwrap();
+    let mut excluded = review.clone();
+    excluded.exclusions.push("moved.rs".into());
+    excluded
+        .file_proof
+        .as_mut()
+        .unwrap()
+        .exclusions
+        .push("moved.rs".into());
+    assert!(renew_call(&mut state, task.id, excluded).is_err());
+    fs::write(
+        Path::new(&fixture.project).join("moved.rs"),
+        "raced content\n",
+    )
+    .unwrap();
+    assert!(renew_call(&mut state, task.id, review.clone()).is_err());
+    assert_eq!(stored(&state)[0].target, old);
+    fs::write(
+        Path::new(&fixture.project).join("moved.rs"),
+        "first source line\nsecond source line\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        let moved = Path::new(&fixture.project).join("moved.rs");
+        fs::rename(&moved, Path::new(&fixture.project).join("actual.rs")).unwrap();
+        std::os::unix::fs::symlink("actual.rs", &moved).unwrap();
+        assert!(renew_call(&mut state, task.id, review.clone()).is_err());
+        fs::remove_file(&moved).unwrap();
+        fs::rename(Path::new(&fixture.project).join("actual.rs"), &moved).unwrap();
+    }
+    renew_call(&mut state, task.id, review).unwrap();
+    assert_eq!(
+        stored(&state),
+        vec![Item {
+            partner: 1,
+            form: 0,
+            target: new
+        }]
+    );
+    assert!(
+        excerpts(state.connection.as_ref().unwrap(), task.id)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn initial_assignment_cannot_overwrite_an_occupied_slot_even_with_a_stale_empty_ui_cache() {
+    let fixture = Fixture::new();
+    let mut state = fixture.open(&fixture.project);
+    let task = fixture.task(&mut state);
+    let old = approve(
+        &mut state,
+        task.id,
+        Scope::Project,
+        "Existing exact reference",
+    );
+    let new = approve(
+        &mut state,
+        task.id,
+        Scope::Project,
+        "Purported initial assignment",
+    );
+    call(&mut state, task.id, 1, 0, Some(memory(&old)), None).unwrap();
+    // Ordinary SetHeld has no expected-old review: only create or identical reuse.
+    assert!(call(&mut state, task.id, 1, 0, Some(memory(&new)), None).is_err());
+    assert_eq!(stored(&state)[0].target, memory(&old));
+    call(&mut state, task.id, 1, 0, Some(memory(&old)), None).unwrap();
+    assert_eq!(stored(&state).len(), 1);
+    let review = renewal(&state, &task, memory(&old), memory(&new), None);
+    renew_call(&mut state, task.id, review).unwrap();
+    assert_eq!(stored(&state)[0].target, memory(&new));
 }

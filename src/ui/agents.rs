@@ -265,6 +265,9 @@ fn action_hint<'a>(paint: &Paint, action: &'a str) -> &'a str {
 }
 
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
+    if super::formations::render_route_inspector(frame, area, app, config, paint) {
+        return;
+    }
     let compact =
         (app.agents.preview || app.agents.auth_preview.is_some()) && !app.agents.auth_details;
     let height = if compact {

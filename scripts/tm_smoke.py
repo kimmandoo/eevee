@@ -21,13 +21,29 @@ import tempfile
 import time
 import traceback
 
-from terminal_smoke import Session, terminal_environment
+from terminal_smoke import Session, confirm_exit, terminal_environment
 from native_connection_smoke import Peer, MODEL
 
 ESC = "\x1b"
 HOME, END, DELETE = ESC + "[H", ESC + "[F", ESC + "[3~"
 UP, DOWN, RIGHT, PAGE = ESC + "[A", ESC + "[B", ESC + "[C", ESC + "[6~"
 FORMS = ("Eevee", "Vaporeon", "Jolteon", "Flareon", "Espeon", "Umbreon", "Leafeon", "Glaceon", "Sylveon")
+
+
+def expose_review(session, language, capture):
+    """Visit every wrapped row before the existing neutral confirmation."""
+    session.send(HOME)
+    observed = []
+    neutral = "[Stay]" if language == "en" else "[유지]"
+    for index in range(256):
+        view = session.display()
+        observed.append(view)
+        capture("semantic-review-%03d" % index)
+        if neutral in view:
+            return "\n".join(observed)
+        session.send(PAGE)
+    raise AssertionError("complete semantic scope did not become confirmable")
+
 LABELS = {
     "en": {"import": "Import TM: literal", "target": "Import TM / choose", "name": "Move name",
            "review": "Confirm local change", "export": "Export TM: NEW", "export_review": "Create-only TM export",
@@ -72,7 +88,7 @@ class Driver:
         self.database = self.data / "workbench.sqlite3"
         self.environment = terminal_environment("mono")
         for key in list(self.environment):
-            if key.startswith(("EV_", "EEVEE_", "OPENAI_", "CODEX_", "ANTHROPIC_", "CLAUDE_", "GEMINI_", "GOOGLE_", "AWS_", "OPENCODE_")) or key.lower().endswith("_proxy"):
+            if key.startswith(("GIT_", "EV_", "EEVEE_", "OPENAI_", "CODEX_", "ANTHROPIC_", "CLAUDE_", "GEMINI_", "GOOGLE_", "AWS_", "OPENCODE_")) or key.lower().endswith("_proxy"):
                 self.environment.pop(key, None)
         tools = root / "tools"
         tools.mkdir()
@@ -89,13 +105,16 @@ class Driver:
             XDG_CONFIG_HOME=str(self.home / "config"), XDG_DATA_HOME=str(self.home / "data"),
             XDG_CACHE_HOME=str(self.home / "cache"), APPDATA=str(self.home / "config"),
             LOCALAPPDATA=str(self.home / "cache"), NO_PROXY="127.0.0.1,localhost", no_proxy="127.0.0.1,localhost")
+        self.environment.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
+                                GIT_CONFIG_SYSTEM=os.devnull, GIT_CONFIG_COUNT="0")
         for project in (self.project, root / "project-two"):
             project.mkdir()
             (project / "fixture.py").write_text('from pathlib import Path\nPath("UNEXPECTED_EXECUTION").write_text("executed")\n', encoding="utf-8")
             (project / "input.txt").write_text("public first line\npublic second line\n", encoding="utf-8")
             for args in (("init", "--quiet"), ("add", "--", "."),
                          ("-c", "user.name=Local acceptance", "-c", "user.email=local@example.invalid", "commit", "-qm", "fixture")):
-                subprocess.run([git, "-c", "core.hooksPath=", *args], cwd=project, check=True, capture_output=True, timeout=15)
+                subprocess.run([git, "-c", "core.hooksPath=", *args], cwd=project,
+                               env=self.environment, check=True, capture_output=True, timeout=15)
         self.launch()
 
     def launch(self):
@@ -193,6 +212,9 @@ class Driver:
         self.capture("import-partner-preview")
         self.session.send("\r")
         self.wait("name")
+    def expose_review(self):
+        return expose_review(self.session, self.language, self.capture)
+
 
     def learn(self, path, form, name=None, personal=False, replacement=None):
         before, effects = self.state().get("moves", []), self.effects()
@@ -210,6 +232,7 @@ class Driver:
         assert self.state().get("moves", []) == before, "import preview learned a move"
         self.no_effect(effects)
         self.capture("import-neutral-local-review")
+        self.expose_review()
         self.session.send("y")
         self.until(lambda: self.state().get("moves", []) != before, "explicit import committed")
         self.wait("menu")
@@ -258,9 +281,7 @@ class Driver:
     def quit(self):
         self.workspace()
         self.session.command("quit")
-        self.until(lambda: not self.session.alive() or self.labels["exit"] in self.session.display(), "clean quit or honest review")
-        if self.session.alive():
-            self.session.send("y")
+        confirm_exit(self.session)
         self.until(lambda: not self.session.alive(), "quit settled")
         assert self.session.wait_exit() == 0, "native process returned failure"
 
@@ -344,10 +365,11 @@ class Driver:
         self.session.send("y")
         self.discard_failure()
         assert exports[0].read_bytes() == existing
-        # Name collision stays editable and creates no record.
+        # A same-name TM opens an explicit old/new replacement review, never an
+        # implicit overwrite. Neutral cancellation preserves all inventory.
         self.import_preview(sources[0])
         self.session.send("\r")
-        self.wait("name")
+        self.wait("review")
         assert self.state()["moves"] == before
         self.session.send(ESC)
         self.workspace()
