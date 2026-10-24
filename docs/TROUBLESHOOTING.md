@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-24] Release source omitted bilingual catalog inputs
+
+- **Context / Symptom:** Exact-source native run40099449466 failed Check/all five native builds with38 `E0599` missing generated message/template variants, including `ToolPlanTitle`, `ImpactChecksCommand` and `DexComparisonUnavailable`.
+- **Root Cause:** Commit `749148c` included the Rust callsites but omitted six modified `locales/{en,ko}/{context_tools,desks,records}.ftl` inputs. Local builds used those working-tree catalogs, so their passing output did not qualify the incomplete committed source.
+- **Solution:** Added the existing complete English/Korean catalog inputs to the release source without changing feature behavior or suppressing missing variants. Required a new exact-source Check/all-five-native qualification; the failed source was never tagged or published.
+- **Prevention / Reference:** Treat build-time catalogs as source inputs. Clean native compilation is the regression proof; do not replace it with generated-file/source-text tests or waive a failed platform.
+
 ### [2026-10-24] Plan refusal reasons disappeared below long details
 
 - **Context / Symptom:** A genuinely lost mutation response correctly remained `Unknown`, but the actual plan inspector did not show its refusal reason in the first viewport. Trusted detail separators also appeared as literal `\\n`.

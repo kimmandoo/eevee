@@ -549,3 +549,9 @@ desks-workflows-diagnosis-fix = Handoff diagnosis to Flareon
 desks-workflows-refactor-fix = Request bounded refactor via Flareon
 
 desks-workflows-review-fix = Handoff selected finding to Flareon
+
+impact-checks-title = Impact-directed checks / recommendation only
+impact-checks-pending = Analysing bounded local symbols, dependencies, test mappings and Dex failures. No check is prepared or run.
+impact-checks-controls = PgUp/PgDn inspect • s stage proposal for separate Jolteon review • Esc back / no execution
+impact-checks-command = Propose relevant checks with source and Dex reasons; no execution or completeness claim
+impact-checks-stage = Stage the current checks as an inert plan; each command still requires exact Jolteon review
