@@ -289,12 +289,16 @@ fn tail_output_uses_exact_durable_artifact_and_utf8_boundary_without_live_previe
 #[test]
 fn terminal_deadline_requests_cancellation_without_unblocking_unsettled_effects() {
     let (mut handle, _sender) = handle();
-    handle.created = Instant::now() - LIFETIME;
-    handle.poll();
+    let deadline = handle.created + LIFETIME;
+    handle.poll_at(handle.created + (LIFETIME - Duration::from_nanos(1)));
+    assert!(!handle.cancellation.0.load(Ordering::Acquire));
+    handle.poll_at(deadline);
     assert!(handle.cancellation.0.load(Ordering::Acquire));
     assert!(!handle.settled);
-    handle.cancellation_started = Some(Instant::now() - SETTLE_GRACE);
-    handle.poll();
+    assert!(handle.result.is_none());
+    handle.poll_at(deadline + (SETTLE_GRACE - Duration::from_nanos(1)));
+    assert!(handle.result.is_none());
+    handle.poll_at(deadline + SETTLE_GRACE);
     assert!(handle.exited().is_err());
     assert!(handle.action(Action::Release).is_err());
     assert!(!handle.settled);

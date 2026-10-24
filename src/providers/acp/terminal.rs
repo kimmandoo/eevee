@@ -136,15 +136,21 @@ struct OutputRead {
 }
 impl Handle {
     fn cancel(&mut self) {
+        self.cancel_at(Instant::now());
+    }
+    fn cancel_at(&mut self, now: Instant) {
         self.cancellation.0.store(true, Ordering::Release);
-        self.cancellation_started.get_or_insert_with(Instant::now);
+        self.cancellation_started.get_or_insert(now);
     }
     fn poll(&mut self) {
+        self.poll_at(Instant::now());
+    }
+    fn poll_at(&mut self, now: Instant) {
         if self.reply_received {
             return;
         }
-        if self.created.elapsed() >= LIFETIME {
-            self.cancel();
+        if now.saturating_duration_since(self.created) >= LIFETIME {
+            self.cancel_at(now);
         }
         self.result = match self.reply.try_recv() {
             Ok(result) => {
@@ -163,13 +169,13 @@ impl Handle {
                     }
                 };
                 if !self.settled {
-                    self.cancel();
+                    self.cancel_at(now);
                 }
                 Some(result)
             }
             Err(mpsc::TryRecvError::Empty) => None,
             Err(mpsc::TryRecvError::Disconnected) => {
-                self.cancel();
+                self.cancel_at(now);
                 Some(Err(
                     "Owned runner reply was lost; command outcome unknown, never replayed".into(),
                 ))
@@ -178,7 +184,7 @@ impl Handle {
         if self.result.is_none()
             && self
                 .cancellation_started
-                .is_some_and(|start| start.elapsed() >= SETTLE_GRACE)
+                .is_some_and(|start| now.saturating_duration_since(start) >= SETTLE_GRACE)
         {
             self.result = Some(Err("Owned command cancellation has not durably settled; outcome unknown, no kill/release success asserted and no replay".into()));
         }

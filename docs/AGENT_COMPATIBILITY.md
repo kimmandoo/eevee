@@ -6,7 +6,7 @@ The binary implements native ChatGPT/OpenAI/Anthropic/Gemini/compatible HTTP con
 
 ### Current source v0.1.31 — Waves1–4 and reviewed execution
 
-These source contracts are not live-provider, paid-account or physical-WSL proof; publication and public-package evidence are recorded separately in the checkpoint. Source targets Rust1.90.0, unchanged SQL19 and complete SDK bridge10. Replace bridge source/policy/dependencies together. Strict workflow-plan fields and actual-form command facts change reader compatibility despite equal SQL: stop all instances and back up the entire data directory before upgrade. Incompatible older readers/rollback must refuse; restore the full backup, never downgrade in place.
+These source contracts are not live-provider, paid-account or physical-WSL proof; publication and public-package evidence are recorded separately in the checkpoint. Source targets Rust1.90.0, unchanged SQL19 and complete SDK bridge10. Replace bridge source/policy/dependencies together. Patch0.1.31 retains0.1.30's strict plan format; actual compatible-reader inspection retained task facts without replay, while0.1.29 refused unknown fields with database bytes unchanged. Normal record compatibility is distinct from conservative build-derived lifecycle rollback admission. Stop all instances and keep a full data-directory backup; never bypass rollback checks based only on equal SQL schema.
 
 | Coding/build/run route | Implement tool boundary |
 | --- | --- |
