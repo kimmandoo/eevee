@@ -1,6 +1,6 @@
 # Implementation waves
 
-Updated2026-10-25. Waves1–4 passed all13 assigned tasks; v0.1.31 fully qualified/published their coding/build/run and idle/deadline repairs and passed complete public installation/runtime acceptance. The active request is target cleanup followed by complete Wave5 implementation. Waves6–8 remain planning only. Exact specifications remain in the linked [task index](../task.md); wave order is delivery priority, not an invented technical dependency.
+Updated2026-10-25. Waves1–4 passed all13 assigned tasks and v0.1.31 fully passed native/public release acceptance. Requested target cleanup and external evidence preservation are complete; Wave5 implementation is active. Waves6–8 remain planning only. Exact specifications remain in the linked [task index](../task.md); wave order is delivery priority, not an invented technical dependency.
 
 | Wave | Outcome | Assigned tasks | Exit proof |
 |---|---|---|---|
@@ -8,7 +8,7 @@ Updated2026-10-25. Waves1–4 passed all13 assigned tasks; v0.1.31 fully qualifi
 | 2 — Complete | Complete reviewed single-file editing | GP03, GP04, RX01, RX02 | Eight native/controlled journeys proved exact effects, stale/deny/cancel safety and pre-write syntax disclosure |
 | 3 — Complete | Bounded discovery and tool orchestration | RX03, TC04, TC02 | Bilingual native/controlled structural/cache proof; actual independent reads and individually reviewed serial mutations |
 | 4 — Complete | Recovery and relevant checks | TC05, D01, PK07 | Actual crash/lost-response no replay, four real Cargo caller-test journeys and four Dex recurrence/relay/purge journeys |
-| 5 — Authorized after release/cleanup | Explainable Eevee configuration | MV09, PK08, PT12 | Semantic replacement, deliberate reference renewal and formation readiness without dispatch |
+| 5 — Active | Explainable Eevee configuration | MV09, PK08, PT12 | Semantic replacement, deliberate reference renewal and formation readiness without dispatch |
 | 6 | Retained-work navigation and composition | GP05, PK09, RX04, RX05, RX06 | Project-private retrieval, honest attribution, unsent drafts, reviewed external editor and navigation-only landmarks |
 | 7 | New input and repository effects | GP06, GP07 | Exact approved image payload; selected local commit without hidden executable effects |
 | 8 | Product quality and distribution signoff | Q03, A04, A06, A07, Q01, Q02, P03 | Raw benchmark/resource samples, authorized live conformance and per-target recovery evidence |

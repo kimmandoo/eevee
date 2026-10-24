@@ -8,7 +8,7 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 - **Included milestones:** A08 → UX04A → S04 and P04A → P04B → T01B shipped: actionable connection diagnostics, persistent text density, reviewed portable workflows, reviewed updates/safe rollback and exact local context comparison. Specifications remain in [COMPLETED.md](tasks/COMPLETED.md).
 - **Compatibility:** Current v0.1.31 source retains SQL19,0.1.30's plan format and complete SDK bridge10. Genuine0.1.30↔patch plan inspection retained task facts/partners/runs without replay;0.1.29 refused unsupported strict fields with every database byte unchanged. Normal reader compatibility does not bypass build-derived lifecycle rollback admission. Back up the entire data directory before upgrade.
 - **Remaining:** **24 tasks**. All13 Wave1–4 contracts passed implementation and actual acceptance and moved intact to the completed archive.
-- **Current request:**0.1.31 release acceptance is complete. Preserve required evidence and clean `target`, then implement authorized Wave5 MV09/PK08/PT12 completely. No Wave6–8, automatic later publication or paid/live call is authorized.
+- **Current request:**0.1.31 release acceptance and requested67G target cleanup are complete; required evidence and the genuine public binary are archived outside target. Implement authorized Wave5 MV09/PK08/PT12 completely. No Wave6–8, automatic later publication or paid/live call is authorized.
 
 ## Completed Pokémon milestone
 
@@ -31,8 +31,8 @@ A/B/C/D/E/G are entirely completed and archived; F/H/I/J/K/R contain unfinished 
 
 ### Next order
 
-1. Commit the completed0.1.31 release handoff, then preserve required evidence and perform the requested `target` cleanup.
-2. Wave5 is now authorized: MV09 semantic move/TM review, PK08 deliberate held-reference renewal and PT12 mapped-party readiness. Complete their stated acceptance before archiving them.
+1. Release/cleanup prerequisites are complete; do not restart archived Wave1–4 tasks. The checkpoint records the external evidence archive and preserved public0.1.31 binary.
+2. Implement active Wave5: MV09 semantic move/TM review, PK08 deliberate held-reference renewal and PT12 mapped-party readiness. Complete their stated acceptance before archiving them.
 3. [Wave plan](docs/WAVES.md) still assigns24 unfinished tasks; Waves6–8 and conditional structure lanes do not start automatically.
 4. Local Q01/Q02/P03 evidence remains independently actionable; authenticated rows and Q03 live trials require separate permission. Existing published assets stay unchanged.
 

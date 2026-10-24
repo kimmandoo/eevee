@@ -2,6 +2,7 @@
 
 ## 2026-10-25
 
+- chore(build): archived verified v0.1.31 release/failure evidence and the genuine public binary outside target, then removed67G of accumulated generated output before authorized Wave5 work.
 - docs(release): published v0.1.31 from `1b83cc4` after same-attempt Check/all-five-native qualification and exact immutable-artifact promotion without replacing0.1.30 assets.
 - docs(verification): verified all eight public assets, seven checksums, five qualified archive identities,24 installation groups,34 installed terminal scenarios/56 zero-output idle windows and11 actual coding/recovery/wave reports.
 - docs(plan): authorized target cleanup after the completed release and complete Wave5 semantic move/TM review, deliberate held-reference renewal and formation-readiness implementation without automatic later publication or paid/live calls.

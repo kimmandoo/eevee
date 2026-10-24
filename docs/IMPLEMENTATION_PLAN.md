@@ -1,13 +1,13 @@
 # Eevee Implementation Plan
 
-Updated2026-10-25. v0.1.31 source `1b83cc4` passed exact-source Check/all-five-native qualification, publication and complete public byte/install/runtime acceptance. The active request is now target cleanup followed by complete Wave5 MV09/PK08/PT12 implementation. All13 Wave1–4 tasks remain archived;24 tasks remain until Wave5 passes. Waves6–8 remain planning only; no paid/live calls were made.
+Updated2026-10-25. v0.1.31 source `1b83cc4` passed exact-source native/public release acceptance. Requested67G target cleanup completed after verified external evidence archival. The active work is complete Wave5 MV09/PK08/PT12 implementation through existing owners. All13 Wave1–4 tasks remain archived;24 tasks remain until Wave5 passes. Waves6–8 remain planning only; no paid/live calls were made.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
 ## Authorized next implementation — Wave5 after release verification and target cleanup
 
-1. Finish the actual0.1.31 public acceptance, preserve truthful success/failure evidence and commit the release handoff.
-2. Archive required release evidence outside the repository target directory, verify the cleanup scope and clean `target` as requested.
+1. Completed: actual0.1.31 public acceptance and committed release handoff (`396696f`).
+2. Completed: verified external release/failure evidence archival, runnable public binary preservation and requested target cleanup; detailed archive identity and resolved Cargo ENOTEMPTY issue are in the checkpoint.
 3. MV09: extend existing move/TM replacement and teaching review with exact ordered semantic changes, old-record/revision binding, neutral cancellation, stale refusal, immutable historical attribution and ordinary explicit use.
 4. PK08: review old/new retained identities/content where available, renew exactly one held reference through the existing store, revalidate exclusion/revocation/owner races and never auto-select or rewrite a frozen request.
 5. PT12: extend formation mapping with separate stage eligibility/submission readiness, cached route/move/held/draft/ownership facts, navigation without changing lead, atomic apply revalidation and unchanged portable format.
